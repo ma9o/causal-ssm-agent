@@ -1,6 +1,8 @@
 1. Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one.
 
-2. Every time you use a new function of a tool you need to look up the documented best practice way of doing it, and then add it to the CLAUDE.md instructions under that tool section:
+2. Every time you make a change to the file structure make sure to report it under Structure in the README
+
+3. Every time you use a new function of a tool you need to look up the documented best practice way of doing it, and then add it to the CLAUDE.md instructions under that tool section:
 
 ------
 
