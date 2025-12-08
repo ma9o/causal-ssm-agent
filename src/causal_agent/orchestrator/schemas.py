@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Dimension(BaseModel):
@@ -8,6 +10,14 @@ class Dimension(BaseModel):
     description: str = Field(description="What this variable represents")
     dtype: str = Field(description="Data type: 'continuous', 'categorical', 'binary', 'ordinal'")
     example_values: list[str] = Field(description="Example values from the data")
+
+    @field_validator("example_values", mode="before")
+    @classmethod
+    def coerce_to_strings(cls, v: Any) -> list[str]:
+        """Coerce example values to strings."""
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return v
 
 
 class CausalEdge(BaseModel):

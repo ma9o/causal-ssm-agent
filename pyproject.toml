@@ -10,8 +10,10 @@ requires-python = ">=3.12"
 dependencies = [
     "inspect-ai>=0.3.153",
     "networkx>=3.6",
+    "openai>=2.9.0",
     "polars>=1.35.2",
     "prefect>=3.6.5",
+    "python-dotenv>=1.2.1",
 ]
 
 [build-system]
