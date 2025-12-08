@@ -12,9 +12,9 @@ from causal_agent.utils.data import (
 
 
 @task(cache_policy=INPUTS)
-def load_text_chunks(input_path: Path, separator: str = "\n") -> list[str]:
+def load_text_chunks(input_path: Path) -> list[str]:
     """Stage 0: Load preprocessed text chunks from file."""
-    return load_text_chunks_util(input_path, separator)
+    return load_text_chunks_util(input_path)
 
 
 @task(retries=2, retry_delay_seconds=30, cache_policy=INPUTS)
@@ -82,7 +82,6 @@ def causal_inference_pipeline(
     query_file: str,
     target_effects: list[str],
     input_file: str | None = None,
-    chunk_separator: str = "\n",
 ):
     """
     Main causal inference pipeline.
@@ -91,7 +90,6 @@ def causal_inference_pipeline(
         query_file: Filename in data/test-queries/ (e.g., 'smoking-cancer')
         target_effects: Causal effects to estimate
         input_file: Filename in data/preprocessed/ (default: latest file)
-        chunk_separator: Delimiter between text chunks
     """
     # Stage 0: Load question and data chunks
     question = load_query(query_file)
@@ -101,7 +99,7 @@ def causal_inference_pipeline(
     input_path = resolve_input_path(input_file)
     print(f"Using input file: {input_path.name}")
 
-    chunks = load_text_chunks(input_path, chunk_separator)
+    chunks = load_text_chunks(input_path)
     print(f"Loaded {len(chunks)} chunks")
 
     # Stage 1: Propose structure from sample
