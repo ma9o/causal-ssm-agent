@@ -14,18 +14,11 @@ class Dimension(BaseModel):
 
 
 class CausalEdge(BaseModel):
-    """A directed edge in the causal DAG."""
-
-    cause: str = Field(description="The cause variable (parent node)")
-    effect: str = Field(description="The effect variable (child node)")
-
-
-class CrossLaggedEdge(BaseModel):
-    """A cross-lagged causal edge: cause at t-lag affects effect at t."""
+    """A directed causal edge, optionally lagged."""
 
     cause: str = Field(description="The cause variable")
     effect: str = Field(description="The effect variable")
-    lag: int = Field(description="Time lag (e.g., 1 means cause at t-1 affects effect at t)")
+    lag: int = Field(default=0, description="Time lag (0=contemporaneous, 1=cause at t-1 affects effect at t)")
 
 
 class ProposedStructure(BaseModel):
@@ -35,10 +28,7 @@ class ProposedStructure(BaseModel):
         description="Candidate variables/dimensions to extract from data"
     )
     edges: list[CausalEdge] = Field(
-        description="Contemporaneous causal edges (same time point)"
-    )
-    cross_lags: list[CrossLaggedEdge] = Field(
-        description="Cross-lagged causal edges (cause at t-lag affects effect at t)"
+        description="Causal edges (lag=0 for contemporaneous, lag>0 for cross-lagged)"
     )
 
     def to_networkx(self):

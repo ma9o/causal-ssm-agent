@@ -80,17 +80,9 @@ def validate_structure(structure_json: str, hints: dict) -> tuple[float, str]:
         if edge.effect not in dim_names:
             return 0.0, f"Edge effect '{edge.effect}' not in dimensions"
 
-    # Check cross_lags reference defined dimensions
-    for edge in structure.cross_lags:
-        if edge.cause not in dim_names:
-            return 0.0, f"Cross-lag cause '{edge.cause}' not in dimensions"
-        if edge.effect not in dim_names:
-            return 0.0, f"Cross-lag effect '{edge.effect}' not in dimensions"
-
-    # Check no orphan dimensions (every dim must be in at least one edge or cross_lag)
+    # Check no orphan dimensions (every dim must be in at least one edge)
     nodes_in_edges = {e.cause for e in structure.edges} | {e.effect for e in structure.edges}
-    nodes_in_cross_lags = {e.cause for e in structure.cross_lags} | {e.effect for e in structure.cross_lags}
-    orphans = dim_names - nodes_in_edges - nodes_in_cross_lags
+    orphans = dim_names - nodes_in_edges
     if orphans:
         return 0.0, f"Orphan dimensions not in any edge: {orphans}"
 
