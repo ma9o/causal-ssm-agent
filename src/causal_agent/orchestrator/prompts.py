@@ -5,7 +5,8 @@ You are a causal inference expert. Given a natural language question and sample 
 
 Output JSON with:
 - `dimensions`: variables to extract (name, description, dtype, time_granularity, autocorrelated)
-- `edges`: causal DAG as {cause, effect} pairs
+- `edges`: contemporaneous causal edges {cause, effect}
+- `cross_lags`: cross-lagged edges {cause, effect, lag} where cause at t-lag affects effect at t
 """
 
 STRUCTURE_PROPOSER_USER = """\
