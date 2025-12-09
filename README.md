@@ -26,9 +26,9 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 ## Pipeline
 
-[1] We sample a few data chunks and we have the (expensive) orchestrator LLM suggests dimensionality, autocorrelations, time granularities and a structural DAG.
+[1] Global Hypothesis (Orchestrator): We feed a small data sample to the Orchestrator LLM to generate a structural "prior." It establishes the Global Vibe: proposing a candidate structural-only DAG, defining the dimensions to extract, and setting the time granularity based on the user's question.
 
-[2] For each chunk of data, (cheaper) worker LLMs populate the candidate dimensions, potentially suggesting new ones which the data chunk has elicited. This process is parallelized, scaling to millions of tokens. At the end, the orchestrator incorporates suggestions (3-way merge) and we backfill.
+[2] Distributed Discovery (Workers): Worker LLMs process the full dataset in parallel chunks. They perform Local Discovery: extracting data for the proposed dimensions while simultaneously critiquing the global graph based on local evidence (e.g., suggesting new confounders found only in specific logs). Finally, the Orchestrator reconciles these structural suggestions (3-way merge) into a unified model.
 
 [3] The orchestrator then runs DoWhy to check if our target causal effects are identifiable. In case of unobserved confounders that make effects unidentifiable, we run a sensitivity analysis (Cinelli-Hazlett) on a naive linear model and continue if the bias is bounded (and return control to the user if not).
 
