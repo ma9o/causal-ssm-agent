@@ -1,6 +1,4 @@
-from typing import Any
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class Dimension(BaseModel):
@@ -9,15 +7,10 @@ class Dimension(BaseModel):
     name: str = Field(description="Variable name (snake_case)")
     description: str = Field(description="What this variable represents")
     dtype: str = Field(description="Data type: 'continuous', 'categorical', 'binary', 'ordinal'")
-    example_values: list[str] = Field(description="Example values from the data")
-
-    @field_validator("example_values", mode="before")
-    @classmethod
-    def coerce_to_strings(cls, v: Any) -> list[str]:
-        """Coerce example values to strings."""
-        if isinstance(v, list):
-            return [str(item) for item in v]
-        return v
+    time_granularity: str = Field(
+        description="Time granularity: 'hourly', 'daily', 'weekly', 'monthly', 'yearly', or 'none'"
+    )
+    autocorrelated: bool = Field(description="Whether this variable has temporal autocorrelation")
 
 
 class CausalEdge(BaseModel):
@@ -33,17 +26,8 @@ class ProposedStructure(BaseModel):
     dimensions: list[Dimension] = Field(
         description="Candidate variables/dimensions to extract from data"
     )
-    time_granularity: str = Field(
-        description="Suggested time granularity: 'hourly', 'daily', 'weekly', 'monthly', 'yearly', or 'none'"
-    )
-    autocorrelations: list[str] = Field(
-        description="Variables expected to have temporal autocorrelation"
-    )
     edges: list[CausalEdge] = Field(
         description="Causal DAG edges as (cause, effect) pairs"
-    )
-    reasoning: str = Field(
-        description="Explanation of the proposed structure and why it addresses the question"
     )
 
     def to_networkx(self):
