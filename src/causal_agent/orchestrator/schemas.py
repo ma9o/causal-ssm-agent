@@ -198,6 +198,20 @@ class DSEMStructure(BaseModel):
             # Compute and set lag_hours
             edge.lag_hours = compute_lag_hours(cause_gran, effect_gran, edge.lagged)
 
+        # Check acyclicity within time slice (contemporaneous edges only)
+        # Lagged edges can form cycles across time - that's the point of DSEMs
+        contemporaneous_edges = [(e.cause, e.effect) for e in self.edges if not e.lagged]
+        if contemporaneous_edges:
+            import networkx as nx
+
+            G = nx.DiGraph(contemporaneous_edges)
+            if not nx.is_directed_acyclic_graph(G):
+                cycles = list(nx.simple_cycles(G))
+                raise ValueError(
+                    f"Contemporaneous edges form cycle(s) within time slice: {cycles}. "
+                    "DSEMs must be acyclic within time slice. Use lagged=true for feedback loops."
+                )
+
         return self
 
     def to_networkx(self):
