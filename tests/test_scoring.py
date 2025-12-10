@@ -14,7 +14,9 @@ from causal_agent.orchestrator.schemas import (
     CausalEdge,
     Dimension,
     DSEMStructure,
-    VariableType,
+    Observability,
+    Role,
+    TemporalStatus,
 )
 
 
@@ -48,13 +50,15 @@ class TestScoreStructureProposal:
         # This is actually valid (empty structure)
         assert score_structure_proposal(None, pred) == 0.0  # No points for empty
 
-        # Invalid: outcome without causal_granularity
+        # Invalid: time_varying without causal_granularity
         invalid = {
             "dimensions": [
                 {
                     "name": "mood",
                     "description": "test",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "base_dtype": "continuous",
                     # missing causal_granularity
                 }
@@ -71,7 +75,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "mood",
                     "description": "test",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -89,7 +95,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "stress",
                     "description": "Daily stress",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -97,7 +105,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "mood",
                     "description": "Daily mood",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -116,7 +126,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "X",
                     "description": "input",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -124,7 +136,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "Y",
                     "description": "outcome",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -138,7 +152,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "stress",
                     "description": "hourly stress",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "hourly",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -146,7 +162,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "sleep",
                     "description": "daily sleep",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -154,7 +172,9 @@ class TestScoreStructureProposal:
                 {
                     "name": "mood",
                     "description": "daily mood",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -162,13 +182,17 @@ class TestScoreStructureProposal:
                 {
                     "name": "age",
                     "description": "participant age",
-                    "variable_type": "covariate",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_invariant",
                     "base_dtype": "continuous",
                 },
                 {
                     "name": "intercept",
                     "description": "person baseline",
-                    "variable_type": "random_effect",
+                    "role": "exogenous",
+                    "observability": "latent",
+                    "temporal_status": "time_invariant",
                     "base_dtype": "continuous",
                 },
             ],
@@ -192,14 +216,16 @@ class TestCountRulePoints:
         """Helper to create DSEMStructure."""
         return DSEMStructure(dimensions=dims, edges=edges)
 
-    def test_outcome_dimension_points(self):
-        """Outcome dimension with all correct fields scores points."""
+    def test_endogenous_time_varying_dimension_points(self):
+        """Endogenous time-varying dimension with all correct fields scores points."""
         structure = self._make_structure(
             dims=[
                 Dimension(
                     name="mood",
                     description="test",
-                    variable_type=VariableType.OUTCOME,
+                    role=Role.ENDOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_VARYING,
                     causal_granularity="daily",
                     base_dtype="continuous",
                     aggregation="mean",
@@ -208,43 +234,47 @@ class TestCountRulePoints:
             edges=[],
         )
         points = _count_rule_points(structure)
-        # +1 valid type, +1 granularity present, +1 valid granularity,
-        # +1 aggregation present, +1 valid aggregation, +1 valid dtype
-        assert points >= 6
+        # +1 role, +1 observability, +1 temporal_status, +1 granularity present,
+        # +1 valid granularity, +1 aggregation present, +1 valid aggregation, +1 valid dtype
+        assert points >= 8
 
-    def test_covariate_dimension_points(self):
-        """Covariate dimension scores points for correct constraints."""
+    def test_time_invariant_dimension_points(self):
+        """Time-invariant dimension scores points for correct constraints."""
         structure = self._make_structure(
             dims=[
                 Dimension(
                     name="age",
                     description="test",
-                    variable_type=VariableType.COVARIATE,
+                    role=Role.EXOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_INVARIANT,
                     base_dtype="continuous",
                 )
             ],
             edges=[],
         )
         points = _count_rule_points(structure)
-        # +1 valid type, +1 no granularity, +1 no aggregation, +1 valid dtype
-        assert points >= 4
+        # +1 role, +1 observability, +1 temporal_status, +1 no granularity, +1 no aggregation, +1 valid dtype
+        assert points >= 6
 
-    def test_random_effect_bonus(self):
-        """Random effect gets bonus point for modeling heterogeneity."""
+    def test_latent_variable_bonus(self):
+        """Latent variable gets bonus point for modeling heterogeneity."""
         structure = self._make_structure(
             dims=[
                 Dimension(
                     name="intercept",
                     description="test",
-                    variable_type=VariableType.RANDOM_EFFECT,
+                    role=Role.EXOGENOUS,
+                    observability=Observability.LATENT,
+                    temporal_status=TemporalStatus.TIME_INVARIANT,
                     base_dtype="continuous",
                 )
             ],
             edges=[],
         )
         points = _count_rule_points(structure)
-        # +1 valid type, +1 no granularity, +1 no aggregation, +1 valid dtype, +1 bonus
-        assert points >= 5
+        # +1 role, +1 observability, +1 temporal_status, +1 no granularity, +1 no aggregation, +1 valid dtype, +1 latent bonus
+        assert points >= 7
 
     def test_edge_points(self):
         """Edge between valid dimensions scores points."""
@@ -253,7 +283,9 @@ class TestCountRulePoints:
                 Dimension(
                     name="X",
                     description="input",
-                    variable_type=VariableType.INPUT,
+                    role=Role.EXOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_VARYING,
                     causal_granularity="daily",
                     base_dtype="continuous",
                     aggregation="mean",
@@ -261,7 +293,9 @@ class TestCountRulePoints:
                 Dimension(
                     name="Y",
                     description="outcome",
-                    variable_type=VariableType.OUTCOME,
+                    role=Role.ENDOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_VARYING,
                     causal_granularity="daily",
                     base_dtype="continuous",
                     aggregation="mean",
@@ -271,7 +305,7 @@ class TestCountRulePoints:
         )
         points = _count_rule_points(structure)
         # Dimension points + edge points (cause exists, effect exists, effect endogenous, same timescale)
-        assert points >= 12 + 4
+        assert points >= 16 + 4
 
     def test_cross_timescale_edge_bonus(self):
         """Cross-timescale edge gets bonus points."""
@@ -280,7 +314,9 @@ class TestCountRulePoints:
                 Dimension(
                     name="hourly_stress",
                     description="hourly",
-                    variable_type=VariableType.INPUT,
+                    role=Role.EXOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_VARYING,
                     causal_granularity="hourly",
                     base_dtype="continuous",
                     aggregation="mean",
@@ -288,7 +324,9 @@ class TestCountRulePoints:
                 Dimension(
                     name="daily_mood",
                     description="daily",
-                    variable_type=VariableType.OUTCOME,
+                    role=Role.ENDOGENOUS,
+                    observability=Observability.OBSERVED,
+                    temporal_status=TemporalStatus.TIME_VARYING,
                     causal_granularity="daily",
                     base_dtype="continuous",
                     aggregation="mean",
@@ -298,7 +336,7 @@ class TestCountRulePoints:
         )
         points = _count_rule_points(structure)
         # Cross-timescale gives +2 instead of +1
-        assert points >= 12 + 5  # dims + edge with bonus
+        assert points >= 16 + 5  # dims + edge with bonus
 
 
 class TestNormalizedScoring:
@@ -316,7 +354,9 @@ class TestNormalizedScoring:
                 {
                     "name": "X",
                     "description": "input",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -324,7 +364,9 @@ class TestNormalizedScoring:
                 {
                     "name": "Y",
                     "description": "outcome",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -341,13 +383,15 @@ class TestExogenousEffectViolation:
     """Test that exogenous variables as effects return 0."""
 
     def test_exogenous_as_effect_returns_zero(self):
-        """Input (exogenous) as edge effect should fail validation."""
+        """Exogenous variable as edge effect should fail validation."""
         invalid = {
             "dimensions": [
                 {
                     "name": "mood",
                     "description": "outcome",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -355,7 +399,9 @@ class TestExogenousEffectViolation:
                 {
                     "name": "weather",
                     "description": "input",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -377,7 +423,9 @@ class TestAggregationRuleViolation:
                 {
                     "name": "hourly_stress",
                     "description": "hourly",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "hourly",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -385,7 +433,9 @@ class TestAggregationRuleViolation:
                 {
                     "name": "daily_mood",
                     "description": "daily",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -405,7 +455,9 @@ class TestAggregationRuleViolation:
                 {
                     "name": "weekly_stress",
                     "description": "weekly",
-                    "variable_type": "input",
+                    "role": "exogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "weekly",
                     "base_dtype": "continuous",
                     "aggregation": "mean",
@@ -413,7 +465,9 @@ class TestAggregationRuleViolation:
                 {
                     "name": "daily_mood",
                     "description": "daily",
-                    "variable_type": "outcome",
+                    "role": "endogenous",
+                    "observability": "observed",
+                    "temporal_status": "time_varying",
                     "causal_granularity": "daily",
                     "base_dtype": "continuous",
                     "aggregation": "mean",

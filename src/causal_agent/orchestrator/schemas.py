@@ -5,20 +5,25 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from causal_agent.utils.aggregations import AGGREGATION_REGISTRY
 
 
-class VariableType(str, Enum):
-    """Supported variable types in DSEM.
+class Role(str, Enum):
+    """Whether a variable is modeled (endogenous) or given (exogenous)."""
 
-    Maps to combinations of (role, observability, temporal status):
-    - OUTCOME: Endogenous, Observed, Time-varying (core dynamic system)
-    - INPUT: Exogenous, Observed, Time-varying (external time-varying inputs)
-    - COVARIATE: Exogenous, Observed, Time-invariant (between-person covariates)
-    - RANDOM_EFFECT: Exogenous, Latent, Time-invariant (person-specific intercepts)
-    """
+    ENDOGENOUS = "endogenous"  # Has inbound edges, is modeled
+    EXOGENOUS = "exogenous"  # No inbound edges, given/external
 
-    OUTCOME = "outcome"  # What we're modeling (mood, sleep quality)
-    INPUT = "input"  # External drivers (weather, day of week)
-    COVARIATE = "covariate"  # Fixed characteristics (age, gender)
-    RANDOM_EFFECT = "random_effect"  # Person-specific baseline
+
+class Observability(str, Enum):
+    """Whether a variable is directly measurable."""
+
+    OBSERVED = "observed"  # Directly measured in data
+    LATENT = "latent"  # Not directly measured, inferred
+
+
+class TemporalStatus(str, Enum):
+    """Whether a variable changes over time."""
+
+    TIME_VARYING = "time_varying"  # Changes within person over time
+    TIME_INVARIANT = "time_invariant"  # Fixed for each person
 
 
 # Hours per granularity unit
@@ -36,14 +41,16 @@ class Dimension(BaseModel):
 
     name: str = Field(description="Variable name (e.g., 'sleep_quality')")
     description: str = Field(description="What this variable represents")
-    variable_type: VariableType = Field(
-        description="Type of variable: 'outcome', 'input', 'covariate', or 'random_effect'"
+    role: Role = Field(description="'endogenous' (modeled) or 'exogenous' (given)")
+    observability: Observability = Field(description="'observed' (measured) or 'latent' (inferred)")
+    temporal_status: TemporalStatus = Field(
+        description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
     )
     causal_granularity: str | None = Field(
         default=None,
         description=(
-            "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for outcome/input types. "
-            "The granularity at which causal relationships make sense - may be refined after seeing actual data."
+            "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for time-varying variables. "
+            "The granularity at which causal relationships make sense."
         ),
     )
     base_dtype: str = Field(
@@ -53,9 +60,6 @@ class Dimension(BaseModel):
         default=None,
         description=f"Aggregation function from registry. Available: {', '.join(sorted(AGGREGATION_REGISTRY.keys()))}",
     )
-    # Computed fields - derived from variable_type
-    role: str | None = Field(default=None, description="Computed: 'endogenous' or 'exogenous'")
-    is_latent: bool | None = Field(default=None, description="Computed: True for random effects")
 
     @field_validator("aggregation")
     @classmethod
@@ -66,39 +70,28 @@ class Dimension(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def validate_and_derive_fields(self):
-        """Validate causal_granularity constraints and derive role/is_latent from variable_type."""
-        vtype = self.variable_type
+    def validate_field_consistency(self):
+        """Validate that causal_granularity and aggregation are consistent with temporal_status."""
+        is_time_varying = self.temporal_status == TemporalStatus.TIME_VARYING
 
-        # Derive role and is_latent from variable_type
-        if vtype == VariableType.OUTCOME:
-            self.role = "endogenous"
-            self.is_latent = False
+        if is_time_varying:
             if self.causal_granularity is None:
-                raise ValueError(f"Outcome '{self.name}' requires causal_granularity (time-varying)")
+                raise ValueError(
+                    f"Time-varying variable '{self.name}' requires causal_granularity"
+                )
             if self.aggregation is None:
-                raise ValueError(f"Outcome '{self.name}' requires aggregation (how to collapse raw data)")
-        elif vtype == VariableType.INPUT:
-            self.role = "exogenous"
-            self.is_latent = False
-            if self.causal_granularity is None:
-                raise ValueError(f"Input '{self.name}' requires causal_granularity (time-varying)")
-            if self.aggregation is None:
-                raise ValueError(f"Input '{self.name}' requires aggregation (how to collapse raw data)")
-        elif vtype == VariableType.COVARIATE:
-            self.role = "exogenous"
-            self.is_latent = False
+                raise ValueError(
+                    f"Time-varying variable '{self.name}' requires aggregation (how to collapse raw data)"
+                )
+        else:
             if self.causal_granularity is not None:
-                raise ValueError(f"Covariate '{self.name}' must not have causal_granularity (time-invariant)")
+                raise ValueError(
+                    f"Time-invariant variable '{self.name}' must not have causal_granularity"
+                )
             if self.aggregation is not None:
-                raise ValueError(f"Covariate '{self.name}' must not have aggregation (time-invariant)")
-        elif vtype == VariableType.RANDOM_EFFECT:
-            self.role = "exogenous"
-            self.is_latent = True
-            if self.causal_granularity is not None:
-                raise ValueError(f"Random effect '{self.name}' must not have causal_granularity (time-invariant)")
-            if self.aggregation is not None:
-                raise ValueError(f"Random effect '{self.name}' must not have aggregation (time-invariant)")
+                raise ValueError(
+                    f"Time-invariant variable '{self.name}' must not have aggregation"
+                )
 
         return self
 
@@ -183,7 +176,7 @@ class DSEMStructure(BaseModel):
             effect_dim = dim_map[edge.effect]
 
             # No inbound edges to exogenous
-            if effect_dim.role == "exogenous":
+            if effect_dim.role == Role.EXOGENOUS:
                 raise ValueError(f"Exogenous variable '{edge.effect}' cannot be an effect")
 
             cause_gran = cause_dim.causal_granularity

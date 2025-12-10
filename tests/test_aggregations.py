@@ -135,12 +135,14 @@ class TestSchemaAggregationValidation:
 
     def test_dimension_valid_aggregation(self):
         """Dimension accepts valid aggregation name."""
-        from causal_agent.orchestrator.schemas import Dimension, VariableType
+        from causal_agent.orchestrator.schemas import Dimension, Role, Observability, TemporalStatus
 
         dim = Dimension(
             name="test",
             description="test var",
-            variable_type=VariableType.OUTCOME,
+            role=Role.ENDOGENOUS,
+            observability=Observability.OBSERVED,
+            temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
             base_dtype="continuous",
             aggregation="mean",
@@ -149,13 +151,15 @@ class TestSchemaAggregationValidation:
 
     def test_dimension_invalid_aggregation(self):
         """Dimension rejects invalid aggregation name."""
-        from causal_agent.orchestrator.schemas import Dimension, VariableType
+        from causal_agent.orchestrator.schemas import Dimension, Role, Observability, TemporalStatus
 
         with pytest.raises(ValueError, match="Unknown aggregation 'invalid'"):
             Dimension(
                 name="test",
                 description="test var",
-                variable_type=VariableType.OUTCOME,
+                role=Role.ENDOGENOUS,
+                observability=Observability.OBSERVED,
+                temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="daily",
                 base_dtype="continuous",
                 aggregation="invalid",

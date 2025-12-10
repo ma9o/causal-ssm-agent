@@ -15,7 +15,9 @@ from causal_agent.orchestrator.schemas import (
     CausalEdge,
     Dimension,
     DSEMStructure,
-    VariableType,
+    Observability,
+    Role,
+    TemporalStatus,
 )
 from causal_agent.utils.aggregations import AGGREGATION_REGISTRY
 
@@ -56,9 +58,11 @@ def _count_rule_points(structure: DSEMStructure) -> float:
     """Count points for each rule instance correctly applied.
 
     Points per dimension:
-    - +1 valid variable_type
-    - +1 correct causal_granularity constraint (required/forbidden by type)
-    - +1 correct aggregation constraint (required/forbidden by type)
+    - +1 valid role
+    - +1 valid observability
+    - +1 valid temporal_status
+    - +1 correct causal_granularity constraint (required for time_varying, forbidden for time_invariant)
+    - +1 correct aggregation constraint (required for time_varying, forbidden for time_invariant)
     - +1 valid base_dtype
     - +1 valid aggregation name (if specified)
     - +1 valid causal_granularity value (if specified)
@@ -73,35 +77,43 @@ def _count_rule_points(structure: DSEMStructure) -> float:
 
     Bonus points:
     - +2 per cross-timescale edge (more complex modeling)
-    - +1 per random effect (captures heterogeneity)
+    - +1 per latent variable (captures unobserved heterogeneity)
     """
     points = 0.0
     dim_map = {d.name: d for d in structure.dimensions}
 
     # Points for dimensions
     for dim in structure.dimensions:
-        # Valid variable_type (already validated by schema, but count it)
+        # Valid role (already validated by schema, but count it)
         points += 1
 
+        # Valid observability
+        points += 1
+
+        # Valid temporal_status
+        points += 1
+
+        is_time_varying = dim.temporal_status == TemporalStatus.TIME_VARYING
+
         # Correct causal_granularity constraint
-        if dim.variable_type in (VariableType.OUTCOME, VariableType.INPUT):
+        if is_time_varying:
             if dim.causal_granularity is not None:
                 points += 1
                 # Valid granularity value
                 if dim.causal_granularity in GRANULARITY_HOURS:
                     points += 1
-        else:  # COVARIATE, RANDOM_EFFECT
+        else:  # time_invariant
             if dim.causal_granularity is None:
                 points += 1
 
         # Correct aggregation constraint
-        if dim.variable_type in (VariableType.OUTCOME, VariableType.INPUT):
+        if is_time_varying:
             if dim.aggregation is not None:
                 points += 1
                 # Valid aggregation name
                 if dim.aggregation in AGGREGATION_REGISTRY:
                     points += 1
-        else:  # COVARIATE, RANDOM_EFFECT
+        else:  # time_invariant
             if dim.aggregation is None:
                 points += 1
 
@@ -109,8 +121,8 @@ def _count_rule_points(structure: DSEMStructure) -> float:
         if dim.base_dtype in ("continuous", "binary", "count", "ordinal", "categorical"):
             points += 1
 
-        # Bonus for random effects (modeling heterogeneity)
-        if dim.variable_type == VariableType.RANDOM_EFFECT:
+        # Bonus for latent variables (modeling unobserved heterogeneity)
+        if dim.observability == Observability.LATENT:
             points += 1
 
     # Points for edges
@@ -128,7 +140,7 @@ def _count_rule_points(structure: DSEMStructure) -> float:
 
         if cause_dim and effect_dim:
             # Effect is endogenous
-            if effect_dim.role == "endogenous":
+            if effect_dim.role == Role.ENDOGENOUS:
                 points += 1
 
             cause_gran = cause_dim.causal_granularity
@@ -181,9 +193,9 @@ def score_structure_proposal_normalized(example, pred, trace=None) -> float:
     except (json.JSONDecodeError, AttributeError):
         return 0.0
 
-    # Theoretical max per dimension: ~6-7 points
+    # Theoretical max per dimension: ~8-9 points (3 classification + 2 granularity + 2 aggregation + 1 dtype + 1 latent bonus)
     # Theoretical max per edge: ~5-6 points
-    max_dim_points = n_dims * 7
+    max_dim_points = n_dims * 9
     max_edge_points = n_edges * 6
     max_points = max_dim_points + max_edge_points
 

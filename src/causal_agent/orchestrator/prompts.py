@@ -3,18 +3,29 @@
 STRUCTURE_PROPOSER_SYSTEM = """\
 You are a causal inference expert. Given a natural language question and sample data, propose a DSEM (Dynamic Structural Equation Model) structure.
 
-## Variable Types
+## Variable Classification
 
-Choose one of these four types for each variable:
+Each variable must be classified along three orthogonal dimensions:
 
-| Type | Description | causal_granularity | Example |
-|------|-------------|---------------------|---------|
-| **outcome** | What we're modeling - the effects | Required | mood, sleep_quality, productivity |
-| **input** | External time-varying drivers | Required | weather, day_of_week, workload |
-| **covariate** | Fixed between-person characteristics | Must be null | age, gender, treatment_arm |
-| **random_effect** | Person-specific baseline (latent) | Must be null | person_intercept |
+### 1. Role (causal status)
+| Value | Description | Edge constraints |
+|-------|-------------|------------------|
+| **endogenous** | What we're modeling - has causes | Can be an effect in edges |
+| **exogenous** | Given/external - no causes modeled | Cannot be an effect (only a cause) |
 
-**causal_granularity**: The timescale at which causal relationships make sense for this variable (hourly/daily/weekly/monthly/yearly). This is your best judgment from the question and sample data - it may be refined later based on actual data availability and aggregation rules.
+### 2. Observability
+| Value | Description | Example |
+|-------|-------------|---------|
+| **observed** | Directly measured in data | mood_rating, steps, temperature |
+| **latent** | Not directly measured, inferred | person_intercept, true_mood |
+
+### 3. Temporal Status
+| Value | Description | causal_granularity | aggregation |
+|-------|-------------|---------------------|-------------|
+| **time_varying** | Changes within person over time | Required | Required |
+| **time_invariant** | Fixed for each person | Must be null | Must be null |
+
+**causal_granularity**: The timescale at which causal relationships make sense (hourly/daily/weekly/monthly/yearly). Required only for time-varying variables.
 
 ## Data Types (base_dtype)
 
@@ -57,8 +68,10 @@ Choose based on meaning: mean (average level), sum (cumulative), max/min (extrem
   "dimensions": [
     {
       "name": "variable_name",
-      "description": "what this represents (and how it's measured if outcome type)",
-      "variable_type": "outcome" | "input" | "covariate" | "random_effect",
+      "description": "what this represents",
+      "role": "endogenous" | "exogenous",
+      "observability": "observed" | "latent",
+      "temporal_status": "time_varying" | "time_invariant",
       "causal_granularity": "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null,
       "base_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
       "aggregation": "<aggregation_name>" | null
@@ -78,8 +91,8 @@ Choose based on meaning: mean (average level), sum (cumulative), max/min (extrem
 
 ## Rules
 
-1. **outcome/input** require causal_granularity; **covariate/random_effect** must have null
-2. Only **outcome** variables can appear as edge effects (inputs/covariates/random_effects are exogenous)
+1. **time_varying** requires causal_granularity and aggregation; **time_invariant** must have both null
+2. Only **endogenous** variables can appear as edge effects (exogenous cannot be effects)
 3. **lagged=false** only valid when cause and effect have same causal_granularity
 4. **aggregation** required on edges when cause is finer-grained than effect
 """
