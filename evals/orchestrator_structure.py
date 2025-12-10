@@ -249,7 +249,7 @@ def orchestrator_eval(
         solver=[
             system_message(STRUCTURE_PROPOSER_SYSTEM),
             generate(
-                max_tokens=16384,
+                max_tokens=65536,  # High for reasoning models (GPT-5 uses reasoning tokens from this budget)
                 reasoning_effort="high",
             ),
         ],
