@@ -10,7 +10,7 @@ def test_import_pipeline():
 
 def test_import_orchestrator():
     from causal_agent.orchestrator.agents import propose_structure
-    from causal_agent.orchestrator.schemas import ProposedStructure, CausalEdge
+    from causal_agent.orchestrator.schemas import DSEMStructure, CausalEdge
     assert callable(propose_structure)
 
 
@@ -33,17 +33,26 @@ def test_preprocessing_script():
 
 
 def test_schema_to_networkx():
-    from causal_agent.orchestrator.schemas import ProposedStructure, Dimension, CausalEdge
+    from causal_agent.orchestrator.schemas import DSEMStructure, Dimension, CausalEdge
 
-    structure = ProposedStructure(
+    structure = DSEMStructure(
         dimensions=[
-            Dimension(name="X", description="cause", dtype="continuous", example_values=["1.0", "2.0"]),
-            Dimension(name="Y", description="effect", dtype="continuous", example_values=["3.0", "4.0"]),
+            Dimension(
+                name="X",
+                description="cause variable",
+                time_granularity="hourly",
+                dtype="continuous",
+                role="exogenous",
+            ),
+            Dimension(
+                name="Y",
+                description="effect variable",
+                time_granularity="hourly",
+                dtype="continuous",
+                role="endogenous",
+            ),
         ],
-        time_granularity="hourly",
-        autocorrelations=["X"],
-        edges=[CausalEdge(cause="X", effect="Y")],
-        reasoning="test",
+        edges=[CausalEdge(cause="X", effect="Y", lag=1)],
     )
 
     G = structure.to_networkx()

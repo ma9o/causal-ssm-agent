@@ -140,8 +140,10 @@ causal-agent/
 │   ├── flows/              # Prefect pipeline
 │   │   └── pipeline.py
 │   └── utils/
+│       ├── aggregations.py # Polars aggregation registry
 │       └── data.py         # Data loading utilities
 ├── tests/
-│   └── test_schemas.py     # DSEM schema validation tests
+│   ├── test_aggregations.py # Aggregation registry tests
+│   └── test_schemas.py      # DSEM schema validation tests
 └── configs/
 ```
