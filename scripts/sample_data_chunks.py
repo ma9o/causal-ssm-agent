@@ -5,6 +5,7 @@ Usage:
     uv run python scripts/sample_data_chunks.py
     uv run python scripts/sample_data_chunks.py -n 3
     uv run python scripts/sample_data_chunks.py -i google_activity_20251208.txt -n 5
+    uv run python scripts/sample_data_chunks.py --prompt  # Include system prompt for training data generation
 """
 
 import argparse
@@ -18,6 +19,7 @@ from causal_agent.utils.data import (
     load_text_chunks,
     PREPROCESSED_DIR,
 )
+from causal_agent.orchestrator.prompts import STRUCTURE_PROPOSER_SYSTEM
 
 OUTPUT_FILE = Path(__file__).parent.parent / "data/orchestrator-samples-manual.txt"
 
@@ -41,6 +43,7 @@ def main():
     parser.add_argument("-n", type=int, default=SAMPLE_CHUNKS, help="Number of chunks to sample")
     parser.add_argument("-i", "--input", type=str, help="Input file name (in data/preprocessed/)")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
+    parser.add_argument("--prompt", action="store_true", help="Include system prompt for training data generation")
     args = parser.parse_args()
 
     # Get input file
@@ -51,20 +54,35 @@ def main():
         if not input_file:
             raise FileNotFoundError(f"No .txt files found in {PREPROCESSED_DIR}")
 
-    print(f"Sampling from: {input_file.name}")
-    print(f"Chunk size: {CHUNK_SIZE} lines per chunk")
+    print(f"Sampling from: {input_file.name}", file=__import__("sys").stderr)
+    print(f"Chunk size: {CHUNK_SIZE} lines per chunk", file=__import__("sys").stderr)
 
     # Sample chunks
     chunks = sample_chunks(input_file, args.n, args.seed)
 
+    # Build output
+    output_parts = []
+
+    if args.prompt:
+        output_parts.append(STRUCTURE_PROPOSER_SYSTEM)
+        output_parts.append("\n---\n")
+        output_parts.append("Question: <YOUR QUESTION HERE>\n")
+        output_parts.append("\nSample data:\n")
+
+    for i, chunk in enumerate(chunks):
+        output_parts.append(f"--- CHUNK {i + 1} ---\n")
+        output_parts.append(chunk + "\n\n")
+
+    output = "".join(output_parts)
+
     # Write output
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_FILE, "w") as f:
-        for i, chunk in enumerate(chunks):
-            f.write(f"--- CHUNK {i + 1} ---\n")
-            f.write(chunk + "\n\n")
+        f.write(output)
 
-    print(f"Wrote {len(chunks)} chunks ({CHUNK_SIZE} lines each) to: {OUTPUT_FILE}")
+    print(f"Wrote to: {OUTPUT_FILE}", file=__import__("sys").stderr)
+    if args.prompt:
+        print("(Includes system prompt - ready for LLM paste)", file=__import__("sys").stderr)
 
 
 if __name__ == "__main__":
