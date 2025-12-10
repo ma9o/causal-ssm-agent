@@ -5,13 +5,19 @@ Usage:
     uv run python evals/scripts/run_parallel_evals.py
     uv run python evals/scripts/run_parallel_evals.py --models claude gemini
     uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
+    uv run python evals/scripts/run_parallel_evals.py --viz  # Open DAG viz for successful results
 """
 
 import argparse
 import asyncio
+import json
+import re
 import sys
 import time
-from dataclasses import dataclass
+import webbrowser
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import quote
 
 # Import model registry from main eval module (single source of truth)
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
@@ -19,6 +25,9 @@ from orchestrator_structure import MODELS
 
 # Reverse mapping: alias -> model ID
 ALIAS_TO_MODEL = {alias: model_id for model_id, alias in MODELS.items()}
+
+# Path to visualizer
+VIZ_PATH = Path(__file__).parent.parent.parent / "tools" / "dag_visualizer.html"
 
 
 @dataclass
@@ -29,12 +38,15 @@ class EvalResult:
     output: str
     mean_score: float | None = None
     stderr: float | None = None
+    log_path: Path | None = None
+    structures: list[str] = field(default_factory=list)  # Valid JSON structures
 
 
-def parse_results(output: str) -> tuple[float | None, float | None]:
-    """Extract mean and stderr from inspect output."""
+def parse_results(output: str) -> tuple[float | None, float | None, Path | None]:
+    """Extract mean, stderr, and log path from inspect output."""
     mean_score = None
     stderr = None
+    log_path = None
 
     for line in output.split("\n"):
         line = line.strip()
@@ -52,8 +64,50 @@ def parse_results(output: str) -> tuple[float | None, float | None]:
                     stderr = float(parts[1])
                 except ValueError:
                     pass
+        elif line.startswith("logs/") and line.endswith(".eval"):
+            log_path = Path(line)
 
-    return mean_score, stderr
+    return mean_score, stderr, log_path
+
+
+def extract_structures_from_log(log_path: Path) -> list[str]:
+    """Extract valid JSON structures from Inspect log file."""
+    structures = []
+    if not log_path or not log_path.exists():
+        return structures
+
+    try:
+        with open(log_path) as f:
+            log_data = json.load(f)
+
+        for sample in log_data.get("samples", []):
+            # Check if score > 0
+            score_value = sample.get("scores", {}).get("dsem_structure_scorer", {}).get("value", 0)
+            if isinstance(score_value, (int, float)) and score_value > 0:
+                # Get the answer (JSON structure)
+                answer = sample.get("scores", {}).get("dsem_structure_scorer", {}).get("answer", "")
+                if answer and not answer.startswith("["):
+                    # Remove truncation suffix if present
+                    if answer.endswith("..."):
+                        # Try to find the full JSON in the model output
+                        for msg in reversed(sample.get("messages", [])):
+                            if msg.get("role") == "assistant":
+                                content = msg.get("content", "")
+                                if isinstance(content, str):
+                                    # Extract JSON from content
+                                    match = re.search(r'\{[\s\S]*\}', content)
+                                    if match:
+                                        try:
+                                            json.loads(match.group())
+                                            answer = match.group()
+                                            break
+                                        except json.JSONDecodeError:
+                                            pass
+                    structures.append(answer)
+    except Exception as e:
+        print(f"Warning: Could not parse log {log_path}: {e}", file=sys.stderr)
+
+    return structures
 
 
 def short_model_name(model: str) -> str:
@@ -89,7 +143,8 @@ async def run_eval(
     output = stdout.decode()
 
     success = proc.returncode == 0
-    mean_score, stderr = parse_results(output) if success else (None, None)
+    mean_score, stderr, log_path = parse_results(output) if success else (None, None, None)
+    structures = extract_structures_from_log(log_path) if log_path else []
 
     status = "done" if success else "FAILED"
     score_str = f" (mean: {mean_score:.1f})" if mean_score is not None else ""
@@ -102,6 +157,8 @@ async def run_eval(
         output=output,
         mean_score=mean_score,
         stderr=stderr,
+        log_path=log_path,
+        structures=structures,
     )
 
 
@@ -119,8 +176,8 @@ async def run_all_evals(
     return await asyncio.gather(*tasks)
 
 
-def print_summary(results: list[EvalResult]) -> None:
-    """Print summary table of results."""
+def print_summary(results: list[EvalResult]) -> list[EvalResult]:
+    """Print summary table of results. Returns sorted results."""
     print("\n" + "=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)
@@ -144,6 +201,15 @@ def print_summary(results: list[EvalResult]) -> None:
         print(f"{name:<15} {score:>10} {stderr:>10} {time_str:>10} {status:<10}")
 
     print("=" * 60)
+    return sorted_results
+
+
+def open_visualizer(structure_json: str, model_name: str) -> None:
+    """Open DAG visualizer with the given structure."""
+    encoded = quote(structure_json, safe='')
+    url = f"file://{VIZ_PATH.resolve()}?data={encoded}"
+    print(f"Opening visualizer for {model_name}...", file=sys.stderr)
+    webbrowser.open(url)
 
 
 def main():
@@ -157,6 +223,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("-i", "--input-file", help="Specific input file name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show full output")
+    parser.add_argument("--viz", action="store_true", help="Open DAG visualizer for successful structures")
     args = parser.parse_args()
 
     # Resolve model names
@@ -183,7 +250,16 @@ def main():
             print("=" * 60)
             print(r.output)
 
-    print_summary(results)
+    sorted_results = print_summary(results)
+
+    # Open visualizer for best model's first successful structure
+    if args.viz:
+        for r in sorted_results:
+            if r.structures:
+                open_visualizer(r.structures[0], short_model_name(r.model))
+                break
+        else:
+            print("No valid structures to visualize", file=sys.stderr)
 
     # Exit with error if any failed
     if not all(r.success for r in results):

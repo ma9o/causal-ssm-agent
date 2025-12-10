@@ -239,6 +239,21 @@
     let edgesDataset = null;
     let originalEdgeColors = {};
 
+    // Check for URL params on load
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const data = params.get('data');
+      if (data) {
+        try {
+          const json = decodeURIComponent(data);
+          document.getElementById('json-input').value = json;
+          renderDAG();
+        } catch (e) {
+          console.error('Failed to load data from URL:', e);
+        }
+      }
+    });
+
     const COLORS = {
       endogenous: '#58a6ff',
       exogenous: '#f78166',
