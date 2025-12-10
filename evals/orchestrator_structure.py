@@ -36,13 +36,14 @@ from causal_agent.utils.data import (
 EXCLUDE_FILES = {"orchestrator-samples-manual.txt"}
 
 # Top-tier models for orchestrator eval (via OpenRouter)
-DEFAULT_MODELS = [
-    "openrouter/anthropic/claude-opus-4.5",
-    "openrouter/google/gemini-3-pro-preview-20251117",
-    "openrouter/openai/gpt-5.1",
-    "openrouter/deepseek/deepseek-v3.2",
-    "openrouter/moonshotai/kimi-k2",
-]
+# Model ID -> short alias for CLI convenience
+MODELS = {
+    "openrouter/anthropic/claude-opus-4.5": "claude",
+    "openrouter/google/gemini-3-pro-preview-20251117": "gemini",
+    "openrouter/openai/gpt-5.1": "gpt",
+    "openrouter/deepseek/deepseek-v3.2": "deepseek",
+    "openrouter/moonshotai/kimi-k2": "kimi",
+}
 
 
 @dataclass

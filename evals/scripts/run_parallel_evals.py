@@ -3,7 +3,7 @@
 
 Usage:
     uv run python evals/scripts/run_parallel_evals.py
-    uv run python evals/scripts/run_parallel_evals.py --models claude opus gemini
+    uv run python evals/scripts/run_parallel_evals.py --models claude gemini
     uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
 """
 
@@ -13,19 +13,12 @@ import sys
 import time
 from dataclasses import dataclass
 
-# Model shortcuts for convenience
-MODEL_ALIASES = {
-    "claude": "openrouter/anthropic/claude-opus-4.5",
-    "opus": "openrouter/anthropic/claude-opus-4.5",
-    "gemini": "openrouter/google/gemini-3-pro-preview-20251117",
-    "gpt": "openrouter/openai/gpt-5.1",
-    "deepseek": "openrouter/deepseek/deepseek-v3.2",
-    "kimi": "openrouter/moonshotai/kimi-k2",
-}
+# Import model registry from main eval module (single source of truth)
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+from orchestrator_structure import MODELS
 
-DEFAULT_MODELS = list(MODEL_ALIASES.values())
-# Dedupe while preserving order
-DEFAULT_MODELS = list(dict.fromkeys(DEFAULT_MODELS))
+# Reverse mapping: alias -> model ID
+ALIAS_TO_MODEL = {alias: model_id for model_id, alias in MODELS.items()}
 
 
 @dataclass
@@ -65,10 +58,7 @@ def parse_results(output: str) -> tuple[float | None, float | None]:
 
 def short_model_name(model: str) -> str:
     """Get short display name for model."""
-    for alias, full in MODEL_ALIASES.items():
-        if model == full:
-            return alias
-    return model.split("/")[-1]
+    return MODELS.get(model, model.split("/")[-1])
 
 
 async def run_eval(
@@ -161,7 +151,7 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        help=f"Models to eval (aliases: {', '.join(MODEL_ALIASES.keys())})",
+        help=f"Models to eval (aliases: {', '.join(MODELS.values())})",
     )
     parser.add_argument("-n", "--n-chunks", type=int, default=5, help="Chunks per sample")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -173,12 +163,12 @@ def main():
     if args.models:
         models = []
         for m in args.models:
-            if m in MODEL_ALIASES:
-                models.append(MODEL_ALIASES[m])
+            if m in ALIAS_TO_MODEL:
+                models.append(ALIAS_TO_MODEL[m])
             else:
                 models.append(m)
     else:
-        models = DEFAULT_MODELS
+        models = list(MODELS.keys())
 
     print(f"Running evals for {len(models)} models in parallel...", file=sys.stderr)
     print(f"Config: n_chunks={args.n_chunks}, seed={args.seed}", file=sys.stderr)
