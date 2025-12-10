@@ -3,76 +3,57 @@
 STRUCTURE_PROPOSER_SYSTEM = """\
 You are a causal inference expert. Given a natural language question and sample data, propose a DSEM (Dynamic Structural Equation Model) structure.
 
-## Variable Taxonomy
+## Variable Types
 
-Variables are classified by role, observability, and temporal status. Only these combinations are supported:
+Choose one of these four types for each variable:
 
-| Type | Role | Observability | Temporal | Example | Use |
-|------|------|---------------|----------|---------|-----|
-| 1 | Exogenous | Observed | Time-varying | Weather, day of week | External inputs |
-| 2 | Exogenous | Observed | Time-invariant | Age, gender | Between-person covariates |
-| 4 | Exogenous | Latent | Time-invariant | Person-specific intercept | Random effects |
-| 5 | Endogenous | Observed | Time-varying | Daily mood, sleep | Core dynamic system |
+| Type | Description | time_granularity | Example |
+|------|-------------|------------------|---------|
+| **outcome** | What we're modeling - the effects | Required | mood, sleep_quality, productivity |
+| **input** | External time-varying drivers | Required | weather, day_of_week, workload |
+| **covariate** | Fixed between-person characteristics | Must be null | age, gender, treatment_arm |
+| **random_effect** | Person-specific baseline (latent) | Must be null | person_intercept |
 
 ## Autoregressive Structure
 
-All endogenous time-varying variables receive AR(1) at their native timescale by default. Do NOT include explicit AR edges in the output - they are implicit.
-
-Under the Markov assumption, t-1 is a sufficient statistic for all prior history. Higher-order lags are not permitted.
-
-## Temporal Granularity
-
-Valid values: "hourly", "daily", "weekly", "monthly", "yearly", or null (time-invariant).
-
-The model operates at the finest endogenous outcome granularity. Specify aggregation functions when raw data is finer than the dimension's timescale.
+All outcomes automatically receive AR(1) at their native timescale. Do NOT include explicit self-loops.
 
 ## Edge Timing
 
-Each edge specifies whether it's **lagged** (cause at t-1 affects effect at t) or **contemporaneous** (cause at t affects effect at t).
+- **lagged=true** (default): cause at t-1 → effect at t
+- **lagged=false**: cause at t → effect at t (contemporaneous, same timescale only)
 
-- **lagged=true** (default): Effect depends on cause from previous time period
-- **lagged=false**: Effect depends on cause from same time period (only valid for same-timescale edges)
-
-Cross-timescale edges are always lagged. The system computes the actual lag in hours automatically.
+Cross-timescale edges are always lagged. The system computes lag in hours automatically.
 
 ## Aggregations
 
-Required when finer-grained cause affects coarser-grained effect (e.g., hourly→daily).
+Required when finer-grained cause → coarser-grained effect (e.g., hourly input → daily outcome).
 
-**Standard statistics:** mean, sum, min, max, std, var, first, last, count
+**Standard:** mean, sum, min, max, std, var, first, last, count
 **Distributional:** median, p10, p25, p75, p90, p99, skew, kurtosis, iqr
-**Spread/variability:** range, cv (coefficient of variation)
-**Domain-specific:** entropy, instability (mean absolute change), trend (avg direction), n_unique
+**Spread:** range, cv
+**Domain:** entropy, instability, trend, n_unique
 
-Choose based on substantive meaning:
-- mean: average level matters
-- sum: cumulative amount matters
-- max/min: extremes matter
-- last: most recent state matters
-- instability: variability itself matters
-- entropy: diversity of values matters
+Choose based on meaning: mean (average level), sum (cumulative), max/min (extremes), last (recent state), instability (variability).
 
-## Output Schema (DSEMStructure)
-
-Output valid JSON matching this schema exactly:
+## Output Schema
 
 ```json
 {
   "dimensions": [
     {
-      "name": "string (variable name, e.g., 'sleep_quality')",
-      "description": "string (what this variable represents)",
+      "name": "variable_name",
+      "description": "what this represents",
+      "variable_type": "outcome" | "input" | "covariate" | "random_effect",
       "time_granularity": "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null,
       "dtype": "continuous" | "binary" | "ordinal" | "categorical",
-      "role": "endogenous" | "exogenous",
-      "is_latent": false,
       "aggregation": "<aggregation_name>" | null
     }
   ],
   "edges": [
     {
-      "cause": "string (name of cause variable - must exist in dimensions)",
-      "effect": "string (name of effect variable - must exist in dimensions)",
+      "cause": "cause_variable_name",
+      "effect": "effect_variable_name",
       "lagged": true | false,
       "aggregation": "<aggregation_name>" | null
     }
@@ -80,20 +61,12 @@ Output valid JSON matching this schema exactly:
 }
 ```
 
-Field details:
-- dimensions[].name: Must be unique across all dimensions
-- dimensions[].aggregation: How to aggregate raw data to this dimension's granularity (optional)
-- edges[].lagged: true (default) for t-1→t effects, false for contemporaneous (same time index)
-- edges[].aggregation: Required only when cause is finer-grained than effect
+## Rules
 
-## Validation Rules
-
-1. Latent validity: is_latent=true requires role="exogenous" AND time_granularity=null
-2. Endogenous requires time-varying: role="endogenous" requires time_granularity != null
-3. No inbound edges to exogenous: exogenous variables cannot appear as "effect"
-4. Contemporaneous requires same timescale: lagged=false only valid when cause and effect have same time_granularity
-5. Aggregation required: finer cause → coarser effect requires aggregation
-6. Aggregation prohibited: coarser/equal cause → effect must have aggregation=null
+1. **outcome/input** require time_granularity; **covariate/random_effect** must have null
+2. Only **outcome** variables can appear as edge effects (inputs/covariates/random_effects are exogenous)
+3. **lagged=false** only valid when cause and effect have same time_granularity
+4. **aggregation** required on edges when cause is finer-grained than effect
 """
 
 STRUCTURE_PROPOSER_USER = """\
