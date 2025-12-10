@@ -21,7 +21,7 @@ class TestDimension:
             name="mood",
             description="Daily mood rating",
             variable_type=VariableType.OUTCOME,
-            time_granularity="daily",
+            causal_granularity="daily",
             base_dtype="continuous",
         )
         assert dim.role == "endogenous"
@@ -33,14 +33,14 @@ class TestDimension:
             name="weather",
             description="Daily temperature",
             variable_type=VariableType.INPUT,
-            time_granularity="daily",
+            causal_granularity="daily",
             base_dtype="continuous",
         )
         assert dim.role == "exogenous"
         assert dim.is_latent is False
 
     def test_covariate_derives_exogenous_time_invariant(self):
-        """Covariate type derives role=exogenous, is_latent=False, no time_granularity."""
+        """Covariate type derives role=exogenous, is_latent=False, no causal_granularity."""
         dim = Dimension(
             name="age",
             description="Participant age",
@@ -49,7 +49,7 @@ class TestDimension:
         )
         assert dim.role == "exogenous"
         assert dim.is_latent is False
-        assert dim.time_granularity is None
+        assert dim.causal_granularity is None
 
     def test_random_effect_derives_latent(self):
         """Random effect type derives role=exogenous, is_latent=True."""
@@ -61,11 +61,11 @@ class TestDimension:
         )
         assert dim.role == "exogenous"
         assert dim.is_latent is True
-        assert dim.time_granularity is None
+        assert dim.causal_granularity is None
 
-    def test_outcome_requires_time_granularity(self):
-        """Outcome type requires time_granularity."""
-        with pytest.raises(ValueError, match="Outcome .* requires time_granularity"):
+    def test_outcome_requires_causal_granularity(self):
+        """Outcome type requires causal_granularity."""
+        with pytest.raises(ValueError, match="Outcome .* requires causal_granularity"):
             Dimension(
                 name="mood",
                 description="Invalid",
@@ -73,9 +73,9 @@ class TestDimension:
                 base_dtype="continuous",
             )
 
-    def test_input_requires_time_granularity(self):
-        """Input type requires time_granularity."""
-        with pytest.raises(ValueError, match="Input .* requires time_granularity"):
+    def test_input_requires_causal_granularity(self):
+        """Input type requires causal_granularity."""
+        with pytest.raises(ValueError, match="Input .* requires causal_granularity"):
             Dimension(
                 name="weather",
                 description="Invalid",
@@ -83,25 +83,25 @@ class TestDimension:
                 base_dtype="continuous",
             )
 
-    def test_covariate_forbids_time_granularity(self):
-        """Covariate type must not have time_granularity."""
-        with pytest.raises(ValueError, match="Covariate .* must not have time_granularity"):
+    def test_covariate_forbids_causal_granularity(self):
+        """Covariate type must not have causal_granularity."""
+        with pytest.raises(ValueError, match="Covariate .* must not have causal_granularity"):
             Dimension(
                 name="age",
                 description="Invalid",
                 variable_type=VariableType.COVARIATE,
-                time_granularity="daily",
+                causal_granularity="daily",
                 base_dtype="continuous",
             )
 
-    def test_random_effect_forbids_time_granularity(self):
-        """Random effect type must not have time_granularity."""
-        with pytest.raises(ValueError, match="Random effect .* must not have time_granularity"):
+    def test_random_effect_forbids_causal_granularity(self):
+        """Random effect type must not have causal_granularity."""
+        with pytest.raises(ValueError, match="Random effect .* must not have causal_granularity"):
             Dimension(
                 name="intercept",
                 description="Invalid",
                 variable_type=VariableType.RANDOM_EFFECT,
-                time_granularity="daily",
+                causal_granularity="daily",
                 base_dtype="continuous",
             )
 
@@ -135,7 +135,7 @@ class TestDSEMStructure:
                 name=name,
                 description=f"{name} description",
                 variable_type=vtype,
-                time_granularity=gran,
+                causal_granularity=gran,
                 base_dtype="continuous",
             )
             for name, gran, vtype in specs

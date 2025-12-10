@@ -141,7 +141,7 @@ class TestSchemaAggregationValidation:
             name="test",
             description="test var",
             variable_type=VariableType.OUTCOME,
-            time_granularity="daily",
+            causal_granularity="daily",
             base_dtype="continuous",
             aggregation="mean",
         )
@@ -156,7 +156,7 @@ class TestSchemaAggregationValidation:
                 name="test",
                 description="test var",
                 variable_type=VariableType.OUTCOME,
-                time_granularity="daily",
+                causal_granularity="daily",
                 base_dtype="continuous",
                 aggregation="invalid",
             )

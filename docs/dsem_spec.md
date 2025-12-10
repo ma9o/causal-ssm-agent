@@ -159,21 +159,21 @@ class Dimension(BaseModel):
 
     name: str = Field(description="Variable name (e.g., 'sleep_quality')")
     description: str = Field(description="What this variable represents")
-    time_granularity: str | None = Field(
+    causal_granularity: str | None = Field(
         description="'hourly', 'daily', 'weekly', 'monthly', 'yearly', or None for time-invariant"
     )
     base_dtype: str = Field(description="'continuous', 'binary', 'count', 'ordinal', 'categorical'")
     role: str = Field(description="'endogenous' or 'exogenous'")
     is_latent: bool = Field(
         default=False,
-        description="True for random effects. Only valid when role='exogenous' and time_granularity=None"
+        description="True for random effects. Only valid when role='exogenous' and causal_granularity=None"
     )
     aggregation: Callable | None = Field(
         default=None,
         description=(
             "Function to aggregate raw data to this dimension's granularity. "
             "Python callable: takes array of fine-grained values, returns aggregated value. "
-            "Required when raw data is finer than time_granularity."
+            "Required when raw data is finer than causal_granularity."
         )
     )
 
@@ -212,14 +212,14 @@ class DSEMStructure(BaseModel):
 
 The following must hold for a valid specification:
 
-1. **Latent validity:** If `is_latent=True`, then `role='exogenous'` and `time_granularity=None`
-2. **Endogenous requires time-varying:** If `role='endogenous'`, then `time_granularity` must not be `None`
+1. **Latent validity:** If `is_latent=True`, then `role='exogenous'` and `causal_granularity=None`
+2. **Endogenous requires time-varying:** If `role='endogenous'`, then `causal_granularity` must not be `None`
 3. **No inbound edges to exogenous:** If `role='exogenous'`, variable cannot appear as `effect` in any edge
-4. **Contemporaneous same-scale only:** If `lag=0`, cause and effect must have identical `time_granularity`
-5. **Same-scale lag constraint (Markov):** If cause and effect have identical `time_granularity` and `lag > 0`, lag must equal exactly one granularity unit in hours
-6. **Cross-scale lag constraint (Markov):** If cause and effect have different `time_granularity`, `lag` must equal exactly `max(cause_granularity, effect_granularity)` in hours
-7. **Aggregation requirement (edges):** If cause `time_granularity` is finer than effect `time_granularity`, `aggregation` must be specified
-8. **Aggregation prohibition (edges):** If cause `time_granularity` is coarser or equal to effect `time_granularity`, `aggregation` must be `None`
+4. **Contemporaneous same-scale only:** If `lag=0`, cause and effect must have identical `causal_granularity`
+5. **Same-scale lag constraint (Markov):** If cause and effect have identical `causal_granularity` and `lag > 0`, lag must equal exactly one granularity unit in hours
+6. **Cross-scale lag constraint (Markov):** If cause and effect have different `causal_granularity`, `lag` must equal exactly `max(cause_granularity, effect_granularity)` in hours
+7. **Aggregation requirement (edges):** If cause `causal_granularity` is finer than effect `causal_granularity`, `aggregation` must be specified
+8. **Aggregation prohibition (edges):** If cause `causal_granularity` is coarser or equal to effect `causal_granularity`, `aggregation` must be `None`
 
 ---
 

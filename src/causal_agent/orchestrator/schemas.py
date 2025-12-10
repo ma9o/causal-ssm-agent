@@ -39,9 +39,12 @@ class Dimension(BaseModel):
     variable_type: VariableType = Field(
         description="Type of variable: 'outcome', 'input', 'covariate', or 'random_effect'"
     )
-    time_granularity: str | None = Field(
+    causal_granularity: str | None = Field(
         default=None,
-        description="'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for outcome/input types.",
+        description=(
+            "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for outcome/input types. "
+            "The granularity at which causal relationships make sense - may be refined after seeing actual data."
+        ),
     )
     base_dtype: str = Field(
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"
@@ -64,30 +67,30 @@ class Dimension(BaseModel):
 
     @model_validator(mode="after")
     def validate_and_derive_fields(self):
-        """Validate time_granularity constraints and derive role/is_latent from variable_type."""
+        """Validate causal_granularity constraints and derive role/is_latent from variable_type."""
         vtype = self.variable_type
 
         # Derive role and is_latent from variable_type
         if vtype == VariableType.OUTCOME:
             self.role = "endogenous"
             self.is_latent = False
-            if self.time_granularity is None:
-                raise ValueError(f"Outcome '{self.name}' requires time_granularity (time-varying)")
+            if self.causal_granularity is None:
+                raise ValueError(f"Outcome '{self.name}' requires causal_granularity (time-varying)")
         elif vtype == VariableType.INPUT:
             self.role = "exogenous"
             self.is_latent = False
-            if self.time_granularity is None:
-                raise ValueError(f"Input '{self.name}' requires time_granularity (time-varying)")
+            if self.causal_granularity is None:
+                raise ValueError(f"Input '{self.name}' requires causal_granularity (time-varying)")
         elif vtype == VariableType.COVARIATE:
             self.role = "exogenous"
             self.is_latent = False
-            if self.time_granularity is not None:
-                raise ValueError(f"Covariate '{self.name}' must not have time_granularity (time-invariant)")
+            if self.causal_granularity is not None:
+                raise ValueError(f"Covariate '{self.name}' must not have causal_granularity (time-invariant)")
         elif vtype == VariableType.RANDOM_EFFECT:
             self.role = "exogenous"
             self.is_latent = True
-            if self.time_granularity is not None:
-                raise ValueError(f"Random effect '{self.name}' must not have time_granularity (time-invariant)")
+            if self.causal_granularity is not None:
+                raise ValueError(f"Random effect '{self.name}' must not have causal_granularity (time-invariant)")
 
         return self
 
@@ -174,8 +177,8 @@ class DSEMStructure(BaseModel):
             if effect_dim.role == "exogenous":
                 raise ValueError(f"Exogenous variable '{edge.effect}' cannot be an effect")
 
-            cause_gran = cause_dim.time_granularity
-            effect_gran = effect_dim.time_granularity
+            cause_gran = cause_dim.causal_granularity
+            effect_gran = effect_dim.causal_granularity
 
             # Contemporaneous (lagged=False) requires same timescale
             if not edge.lagged and cause_gran != effect_gran:
