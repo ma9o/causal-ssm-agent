@@ -162,7 +162,7 @@ class Dimension(BaseModel):
     time_granularity: str | None = Field(
         description="'hourly', 'daily', 'weekly', 'monthly', 'yearly', or None for time-invariant"
     )
-    dtype: str = Field(description="'continuous', 'binary', 'ordinal', 'categorical'")
+    base_dtype: str = Field(description="'continuous', 'binary', 'count', 'ordinal', 'categorical'")
     role: str = Field(description="'endogenous' or 'exogenous'")
     is_latent: bool = Field(
         default=False,

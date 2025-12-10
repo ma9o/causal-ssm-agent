@@ -14,6 +14,16 @@ Choose one of these four types for each variable:
 | **covariate** | Fixed between-person characteristics | Must be null | age, gender, treatment_arm |
 | **random_effect** | Person-specific baseline (latent) | Must be null | person_intercept |
 
+## Data Types (base_dtype)
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **continuous** | Real-valued measurements | temperature, mood_rating, hours_slept |
+| **binary** | Two categories (0/1, yes/no) | is_weekend, took_medication |
+| **count** | Non-negative integers | num_emails, steps, cups_of_coffee |
+| **ordinal** | Ordered categories | stress_level (1-5), education_level |
+| **categorical** | Unordered categories | day_of_week, activity_type |
+
 ## Autoregressive Structure
 
 All outcomes automatically receive AR(1) at their native timescale. Do NOT include explicit self-loops.
@@ -46,7 +56,7 @@ Choose based on meaning: mean (average level), sum (cumulative), max/min (extrem
       "description": "what this represents",
       "variable_type": "outcome" | "input" | "covariate" | "random_effect",
       "time_granularity": "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null,
-      "base_dtype": "continuous" | "binary" | "ordinal" | "categorical",
+      "base_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
       "aggregation": "<aggregation_name>" | null
     }
   ],
