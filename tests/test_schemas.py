@@ -23,6 +23,7 @@ class TestDimension:
             variable_type=VariableType.OUTCOME,
             causal_granularity="daily",
             base_dtype="continuous",
+            aggregation="mean",
         )
         assert dim.role == "endogenous"
         assert dim.is_latent is False
@@ -35,6 +36,7 @@ class TestDimension:
             variable_type=VariableType.INPUT,
             causal_granularity="daily",
             base_dtype="continuous",
+            aggregation="mean",
         )
         assert dim.role == "exogenous"
         assert dim.is_latent is False
@@ -71,6 +73,7 @@ class TestDimension:
                 description="Invalid",
                 variable_type=VariableType.OUTCOME,
                 base_dtype="continuous",
+                aggregation="mean",
             )
 
     def test_input_requires_causal_granularity(self):
@@ -81,6 +84,51 @@ class TestDimension:
                 description="Invalid",
                 variable_type=VariableType.INPUT,
                 base_dtype="continuous",
+                aggregation="mean",
+            )
+
+    def test_outcome_requires_aggregation(self):
+        """Outcome type requires aggregation."""
+        with pytest.raises(ValueError, match="Outcome .* requires aggregation"):
+            Dimension(
+                name="mood",
+                description="Invalid",
+                variable_type=VariableType.OUTCOME,
+                causal_granularity="daily",
+                base_dtype="continuous",
+            )
+
+    def test_input_requires_aggregation(self):
+        """Input type requires aggregation."""
+        with pytest.raises(ValueError, match="Input .* requires aggregation"):
+            Dimension(
+                name="weather",
+                description="Invalid",
+                variable_type=VariableType.INPUT,
+                causal_granularity="daily",
+                base_dtype="continuous",
+            )
+
+    def test_covariate_forbids_aggregation(self):
+        """Covariate type must not have aggregation."""
+        with pytest.raises(ValueError, match="Covariate .* must not have aggregation"):
+            Dimension(
+                name="age",
+                description="Invalid",
+                variable_type=VariableType.COVARIATE,
+                base_dtype="continuous",
+                aggregation="mean",
+            )
+
+    def test_random_effect_forbids_aggregation(self):
+        """Random effect type must not have aggregation."""
+        with pytest.raises(ValueError, match="Random effect .* must not have aggregation"):
+            Dimension(
+                name="intercept",
+                description="Invalid",
+                variable_type=VariableType.RANDOM_EFFECT,
+                base_dtype="continuous",
+                aggregation="mean",
             )
 
     def test_covariate_forbids_causal_granularity(self):
@@ -129,17 +177,25 @@ class TestDSEMStructure:
     """Tests for DSEMStructure validation."""
 
     def _make_dims(self, *specs):
-        """Helper to create dimensions from (name, granularity, variable_type) tuples."""
-        return [
-            Dimension(
-                name=name,
-                description=f"{name} description",
-                variable_type=vtype,
-                causal_granularity=gran,
-                base_dtype="continuous",
+        """Helper to create dimensions from (name, granularity, variable_type) tuples.
+
+        Automatically adds aggregation='mean' for time-varying types (outcome/input).
+        """
+        dims = []
+        for name, gran, vtype in specs:
+            # Time-varying types require aggregation
+            agg = "mean" if vtype in (VariableType.OUTCOME, VariableType.INPUT) else None
+            dims.append(
+                Dimension(
+                    name=name,
+                    description=f"{name} description",
+                    variable_type=vtype,
+                    causal_granularity=gran,
+                    base_dtype="continuous",
+                    aggregation=agg,
+                )
             )
-            for name, gran, vtype in specs
-        ]
+        return dims
 
     def test_valid_simple_structure(self):
         """Simple valid structure passes validation."""

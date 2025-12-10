@@ -76,21 +76,29 @@ class Dimension(BaseModel):
             self.is_latent = False
             if self.causal_granularity is None:
                 raise ValueError(f"Outcome '{self.name}' requires causal_granularity (time-varying)")
+            if self.aggregation is None:
+                raise ValueError(f"Outcome '{self.name}' requires aggregation (how to collapse raw data)")
         elif vtype == VariableType.INPUT:
             self.role = "exogenous"
             self.is_latent = False
             if self.causal_granularity is None:
                 raise ValueError(f"Input '{self.name}' requires causal_granularity (time-varying)")
+            if self.aggregation is None:
+                raise ValueError(f"Input '{self.name}' requires aggregation (how to collapse raw data)")
         elif vtype == VariableType.COVARIATE:
             self.role = "exogenous"
             self.is_latent = False
             if self.causal_granularity is not None:
                 raise ValueError(f"Covariate '{self.name}' must not have causal_granularity (time-invariant)")
+            if self.aggregation is not None:
+                raise ValueError(f"Covariate '{self.name}' must not have aggregation (time-invariant)")
         elif vtype == VariableType.RANDOM_EFFECT:
             self.role = "exogenous"
             self.is_latent = True
             if self.causal_granularity is not None:
                 raise ValueError(f"Random effect '{self.name}' must not have causal_granularity (time-invariant)")
+            if self.aggregation is not None:
+                raise ValueError(f"Random effect '{self.name}' must not have aggregation (time-invariant)")
 
         return self
 

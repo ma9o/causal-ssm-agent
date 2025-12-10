@@ -43,6 +43,7 @@ def test_schema_to_networkx():
                 variable_type=VariableType.INPUT,
                 causal_granularity="hourly",
                 base_dtype="continuous",
+                aggregation="mean",
             ),
             Dimension(
                 name="Y",
@@ -50,6 +51,7 @@ def test_schema_to_networkx():
                 variable_type=VariableType.OUTCOME,
                 causal_granularity="hourly",
                 base_dtype="continuous",
+                aggregation="mean",
             ),
         ],
         edges=[CausalEdge(cause="X", effect="Y", lagged=True)],
