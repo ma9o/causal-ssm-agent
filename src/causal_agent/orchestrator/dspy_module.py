@@ -4,16 +4,16 @@ import dspy
 
 
 class StructureProposal(dspy.Signature):
-    """Propose a causal model structure from a natural language question and sample data.
+    """Propose a DSEM structure from a natural language question and sample data.
 
-    Output valid JSON with: dimensions, time_granularity, autocorrelations, edges, reasoning.
+    Output valid JSON with: dimensions, edges.
     """
 
     question: str = dspy.InputField(desc="Natural language causal research question")
     data_sample: str = dspy.InputField(desc="Sample chunks from the dataset")
     structure: str = dspy.OutputField(
-        desc="JSON with dimensions (name, description: {text, time_granularity}, dtype, is_autocorrelated), "
-        "edges (cause, effect, lag in hours)"
+        desc="JSON with dimensions (name, description, time_granularity, dtype, role, is_latent, aggregation), "
+        "edges (cause, effect, lag in hours, aggregation)"
     )
 
 

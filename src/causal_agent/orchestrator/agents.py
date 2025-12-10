@@ -13,7 +13,7 @@ from inspect_ai.model import (
 )
 
 from .prompts import STRUCTURE_PROPOSER_SYSTEM, STRUCTURE_PROPOSER_USER
-from .schemas import ProposedStructure
+from .schemas import DSEMStructure
 
 # Load environment variables from .env file
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
@@ -24,7 +24,7 @@ MODEL_NAME = "openrouter/google/gemini-2.5-pro-preview-06-05"
 
 def _build_json_schema() -> dict:
     """Build JSON schema from Pydantic model for structured output."""
-    return ProposedStructure.model_json_schema()
+    return DSEMStructure.model_json_schema()
 
 
 async def propose_structure_async(question: str, data_sample: list[str]) -> dict:
@@ -36,7 +36,7 @@ async def propose_structure_async(question: str, data_sample: list[str]) -> dict
         data_sample: Sample chunks from the dataset
 
     Returns:
-        ProposedStructure as a dictionary
+        DSEMStructure as a dictionary
     """
     model = get_model(MODEL_NAME)
 
@@ -80,7 +80,7 @@ async def propose_structure_async(question: str, data_sample: list[str]) -> dict
         print(f"Content preview: {content[:500]}...")
         raise ValueError(f"Failed to parse model response as JSON: {e}") from e
 
-    structure = ProposedStructure.model_validate(data)
+    structure = DSEMStructure.model_validate(data)
 
     return structure.model_dump()
 
@@ -94,7 +94,7 @@ def propose_structure(question: str, data_sample: list[str]) -> dict:
         data_sample: Sample chunks from the dataset
 
     Returns:
-        ProposedStructure as a dictionary
+        DSEMStructure as a dictionary
     """
     import asyncio
 
