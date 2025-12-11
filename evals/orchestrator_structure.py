@@ -11,6 +11,12 @@ Usage:
     inspect eval evals/orchestrator_structure.py --model openrouter/moonshotai/kimi-k2
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path for evals.common import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import json
 from dataclasses import dataclass
 
@@ -27,7 +33,7 @@ from causal_agent.orchestrator.scoring import _count_rule_points_detailed
 from causal_agent.orchestrator.schemas import DSEMStructure
 from causal_agent.utils.data import PROCESSED_DIR
 
-from .common import (
+from evals.common import (
     extract_json_from_response,
     format_chunks,
     get_sample_chunks_orchestrator,

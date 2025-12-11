@@ -8,6 +8,12 @@ Usage:
     inspect eval evals/worker_extraction.py --model openrouter/anthropic/claude-sonnet-4
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path for evals.common import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import json
 
 from inspect_ai import Task, task
@@ -19,7 +25,7 @@ from causal_agent.workers.prompts import WORKER_SYSTEM, WORKER_USER
 from causal_agent.workers.schemas import WorkerOutput
 from causal_agent.workers.agents import _format_dimensions, _get_outcome_description
 
-from .common import (
+from evals.common import (
     extract_json_from_response,
     get_sample_chunks_worker,
     load_example_dag,
