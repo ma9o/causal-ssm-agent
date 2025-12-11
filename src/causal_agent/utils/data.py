@@ -32,7 +32,7 @@ def get_sample_chunks() -> int:
 
 
 # Backwards compatibility - evaluated at import time
-CHUNK_SIZE = get_worker_chunk_size()  # Default to worker chunk size
+CHUNK_SIZE = get_orchestrator_chunk_size()  # Used by existing code (stage 1)
 SAMPLE_CHUNKS = get_sample_chunks()
 
 
