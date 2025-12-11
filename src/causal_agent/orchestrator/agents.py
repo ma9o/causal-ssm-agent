@@ -2,12 +2,15 @@
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 from inspect_ai.model import (
     ChatMessageAssistant,
     ChatMessageSystem,
     ChatMessageUser,
+    GenerateConfig,
+    Model,
     get_model,
 )
 
@@ -18,6 +21,9 @@ from .prompts import (
     STRUCTURE_REVIEW_REQUEST,
 )
 from .schemas import DSEMStructure
+
+if TYPE_CHECKING:
+    from inspect_ai.model import ChatMessage
 
 # Load environment variables from .env file (for API keys)
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
@@ -46,6 +52,44 @@ def _parse_json_response(content: str) -> dict:
         raise ValueError(f"Failed to parse model response as JSON: {e}") from e
 
 
+async def run_two_stage_proposal(
+    messages: list["ChatMessage"],
+    model: Model,
+    config: GenerateConfig | None = None,
+) -> str:
+    """
+    Core two-stage proposal logic. Used by both production pipeline and evals.
+
+    Stage 1: Generate initial structure from messages
+    Stage 2: Self-review focusing on measurement coherence
+
+    Args:
+        messages: Initial messages (system + user prompt)
+        model: The model to use for generation
+        config: Optional generation config
+
+    Returns:
+        The final completion string (JSON structure)
+    """
+    # Stage 1: Initial proposal
+    proposal_response = await model.generate(messages, config=config)
+    proposal_data = _parse_json_response(proposal_response.completion)
+
+    # Validate initial proposal (fail fast if invalid)
+    DSEMStructure.model_validate(proposal_data)
+
+    # Append assistant response to conversation history
+    messages = list(messages)  # Don't mutate original
+    messages.append(ChatMessageAssistant(content=proposal_response.completion))
+
+    # Stage 2: Self-review (continues the conversation)
+    messages.append(ChatMessageUser(content=STRUCTURE_REVIEW_REQUEST))
+
+    review_response = await model.generate(messages, config=config)
+
+    return review_response.completion
+
+
 async def propose_structure_async(
     question: str,
     data_sample: list[str],
@@ -72,7 +116,7 @@ async def propose_structure_async(
     # Format the chunks for the prompt
     chunks_text = "\n".join(data_sample)
 
-    # Build conversation as a list we'll extend
+    # Build initial messages
     messages = [
         ChatMessageSystem(content=STRUCTURE_PROPOSER_SYSTEM),
         ChatMessageUser(
@@ -84,23 +128,11 @@ async def propose_structure_async(
         ),
     ]
 
-    # Stage 1: Initial proposal
-    proposal_response = await model.generate(messages)
-    proposal_data = _parse_json_response(proposal_response.completion)
+    # Run two-stage proposal
+    completion = await run_two_stage_proposal(messages, model)
 
-    # Validate initial proposal
-    initial_structure = DSEMStructure.model_validate(proposal_data)
-
-    # Append assistant response to conversation history
-    messages.append(ChatMessageAssistant(content=proposal_response.completion))
-
-    # Stage 2: Self-review (continues the conversation)
-    messages.append(ChatMessageUser(content=STRUCTURE_REVIEW_REQUEST))
-
-    review_response = await model.generate(messages)
-    reviewed_data = _parse_json_response(review_response.completion)
-
-    # Validate reviewed structure
+    # Parse and validate final result
+    reviewed_data = _parse_json_response(completion)
     reviewed_structure = DSEMStructure.model_validate(reviewed_data)
 
     return reviewed_structure.model_dump(by_alias=True)

@@ -3,8 +3,10 @@
 import json
 import re
 
-from inspect_ai.solver import generate
+from inspect_ai.model import GenerateConfig, get_model
+from inspect_ai.solver import Generate, TaskState, generate, solver
 
+from causal_agent.orchestrator.agents import run_two_stage_proposal
 from causal_agent.utils.data import (
     PROCESSED_DIR,
     get_latest_preprocessed_file,
@@ -14,13 +16,47 @@ from causal_agent.utils.data import (
 )
 
 
-# Shared generate config for reasoning models
 def reasoning_generate():
     """Generate solver with max thinking budget for reasoning models."""
     return generate(
-        max_tokens=65536,  # High for reasoning models
+        max_tokens=65536,
         reasoning_effort="high",
     )
+
+
+@solver
+def two_stage_proposal_solver():
+    """Solver that runs the production two-stage proposal pipeline.
+
+    Uses run_two_stage_proposal from agents.py directly, ensuring
+    evals test the exact same logic as production.
+    """
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        # Get the model being evaluated
+        model = get_model()
+
+        # Config for reasoning models
+        config = GenerateConfig(
+            max_tokens=65536,
+            reasoning_effort="high",
+        )
+
+        # Run the production two-stage pipeline
+        # state.messages already has system + user from the task setup
+        completion = await run_two_stage_proposal(
+            messages=list(state.messages),
+            model=model,
+            config=config,
+        )
+
+        # Update state with final completion
+        # Note: state.messages won't reflect the multi-turn, but state.output will have the final result
+        state.output.completion = completion
+
+        return state
+
+    return solve
 
 # Files to exclude when finding the latest data file (script outputs)
 EXCLUDE_FILES = {"orchestrator-samples-manual.txt"}

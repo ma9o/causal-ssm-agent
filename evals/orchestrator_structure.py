@@ -37,7 +37,7 @@ from evals.common import (
     extract_json_from_response,
     format_chunks,
     get_sample_chunks_orchestrator,
-    reasoning_generate,
+    two_stage_proposal_solver,
 )
 
 # Top-tier models for orchestrator eval (via OpenRouter)
@@ -199,6 +199,10 @@ def orchestrator_eval(
 ):
     """Evaluate LLM ability to propose DSEM structures.
 
+    Uses the production two-stage pipeline:
+    1. Initial proposal from question + data
+    2. Self-review focusing on measurement coherence
+
     Args:
         n_chunks: Number of data chunks to include in each sample
         seed: Random seed for chunk sampling (reproducibility)
@@ -208,7 +212,7 @@ def orchestrator_eval(
         dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file),
         solver=[
             system_message(STRUCTURE_PROPOSER_SYSTEM),
-            reasoning_generate(),
+            two_stage_proposal_solver(),
         ],
         scorer=dsem_structure_scorer(),
     )
