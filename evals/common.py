@@ -3,6 +3,8 @@
 import json
 import re
 
+from inspect_ai.solver import generate
+
 from causal_agent.utils.data import (
     PROCESSED_DIR,
     get_latest_preprocessed_file,
@@ -10,6 +12,15 @@ from causal_agent.utils.data import (
     get_orchestrator_chunk_size,
     get_worker_chunk_size,
 )
+
+
+# Shared generate config for reasoning models
+def reasoning_generate():
+    """Generate solver with max thinking budget for reasoning models."""
+    return generate(
+        max_tokens=65536,  # High for reasoning models
+        reasoning_effort="high",
+    )
 
 # Files to exclude when finding the latest data file (script outputs)
 EXCLUDE_FILES = {"orchestrator-samples-manual.txt"}

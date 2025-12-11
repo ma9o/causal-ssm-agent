@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
-from inspect_ai.solver import TaskState, generate, system_message
+from inspect_ai.solver import TaskState, system_message
 
 from causal_agent.orchestrator.prompts import (
     STRUCTURE_PROPOSER_SYSTEM,
@@ -27,7 +27,12 @@ from causal_agent.orchestrator.scoring import _count_rule_points_detailed
 from causal_agent.orchestrator.schemas import DSEMStructure
 from causal_agent.utils.data import PROCESSED_DIR
 
-from .common import extract_json_from_response, format_chunks, get_sample_chunks_orchestrator
+from .common import (
+    extract_json_from_response,
+    format_chunks,
+    get_sample_chunks_orchestrator,
+    reasoning_generate,
+)
 
 # Top-tier models for orchestrator eval (via OpenRouter)
 # Model ID -> short alias for CLI convenience
@@ -197,10 +202,7 @@ def orchestrator_eval(
         dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file),
         solver=[
             system_message(STRUCTURE_PROPOSER_SYSTEM),
-            generate(
-                max_tokens=65536,  # High for reasoning models (GPT-5 uses reasoning tokens from this budget)
-                reasoning_effort="high",
-            ),
+            reasoning_generate(),
         ],
         scorer=dsem_structure_scorer(),
     )

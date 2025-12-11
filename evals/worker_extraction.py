@@ -13,20 +13,27 @@ import json
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
-from inspect_ai.solver import TaskState, generate, system_message
+from inspect_ai.solver import TaskState, system_message
 
 from causal_agent.workers.prompts import WORKER_SYSTEM, WORKER_USER
 from causal_agent.workers.schemas import WorkerOutput
 from causal_agent.workers.agents import _format_dimensions, _get_outcome_description
 
-from .common import extract_json_from_response, get_sample_chunks_worker, load_example_dag
+from .common import (
+    extract_json_from_response,
+    get_sample_chunks_worker,
+    load_example_dag,
+    reasoning_generate,
+)
 
-# Smaller models for worker eval (parallel execution)
+# Worker models for parallel execution (via OpenRouter)
+# Using reasoning-capable models with thinking budget
 MODELS = {
-    "openrouter/google/gemini-2.0-flash-001": "gemini-flash",
-    "openrouter/anthropic/claude-sonnet-4": "claude-sonnet",
-    "openrouter/openai/gpt-4.1-mini": "gpt-mini",
-    "openrouter/deepseek/deepseek-chat": "deepseek-chat",
+    "openrouter/moonshotai/kimi-k2-thinking": "kimi-k2",
+    "openrouter/deepseek/deepseek-v3.2-exp": "deepseek",
+    "openrouter/google/gemini-2.5-flash": "gemini-flash",
+    "openrouter/x-ai/grok-4.1-fast": "grok-fast",
+    "openrouter/anthropic/claude-4.5-haiku-20251001": "haiku",
 }
 
 # Default question for worker eval (matches example_dag.json)
@@ -190,7 +197,7 @@ def worker_eval(
         ),
         solver=[
             system_message(WORKER_SYSTEM),
-            generate(),
+            reasoning_generate(),
         ],
         scorer=worker_extraction_scorer(),
     )
