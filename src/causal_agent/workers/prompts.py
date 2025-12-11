@@ -21,7 +21,7 @@ Be conservative—the orchestrator saw a sample and proposed the schema for good
     {
       "dimension": "name", 
       "value": < value of the correct dataype >, 
-      "timestamp": "ISO or null"
+      "timestamp": "ISO of the specified dimenion's granularity or null"
     }
   ],
   "proposed_dimensions": [
@@ -29,7 +29,8 @@ Be conservative—the orchestrator saw a sample and proposed the schema for good
       "name": "variable_name",
       "description": "what it represents",
       "evidence": "what you saw in this chunk",
-      "relevant_because": "how it connects to the causal question"
+      "relevant_because": "how it connects to the causal question",
+      "not_already_in_dimensions_because": "why it needs to be added and why the existing dimensions don't capture it"
     }
   ] | null
 }

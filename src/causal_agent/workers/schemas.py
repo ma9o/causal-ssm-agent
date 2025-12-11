@@ -24,6 +24,9 @@ class ProposedDimension(BaseModel):
     description: str = Field(description="What this variable represents")
     evidence: str = Field(description="What was seen in this chunk")
     relevant_because: str = Field(description="How it connects to the causal question")
+    not_already_in_dimensions_because: str = Field(
+        description="Why it needs to be added and why existing dimensions don't capture it"
+    )
 
 
 class WorkerOutput(BaseModel):

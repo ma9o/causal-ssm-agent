@@ -43,7 +43,7 @@ MODELS = {
 }
 
 # Default question for worker eval (matches example_dag.json)
-DEFAULT_QUESTION = "What makes me feel like a competent engineer?"
+DEFAULT_QUESTION = "I want to feel like a competent engineer"
 
 
 def create_eval_dataset(
