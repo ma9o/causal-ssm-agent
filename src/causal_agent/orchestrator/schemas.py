@@ -39,6 +39,8 @@ GRANULARITY_HOURS = {
 class Dimension(BaseModel):
     """A variable in the causal model."""
 
+    model_config = {"populate_by_name": True}
+
     name: str = Field(description="Variable name (e.g., 'sleep_quality')")
     description: str = Field(description="What this variable represents")
     role: Role = Field(description="'endogenous' (modeled) or 'exogenous' (given)")
@@ -70,6 +72,12 @@ class Dimension(BaseModel):
     aggregation: str | None = Field(
         default=None,
         description=f"Aggregation function from registry. Available: {', '.join(sorted(AGGREGATION_REGISTRY.keys()))}",
+    )
+    # Review metadata - tracks what changed during self-review stage
+    changed: str | None = Field(
+        default=None,
+        alias="_changed",
+        description="Review notes on what was modified (e.g., 'measurement_dtype: continuous→count')",
     )
 
     @field_validator("aggregation")

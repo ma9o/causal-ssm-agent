@@ -5,13 +5,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from inspect_ai.model import (
+    ChatMessageAssistant,
     ChatMessageSystem,
     ChatMessageUser,
     get_model,
 )
 
 from causal_agent.utils.config import get_config
-from .prompts import STRUCTURE_PROPOSER_SYSTEM, STRUCTURE_PROPOSER_USER
+from .prompts import (
+    STRUCTURE_PROPOSER_SYSTEM,
+    STRUCTURE_PROPOSER_USER,
+    STRUCTURE_REVIEW_REQUEST,
+)
 from .schemas import DSEMStructure
 
 # Load environment variables from .env file (for API keys)
@@ -23,6 +28,24 @@ def _build_json_schema() -> dict:
     return DSEMStructure.model_json_schema()
 
 
+def _parse_json_response(content: str) -> dict:
+    """Parse JSON from model response, handling markdown code blocks."""
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0]
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0]
+
+    content = content.strip()
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        print(f"Content length: {len(content)}")
+        print(f"Content preview: {content[:500]}...")
+        raise ValueError(f"Failed to parse model response as JSON: {e}") from e
+
+
 async def propose_structure_async(
     question: str,
     data_sample: list[str],
@@ -30,6 +53,10 @@ async def propose_structure_async(
 ) -> dict:
     """
     Use the orchestrator LLM to propose a causal model structure.
+
+    Two-stage process:
+    1. Initial proposal: Generate structure from question and data
+    2. Self-review: Double-check measurement_dtype, aggregation, and how_to_measure
 
     Args:
         question: The causal research question (natural language)
@@ -42,9 +69,10 @@ async def propose_structure_async(
     model_name = get_config().stage1_structure_proposal.model
     model = get_model(model_name)
 
-    # Format the chunks for the prompt - show them as they appear in the data
+    # Format the chunks for the prompt
     chunks_text = "\n".join(data_sample)
 
+    # Build conversation as a list we'll extend
     messages = [
         ChatMessageSystem(content=STRUCTURE_PROPOSER_SYSTEM),
         ChatMessageUser(
@@ -56,30 +84,26 @@ async def propose_structure_async(
         ),
     ]
 
-    response = await model.generate(messages)
-    content = response.completion
+    # Stage 1: Initial proposal
+    proposal_response = await model.generate(messages)
+    proposal_data = _parse_json_response(proposal_response.completion)
 
-    # Parse and validate the response
-    # Handle markdown code blocks if present
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0]
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0]
+    # Validate initial proposal
+    initial_structure = DSEMStructure.model_validate(proposal_data)
 
-    content = content.strip()
+    # Append assistant response to conversation history
+    messages.append(ChatMessageAssistant(content=proposal_response.completion))
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as e:
-        # Log the problematic content for debugging
-        print(f"JSON parsing error: {e}")
-        print(f"Content length: {len(content)}")
-        print(f"Content preview: {content[:500]}...")
-        raise ValueError(f"Failed to parse model response as JSON: {e}") from e
+    # Stage 2: Self-review (continues the conversation)
+    messages.append(ChatMessageUser(content=STRUCTURE_REVIEW_REQUEST))
 
-    structure = DSEMStructure.model_validate(data)
+    review_response = await model.generate(messages)
+    reviewed_data = _parse_json_response(review_response.completion)
 
-    return structure.model_dump()
+    # Validate reviewed structure
+    reviewed_structure = DSEMStructure.model_validate(reviewed_data)
+
+    return reviewed_structure.model_dump(by_alias=True)
 
 
 def propose_structure(

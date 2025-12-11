@@ -120,3 +120,30 @@ Dataset overview:
 Sample data:
 {chunks}
 """
+
+STRUCTURE_REVIEW_REQUEST = """\
+Review your proposed structure for measurement coherence.
+
+For each **observed** dimension, verify that measurement_dtype, aggregation, and how_to_measure are mutually consistent:
+
+## Coherence Rules
+
+| aggregation | requires measurement_dtype | how_to_measure must specify |
+|-------------|---------------------------|----------------------------|
+| entropy, n_unique | categorical | the category set |
+| sum, count | binary or count | what qualifies as 1 (binary) or what unit to count |
+| mean, median, p## | ordinal or continuous | the scale/levels (ordinal) or units (continuous) |
+| max, min | any | same as above for the dtype |
+
+## Red Flags
+
+- **how_to_measure describes a computed metric** (e.g., "inverse entropy of...", "ratio of...", "intensity measured by...") → The computation belongs in aggregation. Specify what raw values workers extract.
+- **measurement_dtype: continuous without units or scale** → Workers will invent numbers. Anchor it.
+- **measurement_dtype: ordinal without level definitions** → Define levels explicitly.
+- **measurement_dtype + aggregation mismatch** → Check the table above.
+
+## Output
+
+Return the corrected structure as JSON. For each dimension you modified, add:
+`"_changed": "measurement_dtype: X→Y, aggregation: A→B, how_to_measure: clarified"` (or "unchanged")
+"""
