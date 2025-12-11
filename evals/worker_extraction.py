@@ -23,7 +23,11 @@ from inspect_ai.solver import TaskState, system_message
 
 from causal_agent.workers.prompts import WORKER_SYSTEM, WORKER_USER
 from causal_agent.workers.schemas import WorkerOutput
-from causal_agent.workers.agents import _format_dimensions, _get_outcome_description
+from causal_agent.workers.agents import (
+    _format_dimensions,
+    _get_observed_dimension_dtypes,
+    _get_outcome_description,
+)
 
 from evals.common import (
     extract_json_from_response,
@@ -67,6 +71,10 @@ def create_eval_dataset(
     schema = load_example_dag()
     dimensions_text = _format_dimensions(schema)
     outcome_description = _get_outcome_description(schema)
+    dimension_dtypes = _get_observed_dimension_dtypes(schema)
+
+    # Count observed dimensions (what workers actually see)
+    n_observed = len(dimension_dtypes)
 
     # Get chunks (using worker chunk size from config)
     chunks = get_sample_chunks_worker(n_chunks, seed, input_file)
@@ -87,7 +95,8 @@ def create_eval_dataset(
                 metadata={
                     "chunk_index": i,
                     "question": question,
-                    "n_dimensions": len(schema.get("dimensions", [])),
+                    "n_observed_dimensions": n_observed,
+                    "dimension_dtypes": dimension_dtypes,
                 },
             )
         )
@@ -99,17 +108,45 @@ def create_eval_dataset(
 VALID_SCHEMA_POINTS = 10
 
 
+def _validate_dtype(value, expected_dtype: str) -> bool:
+    """Check if a value matches the expected dtype.
+
+    Args:
+        value: The extracted value
+        expected_dtype: One of 'continuous', 'binary', 'count', 'ordinal', 'categorical'
+
+    Returns:
+        True if value matches expected dtype
+    """
+    if value is None:
+        return True  # None is always valid (missing data)
+
+    if expected_dtype == "continuous":
+        return isinstance(value, (int, float))
+    elif expected_dtype == "binary":
+        return isinstance(value, bool) or value in (0, 1, "0", "1", "true", "false")
+    elif expected_dtype == "count":
+        return isinstance(value, int) and value >= 0
+    elif expected_dtype == "ordinal":
+        return isinstance(value, (int, float, str))
+    elif expected_dtype == "categorical":
+        return isinstance(value, str)
+    else:
+        return True  # Unknown dtype, accept anything
+
+
 @scorer(metrics=[mean(), stderr()])
 def worker_extraction_scorer():
     """Score worker extractions.
 
     Returns:
         - 0 if output is invalid (JSON parse error, schema validation error)
-        - 10 + number of extraction rows if valid
+        - 10 + number of valid extraction rows (dtype-checked)
     """
 
     async def score(state: TaskState, target: Target) -> Score:
         completion = state.output.completion
+        dimension_dtypes = state.metadata.get("dimension_dtypes", {})
 
         # Extract JSON from response
         json_str = extract_json_from_response(completion)
@@ -154,6 +191,34 @@ def worker_extraction_scorer():
                 explanation=f"ERROR: DataFrame conversion failed - {e}",
             )
 
+        # Validate dtypes - any error means score 0
+        dtype_errors = []
+
+        for extraction in output.extractions:
+            dim_name = extraction.dimension
+            expected_dtype = dimension_dtypes.get(dim_name)
+
+            if expected_dtype is not None and not _validate_dtype(extraction.value, expected_dtype):
+                dtype_errors.append(
+                    f"{dim_name}: got {type(extraction.value).__name__}={extraction.value}, expected {expected_dtype}"
+                )
+
+        n_dtype_errors = len(dtype_errors)
+
+        if n_dtype_errors > 0:
+            error_summary = "; ".join(dtype_errors[:5])
+            if n_dtype_errors > 5:
+                error_summary += f"... and {n_dtype_errors - 5} more"
+            return Score(
+                value=0,
+                answer=json_str[:500] + "..." if len(json_str) > 500 else json_str,
+                explanation=f"ERROR: Dtype validation failed ({n_dtype_errors} errors): {error_summary}",
+                metadata={
+                    "n_extractions": n_rows,
+                    "n_dtype_errors": n_dtype_errors,
+                },
+            )
+
         # Build explanation
         n_proposed = len(output.proposed_dimensions) if output.proposed_dimensions else 0
         unique_dims = df["dimension"].n_unique() if n_rows > 0 else 0
@@ -171,6 +236,7 @@ def worker_extraction_scorer():
             explanation=explanation,
             metadata={
                 "n_extractions": n_rows,
+                "n_dtype_errors": 0,
                 "n_unique_dimensions": unique_dims,
                 "n_proposed_dimensions": n_proposed,
             },

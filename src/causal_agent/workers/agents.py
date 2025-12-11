@@ -30,15 +30,32 @@ class WorkerResult:
 
 
 def _format_dimensions(schema: dict) -> str:
-    """Format dimensions for the worker prompt (without edges)."""
+    """Format observable dimensions for the worker prompt.
+
+    Only includes observed dimensions - latent variables are excluded
+    since workers shouldn't try to measure them directly.
+    """
     dimensions = schema.get("dimensions", [])
     lines = []
     for dim in dimensions:
+        # Skip latent dimensions - workers only extract observed variables
+        if dim.get("observability") == "latent":
+            continue
         name = dim.get("name", "unknown")
         desc = dim.get("description", "")
         dtype = dim.get("base_dtype", "")
         lines.append(f"- {name}: {desc} ({dtype})")
     return "\n".join(lines)
+
+
+def _get_observed_dimension_dtypes(schema: dict) -> dict[str, str]:
+    """Get mapping of observed dimension names to their expected dtypes."""
+    dimensions = schema.get("dimensions", [])
+    return {
+        dim.get("name"): dim.get("base_dtype")
+        for dim in dimensions
+        if dim.get("observability") == "observed"
+    }
 
 
 def _get_outcome_description(schema: dict) -> str:
