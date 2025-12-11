@@ -24,9 +24,10 @@ class TestDimension:
             description="Daily mood rating",
             role=Role.ENDOGENOUS,
             observability=Observability.OBSERVED,
+            how_to_measure="Extract mood ratings from survey responses",
             temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
-            base_dtype="continuous",
+            measurement_dtype="continuous",
             aggregation="mean",
         )
         assert dim.role == Role.ENDOGENOUS
@@ -40,9 +41,10 @@ class TestDimension:
             description="Daily temperature",
             role=Role.EXOGENOUS,
             observability=Observability.OBSERVED,
+            how_to_measure="Get temperature from weather API",
             temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
-            base_dtype="continuous",
+            measurement_dtype="continuous",
             aggregation="mean",
         )
         assert dim.role == Role.EXOGENOUS
@@ -56,8 +58,9 @@ class TestDimension:
             description="Participant age",
             role=Role.EXOGENOUS,
             observability=Observability.OBSERVED,
+            how_to_measure="Get age from participant intake form",
             temporal_status=TemporalStatus.TIME_INVARIANT,
-            base_dtype="continuous",
+            measurement_dtype="continuous",
         )
         assert dim.role == Role.EXOGENOUS
         assert dim.observability == Observability.OBSERVED
@@ -72,7 +75,7 @@ class TestDimension:
             role=Role.EXOGENOUS,
             observability=Observability.LATENT,
             temporal_status=TemporalStatus.TIME_INVARIANT,
-            base_dtype="continuous",
+            measurement_dtype="continuous",
         )
         assert dim.role == Role.EXOGENOUS
         assert dim.observability == Observability.LATENT
@@ -88,7 +91,7 @@ class TestDimension:
                 role=Role.ENDOGENOUS,
                 observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_VARYING,
-                base_dtype="continuous",
+                measurement_dtype="continuous",
                 aggregation="mean",
             )
 
@@ -102,7 +105,7 @@ class TestDimension:
                 observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="daily",
-                base_dtype="continuous",
+                measurement_dtype="continuous",
             )
 
     def test_time_invariant_forbids_aggregation(self):
@@ -114,7 +117,7 @@ class TestDimension:
                 role=Role.EXOGENOUS,
                 observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_INVARIANT,
-                base_dtype="continuous",
+                measurement_dtype="continuous",
                 aggregation="mean",
             )
 
@@ -128,7 +131,7 @@ class TestDimension:
                 observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_INVARIANT,
                 causal_granularity="daily",
-                base_dtype="continuous",
+                measurement_dtype="continuous",
             )
 
 
@@ -158,15 +161,18 @@ class TestDSEMStructure:
         if temporal_status is None:
             temporal_status = TemporalStatus.TIME_VARYING if granularity else TemporalStatus.TIME_INVARIANT
         agg = "mean" if temporal_status == TemporalStatus.TIME_VARYING else None
+        # Only observed variables need how_to_measure
+        how_to_measure = f"Extract {name} from data" if observability == Observability.OBSERVED else None
         return Dimension(
             name=name,
             description=f"{name} description",
             role=role,
             is_outcome=is_outcome,
             observability=observability,
+            how_to_measure=how_to_measure,
             temporal_status=temporal_status,
             causal_granularity=granularity,
-            base_dtype="continuous",
+            measurement_dtype="continuous",
             aggregation=agg,
         )
 
@@ -303,9 +309,10 @@ class TestDSEMStructure:
                 role=Role.EXOGENOUS,
                 is_outcome=True,
                 observability=Observability.OBSERVED,
+                how_to_measure="Get weather from API",
                 temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="daily",
-                base_dtype="continuous",
+                measurement_dtype="continuous",
                 aggregation="mean",
             )
 

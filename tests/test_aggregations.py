@@ -142,9 +142,10 @@ class TestSchemaAggregationValidation:
             description="test var",
             role=Role.ENDOGENOUS,
             observability=Observability.OBSERVED,
+            how_to_measure="Extract test from data",
             temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
-            base_dtype="continuous",
+            measurement_dtype="continuous",
             aggregation="mean",
         )
         assert dim.aggregation == "mean"
@@ -159,9 +160,10 @@ class TestSchemaAggregationValidation:
                 description="test var",
                 role=Role.ENDOGENOUS,
                 observability=Observability.OBSERVED,
+                how_to_measure="Extract test from data",
                 temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="daily",
-                base_dtype="continuous",
+                measurement_dtype="continuous",
                 aggregation="invalid",
             )
 
