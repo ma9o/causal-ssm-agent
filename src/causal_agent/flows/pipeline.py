@@ -61,7 +61,7 @@ def causal_inference_pipeline(
     print(f"Loaded {len(worker_chunks)} worker chunks")
     worker_results = populate_dimensions.map(
         worker_chunks,
-        chunk_id=list(range(len(worker_chunks))),
+        question=question,
         schema=schema,
     )
     schema = merge_suggestions(schema, worker_results)

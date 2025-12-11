@@ -25,11 +25,10 @@ def load_worker_chunks(input_path: Path) -> list[str]:
 @task(
     retries=2,
     retry_delay_seconds=10,
-    task_run_name="populate-chunk-{chunk_id}",
 )
-def populate_dimensions(chunk: str, chunk_id: int, schema: dict) -> dict:
+def populate_dimensions(chunk: str, question: str, schema: dict) -> dict:
     """Workers populate candidate dimensions for each chunk."""
-    return process_chunk(chunk, f"chunk_{chunk_id:04d}", schema)
+    return process_chunk(chunk, question, schema)
 
 
 @task(retries=1, cache_policy=INPUTS)

@@ -1,5 +1,6 @@
 """Worker agents using Inspect AI with OpenRouter."""
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -18,18 +19,39 @@ from .schemas import WorkerOutput
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 
 
+def _format_dimensions(schema: dict) -> str:
+    """Format dimensions for the worker prompt (without edges)."""
+    dimensions = schema.get("dimensions", [])
+    lines = []
+    for dim in dimensions:
+        name = dim.get("name", "unknown")
+        desc = dim.get("description", "")
+        dtype = dim.get("base_dtype", "")
+        lines.append(f"- {name}: {desc} ({dtype})")
+    return "\n".join(lines)
+
+
+def _get_outcome_description(schema: dict) -> str:
+    """Get the description of the outcome variable."""
+    dimensions = schema.get("dimensions", [])
+    for dim in dimensions:
+        if dim.get("is_outcome"):
+            return dim.get("description", dim.get("name", "outcome"))
+    return "Not specified"
+
+
 async def process_chunk_async(
     chunk: str,
-    chunk_id: str,
-    dag: dict,
+    question: str,
+    schema: dict,
 ) -> dict:
     """
-    Process a single data chunk against the candidate DAG.
+    Process a single data chunk against the candidate schema.
 
     Args:
         chunk: The data chunk to process
-        chunk_id: Unique identifier for this chunk
-        dag: The candidate DAG from the orchestrator (DSEMStructure as dict)
+        question: The causal research question
+        schema: The candidate schema from the orchestrator (DSEMStructure as dict)
 
     Returns:
         WorkerOutput as a dictionary
@@ -37,15 +59,17 @@ async def process_chunk_async(
     model_name = get_config().stage2_workers.model
     model = get_model(model_name)
 
-    # Format the DAG for the prompt
-    dag_json = json.dumps(dag, indent=2)
+    # Format inputs for the prompt
+    dimensions_text = _format_dimensions(schema)
+    outcome_description = _get_outcome_description(schema)
 
     messages = [
         ChatMessageSystem(content=WORKER_SYSTEM),
         ChatMessageUser(
             content=WORKER_USER.format(
-                dag_json=dag_json,
-                chunk_id=chunk_id,
+                question=question,
+                outcome_description=outcome_description,
+                dimensions=dimensions_text,
                 chunk=chunk,
             )
         ),
@@ -71,9 +95,6 @@ async def process_chunk_async(
         print(f"Content preview: {content[:500]}...")
         raise ValueError(f"Failed to parse worker response as JSON: {e}") from e
 
-    # Ensure chunk_id is set
-    data["chunk_id"] = chunk_id
-
     output = WorkerOutput.model_validate(data)
 
     return output.model_dump()
@@ -81,44 +102,42 @@ async def process_chunk_async(
 
 def process_chunk(
     chunk: str,
-    chunk_id: str,
-    dag: dict,
+    question: str,
+    schema: dict,
 ) -> dict:
     """
     Synchronous wrapper for process_chunk_async.
 
     Args:
         chunk: The data chunk to process
-        chunk_id: Unique identifier for this chunk
-        dag: The candidate DAG from the orchestrator
+        question: The causal research question
+        schema: The candidate schema from the orchestrator
 
     Returns:
         WorkerOutput as a dictionary
     """
-    import asyncio
-
-    return asyncio.run(process_chunk_async(chunk, chunk_id, dag))
+    return asyncio.run(process_chunk_async(chunk, question, schema))
 
 
 async def process_chunks_async(
     chunks: list[str],
-    dag: dict,
+    question: str,
+    schema: dict,
 ) -> list[dict]:
     """
     Process multiple chunks in parallel.
 
     Args:
         chunks: List of data chunks to process
-        dag: The candidate DAG from the orchestrator
+        question: The causal research question
+        schema: The candidate schema from the orchestrator
 
     Returns:
         List of WorkerOutput dictionaries
     """
-    import asyncio
-
     tasks = [
-        process_chunk_async(chunk, f"chunk_{i:04d}", dag)
-        for i, chunk in enumerate(chunks)
+        process_chunk_async(chunk, question, schema)
+        for chunk in chunks
     ]
 
     return await asyncio.gather(*tasks)
@@ -126,18 +145,18 @@ async def process_chunks_async(
 
 def process_chunks(
     chunks: list[str],
-    dag: dict,
+    question: str,
+    schema: dict,
 ) -> list[dict]:
     """
     Synchronous wrapper for process_chunks_async.
 
     Args:
         chunks: List of data chunks to process
-        dag: The candidate DAG from the orchestrator
+        question: The causal research question
+        schema: The candidate schema from the orchestrator
 
     Returns:
         List of WorkerOutput dictionaries
     """
-    import asyncio
-
-    return asyncio.run(process_chunks_async(chunks, dag))
+    return asyncio.run(process_chunks_async(chunks, question, schema))
