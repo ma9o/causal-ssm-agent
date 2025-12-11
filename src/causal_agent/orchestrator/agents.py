@@ -1,25 +1,21 @@
 """Orchestrator agents using Inspect AI with OpenRouter."""
 
 import json
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from inspect_ai.model import (
     ChatMessageSystem,
     ChatMessageUser,
-    GenerateConfig,
     get_model,
 )
 
+from causal_agent.utils.config import get_config
 from .prompts import STRUCTURE_PROPOSER_SYSTEM, STRUCTURE_PROPOSER_USER
 from .schemas import DSEMStructure
 
-# Load environment variables from .env file
+# Load environment variables from .env file (for API keys)
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
-
-# Model configuration
-MODEL_NAME = "openrouter/google/gemini-2.5-pro-preview-06-05"
 
 
 def _build_json_schema() -> dict:
@@ -43,7 +39,8 @@ async def propose_structure_async(
     Returns:
         DSEMStructure as a dictionary
     """
-    model = get_model(MODEL_NAME)
+    model_name = get_config().structure_proposal.model
+    model = get_model(model_name)
 
     # Format the chunks for the prompt - show them as they appear in the data
     chunks_text = "\n".join(data_sample)
@@ -59,13 +56,7 @@ async def propose_structure_async(
         ),
     ]
 
-    # Generate with config
-    config = GenerateConfig(
-        temperature=0.7,
-        max_tokens=8192,
-    )
-
-    response = await model.generate(messages, config=config)
+    response = await model.generate(messages)
     content = response.completion
 
     # Parse and validate the response
