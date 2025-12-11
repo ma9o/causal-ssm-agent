@@ -13,6 +13,7 @@ from causal_agent.utils.data import (
     load_text_chunks as load_text_chunks_util,
     get_worker_chunk_size,
 )
+from causal_agent.workers.agents import process_chunk
 
 
 @task(cache_policy=INPUTS)
@@ -28,8 +29,6 @@ def load_worker_chunks(input_path: Path) -> list[str]:
 )
 def populate_dimensions(chunk: str, chunk_id: int, schema: dict) -> dict:
     """Workers populate candidate dimensions for each chunk."""
-    from causal_agent.workers.agents import process_chunk
-
     return process_chunk(chunk, f"chunk_{chunk_id:04d}", schema)
 
 

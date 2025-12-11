@@ -9,6 +9,7 @@ from pathlib import Path
 from prefect import task
 from prefect.cache_policies import INPUTS
 
+from causal_agent.orchestrator.agents import propose_structure as propose_structure_agent
 from causal_agent.utils.data import (
     load_text_chunks as load_text_chunks_util,
     get_orchestrator_chunk_size,
@@ -24,6 +25,4 @@ def load_orchestrator_chunks(input_path: Path) -> list[str]:
 @task(retries=2, retry_delay_seconds=30, cache_policy=INPUTS)
 def propose_structure(question: str, data_sample: list[str]) -> dict:
     """Orchestrator proposes dimensions, autocorrelations, time granularities, DAG."""
-    from causal_agent.orchestrator.agents import propose_structure as propose_structure_agent
-
     return propose_structure_agent(question, data_sample)
