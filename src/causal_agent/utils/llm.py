@@ -111,6 +111,49 @@ def make_validate_worker_output_tool(schema: dict) -> Tool:
     return validate_extractions()
 
 
+@tool
+def parse_date():
+    """Tool for parsing dates into a human-readable spelled out format."""
+
+    async def execute(date_string: str) -> str:
+        """
+        Parse a date or timestamp into spelled out format.
+
+        Args:
+            date_string: A date or timestamp string (e.g., "2024-03-15", "2024-03-15T10:30:00")
+
+        Returns:
+            Spelled out date (e.g., "Friday, March 15, 2024") or an error message if parsing fails.
+        """
+        from datetime import datetime
+
+        # Common formats to try
+        formats = [
+            "%Y-%m-%d",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S.%fZ",
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y/%m/%d",
+            "%d-%m-%Y",
+            "%d/%m/%Y",
+            "%m-%d-%Y",
+            "%m/%d/%Y",
+        ]
+
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_string.strip(), fmt)
+                return dt.strftime("%A, %B %d, %Y")  # e.g., "Friday, March 15, 2024"
+            except ValueError:
+                continue
+
+        return f"Could not parse date: {date_string}"
+
+    return execute
+
+
 async def multi_turn_generate(
     messages: list["ChatMessage"],
     model: Model,

@@ -28,7 +28,7 @@ from causal_agent.workers.agents import (
     _get_observed_dimension_dtypes,
     _get_outcome_description,
 )
-from causal_agent.utils.llm import make_validate_worker_output_tool
+from causal_agent.utils.llm import make_validate_worker_output_tool, parse_date
 
 from evals.common import (
     extract_json_from_response,
@@ -274,7 +274,7 @@ def worker_eval(
         ),
         solver=[
             system_message(WORKER_SYSTEM),
-            tool_assisted_generate(tools=[validation_tool]),
+            tool_assisted_generate(tools=[validation_tool, parse_date()]),
         ],
         scorer=worker_extraction_scorer(),
     )
