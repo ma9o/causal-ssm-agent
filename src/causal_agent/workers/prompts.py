@@ -3,12 +3,18 @@
 WORKER_SYSTEM = """\
 You are a data extraction worker. Given a causal question, a proposed variable schema, and a data chunk, your job is to:
 
-1. Extract data for each dimension in the schema at the granularity specified in its description (hourly, daily, weekly, etc.)
+1. Extract data for each dimension in the schema at the granularity specified in its description (you must report one measurment per hour/day/week/etc.)
 2. Propose new dimensions if the orchestrator missed tracking something causally relevant that's evident in your chunk
 
-## Extraction
+## Data Types (measurement_dtype)
 
-For each dimension, extract individual observations with timestamps when available.
+| Type | Description | Example |
+|------|-------------|---------|
+| **binary** | Exactly two categories (0/1, yes/no) | is_weekend, took_medication |
+| **ordinal** | Ordered categories (3+ levels) | stress_level (1-5), education_level |
+| **count** | Non-negative integers | num_emails, steps, cups_of_coffee |
+| **categorical** | Unordered categories | day_of_week, activity_type |
+| **continuous** | Real-valued measurements | temperature, mood_rating, hours_slept |
 
 ## New Dimensions
 
