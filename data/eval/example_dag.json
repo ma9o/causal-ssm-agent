@@ -1,337 +1,430 @@
 {
   "dimensions": [
     {
-      "name": "context_switch_count",
-      "description": "Number of times the browsing topic changes within the time window - the compulsive behavior to be understood and reduced",
+      "name": "sleep_duration",
+      "description": "Estimated hours of sleep, proxied by gap between last evening activity and first morning activity next day",
       "role": "endogenous",
       "is_outcome": true,
       "observability": "observed",
-      "how_to_measure": "For each consecutive pair of search/visit events, record 1 if the topic changed (different subject domain), 0 if same topic continued. Topic change = search terms or page content address unrelated subject matter (e.g., 'ketamine' to 'phone roaming' = 1, 'ketamine effects' to 'ketamine reddit' = 0).",
+      "how_to_measure": "Derived from bedtime_hour and next day's morning_wake_hour: (morning_wake_hour + 24 - bedtime_hour) mod 24, yielding hours of estimated sleep",
       "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "count",
-      "aggregation": "sum",
-      "_changed": "how_to_measure: clarified to specify raw binary observation per transition rather than requiring topic clustering algorithm"
-    },
-    {
-      "name": "novelty_craving_state",
-      "description": "Latent internal drive for new stimuli - the 'itch' that compels switching. Higher states create stronger urge to abandon current topic for something fresh.",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "latent",
-      "how_to_measure": null,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
+      "causal_granularity": "daily",
       "measurement_dtype": "continuous",
       "aggregation": "mean",
-      "_changed": "unchanged"
+      "_changed": "aggregation: last→mean, how_to_measure: clarified as derived variable with explicit formula and units (hours)"
     },
     {
-      "name": "cognitive_depletion",
-      "description": "Latent mental fatigue/resource depletion that impairs ability to sustain focused attention. Higher depletion weakens self-control over switching impulses.",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "latent",
-      "how_to_measure": null,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "continuous",
-      "aggregation": "mean",
-      "_changed": "unchanged"
-    },
-    {
-      "name": "goal_directedness",
-      "description": "Latent clarity and commitment to a specific browsing objective. High goal-directedness anchors attention; low creates aimless wandering vulnerability.",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "latent",
-      "how_to_measure": null,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "continuous",
-      "aggregation": "mean",
-      "_changed": "unchanged"
-    },
-    {
-      "name": "search_action_count",
-      "description": "Total number of search queries initiated - captures overall browsing intensity and opportunities for switching",
+      "name": "bedtime_hour",
+      "description": "Hour of day when last browsing activity occurred, serving as proxy for bedtime",
       "role": "endogenous",
       "is_outcome": false,
       "observability": "observed",
-      "how_to_measure": "For each event, record 1 if event type is [search], 0 otherwise.",
+      "how_to_measure": "Identify all browsing event timestamps for the day; extract the hour (0-23) of the latest timestamp, adding 24 if after midnight (e.g., 2am = 26). Units: hours on 0-28 scale.",
       "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "count",
-      "aggregation": "sum",
-      "_changed": "how_to_measure: clarified to specify per-event binary rather than pre-aggregated count"
-    },
-    {
-      "name": "topic_category",
-      "description": "The semantic topic domain of each browsing event - used to measure diversity of attention",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "observed",
-      "how_to_measure": "Assign each search/visit to one category from: {programming_technical, health_medical, travel_geography, food_cuisine, music_entertainment, news_politics, shopping_products, science_research, social_people, finance_business, language_translation, other}. Assign based on primary subject of search query or page content.",
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "categorical",
-      "aggregation": "n_unique",
-      "_changed": "renamed from topic_diversity_index; measurement_dtype: count→categorical; aggregation: n_unique (kept); how_to_measure: now specifies explicit category set"
-    },
-    {
-      "name": "topic_dwell_seconds",
-      "description": "Duration in seconds spent on each topic episode before switching to a different topic",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "observed",
-      "how_to_measure": "For each topic episode (consecutive events on same topic), record duration in seconds from first event timestamp to last event timestamp of that episode. Units: seconds.",
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "continuous",
-      "aggregation": "mean",
-      "_changed": "renamed from mean_topic_dwell_seconds; how_to_measure: removed 'Average across...' since aggregation handles averaging; clarified units"
-    },
-    {
-      "name": "inter_event_gap_minutes",
-      "description": "Time gap between consecutive browsing events - captures break durations",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "observed",
-      "how_to_measure": "For each pair of consecutive events, record the gap in minutes between timestamps. Units: minutes.",
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
+      "causal_granularity": "daily",
       "measurement_dtype": "continuous",
       "aggregation": "max",
-      "_changed": "renamed from max_break_duration_minutes; how_to_measure: removed 'take maximum' since aggregation handles max selection; now describes raw per-gap measurement"
+      "_changed": "aggregation: last→max, how_to_measure: clarified timestamp selection and extended hour scale with units"
     },
     {
-      "name": "minute_is_active",
-      "description": "Whether a given minute contains any browsing activity",
+      "name": "morning_wake_hour",
+      "description": "Hour of first browsing activity in the morning, proxy for wake time",
       "role": "endogenous",
       "is_outcome": false,
       "observability": "observed",
-      "how_to_measure": "For each minute in the time window, record 1 if at least one search/visit event occurred in that minute, 0 if no events.",
+      "how_to_measure": "Identify all browsing event timestamps after 05:00 for the day; extract the hour (5-23) of the earliest timestamp. Units: hours on 5-23 scale.",
       "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "binary",
+      "causal_granularity": "daily",
+      "measurement_dtype": "continuous",
+      "aggregation": "min",
+      "_changed": "aggregation: first→min, how_to_measure: clarified timestamp selection with units"
+    },
+    {
+      "name": "evening_screen_time",
+      "description": "Volume of browsing activity between 6pm and midnight, measuring pre-sleep screen engagement",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count the number of distinct browsing events (searches or page visits) with timestamps between 18:00 and 23:59",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
       "aggregation": "sum",
-      "_changed": "renamed from session_active_minutes; measurement_dtype: continuous→binary; how_to_measure: clarified as per-minute binary observation that sums to active minutes"
+      "_changed": "measurement_dtype: continuous→count, how_to_measure: changed from 'minutes based on timestamp gaps' (per-unit enumeration) to counting discrete events"
     },
     {
-      "name": "event_is_technical",
-      "description": "Whether each browsing event involves technical/work content versus casual/entertainment content",
+      "name": "late_night_activity_count",
+      "description": "Number of browsing actions after midnight, indicating insomnia or delayed sleep",
       "role": "endogenous",
       "is_outcome": false,
       "observability": "observed",
-      "how_to_measure": "For each search/visit event, record 1 if content is technical (programming, documentation, research papers, technical wikis, work tools, APIs), 0 if non-technical (entertainment, social media, news, travel, food, music, casual browsing).",
+      "how_to_measure": "Count browsing events (searches or page visits) with timestamps between 00:00 and 04:59",
       "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "binary",
-      "aggregation": "mean",
-      "_changed": "renamed from technical_content_ratio; measurement_dtype: continuous→binary; how_to_measure: removed 'Calculate ratio' since mean of binary yields proportion"
-    },
-    {
-      "name": "episode_is_quick_abandon",
-      "description": "Whether a topic episode was abandoned quickly (under 2 minutes) indicating impulsive micro-switching",
-      "role": "endogenous",
-      "is_outcome": false,
-      "observability": "observed",
-      "how_to_measure": "For each topic episode (consecutive events on same topic that ends with a switch to different topic), record 1 if total episode duration was less than 120 seconds, 0 if 120 seconds or longer.",
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
-      "measurement_dtype": "binary",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
       "aggregation": "sum",
-      "_changed": "renamed from quick_abandon_count; measurement_dtype: count→binary; how_to_measure: clarified as per-episode binary assessment"
+      "_changed": "unchanged"
     },
     {
-      "name": "hour_of_day",
-      "description": "Hour of the day (0-23) capturing circadian effects on attention, restlessness, and goal clarity",
-      "role": "exogenous",
+      "name": "cognitive_load_evening",
+      "description": "Intensity of mentally demanding content browsed in evening hours before sleep",
+      "role": "endogenous",
       "is_outcome": false,
       "observability": "observed",
-      "how_to_measure": "Extract hour component from event timestamp. Categories: {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}.",
+      "how_to_measure": "Count browsing events between 18:00-23:59 where content involves: programming languages, algorithms, cryptography, security, mathematics, academic papers, technical documentation, or complex problem-solving",
       "temporal_status": "time_varying",
-      "causal_granularity": "hourly",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "work_intensity_daily",
+      "description": "Amount of work-related technical browsing throughout the day reflecting occupational demands",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count browsing events where content involves: programming languages (Haskell, Python, etc.), code repositories, Stack Overflow, technical documentation, software tools, APIs, or work communication platforms",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "health_anxiety_searches",
+      "description": "Searches related to health concerns, medical conditions, symptoms indicating health worry",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count search queries or page visits containing: disease names, symptom descriptions, medication side effects, medical conditions, diagnosis terms, or health forum discussions",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "substance_interest",
+      "description": "Searches related to psychoactive substances, medications, or nootropics that may affect sleep",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count browsing events involving: specific substance names (ketamine, piracetam, modafinil, etc.), drug effect discussions, dosing information, pharmacology, or substance-focused subreddits/forums",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "travel_activity",
+      "description": "Searches related to travel planning, destinations, flights, hotels indicating potential timezone disruption",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count browsing events involving: flight booking sites, hotel searches, destination names in travel context, travel weather queries, visa/passport information, currency conversion, or roaming/international phone plans",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "sleep_related_searches",
+      "description": "Searches specifically about sleep, sleep trackers, or sleep problems indicating sleep concerns",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count browsing events containing: sleep, insomnia, circadian, melatonin, sleep tracker brands (Oura, Dreem, Whoop), sleep apnea, RDI, sleep hygiene, or sleep disorder terms",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "browsing_topic_diversity",
+      "description": "Variety of different topic categories browsed in a day, indicating scattered attention or restlessness",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Classify each browsing event into one category from: {technology, travel, health, entertainment, food, finance, news, shopping, social, music, sports, academic, other}. Record the category for each event.",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
       "measurement_dtype": "categorical",
-      "aggregation": "first",
-      "_changed": "how_to_measure: added explicit category set (0-23)"
+      "aggregation": "n_unique",
+      "_changed": "measurement_dtype: count→categorical, aggregation: sum→n_unique, how_to_measure: specified explicit category set instead of counting"
     },
     {
       "name": "is_weekend",
-      "description": "Whether the day is Saturday or Sunday - weekends may have different browsing modes and goal structures",
+      "description": "Whether the day is Saturday or Sunday, affecting schedule flexibility",
       "role": "exogenous",
       "is_outcome": false,
       "observability": "observed",
-      "how_to_measure": "Record 1 if event date falls on Saturday or Sunday, 0 if Monday through Friday.",
+      "how_to_measure": "From any timestamp on that day, extract day of week. Code 1 if Saturday or Sunday, 0 if Monday-Friday.",
       "temporal_status": "time_varying",
       "causal_granularity": "daily",
       "measurement_dtype": "binary",
-      "aggregation": "first",
-      "_changed": "how_to_measure: clarified what qualifies as 1 (weekend) vs 0 (weekday)"
+      "aggregation": "max",
+      "_changed": "aggregation: first→max, how_to_measure: minor clarification"
     },
     {
-      "name": "prior_day_hourly_switches",
-      "description": "Context switch counts from each active hour of the previous day - captures habit momentum",
+      "name": "underlying_stress",
+      "description": "Latent stress level inferred from behavioral patterns like health searches, late night activity, topic switching",
       "role": "endogenous",
       "is_outcome": false,
-      "observability": "observed",
-      "how_to_measure": "For each active hour of the previous calendar day, record that hour's context_switch_count value. Units: switches per hour.",
+      "observability": "latent",
+      "how_to_measure": null,
       "temporal_status": "time_varying",
       "causal_granularity": "daily",
       "measurement_dtype": "continuous",
       "aggregation": "mean",
-      "_changed": "renamed from prior_day_switch_intensity; how_to_measure: clarified that raw values are hourly switch counts from previous day, aggregation computes mean; added units"
+      "_changed": "unchanged (latent variable)"
+    },
+    {
+      "name": "circadian_regularity",
+      "description": "Variability of sleep timing over the past week, with higher values indicating more irregularity",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Collect the bedtime_hour values from each of the past 7 days. Units: standard deviation in hours.",
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly",
+      "measurement_dtype": "continuous",
+      "aggregation": "std",
+      "_changed": "how_to_measure: removed 'Calculate standard deviation' (computation belongs in aggregation), clarified raw input and units"
+    },
+    {
+      "name": "arousing_content_evening",
+      "description": "Stimulating or emotionally activating content consumed in evening hours",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count browsing events between 18:00-23:59 involving: news articles, political content, controversial discussions, thriller/horror entertainment, competitive gaming, or emotionally charged social media threads",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
+    },
+    {
+      "name": "total_daily_browsing",
+      "description": "Overall browsing volume for the day indicating general activity level",
+      "role": "endogenous",
+      "is_outcome": false,
+      "observability": "observed",
+      "how_to_measure": "Count all browsing events (searches and page visits) occurring on that calendar day",
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily",
+      "measurement_dtype": "count",
+      "aggregation": "sum",
+      "_changed": "unchanged"
     }
   ],
   "edges": [
     {
-      "cause": "novelty_craving_state",
-      "effect": "context_switch_count",
-      "description": "High novelty craving creates internal pressure to abandon current topic for fresh stimulation, directly driving switching behavior",
-      "lagged": false
-    },
-    {
-      "cause": "cognitive_depletion",
-      "effect": "context_switch_count",
-      "description": "Mental fatigue depletes self-control resources needed to resist switching impulses, leading to more compulsive topic changes",
-      "lagged": false
-    },
-    {
-      "cause": "goal_directedness",
-      "effect": "context_switch_count",
-      "description": "Clear browsing goals anchor attention and provide intrinsic motivation to stay on topic, reducing random switching",
-      "lagged": false
-    },
-    {
-      "cause": "search_action_count",
-      "effect": "context_switch_count",
-      "description": "Each search is an opportunity to switch topics; more searches create more potential branch points for impulsive switching",
-      "lagged": false
-    },
-    {
-      "cause": "context_switch_count",
-      "effect": "novelty_craving_state",
-      "description": "Each switch provides small dopamine hit from novelty, reinforcing the craving state - the core habit loop that makes switching compulsive",
+      "cause": "bedtime_hour",
+      "effect": "sleep_duration",
+      "description": "Later bedtime directly reduces available sleep time before morning obligations or natural wake time",
       "lagged": true
     },
     {
-      "cause": "hour_of_day",
-      "effect": "novelty_craving_state",
-      "description": "Circadian rhythms affect baseline restlessness; late night and afternoon slumps may increase novelty seeking",
+      "cause": "evening_screen_time",
+      "effect": "sleep_duration",
+      "description": "Blue light exposure and mental engagement from evening screens suppresses melatonin and delays sleep onset",
+      "lagged": true
+    },
+    {
+      "cause": "evening_screen_time",
+      "effect": "bedtime_hour",
+      "description": "More screen time in evening leads to later bedtime through engagement and blue light alerting effects",
       "lagged": false
     },
     {
-      "cause": "hour_of_day",
-      "effect": "cognitive_depletion",
-      "description": "Time of day affects baseline energy and cognitive resources available for sustained attention",
+      "cause": "cognitive_load_evening",
+      "effect": "bedtime_hour",
+      "description": "Complex mental work in evening keeps mind active and engaged, delaying sleep onset",
       "lagged": false
     },
     {
-      "cause": "hour_of_day",
-      "effect": "goal_directedness",
-      "description": "Work hours (morning/afternoon) may have clearer goals; evening browsing tends more exploratory",
+      "cause": "cognitive_load_evening",
+      "effect": "sleep_duration",
+      "description": "Mental stimulation before bed causes racing thoughts and difficulty falling asleep",
+      "lagged": true
+    },
+    {
+      "cause": "arousing_content_evening",
+      "effect": "bedtime_hour",
+      "description": "Emotionally stimulating content increases alertness and delays transition to sleep",
       "lagged": false
     },
     {
-      "cause": "minute_is_active",
-      "effect": "cognitive_depletion",
-      "description": "Sustained browsing without breaks progressively depletes attention resources and self-control capacity",
+      "cause": "arousing_content_evening",
+      "effect": "sleep_duration",
+      "description": "Arousing content before bed increases physiological arousal that impairs sleep quality",
+      "lagged": true
+    },
+    {
+      "cause": "late_night_activity_count",
+      "effect": "sleep_duration",
+      "description": "Activity after midnight directly cuts into potential sleep time",
       "lagged": false
     },
     {
-      "cause": "inter_event_gap_minutes",
-      "effect": "cognitive_depletion",
-      "description": "Longer breaks allow cognitive resources to recover, reducing depletion and restoring capacity for sustained focus",
+      "cause": "work_intensity_daily",
+      "effect": "cognitive_load_evening",
+      "description": "High work demands during day create spillover into evening work and technical browsing",
       "lagged": false
     },
     {
-      "cause": "event_is_technical",
-      "effect": "cognitive_depletion",
-      "description": "Technical content demands more cognitive effort, accelerating mental depletion compared to light browsing",
+      "cause": "work_intensity_daily",
+      "effect": "underlying_stress",
+      "description": "Intensive work demands increase psychological stress and arousal levels",
+      "lagged": false
+    },
+    {
+      "cause": "work_intensity_daily",
+      "effect": "evening_screen_time",
+      "description": "Work demands extend screen usage into evening hours",
+      "lagged": false
+    },
+    {
+      "cause": "underlying_stress",
+      "effect": "sleep_duration",
+      "description": "Stress causes rumination, hyperarousal, and cortisol elevation that impairs sleep initiation and maintenance",
+      "lagged": true
+    },
+    {
+      "cause": "underlying_stress",
+      "effect": "late_night_activity_count",
+      "description": "Stress and anxiety manifest as difficulty stopping browsing, rumination, and insomnia-driven activity",
+      "lagged": false
+    },
+    {
+      "cause": "underlying_stress",
+      "effect": "health_anxiety_searches",
+      "description": "Underlying stress manifests as somatic focus and health-related worry driving medical searches",
+      "lagged": false
+    },
+    {
+      "cause": "underlying_stress",
+      "effect": "bedtime_hour",
+      "description": "Stress-driven hyperarousal delays ability to wind down and go to sleep",
+      "lagged": false
+    },
+    {
+      "cause": "health_anxiety_searches",
+      "effect": "underlying_stress",
+      "description": "Health-related searches can amplify worry and catastrophizing, increasing stress in feedback loop",
+      "lagged": true
+    },
+    {
+      "cause": "health_anxiety_searches",
+      "effect": "sleep_duration",
+      "description": "Health worry directly impairs sleep through rumination about symptoms and conditions",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_related_searches",
+      "effect": "underlying_stress",
+      "description": "Searching about sleep problems indicates and potentially amplifies sleep-related anxiety",
       "lagged": false
     },
     {
       "cause": "is_weekend",
-      "effect": "goal_directedness",
-      "description": "Weekdays often have work-related browsing goals; weekends have more aimless exploratory browsing patterns",
-      "lagged": true
+      "effect": "bedtime_hour",
+      "description": "Weekends allow later bedtimes without morning work obligations",
+      "lagged": false
     },
     {
       "cause": "is_weekend",
-      "effect": "novelty_craving_state",
-      "description": "Weekend leisure mode may activate stronger novelty-seeking compared to weekday task-oriented mindset",
+      "effect": "work_intensity_daily",
+      "description": "Work-related browsing is typically reduced on weekends",
+      "lagged": false
+    },
+    {
+      "cause": "is_weekend",
+      "effect": "morning_wake_hour",
+      "description": "Without work obligations, weekends allow sleeping in later",
+      "lagged": false
+    },
+    {
+      "cause": "travel_activity",
+      "effect": "underlying_stress",
+      "description": "Travel planning creates excitement and logistical stress that elevates arousal",
+      "lagged": false
+    },
+    {
+      "cause": "travel_activity",
+      "effect": "sleep_duration",
+      "description": "Active travel planning and potential timezone anticipation disrupts normal sleep patterns",
       "lagged": true
     },
     {
-      "cause": "prior_day_hourly_switches",
-      "effect": "novelty_craving_state",
-      "description": "Yesterday's switching patterns establish habit momentum - high switching days prime craving for next day",
+      "cause": "browsing_topic_diversity",
+      "effect": "underlying_stress",
+      "description": "Scattered attention across many unrelated topics may indicate restlessness or inability to focus from stress",
+      "lagged": false
+    },
+    {
+      "cause": "browsing_topic_diversity",
+      "effect": "cognitive_load_evening",
+      "description": "Diverse browsing requires more cognitive switching and mental engagement",
+      "lagged": false
+    },
+    {
+      "cause": "substance_interest",
+      "effect": "underlying_stress",
+      "description": "Interest in psychoactive substances may indicate attempts to self-manage stress or mood problems",
+      "lagged": false
+    },
+    {
+      "cause": "substance_interest",
+      "effect": "sleep_duration",
+      "description": "Substance use or contemplation of use may directly affect sleep physiology and worry",
       "lagged": true
     },
     {
-      "cause": "novelty_craving_state",
-      "effect": "search_action_count",
-      "description": "High novelty craving drives more frequent searches as person seeks next interesting thing",
+      "cause": "sleep_duration",
+      "effect": "underlying_stress",
+      "description": "Poor sleep increases next-day stress reactivity, emotional dysregulation, and cognitive difficulty",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_duration",
+      "effect": "morning_wake_hour",
+      "description": "Sleep duration influences natural wake time through sleep pressure and circadian interaction",
       "lagged": false
     },
     {
-      "cause": "goal_directedness",
-      "effect": "search_action_count",
-      "description": "Clear goals can increase focused searching, but also reduce aimless search volume",
+      "cause": "sleep_duration",
+      "effect": "work_intensity_daily",
+      "description": "Poor sleep reduces next-day cognitive capacity, potentially reducing work output or increasing compensatory effort",
+      "lagged": true
+    },
+    {
+      "cause": "circadian_regularity",
+      "effect": "sleep_duration",
+      "description": "Irregular sleep schedule weakens circadian entrainment leading to poorer sleep quality and duration",
+      "lagged": true
+    },
+    {
+      "cause": "bedtime_hour",
+      "effect": "circadian_regularity",
+      "description": "Daily bedtime variation feeds into weekly circadian regularity measure",
+      "lagged": true
+    },
+    {
+      "cause": "total_daily_browsing",
+      "effect": "evening_screen_time",
+      "description": "Higher overall daily browsing activity tends to extend into evening hours",
       "lagged": false
     },
     {
-      "cause": "novelty_craving_state",
-      "effect": "topic_category",
-      "description": "High craving drives exploration across many domains rather than depth in few",
-      "lagged": false
-    },
-    {
-      "cause": "goal_directedness",
-      "effect": "topic_category",
-      "description": "Strong goal focus constrains browsing to relevant topics, reducing diversity",
-      "lagged": false
-    },
-    {
-      "cause": "cognitive_depletion",
-      "effect": "topic_dwell_seconds",
-      "description": "Mental fatigue impairs ability to engage deeply with topics, reducing dwell time before attention wanders",
-      "lagged": false
-    },
-    {
-      "cause": "novelty_craving_state",
-      "effect": "topic_dwell_seconds",
-      "description": "High craving creates impatience with current topic, shortening engagement before seeking next stimulus",
-      "lagged": false
-    },
-    {
-      "cause": "goal_directedness",
-      "effect": "topic_dwell_seconds",
-      "description": "Clear purpose provides motivation to engage deeply with relevant content, extending dwell time",
-      "lagged": false
-    },
-    {
-      "cause": "novelty_craving_state",
-      "effect": "episode_is_quick_abandon",
-      "description": "High craving manifests as rapid sampling behavior - brief taste of topics before abandoning for next",
-      "lagged": false
-    },
-    {
-      "cause": "cognitive_depletion",
-      "effect": "episode_is_quick_abandon",
-      "description": "Depleted self-control leads to impulsive micro-switches without meaningful engagement",
-      "lagged": false
-    },
-    {
-      "cause": "goal_directedness",
-      "effect": "event_is_technical",
-      "description": "Work-related goals steer browsing toward technical content; aimless browsing drifts to entertainment",
-      "lagged": false
-    },
-    {
-      "cause": "episode_is_quick_abandon",
-      "effect": "context_switch_count",
-      "description": "Quick abandons directly contribute to switch count; pattern of micro-switches escalates overall switching",
+      "cause": "total_daily_browsing",
+      "effect": "underlying_stress",
+      "description": "Very high browsing volume may indicate restlessness, procrastination, or stress-driven distraction",
       "lagged": false
     }
   ]

@@ -46,8 +46,8 @@ MODELS = {
     "openrouter/anthropic/claude-4.5-haiku-20251001": "haiku",
 }
 
-# Default question for worker eval (matches example_dag.json)
-DEFAULT_QUESTION = "I want to feel like a competent engineer"
+# Default question for worker eval (has to match example_dag.json)
+DEFAULT_QUESTION = "I want to sleep better"
 
 
 def create_eval_dataset(
