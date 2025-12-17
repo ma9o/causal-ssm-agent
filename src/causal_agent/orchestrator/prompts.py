@@ -83,7 +83,7 @@ Choose based on meaning: mean (average level), sum (cumulative), max/min (extrem
       "role": "endogenous" | "exogenous",
       "is_outcome": true | false,
       "observability": "observed" | "latent",
-      "how_to_measure": "instructions for extracting this from data" | null,
+      "how_to_measure": "instructions that will be passed to the worker to extract this from its assigned data chunk" | null,
       "temporal_status": "time_varying" | "time_invariant",
       "causal_granularity": "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null,
       "measurement_granularity": "finest" | "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null,
@@ -130,7 +130,7 @@ Sample data:
 STRUCTURE_REVIEW_REQUEST = """\
 Review your proposed structure for measurement coherence.
 
-For each **observed** dimension, verify that measurement_dtype, aggregation, and how_to_measure are mutually consistent:
+For each **observed** dimension, verify that measurement_granularity, measurement_dtype, aggregation, and how_to_measure are mutually consistent:
 
 ## Coherence Rules
 
@@ -144,18 +144,14 @@ For each **observed** dimension, verify that measurement_dtype, aggregation, and
 ## Red Flags
 
 - **how_to_measure describes a computed metric** (e.g., "inverse entropy of...", "ratio of...", "intensity measured by...") → The computation belongs in aggregation. Specify what raw values workers extract.
+- **how_to_measure requiring global dependencies** (e.g., mesurements that require the whole dataset beyond the current data chunk) → Dependencies across chunks can only be modeled via aggreagation AFTER extraction. As for cross-chunk time dependencies, they are tracked by autocorrelating dimensions via the markov property (all the time-varying ones will be already autocorrelated)
 - **measurement_dtype: continuous without units or scale** → Workers will invent numbers. Anchor it.
 - **measurement_dtype: ordinal without level definitions** → Define levels explicitly.
 - **measurement_dtype + aggregation mismatch** → Check the table above.
-
-IMPORTANT: **Per-unit enumeration** (e.g., "For each minute, record 1 if...") → Workers process text chunks, not time-indexed databases. They cannot reliably enumerate time units or iterate over implicit sets. Reframe as a aggreagation: "[count/min/ax/etc.] the number of minutes containing at least one event."
+- **measurement_granularity=finest** → Avoid encumbering the workers with too many dimensions that need to be measured at finest grain. Aggregate to hourly where possible.
 
 ## Output
 
 Return the corrected structure as JSON. For each dimension you modified, add:
-`"_changed": "measurement_dtype: X→Y, aggregation: A→B, how_to_measure: clarified"` (or "unchanged")
-
-## Validation Tool
-
-You have access to the `simulate_worker_measurements` tool. Keep validating and refining the measurment model until you get a dataframe that makes sense.
+`"_changed": "..."` (or "unchanged")
 """
