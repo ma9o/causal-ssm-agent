@@ -48,7 +48,7 @@ worker_models:
 judge_model: openrouter/anthropic/claude-sonnet-4
 
 # Worker timeout in seconds (for measurement adherence eval)
-worker_timeout_seconds: 180
+worker_timeout_seconds: 1200
 
 # Default data sampling settings
 data_sampling:
