@@ -45,7 +45,7 @@ worker_models:
     alias: gpt-oss
 
 # Judge model for measurement adherence eval
-judge_model: openrouter/anthropic/claude-sonnet-4
+judge_model: openrouter/anthropic/claude-opus-4.5
 
 # Worker timeout in seconds (for measurement adherence eval)
 worker_timeout_seconds: 1200
