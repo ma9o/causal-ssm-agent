@@ -52,3 +52,6 @@ data_sampling:
   orchestrator_chunks: 5
   worker_chunks: 10
   seed: 42
+
+# Example DAG for worker evals (relative to data/ directory)
+example_dag: eval/example_dag.json
