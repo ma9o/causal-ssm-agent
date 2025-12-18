@@ -51,6 +51,8 @@ You have access to `validate_extractions` tool. Use it to validate your JSON bef
   ] | null
 }
 ```
+
+IMPORTANT: Always output the JSON after validating your final answer. `validate_extractions` does not save the final result.
 """
 
 WORKER_USER = """\
