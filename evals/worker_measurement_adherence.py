@@ -265,17 +265,16 @@ def judge_solver(model_ids: list[str] | None = None):
             dimensions_text = state.metadata["dimensions_text"]
 
             # Generate outputs from all competing models in parallel
-            tasks = {
-                model_id: generate_worker_output(model_id, chunk, question, schema)
-                for model_id in model_ids
-            }
-
-            outputs = {}
-            for model_id, coro in tasks.items():
+            async def safe_generate(model_id: str) -> tuple[str, str]:
+                """Generate with error handling, returns (model_id, result)."""
                 try:
-                    outputs[model_id] = await coro
+                    result = await generate_worker_output(model_id, chunk, question, schema)
+                    return model_id, result
                 except Exception as e:
-                    outputs[model_id] = f"[ERROR: {e}]"
+                    return model_id, f"[ERROR: {e}]"
+
+            results = await asyncio.gather(*[safe_generate(mid) for mid in model_ids])
+            outputs = dict(results)
 
             # Create anonymous labels and shuffle
             labels = [chr(ord("A") + i) for i in range(len(model_ids))]
