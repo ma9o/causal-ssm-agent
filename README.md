@@ -197,7 +197,8 @@ causal-agent/
 │   ├── test_schemas.py      # DSEM schema validation tests
 │   └── test_scoring.py      # Structure scoring tests
 ├── tools/
-│   └── dag_visualizer.html  # Interactive DAG viewer for LLM output
+│   ├── dag_visualizer.html  # Interactive DAG viewer for LLM output
+│   └── read_eval_log.py     # Inspect eval log reader CLI
 ├── docs/
 │   └── dsem_spec.md         # DSEM specification
 └── config.yaml              # Pipeline configuration (models, params)
