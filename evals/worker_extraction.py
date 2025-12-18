@@ -42,7 +42,7 @@ from evals.common import (
 MODELS = {
     "openrouter/moonshotai/kimi-k2-thinking": "kimi",
     "openrouter/deepseek/deepseek-v3.2-exp": "deepseek",
-    "openrouter/google/gemini-2.5-flash": "gemini",
+    "openrouter/google/gemini-3-flash-preview": "gemini",
     "openrouter/x-ai/grok-4.1-fast": "grok",
     "openrouter/anthropic/claude-haiku-4.5": "haiku",
     "openrouter/minimax/minimax-m2": "minimax",

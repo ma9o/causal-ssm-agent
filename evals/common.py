@@ -4,7 +4,7 @@ import json
 import re
 
 from inspect_ai.model import GenerateConfig, get_model
-from inspect_ai.solver import Generate, TaskState, generate, solver
+from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
 from causal_agent.utils.llm import multi_turn_generate
@@ -15,14 +15,6 @@ from causal_agent.utils.data import (
     get_orchestrator_chunk_size,
     get_worker_chunk_size,
 )
-
-
-def reasoning_generate():
-    """Generate solver with max thinking budget for reasoning models."""
-    return generate(
-        max_tokens=65536,
-        reasoning_effort="high",
-    )
 
 
 def tool_assisted_generate(
@@ -43,7 +35,12 @@ def tool_assisted_generate(
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
             model = get_model()
-            config = GenerateConfig(max_tokens=65536, reasoning_effort="high")
+            config = GenerateConfig(
+                max_tokens=65536,
+                reasoning_effort="high",
+                reasoning_tokens=32768,
+                reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
+            )
 
             completion = await multi_turn_generate(
                 messages=list(state.messages),
