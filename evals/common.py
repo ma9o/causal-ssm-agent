@@ -2,19 +2,34 @@
 
 import json
 import re
+from pathlib import Path
 
+import yaml
 from inspect_ai.model import GenerateConfig, get_model
 from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
 from causal_agent.utils.llm import multi_turn_generate
 from causal_agent.utils.data import (
+    DATA_DIR,
     PROCESSED_DIR,
     get_latest_preprocessed_file,
     sample_chunks,
     get_orchestrator_chunk_size,
     get_worker_chunk_size,
 )
+
+
+def load_eval_config() -> dict:
+    """Load the eval config.yaml file."""
+    config_path = Path(__file__).parent / "config.yaml"
+    with open(config_path) as f:
+        return yaml.safe_load(f)
+
+
+def get_eval_questions() -> list[dict]:
+    """Get evaluation questions from config."""
+    return load_eval_config()["questions"]
 
 
 def tool_assisted_generate(
@@ -125,7 +140,8 @@ def extract_json_from_response(text: str) -> str | None:
 
 
 def load_example_dag() -> dict:
-    """Load the example DAG for worker evals."""
-    dag_file = PROCESSED_DIR.parent / "eval" / "example_dag.json"
-    with open(dag_file) as f:
+    """Load the example DAG for worker evals from config path."""
+    config = load_eval_config()
+    dag_path = DATA_DIR / config["example_dag"]
+    with open(dag_path) as f:
         return json.load(f)
