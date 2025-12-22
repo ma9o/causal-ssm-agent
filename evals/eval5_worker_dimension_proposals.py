@@ -1,11 +1,11 @@
 """Inspect AI evaluation for worker dimension proposal quality.
 
-Uses a judge model to evaluate the relevance of dimensions proposed by a
-single worker model. The worker is scored by acceptance rate - how many
-of its proposed dimensions the judge accepts as genuinely relevant.
+Uses a judge model (from config.yaml) to evaluate the relevance of dimensions
+proposed by a single worker model. The worker is scored by acceptance rate -
+how many of its proposed dimensions the judge accepts as genuinely relevant.
 
 Usage:
-    inspect eval evals/eval5_worker_dimension_proposals.py --model openrouter/anthropic/claude-sonnet-4
+    inspect eval evals/eval5_worker_dimension_proposals.py
 """
 
 import sys
@@ -43,6 +43,9 @@ _CONFIG = load_eval_config()
 
 # Default worker model for dimension proposals (gemini 3 flash - best at extraction)
 DEFAULT_WORKER_MODEL = "google/vertex/gemini-3-flash-preview"
+
+# Judge model from config
+JUDGE_MODEL = _CONFIG.get("judge_model", "openrouter/anthropic/claude-sonnet-4")
 
 
 JUDGE_SYSTEM = """\
@@ -200,7 +203,7 @@ def format_existing_dimensions(schema: dict) -> str:
 
 def create_eval_dataset(
     n_chunks: int = 3,
-    seed: int = 42,
+    seed: int = 55,  # Different seed than other evals (42) for unique chunks
     input_file: str | None = None,
 ) -> MemoryDataset:
     """Create evaluation dataset.
@@ -323,8 +326,8 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
             ]
 
             # Generate judge response
-            judge_model = get_model()
-            response = await judge_model.generate(state.messages, config=get_generate_config())
+            judge = get_model(JUDGE_MODEL)
+            response = await judge.generate(state.messages, config=get_generate_config())
             state.output.completion = response.completion
 
             return state
@@ -413,7 +416,7 @@ def dimension_proposal_scorer():
 @task
 def worker_dimension_proposals_eval(
     n_chunks: int = 2,
-    seed: int = 42,
+    seed: int = 55,
     input_file: str | None = None,
     worker_model: str | None = None,
     worker_timeout: int | None = None,
