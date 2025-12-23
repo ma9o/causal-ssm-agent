@@ -200,7 +200,8 @@ causal-agent/
 │   ├── test_schemas.py      # DSEM schema validation tests
 │   └── test_scoring.py      # Structure scoring tests
 ├── tools/
-│   ├── dag_visualizer.html  # Interactive DAG viewer for LLM output
+│   ├── dag_explorer.py      # Streamlit UI for DAG visualization + DoWhy analysis
+│   ├── dag_visualizer.html  # (legacy) Static HTML DAG viewer
 │   └── read_eval_log.py     # Inspect eval log reader CLI
 ├── docs/
 │   └── dsem_spec.md         # DSEM specification
