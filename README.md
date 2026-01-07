@@ -200,6 +200,7 @@ causal-agent/
 │   ├── test_schemas.py      # DSEM schema validation tests
 │   └── test_scoring.py      # Structure scoring tests
 ├── tools/
+│   ├── dag_identifiability.py  # Interactive DAG creation + DoWhy identify_effect
 │   ├── dag_explorer.py      # Streamlit UI for interactive DAG visualization
 │   ├── dag_visualizer.html  # (legacy) Static HTML DAG viewer
 │   └── read_eval_log.py     # Inspect eval log reader CLI

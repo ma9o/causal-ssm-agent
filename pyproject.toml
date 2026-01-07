@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "dowhy>=0.14",
     "dspy>=3.0.4",
     "google-genai>=1.56.0",
     "inspect-ai>=0.3.153",
@@ -15,10 +16,7 @@ dependencies = [
     "openai>=2.9.0",
     "polars>=1.35.2",
     "prefect>=3.6.5",
-    "python-dotenv>=1.2.1",
-    "streamlit>=1.52.2",
-    "streamlit-agraph>=0.0.45",
-    "watchdog>=6.0.0",
+    "python-dotenv>=1.2.1"
 ]
 
 [build-system]
@@ -27,5 +25,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.1.0",
     "pytest>=9.0.2",
+    "streamlit>=1.52.2",
+    "streamlit-agraph>=0.0.45",
+    "watchdog>=6.0.0",
 ]
