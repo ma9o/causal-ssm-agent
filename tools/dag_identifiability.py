@@ -84,52 +84,6 @@ def init_session_state():
         st.session_state.outcome = None
 
 
-def add_node(name: str, observed: bool = True):
-    """Add a node to the DAG."""
-    if name and name not in st.session_state.nodes:
-        st.session_state.nodes[name] = {"observed": observed}
-        return True
-    return False
-
-
-def remove_node(name: str):
-    """Remove a node and its connected edges."""
-    if name in st.session_state.nodes:
-        del st.session_state.nodes[name]
-        st.session_state.edges = [
-            (c, e) for c, e in st.session_state.edges if c != name and e != name
-        ]
-        if st.session_state.treatment == name:
-            st.session_state.treatment = None
-        if st.session_state.outcome == name:
-            st.session_state.outcome = None
-
-
-def toggle_observed(name: str):
-    """Toggle node observed status."""
-    if name in st.session_state.nodes:
-        st.session_state.nodes[name]["observed"] = not st.session_state.nodes[name][
-            "observed"
-        ]
-
-
-def add_edge(cause: str, effect: str):
-    """Add an edge to the DAG."""
-    if cause and effect and cause != effect:
-        edge = (cause, effect)
-        if edge not in st.session_state.edges:
-            st.session_state.edges.append(edge)
-            return True
-    return False
-
-
-def remove_edge(cause: str, effect: str):
-    """Remove an edge from the DAG."""
-    edge = (cause, effect)
-    if edge in st.session_state.edges:
-        st.session_state.edges.remove(edge)
-
-
 def build_networkx_graph() -> nx.DiGraph:
     """Build NetworkX DiGraph from session state."""
     G = nx.DiGraph()
@@ -367,80 +321,7 @@ st.title("DAG Builder + DoWhy Identifiability")
 col_edit, col_graph, col_analysis = st.columns([1, 2, 1])
 
 with col_edit:
-    st.subheader("Edit DAG")
-
-    # Add node section
-    st.markdown("**Add Node**")
-    col_name, col_obs = st.columns([2, 1])
-    with col_name:
-        new_node_name = st.text_input("Name", key="new_node_input", label_visibility="collapsed", placeholder="Node name")
-    with col_obs:
-        new_node_observed = st.checkbox("Observed", value=True, key="new_node_observed")
-
-    if st.button("Add Node", use_container_width=True):
-        if add_node(new_node_name, new_node_observed):
-            st.rerun()
-
-    # Current nodes
-    st.markdown("**Nodes**")
-    if st.session_state.nodes:
-        for name, props in list(st.session_state.nodes.items()):
-            col_n, col_o, col_d = st.columns([2, 1, 1])
-            with col_n:
-                obs_tag = "observed" if props["observed"] else "unobserved"
-                st.markdown(
-                    f'<span class="tag tag-{obs_tag}">{obs_tag}</span> {name}',
-                    unsafe_allow_html=True,
-                )
-            with col_o:
-                if st.button("Toggle", key=f"toggle_{name}"):
-                    toggle_observed(name)
-                    st.rerun()
-            with col_d:
-                if st.button("Del", key=f"del_{name}"):
-                    remove_node(name)
-                    st.rerun()
-    else:
-        st.info("No nodes yet")
-
-    st.markdown("---")
-
-    # Add edge section
-    st.markdown("**Add Edge**")
-    node_names = list(st.session_state.nodes.keys())
-    if len(node_names) >= 2:
-        col_cause, col_arrow, col_effect = st.columns([2, 1, 2])
-        with col_cause:
-            cause = st.selectbox("Cause", node_names, key="edge_cause", label_visibility="collapsed")
-        with col_arrow:
-            st.markdown("<div style='text-align:center; padding-top:8px; color:#8b949e;'>→</div>", unsafe_allow_html=True)
-        with col_effect:
-            effect = st.selectbox("Effect", node_names, key="edge_effect", label_visibility="collapsed")
-
-        if st.button("Add Edge", use_container_width=True):
-            if add_edge(cause, effect):
-                st.rerun()
-    else:
-        st.info("Add at least 2 nodes")
-
-    # Current edges
-    st.markdown("**Edges**")
-    if st.session_state.edges:
-        for cause, effect in list(st.session_state.edges):
-            col_e, col_r = st.columns([3, 1])
-            with col_e:
-                st.text(f"{cause} → {effect}")
-            with col_r:
-                if st.button("Del", key=f"del_edge_{cause}_{effect}"):
-                    remove_edge(cause, effect)
-                    st.rerun()
-    else:
-        st.info("No edges yet")
-
-    st.markdown("---")
-
-    # Live Mermaid editor
-    st.markdown("**Mermaid Spec**")
+    st.subheader("Mermaid Spec")
 
     # Generate current spec from DAG state
     current_spec = generate_mermaid_spec() if st.session_state.nodes else "graph TD"
@@ -453,17 +334,19 @@ with col_edit:
     edited_spec = st.text_area(
         "Edit Mermaid",
         value=current_spec,
-        height=200,
+        height=350,
         key=f"mermaid_editor_{dag_key}",
         label_visibility="collapsed",
     )
 
-    if st.button("Apply Mermaid", use_container_width=True):
+    if st.button("Apply", use_container_width=True, type="primary"):
         success, error = parse_mermaid_spec(edited_spec)
         if success:
             st.rerun()
         else:
             st.error(f"Parse error: {error}")
+
+    st.caption("Use `Name[Label]:::class` for nodes, `A --> B` for edges. Classes: `treatment`, `outcome`, `observed`, `unobserved`")
 
 with col_graph:
     st.subheader("Graph")
