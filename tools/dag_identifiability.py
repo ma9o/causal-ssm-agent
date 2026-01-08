@@ -4,13 +4,12 @@ Interactive DAG Builder with DoWhy Identifiability Analysis.
 Run with: uv run streamlit run tools/dag_identifiability.py
 """
 
-from io import BytesIO
-
 import networkx as nx
 import streamlit as st
 import streamlit.components.v1 as components
-from dowhy import CausalModel
 from streamlit_agraph import Config, Edge, Node, agraph
+
+from commons import COPY_GRAPH_HTML, run_identify_effect
 
 st.set_page_config(page_title="DAG Builder + DoWhy", layout="wide")
 
@@ -94,13 +93,6 @@ def build_networkx_graph() -> nx.DiGraph:
     return G
 
 
-def graph_to_gml_string(G: nx.DiGraph) -> str:
-    """Convert NetworkX graph to GML string for DoWhy."""
-    buffer = BytesIO()
-    nx.write_gml(G, buffer)
-    return buffer.getvalue().decode("utf-8")
-
-
 def create_agraph_elements() -> tuple[list[Node], list[Edge]]:
     """Create agraph nodes and edges for visualization."""
     nodes = []
@@ -168,7 +160,7 @@ def create_agraph_elements() -> tuple[list[Node], list[Edge]]:
     return nodes, edges
 
 
-def run_identify_effect() -> tuple[str | None, str | None]:
+def do_identify_effect() -> tuple[str | None, str | None]:
     """Run DoWhy's identify_effect and return (result, error)."""
     treatment = st.session_state.treatment
     outcome = st.session_state.outcome
@@ -184,33 +176,16 @@ def run_identify_effect() -> tuple[str | None, str | None]:
 
     G = build_networkx_graph()
 
-    if not nx.is_directed_acyclic_graph(G):
-        return None, "Graph contains cycles"
+    # Get observed nodes for DoWhy
+    observed_nodes = [
+        name for name, props in st.session_state.nodes.items() if props["observed"]
+    ]
 
-    try:
-        import pandas as pd
+    result = run_identify_effect(G, treatment, outcome, observed_nodes)
 
-        gml_string = graph_to_gml_string(G)
-
-        # Only include observed nodes in data - DoWhy uses this to determine observability
-        observed_nodes = [
-            name for name, props in st.session_state.nodes.items()
-            if props["observed"]
-        ]
-        dummy_data = pd.DataFrame({name: [0, 1] for name in observed_nodes})
-
-        model = CausalModel(
-            data=dummy_data,
-            treatment=treatment,
-            outcome=outcome,
-            graph=gml_string,
-        )
-
-        identified_estimand = model.identify_effect(proceed_when_unidentifiable=False)
-        return str(identified_estimand), None
-
-    except Exception as e:
-        return None, str(e)
+    if result.error:
+        return None, result.error
+    return result.estimand_str, None
 
 
 def generate_mermaid_spec() -> str:
@@ -381,84 +356,7 @@ with col_graph:
                 unsafe_allow_html=True,
             )
         with col_copy:
-            copy_js = """
-            <style>
-            .copy-btn {
-                background: #238636;
-                color: white;
-                border: none;
-                padding: 4px 12px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 12px;
-                transition: all 0.2s ease;
-            }
-            .copy-btn.success {
-                background: #1f6feb;
-                transform: scale(1.05);
-            }
-            .copy-btn.error {
-                background: #da3633;
-            }
-            </style>
-            <button id="copyBtn" class="copy-btn" onclick="copyGraph()">📋 Copy</button>
-            <script>
-            async function copyGraph() {
-                const btn = document.getElementById('copyBtn');
-                const originalText = btn.innerHTML;
-
-                // Search up through parent frames to find all iframes
-                let root = window;
-                while (root.parent && root.parent !== root) {
-                    root = root.parent;
-                }
-                const iframes = root.document.querySelectorAll('iframe');
-                let canvas = null;
-                for (const iframe of iframes) {
-                    try {
-                        canvas = iframe.contentDocument.querySelector('canvas');
-                        if (canvas) break;
-                    } catch (e) {}
-                }
-                if (!canvas) {
-                    btn.innerHTML = '❌ Not found';
-                    btn.classList.add('error');
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.classList.remove('error');
-                    }, 1500);
-                    return;
-                }
-                try {
-                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-                    await navigator.clipboard.write([
-                        new ClipboardItem({'image/png': blob})
-                    ]);
-                    btn.innerHTML = '✓ Copied!';
-                    btn.classList.add('success');
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.classList.remove('success');
-                    }, 1500);
-                } catch (err) {
-                    // Fallback: download
-                    const link = root.document.createElement('a');
-                    link.download = 'dag.png';
-                    link.href = canvas.toDataURL('image/png');
-                    root.document.body.appendChild(link);
-                    link.click();
-                    root.document.body.removeChild(link);
-                    btn.innerHTML = '✓ Downloaded!';
-                    btn.classList.add('success');
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.classList.remove('success');
-                    }, 1500);
-                }
-            }
-            </script>
-            """
-            components.html(copy_js, height=35)
+            components.html(COPY_GRAPH_HTML, height=35)
 
         # Show identify_effect result if available
         if "identify_result" in st.session_state:
@@ -510,7 +408,7 @@ with col_analysis:
         st.markdown("---")
 
         if st.button("Run identify_effect()", use_container_width=True, type="primary"):
-            st.session_state.identify_result = run_identify_effect()
+            st.session_state.identify_result = do_identify_effect()
             st.rerun()
     else:
         st.info("Add nodes first")

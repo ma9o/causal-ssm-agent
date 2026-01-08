@@ -4,10 +4,16 @@ DSEM DAG Explorer - Streamlit UI for DAG visualization.
 Run with: uv run streamlit run tools/dag_explorer.py
 """
 
-import json
-
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_agraph import Config, Edge, Node, agraph
+
+from commons import (
+    COPY_GRAPH_HTML,
+    dag_to_networkx,
+    parse_dag_json,
+    run_identify_effect,
+)
 
 st.set_page_config(page_title="DSEM DAG Explorer", layout="wide")
 
@@ -75,26 +81,6 @@ COLORS = {
     "edge": "#8b949e",
     "background": "#0d1117",
 }
-
-
-def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
-    """Parse the DAG JSON format."""
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        return None, f"Invalid JSON: {e}"
-
-    if "dimensions" not in data or "edges" not in data:
-        return None, "JSON must have 'dimensions' and 'edges' arrays"
-
-    node_names = {d["name"] for d in data["dimensions"]}
-    for edge in data["edges"]:
-        if edge["cause"] not in node_names:
-            return None, f"Edge references unknown cause: '{edge['cause']}'"
-        if edge["effect"] not in node_names:
-            return None, f"Edge references unknown effect: '{edge['effect']}'"
-
-    return data, None
 
 
 def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
@@ -298,6 +284,59 @@ with col_graph:
         st.caption(
             f"**Nodes:** {len(data['dimensions'])} | **Edges:** {len(data['edges'])} — Click a node to inspect"
         )
+
+        # Copy button
+        col_stats, col_copy = st.columns([4, 1])
+        with col_copy:
+            components.html(COPY_GRAPH_HTML, height=35)
+
+        # DoWhy Causal Analysis Section
+        st.markdown("---")
+        st.subheader("Causal Identifiability (DoWhy)")
+
+        node_names = [d["name"] for d in data["dimensions"]]
+        col_treat, col_out = st.columns(2)
+
+        with col_treat:
+            treatment = st.selectbox("Treatment", options=node_names, index=0)
+        with col_out:
+            outcome_options = [n for n in node_names if n != treatment]
+            outcome = st.selectbox("Outcome", options=outcome_options, index=0)
+
+        if st.button("Run Identifiability Analysis", type="primary"):
+            with st.spinner("Analyzing..."):
+                graph = dag_to_networkx(data)
+                result = run_identify_effect(graph, treatment, outcome)
+
+                st.markdown("**Identification Result**")
+                if result.error:
+                    st.error(f"Analysis failed: {result.error}")
+                elif result.identifiable:
+                    st.success("Effect is identifiable!")
+                    st.markdown(
+                        f"""
+                        <div class="info-box">
+                            <div class="info-row">
+                                <span class="info-label">Method</span>
+                                <span class="info-value">{result.method.title() if result.method else 'Unknown'}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if result.backdoor_vars:
+                        st.markdown(f"**Backdoor variables:** {', '.join(result.backdoor_vars)}")
+                    if result.frontdoor_vars:
+                        st.markdown(f"**Frontdoor variables:** {', '.join(result.frontdoor_vars)}")
+                    if result.iv_vars:
+                        st.markdown(f"**Instrumental variables:** {', '.join(result.iv_vars)}")
+
+                    with st.expander("Full Estimand Details"):
+                        st.text(result.estimand_str)
+                else:
+                    st.warning("Effect may not be identifiable with standard methods.")
+                    with st.expander("Details"):
+                        st.text(result.estimand_str)
     else:
         st.info("Paste DAG JSON to visualize")
 
