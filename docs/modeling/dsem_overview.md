@@ -16,7 +16,11 @@ Variables are classified along three dimensions:
 
 **Observed** means data exists, not perfect measurement. Outcomes and inputs may be proxies of underlying constructs (e.g., "mood" measured via app ratings, "stress" inferred from heart rate variability). Measurement error is absorbed into residual variance—we model relationships between measured quantities, not "true" latent constructs. This is a pragmatic choice: proxy-based inference is useful even when imperfect.
 
-**Latent** means no direct data whatsoever. Random effects are identified purely from the variance structure of repeated observations—no proxy, no indicator, no measurement. They capture stable between-person heterogeneity that we infer exists but never directly observe.
+**Latent** means the construct itself is not directly measured. Two cases exist:
+
+1. **Random effects (Type 4):** No indicators whatsoever. Identified purely from the variance structure of repeated observations. They capture stable between-person heterogeneity that we infer exists but never directly observe.
+
+2. **Latent time-varying constructs (Type 7):** Have observed indicators via a reflective measurement model. The construct is latent but identified through its indicators (see below).
 
 ---
 
@@ -119,7 +123,9 @@ Lag must equal exactly one unit of the coarser variable's granularity.
 
 ### Finer Cause → Coarser Effect
 
-Requires an aggregation function specifying how fine-grained observations collapse to the coarser outcome's timescale. The orchestrator specifies a Python callable that takes fine-grained values and returns the aggregated predictor.
+Lag must equal exactly one unit of the coarser (effect) variable's granularity. Additionally, an aggregation function specifies how fine-grained observations collapse to the coarser outcome's timescale.
+
+**Example:** Hourly steps → daily mood requires lag = 24 hours (one day). Yesterday's hourly steps (aggregated to a daily value) affect today's mood.
 
 ---
 
