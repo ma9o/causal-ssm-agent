@@ -174,29 +174,3 @@ def load_dsem_model_by_question_id(question_id: int) -> dict:
         return json.load(f)
 
 
-def load_dag_by_question_id(question_id: int) -> dict:
-    """Load a DAG by its corresponding question ID.
-
-    Args:
-        question_id: The question ID (1-5) matching the DAG number
-
-    Returns:
-        The DAG schema dict
-    """
-    config = load_eval_config()
-    questions = config["questions"]
-    question = next((q for q in questions if q["id"] == question_id), None)
-    if question is None:
-        raise ValueError(f"Question ID {question_id} not found in config")
-    dag_path = DATA_DIR / question["dag"]
-    with open(dag_path) as f:
-        return json.load(f)
-
-
-def get_question_dag_pairs() -> list[dict]:
-    """Get all question-DAG pairs from config.
-
-    Returns:
-        List of dicts with 'id', 'question', and 'dag' (path string)
-    """
-    return load_eval_config()["questions"]

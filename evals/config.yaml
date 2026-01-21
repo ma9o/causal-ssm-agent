@@ -1,37 +1,27 @@
 # Evaluation Configuration
 # Shared settings for all evals
 
-# Evaluation questions and their corresponding DAGs
-# IMPORTANT: Each question ID maps to a DAG file with the same ID:
-#   - Question 1 uses data/eval/example_dag1.json
-#   - Question 2 uses data/eval/example_dag2.json
-#   - etc.
-# The DAGs were designed specifically for their matching questions.
-# When adding new questions, create a corresponding DAG file.
+# Evaluation questions and their reference models
+# Each question maps to structural and dsem model files for staged evaluation.
 questions:
   - id: 1
     question: "I want to resolve errors faster"
-    dag: eval/example_dag1.json
     structural: eval/structural_model1.json
     dsem: eval/dsem_model1.json
   - id: 2
     question: "I want to stop working weekends"
-    dag: eval/example_dag2.json
     structural: eval/structural_model2.json
     dsem: eval/dsem_model2.json
   - id: 3
     question: "I want to stop context-switching compulsively"
-    dag: eval/example_dag3.json
     structural: eval/structural_model3.json
     dsem: eval/dsem_model3.json
   - id: 4
     question: "I want to sleep better"
-    dag: eval/example_dag4.json
     structural: eval/structural_model4.json
     dsem: eval/dsem_model4.json
   - id: 5
     question: "I want to feel like a competent engineer"
-    dag: eval/example_dag5.json
     structural: eval/structural_model5.json
     dsem: eval/dsem_model5.json
 
@@ -76,8 +66,3 @@ data_sampling:
   orchestrator_chunks: 5
   worker_chunks: 10
   seed: 42
-
-# Default example DAG for worker evals (relative to data/ directory)
-# This is used when evals need a single DAG without specifying which question.
-# Points to DAG 4 ("I want to sleep better") for backwards compatibility.
-example_dag: eval/example_dag4.json

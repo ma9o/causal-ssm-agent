@@ -5,8 +5,8 @@ processed by workers. Scores 1 if aggregation completes successfully, 0 if it
 raises an exception.
 
 This eval verifies that the aggregation pipeline can handle the diverse outputs
-produced by worker LLMs without breaking. Sets cycle through all 5 question-DAG
-pairs from config.yaml, testing each DSEMModel with its corresponding question.
+produced by worker LLMs without breaking. Sets cycle through all 5 questions
+from config.yaml, testing each DSEMModel with its corresponding question.
 
 Usage:
     inspect eval evals/eval4_aggregation_robustness.py --model google/vertex/gemini-3-flash-preview
@@ -39,7 +39,7 @@ from causal_agent.workers.agents import (
 from causal_agent.workers.schemas import WorkerOutput
 
 from evals.common import (
-    get_question_dag_pairs,
+    get_eval_questions,
     get_sample_chunks_worker,
     load_dsem_model_by_question_id,
 )
@@ -56,8 +56,8 @@ def create_eval_dataset(
     Each sample is a set of chunks that will be processed by workers and then
     aggregated together. The eval tests whether aggregation succeeds or fails.
 
-    Sets cycle through all available question-DAG pairs from config, ensuring
-    each DSEMModel is tested with its corresponding question.
+    Sets cycle through all available questions from config, ensuring each
+    DSEMModel is tested with its corresponding question.
 
     Args:
         n_sets: Number of chunk sets (each becomes one aggregation test)
@@ -68,9 +68,9 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with one sample per chunk set
     """
-    # Get all question-DAG pairs from config
-    question_dag_pairs = get_question_dag_pairs()
-    n_pairs = len(question_dag_pairs)
+    # Get all questions from config
+    questions = get_eval_questions()
+    n_questions = len(questions)
 
     # Get all chunks needed
     total_chunks = n_sets * chunks_per_set
@@ -78,10 +78,10 @@ def create_eval_dataset(
 
     samples = []
     for set_idx in range(n_sets):
-        # Cycle through question-DAG pairs
-        pair = question_dag_pairs[set_idx % n_pairs]
-        question_id = pair["id"]
-        question = pair["question"]
+        # Cycle through questions
+        q = questions[set_idx % n_questions]
+        question_id = q["id"]
+        question = q["question"]
         dsem_model = load_dsem_model_by_question_id(question_id)
 
         indicators_text = _format_indicators(dsem_model)

@@ -31,10 +31,10 @@ from causal_agent.workers.agents import (
 from causal_agent.utils.llm import get_generate_config, make_worker_tools, multi_turn_generate, parse_json_response
 
 from evals.common import (
+    get_eval_questions,
     get_sample_chunks_worker,
     load_eval_config,
     load_dsem_model_by_question_id,
-    get_question_dag_pairs,
 )
 
 
@@ -224,17 +224,17 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with samples
     """
-    # Get all question-DAG pairs
-    question_dag_pairs = get_question_dag_pairs()
+    # Get all questions
+    questions = get_eval_questions()
 
     # Get chunks - total needed across all questions
-    total_chunks = n_chunks * len(question_dag_pairs)
+    total_chunks = n_chunks * len(questions)
     chunks = get_sample_chunks_worker(total_chunks, seed, input_file)
 
     samples = []
     chunk_idx = 0
 
-    for q in question_dag_pairs:
+    for q in questions:
         # Load the DSEMModel for this specific question
         dsem_model = load_dsem_model_by_question_id(q["id"])
         indicators_text = _format_indicators(dsem_model)
