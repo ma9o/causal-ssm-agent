@@ -9,9 +9,10 @@ def test_import_pipeline():
 
 
 def test_import_orchestrator():
-    from causal_agent.orchestrator.agents import propose_structure
-    from causal_agent.orchestrator.schemas import DSEMStructure, CausalEdge
-    assert callable(propose_structure)
+    from causal_agent.orchestrator.agents import propose_structural_model, propose_measurement_model
+    from causal_agent.orchestrator.schemas import StructuralModel, MeasurementModel, DSEMModel, CausalEdge
+    assert callable(propose_structural_model)
+    assert callable(propose_measurement_model)
 
 
 def test_import_workers():
@@ -39,41 +40,74 @@ def test_preprocessing_script():
 
 
 def test_schema_to_networkx():
-    from causal_agent.orchestrator.schemas import DSEMStructure, Dimension, CausalEdge, Role, Observability, TemporalStatus
+    from causal_agent.orchestrator.schemas import (
+        CausalEdge,
+        Construct,
+        DSEMModel,
+        Indicator,
+        MeasurementModel,
+        Role,
+        StructuralModel,
+        TemporalStatus,
+    )
 
-    structure = DSEMStructure(
-        dimensions=[
-            Dimension(
+    structural = StructuralModel(
+        constructs=[
+            Construct(
                 name="X",
                 description="cause variable",
                 role=Role.EXOGENOUS,
-                observability=Observability.OBSERVED,
-                how_to_measure="Extract X from data",
                 temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="hourly",
-                measurement_granularity="finest",
-                measurement_dtype="continuous",
-                aggregation="mean",
             ),
-            Dimension(
+            Construct(
                 name="Y",
                 description="effect variable",
                 role=Role.ENDOGENOUS,
                 is_outcome=True,
-                observability=Observability.OBSERVED,
-                how_to_measure="Extract Y from data",
                 temporal_status=TemporalStatus.TIME_VARYING,
                 causal_granularity="hourly",
-                measurement_granularity="finest",
-                measurement_dtype="continuous",
-                aggregation="mean",
             ),
         ],
         edges=[CausalEdge(cause="X", effect="Y", description="X causes Y", lagged=True)],
     )
 
-    G = structure.to_networkx()
+    measurement = MeasurementModel(
+        indicators=[
+            Indicator(
+                name="x_indicator",
+                construct="X",
+                how_to_measure="Extract X from data",
+                measurement_granularity="finest",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+            Indicator(
+                name="y_indicator",
+                construct="Y",
+                how_to_measure="Extract Y from data",
+                measurement_granularity="finest",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+        ]
+    )
+
+    dsem = DSEMModel(structural=structural, measurement=measurement)
+    G = dsem.to_networkx()
+
+    # Construct nodes exist
     assert "X" in G.nodes
     assert "Y" in G.nodes
+
+    # Indicator nodes exist
+    assert "x_indicator" in G.nodes
+    assert "y_indicator" in G.nodes
+
+    # Causal edge exists
     assert ("X", "Y") in G.edges
     assert G.edges["X", "Y"]["lag_hours"] == 1  # hourly lag
+
+    # Loading edges exist (construct -> indicator)
+    assert ("X", "x_indicator") in G.edges
+    assert ("Y", "y_indicator") in G.edges

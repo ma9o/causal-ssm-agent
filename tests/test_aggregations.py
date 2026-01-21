@@ -134,37 +134,29 @@ class TestApplyAggregation:
 class TestSchemaAggregationValidation:
     """Test that schema validates aggregation names against registry."""
 
-    def test_dimension_valid_aggregation(self):
-        """Dimension accepts valid aggregation name."""
-        from causal_agent.orchestrator.schemas import Dimension, Role, Observability, TemporalStatus
+    def test_indicator_valid_aggregation(self):
+        """Indicator accepts valid aggregation name."""
+        from causal_agent.orchestrator.schemas import Indicator
 
-        dim = Dimension(
-            name="test",
-            description="test var",
-            role=Role.ENDOGENOUS,
-            observability=Observability.OBSERVED,
+        ind = Indicator(
+            name="test_indicator",
+            construct="test",
             how_to_measure="Extract test from data",
-            temporal_status=TemporalStatus.TIME_VARYING,
-            causal_granularity="daily",
             measurement_granularity="finest",
             measurement_dtype="continuous",
             aggregation="mean",
         )
-        assert dim.aggregation == "mean"
+        assert ind.aggregation == "mean"
 
-    def test_dimension_invalid_aggregation(self):
-        """Dimension rejects invalid aggregation name."""
-        from causal_agent.orchestrator.schemas import Dimension, Role, Observability, TemporalStatus
+    def test_indicator_invalid_aggregation(self):
+        """Indicator rejects invalid aggregation name."""
+        from causal_agent.orchestrator.schemas import Indicator
 
         with pytest.raises(ValueError, match="Unknown aggregation 'invalid'"):
-            Dimension(
-                name="test",
-                description="test var",
-                role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
+            Indicator(
+                name="test_indicator",
+                construct="test",
                 how_to_measure="Extract test from data",
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
                 measurement_granularity="finest",
                 measurement_dtype="continuous",
                 aggregation="invalid",

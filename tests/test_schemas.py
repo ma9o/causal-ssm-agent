@@ -1,247 +1,98 @@
-"""Tests for DSEM schema validation."""
+"""Tests for DSEM schema validation.
+
+Two-stage schema:
+- StructuralModel: theoretical constructs + causal edges
+- MeasurementModel: indicators that operationalize constructs
+- DSEMModel: composition of structural + measurement
+"""
 
 import pytest
 
 from causal_agent.orchestrator.schemas import (
     CausalEdge,
-    Dimension,
-    DSEMStructure,
+    Construct,
+    DSEMModel,
     GRANULARITY_HOURS,
-    Observability,
+    Indicator,
+    MeasurementModel,
     Role,
+    StructuralModel,
     TemporalStatus,
     compute_lag_hours,
 )
 
 
-class TestDimension:
-    """Tests for Dimension validation."""
+class TestConstruct:
+    """Tests for Construct validation."""
 
-    def test_endogenous_observed_time_varying(self):
-        """Endogenous, observed, time-varying variable (classic outcome)."""
-        dim = Dimension(
+    def test_endogenous_time_varying(self):
+        """Endogenous, time-varying construct (classic outcome)."""
+        c = Construct(
             name="mood",
-            description="Daily mood rating",
+            description="Daily mood state",
             role=Role.ENDOGENOUS,
-            observability=Observability.OBSERVED,
-            how_to_measure="Extract mood ratings from survey responses",
             temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
-            measurement_granularity="finest",
-            measurement_dtype="continuous",
-            aggregation="mean",
         )
-        assert dim.role == Role.ENDOGENOUS
-        assert dim.observability == Observability.OBSERVED
-        assert dim.temporal_status == TemporalStatus.TIME_VARYING
-        assert dim.measurement_granularity == "finest"
+        assert c.role == Role.ENDOGENOUS
+        assert c.temporal_status == TemporalStatus.TIME_VARYING
+        assert c.causal_granularity == "daily"
 
-    def test_exogenous_observed_time_varying(self):
-        """Exogenous, observed, time-varying variable (classic input)."""
-        dim = Dimension(
+    def test_exogenous_time_varying(self):
+        """Exogenous, time-varying construct (classic input)."""
+        c = Construct(
             name="weather",
             description="Daily temperature",
             role=Role.EXOGENOUS,
-            observability=Observability.OBSERVED,
-            how_to_measure="Get temperature from weather API",
             temporal_status=TemporalStatus.TIME_VARYING,
             causal_granularity="daily",
-            measurement_granularity="hourly",
-            measurement_dtype="continuous",
-            aggregation="mean",
         )
-        assert dim.role == Role.EXOGENOUS
-        assert dim.observability == Observability.OBSERVED
-        assert dim.temporal_status == TemporalStatus.TIME_VARYING
-        assert dim.measurement_granularity == "hourly"
+        assert c.role == Role.EXOGENOUS
+        assert c.temporal_status == TemporalStatus.TIME_VARYING
 
-    def test_exogenous_observed_time_invariant(self):
-        """Exogenous, observed, time-invariant variable (classic covariate)."""
-        dim = Dimension(
+    def test_exogenous_time_invariant(self):
+        """Exogenous, time-invariant construct (classic covariate)."""
+        c = Construct(
             name="age",
             description="Participant age",
             role=Role.EXOGENOUS,
-            observability=Observability.OBSERVED,
-            how_to_measure="Get age from participant intake form",
             temporal_status=TemporalStatus.TIME_INVARIANT,
-            measurement_dtype="continuous",
         )
-        assert dim.role == Role.EXOGENOUS
-        assert dim.observability == Observability.OBSERVED
-        assert dim.temporal_status == TemporalStatus.TIME_INVARIANT
-        assert dim.causal_granularity is None
-
-    def test_exogenous_latent_time_invariant(self):
-        """Exogenous, latent, time-invariant variable (classic random effect)."""
-        dim = Dimension(
-            name="person_intercept",
-            description="Person-specific baseline",
-            role=Role.EXOGENOUS,
-            observability=Observability.LATENT,
-            temporal_status=TemporalStatus.TIME_INVARIANT,
-            measurement_dtype="continuous",
-        )
-        assert dim.role == Role.EXOGENOUS
-        assert dim.observability == Observability.LATENT
-        assert dim.temporal_status == TemporalStatus.TIME_INVARIANT
-        assert dim.causal_granularity is None
+        assert c.role == Role.EXOGENOUS
+        assert c.temporal_status == TemporalStatus.TIME_INVARIANT
+        assert c.causal_granularity is None
 
     def test_time_varying_requires_causal_granularity(self):
-        """Time-varying variable requires causal_granularity."""
-        with pytest.raises(ValueError, match="Time-varying .* requires causal_granularity"):
-            Dimension(
+        """Time-varying construct requires causal_granularity."""
+        with pytest.raises(ValueError, match="Time-varying construct .* requires causal_granularity"):
+            Construct(
                 name="mood",
                 description="Invalid",
                 role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_VARYING,
-                measurement_dtype="continuous",
-                aggregation="mean",
-            )
-
-    def test_time_varying_requires_aggregation(self):
-        """Time-varying variable requires aggregation."""
-        with pytest.raises(ValueError, match="Time-varying .* requires aggregation"):
-            Dimension(
-                name="mood",
-                description="Invalid",
-                role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
-                measurement_granularity="finest",
-                measurement_dtype="continuous",
-            )
-
-    def test_observed_time_varying_requires_measurement_granularity(self):
-        """Observed time-varying variable requires measurement_granularity."""
-        with pytest.raises(ValueError, match="Observed time-varying .* requires measurement_granularity"):
-            Dimension(
-                name="mood",
-                description="Invalid",
-                role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
-                measurement_dtype="continuous",
-                aggregation="mean",
-            )
-
-    def test_latent_forbids_measurement_granularity(self):
-        """Latent variable must not have measurement_granularity."""
-        with pytest.raises(ValueError, match="Latent variable .* must not have measurement_granularity"):
-            Dimension(
-                name="person_intercept",
-                description="Invalid",
-                role=Role.EXOGENOUS,
-                observability=Observability.LATENT,
-                temporal_status=TemporalStatus.TIME_INVARIANT,
-                measurement_granularity="daily",
-                measurement_dtype="continuous",
-            )
-
-    def test_time_invariant_forbids_measurement_granularity(self):
-        """Time-invariant variable must not have measurement_granularity."""
-        with pytest.raises(ValueError, match="Time-invariant variable .* must not have measurement_granularity"):
-            Dimension(
-                name="age",
-                description="Invalid",
-                role=Role.EXOGENOUS,
-                observability=Observability.OBSERVED,
-                how_to_measure="Get age from intake form",
-                temporal_status=TemporalStatus.TIME_INVARIANT,
-                measurement_granularity="daily",
-                measurement_dtype="continuous",
-            )
-
-    def test_invalid_measurement_granularity_value(self):
-        """Invalid measurement_granularity value is rejected."""
-        with pytest.raises(ValueError, match="Invalid measurement_granularity"):
-            Dimension(
-                name="mood",
-                description="Invalid",
-                role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
-                how_to_measure="Extract mood from data",
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
-                measurement_granularity="invalid_value",
-                measurement_dtype="continuous",
-                aggregation="mean",
-            )
-
-    def test_measurement_granularity_must_be_finer_than_causal(self):
-        """measurement_granularity must be finer than or equal to causal_granularity."""
-        with pytest.raises(ValueError, match="must be finer than or equal to causal_granularity"):
-            Dimension(
-                name="mood",
-                description="Invalid",
-                role=Role.ENDOGENOUS,
-                observability=Observability.OBSERVED,
-                how_to_measure="Extract mood from data",
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
-                measurement_granularity="weekly",  # coarser than daily - invalid
-                measurement_dtype="continuous",
-                aggregation="mean",
-            )
-
-    def test_measurement_granularity_equal_to_causal_is_valid(self):
-        """measurement_granularity equal to causal_granularity is valid."""
-        dim = Dimension(
-            name="mood",
-            description="Valid",
-            role=Role.ENDOGENOUS,
-            observability=Observability.OBSERVED,
-            how_to_measure="Extract mood from data",
-            temporal_status=TemporalStatus.TIME_VARYING,
-            causal_granularity="daily",
-            measurement_granularity="daily",  # equal is valid
-            measurement_dtype="continuous",
-            aggregation="mean",
-        )
-        assert dim.measurement_granularity == "daily"
-
-    def test_measurement_granularity_finer_than_causal_is_valid(self):
-        """measurement_granularity finer than causal_granularity is valid."""
-        dim = Dimension(
-            name="mood",
-            description="Valid",
-            role=Role.ENDOGENOUS,
-            observability=Observability.OBSERVED,
-            how_to_measure="Extract mood from data",
-            temporal_status=TemporalStatus.TIME_VARYING,
-            causal_granularity="daily",
-            measurement_granularity="hourly",  # finer than daily - valid
-            measurement_dtype="continuous",
-            aggregation="mean",
-        )
-        assert dim.measurement_granularity == "hourly"
-
-    def test_time_invariant_forbids_aggregation(self):
-        """Time-invariant variable must not have aggregation."""
-        with pytest.raises(ValueError, match="Time-invariant .* must not have aggregation"):
-            Dimension(
-                name="age",
-                description="Invalid",
-                role=Role.EXOGENOUS,
-                observability=Observability.OBSERVED,
-                temporal_status=TemporalStatus.TIME_INVARIANT,
-                measurement_dtype="continuous",
-                aggregation="mean",
             )
 
     def test_time_invariant_forbids_causal_granularity(self):
-        """Time-invariant variable must not have causal_granularity."""
-        with pytest.raises(ValueError, match="Time-invariant .* must not have causal_granularity"):
-            Dimension(
+        """Time-invariant construct must not have causal_granularity."""
+        with pytest.raises(ValueError, match="Time-invariant construct .* must not have causal_granularity"):
+            Construct(
                 name="age",
                 description="Invalid",
                 role=Role.EXOGENOUS,
-                observability=Observability.OBSERVED,
                 temporal_status=TemporalStatus.TIME_INVARIANT,
                 causal_granularity="daily",
-                measurement_dtype="continuous",
+            )
+
+    def test_exogenous_cannot_be_outcome(self):
+        """Exogenous construct cannot be outcome."""
+        with pytest.raises(ValueError, match="Outcome construct .* must be endogenous"):
+            Construct(
+                name="weather",
+                description="Invalid",
+                role=Role.EXOGENOUS,
+                is_outcome=True,
+                temporal_status=TemporalStatus.TIME_VARYING,
+                causal_granularity="daily",
             )
 
 
@@ -259,88 +110,59 @@ class TestCausalEdge:
         assert edge.lagged is True
 
 
+class TestStructuralModel:
+    """Tests for StructuralModel validation."""
 
-class TestDSEMStructure:
-    """Tests for DSEMStructure validation."""
-
-    def _make_dim(self, name, granularity, role, observability=Observability.OBSERVED, temporal_status=None, is_outcome=False):
-        """Helper to create a dimension.
-
-        If temporal_status is None, infers from granularity presence.
-        """
-        if temporal_status is None:
-            temporal_status = TemporalStatus.TIME_VARYING if granularity else TemporalStatus.TIME_INVARIANT
-        agg = "mean" if temporal_status == TemporalStatus.TIME_VARYING else None
-        # Only observed variables need how_to_measure
-        how_to_measure = f"Extract {name} from data" if observability == Observability.OBSERVED else None
-        # measurement_granularity required for observed time-varying
-        is_observed = observability == Observability.OBSERVED
-        is_time_varying = temporal_status == TemporalStatus.TIME_VARYING
-        measurement_granularity = "finest" if (is_observed and is_time_varying) else None
-        return Dimension(
+    def _make_construct(self, name, granularity, role, is_outcome=False):
+        """Helper to create a construct."""
+        temporal_status = TemporalStatus.TIME_VARYING if granularity else TemporalStatus.TIME_INVARIANT
+        return Construct(
             name=name,
             description=f"{name} description",
             role=role,
             is_outcome=is_outcome,
-            observability=observability,
-            how_to_measure=how_to_measure,
             temporal_status=temporal_status,
             causal_granularity=granularity,
-            measurement_granularity=measurement_granularity,
-            measurement_dtype="continuous",
-            aggregation=agg,
         )
 
     def test_valid_simple_structure(self):
         """Simple valid structure passes validation."""
-        structure = DSEMStructure(
-            dimensions=[
-                self._make_dim("stress", "daily", Role.EXOGENOUS),
-                self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+        structure = StructuralModel(
+            constructs=[
+                self._make_construct("stress", "daily", Role.EXOGENOUS),
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
             ],
             edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)],
         )
-        assert len(structure.dimensions) == 2
+        assert len(structure.constructs) == 2
         assert len(structure.edges) == 1
-        assert structure.edges[0].lag_hours == 0  # contemporaneous
 
-    def test_valid_lagged_edge(self):
-        """Same-timescale lagged edge computes correct lag_hours."""
-        structure = DSEMStructure(
-            dimensions=[
-                self._make_dim("sleep", "daily", Role.ENDOGENOUS),
-                self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[CausalEdge(cause="sleep", effect="mood", description="Sleep affects mood", lagged=True)],
-        )
-        assert structure.edges[0].lag_hours == 24  # 1 day
-
-    def test_invalid_edge_cause_not_in_dimensions(self):
-        """Edge cause must exist in dimensions."""
-        with pytest.raises(ValueError, match="Edge cause 'unknown' not in dimensions"):
-            DSEMStructure(
-                dimensions=[self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True)],
+    def test_invalid_edge_cause_not_in_constructs(self):
+        """Edge cause must exist in constructs."""
+        with pytest.raises(ValueError, match="Edge cause 'unknown' not in constructs"):
+            StructuralModel(
+                constructs=[self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True)],
                 edges=[CausalEdge(cause="unknown", effect="mood", description="Test edge")],
             )
 
-    def test_invalid_edge_effect_not_in_dimensions(self):
-        """Edge effect must exist in dimensions."""
-        with pytest.raises(ValueError, match="Edge effect 'unknown' not in dimensions"):
-            DSEMStructure(
-                dimensions=[
-                    self._make_dim("stress", "daily", Role.EXOGENOUS),
-                    self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+    def test_invalid_edge_effect_not_in_constructs(self):
+        """Edge effect must exist in constructs."""
+        with pytest.raises(ValueError, match="Edge effect 'unknown' not in constructs"):
+            StructuralModel(
+                constructs=[
+                    self._make_construct("stress", "daily", Role.EXOGENOUS),
+                    self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
                 ],
                 edges=[CausalEdge(cause="stress", effect="unknown", description="Test edge")],
             )
 
     def test_invalid_exogenous_cannot_be_effect(self):
-        """Exogenous variable cannot be an effect."""
-        with pytest.raises(ValueError, match="Exogenous variable 'weather' cannot be an effect"):
-            DSEMStructure(
-                dimensions=[
-                    self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
-                    self._make_dim("weather", "daily", Role.EXOGENOUS),
+        """Exogenous construct cannot be an effect."""
+        with pytest.raises(ValueError, match="Exogenous construct 'weather' cannot be an effect"):
+            StructuralModel(
+                constructs=[
+                    self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+                    self._make_construct("weather", "daily", Role.EXOGENOUS),
                 ],
                 edges=[CausalEdge(cause="mood", effect="weather", description="Invalid edge", lagged=False)],
             )
@@ -348,58 +170,21 @@ class TestDSEMStructure:
     def test_invalid_contemporaneous_cross_timescale(self):
         """Contemporaneous edge requires same timescale."""
         with pytest.raises(ValueError, match="Contemporaneous edge.*requires same timescale"):
-            DSEMStructure(
-                dimensions=[
-                    self._make_dim("hourly_stress", "hourly", Role.EXOGENOUS),
-                    self._make_dim("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            StructuralModel(
+                constructs=[
+                    self._make_construct("hourly_stress", "hourly", Role.EXOGENOUS),
+                    self._make_construct("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
                 ],
-                edges=[CausalEdge(cause="hourly_stress", effect="daily_mood", description="Invalid cross-timescale", lagged=False)],
+                edges=[CausalEdge(cause="hourly_stress", effect="daily_mood", description="Invalid", lagged=False)],
             )
-
-    def test_valid_cross_scale_coarser_to_finer(self):
-        """Coarser cause -> finer effect computes correct lag_hours."""
-        structure = DSEMStructure(
-            dimensions=[
-                self._make_dim("weekly_stress", "weekly", Role.EXOGENOUS),
-                self._make_dim("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[CausalEdge(cause="weekly_stress", effect="daily_mood", description="Weekly stress affects daily mood")],  # lagged=True by default
-        )
-        assert structure.edges[0].lag_hours == 168  # 1 week (coarser granularity)
-
-    def test_valid_cross_scale_finer_to_coarser(self):
-        """Finer cause -> coarser effect computes correct lag_hours."""
-        structure = DSEMStructure(
-            dimensions=[
-                self._make_dim("hourly_activity", "hourly", Role.EXOGENOUS),
-                self._make_dim("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[CausalEdge(cause="hourly_activity", effect="daily_mood", description="Activity affects mood")],
-        )
-        assert structure.edges[0].lag_hours == 24  # 1 day (coarser granularity)
-
-    def test_to_networkx(self):
-        """Structure converts to NetworkX graph with computed lag_hours."""
-        structure = DSEMStructure(
-            dimensions=[
-                self._make_dim("stress", "daily", Role.EXOGENOUS),
-                self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)],
-        )
-        G = structure.to_networkx()
-        assert "stress" in G.nodes
-        assert "mood" in G.nodes
-        assert ("stress", "mood") in G.edges
-        assert G.edges["stress", "mood"]["lag_hours"] == 0
 
     def test_invalid_no_outcome(self):
         """Structure must have exactly one outcome."""
-        with pytest.raises(ValueError, match="Exactly one dimension must have is_outcome=true"):
-            DSEMStructure(
-                dimensions=[
-                    self._make_dim("stress", "daily", Role.EXOGENOUS),
-                    self._make_dim("mood", "daily", Role.ENDOGENOUS),
+        with pytest.raises(ValueError, match="Exactly one construct must have is_outcome=true"):
+            StructuralModel(
+                constructs=[
+                    self._make_construct("stress", "daily", Role.EXOGENOUS),
+                    self._make_construct("mood", "daily", Role.ENDOGENOUS),
                 ],
                 edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
             )
@@ -407,30 +192,258 @@ class TestDSEMStructure:
     def test_invalid_multiple_outcomes(self):
         """Structure must have exactly one outcome."""
         with pytest.raises(ValueError, match="Only one outcome allowed"):
-            DSEMStructure(
-                dimensions=[
-                    self._make_dim("stress", "daily", Role.ENDOGENOUS, is_outcome=True),
-                    self._make_dim("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            StructuralModel(
+                constructs=[
+                    self._make_construct("stress", "daily", Role.ENDOGENOUS, is_outcome=True),
+                    self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
                 ],
                 edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
             )
 
-    def test_invalid_exogenous_outcome(self):
-        """Outcome must be endogenous."""
-        with pytest.raises(ValueError, match="Outcome variable .* must be endogenous"):
-            Dimension(
-                name="weather",
-                description="Weather",
-                role=Role.EXOGENOUS,
-                is_outcome=True,
-                observability=Observability.OBSERVED,
-                how_to_measure="Get weather from API",
-                temporal_status=TemporalStatus.TIME_VARYING,
-                causal_granularity="daily",
-                measurement_granularity="hourly",
+    def test_to_networkx(self):
+        """Structure converts to NetworkX graph."""
+        structure = StructuralModel(
+            constructs=[
+                self._make_construct("stress", "daily", Role.EXOGENOUS),
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)],
+        )
+        G = structure.to_networkx()
+        assert "stress" in G.nodes
+        assert "mood" in G.nodes
+        assert ("stress", "mood") in G.edges
+
+
+class TestIndicator:
+    """Tests for Indicator validation."""
+
+    def test_valid_indicator(self):
+        """Valid indicator passes validation."""
+        ind = Indicator(
+            name="mood_rating",
+            construct="mood",
+            how_to_measure="Extract mood ratings (1-10 scale)",
+            measurement_granularity="daily",
+            measurement_dtype="continuous",
+            aggregation="mean",
+        )
+        assert ind.name == "mood_rating"
+        assert ind.construct_name == "mood"
+
+    def test_invalid_aggregation(self):
+        """Invalid aggregation is rejected."""
+        with pytest.raises(ValueError, match="Unknown aggregation"):
+            Indicator(
+                name="mood_rating",
+                construct="mood",
+                how_to_measure="Extract mood",
+                measurement_granularity="daily",
+                measurement_dtype="continuous",
+                aggregation="invalid_agg",
+            )
+
+    def test_invalid_measurement_granularity(self):
+        """Invalid measurement_granularity is rejected."""
+        with pytest.raises(ValueError, match="Invalid measurement_granularity"):
+            Indicator(
+                name="mood_rating",
+                construct="mood",
+                how_to_measure="Extract mood",
+                measurement_granularity="invalid_value",
                 measurement_dtype="continuous",
                 aggregation="mean",
             )
+
+    def test_invalid_measurement_dtype(self):
+        """Invalid measurement_dtype is rejected."""
+        with pytest.raises(ValueError, match="Invalid measurement_dtype"):
+            Indicator(
+                name="mood_rating",
+                construct="mood",
+                how_to_measure="Extract mood",
+                measurement_granularity="daily",
+                measurement_dtype="invalid_type",
+                aggregation="mean",
+            )
+
+
+class TestMeasurementModel:
+    """Tests for MeasurementModel."""
+
+    def test_get_indicators_for_construct(self):
+        """get_indicators_for_construct returns correct indicators."""
+        model = MeasurementModel(
+            indicators=[
+                Indicator(
+                    name="mood_rating",
+                    construct="mood",
+                    how_to_measure="Extract mood ratings",
+                    measurement_granularity="daily",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                ),
+                Indicator(
+                    name="mood_text",
+                    construct="mood",
+                    how_to_measure="Extract mood from text",
+                    measurement_granularity="daily",
+                    measurement_dtype="ordinal",
+                    aggregation="mean",
+                ),
+                Indicator(
+                    name="stress_level",
+                    construct="stress",
+                    how_to_measure="Extract stress ratings",
+                    measurement_granularity="daily",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                ),
+            ]
+        )
+        mood_indicators = model.get_indicators_for_construct("mood")
+        assert len(mood_indicators) == 2
+        assert all(i.construct_name == "mood" for i in mood_indicators)
+
+
+class TestDSEMModel:
+    """Tests for DSEMModel validation."""
+
+    def _make_construct(self, name, granularity, role, is_outcome=False):
+        """Helper to create a construct."""
+        temporal_status = TemporalStatus.TIME_VARYING if granularity else TemporalStatus.TIME_INVARIANT
+        return Construct(
+            name=name,
+            description=f"{name} description",
+            role=role,
+            is_outcome=is_outcome,
+            temporal_status=temporal_status,
+            causal_granularity=granularity,
+        )
+
+    def _make_indicator(self, name, construct, granularity="daily"):
+        """Helper to create an indicator."""
+        return Indicator(
+            name=name,
+            construct=construct,
+            how_to_measure=f"Extract {name}",
+            measurement_granularity=granularity,
+            measurement_dtype="continuous",
+            aggregation="mean",
+        )
+
+    def test_valid_dsem_model(self):
+        """Valid DSEM model passes validation."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("stress", "daily", Role.EXOGENOUS),
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood")],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("stress_rating", "stress"),
+                self._make_indicator("mood_rating", "mood"),
+            ]
+        )
+        dsem = DSEMModel(structural=structural, measurement=measurement)
+        assert len(dsem.structural.constructs) == 2
+        assert len(dsem.measurement.indicators) == 2
+
+    def test_invalid_indicator_references_unknown_construct(self):
+        """Indicator must reference a valid construct."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("mood_rating", "mood"),
+                self._make_indicator("unknown_indicator", "unknown"),  # invalid reference
+            ]
+        )
+        with pytest.raises(ValueError, match="references unknown construct 'unknown'"):
+            DSEMModel(structural=structural, measurement=measurement)
+
+    def test_invalid_time_varying_without_indicator(self):
+        """Time-varying construct must have at least one indicator (A2)."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("stress", "daily", Role.EXOGENOUS),
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("mood_rating", "mood"),
+                # Missing indicator for stress!
+            ]
+        )
+        with pytest.raises(ValueError, match="Time-varying construct 'stress' has no indicators"):
+            DSEMModel(structural=structural, measurement=measurement)
+
+    def test_invalid_measurement_granularity_coarser_than_causal(self):
+        """Indicator measurement_granularity must be finer than construct's causal_granularity."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("mood_rating", "mood", granularity="weekly"),  # coarser than daily
+            ]
+        )
+        with pytest.raises(ValueError, match="coarser than construct"):
+            DSEMModel(structural=structural, measurement=measurement)
+
+    def test_to_networkx_includes_loading_edges(self):
+        """DSEMModel.to_networkx includes construct→indicator loading edges."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("mood_rating", "mood"),
+            ]
+        )
+        dsem = DSEMModel(structural=structural, measurement=measurement)
+        G = dsem.to_networkx()
+
+        # Both construct and indicator nodes exist
+        assert "mood" in G.nodes
+        assert "mood_rating" in G.nodes
+
+        # Loading edge exists
+        assert ("mood", "mood_rating") in G.edges
+        assert G.edges["mood", "mood_rating"]["edge_type"] == "loading"
+
+    def test_get_edge_lag_hours(self):
+        """DSEMModel.get_edge_lag_hours computes correct lag."""
+        structural = StructuralModel(
+            constructs=[
+                self._make_construct("sleep", "daily", Role.EXOGENOUS),
+                self._make_construct("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[CausalEdge(cause="sleep", effect="mood", description="Sleep affects mood", lagged=True)],
+        )
+        measurement = MeasurementModel(
+            indicators=[
+                self._make_indicator("sleep_hours", "sleep"),
+                self._make_indicator("mood_rating", "mood"),
+            ]
+        )
+        dsem = DSEMModel(structural=structural, measurement=measurement)
+        lag = dsem.get_edge_lag_hours(structural.edges[0])
+        assert lag == 24  # 1 day
 
 
 class TestGranularityHours:
