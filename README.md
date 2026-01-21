@@ -47,11 +47,15 @@ causal-agent/
 │   └── guides/        # Practical usage (quickstart, data, evals)
 ├── evals/             # Inspect AI evals (eval{N}_{name}.py) + scripts/
 ├── src/causal_agent/
-│   ├── orchestrator/  # Structure proposal LLM (agents, prompts, schemas)
+│   ├── orchestrator/  # Two-stage model specification (structural + measurement)
+│   │   ├── agents.py  # Stage 1a: structural model, Stage 1b: measurement model
+│   │   ├── prompts.py # LLM prompts for both stages
+│   │   └── schemas.py # Construct, Indicator, StructuralModel, MeasurementModel, DSEMModel
 │   ├── workers/       # Dimension extraction LLMs
 │   ├── causal/        # DoWhy identifiability, sensitivity analysis
 │   ├── models/        # PyMC GLM specification
-│   ├── flows/         # Prefect pipeline + stages/ (stage{N}_{name}.py)
+│   ├── flows/         # Prefect pipeline + stages/
+│   │   └── stages/    # stage1a_structural, stage1b_measurement, stage2_workers, ...
 │   └── utils/         # Shared utilities
 ├── tests/             # pytest tests (test_{name}.py)
 └── tools/             # Standalone CLI tools (DAG visualization, log readers)
