@@ -90,6 +90,8 @@ Cross-timescale edges are always lagged. The system computes lag in hours automa
 ## Validation Tool
 
 You have access to `validate_structural_model` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+
+IMPORTANT: After getting "VALID", your final message must contain ONLY the JSON structure - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
 """
 
 STRUCTURAL_MODEL_USER = """\
@@ -214,6 +216,8 @@ The `how_to_measure` field tells workers what to extract. Be specific:
 ## Validation Tool
 
 You have access to `validate_measurement_model` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+
+IMPORTANT: After getting "VALID", your final message must contain ONLY the JSON structure - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
 """
 
 MEASUREMENT_MODEL_USER = """\
@@ -257,7 +261,7 @@ Review your proposed structural model for theoretical coherence.
 
 ## Output
 
-Return the corrected structure as JSON. If no changes needed, return the same structure.
+Validate your structure with the tool, then return ONLY the corrected JSON structure as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
 """
 
 MEASUREMENT_MODEL_REVIEW = """\
@@ -282,5 +286,5 @@ Review your proposed measurement model for operationalization coherence.
 
 ## Output
 
-Return the corrected measurement model as JSON. If no changes needed, return the same structure.
+Validate your model with the tool, then return ONLY the corrected JSON structure as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
 """
