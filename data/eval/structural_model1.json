@@ -1,240 +1,340 @@
 {
   "constructs": [
     {
-      "name": "error_resolution_duration",
-      "description": "Time in minutes from first error-related search to apparent resolution (last related search before topic change or extended break)",
+      "name": "error_resolution_speed",
+      "description": "How quickly errors/bugs are identified and fixed - the primary outcome measuring debugging efficiency",
       "role": "endogenous",
       "is_outcome": true,
       "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "developer_experience_level",
+      "description": "Overall programming experience and seniority - accumulated knowledge from years in the field",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "domain_expertise",
+      "description": "Deep knowledge of the specific business domain and problem space",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "system_architecture_complexity",
+      "description": "Inherent complexity of the software system's design and interdependencies",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "error_complexity",
+      "description": "The inherent difficulty of the current error - whether it's a simple typo or deep architectural issue",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "external_interruptions",
+      "description": "Disruptions from meetings, messages, notifications, or colleague questions",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "sleep_quality",
+      "description": "Quality and duration of sleep affecting next-day cognitive performance",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "search_iterations",
-      "description": "Number of search queries performed during a debugging session before resolution, indicating search efficiency",
+      "name": "test_coverage_confidence",
+      "description": "Confidence from existing tests that changes won't introduce regressions",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly"
+    },
+    {
+      "name": "documentation_quality",
+      "description": "Availability and usefulness of documentation for understanding the system",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly"
+    },
+    {
+      "name": "cognitive_clarity",
+      "description": "Mental sharpness, focus, and absence of fatigue enabling clear thinking",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "stress_level",
+      "description": "Current psychological stress from deadlines, pressure, or workload",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "technical_search_count",
-      "description": "Daily count of searches and visits related to technical programming topics, indicating engagement with technology",
-      "role": "exogenous",
+      "name": "flow_state",
+      "description": "State of deep focus and immersion in the debugging task",
+      "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "hourly"
     },
     {
-      "name": "debugging_start_hour",
-      "description": "Hour of day (0-23) when debugging sessions start, capturing circadian effects on performance",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "topic_category",
-      "description": "Topic cluster of each search, used to measure context switching via topic diversity",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "is_official_doc",
-      "description": "Whether a URL visited during debugging is official documentation vs community forum",
+      "name": "codebase_familiarity",
+      "description": "Current understanding of the specific codebase, its patterns, and quirks",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "leisure_activity_count",
-      "description": "Count of non-technical browsing activities indicating breaks and mental rest",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "debugging_sessions_today",
-      "description": "Number of distinct debugging sessions on a given day, indicating debugging workload",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "learning_activity_count",
-      "description": "Count of technical learning activities (not debugging), indicating knowledge building",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "initial_query_technical_terms",
-      "description": "Count of technical/specific terms in the first search query of a debugging session",
+      "name": "error_diagnosis_efficiency",
+      "description": "Ability to quickly identify the root cause of an error",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "hourly"
     },
     {
-      "name": "error_domain_familiarity",
-      "description": "Latent familiarity and expertise with the specific error domain, shaped by exposure and learning",
+      "name": "fix_implementation_efficiency",
+      "description": "Speed and accuracy of coding the solution once the problem is understood",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "hourly"
     },
     {
-      "name": "cognitive_efficiency",
-      "description": "Latent cognitive state affecting information processing speed, focus, and problem-solving ability",
+      "name": "code_quality",
+      "description": "Readability, maintainability, and organization of the codebase",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     },
     {
-      "name": "search_strategy_quality",
-      "description": "Latent quality of debugging search approach - knowing what to search, where to look, how to refine",
+      "name": "debugging_tool_proficiency",
+      "description": "Skill in using debugging tools, profilers, and log analysis systems",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "is_weekend",
-      "description": "Whether the day is a weekend (Saturday or Sunday)",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "activity_gap_hours",
-      "description": "Hours since last browsing activity when debugging session starts, indicating fresh start vs continuous work",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     }
   ],
   "edges": [
     {
-      "cause": "technical_search_count",
-      "effect": "error_domain_familiarity",
-      "description": "More exposure to technical topics builds familiarity with error patterns and solutions",
+      "cause": "error_diagnosis_efficiency",
+      "effect": "error_resolution_speed",
+      "description": "Quickly identifying the root cause directly enables faster overall resolution",
+      "lagged": false
+    },
+    {
+      "cause": "fix_implementation_efficiency",
+      "effect": "error_resolution_speed",
+      "description": "Faster implementation of the fix directly speeds up resolution",
+      "lagged": false
+    },
+    {
+      "cause": "error_complexity",
+      "effect": "error_resolution_speed",
+      "description": "More complex errors take longer to resolve regardless of skill",
+      "lagged": false
+    },
+    {
+      "cause": "flow_state",
+      "effect": "error_resolution_speed",
+      "description": "Being in flow enables faster, more effective debugging",
+      "lagged": false
+    },
+    {
+      "cause": "cognitive_clarity",
+      "effect": "error_resolution_speed",
+      "description": "Mental clarity enables better problem-solving and faster resolution",
+      "lagged": false
+    },
+    {
+      "cause": "codebase_familiarity",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Knowing the codebase helps quickly narrow down where bugs might be",
       "lagged": true
     },
     {
-      "cause": "learning_activity_count",
-      "effect": "error_domain_familiarity",
-      "description": "Technical learning expands knowledge base and deepens understanding of concepts",
+      "cause": "debugging_tool_proficiency",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Skilled use of debuggers and profilers speeds diagnosis",
       "lagged": true
     },
     {
-      "cause": "error_domain_familiarity",
-      "effect": "error_resolution_duration",
-      "description": "Greater familiarity enables faster pattern recognition of errors and known solutions",
+      "cause": "documentation_quality",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Good documentation helps understand expected behavior and find discrepancies",
+      "lagged": true
+    },
+    {
+      "cause": "error_complexity",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Complex errors with multiple interacting causes are harder to diagnose",
       "lagged": false
     },
     {
-      "cause": "error_domain_familiarity",
-      "effect": "search_strategy_quality",
-      "description": "Domain expertise helps formulate better search queries and know where to find answers",
+      "cause": "code_quality",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Clean, readable code is easier to debug and trace",
+      "lagged": true
+    },
+    {
+      "cause": "cognitive_clarity",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Clear thinking enables pattern recognition and logical deduction",
       "lagged": false
     },
     {
-      "cause": "topic_category",
-      "effect": "cognitive_efficiency",
-      "description": "High topic diversity (many distinct categories) depletes working memory and reduces efficiency",
+      "cause": "developer_experience_level",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Experienced developers recognize error patterns and common pitfalls faster",
+      "lagged": true
+    },
+    {
+      "cause": "domain_expertise",
+      "effect": "error_diagnosis_efficiency",
+      "description": "Domain knowledge helps identify when behavior deviates from business requirements",
+      "lagged": true
+    },
+    {
+      "cause": "codebase_familiarity",
+      "effect": "fix_implementation_efficiency",
+      "description": "Knowing where and how to make changes speeds implementation",
+      "lagged": true
+    },
+    {
+      "cause": "test_coverage_confidence",
+      "effect": "fix_implementation_efficiency",
+      "description": "Confidence in tests allows faster changes without fear of regressions",
+      "lagged": true
+    },
+    {
+      "cause": "code_quality",
+      "effect": "fix_implementation_efficiency",
+      "description": "Well-structured code is easier to modify safely",
+      "lagged": true
+    },
+    {
+      "cause": "flow_state",
+      "effect": "fix_implementation_efficiency",
+      "description": "Flow state enables rapid, confident coding",
       "lagged": false
     },
     {
-      "cause": "debugging_start_hour",
-      "effect": "cognitive_efficiency",
-      "description": "Circadian rhythms affect alertness and cognitive performance throughout the day",
+      "cause": "domain_expertise",
+      "effect": "fix_implementation_efficiency",
+      "description": "Understanding the domain helps implement correct solutions",
+      "lagged": true
+    },
+    {
+      "cause": "external_interruptions",
+      "effect": "flow_state",
+      "description": "Interruptions break flow and prevent deep focus",
       "lagged": false
     },
     {
-      "cause": "leisure_activity_count",
-      "effect": "cognitive_efficiency",
-      "description": "Mental breaks allow cognitive recovery, reduce fatigue, and improve subsequent focus",
+      "cause": "cognitive_clarity",
+      "effect": "flow_state",
+      "description": "Mental clarity is a prerequisite for achieving flow",
       "lagged": false
     },
     {
-      "cause": "debugging_sessions_today",
-      "effect": "cognitive_efficiency",
-      "description": "Accumulated debugging workload depletes mental resources and increases fatigue",
+      "cause": "stress_level",
+      "effect": "flow_state",
+      "description": "High stress prevents the relaxed focus needed for flow",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "cognitive_clarity",
+      "description": "Good sleep the night before enables mental sharpness",
+      "lagged": true
+    },
+    {
+      "cause": "stress_level",
+      "effect": "cognitive_clarity",
+      "description": "Chronic stress impairs cognitive function and focus",
+      "lagged": true
+    },
+    {
+      "cause": "external_interruptions",
+      "effect": "cognitive_clarity",
+      "description": "Frequent interruptions fragment attention and reduce clarity",
       "lagged": false
     },
     {
-      "cause": "activity_gap_hours",
-      "effect": "cognitive_efficiency",
-      "description": "Starting fresh after a break vs continuous work affects mental sharpness",
-      "lagged": false
+      "cause": "developer_experience_level",
+      "effect": "codebase_familiarity",
+      "description": "Experienced developers learn codebases faster",
+      "lagged": true
     },
     {
-      "cause": "is_weekend",
-      "effect": "cognitive_efficiency",
-      "description": "Weekend debugging may have different cognitive context - either more relaxed or less focused",
-      "lagged": false
+      "cause": "domain_expertise",
+      "effect": "codebase_familiarity",
+      "description": "Domain knowledge accelerates understanding of code purpose",
+      "lagged": true
     },
     {
-      "cause": "cognitive_efficiency",
-      "effect": "error_resolution_duration",
-      "description": "Higher cognitive efficiency enables faster information processing and problem solving",
-      "lagged": false
+      "cause": "developer_experience_level",
+      "effect": "debugging_tool_proficiency",
+      "description": "Experience correlates with knowing and using debugging tools well",
+      "lagged": true
     },
     {
-      "cause": "cognitive_efficiency",
-      "effect": "search_strategy_quality",
-      "description": "Better cognitive state leads to more thoughtful, strategic search behavior",
-      "lagged": false
+      "cause": "system_architecture_complexity",
+      "effect": "error_complexity",
+      "description": "Complex systems tend to produce more complex errors",
+      "lagged": true
     },
     {
-      "cause": "search_strategy_quality",
-      "effect": "search_iterations",
-      "description": "Better search strategy leads to more efficient queries and fewer iterations needed",
-      "lagged": false
+      "cause": "code_quality",
+      "effect": "error_complexity",
+      "description": "Poor code quality leads to harder-to-trace errors",
+      "lagged": true
     },
     {
-      "cause": "search_strategy_quality",
-      "effect": "initial_query_technical_terms",
-      "description": "Good strategy manifests in more specific, targeted initial search queries",
-      "lagged": false
+      "cause": "error_resolution_speed",
+      "effect": "stress_level",
+      "description": "Resolving errors quickly reduces accumulated stress and pressure",
+      "lagged": true
     },
     {
-      "cause": "search_strategy_quality",
-      "effect": "is_official_doc",
-      "description": "Skilled debuggers know to prioritize official documentation over forums",
-      "lagged": false
+      "cause": "error_resolution_speed",
+      "effect": "codebase_familiarity",
+      "description": "Successfully debugging code teaches you about the codebase",
+      "lagged": true
     },
     {
-      "cause": "initial_query_technical_terms",
-      "effect": "error_resolution_duration",
-      "description": "More specific initial queries find relevant results faster, reducing resolution time",
-      "lagged": false
+      "cause": "developer_experience_level",
+      "effect": "code_quality",
+      "description": "Experienced developers tend to write and maintain cleaner code",
+      "lagged": true
     },
     {
-      "cause": "search_iterations",
-      "effect": "error_resolution_duration",
-      "description": "More search iterations extend the debugging session duration",
-      "lagged": false
-    },
-    {
-      "cause": "is_official_doc",
-      "effect": "error_resolution_duration",
-      "description": "Official documentation typically provides more accurate, authoritative solutions faster",
-      "lagged": false
-    },
-    {
-      "cause": "error_domain_familiarity",
-      "effect": "initial_query_technical_terms",
-      "description": "Domain knowledge enables more precise error query formulation from the start",
-      "lagged": false
+      "cause": "system_architecture_complexity",
+      "effect": "code_quality",
+      "description": "Complex systems are harder to keep clean and well-organized",
+      "lagged": true
     }
   ]
 }

@@ -2,105 +2,169 @@
   "structural": {
     "constructs": [
       {
-        "name": "weekend_work_intensity",
-        "description": "Amount of work-related browsing activity on weekends (Saturday and Sunday) - the behavior we want to reduce",
+        "name": "weekend_work",
+        "description": "Amount of work done on Saturday and Sunday, including checking emails, completing tasks, or attending meetings",
         "role": "endogenous",
         "is_outcome": true,
         "temporal_status": "time_varying",
         "causal_granularity": "weekly"
       },
       {
-        "name": "weekday_work_volume",
-        "description": "Total work-related browsing activity on weekdays (Monday-Friday)",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "weekday_leisure_volume",
-        "description": "Leisure and personal browsing activity on weekdays - indicates work-life balance",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "late_evening_work",
-        "description": "Work activity occurring after 8pm - indicates boundary blurring between work and rest time",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "night_activity",
-        "description": "Any browsing activity between midnight and 5am - indicates sleep disruption or shifted schedule",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "technical_research_intensity",
-        "description": "Density of deep technical browsing - captures intellectual engagement that may spill into weekends",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "stress_wellbeing_signal",
-        "description": "Searches related to mental health, stress, sleep, or self-medication - signals potential burnout",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "vacation_travel_mode",
-        "description": "Active travel or vacation period - external context that should reduce work tendency",
-        "role": "exogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "last_activity_hour",
-        "description": "Hour of final browsing activity each day - late cessation indicates poor sleep opportunity",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "first_activity_hour",
-        "description": "Hour of first browsing activity each day - indicates wake time and morning routine",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "browsing_category",
-        "description": "Topic category of browsing - aggregated diversity indicates scattered vs focused attention",
-        "role": "endogenous",
-        "is_outcome": false,
-        "temporal_status": "time_varying",
-        "causal_granularity": "daily"
-      },
-      {
-        "name": "work_engagement_momentum",
-        "description": "Latent weekly state representing accumulated pull toward work activities",
+        "name": "weekday_task_completion",
+        "description": "Proportion of planned work tasks completed during regular weekday work hours (Monday-Friday)",
         "role": "endogenous",
         "is_outcome": false,
         "temporal_status": "time_varying",
         "causal_granularity": "weekly"
       },
       {
-        "name": "baseline_workaholic_tendency",
-        "description": "Stable individual tendency toward overwork - person-level trait",
+        "name": "work_urgency_perception",
+        "description": "Subjective sense of deadline pressure and how urgent current work demands feel",
         "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "boundary_enforcement",
+        "description": "Active behaviors to maintain work-life separation: saying no, not checking email, turning off notifications",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "weekday_productivity",
+        "description": "Efficiency and effectiveness of work output during weekday work hours",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "energy_level",
+        "description": "Physical and mental energy available for work and activities throughout the day",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "sleep_quality",
+        "description": "Quality and restorative nature of sleep, including duration and depth",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "work_stress",
+        "description": "Anxiety, worry, and mental burden related to work demands and performance",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "exercise_engagement",
+        "description": "Physical activity and exercise participation during the day",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "available_focus_time",
+        "description": "Hours available for uninterrupted deep work, free from meetings and interruptions",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "meeting_load",
+        "description": "Time spent in scheduled meetings, calls, and synchronous work interactions",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "procrastination_behavior",
+        "description": "Avoidance of work tasks, delaying important work in favor of less demanding activities",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "after_hours_connectivity",
+        "description": "Checking work communications (email, Slack, etc.) outside normal work hours in evenings",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "workload_volume",
+        "description": "Total amount of work tasks and responsibilities assigned or taken on",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "planning_quality",
+        "description": "Effectiveness of weekly and daily planning, including realistic time estimates and prioritization",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "delegation_behavior",
+        "description": "Active distribution of tasks to others and seeking help when overwhelmed",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "job_demands_profile",
+        "description": "Inherent demands of the job type and industry, including baseline expectations for availability",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "organizational_culture",
+        "description": "Company and team norms around work hours, responsiveness, and weekend work expectations",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "perfectionism_tendency",
+        "description": "Trait-level perfectionism and need for high standards that can drive overwork",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "career_stage",
+        "description": "Career level and seniority affecting autonomy, delegation ability, and expectations",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "financial_pressure",
+        "description": "Level of financial obligations and concerns that may drive job insecurity and overwork",
+        "role": "exogenous",
         "is_outcome": false,
         "temporal_status": "time_invariant",
         "causal_granularity": null
@@ -108,183 +172,261 @@
     ],
     "edges": [
       {
-        "cause": "weekday_work_volume",
-        "effect": "weekend_work_intensity",
-        "description": "High weekday work volume indicates demanding periods that spill into weekends",
+        "cause": "weekday_task_completion",
+        "effect": "weekend_work",
+        "description": "Incomplete weekday work directly spills over into weekend work to catch up",
         "lagged": true
       },
       {
-        "cause": "weekday_leisure_volume",
-        "effect": "weekend_work_intensity",
-        "description": "More weekday leisure indicates better boundaries, reducing weekend work",
+        "cause": "work_urgency_perception",
+        "effect": "weekend_work",
+        "description": "High perceived urgency drives working weekends to meet pressing deadlines",
         "lagged": true
       },
       {
-        "cause": "late_evening_work",
-        "effect": "weekend_work_intensity",
-        "description": "Habitual late evening work indicates blurred boundaries that extend to weekends",
+        "cause": "boundary_enforcement",
+        "effect": "weekend_work",
+        "description": "Active boundary-setting directly reduces weekend work by creating protective barriers",
         "lagged": true
       },
       {
-        "cause": "night_activity",
-        "effect": "weekend_work_intensity",
-        "description": "Night owl patterns indicate disrupted rhythms and poor boundaries",
+        "cause": "after_hours_connectivity",
+        "effect": "weekend_work",
+        "description": "Habit of checking work communications leads to getting pulled into weekend work",
         "lagged": true
       },
       {
-        "cause": "technical_research_intensity",
-        "effect": "weekend_work_intensity",
-        "description": "Deep technical engagement creates cognitive momentum that pulls you back on weekends",
+        "cause": "work_stress",
+        "effect": "weekend_work",
+        "description": "Work anxiety drives compulsive checking and working to reduce worry",
         "lagged": true
       },
       {
-        "cause": "stress_wellbeing_signal",
-        "effect": "weekend_work_intensity",
-        "description": "Stress drives compensatory overwork or indicates burnout requiring catch-up",
+        "cause": "organizational_culture",
+        "effect": "weekend_work",
+        "description": "Company norms around availability directly shape weekend work expectations",
         "lagged": true
       },
       {
-        "cause": "vacation_travel_mode",
-        "effect": "weekend_work_intensity",
-        "description": "Being on vacation forces disconnection, reducing weekend work",
+        "cause": "weekday_productivity",
+        "effect": "weekday_task_completion",
+        "description": "Higher daily productivity enables completing more tasks within the work week",
         "lagged": true
       },
       {
-        "cause": "last_activity_hour",
-        "effect": "weekend_work_intensity",
-        "description": "Later daily cessation indicates poor boundaries that extend to weekends",
+        "cause": "workload_volume",
+        "effect": "weekday_task_completion",
+        "description": "Higher workload makes it harder to complete all tasks during weekdays",
         "lagged": true
       },
       {
-        "cause": "first_activity_hour",
-        "effect": "weekend_work_intensity",
-        "description": "Earlier wake times may indicate structured routine protecting weekends, or higher pressure",
+        "cause": "procrastination_behavior",
+        "effect": "weekday_task_completion",
+        "description": "Procrastination during the week reduces task completion, creating spillover",
         "lagged": true
       },
       {
-        "cause": "browsing_category",
-        "effect": "weekend_work_intensity",
-        "description": "Higher category diversity indicates scattered attention, potentially reducing deep work spillover",
+        "cause": "planning_quality",
+        "effect": "weekday_task_completion",
+        "description": "Better planning with realistic estimates improves weekday completion rates",
         "lagged": true
       },
       {
-        "cause": "last_activity_hour",
-        "effect": "weekday_work_volume",
-        "description": "Later bedtimes lead to fatigue and reduced next-day productivity",
+        "cause": "energy_level",
+        "effect": "weekday_productivity",
+        "description": "Higher energy enables sustained focus and efficient work output",
         "lagged": true
       },
       {
-        "cause": "last_activity_hour",
-        "effect": "late_evening_work",
-        "description": "Chronically late bedtimes shift schedule, normalizing late work the next day",
-        "lagged": true
-      },
-      {
-        "cause": "night_activity",
-        "effect": "last_activity_hour",
-        "description": "Night-time browsing directly extends last activity hour",
+        "cause": "available_focus_time",
+        "effect": "weekday_productivity",
+        "description": "More uninterrupted time allows for deep work and higher productivity",
         "lagged": false
       },
       {
-        "cause": "late_evening_work",
-        "effect": "night_activity",
-        "description": "Working late pushes bedtime later, leading to post-midnight browsing",
-        "lagged": false
-      },
-      {
-        "cause": "late_evening_work",
-        "effect": "last_activity_hour",
-        "description": "Working late directly increases last activity hour",
-        "lagged": false
-      },
-      {
-        "cause": "last_activity_hour",
-        "effect": "first_activity_hour",
-        "description": "Late bedtime leads to sleeping in the next morning",
+        "cause": "work_stress",
+        "effect": "weekday_productivity",
+        "description": "High stress impairs cognitive function and reduces work effectiveness",
         "lagged": true
       },
       {
-        "cause": "weekday_work_volume",
-        "effect": "stress_wellbeing_signal",
-        "description": "High sustained workload creates stress and prompts wellness searches",
+        "cause": "sleep_quality",
+        "effect": "energy_level",
+        "description": "Good sleep restores physical and mental energy for the next day",
         "lagged": true
       },
       {
-        "cause": "stress_wellbeing_signal",
-        "effect": "late_evening_work",
-        "description": "Stress leads to anxiety-driven extended work hours",
-        "lagged": false
-      },
-      {
-        "cause": "technical_research_intensity",
-        "effect": "late_evening_work",
-        "description": "Absorption in engaging problems causes losing track of time",
-        "lagged": false
-      },
-      {
-        "cause": "weekday_leisure_volume",
-        "effect": "late_evening_work",
-        "description": "More daytime breaks may require catching up in evening",
-        "lagged": false
-      },
-      {
-        "cause": "browsing_category",
-        "effect": "weekday_leisure_volume",
-        "description": "Higher category diversity includes more leisure topics",
-        "lagged": false
-      },
-      {
-        "cause": "technical_research_intensity",
-        "effect": "browsing_category",
-        "description": "Deep technical focus reduces category diversity (stays in fewer categories)",
-        "lagged": false
-      },
-      {
-        "cause": "stress_wellbeing_signal",
-        "effect": "last_activity_hour",
-        "description": "Stress and anxiety keep you up later",
-        "lagged": false
-      },
-      {
-        "cause": "vacation_travel_mode",
-        "effect": "weekday_work_volume",
-        "description": "Being on vacation naturally reduces work browsing",
-        "lagged": false
-      },
-      {
-        "cause": "vacation_travel_mode",
-        "effect": "weekday_leisure_volume",
-        "description": "Vacation increases leisure browsing",
-        "lagged": false
-      },
-      {
-        "cause": "work_engagement_momentum",
-        "effect": "weekend_work_intensity",
-        "description": "Accumulated weekly engagement predicts weekend work propensity",
-        "lagged": false
-      },
-      {
-        "cause": "technical_research_intensity",
-        "effect": "work_engagement_momentum",
-        "description": "Deep dive episodes build engagement momentum",
+        "cause": "exercise_engagement",
+        "effect": "energy_level",
+        "description": "Regular exercise increases overall energy levels and vitality",
         "lagged": true
       },
       {
-        "cause": "weekday_work_volume",
-        "effect": "work_engagement_momentum",
-        "description": "Higher weekday work feeds into engagement momentum",
+        "cause": "exercise_engagement",
+        "effect": "sleep_quality",
+        "description": "Physical activity improves sleep quality and duration",
         "lagged": true
       },
       {
-        "cause": "baseline_workaholic_tendency",
-        "effect": "work_engagement_momentum",
-        "description": "Stable trait influences how quickly engagement builds",
+        "cause": "work_stress",
+        "effect": "sleep_quality",
+        "description": "Work-related anxiety and rumination impair sleep quality",
         "lagged": true
       },
       {
-        "cause": "baseline_workaholic_tendency",
-        "effect": "late_evening_work",
-        "description": "Workaholic tendency manifests as regular late evening work",
+        "cause": "after_hours_connectivity",
+        "effect": "sleep_quality",
+        "description": "Checking work communications at night disrupts wind-down and sleep onset",
+        "lagged": true
+      },
+      {
+        "cause": "meeting_load",
+        "effect": "available_focus_time",
+        "description": "More meetings directly reduce time available for focused work",
+        "lagged": false
+      },
+      {
+        "cause": "work_stress",
+        "effect": "procrastination_behavior",
+        "description": "Anxiety about difficult tasks leads to avoidance and procrastination",
+        "lagged": true
+      },
+      {
+        "cause": "energy_level",
+        "effect": "procrastination_behavior",
+        "description": "Low energy reduces motivation and increases task avoidance",
+        "lagged": true
+      },
+      {
+        "cause": "workload_volume",
+        "effect": "work_urgency_perception",
+        "description": "Higher workload creates more perceived deadline pressure",
+        "lagged": true
+      },
+      {
+        "cause": "organizational_culture",
+        "effect": "work_urgency_perception",
+        "description": "Company urgency culture shapes individual perception of deadline pressure",
+        "lagged": true
+      },
+      {
+        "cause": "delegation_behavior",
+        "effect": "workload_volume",
+        "description": "Active delegation reduces personal workload burden",
+        "lagged": true
+      },
+      {
+        "cause": "job_demands_profile",
+        "effect": "workload_volume",
+        "description": "Job type determines baseline workload expectations",
+        "lagged": true
+      },
+      {
+        "cause": "job_demands_profile",
+        "effect": "meeting_load",
+        "description": "Job type determines how meeting-intensive the role is",
+        "lagged": true
+      },
+      {
+        "cause": "career_stage",
+        "effect": "delegation_behavior",
+        "description": "More senior roles have greater ability and expectation to delegate",
+        "lagged": true
+      },
+      {
+        "cause": "career_stage",
+        "effect": "workload_volume",
+        "description": "Career stage affects scope of responsibilities and workload",
+        "lagged": true
+      },
+      {
+        "cause": "perfectionism_tendency",
+        "effect": "work_stress",
+        "description": "Perfectionism creates chronic worry about work quality and performance",
+        "lagged": true
+      },
+      {
+        "cause": "perfectionism_tendency",
+        "effect": "boundary_enforcement",
+        "description": "Perfectionism undermines ability to set boundaries and accept good enough",
+        "lagged": true
+      },
+      {
+        "cause": "financial_pressure",
+        "effect": "work_stress",
+        "description": "Financial concerns create job insecurity and performance anxiety",
+        "lagged": true
+      },
+      {
+        "cause": "work_stress",
+        "effect": "boundary_enforcement",
+        "description": "High stress undermines confidence to enforce work-life boundaries",
+        "lagged": true
+      },
+      {
+        "cause": "organizational_culture",
+        "effect": "boundary_enforcement",
+        "description": "Supportive culture makes boundary-setting easier; always-on culture undermines it",
+        "lagged": true
+      },
+      {
+        "cause": "weekend_work",
+        "effect": "sleep_quality",
+        "description": "Working weekends disrupts recovery time and sleep patterns",
+        "lagged": true
+      },
+      {
+        "cause": "weekend_work",
+        "effect": "work_stress",
+        "description": "Working weekends increases burnout and chronic work-related stress",
+        "lagged": true
+      },
+      {
+        "cause": "organizational_culture",
+        "effect": "after_hours_connectivity",
+        "description": "Company norms shape expectations around checking messages after hours",
+        "lagged": true
+      },
+      {
+        "cause": "work_stress",
+        "effect": "after_hours_connectivity",
+        "description": "Anxiety drives compulsive checking of work communications",
+        "lagged": true
+      },
+      {
+        "cause": "workload_volume",
+        "effect": "work_stress",
+        "description": "Higher workload creates more pressure and work-related anxiety",
+        "lagged": true
+      },
+      {
+        "cause": "planning_quality",
+        "effect": "weekday_productivity",
+        "description": "Good planning with clear priorities improves daily work efficiency",
+        "lagged": true
+      },
+      {
+        "cause": "energy_level",
+        "effect": "exercise_engagement",
+        "description": "Higher energy makes it easier to engage in exercise",
+        "lagged": true
+      },
+      {
+        "cause": "sleep_quality",
+        "effect": "work_stress",
+        "description": "Poor sleep increases stress reactivity and reduces emotional regulation",
+        "lagged": true
+      },
+      {
+        "cause": "procrastination_behavior",
+        "effect": "work_stress",
+        "description": "Procrastinating on tasks creates accumulating stress about incomplete work",
+        "lagged": true
+      },
+      {
+        "cause": "work_stress",
+        "effect": "planning_quality",
+        "description": "High stress impairs executive function needed for effective planning",
         "lagged": true
       }
     ]
@@ -292,92 +434,260 @@
   "measurement": {
     "indicators": [
       {
-        "name": "weekend_work_intensity",
-        "construct": "weekend_work_intensity",
-        "how_to_measure": "For each browsing event on Saturday or Sunday: count 1 if work-related, 0 otherwise. Work-related includes: technical programming searches, cryptography/security topics, professional documentation (GitHub, StackOverflow, Arch Wiki), tech news (Hacker News), API/library lookups, professional software research.",
-        "measurement_granularity": "hourly",
+        "name": "work_browsing_weekend_count",
+        "construct": "weekend_work",
+        "how_to_measure": "For entries on Saturday or Sunday only: count browsing entries (searches and site visits) that are work-related. Work-related includes: programming/coding topics, technical documentation, professional tools (work email, Slack, work apps), professional research. Return 0 for weekday entries.",
+        "measurement_granularity": "daily",
         "measurement_dtype": "count",
         "aggregation": "sum"
       },
       {
-        "name": "weekday_work_volume",
-        "construct": "weekday_work_volume",
-        "how_to_measure": "For each browsing event Monday-Friday: count 1 if work-related, 0 otherwise. Work-related includes: technical searches (Haskell, programming, type systems), security/cryptography (PUFs, consensus algorithms, AES), tech news (Hacker News, Phoronix), documentation sites, academic papers, professional tools.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "count",
-        "aggregation": "sum"
-      },
-      {
-        "name": "weekday_leisure_volume",
-        "construct": "weekday_leisure_volume",
-        "how_to_measure": "For each browsing event Monday-Friday: count 1 if leisure-related, 0 otherwise. Leisure includes: music (artists, songs, concerts), entertainment, travel planning, food/restaurants, social media, personal shopping, podcasts, general interest (history, geography), personal health tracking.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "count",
-        "aggregation": "sum"
-      },
-      {
-        "name": "late_evening_work",
-        "construct": "late_evening_work",
-        "how_to_measure": "For each browsing event with timestamp 20:00-23:59: count 1 if work-related (same criteria as weekday_work_volume), 0 otherwise.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "count",
-        "aggregation": "sum"
-      },
-      {
-        "name": "night_activity",
-        "construct": "night_activity",
-        "how_to_measure": "For each browsing event: flag 1 if timestamp is between 00:00 and 04:59, flag 0 otherwise.",
-        "measurement_granularity": "hourly",
+        "name": "any_work_on_weekend_day",
+        "construct": "weekend_work",
+        "how_to_measure": "For Saturday or Sunday only: code 1 if ANY work-related browsing occurred (programming searches, professional tools, work email, technical research). Code 0 if all browsing is personal/leisure. Leave weekday entries uncoded.",
+        "measurement_granularity": "daily",
         "measurement_dtype": "binary",
         "aggregation": "max"
       },
       {
-        "name": "technical_research_intensity",
-        "construct": "technical_research_intensity",
-        "how_to_measure": "For each browsing event: count 1 if deep technical content (programming language theory, type systems, monads/functors, cryptography concepts like PUFs or key exchange, academic papers, Wikipedia on technical subjects, specialized documentation), count 0 for surface-level content or general tech news.",
-        "measurement_granularity": "hourly",
+        "name": "weekday_work_task_count",
+        "construct": "weekday_task_completion",
+        "how_to_measure": "For Monday-Friday entries: count distinct work tasks or projects evident from browsing. A task = a specific problem being solved or topic researched (e.g., debugging an error, learning a framework). Each separate work topic counts as 1. Return 0 for weekend entries.",
+        "measurement_granularity": "daily",
         "measurement_dtype": "count",
         "aggregation": "sum"
       },
       {
-        "name": "stress_wellbeing_signal",
-        "construct": "stress_wellbeing_signal",
-        "how_to_measure": "For each browsing event: flag 1 if related to depression/anxiety treatments, mental health resources, sleep problems, stress management, wellness tracking devices (Oura, Fitbit), or burnout symptoms. Flag 0 otherwise.",
-        "measurement_granularity": "hourly",
+        "name": "task_completion_signals",
+        "construct": "weekday_task_completion",
+        "how_to_measure": "For weekday entries: count instances suggesting task completion. Look for: a work topic that appears multiple times then stops appearing, transitions from technical research to leisure without late-night return to same topic, or searches containing 'done', 'finished', 'completed', 'solved'. Each signal counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "deadline_urgency_searches",
+        "construct": "work_urgency_perception",
+        "how_to_measure": "Count searches containing urgency-related terms: 'deadline', 'urgent', 'asap', 'rush', 'due date', 'overdue', 'last minute', 'crunch', 'running late', 'behind schedule'. Each matching search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "late_night_work_present",
+        "construct": "work_urgency_perception",
+        "how_to_measure": "Code 1 if any work-related browsing (programming, professional tools, work email, technical documentation) occurs after 10:00 PM based on entry timestamps. Code 0 if no work browsing after 10pm.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "sum"
+      },
+      {
+        "name": "boundary_topic_searches",
+        "construct": "boundary_enforcement",
+        "how_to_measure": "Count searches or visits about: 'work-life balance', 'setting boundaries', 'do not disturb', 'turn off notifications', 'digital detox', 'disconnect from work', 'block distracting apps', 'protect personal time', 'unplug from work'.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "work_free_evening",
+        "construct": "boundary_enforcement",
+        "how_to_measure": "Code 1 if there is NO work-related browsing between 7:00 PM and 10:00 PM (check timestamps). Code 0 if any work browsing (work email, Slack, professional tools, technical work searches) appears in this window.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "mean"
+      },
+      {
+        "name": "is_work_related_entry",
+        "construct": "weekday_productivity",
+        "how_to_measure": "For each entry on weekdays between 9am-6pm: code 1 if work-related (programming, technical research, professional tools, documentation, work communication). Code 0 if non-work (entertainment, social media, personal shopping, news). Skip entries outside this window or on weekends.",
+        "measurement_granularity": "finest",
+        "measurement_dtype": "binary",
+        "aggregation": "mean"
+      },
+      {
+        "name": "sustained_work_periods",
+        "construct": "weekday_productivity",
+        "how_to_measure": "Review entries for the day in time order. Count distinct periods where 5 or more consecutive entries are all work-related without non-work entries interspersed. Each such uninterrupted sequence counts as 1 sustained work period.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "early_morning_activity",
+        "construct": "energy_level",
+        "how_to_measure": "Code 1 if any browsing entry has a timestamp before 8:00 AM. Code 0 if all entries for the day are at 8:00 AM or later. Early activity suggests higher energy or good sleep.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "mean"
+      },
+      {
+        "name": "daily_browsing_volume",
+        "construct": "energy_level",
+        "how_to_measure": "Count the total number of browsing entries (all searches and visits) for the day, regardless of topic. Simply count every entry shown for that day.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "mean"
+      },
+      {
+        "name": "post_midnight_activity",
+        "construct": "sleep_quality",
+        "how_to_measure": "Code 1 if ANY browsing entry has a timestamp between 12:00 AM (midnight) and 5:00 AM. Code 0 if no entries fall within this time window.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "sum"
+      },
+      {
+        "name": "sleep_problem_searches",
+        "construct": "sleep_quality",
+        "how_to_measure": "Count searches about sleep problems: 'insomnia', 'can't sleep', 'trouble sleeping', 'tired', 'exhausted', 'fatigue', 'sleep quality', 'melatonin', 'sleep aid', 'why am I tired', 'sleep schedule', 'sleep tracker'. Each matching search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "stress_related_searches",
+        "construct": "work_stress",
+        "how_to_measure": "Count searches containing: 'stress', 'stressed', 'anxiety', 'anxious', 'overwhelmed', 'burnout', 'burned out', 'mental health', 'therapy', 'counseling', 'meditation app', 'how to relax', 'coping', 'panic'. Each matching search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "escapist_content_visits",
+        "construct": "work_stress",
+        "how_to_measure": "Count visits to escapist content sites: gaming sites (Steam, Twitch, game wikis), streaming entertainment (Netflix, Hulu, Disney+), YouTube entertainment channels, Reddit entertainment subreddits, celebrity gossip sites, meme sites. Each visit counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "mean"
+      },
+      {
+        "name": "exercise_related_searches",
+        "construct": "exercise_engagement",
+        "how_to_measure": "Count searches and visits about exercise: 'gym', 'workout', 'exercise', 'running', 'fitness', 'yoga', 'cycling', 'swimming', fitness apps (Strava, Fitbit, MyFitnessPal), exercise routines, sports activities (e.g., 'kitesurfing', 'hiking', 'climbing').",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "exercise_interest_present",
+        "construct": "exercise_engagement",
+        "how_to_measure": "Code 1 if any exercise or fitness related browsing occurred (workout info, fitness tracking, sports activity, gym searches). Code 0 if no exercise-related entries are present for the day.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "mean"
+      },
+      {
+        "name": "context_switches_count",
+        "construct": "available_focus_time",
+        "how_to_measure": "Review entries between 9am-6pm in time order. Count each transition from work-related to non-work or vice versa. Example: work entry \u2192 news \u2192 work = 2 switches. If all entries are same type (all work or all non-work), count is 0.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "mean"
+      },
+      {
+        "name": "consecutive_work_sequences",
+        "construct": "available_focus_time",
+        "how_to_measure": "Count how many times during work hours you see 5+ consecutive work-related entries in a row without any non-work entry breaking the sequence. Each such sequence counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "mean"
+      },
+      {
+        "name": "calendar_scheduling_visits",
+        "construct": "meeting_load",
+        "how_to_measure": "Count visits to: Google Calendar, Outlook Calendar, Calendly, Doodle, calendar apps, Zoom meeting pages, Google Meet links, Microsoft Teams meeting joins. Each visit counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "meeting_related_searches",
+        "construct": "meeting_load",
+        "how_to_measure": "Count searches containing: 'meeting', 'agenda', 'presentation', 'slides', 'standup', 'sync', 'one on one', '1:1', 'conference call', 'video call', 'zoom link', 'teams meeting'. Each matching search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "distraction_visits_work_hours",
+        "construct": "procrastination_behavior",
+        "how_to_measure": "For weekday entries between 9am-6pm: count visits to distraction sites: Reddit, Twitter/X, Instagram, Facebook, TikTok, YouTube (non-tutorial), Netflix, news sites, sports scores, shopping sites, gaming sites. Each visit counts as 1. Return 0 for weekend or outside work hours.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "work_distraction_alternation",
+        "construct": "procrastination_behavior",
+        "how_to_measure": "Count instances where a work-related entry is immediately followed by a distraction entry and then another work entry on the same topic (work\u2192distraction\u2192similar work pattern). Each such three-entry pattern counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "mean"
+      },
+      {
+        "name": "evening_work_entries",
+        "construct": "after_hours_connectivity",
+        "how_to_measure": "Count work-related browsing entries with timestamps between 6:00 PM and 11:00 PM. Work-related includes: work email, Slack, Teams, professional technical searches, work documentation. Each entry counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "work_communication_evening",
+        "construct": "after_hours_connectivity",
+        "how_to_measure": "Code 1 if any work communication tool (Slack, Microsoft Teams, work email, work chat) was visited after 6:00 PM based on timestamps. Code 0 if no such visits occurred in evening.",
+        "measurement_granularity": "daily",
         "measurement_dtype": "binary",
         "aggregation": "max"
       },
       {
-        "name": "vacation_travel_mode",
-        "construct": "vacation_travel_mode",
-        "how_to_measure": "For each browsing event: flag 1 if indicates active travel (restaurant/activity searches in vacation destinations, weather for travel locations like 'meteo siracusa', tourist attractions, travel logistics, accommodation lookups). Flag 0 otherwise.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "binary",
-        "aggregation": "max"
+        "name": "distinct_work_topics",
+        "construct": "workload_volume",
+        "how_to_measure": "Count distinctly different work topics evident from the day's browsing. Each separate technical domain or project counts as 1. Example: Python debugging + database queries + API documentation = 3 distinct topics. Related searches on same topic count as 1 topic total.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
       },
       {
-        "name": "last_activity_hour",
-        "construct": "last_activity_hour",
-        "how_to_measure": "For each browsing event: record the hour of timestamp. Use 24-hour scale extended for post-midnight (1am=25, 2am=26, etc.) to preserve ordering of late-night activity.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "continuous",
-        "aggregation": "max"
+        "name": "total_work_entries",
+        "construct": "workload_volume",
+        "how_to_measure": "Count all work-related browsing entries for the day: programming searches, technical documentation, professional tool visits, work email, project research. Count every work-related entry regardless of time of day.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
       },
       {
-        "name": "first_activity_hour",
-        "construct": "first_activity_hour",
-        "how_to_measure": "For each browsing event: record the hour of timestamp (0-23 scale). For pre-5am activity, record actual hour to detect overnight sessions.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "continuous",
-        "aggregation": "min"
+        "name": "planning_tool_visits",
+        "construct": "planning_quality",
+        "how_to_measure": "Count visits to planning/productivity tools: Todoist, Asana, Trello, Notion, Monday.com, project management apps, to-do list apps, time-blocking tools, calendar (for planning, not meeting joins). Each visit counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
       },
       {
-        "name": "browsing_category",
-        "construct": "browsing_category",
-        "how_to_measure": "Classify each browsing event into exactly one category: 'programming', 'security_crypto', 'travel', 'food', 'music', 'health', 'news', 'shopping', 'social', 'science', 'history', 'entertainment', 'other'.",
-        "measurement_granularity": "hourly",
-        "measurement_dtype": "categorical",
-        "aggregation": "n_unique"
+        "name": "productivity_method_searches",
+        "construct": "planning_quality",
+        "how_to_measure": "Count searches about planning or productivity: 'how to plan', 'productivity tips', 'time management', 'prioritize tasks', 'todo system', 'GTD', 'getting things done', 'pomodoro', 'weekly planning', 'organize work', 'task management'. Each search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "delegation_searches",
+        "construct": "delegation_behavior",
+        "how_to_measure": "Count searches about delegating or getting help: 'how to delegate', 'assign task', 'outsource work', 'virtual assistant', 'ask for help', 'distribute workload', 'team task assignment', 'saying no to tasks'. Each matching search counts as 1.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "collaboration_platform_visits",
+        "construct": "delegation_behavior",
+        "how_to_measure": "Count visits to team collaboration platforms: Slack, Microsoft Teams, Asana, Jira, GitHub (issues, pull requests), Linear, Basecamp, shared project boards. Each visit counts as 1. Higher counts suggest more team coordination.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
       }
     ]
   }

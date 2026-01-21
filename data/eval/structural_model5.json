@@ -1,345 +1,655 @@
 {
   "constructs": [
     {
-      "name": "perceived_engineering_competence",
-      "description": "Subjective feeling of being a competent engineer - the sense of mastery, capability, and professional self-efficacy",
+      "name": "engineering_self_efficacy",
+      "description": "The subjective feeling of being a competent, capable engineer who can handle technical challenges",
       "role": "endogenous",
       "is_outcome": true,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "deep_technical_learning",
-      "description": "Sustained engagement with complex technical topics like programming concepts, algorithms, cryptography, or systems design",
+      "name": "technical_mastery_experiences",
+      "description": "Successfully solving technical problems, debugging issues, implementing solutions effectively",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "comparative_learning",
-      "description": "Searches comparing or contrasting concepts, indicating active synthesis and deeper understanding",
+      "name": "peer_recognition",
+      "description": "Receiving acknowledgment from colleagues - being sought for advice, positive code reviews, being seen as capable",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "problem_solving_activity",
-      "description": "Active debugging, troubleshooting, and fixing technical issues - the practical application of engineering skills",
+      "name": "task_achievement",
+      "description": "Completing meaningful work units - shipping features, finishing projects, meeting milestones",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "technical_depth_engagement",
-      "description": "Engagement with advanced, authoritative technical sources indicating serious study",
+      "name": "skill_growth_perception",
+      "description": "Awareness of learning and improvement over time - feeling that skills are developing",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly"
+    },
+    {
+      "name": "impostor_feelings",
+      "description": "Self-doubt about one's abilities, feeling like a fraud despite evidence of competence",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "browsing_topic",
-      "description": "The topical category of each browsing event - used to compute attention fragmentation via entropy",
+      "name": "flow_state_engagement",
+      "description": "Deep absorption in challenging but achievable technical work, losing track of time",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "cognitive_capacity",
-      "description": "Underlying mental energy and capacity for focused intellectual work - not directly observed but inferred",
+      "name": "social_comparison",
+      "description": "Perception of one's abilities relative to engineering peers - favorable vs unfavorable comparisons",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "intellectual_curiosity_exploration",
-      "description": "Exploratory learning driven by curiosity rather than immediate work needs",
+      "name": "deliberate_practice",
+      "description": "Intentional activities to build engineering skills beyond normal work requirements",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "mental_health_seeking",
-      "description": "Searches related to mental health, mood enhancement substances, depression - indicates potential struggles affecting engineering capacity",
+      "name": "cognitive_resources",
+      "description": "Available mental energy, focus, and clarity for complex technical work",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "work_engagement",
+      "description": "Motivation, involvement, and enthusiasm for engineering work",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "collaboration_quality",
+      "description": "Quality of interactions with teammates - productive discussions, knowledge sharing, mutual support",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "learning_activities",
+      "description": "Time and effort spent on learning new technical skills, concepts, or tools",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "problem_skill_match",
+      "description": "How well the challenge level of assigned work matches current ability level",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "quality_feedback_received",
+      "description": "Specific, constructive feedback on work quality from managers or peers",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "work_autonomy",
+      "description": "Control and discretion over how engineering work is approached and executed",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "workload_stress",
+      "description": "Pressure and strain from the amount of work relative to capacity",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "positive_affect",
+      "description": "Daily emotional state - feeling good, optimistic, energized",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "years_of_experience",
+      "description": "Total accumulated time working as an engineer",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "neuroticism",
+      "description": "Personality trait reflecting tendency toward negative emotions, anxiety, and self-doubt",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "conscientiousness",
+      "description": "Personality trait reflecting tendency toward diligence, organization, and goal pursuit",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "growth_mindset",
+      "description": "Belief that engineering abilities can be developed through effort and learning",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "sleep_quality",
+      "description": "Quality of rest and sleep recovery",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "daily"
     },
     {
-      "name": "late_night_activity",
-      "description": "Browsing activity during late night hours - proxy for sleep disruption or irregular schedule affecting next-day cognition",
+      "name": "team_psychological_safety",
+      "description": "Perceived safety to take interpersonal risks, ask questions, and make mistakes on the team",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     },
     {
-      "name": "leisure_browsing",
-      "description": "Non-technical leisure activities - can indicate both healthy recovery and potential avoidance/distraction",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "health_optimization_interest",
-      "description": "Interest in health tracking, biohacking, and self-optimization - indicates proactive self-management orientation",
+      "name": "manager_support",
+      "description": "Quality of support, guidance, and advocacy from one's engineering manager",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     },
     {
-      "name": "is_weekend",
-      "description": "Whether the day is Saturday or Sunday - affects available time and type of engagement",
+      "name": "mentorship_access",
+      "description": "Availability and quality of guidance from more senior engineers",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     },
     {
-      "name": "total_browsing_volume",
-      "description": "Overall daily activity level - baseline engagement with digital world",
+      "name": "organizational_learning_culture",
+      "description": "Company culture that values continuous learning, experimentation, and growth",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "monthly"
     },
     {
-      "name": "morning_technical_start",
-      "description": "Whether technical work began in the morning - indicates disciplined routine enabling deep work",
+      "name": "workload_demands",
+      "description": "Volume and urgency of assigned work tasks and project deadlines",
       "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "technology_evaluation",
-      "description": "Exploring and comparing tools, languages, frameworks - indicates growth mindset and staying current",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "hardware_tooling_interest",
-      "description": "Interest in engineering hardware and tooling setup - indicates investment in craft",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "causal_granularity": "weekly"
     }
   ],
   "edges": [
     {
-      "cause": "cognitive_capacity",
-      "effect": "deep_technical_learning",
-      "description": "Higher cognitive capacity enables sustained engagement with complex technical topics",
+      "cause": "technical_mastery_experiences",
+      "effect": "engineering_self_efficacy",
+      "description": "Successfully solving technical problems directly builds confidence in one's engineering abilities (Bandura's mastery experiences)",
       "lagged": false
     },
     {
-      "cause": "cognitive_capacity",
-      "effect": "browsing_topic",
-      "description": "Lower cognitive capacity leads to higher entropy in browsing topics (more scattered)",
+      "cause": "peer_recognition",
+      "effect": "engineering_self_efficacy",
+      "description": "External validation from respected colleagues confirms one's competence (social persuasion)",
       "lagged": false
     },
     {
-      "cause": "cognitive_capacity",
-      "effect": "problem_solving_activity",
-      "description": "Cognitive resources are needed for effective debugging and troubleshooting",
+      "cause": "task_achievement",
+      "effect": "engineering_self_efficacy",
+      "description": "Completing meaningful work provides tangible evidence of capability",
       "lagged": false
     },
     {
-      "cause": "mental_health_seeking",
-      "effect": "cognitive_capacity",
-      "description": "Mental health struggles (indicated by substance/therapy seeking) deplete cognitive capacity the following day",
+      "cause": "skill_growth_perception",
+      "effect": "engineering_self_efficacy",
+      "description": "Perceiving that one is learning and improving supports belief in competence trajectory",
       "lagged": true
     },
     {
-      "cause": "late_night_activity",
-      "effect": "cognitive_capacity",
-      "description": "Late night browsing disrupts sleep, reducing next-day cognitive capacity",
+      "cause": "impostor_feelings",
+      "effect": "engineering_self_efficacy",
+      "description": "Self-doubt and feeling like a fraud undermines belief in one's competence",
+      "lagged": false
+    },
+    {
+      "cause": "flow_state_engagement",
+      "effect": "engineering_self_efficacy",
+      "description": "Experiencing flow signals that one's skills are well-matched to challenges",
+      "lagged": false
+    },
+    {
+      "cause": "social_comparison",
+      "effect": "engineering_self_efficacy",
+      "description": "How one perceives oneself relative to peers affects competence beliefs (vicarious experience)",
+      "lagged": false
+    },
+    {
+      "cause": "quality_feedback_received",
+      "effect": "engineering_self_efficacy",
+      "description": "Constructive feedback helps calibrate and build confidence in specific skills",
+      "lagged": false
+    },
+    {
+      "cause": "cognitive_resources",
+      "effect": "technical_mastery_experiences",
+      "description": "Mental clarity and focus enable better problem-solving and debugging",
+      "lagged": false
+    },
+    {
+      "cause": "problem_skill_match",
+      "effect": "technical_mastery_experiences",
+      "description": "Appropriately challenging work allows for successful completion",
+      "lagged": false
+    },
+    {
+      "cause": "deliberate_practice",
+      "effect": "technical_mastery_experiences",
+      "description": "Skill-building activities improve ability to solve technical problems",
       "lagged": true
     },
     {
-      "cause": "health_optimization_interest",
-      "effect": "cognitive_capacity",
-      "description": "Proactive health management leads to improved cognitive capacity over time",
+      "cause": "work_autonomy",
+      "effect": "technical_mastery_experiences",
+      "description": "Freedom to approach problems in preferred ways facilitates mastery",
+      "lagged": false
+    },
+    {
+      "cause": "years_of_experience",
+      "effect": "technical_mastery_experiences",
+      "description": "Accumulated experience provides pattern recognition and problem-solving frameworks",
       "lagged": true
     },
     {
-      "cause": "deep_technical_learning",
-      "effect": "perceived_engineering_competence",
-      "description": "Successfully engaging with complex technical material directly builds sense of competence",
-      "lagged": false
-    },
-    {
-      "cause": "comparative_learning",
-      "effect": "perceived_engineering_competence",
-      "description": "Actively comparing and contrasting concepts indicates synthesis and reinforces competence feeling",
-      "lagged": false
-    },
-    {
-      "cause": "problem_solving_activity",
-      "effect": "perceived_engineering_competence",
-      "description": "Successfully debugging and fixing issues demonstrates practical engineering capability",
-      "lagged": false
-    },
-    {
-      "cause": "technical_depth_engagement",
-      "effect": "perceived_engineering_competence",
-      "description": "Engaging with serious technical sources signals to self that one is doing real engineering work",
-      "lagged": false
-    },
-    {
-      "cause": "browsing_topic",
-      "effect": "perceived_engineering_competence",
-      "description": "Higher topic entropy (fragmentation) undermines sense of competence; focused browsing supports it",
-      "lagged": false
-    },
-    {
-      "cause": "intellectual_curiosity_exploration",
-      "effect": "perceived_engineering_competence",
-      "description": "Curiosity-driven learning reinforces identity as thoughtful, engaged engineer",
-      "lagged": false
-    },
-    {
-      "cause": "technology_evaluation",
-      "effect": "perceived_engineering_competence",
-      "description": "Evaluating and comparing technologies maintains sense of relevance and growth",
-      "lagged": false
-    },
-    {
-      "cause": "deep_technical_learning",
-      "effect": "comparative_learning",
-      "description": "Deep engagement with technical topics leads to comparative queries as understanding deepens",
-      "lagged": false
-    },
-    {
-      "cause": "technical_depth_engagement",
-      "effect": "comparative_learning",
-      "description": "Reading authoritative sources prompts comparison of approaches and concepts",
-      "lagged": false
-    },
-    {
-      "cause": "intellectual_curiosity_exploration",
-      "effect": "deep_technical_learning",
-      "description": "Curiosity provides motivation for sustained technical engagement",
-      "lagged": false
-    },
-    {
-      "cause": "leisure_browsing",
-      "effect": "deep_technical_learning",
-      "description": "Same-day leisure browsing competes for time with deep technical work (negative)",
-      "lagged": false
-    },
-    {
-      "cause": "leisure_browsing",
-      "effect": "cognitive_capacity",
-      "description": "Leisure and recovery activities restore cognitive capacity for the next day",
+      "cause": "task_achievement",
+      "effect": "peer_recognition",
+      "description": "Completing work successfully leads to recognition from teammates",
       "lagged": true
     },
     {
-      "cause": "is_weekend",
-      "effect": "leisure_browsing",
-      "description": "Weekends naturally have more leisure browsing",
+      "cause": "collaboration_quality",
+      "effect": "peer_recognition",
+      "description": "Good collaboration makes contributions visible and builds reputation",
       "lagged": false
     },
     {
-      "cause": "is_weekend",
-      "effect": "deep_technical_learning",
-      "description": "Weekends may enable more personal technical learning or reduce work-related learning",
-      "lagged": false
-    },
-    {
-      "cause": "total_browsing_volume",
-      "effect": "deep_technical_learning",
-      "description": "Higher overall activity creates more opportunity for deep technical engagement",
-      "lagged": false
-    },
-    {
-      "cause": "morning_technical_start",
-      "effect": "deep_technical_learning",
-      "description": "Starting technical work in the morning enables more accumulated deep work",
-      "lagged": false
-    },
-    {
-      "cause": "morning_technical_start",
-      "effect": "browsing_topic",
-      "description": "Morning starts correlate with more focused (lower entropy) browsing patterns",
-      "lagged": false
-    },
-    {
-      "cause": "perceived_engineering_competence",
-      "effect": "deep_technical_learning",
-      "description": "Feeling competent motivates continued technical learning - virtuous cycle",
+      "cause": "technical_mastery_experiences",
+      "effect": "peer_recognition",
+      "description": "Demonstrated technical skill leads others to seek advice and acknowledge expertise",
       "lagged": true
     },
     {
-      "cause": "perceived_engineering_competence",
-      "effect": "intellectual_curiosity_exploration",
-      "description": "Competence feeling frees mental space for curious exploration",
+      "cause": "team_psychological_safety",
+      "effect": "peer_recognition",
+      "description": "Psychologically safe teams are more likely to openly acknowledge contributions",
       "lagged": true
     },
     {
-      "cause": "hardware_tooling_interest",
-      "effect": "perceived_engineering_competence",
-      "description": "Investing in engineering craft and tools reinforces professional identity",
+      "cause": "technical_mastery_experiences",
+      "effect": "task_achievement",
+      "description": "Successfully solving technical problems leads to task completion",
       "lagged": false
     },
     {
-      "cause": "problem_solving_activity",
-      "effect": "technical_depth_engagement",
-      "description": "Debugging problems drives consultation of authoritative documentation",
+      "cause": "work_engagement",
+      "effect": "task_achievement",
+      "description": "Higher engagement drives focus and persistence toward completing work",
       "lagged": false
     },
     {
-      "cause": "mental_health_seeking",
-      "effect": "browsing_topic",
-      "description": "Mental health struggles manifest as more scattered (higher entropy) browsing same day",
+      "cause": "cognitive_resources",
+      "effect": "task_achievement",
+      "description": "Available mental energy enables productive work completion",
       "lagged": false
     },
     {
-      "cause": "browsing_topic",
-      "effect": "deep_technical_learning",
-      "description": "Higher topic entropy (fragmentation) inhibits ability to engage deeply (negative)",
+      "cause": "workload_stress",
+      "effect": "task_achievement",
+      "description": "Excessive workload pressure interferes with ability to complete tasks well",
       "lagged": false
     },
     {
-      "cause": "technology_evaluation",
-      "effect": "intellectual_curiosity_exploration",
-      "description": "Evaluating new technologies sparks broader intellectual curiosity",
+      "cause": "problem_skill_match",
+      "effect": "flow_state_engagement",
+      "description": "Optimal challenge-skill balance is the core condition for flow",
       "lagged": false
     },
     {
-      "cause": "cognitive_capacity",
-      "effect": "leisure_browsing",
-      "description": "Low cognitive capacity may drive escape into leisure browsing as avoidance",
+      "cause": "cognitive_resources",
+      "effect": "flow_state_engagement",
+      "description": "Mental clarity and focus are prerequisites for entering flow",
       "lagged": false
     },
     {
-      "cause": "total_browsing_volume",
-      "effect": "leisure_browsing",
-      "description": "More overall browsing creates more opportunity for leisure content",
+      "cause": "work_engagement",
+      "effect": "flow_state_engagement",
+      "description": "Intrinsic motivation increases likelihood of flow experiences",
       "lagged": false
     },
     {
-      "cause": "cognitive_capacity",
-      "effect": "technology_evaluation",
-      "description": "Mental energy enables exploration of unfamiliar technical territory",
+      "cause": "workload_stress",
+      "effect": "flow_state_engagement",
+      "description": "Stress and pressure disrupt the focused attention needed for flow",
       "lagged": false
     },
     {
-      "cause": "perceived_engineering_competence",
-      "effect": "technology_evaluation",
-      "description": "Feeling competent gives confidence to explore and evaluate new technologies",
+      "cause": "neuroticism",
+      "effect": "impostor_feelings",
+      "description": "Tendency toward anxiety and self-doubt amplifies impostor experiences",
+      "lagged": true
+    },
+    {
+      "cause": "social_comparison",
+      "effect": "impostor_feelings",
+      "description": "Unfavorable social comparisons fuel feelings of being a fraud",
+      "lagged": false
+    },
+    {
+      "cause": "technical_mastery_experiences",
+      "effect": "impostor_feelings",
+      "description": "Success experiences counter impostor feelings over time",
+      "lagged": true
+    },
+    {
+      "cause": "peer_recognition",
+      "effect": "impostor_feelings",
+      "description": "External validation reduces self-doubt about competence",
+      "lagged": true
+    },
+    {
+      "cause": "learning_activities",
+      "effect": "skill_growth_perception",
+      "description": "Engaging in learning creates awareness of acquiring new knowledge",
+      "lagged": true
+    },
+    {
+      "cause": "deliberate_practice",
+      "effect": "skill_growth_perception",
+      "description": "Intentional practice produces noticeable skill development",
+      "lagged": true
+    },
+    {
+      "cause": "technical_mastery_experiences",
+      "effect": "skill_growth_perception",
+      "description": "Successfully handling challenges reveals capability growth",
+      "lagged": true
+    },
+    {
+      "cause": "mentorship_access",
+      "effect": "skill_growth_perception",
+      "description": "Mentors help recognize and articulate growth in skills",
+      "lagged": true
+    },
+    {
+      "cause": "quality_feedback_received",
+      "effect": "skill_growth_perception",
+      "description": "Feedback highlights areas of improvement and growth",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "cognitive_resources",
+      "description": "Good sleep restores mental energy and focus capacity",
+      "lagged": true
+    },
+    {
+      "cause": "workload_stress",
+      "effect": "cognitive_resources",
+      "description": "Chronic stress depletes cognitive resources and focus",
+      "lagged": false
+    },
+    {
+      "cause": "positive_affect",
+      "effect": "cognitive_resources",
+      "description": "Positive emotional state supports broader attention and cognitive flexibility",
+      "lagged": true
+    },
+    {
+      "cause": "positive_affect",
+      "effect": "work_engagement",
+      "description": "Positive mood increases motivation and involvement in work",
+      "lagged": true
+    },
+    {
+      "cause": "work_autonomy",
+      "effect": "work_engagement",
+      "description": "Control over work increases intrinsic motivation per self-determination theory",
+      "lagged": false
+    },
+    {
+      "cause": "flow_state_engagement",
+      "effect": "work_engagement",
+      "description": "Flow experiences are intrinsically rewarding and boost subsequent engagement",
+      "lagged": true
+    },
+    {
+      "cause": "manager_support",
+      "effect": "work_engagement",
+      "description": "Supportive managers foster motivation and commitment to work",
+      "lagged": true
+    },
+    {
+      "cause": "engineering_self_efficacy",
+      "effect": "work_engagement",
+      "description": "Feeling competent increases willingness to engage with challenging work",
+      "lagged": true
+    },
+    {
+      "cause": "growth_mindset",
+      "effect": "deliberate_practice",
+      "description": "Believing abilities can develop motivates intentional skill-building",
+      "lagged": true
+    },
+    {
+      "cause": "conscientiousness",
+      "effect": "deliberate_practice",
+      "description": "Diligence and goal-orientation drive consistent practice behaviors",
+      "lagged": true
+    },
+    {
+      "cause": "work_engagement",
+      "effect": "deliberate_practice",
+      "description": "Engaged workers invest more in developing their skills",
+      "lagged": false
+    },
+    {
+      "cause": "mentorship_access",
+      "effect": "deliberate_practice",
+      "description": "Mentors guide what to practice and provide structure for improvement",
+      "lagged": true
+    },
+    {
+      "cause": "organizational_learning_culture",
+      "effect": "learning_activities",
+      "description": "Culture that values learning encourages investment in skill development",
+      "lagged": true
+    },
+    {
+      "cause": "manager_support",
+      "effect": "learning_activities",
+      "description": "Supportive managers provide time and resources for learning",
+      "lagged": true
+    },
+    {
+      "cause": "conscientiousness",
+      "effect": "learning_activities",
+      "description": "Conscientious individuals pursue self-improvement more consistently",
+      "lagged": true
+    },
+    {
+      "cause": "skill_growth_perception",
+      "effect": "learning_activities",
+      "description": "Perceiving growth reinforces and motivates continued learning",
+      "lagged": true
+    },
+    {
+      "cause": "peer_recognition",
+      "effect": "social_comparison",
+      "description": "Being recognized shifts comparison toward more favorable perception",
+      "lagged": false
+    },
+    {
+      "cause": "technical_mastery_experiences",
+      "effect": "social_comparison",
+      "description": "Success provides evidence for favorable peer comparison",
+      "lagged": false
+    },
+    {
+      "cause": "years_of_experience",
+      "effect": "social_comparison",
+      "description": "More experience provides realistic peer reference points",
+      "lagged": true
+    },
+    {
+      "cause": "neuroticism",
+      "effect": "social_comparison",
+      "description": "High neuroticism biases toward unfavorable upward comparisons",
+      "lagged": true
+    },
+    {
+      "cause": "engineering_self_efficacy",
+      "effect": "positive_affect",
+      "description": "Feeling competent contributes to positive emotional state",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "positive_affect",
+      "description": "Good sleep supports positive mood regulation",
+      "lagged": true
+    },
+    {
+      "cause": "workload_stress",
+      "effect": "positive_affect",
+      "description": "Excessive stress depletes positive emotional resources",
+      "lagged": false
+    },
+    {
+      "cause": "task_achievement",
+      "effect": "positive_affect",
+      "description": "Completing meaningful work generates positive emotions",
+      "lagged": true
+    },
+    {
+      "cause": "team_psychological_safety",
+      "effect": "collaboration_quality",
+      "description": "Safety to take risks enables open, productive collaboration",
+      "lagged": true
+    },
+    {
+      "cause": "positive_affect",
+      "effect": "collaboration_quality",
+      "description": "Positive mood facilitates better interpersonal interactions",
+      "lagged": true
+    },
+    {
+      "cause": "work_engagement",
+      "effect": "collaboration_quality",
+      "description": "Engaged workers invest more in collaborative relationships",
+      "lagged": false
+    },
+    {
+      "cause": "years_of_experience",
+      "effect": "problem_skill_match",
+      "description": "Experience builds skills that match to more work challenges",
+      "lagged": true
+    },
+    {
+      "cause": "deliberate_practice",
+      "effect": "problem_skill_match",
+      "description": "Practice builds skills that match to assigned challenges",
+      "lagged": true
+    },
+    {
+      "cause": "manager_support",
+      "effect": "problem_skill_match",
+      "description": "Good managers assign appropriately challenging work",
+      "lagged": true
+    },
+    {
+      "cause": "work_autonomy",
+      "effect": "workload_stress",
+      "description": "More autonomy provides control that buffers against stress",
+      "lagged": false
+    },
+    {
+      "cause": "workload_demands",
+      "effect": "workload_stress",
+      "description": "Higher volume and urgency of work increases experienced stress",
+      "lagged": true
+    },
+    {
+      "cause": "manager_support",
+      "effect": "quality_feedback_received",
+      "description": "Supportive managers provide constructive, specific feedback",
+      "lagged": true
+    },
+    {
+      "cause": "team_psychological_safety",
+      "effect": "quality_feedback_received",
+      "description": "Safe environments enable honest, helpful feedback exchange",
+      "lagged": true
+    },
+    {
+      "cause": "collaboration_quality",
+      "effect": "quality_feedback_received",
+      "description": "Good collaboration includes helpful peer feedback",
+      "lagged": false
+    },
+    {
+      "cause": "years_of_experience",
+      "effect": "work_autonomy",
+      "description": "More experienced engineers typically receive greater autonomy",
+      "lagged": true
+    },
+    {
+      "cause": "manager_support",
+      "effect": "work_autonomy",
+      "description": "Supportive managers grant appropriate autonomy",
       "lagged": true
     }
   ]

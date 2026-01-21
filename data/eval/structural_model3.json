@@ -1,120 +1,16 @@
 {
   "constructs": [
     {
-      "name": "context_switches",
-      "description": "Number of topic switches detected - when consecutive activities are on unrelated topics",
+      "name": "compulsive_context_switching",
+      "description": "Frequency and intensity of involuntary shifting attention between tasks, apps, or activities despite intention to focus",
       "role": "endogenous",
       "is_outcome": true,
       "temporal_status": "time_varying",
       "causal_granularity": "hourly"
     },
     {
-      "name": "total_activities",
-      "description": "Total number of searches and visits - overall browsing activity level",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "topic_category",
-      "description": "The semantic topic category of each browsing activity - used to compute topic diversity",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "rapid_switch_count",
-      "description": "Number of topic switches occurring within 5 minutes of previous activity - captures truly compulsive/impulsive switching",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "is_work_related",
-      "description": "Whether activity is work/productivity related vs leisure browsing",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "is_wikipedia_visit",
-      "description": "Whether activity is a Wikipedia visit - indicator of curiosity-driven exploration",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "is_reddit_visit",
-      "description": "Whether activity is a Reddit visit - high-switching-risk site",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "minutes_since_last_activity",
-      "description": "Time gap since previous browsing activity - captures browsing pace and session breaks",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "hour_of_day",
-      "description": "Hour of day (0-23) - attention capacity varies with circadian rhythm",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "is_late_night",
-      "description": "Whether activity is during late night hours (23:00-05:00) - indicates possible fatigue or insomnia",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "is_weekend",
-      "description": "Whether day is Saturday or Sunday - different browsing patterns and goals",
-      "role": "exogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "daily_total_activities",
-      "description": "Total browsing activities for the entire day - captures overall browsing intensity for cross-day effects",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
-    },
-    {
-      "name": "sustained_attention",
-      "description": "Latent capacity for sustained focus - varying ability to maintain attention on single topic",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "exploration_drive",
-      "description": "Latent urge to explore and learn new things - curiosity state that drives topic breadth",
-      "role": "endogenous",
-      "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "hourly"
-    },
-    {
-      "name": "restlessness",
-      "description": "Latent state of mental restlessness or agitation - drives compulsive switching independent of curiosity",
+      "name": "urge_to_switch",
+      "description": "Momentary craving or impulse to check something else, shift tasks, or seek new stimuli",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
@@ -122,203 +18,365 @@
     },
     {
       "name": "task_engagement",
-      "description": "Latent level of engagement with current browsing task - low engagement leads to switching",
+      "description": "Degree of absorption, flow, and sustained attention in current task",
       "role": "endogenous",
       "is_outcome": false,
       "temporal_status": "time_varying",
       "causal_granularity": "hourly"
     },
     {
-      "name": "baseline_switching_tendency",
-      "description": "Person-level trait tendency toward context-switching - stable individual difference",
+      "name": "current_emotional_state",
+      "description": "Present mood valence and arousal, including stress, anxiety, boredom, or frustration",
       "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "physical_state",
+      "description": "Bodily sensations including hunger, caffeine level, physical comfort, and restlessness",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "metacognitive_awareness",
+      "description": "Real-time awareness of one's own attention state and switching behavior; mindfulness of when urges arise",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "impulse_control_capacity",
+      "description": "Available self-regulation resources to resist impulses; executive function capacity that depletes through the day",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "cognitive_fatigue",
+      "description": "Mental exhaustion and reduced cognitive resources from sustained effort or poor recovery",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "overall_stress_level",
+      "description": "Background level of perceived stress from work, life demands, and unfinished tasks",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "social_connection_need",
+      "description": "Craving for social interaction, validation, or fear of missing out on social information",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "habit_strength",
+      "description": "Automaticity and entrenchment of context-switching as a behavioral pattern; reinforced through repetition",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly"
+    },
+    {
+      "name": "sleep_quality",
+      "description": "Quality and quantity of sleep from the previous night",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "notification_exposure",
+      "description": "Frequency and intrusiveness of external interruptions from devices, apps, and alerts",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "environmental_cues",
+      "description": "Visual presence and accessibility of distracting devices, browser tabs, or applications",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "task_difficulty_skill_match",
+      "description": "Whether current task difficulty matches skill level - optimal creates flow, mismatch causes boredom or overwhelm",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "task_intrinsic_interest",
+      "description": "Inherent appeal and engaging qualities of the current task independent of external rewards",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "hourly"
+    },
+    {
+      "name": "time_pressure",
+      "description": "Perceived urgency and deadline pressure from pending commitments and obligations",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "trait_impulsivity",
+      "description": "Dispositional tendency toward impulsive behavior and difficulty delaying gratification",
+      "role": "exogenous",
       "is_outcome": false,
       "temporal_status": "time_invariant",
       "causal_granularity": null
     },
     {
-      "name": "daily_exploration_level",
-      "description": "Daily aggregate of exploration drive - indicates day-level curiosity mode",
-      "role": "endogenous",
+      "name": "novelty_seeking_tendency",
+      "description": "Trait preference for new stimuli, variety, and stimulation",
+      "role": "exogenous",
       "is_outcome": false,
-      "temporal_status": "time_varying",
-      "causal_granularity": "daily"
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "frustration_tolerance",
+      "description": "Dispositional ability to persist through difficulty, boredom, and discomfort without escaping",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
     }
   ],
   "edges": [
     {
-      "cause": "sustained_attention",
-      "effect": "context_switches",
-      "description": "Lower sustained attention capacity leads to more frequent context switches - core mechanism of compulsive switching",
-      "lagged": false
-    },
-    {
-      "cause": "restlessness",
-      "effect": "context_switches",
-      "description": "Higher restlessness drives more switching behavior independent of attention - the 'compulsive' aspect",
-      "lagged": false
-    },
-    {
-      "cause": "exploration_drive",
-      "effect": "context_switches",
-      "description": "High curiosity/exploration drive leads to wanting to explore more topics, causing switches",
+      "cause": "urge_to_switch",
+      "effect": "compulsive_context_switching",
+      "description": "Strong urges to switch directly precipitate switching behavior when not inhibited",
       "lagged": false
     },
     {
       "cause": "task_engagement",
-      "effect": "context_switches",
-      "description": "Low engagement with current content triggers seeking novelty elsewhere",
+      "effect": "compulsive_context_switching",
+      "description": "High engagement and flow states protect against switching; low engagement creates vulnerability",
       "lagged": false
     },
     {
-      "cause": "exploration_drive",
-      "effect": "topic_category",
-      "description": "High curiosity drives broader topic exploration across more categories",
+      "cause": "metacognitive_awareness",
+      "effect": "compulsive_context_switching",
+      "description": "Awareness of urges and attention state enables conscious choice rather than automatic switching",
       "lagged": false
     },
     {
-      "cause": "restlessness",
-      "effect": "rapid_switch_count",
-      "description": "Restlessness specifically drives rapid/impulsive switches under 5 minutes",
+      "cause": "notification_exposure",
+      "effect": "compulsive_context_switching",
+      "description": "Notifications can trigger automatic reflexive attention shifts bypassing deliberation",
       "lagged": false
     },
     {
-      "cause": "hour_of_day",
-      "effect": "sustained_attention",
-      "description": "Attention capacity varies with circadian rhythm - typically lower in afternoon slump and late night",
+      "cause": "current_emotional_state",
+      "effect": "urge_to_switch",
+      "description": "Negative emotions like anxiety, boredom, and frustration increase urge to escape into distraction",
       "lagged": false
     },
     {
-      "cause": "is_late_night",
-      "effect": "sustained_attention",
-      "description": "Late night browsing typically associated with depleted attention",
-      "lagged": false
-    },
-    {
-      "cause": "is_late_night",
-      "effect": "restlessness",
-      "description": "Late night may indicate insomnia/restlessness state",
-      "lagged": false
-    },
-    {
-      "cause": "minutes_since_last_activity",
-      "effect": "sustained_attention",
-      "description": "Longer gaps between activities indicate breaks that may restore attention; very short gaps indicate depleted/scattered attention",
-      "lagged": false
-    },
-    {
-      "cause": "restlessness",
-      "effect": "minutes_since_last_activity",
-      "description": "High restlessness leads to rapid-fire browsing with shorter gaps between activities",
-      "lagged": false
-    },
-    {
-      "cause": "is_weekend",
-      "effect": "daily_exploration_level",
-      "description": "Weekends may have higher exploratory curiosity browsing vs focused work",
-      "lagged": false
-    },
-    {
-      "cause": "daily_exploration_level",
-      "effect": "exploration_drive",
-      "description": "Daily exploration mode influences hourly exploration drive",
-      "lagged": true
-    },
-    {
-      "cause": "is_work_related",
+      "cause": "current_emotional_state",
       "effect": "task_engagement",
-      "description": "Work-related tasks may have different (often higher) engagement due to external accountability",
+      "description": "Negative emotional states impair concentration and reduce task absorption",
       "lagged": false
     },
     {
-      "cause": "is_wikipedia_visit",
-      "effect": "context_switches",
-      "description": "Wikipedia visits often trigger tangential exploration via hyperlinks, causing topic switches",
-      "lagged": false
-    },
-    {
-      "cause": "is_reddit_visit",
-      "effect": "context_switches",
-      "description": "Reddit's structure promotes tangential browsing and topic switching across subreddits",
-      "lagged": false
-    },
-    {
-      "cause": "exploration_drive",
-      "effect": "is_wikipedia_visit",
-      "description": "High curiosity leads to more Wikipedia exploration for learning",
-      "lagged": false
-    },
-    {
-      "cause": "exploration_drive",
-      "effect": "is_reddit_visit",
-      "description": "Curiosity drives Reddit browsing for diverse information and discussion",
-      "lagged": false
-    },
-    {
-      "cause": "topic_category",
-      "effect": "context_switches",
-      "description": "More unique topic categories explored necessarily involves more switches between them",
-      "lagged": false
-    },
-    {
-      "cause": "rapid_switch_count",
-      "effect": "context_switches",
-      "description": "Rapid switches are a subset of total switches - contributes to overall count",
-      "lagged": false
-    },
-    {
-      "cause": "daily_total_activities",
-      "effect": "sustained_attention",
-      "description": "Heavy browsing yesterday depletes next day's attention capacity - recovery needed",
-      "lagged": true
-    },
-    {
-      "cause": "daily_total_activities",
-      "effect": "restlessness",
-      "description": "High prior day activity may carry over restless browsing patterns",
-      "lagged": true
-    },
-    {
-      "cause": "baseline_switching_tendency",
-      "effect": "context_switches",
-      "description": "Stable trait tendency influences baseline switching rate",
-      "lagged": false
-    },
-    {
-      "cause": "baseline_switching_tendency",
-      "effect": "restlessness",
-      "description": "Trait switching tendency manifests through state-level restlessness",
-      "lagged": false
-    },
-    {
-      "cause": "sustained_attention",
+      "cause": "task_difficulty_skill_match",
       "effect": "task_engagement",
-      "description": "Attention capacity enables engagement - hard to engage deeply when attention is scattered",
+      "description": "Optimal challenge-skill balance creates flow; mismatch causes boredom or overwhelm",
       "lagged": false
     },
     {
-      "cause": "restlessness",
-      "effect": "total_activities",
-      "description": "Restless state leads to more frantic browsing activity",
+      "cause": "task_intrinsic_interest",
+      "effect": "task_engagement",
+      "description": "Inherently interesting tasks naturally capture and sustain attention",
       "lagged": false
     },
     {
-      "cause": "exploration_drive",
-      "effect": "total_activities",
-      "description": "High curiosity drives more overall browsing activity",
+      "cause": "task_intrinsic_interest",
+      "effect": "urge_to_switch",
+      "description": "Boring tasks increase craving for more stimulating alternatives",
       "lagged": false
     },
     {
-      "cause": "total_activities",
-      "effect": "context_switches",
-      "description": "More activities creates more opportunities for switching - base rate effect",
+      "cause": "notification_exposure",
+      "effect": "urge_to_switch",
+      "description": "Each notification creates a curiosity-driven urge to check and respond",
       "lagged": false
     },
     {
-      "cause": "exploration_drive",
-      "effect": "is_work_related",
-      "description": "High exploration drive leads to more leisure/curiosity browsing, reducing work-related proportion",
+      "cause": "environmental_cues",
+      "effect": "urge_to_switch",
+      "description": "Visible distractors like open tabs and nearby phone cue conditioned switching urges",
       "lagged": false
+    },
+    {
+      "cause": "physical_state",
+      "effect": "current_emotional_state",
+      "description": "Hunger, caffeine crashes, and discomfort worsen mood and increase irritability",
+      "lagged": false
+    },
+    {
+      "cause": "physical_state",
+      "effect": "metacognitive_awareness",
+      "description": "Physical discomfort and restlessness reduce capacity for mindful attention",
+      "lagged": false
+    },
+    {
+      "cause": "cognitive_fatigue",
+      "effect": "impulse_control_capacity",
+      "description": "Mental exhaustion depletes self-regulation resources needed to resist urges",
+      "lagged": false
+    },
+    {
+      "cause": "overall_stress_level",
+      "effect": "cognitive_fatigue",
+      "description": "Chronic stress accelerates mental exhaustion and depletes cognitive resources",
+      "lagged": false
+    },
+    {
+      "cause": "time_pressure",
+      "effect": "overall_stress_level",
+      "description": "Deadline pressure and urgency contribute to elevated stress levels",
+      "lagged": false
+    },
+    {
+      "cause": "overall_stress_level",
+      "effect": "social_connection_need",
+      "description": "Stress increases desire for social support and connection-seeking behavior",
+      "lagged": false
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "cognitive_fatigue",
+      "description": "Poor sleep leads to impaired cognitive recovery and daytime fatigue",
+      "lagged": false
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "impulse_control_capacity",
+      "description": "Sleep deprivation directly impairs prefrontal cortex function and self-control",
+      "lagged": false
+    },
+    {
+      "cause": "impulse_control_capacity",
+      "effect": "compulsive_context_switching",
+      "description": "Higher executive control capacity enables resisting switching urges",
+      "lagged": true
+    },
+    {
+      "cause": "impulse_control_capacity",
+      "effect": "urge_to_switch",
+      "description": "Low self-control capacity amplifies experienced urge intensity",
+      "lagged": true
+    },
+    {
+      "cause": "cognitive_fatigue",
+      "effect": "task_engagement",
+      "description": "Mental exhaustion reduces ability to maintain focus and enter flow states",
+      "lagged": true
+    },
+    {
+      "cause": "cognitive_fatigue",
+      "effect": "metacognitive_awareness",
+      "description": "Fatigue impairs meta-awareness and makes automatic behavior more likely",
+      "lagged": true
+    },
+    {
+      "cause": "overall_stress_level",
+      "effect": "current_emotional_state",
+      "description": "High background stress creates anxious irritable emotional baseline",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "current_emotional_state",
+      "description": "Poor sleep increases negative affect, irritability, and emotional reactivity",
+      "lagged": true
+    },
+    {
+      "cause": "sleep_quality",
+      "effect": "physical_state",
+      "description": "Sleep quality affects physical energy, alertness, and bodily comfort",
+      "lagged": true
+    },
+    {
+      "cause": "social_connection_need",
+      "effect": "urge_to_switch",
+      "description": "Unmet social needs create urges to check social media and communications",
+      "lagged": true
+    },
+    {
+      "cause": "habit_strength",
+      "effect": "compulsive_context_switching",
+      "description": "Strong habits make switching automatic, bypassing conscious deliberation",
+      "lagged": true
+    },
+    {
+      "cause": "habit_strength",
+      "effect": "urge_to_switch",
+      "description": "Entrenched habits create conditioned urges in response to environmental cues",
+      "lagged": true
+    },
+    {
+      "cause": "trait_impulsivity",
+      "effect": "impulse_control_capacity",
+      "description": "Higher trait impulsivity means lower baseline capacity for impulse control",
+      "lagged": true
+    },
+    {
+      "cause": "novelty_seeking_tendency",
+      "effect": "urge_to_switch",
+      "description": "High novelty seekers experience stronger urges for new stimulation",
+      "lagged": true
+    },
+    {
+      "cause": "frustration_tolerance",
+      "effect": "task_engagement",
+      "description": "Higher frustration tolerance enables sustained engagement through difficult or boring periods",
+      "lagged": true
+    },
+    {
+      "cause": "compulsive_context_switching",
+      "effect": "current_emotional_state",
+      "description": "Excessive switching leads to guilt, frustration, and self-criticism",
+      "lagged": true
+    },
+    {
+      "cause": "compulsive_context_switching",
+      "effect": "cognitive_fatigue",
+      "description": "Frequent switching depletes cognitive resources and accelerates fatigue",
+      "lagged": true
+    },
+    {
+      "cause": "compulsive_context_switching",
+      "effect": "overall_stress_level",
+      "description": "Switching reduces productivity, creating accumulated work and deadline pressure",
+      "lagged": true
+    },
+    {
+      "cause": "compulsive_context_switching",
+      "effect": "habit_strength",
+      "description": "Each switch reinforces the habitual pattern through neural pathway strengthening",
+      "lagged": true
     }
   ]
 }
