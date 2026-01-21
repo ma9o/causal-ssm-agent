@@ -10,9 +10,17 @@ from dowhy import CausalModel
 
 
 def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
-    """Parse the DAG JSON format (DSEMModel structure).
+    """Parse DAG JSON - accepts both structural-only and full DSEM formats.
 
-    Expected format:
+    Structural-only format:
+    {
+        "structural": {
+            "constructs": [...],
+            "edges": [...]
+        }
+    }
+
+    Full DSEM format:
     {
         "structural": {
             "constructs": [...],
@@ -24,24 +32,26 @@ def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
     }
 
     Returns (data, error) tuple - one will always be None.
-    Data is normalized to have 'constructs', 'edges', and optionally 'indicators' keys.
+    Data is normalized to have 'constructs', 'edges', and 'indicators' keys
+    (indicators will be empty list if not provided).
     """
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
         return None, f"Invalid JSON: {e}"
 
-    # Validate DSEMModel format
+    # Validate structural model format
     if "structural" not in data or "constructs" not in data.get("structural", {}):
-        return None, "JSON must have 'structural.constructs' and 'structural.edges'"
+        return None, "JSON must have 'structural.constructs'"
 
     structural = data["structural"]
     normalized = {
         "constructs": structural.get("constructs", []),
         "edges": structural.get("edges", []),
+        "indicators": [],  # Always present, defaults to empty
     }
 
-    # Include indicators if present
+    # Include indicators if measurement model is present
     if "measurement" in data and "indicators" in data.get("measurement", {}):
         normalized["indicators"] = data["measurement"]["indicators"]
 
