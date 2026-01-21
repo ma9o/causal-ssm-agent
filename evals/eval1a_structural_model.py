@@ -1,20 +1,19 @@
-"""Inspect AI evaluation for the orchestrator DSEM structure proposals.
+"""Inspect AI evaluation for Stage 1a: Structural Model Proposal.
 
-Evaluates top-tier LLMs with max thinking budget on their ability to propose
-valid DSEM structures given a causal question and sample data chunks.
+Tests the orchestrator's ability to propose valid theoretical causal structures
+from a research question alone, WITHOUT seeing any data.
+
+This evaluates domain knowledge and causal reasoning, not data operationalization.
 
 Usage:
-    inspect eval evals/eval1_orchestrator_structure.py --model openrouter/anthropic/claude-opus-4.5
-    inspect eval evals/eval1_orchestrator_structure.py --model google/vertex/gemini-3-pro-preview
-    inspect eval evals/eval1_orchestrator_structure.py --model openrouter/openai/gpt-5.1
-    inspect eval evals/eval1_orchestrator_structure.py --model openrouter/deepseek/deepseek-v3.2
-    inspect eval evals/eval1_orchestrator_structure.py --model openrouter/moonshotai/kimi-k2
+    inspect eval evals/eval1a_structural_model.py --model openrouter/anthropic/claude-sonnet-4
+    inspect eval evals/eval1a_structural_model.py --model openrouter/google/gemini-2.5-pro-preview
 """
 
 import sys
 from pathlib import Path
 
-# Add project root to path for evals.common import
+# Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
@@ -26,19 +25,17 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import TaskState, system_message
 
 from causal_agent.orchestrator.prompts import (
-    STRUCTURE_PROPOSER_SYSTEM,
-    STRUCTURE_PROPOSER_USER,
-    STRUCTURE_REVIEW_REQUEST,
+    STRUCTURAL_MODEL_SYSTEM,
+    STRUCTURAL_MODEL_USER,
+    STRUCTURAL_MODEL_REVIEW,
 )
 from causal_agent.orchestrator.scoring import _count_rule_points_detailed
-from causal_agent.orchestrator.schemas import DSEMStructure
-from causal_agent.utils.llm import validate_dsem_structure
+from causal_agent.orchestrator.schemas import StructuralModel
+from causal_agent.utils.llm import validate_structural_model_tool
 
 from evals.common import (
     extract_json_from_response,
-    format_chunks,
     get_eval_questions,
-    get_sample_chunks_orchestrator,
     load_eval_config,
     tool_assisted_generate,
 )
@@ -47,8 +44,6 @@ from evals.common import (
 _CONFIG = load_eval_config()
 
 # Top-tier models for orchestrator eval
-# Model ID -> short alias for CLI convenience
-# Note: Gemini 3 uses Vertex AI directly (not OpenRouter) for proper thought signature support
 MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
@@ -68,35 +63,20 @@ def load_questions() -> list[EvalQuestion]:
     ]
 
 
-def create_eval_dataset(
-    n_chunks: int = 5,
-    seed: int = 42,
-    input_file: str | None = None,
-) -> MemoryDataset:
-    """Create evaluation dataset by combining questions with sampled chunks.
+def create_eval_dataset() -> MemoryDataset:
+    """Create evaluation dataset from questions.
 
-    Args:
-        n_chunks: Number of chunks to sample per question
-        seed: Random seed for reproducible chunk sampling
-        input_file: Specific input file name, or None for latest
+    Note: Stage 1a uses questions ONLY - no data samples.
 
     Returns:
         MemoryDataset with samples for each question
     """
     questions = load_questions()
 
-    # Sample chunks (same for all questions for fair comparison)
-    chunks = get_sample_chunks_orchestrator(n_chunks, seed, input_file)
-    formatted_chunks = format_chunks(chunks)
-
     samples = []
     for q in questions:
-        # Build the user prompt
-        user_prompt = STRUCTURE_PROPOSER_USER.format(
-            question=q.question,
-            dataset_summary="Personal activity data export",
-            chunks=formatted_chunks,
-        )
+        # Build the user prompt - question only, no data
+        user_prompt = STRUCTURAL_MODEL_USER.format(question=q.question)
 
         samples.append(
             Sample(
@@ -104,8 +84,6 @@ def create_eval_dataset(
                 id=f"q{q.id}",
                 metadata={
                     "question": q.question,
-                    "n_chunks": n_chunks,
-                    "seed": seed,
                 },
             )
         )
@@ -114,12 +92,15 @@ def create_eval_dataset(
 
 
 @scorer(metrics=[mean(), stderr()])
-def dsem_structure_scorer():
-    """Score DSEM structure proposals using cumulative points.
+def structural_model_scorer():
+    """Score structural model proposals using cumulative points.
 
     Returns numeric score:
         - 0.0 if structure is invalid (with detailed error explanation)
-        - Cumulative points from _count_rule_points() if valid
+        - Cumulative points from scoring rules if valid:
+          - Points per construct (role, temporal_status, granularity)
+          - Points per edge (valid endpoints, not exogenous effect, timescale)
+          - Bonus for cross-timescale edges (complexity)
     """
 
     async def score(state: TaskState, target: Target) -> Score:
@@ -149,7 +130,7 @@ def dsem_structure_scorer():
 
         # Validate against schema
         try:
-            structure = DSEMStructure(**data)
+            structure = StructuralModel(**data)
         except Exception as e:
             return Score(
                 value=0.0,
@@ -165,9 +146,9 @@ def dsem_structure_scorer():
             answer=json_str[:500] + "..." if len(json_str) > 500 else json_str,
             explanation=scoring["breakdown"],
             metadata={
-                "dimensions": scoring["dimensions"],
+                "constructs": scoring["constructs"],
                 "edges": scoring["edges"],
-                "n_dimensions": len(structure.dimensions),
+                "n_constructs": len(structure.constructs),
                 "n_edges": len(structure.edges),
             },
         )
@@ -176,30 +157,25 @@ def dsem_structure_scorer():
 
 
 @task
-def orchestrator_eval(
-    n_chunks: int = 5,
-    seed: int = 42,
-    input_file: str | None = None,
-):
-    """Evaluate LLM ability to propose DSEM structures.
+def structural_model_eval():
+    """Evaluate LLM ability to propose theoretical causal structures.
+
+    Stage 1a evaluation:
+    - Input: Research question only (NO data)
+    - Output: StructuralModel (constructs + causal edges)
 
     Uses the production two-stage pipeline:
-    1. Initial proposal from question + data
-    2. Self-review focusing on measurement coherence
-
-    Args:
-        n_chunks: Number of data chunks to include in each sample
-        seed: Random seed for chunk sampling (reproducibility)
-        input_file: Specific preprocessed file name, or None for latest
+    1. Initial proposal from question
+    2. Self-review focusing on theoretical coherence
     """
     return Task(
-        dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file),
+        dataset=create_eval_dataset(),
         solver=[
-            system_message(STRUCTURE_PROPOSER_SYSTEM),
+            system_message(STRUCTURAL_MODEL_SYSTEM),
             tool_assisted_generate(
-                tools=[validate_dsem_structure()],
-                follow_ups=[STRUCTURE_REVIEW_REQUEST],
+                tools=[validate_structural_model_tool()],
+                follow_ups=[STRUCTURAL_MODEL_REVIEW],
             ),
         ],
-        scorer=dsem_structure_scorer(),
+        scorer=structural_model_scorer(),
     )
