@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker measurement instruction adherence.
 
 Uses a judge model to evaluate how well competing worker models follow
-the measurement instructions from the example DAG schema. The judge
+the measurement instructions from the DSEMModel schema. The judge
 ranks outputs without knowing model names and returns the winner.
 
 Usage:
@@ -26,7 +26,7 @@ from inspect_ai.solver import Generate, TaskState, solver
 
 from causal_agent.workers.prompts import WORKER_WO_PROPOSALS_SYSTEM, WORKER_USER
 from causal_agent.workers.agents import (
-    _format_dimensions,
+    _format_indicators,
     _get_outcome_description,
 )
 from causal_agent.utils.llm import get_generate_config, make_worker_tools, multi_turn_generate, parse_json_response
@@ -35,7 +35,7 @@ from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
     load_eval_config,
-    load_example_dag,
+    load_dsem_model_by_question_id,
 )
 
 
@@ -100,7 +100,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    schema: dict,
+    dsem_model: dict,
 ) -> str:
     """Generate worker output for a single model.
 
@@ -108,8 +108,8 @@ async def generate_worker_output(
     """
     model = get_model(model_id)
 
-    dimensions_text = _format_dimensions(schema)
-    outcome_description = _get_outcome_description(schema)
+    indicators_text = _format_indicators(dsem_model)
+    outcome_description = _get_outcome_description(dsem_model)
 
     messages = [
         ChatMessageSystem(content=WORKER_WO_PROPOSALS_SYSTEM),
@@ -117,7 +117,7 @@ async def generate_worker_output(
             content=WORKER_USER.format(
                 question=question,
                 outcome_description=outcome_description,
-                dimensions=dimensions_text,
+                indicators=indicators_text,
                 chunk=chunk,
             )
         ),
@@ -128,7 +128,7 @@ async def generate_worker_output(
     completion = await multi_turn_generate(
         messages=messages,
         model=model,
-        tools=make_worker_tools(schema),
+        tools=make_worker_tools(dsem_model),
         config=config,
     )
 
@@ -180,9 +180,10 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with samples
     """
-    schema = load_example_dag()
-    dimensions_text = _format_dimensions(schema)
-    outcome_description = _get_outcome_description(schema)
+    # Use question 4 by default ("I want to sleep better")
+    dsem_model = load_dsem_model_by_question_id(4)
+    indicators_text = _format_indicators(dsem_model)
+    outcome_description = _get_outcome_description(dsem_model)
 
     # Get chunks
     total_chunks = n_chunks * len(EVAL_QUESTIONS)
@@ -203,7 +204,7 @@ def create_eval_dataset(
             worker_user_prompt = WORKER_USER.format(
                 question=q["question"],
                 outcome_description=outcome_description,
-                dimensions=dimensions_text,
+                indicators=indicators_text,
                 chunk=chunk,
             )
 
@@ -243,7 +244,7 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
-            schema = load_example_dag()
+            dsem_model = load_dsem_model_by_question_id(4)  # Use question 4 by default
             question = state.metadata["question"]
             chunk = state.metadata["chunk"]
             worker_system_prompt = state.metadata["worker_system_prompt"]
@@ -254,7 +255,7 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
                 """Generate with error handling and timeout, returns (model_id, result)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question, schema),
+                        generate_worker_output(model_id, chunk, question, dsem_model),
                         timeout=worker_timeout,
                     )
                     return model_id, result

@@ -1,11 +1,11 @@
-"""Inspect AI evaluation for worker dimension proposal quality.
+"""Inspect AI evaluation for worker indicator proposal quality.
 
-Uses a judge model (from config.yaml) to evaluate the relevance of dimensions
+Uses a judge model (from config.yaml) to evaluate the relevance of indicators
 proposed by a single worker model. The worker is scored by acceptance rate -
-how many of its proposed dimensions the judge accepts as genuinely relevant.
+how many of its proposed indicators the judge accepts as genuinely relevant.
 
 Usage:
-    inspect eval evals/eval5_worker_dimension_proposals.py
+    inspect eval evals/eval5_worker_indicator_proposals.py
 """
 
 import sys
@@ -25,7 +25,7 @@ from inspect_ai.solver import Generate, TaskState, solver
 
 from causal_agent.workers.prompts import WORKER_W_PROPOSALS_SYSTEM, WORKER_USER
 from causal_agent.workers.agents import (
-    _format_dimensions,
+    _format_indicators,
     _get_outcome_description,
 )
 from causal_agent.utils.llm import get_generate_config, make_worker_tools, multi_turn_generate, parse_json_response
@@ -33,7 +33,7 @@ from causal_agent.utils.llm import get_generate_config, make_worker_tools, multi
 from evals.common import (
     get_sample_chunks_worker,
     load_eval_config,
-    load_dag_by_question_id,
+    load_dsem_model_by_question_id,
     get_question_dag_pairs,
 )
 
@@ -41,7 +41,7 @@ from evals.common import (
 # Load config
 _CONFIG = load_eval_config()
 
-# Default worker model for dimension proposals (gemini 3 flash - best at extraction)
+# Default worker model for indicator proposals (gemini 3 flash - best at extraction)
 DEFAULT_WORKER_MODEL = "google/vertex/gemini-3-flash-preview"
 
 # Judge model from config
@@ -49,24 +49,24 @@ JUDGE_MODEL = _CONFIG.get("judge_model", "openrouter/anthropic/claude-sonnet-4")
 
 
 JUDGE_SYSTEM = """\
-You are an expert evaluator assessing proposed causal dimensions. A worker model was given:
+You are an expert evaluator assessing proposed causal indicators. A worker model was given:
 1. A causal research question
-2. An existing schema of dimensions (variables) to extract
+2. An existing schema of indicators (variables) to extract
 3. A data chunk
 
-The worker may propose new dimensions it believes are causally relevant but missing from the schema. Your task is to evaluate each proposed dimension and decide if it should be ACCEPTED or REJECTED.
+The worker may propose new indicators it believes are causally relevant but missing from the schema. Your task is to evaluate each proposed indicator and decide if it should be ACCEPTED or REJECTED.
 
 ## Acceptance Criteria
 
-A proposed dimension should be ACCEPTED if ALL of the following are true:
-1. **Causally relevant**: It has a plausible causal relationship to the outcome or other dimensions in the question
-2. **Not redundant**: It's genuinely distinct from existing dimensions (not just a rewording or subset)
+A proposed indicator should be ACCEPTED if ALL of the following are true:
+1. **Causally relevant**: It has a plausible causal relationship to the outcome or other constructs in the question
+2. **Not redundant**: It's genuinely distinct from existing indicators (not just a rewording or subset)
 3. **Measurable**: It can actually be extracted from the type of data being processed
-4. **Well-evidenced**: The worker provides concrete evidence from the chunk showing the dimension exists
+4. **Well-evidenced**: The worker provides concrete evidence from the chunk showing the indicator exists
 
-A proposed dimension should be REJECTED if ANY of the following are true:
+A proposed indicator should be REJECTED if ANY of the following are true:
 1. It's only tangentially related to the causal question
-2. It duplicates or overlaps substantially with an existing dimension
+2. It duplicates or overlaps substantially with an existing indicator
 3. It's too vague or abstract to measure
 4. The evidence provided doesn't support its existence in the data
 5. It's based on speculation rather than observation
@@ -77,7 +77,7 @@ A proposed dimension should be REJECTED if ANY of the following are true:
 {
   "evaluations": [
     {
-      "dimension_name": "proposed_dim_name",
+      "indicator_name": "proposed_indicator_name",
       "verdict": "ACCEPTED" | "REJECTED",
       "rationale": "Brief explanation of your decision"
     }
@@ -87,7 +87,7 @@ A proposed dimension should be REJECTED if ANY of the following are true:
 }
 ```
 
-If the worker proposed no new dimensions, return:
+If the worker proposed no new indicators, return:
 ```json
 {
   "evaluations": [],
@@ -102,11 +102,11 @@ JUDGE_USER = """\
 
 {question}
 
-## Existing Schema Dimensions
+## Existing Schema Indicators
 
-The worker was given this schema to extract from. These dimensions already exist:
+The worker was given this schema to extract from. These indicators already exist:
 
-{existing_dimensions}
+{existing_indicators}
 
 ## Outcome Variable
 
@@ -116,11 +116,11 @@ The worker was given this schema to extract from. These dimensions already exist
 
 {chunk}
 
-## Proposed Dimensions
+## Proposed Indicators
 
 {proposals}
 
-Please evaluate each proposed dimension and decide if it should be ACCEPTED or REJECTED.
+Please evaluate each proposed indicator and decide if it should be ACCEPTED or REJECTED.
 """
 
 
@@ -128,7 +128,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    schema: dict,
+    dsem_model: dict,
 ) -> str:
     """Generate worker output for the model.
 
@@ -136,8 +136,8 @@ async def generate_worker_output(
     """
     model = get_model(model_id)
 
-    dimensions_text = _format_dimensions(schema)
-    outcome_description = _get_outcome_description(schema)
+    indicators_text = _format_indicators(dsem_model)
+    outcome_description = _get_outcome_description(dsem_model)
 
     messages = [
         ChatMessageSystem(content=WORKER_W_PROPOSALS_SYSTEM),
@@ -145,7 +145,7 @@ async def generate_worker_output(
             content=WORKER_USER.format(
                 question=question,
                 outcome_description=outcome_description,
-                dimensions=dimensions_text,
+                indicators=indicators_text,
                 chunk=chunk,
             )
         ),
@@ -156,25 +156,26 @@ async def generate_worker_output(
     completion = await multi_turn_generate(
         messages=messages,
         model=model,
-        tools=make_worker_tools(schema),
+        tools=make_worker_tools(dsem_model),
         config=config,
     )
 
     return completion
 
 
-def extract_proposed_dimensions(output: str) -> list[dict]:
-    """Extract proposed dimensions from worker output.
+def extract_proposed_indicators(output: str) -> list[dict]:
+    """Extract proposed indicators from worker output.
 
     Args:
         output: Raw completion text from worker
 
     Returns:
-        List of proposed dimension dicts, or empty list if none/error
+        List of proposed indicator dicts, or empty list if none/error
     """
     try:
         data = parse_json_response(output)
-        proposed = data.get("proposed_dimensions")
+        # Support both old and new field names
+        proposed = data.get("proposed_indicators") or data.get("proposed_dimensions")
         if proposed and isinstance(proposed, list):
             return proposed
         return []
@@ -183,22 +184,41 @@ def extract_proposed_dimensions(output: str) -> list[dict]:
 
 
 def format_proposals_for_judge(proposals: list[dict]) -> str:
-    """Format proposed dimensions for the judge prompt."""
+    """Format proposed indicators for the judge prompt."""
     if not proposals:
-        return "[No new dimensions proposed]"
+        return "[No new indicators proposed]"
     return json.dumps(proposals, indent=2)
 
 
-def format_existing_dimensions(schema: dict) -> str:
-    """Format existing dimensions from schema for judge context."""
-    dimensions = schema.get("dimensions", [])
-    lines = []
-    for dim in dimensions:
-        name = dim.get("name", "unknown")
-        desc = dim.get("description", "")
-        obs = dim.get("observability", "")
-        lines.append(f"- **{name}** ({obs}): {desc}")
-    return "\n".join(lines)
+def format_existing_indicators(dsem_model: dict) -> str:
+    """Format existing indicators from DSEMModel for judge context."""
+    # New format
+    if "measurement" in dsem_model and "indicators" in dsem_model["measurement"]:
+        indicators = dsem_model["measurement"]["indicators"]
+        constructs = dsem_model.get("structural", {}).get("constructs", [])
+        construct_desc = {c.get("name"): c.get("description", "") for c in constructs}
+
+        lines = []
+        for ind in indicators:
+            name = ind.get("name", "unknown")
+            construct_name = ind.get("construct") or ind.get("construct_name", "")
+            how = ind.get("how_to_measure", "")
+            construct_info = f" (measures: {construct_name})" if construct_name else ""
+            lines.append(f"- **{name}**{construct_info}: {how}")
+        return "\n".join(lines)
+
+    # Old format
+    if "dimensions" in dsem_model:
+        dimensions = dsem_model["dimensions"]
+        lines = []
+        for dim in dimensions:
+            name = dim.get("name", "unknown")
+            desc = dim.get("description", "")
+            obs = dim.get("observability", "")
+            lines.append(f"- **{name}** ({obs}): {desc}")
+        return "\n".join(lines)
+
+    return ""
 
 
 def create_eval_dataset(
@@ -209,11 +229,11 @@ def create_eval_dataset(
     """Create evaluation dataset.
 
     Each sample contains:
-    - A question from the eval set with its corresponding DAG
+    - A question from the eval set with its corresponding DSEMModel
     - A data chunk
     - Metadata with schema for judge evaluation
 
-    Cycles through question-DAG pairs to ensure coverage.
+    Cycles through question-DSEMModel pairs to ensure coverage.
 
     Args:
         n_chunks: Number of chunks per question
@@ -234,11 +254,11 @@ def create_eval_dataset(
     chunk_idx = 0
 
     for q in question_dag_pairs:
-        # Load the DAG for this specific question
-        schema = load_dag_by_question_id(q["id"])
-        dimensions_text = _format_dimensions(schema)
-        outcome_description = _get_outcome_description(schema)
-        existing_dims_text = format_existing_dimensions(schema)
+        # Load the DSEMModel for this specific question
+        dsem_model = load_dsem_model_by_question_id(q["id"])
+        indicators_text = _format_indicators(dsem_model)
+        outcome_description = _get_outcome_description(dsem_model)
+        existing_inds_text = format_existing_indicators(dsem_model)
 
         for i in range(n_chunks):
             if chunk_idx >= len(chunks):
@@ -256,8 +276,8 @@ def create_eval_dataset(
                         "question": q["question"],
                         "chunk": chunk,
                         "chunk_index": i,
-                        "schema": schema,
-                        "existing_dimensions": existing_dims_text,
+                        "dsem_model": dsem_model,
+                        "existing_indicators": existing_inds_text,
                         "outcome_description": outcome_description,
                     },
                 )
@@ -283,16 +303,16 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
-            schema = state.metadata["schema"]
+            dsem_model = state.metadata["dsem_model"]
             question = state.metadata["question"]
             chunk = state.metadata["chunk"]
-            existing_dims = state.metadata["existing_dimensions"]
+            existing_inds = state.metadata["existing_indicators"]
             outcome_description = state.metadata["outcome_description"]
 
             # Generate worker output
             try:
                 worker_output = await asyncio.wait_for(
-                    generate_worker_output(worker_model, chunk, question, schema),
+                    generate_worker_output(worker_model, chunk, question, dsem_model),
                     timeout=worker_timeout,
                 )
             except asyncio.TimeoutError:
@@ -300,8 +320,8 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
             except Exception as e:
                 worker_output = f"[ERROR: {e}]"
 
-            # Extract proposed dimensions
-            proposals = extract_proposed_dimensions(worker_output)
+            # Extract proposed indicators
+            proposals = extract_proposed_indicators(worker_output)
 
             # Store in metadata for scorer
             state.metadata["worker_output"] = worker_output
@@ -313,7 +333,7 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
             # Build judge prompt
             judge_prompt = JUDGE_USER.format(
                 question=question,
-                existing_dimensions=existing_dims,
+                existing_indicators=existing_inds,
                 outcome_description=outcome_description,
                 chunk=chunk[:3000] + "..." if len(chunk) > 3000 else chunk,
                 proposals=proposals_text,
@@ -338,8 +358,8 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
 
 
 @scorer(metrics=[mean(), stderr()])
-def dimension_proposal_scorer():
-    """Score based on acceptance rate of proposed dimensions.
+def indicator_proposal_scorer():
+    """Score based on acceptance rate of proposed indicators.
 
     Returns:
         - Score value is acceptance rate (accepted / total), or 1.0 if no proposals
@@ -356,7 +376,7 @@ def dimension_proposal_scorer():
             return Score(
                 value=1.0,
                 answer="No proposals (0/0)",
-                explanation="Worker did not propose any new dimensions",
+                explanation="Worker did not propose any new indicators",
                 metadata={"accepted": 0, "total": 0, "evaluations": []},
             )
 
@@ -392,10 +412,10 @@ def dimension_proposal_scorer():
         # Build explanation from evaluations
         explanation_parts = []
         for ev in evaluations:
-            dim_name = ev.get("dimension_name", "?")
+            ind_name = ev.get("indicator_name") or ev.get("dimension_name", "?")
             verdict = ev.get("verdict", "?")
             rationale = ev.get("rationale", "")
-            explanation_parts.append(f"{dim_name}: {verdict} - {rationale}")
+            explanation_parts.append(f"{ind_name}: {verdict} - {rationale}")
 
         explanation = "\n".join(explanation_parts) if explanation_parts else "No evaluations"
 
@@ -414,16 +434,16 @@ def dimension_proposal_scorer():
 
 
 @task
-def worker_dimension_proposals_eval(
+def worker_indicator_proposals_eval(
     n_chunks: int = 2,
     seed: int = 55,
     input_file: str | None = None,
     worker_model: str | None = None,
     worker_timeout: int | None = None,
 ):
-    """Evaluate dimension proposal quality from a single worker model.
+    """Evaluate indicator proposal quality from a single worker model.
 
-    A judge model evaluates the relevance of dimensions proposed by the worker.
+    A judge model evaluates the relevance of indicators proposed by the worker.
     Score is the acceptance rate of proposals.
 
     Args:
@@ -438,5 +458,5 @@ def worker_dimension_proposals_eval(
         solver=[
             judge_solver(worker_model=worker_model, worker_timeout=worker_timeout),
         ],
-        scorer=dimension_proposal_scorer(),
+        scorer=indicator_proposal_scorer(),
     )

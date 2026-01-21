@@ -6,7 +6,7 @@ raises an exception.
 
 This eval verifies that the aggregation pipeline can handle the diverse outputs
 produced by worker LLMs without breaking. Sets cycle through all 5 question-DAG
-pairs from config.yaml, testing each DAG with its corresponding question.
+pairs from config.yaml, testing each DSEMModel with its corresponding question.
 
 Usage:
     inspect eval evals/eval4_aggregation_robustness.py --model google/vertex/gemini-3-flash-preview
@@ -33,7 +33,7 @@ from causal_agent.utils.aggregations import aggregate_worker_measurements
 from causal_agent.utils.llm import get_generate_config, make_worker_tools, multi_turn_generate, parse_json_response
 from causal_agent.workers.prompts import WORKER_WO_PROPOSALS_SYSTEM, WORKER_USER
 from causal_agent.workers.agents import (
-    _format_dimensions,
+    _format_indicators,
     _get_outcome_description,
 )
 from causal_agent.workers.schemas import WorkerOutput
@@ -41,7 +41,7 @@ from causal_agent.workers.schemas import WorkerOutput
 from evals.common import (
     get_question_dag_pairs,
     get_sample_chunks_worker,
-    load_dag_by_question_id,
+    load_dsem_model_by_question_id,
 )
 
 
@@ -57,7 +57,7 @@ def create_eval_dataset(
     aggregated together. The eval tests whether aggregation succeeds or fails.
 
     Sets cycle through all available question-DAG pairs from config, ensuring
-    each DAG is tested with its corresponding question.
+    each DSEMModel is tested with its corresponding question.
 
     Args:
         n_sets: Number of chunk sets (each becomes one aggregation test)
@@ -82,10 +82,10 @@ def create_eval_dataset(
         pair = question_dag_pairs[set_idx % n_pairs]
         question_id = pair["id"]
         question = pair["question"]
-        schema = load_dag_by_question_id(question_id)
+        dsem_model = load_dsem_model_by_question_id(question_id)
 
-        dimensions_text = _format_dimensions(schema)
-        outcome_description = _get_outcome_description(schema)
+        indicators_text = _format_indicators(dsem_model)
+        outcome_description = _get_outcome_description(dsem_model)
 
         # Get chunks for this set
         start_idx = set_idx * chunks_per_set
@@ -98,7 +98,7 @@ def create_eval_dataset(
             user_prompt = WORKER_USER.format(
                 question=question,
                 outcome_description=outcome_description,
-                dimensions=dimensions_text,
+                indicators=indicators_text,
                 chunk=chunk,
             )
             chunk_prompts.append(user_prompt)
@@ -124,7 +124,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    schema: dict,
+    dsem_model: dict,
 ) -> str:
     """Generate worker output for a single chunk.
 
@@ -132,8 +132,8 @@ async def generate_worker_output(
     """
     model = get_model(model_id)
 
-    dimensions_text = _format_dimensions(schema)
-    outcome_description = _get_outcome_description(schema)
+    indicators_text = _format_indicators(dsem_model)
+    outcome_description = _get_outcome_description(dsem_model)
 
     messages = [
         ChatMessageSystem(content=WORKER_WO_PROPOSALS_SYSTEM),
@@ -141,7 +141,7 @@ async def generate_worker_output(
             content=WORKER_USER.format(
                 question=question,
                 outcome_description=outcome_description,
-                dimensions=dimensions_text,
+                indicators=indicators_text,
                 chunk=chunk,
             )
         ),
@@ -152,7 +152,7 @@ async def generate_worker_output(
     completion = await multi_turn_generate(
         messages=messages,
         model=model,
-        tools=make_worker_tools(schema),
+        tools=make_worker_tools(dsem_model),
         config=config,
     )
 
@@ -170,7 +170,7 @@ def aggregation_solver(worker_timeout: float = 300):
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
             question_id = state.metadata["question_id"]
-            schema = load_dag_by_question_id(question_id)
+            dsem_model = load_dsem_model_by_question_id(question_id)
             question = state.metadata["question"]
             chunks = state.metadata["chunks"]
 
@@ -183,7 +183,7 @@ def aggregation_solver(worker_timeout: float = 300):
                 """Generate with error handling, returns (chunk_idx, result, error)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question, schema),
+                        generate_worker_output(model_id, chunk, question, dsem_model),
                         timeout=worker_timeout,
                     )
                     return chunk_idx, result, None
@@ -223,7 +223,7 @@ def aggregation_solver(worker_timeout: float = 300):
 
             if worker_outputs:
                 try:
-                    agg_result = aggregate_worker_measurements(worker_outputs, schema)
+                    agg_result = aggregate_worker_measurements(worker_outputs, dsem_model)
                     state.metadata["agg_keys"] = list(agg_result.keys())
                     state.metadata["agg_shapes"] = {
                         k: (df.height, df.width) for k, df in agg_result.items()
@@ -331,8 +331,8 @@ def aggregation_robustness_eval(
     Generates N sets of M chunks, processes each set through workers, and tests
     whether aggregate_worker_measurements handles the outputs without crashing.
 
-    Sets cycle through all question-DAG pairs from config (5 pairs), so with
-    n_sets=10, each DAG is tested twice with different data chunks.
+    Sets cycle through all question-DSEMModel pairs from config (5 pairs), so with
+    n_sets=10, each model is tested twice with different data chunks.
 
     Args:
         n_sets: Number of aggregation tests (N)

@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker data extraction.
 
-Evaluates smaller LLMs on their ability to extract dimension values from
-data chunks given a schema from the orchestrator.
+Evaluates smaller LLMs on their ability to extract indicator values from
+data chunks given a DSEMModel schema from the orchestrator.
 
 Usage:
     inspect eval evals/eval2_worker_extraction.py --model google/vertex/gemini-3-flash-preview
@@ -22,18 +22,14 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import TaskState, system_message
 
 from causal_agent.workers.prompts import WORKER_WO_PROPOSALS_SYSTEM, WORKER_USER
-from causal_agent.workers.schemas import WorkerOutput
-from causal_agent.workers.agents import (
-    _format_dimensions,
-    _get_observed_dimension_dtypes,
-    _get_outcome_description,
-)
+from causal_agent.workers.schemas import WorkerOutput, _get_indicator_info
+from causal_agent.workers.agents import _format_indicators, _get_outcome_description
 from causal_agent.utils.llm import make_worker_tools
 
 from evals.common import (
     extract_json_from_response,
     get_sample_chunks_worker,
-    load_example_dag,
+    load_dsem_model_by_question_id,
     tool_assisted_generate,
 )
 
@@ -50,35 +46,46 @@ MODELS = {
     "openrouter/openai/gpt-oss-120b": "gpt-oss",
 }
 
-# Default question for worker eval (has to match example_dag.json)
-DEFAULT_QUESTION = "I want to sleep better"
+# Default question ID for worker eval (uses question 4: "I want to sleep better")
+DEFAULT_QUESTION_ID = 4
+
+
+def _get_indicator_dtypes(dsem_model: dict) -> dict[str, str]:
+    """Get mapping of indicator names to their expected dtypes."""
+    indicator_info = _get_indicator_info(dsem_model)
+    return {name: info["dtype"] for name, info in indicator_info.items()}
 
 
 def create_eval_dataset(
+    question_id: int = DEFAULT_QUESTION_ID,
     n_chunks: int = 10,
     seed: int = 42,
     input_file: str | None = None,
-    question: str = DEFAULT_QUESTION,
 ) -> MemoryDataset:
-    """Create evaluation dataset with chunks and the example DAG schema.
+    """Create evaluation dataset with chunks and the DSEMModel schema.
 
     Args:
+        question_id: The question ID (1-5) to load DSEMModel for
         n_chunks: Number of chunks to include (each becomes a sample)
         seed: Random seed for reproducible chunk sampling
         input_file: Specific input file name, or None for latest
-        question: The causal question to use
 
     Returns:
         MemoryDataset with one sample per chunk
     """
-    # Load the example DAG schema
-    schema = load_example_dag()
-    dimensions_text = _format_dimensions(schema)
-    outcome_description = _get_outcome_description(schema)
-    dimension_dtypes = _get_observed_dimension_dtypes(schema)
+    # Load the DSEMModel schema
+    dsem_model = load_dsem_model_by_question_id(question_id)
+    indicators_text = _format_indicators(dsem_model)
+    outcome_description = _get_outcome_description(dsem_model)
+    indicator_dtypes = _get_indicator_dtypes(dsem_model)
 
-    # Count observed dimensions (what workers actually see)
-    n_observed = len(dimension_dtypes)
+    # Count indicators
+    n_indicators = len(indicator_dtypes)
+
+    # Get the question text from config
+    from evals.common import get_eval_questions
+    questions = get_eval_questions()
+    question = next((q["question"] for q in questions if q["id"] == question_id), "")
 
     # Get chunks (using worker chunk size from config)
     chunks = get_sample_chunks_worker(n_chunks, seed, input_file)
@@ -88,7 +95,7 @@ def create_eval_dataset(
         user_prompt = WORKER_USER.format(
             question=question,
             outcome_description=outcome_description,
-            dimensions=dimensions_text,
+            indicators=indicators_text,
             chunk=chunk,
         )
 
@@ -98,9 +105,10 @@ def create_eval_dataset(
                 id=f"chunk_{i:04d}",
                 metadata={
                     "chunk_index": i,
+                    "question_id": question_id,
                     "question": question,
-                    "n_observed_dimensions": n_observed,
-                    "dimension_dtypes": dimension_dtypes,
+                    "n_indicators": n_indicators,
+                    "indicator_dtypes": indicator_dtypes,
                 },
             )
         )
@@ -150,7 +158,7 @@ def worker_extraction_scorer():
 
     async def score(state: TaskState, target: Target) -> Score:
         completion = state.output.completion
-        dimension_dtypes = state.metadata.get("dimension_dtypes", {})
+        indicator_dtypes = state.metadata.get("indicator_dtypes", {})
 
         # Extract JSON from response
         json_str = extract_json_from_response(completion)
@@ -199,12 +207,12 @@ def worker_extraction_scorer():
         dtype_errors = []
 
         for extraction in output.extractions:
-            dim_name = extraction.dimension
-            expected_dtype = dimension_dtypes.get(dim_name)
+            ind_name = extraction.indicator
+            expected_dtype = indicator_dtypes.get(ind_name)
 
             if expected_dtype is not None and not _validate_dtype(extraction.value, expected_dtype):
                 dtype_errors.append(
-                    f"{dim_name}: got {type(extraction.value).__name__}={extraction.value}, expected {expected_dtype}"
+                    f"{ind_name}: got {type(extraction.value).__name__}={extraction.value}, expected {expected_dtype}"
                 )
 
         n_dtype_errors = len(dtype_errors)
@@ -224,14 +232,14 @@ def worker_extraction_scorer():
             )
 
         # Build explanation
-        n_proposed = len(output.proposed_dimensions) if output.proposed_dimensions else 0
-        unique_dims = df["dimension"].n_unique() if n_rows > 0 else 0
+        n_proposed = len(output.proposed_indicators) if output.proposed_indicators else 0
+        unique_inds = df["indicator"].n_unique() if n_rows > 0 else 0
         total_score = VALID_SCHEMA_POINTS + n_rows
 
         explanation = (
             f"Valid schema (+{VALID_SCHEMA_POINTS}). "
-            f"Extracted {n_rows} observations across {unique_dims} dimensions. "
-            f"Proposed {n_proposed} new dimension(s)."
+            f"Extracted {n_rows} observations across {unique_inds} indicators. "
+            f"Proposed {n_proposed} new indicator(s)."
         )
 
         return Score(
@@ -241,8 +249,8 @@ def worker_extraction_scorer():
             metadata={
                 "n_extractions": n_rows,
                 "n_dtype_errors": 0,
-                "n_unique_dimensions": unique_dims,
-                "n_proposed_dimensions": n_proposed,
+                "n_unique_indicators": unique_inds,
+                "n_proposed_indicators": n_proposed,
             },
         )
 
@@ -251,32 +259,32 @@ def worker_extraction_scorer():
 
 @task
 def worker_eval(
+    question_id: int = DEFAULT_QUESTION_ID,
     n_chunks: int = 10,
     seed: int = 42,
     input_file: str | None = None,
-    question: str = DEFAULT_QUESTION,
 ):
-    """Evaluate LLM ability to extract dimension values from chunks.
+    """Evaluate LLM ability to extract indicator values from chunks.
 
     Args:
+        question_id: The question ID (1-5) to load DSEMModel for
         n_chunks: Number of chunks to include in evaluation
         seed: Random seed for chunk sampling (reproducibility)
         input_file: Specific preprocessed file name, or None for latest
-        question: The causal question to use
     """
-    # Load schema for tools (same schema for all samples)
-    schema = load_example_dag()
+    # Load DSEMModel for tools (same schema for all samples)
+    dsem_model = load_dsem_model_by_question_id(question_id)
 
     return Task(
         dataset=create_eval_dataset(
+            question_id=question_id,
             n_chunks=n_chunks,
             seed=seed,
             input_file=input_file,
-            question=question,
         ),
         solver=[
             system_message(WORKER_WO_PROPOSALS_SYSTEM),
-            tool_assisted_generate(tools=make_worker_tools(schema)),
+            tool_assisted_generate(tools=make_worker_tools(dsem_model)),
         ],
         scorer=worker_extraction_scorer(),
     )
