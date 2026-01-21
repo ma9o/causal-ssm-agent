@@ -1,55 +1,50 @@
 # DSEM Overview
 
-## Variable Taxonomy
+## Construct Taxonomy
 
-Variables are classified along three dimensions:
+Constructs are classified along two dimensions:
 
 | Dimension | Values | Meaning |
 |-----------|--------|---------|
-| Role | Endogenous / Exogenous | Whether variable receives causal edges from system |
-| Observability | Observed / Latent | Whether variable is directly measured |
-| Temporal status | Time-varying / Time-invariant | Whether variable changes within person over time |
+| Role | Endogenous / Exogenous | Whether construct receives causal edges from other constructs |
+| Temporal status | Time-varying / Time-invariant | Whether construct changes within person over time |
+
+This yields four construct types:
+
+| Role | Temporal | AR Structure | Example |
+|------|----------|--------------|---------|
+| Exogenous | Time-varying | None (conditioned on) | Weather, day of week |
+| Exogenous | Time-invariant | None (conditioned on) | Age, gender, person intercept |
+| Endogenous | Time-varying | AR(1) | Mood, stress, sleep quality |
+| Endogenous | Time-invariant | None | Single-occasion outcome |
 
 ---
 
-## Measurement Philosophy
+## Constructs and Indicators
 
-**Observed** means data exists, not perfect measurement. Outcomes and inputs may be proxies of underlying constructs (e.g., "mood" measured via app ratings, "stress" inferred from heart rate variability). Measurement error is absorbed into residual variance—we model relationships between measured quantities, not "true" latent constructs. This is a pragmatic choice: proxy-based inference is useful even when imperfect.
+**Constructs** are theoretical entities in the causal model (stress, mood, cognitive load). They live in the latent model and represent what we're reasoning about causally.
 
-**Latent** means the construct itself is not directly measured. Two cases exist:
+**Indicators** are observed measurements (HRV readings, self-report scores, cortisol levels). They live in the measurement model and reflect their parent construct.
 
-1. **Random effects (Type 4):** No indicators whatsoever. Identified purely from the variance structure of repeated observations. They capture stable between-person heterogeneity that we infer exists but never directly observe.
+**Key insight:** Whether a construct has indicators is not a property of the construct itself. It's determined by the measurement model:
+- A construct with indicators can be identified through those measurements
+- A construct without indicators may still be valid in the DAG, but whether the target causal effect is identifiable depends on the graph structure
 
-2. **Latent time-varying constructs (Type 7):** Have observed indicators via a reflective measurement model. The construct is latent but identified through its indicators (see below).
+Identification is checked by DoWhy in Stage 3, not enforced at the schema level.
 
 ---
 
-## Latent Time-Varying Constructs (Type 7 with Indicators)
+## Two-Stage Specification
 
-Latent time-varying constructs are supported when operationalized through a **reflective measurement model**. This means:
+**Stage 1a (Latent Model):** The LLM proposes theoretical constructs and causal structure from domain knowledge alone (no data). This defines what constructs exist and how they relate causally.
 
-1. The latent construct has one or more observed indicators
-2. Causality flows from latent → indicators (not reverse)
-3. Indicators are interchangeable manifestations of the underlying construct
+**Stage 1b (Measurement Model):** The LLM sees data and proposes indicators for each construct. Each indicator specifies:
+- `how_to_measure`: extraction instructions
+- `measurement_dtype`: continuous, binary, count, ordinal, categorical
+- `measurement_granularity`: resolution of raw measurements
+- `aggregation`: how to collapse to the construct's causal timescale
 
-**Example:**
-```
-Latent "stress" (daily) ──→ observed "self_reported_stress"
-                        ├──→ observed "heart_rate_variability"
-                        └──→ observed "cortisol_level"
-```
-
-**Two-Stage Specification:**
-- **Stage 1a (Latent Model):** LLM proposes theoretical constructs and causal structure from domain knowledge alone (no data). All constructs are tagged as latent.
-- **Stage 1b (Measurement Model):** LLM sees data and operationalizes each latent into observed indicators. All outputs are tagged as observed.
-
-**What this enables:**
-- Modeling theoretical constructs that aren't directly measurable
-- Multiple imperfect measurements of the same underlying construct
-- Separation of measurement error from true construct variance (via factor model)
-
-**What this does NOT enable:**
-- State-space models where latent states have no indicators (see scope.md)
+A construct may have zero, one, or multiple indicators. Multiple indicators enable measurement error separation via factor models.
 
 ---
 
@@ -57,7 +52,7 @@ Latent "stress" (daily) ──→ observed "self_reported_stress"
 
 ### Rule
 
-All endogenous time-varying variables receive AR(1) at their native timescale by default.
+All endogenous time-varying constructs receive AR(1) at their native timescale.
 
 ### Justification (Markov Property)
 
@@ -71,7 +66,7 @@ Under the Markov assumption, the state at t-1 is a sufficient statistic for all 
 
 Including unnecessary AR(1) wastes one parameter (coefficient ≈ 0, harmless). Omitting necessary AR(1) biases standard errors and inflates cross-lag estimates (harmful). Default inclusion is the conservative choice.
 
-### Exogenous Variables
+### Exogenous Constructs
 
 No AR structure modeled. We condition on observed values; their temporal structure is irrelevant to the causal model.
 
@@ -79,11 +74,11 @@ No AR structure modeled. We condition on observed values; their temporal structu
 
 ## Temporal Granularity
 
-Variables have an associated time granularity: `hourly`, `daily`, `weekly`, `monthly`, `yearly`, or `None` (time-invariant).
+Constructs have an associated time granularity: `hourly`, `daily`, `weekly`, `monthly`, `yearly`, or `None` (time-invariant).
 
 ### Model Clock
 
-The model operates at the finest endogenous outcome granularity. If the finest endogenous variable is daily, the model's time index is daily.
+The model operates at the finest endogenous outcome granularity. If the finest endogenous construct is daily, the model's time index is daily.
 
 ### Aggregation at Indicator Level
 
@@ -111,19 +106,19 @@ Higher-order lags (t-2, t-3, ...) are not permitted. Under Markovian dynamics, t
 
 ### Cross-Timescale Edges
 
-**Contemporaneous edges (lag=0) are prohibited.** "Simultaneous" is undefined when variables operate at different grains.
+**Contemporaneous edges (lag=0) are prohibited.** "Simultaneous" is undefined when constructs operate at different grains.
 
 ### Coarser Cause → Finer Effect
 
-Lag must equal exactly one unit of the coarser variable's granularity.
+Lag must equal exactly one unit of the coarser construct's granularity.
 
-**Justification (Markov property):** The AR(1) structure on the coarser variable means its value at t-1 is a sufficient statistic for prior history. Reaching back further is redundant—that information is already propagated through the coarser variable's own autoregressive path.
+**Justification (Markov property):** The AR(1) structure on the coarser construct means its value at t-1 is a sufficient statistic for prior history. Reaching back further is redundant—that information is already propagated through the coarser construct's own autoregressive path.
 
 **Example:** Weekly stress → daily mood requires lag = 168 hours (one week). Last week's stress affects this week's daily mood. Stress from two weeks ago affects last week's stress, which affects this week—the effect is mediated, not direct.
 
 ### Finer Cause → Coarser Effect
 
-Lag must equal exactly one unit of the coarser (effect) variable's granularity. Additionally, an aggregation function specifies how fine-grained observations collapse to the coarser outcome's timescale.
+Lag must equal exactly one unit of the coarser (effect) construct's granularity. Additionally, an aggregation function specifies how fine-grained observations collapse to the coarser outcome's timescale.
 
 **Example:** Hourly steps → daily mood requires lag = 24 hours (one day). Yesterday's hourly steps (aggregated to a daily value) affect today's mood.
 
@@ -131,10 +126,10 @@ Lag must equal exactly one unit of the coarser (effect) variable's granularity. 
 
 ## Interpretation Guidance
 
-Effects are estimated as relationships between **observed** quantities. Measurement error is absorbed into residual variance. Interpret:
+Effects are estimated as relationships between constructs as measured through their indicators. Measurement error in indicators is absorbed into residual variance. Interpret:
 
-- AR coefficients as inertia in the measured variable
-- Cross-lag coefficients as predictive relationships between measured variables
-- Random effects as stable between-person differences in measured baselines
+- AR coefficients as inertia in the construct
+- Cross-lag coefficients as causal relationships between constructs
+- Random effects as stable between-person differences in baselines
 
-Do not interpret as effects on "true" latent constructs unless measurement properties are well-established and error is known to be small.
+Causal interpretation requires that the DAG correctly captures the true causal structure and that all relevant confounders are included.

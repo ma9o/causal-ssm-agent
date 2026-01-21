@@ -1,8 +1,6 @@
 # Scope
 
 <!--
-TODO: MASSIVE REFACTOR NEEDED
-
 Previous versions of this document had a confused understanding of scope. Here's the history:
 
 1. ORIGINAL SIN: We had an "Observability" dimension (Observed/Latent) in the construct taxonomy,
@@ -27,18 +25,6 @@ Previous versions of this document had a confused understanding of scope. Here's
    - If it doesn't block identification → we estimate effects through observed paths, 
      we don't estimate the latent state itself
    - If someone wants latent state values → wrong tool, use dynamax/pykalman
-
-The refactor needs to touch:
-1. orchestrator/schemas.py - Remove any validation based on observability. Remove the 
-   Observability enum if it exists. Constructs just have role + temporal_status.
-2. orchestrator/prompts.py - Remove language about what constructs can/cannot be proposed.
-   The LLM can propose any DAG including unobserved confounders.
-3. Stage 3 (identifiability) - This is the gatekeeper now. DoWhy checks if target 
-   causal effect is identified given DAG structure and which constructs have indicators.
-4. dsem_overview.md - Remove observability discussion from variable taxonomy.
-5. Tests - Remove any tests asserting construct type rejections based on observability.
-6. MeasurementModel - The indicator→construct mapping is what makes a construct "observed."
-   This is data for DoWhy, not a schema constraint.
 -->
 
 This framework models dynamics of time-varying constructs with optional time-invariant covariates. This is a **causal effect estimation** framework.

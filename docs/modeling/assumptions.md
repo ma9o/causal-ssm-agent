@@ -170,7 +170,7 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 
 The framework implements a two-stage workflow grounded in the structural equation modeling (SEM) tradition, following the approach established by **Anderson & Gerbing (1988)**:
 
-1. **Stage 1a (Structural Model):** The orchestrator LLM proposes a theoretical causal DAG over constructs based on domain knowledge alone—no data. This separates theoretical reasoning from operationalization.
+1. **Stage 1a (Latent Model):** The orchestrator LLM proposes a theoretical causal DAG over constructs based on domain knowledge alone—no data. This separates theoretical reasoning from operationalization.
 
 2. **Stage 1b (Measurement Model):** Given data, the orchestrator proposes observed indicators for each construct. Indicators follow the reflective measurement model (A1). Constructs may have one indicator (A9 applies) or multiple indicators (CFA identification).
 

@@ -67,8 +67,8 @@ st.markdown(
     .tag-outcome { background: #8957e5aa; color: #d2a8ff; }
     .tag-endogenous { background: #1f6feb33; color: #58a6ff; }
     .tag-exogenous { background: #da3633aa; color: #ff7b72; }
-    .tag-observed { background: #238636aa; color: #3fb950; }
-    .tag-latent { background: #6e768133; color: #8b949e; }
+    .tag-measured { background: #238636aa; color: #3fb950; }
+    .tag-unmeasured { background: #6e768133; color: #8b949e; }
     .indicator-box {
         background: #21262d;
         border: 1px solid #30363d;
@@ -114,10 +114,17 @@ COLORS = {
 def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
     """Create agraph nodes and edges from DAG data.
 
-    Expects normalized data with 'constructs' and 'edges' keys.
+    Expects normalized data with 'constructs', 'edges', and 'indicators' keys.
+    Constructs without indicators are shown as "unmeasured" (dashed ellipse).
     """
     nodes = []
     edges = []
+
+    # Compute which constructs have indicators (derived observability)
+    measured_constructs = {
+        ind.get("construct") or ind.get("construct_name")
+        for ind in data.get("indicators", [])
+    }
 
     for construct in data["constructs"]:
         if construct.get("is_outcome"):
@@ -131,8 +138,9 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
         if construct.get("causal_granularity"):
             label += f"\n({construct['causal_granularity']})"
 
-        is_latent = construct.get("observability") == "latent"
-        if is_latent:
+        # A construct is "unmeasured" if it has no indicators
+        is_unmeasured = construct["name"] not in measured_constructs
+        if is_unmeasured:
             nodes.append(
                 Node(
                     id=construct["name"],
@@ -179,14 +187,19 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
     return nodes, edges
 
 
-def render_construct_info(construct: dict):
-    """Render construct info as formatted HTML."""
+def render_construct_info(construct: dict, is_measured: bool):
+    """Render construct info as formatted HTML.
+
+    Args:
+        construct: Construct dictionary
+        is_measured: Whether this construct has at least one indicator
+    """
     role = construct.get("role", "endogenous")
-    obs = construct.get("observability", "observed")
     is_outcome = construct.get("is_outcome", False)
 
     tags = f'<span class="tag tag-{role}">{role}</span>'
-    tags += f'<span class="tag tag-{obs}">{obs}</span>'
+    measurement_status = "measured" if is_measured else "unmeasured"
+    tags += f'<span class="tag tag-{measurement_status}">{measurement_status}</span>'
     if is_outcome:
         tags += '<span class="tag tag-outcome">OUTCOME</span>'
 
@@ -293,9 +306,9 @@ with col_input:
             <div><span style="color: #a371f7;">■</span> Outcome</div>
             <div><span style="color: #58a6ff;">■</span> Endogenous</div>
             <div><span style="color: #f78166;">■</span> Exogenous</div>
-            <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Observability</div>
-            <div>▢ Observed (solid box)</div>
-            <div>◯ Latent (dashed ellipse)</div>
+            <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Measurement</div>
+            <div>▢ Has indicators (solid box)</div>
+            <div>◯ No indicators (dashed ellipse)</div>
             <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Edges</div>
             <div>— Contemporaneous</div>
             <div>┅ Lagged</div>
@@ -369,11 +382,15 @@ with col_graph:
         if st.button("Run Identifiability Analysis", type="primary"):
             with st.spinner("Analyzing..."):
                 graph = dag_to_networkx(data)
-                # Extract observed nodes (non-latent constructs)
+                # Constructs are "observed" if they have at least one indicator
+                measured_construct_names = {
+                    ind.get("construct") or ind.get("construct_name")
+                    for ind in data.get("indicators", [])
+                }
                 observed_nodes = [
                     c["name"]
                     for c in data["constructs"]
-                    if c.get("observability", "observed") != "latent"
+                    if c["name"] in measured_construct_names
                 ]
                 result = run_identify_effect(graph, treatment, outcome, observed_nodes)
 
@@ -413,13 +430,18 @@ with col_info:
     st.subheader("Inspector")
     if data:
         selected_node = st.session_state.get("selected_node")
+        # Compute measured constructs from indicators
+        measured_constructs = {
+            ind.get("construct") or ind.get("construct_name")
+            for ind in data.get("indicators", [])
+        }
 
         if selected_node:
             construct = next(
                 (c for c in data["constructs"] if c["name"] == selected_node), None
             )
             if construct:
-                render_construct_info(construct)
+                render_construct_info(construct, selected_node in measured_constructs)
 
                 # Show indicators for this construct
                 st.markdown("**Indicators**")
