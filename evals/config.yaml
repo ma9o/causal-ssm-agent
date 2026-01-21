@@ -12,18 +12,28 @@ questions:
   - id: 1
     question: "I want to resolve errors faster"
     dag: eval/example_dag1.json
+    structural: eval/structural_model1.json
+    dsem: eval/dsem_model1.json
   - id: 2
     question: "I want to stop working weekends"
     dag: eval/example_dag2.json
+    structural: eval/structural_model2.json
+    dsem: eval/dsem_model2.json
   - id: 3
     question: "I want to stop context-switching compulsively"
     dag: eval/example_dag3.json
+    structural: eval/structural_model3.json
+    dsem: eval/dsem_model3.json
   - id: 4
     question: "I want to sleep better"
     dag: eval/example_dag4.json
+    structural: eval/structural_model4.json
+    dsem: eval/dsem_model4.json
   - id: 5
     question: "I want to feel like a competent engineer"
     dag: eval/example_dag5.json
+    structural: eval/structural_model5.json
+    dsem: eval/dsem_model5.json
 
 # Models for orchestrator structure eval (top-tier with max reasoning)
 orchestrator_models:

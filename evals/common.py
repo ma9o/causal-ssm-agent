@@ -135,10 +135,54 @@ def extract_json_from_response(text: str) -> str | None:
 
 
 def load_example_dag() -> dict:
-    """Load the default example DAG for worker evals from config path."""
+    """Load the default example DAG for worker evals from config path.
+
+    Note: This loads the OLD format (dimensions + edges). For the new format,
+    use load_structural_model_by_question_id() or load_dsem_model_by_question_id().
+    """
     config = load_eval_config()
     dag_path = DATA_DIR / config["example_dag"]
     with open(dag_path) as f:
+        return json.load(f)
+
+
+def load_structural_model_by_question_id(question_id: int) -> dict:
+    """Load a reference structural model by question ID.
+
+    Args:
+        question_id: The question ID (1-5) matching the structural model
+
+    Returns:
+        The structural model dict (constructs + edges)
+    """
+    config = load_eval_config()
+    questions = config["questions"]
+    question = next((q for q in questions if q["id"] == question_id), None)
+    if question is None:
+        raise ValueError(f"Question ID {question_id} not found in config")
+
+    structural_path = DATA_DIR / question.get("structural", f"eval/structural_model{question_id}.json")
+    with open(structural_path) as f:
+        return json.load(f)
+
+
+def load_dsem_model_by_question_id(question_id: int) -> dict:
+    """Load a complete DSEMModel (structural + measurement) by question ID.
+
+    Args:
+        question_id: The question ID (1-5)
+
+    Returns:
+        The DSEMModel dict with 'structural' and 'measurement' keys
+    """
+    config = load_eval_config()
+    questions = config["questions"]
+    question = next((q for q in questions if q["id"] == question_id), None)
+    if question is None:
+        raise ValueError(f"Question ID {question_id} not found in config")
+
+    dsem_path = DATA_DIR / question.get("dsem", f"eval/dsem_model{question_id}.json")
+    with open(dsem_path) as f:
         return json.load(f)
 
 
