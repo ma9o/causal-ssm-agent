@@ -98,7 +98,7 @@ P(Cₜ | Cₜ₋₁, Cₜ₋₂, ..., C₁) = P(Cₜ | Cₜ₋₁)
 
 **Assumption:** Once the measurement model is identified (via CFA for multi-indicator constructs, or by assumption for single-indicator constructs), constructs can be treated as effectively observed for the purpose of causal identification via the structural model.
 
-See "The Workflow" and "Theoretical Justification" sections below for the full rationale.
+See theory.md §3 "Measurement Model Identification Enables Causal Identification" for the full rationale.
 
 ---
 
@@ -163,76 +163,6 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 **Recommendation:** When substantively important, prefer multiple indicators per construct to enable measurement error separation. Single-indicator constructs are appropriate for (a) well-validated scales with known high reliability, or (b) exploratory analysis where attenuation bias is acceptable.
 
 **Reference:** Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. (Chapter 7: The Measurement Model)
-
----
-
-## The Workflow
-
-The framework implements a two-stage workflow grounded in the structural equation modeling (SEM) tradition, following the approach established by **Anderson & Gerbing (1988)**:
-
-1. **Stage 1a (Latent Model):** The orchestrator LLM proposes a theoretical causal DAG over constructs based on domain knowledge alone—no data. This separates theoretical reasoning from operationalization.
-
-2. **Stage 1b (Measurement Model):** Given data, the orchestrator proposes observed indicators for each construct. Indicators follow the reflective measurement model (A1). Constructs may have one indicator (A9 applies) or multiple indicators (CFA identification).
-
-3. **Stage 3 (CFA Validation):** For multi-indicator constructs, confirmatory factor analysis validates that proposed indicators load on their intended constructs and that the measurement model is identified.
-
-4. **Stage 3 (Causal Identification):** DoWhy checks identification of target causal effects on the structural model, treating observed constructs (those with indicators) as identifiable.
-
-This two-step approach—measurement model first, structural model second—is the standard methodology in SEM research. As Anderson & Gerbing (1988) argue, validating the measurement model is a necessary prerequisite to interpreting structural relationships:
-
-> "We present a comprehensive, two-step modeling approach that employs a series of nested models and sequential chi-square difference tests. We discuss the comparative advantages of this approach over a one-step approach."
-
-The recent **Structural After Measurement (SAM)** approach by Rosseel & Loh (2024), implemented in lavaan's `sam()` function, formalizes this workflow with proper two-step standard errors that account for uncertainty from the measurement stage when estimating structural parameters.
-
----
-
-## Theoretical Justification
-
-### The Core Logic
-
-Under the **pure indicators assumption** (no direct Indicator→Indicator edges; all covariance between indicators flows through constructs), once the measurement model is identified:
-
-- The construct covariance matrix becomes identified from observed indicator covariances
-- This construct covariance matrix serves as "data" for the structural model
-- Pearl-style identification criteria (backdoor, front-door, do-calculus) apply to the structural DAG
-
-This is the logic underlying all latent variable SEM since LISREL. The framework makes this logic explicit by separating the stages and connecting them to modern causal identification theory.
-
-### The Anderson & Gerbing Two-Step Approach
-
-The canonical reference for this workflow is **Anderson & Gerbing (1988)**, which established that:
-
-1. The measurement model should be validated first via CFA before testing structural hypotheses
-2. Poor measurement model fit invalidates any conclusions from the structural model
-3. Separating the steps allows diagnosing whether problems stem from measurement or structure
-
-This paper has been cited over 37,000 times and remains the methodological standard in psychology, management, and the social sciences.
-
-### Bridging SEM and Pearl's Causal Framework
-
-**Bollen & Pearl (2013)** establish the bridge between SEM and Pearl's causal framework:
-
-> "SEM is an inference engine that takes in two inputs, qualitative causal assumptions and empirical data, and derives two logical consequences of these inputs: quantitative causal conclusions and statistical measures of fit for the testable implications of the assumptions."
-
-The measurement model provides the mapping from observables to constructs; the structural model encodes causal assumptions among constructs.
-
-**Kuroki & Pearl (2014)** show that causal effects can be recovered from proxy variables of unmeasured confounders under specific graphical conditions. This establishes that indicators of latent variables can serve the same role as proxies in causal identification.
-
-**Miao, Geng & Tchetgen Tchetgen (2018)** generalize this result: with at least two independent proxy variables satisfying a rank condition, causal effects are nonparametrically identified—even when the measurement error mechanism itself is not identified. The rank condition maps directly onto CFA identification conditions.
-
-### Connection to Proximal Causal Inference
-
-The **proximal causal inference (PCI)** framework (Tchetgen Tchetgen et al., 2020) provides the modern synthesis. PCI requires:
-
-1. **Treatment-inducing confounding proxies:** Variables related to treatment only through unmeasured confounders
-2. **Outcome-inducing confounding proxies:** Variables related to outcomes only through unmeasured confounders
-3. **Completeness conditions:** The proxies must vary sufficiently relative to the confounder's variability
-
-Under a reflective measurement model, indicators of a latent confounder naturally partition into these categories. The CFA identification conditions (≥3 indicators per construct, or ≥2 with cross-construct correlations) correspond to the completeness conditions ensuring the construct is sufficiently well-measured.
-
-As noted in **"Demystifying Proximal Causal Inference" (2024)**:
-
-> "It may be natural to think of U as a latent factor or a set of latent factors that are measured by a collection of indicators, and these indicators could be used to form our sets of proxies."
 
 ---
 
