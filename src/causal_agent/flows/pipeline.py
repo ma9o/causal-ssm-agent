@@ -26,7 +26,7 @@ from .stages import (
     # Stage 2
     aggregate_measurements,
     load_worker_chunks,
-    populate_dimensions,
+    populate_indicators,
     # Stage 3
     check_identifiability,
     # Stage 4
@@ -88,27 +88,26 @@ def causal_inference_pipeline(
     dsem_model = build_dsem_model(structural_model, measurement_model)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 2: Parallel dimension population (worker chunk size)
+    # Stage 2: Parallel indicator population (worker chunk size)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 2: Worker Extraction ===")
     worker_chunks = load_worker_chunks(input_path)
     print(f"Loaded {len(worker_chunks)} worker chunks")
 
-    # TODO: Update populate_dimensions to work with new DSEMModel schema
-    worker_results = populate_dimensions.map(
+    worker_results = populate_indicators.map(
         worker_chunks,
         question=unmapped(question),
-        schema=unmapped(dsem_model),
+        dsem_model=unmapped(dsem_model),
     )
 
     # Stage 2b: Aggregate measurements into time-series by causal_granularity
     measurements = aggregate_measurements(worker_results, dsem_model)
     for granularity, df in measurements.items():
-        n_dims = len([c for c in df.columns if c != "time_bucket"])
+        n_indicators = len([c for c in df.columns if c != "time_bucket"])
         if granularity == "time_invariant":
-            print(f"  {granularity}: {n_dims} dimensions")
+            print(f"  {granularity}: {n_indicators} indicators")
         else:
-            print(f"  {granularity}: {df.height} time points × {n_dims} dimensions")
+            print(f"  {granularity}: {df.height} time points × {n_indicators} indicators")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 3: Identifiability

@@ -11,7 +11,7 @@ from .stage1b_measurement import (
 from .stage2_workers import (
     aggregate_measurements,
     load_worker_chunks,
-    populate_dimensions,
+    populate_indicators,
 )
 from .stage3_identifiability import (
     check_identifiability,
@@ -35,7 +35,7 @@ __all__ = [
     "build_dsem_model",
     # Stage 2
     "load_worker_chunks",
-    "populate_dimensions",
+    "populate_indicators",
     "aggregate_measurements",
     # Stage 3
     "check_identifiability",

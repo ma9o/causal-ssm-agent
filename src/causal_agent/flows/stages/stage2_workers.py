@@ -1,6 +1,6 @@
-"""Stage 2: Dimension Population (Workers).
+"""Stage 2: Indicator Population (Workers).
 
-Workers process chunks in parallel to extract dimension values.
+Workers process chunks in parallel to extract indicator values.
 Each worker returns a validated Polars dataframe of extractions.
 """
 
@@ -28,39 +28,39 @@ def load_worker_chunks(input_path: Path) -> list[str]:
     retries=2,
     retry_delay_seconds=10,
 )
-def populate_dimensions(chunk: str, question: str, schema: dict) -> WorkerResult:
-    """Worker extracts dimension values from a chunk.
+def populate_indicators(chunk: str, question: str, dsem_model: dict) -> WorkerResult:
+    """Worker extracts indicator values from a chunk.
 
     Returns:
         WorkerResult containing:
         - output: Validated WorkerOutput with extractions
-        - dataframe: Polars DataFrame with columns (dimension, value, timestamp)
+        - dataframe: Polars DataFrame with columns (indicator, value, timestamp)
     """
-    return process_chunk(chunk, question, schema)
+    return process_chunk(chunk, question, dsem_model)
 
 
 @task
 def aggregate_measurements(
     worker_results: list[WorkerResult],
-    schema: dict,
+    dsem_model: dict,
 ) -> dict[str, pl.DataFrame]:
     """Aggregate worker measurements into time-series DataFrames by granularity.
 
     Combines all worker extractions and aggregates to causal_granularity:
-    1. Concatenates worker DataFrames (dimension, value, timestamp)
-    2. Groups dimensions by their causal_granularity
+    1. Concatenates worker DataFrames (indicator, value, timestamp)
+    2. Groups indicators by their construct's causal_granularity
     3. Parses timestamps and buckets to each granularity
-    4. Applies dimension-specific aggregation (mean, sum, max, etc.)
+    4. Applies indicator-specific aggregation (mean, sum, max, etc.)
     5. Returns one DataFrame per granularity
 
     Args:
         worker_results: List of WorkerResults from parallel workers
-        schema: DSEM schema dict with dimension definitions
+        dsem_model: DSEMModel dict (new or old format)
 
     Returns:
         Dict mapping granularity -> DataFrame. Each DataFrame has 'time_bucket'
-        column and dimension columns. Time-invariant dimensions are in
+        column and indicator columns. Time-invariant indicators are in
         'time_invariant' key as a single-row DataFrame.
     """
     dataframes = [wr.dataframe for wr in worker_results]
-    return aggregate_worker_measurements(dataframes, schema)
+    return aggregate_worker_measurements(dataframes, dsem_model)

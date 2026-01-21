@@ -164,30 +164,86 @@ def _coerce_value_to_numeric(value) -> float | None:
     return None
 
 
+def _get_indicator_metadata(dsem_model: dict) -> dict[str, dict]:
+    """Extract indicator metadata from a DSEMModel dict.
+
+    Supports both new format (structural + measurement) and old format (dimensions).
+
+    Args:
+        dsem_model: DSEMModel dict (new or old format)
+
+    Returns:
+        Dict mapping indicator name to {causal_granularity, aggregation}
+    """
+    # New format: structural + measurement
+    if "measurement" in dsem_model and "indicators" in dsem_model["measurement"]:
+        indicators = dsem_model["measurement"]["indicators"]
+        constructs = dsem_model.get("structural", {}).get("constructs", [])
+
+        # Build construct name -> causal_granularity map
+        construct_granularity = {
+            c.get("name"): c.get("causal_granularity")
+            for c in constructs
+        }
+
+        indicator_info = {}
+        for ind in indicators:
+            name = ind.get("name")
+            if not name:
+                continue
+            # Get causal_granularity from the construct this indicator measures
+            construct_name = ind.get("construct") or ind.get("construct_name")
+            causal_gran = construct_granularity.get(construct_name)
+
+            indicator_info[name] = {
+                "causal_granularity": causal_gran,
+                "aggregation": ind.get("aggregation", "mean"),
+            }
+        return indicator_info
+
+    # Old format: dimensions with observability
+    if "dimensions" in dsem_model:
+        dim_info = {}
+        for dim in dsem_model["dimensions"]:
+            name = dim.get("name")
+            if not name:
+                continue
+            # Only process observed dimensions (latent have no measurements)
+            if dim.get("observability") == "latent":
+                continue
+            dim_info[name] = {
+                "causal_granularity": dim.get("causal_granularity"),
+                "aggregation": dim.get("aggregation", "mean"),
+            }
+        return dim_info
+
+    return {}
+
+
 def aggregate_worker_measurements(
     dataframes: list[pl.DataFrame],
-    schema: dict,
+    dsem_model: dict,
 ) -> dict[str, pl.DataFrame]:
     """Aggregate worker measurements into time-series DataFrames by causal_granularity.
 
-    Takes raw worker outputs (dimension, value, timestamp) and produces
+    Takes raw worker outputs (indicator, value, timestamp) and produces
     time-series DataFrames ready for causal modeling:
     1. Concatenates all worker DataFrames
     2. Parses timestamps
-    3. Groups dimensions by their causal_granularity
+    3. Groups indicators by their construct's causal_granularity
     4. For each granularity, buckets timestamps and applies aggregation
-    5. Returns one DataFrame per granularity with dimensions as columns
+    5. Returns one DataFrame per granularity with indicators as columns
 
     Args:
         dataframes: List of DataFrames from workers, each with columns
-                   (dimension, value, timestamp)
-        schema: DSEM schema dict containing dimension definitions with
-               causal_granularity and aggregation functions
+                   (indicator, value, timestamp). Also supports legacy format
+                   with (dimension, value, timestamp).
+        dsem_model: DSEMModel dict (new or old format)
 
     Returns:
         Dict mapping granularity -> DataFrame. Each DataFrame has 'time_bucket'
-        as first column, then one column per observed dimension at that granularity.
-        Time-invariant dimensions (causal_granularity=None) are in key 'time_invariant'
+        as first column, then one column per indicator at that granularity.
+        Time-invariant indicators (causal_granularity=None) are in key 'time_invariant'
         as a single-row DataFrame.
     """
     if not dataframes:
@@ -199,19 +255,12 @@ def aggregate_worker_measurements(
     if combined.is_empty():
         return {}
 
-    # Build dimension metadata from schema
-    dim_info = {}
-    for dim in schema.get("dimensions", []):
-        name = dim.get("name")
-        if not name:
-            continue
-        # Only process observed dimensions (latent have no measurements)
-        if dim.get("observability") == "latent":
-            continue
-        dim_info[name] = {
-            "causal_granularity": dim.get("causal_granularity"),
-            "aggregation": dim.get("aggregation", "mean"),
-        }
+    # Normalize column name: support both "indicator" and "dimension"
+    if "dimension" in combined.columns and "indicator" not in combined.columns:
+        combined = combined.rename({"dimension": "indicator"})
+
+    # Build indicator metadata from dsem_model
+    ind_info = _get_indicator_metadata(dsem_model)
 
     # Parse timestamps - try multiple formats
     # time_zone="UTC" handles timestamps with timezone info (e.g., +00:00 or Z suffix)
@@ -228,62 +277,62 @@ def aggregate_worker_measurements(
         .alias("numeric_value")
     )
 
-    # Group dimensions by granularity
-    dims_by_granularity: dict[str | None, list[str]] = {}
-    for dim_name, info in dim_info.items():
+    # Group indicators by granularity
+    inds_by_granularity: dict[str | None, list[str]] = {}
+    for ind_name, info in ind_info.items():
         gran = info["causal_granularity"]
-        if gran not in dims_by_granularity:
-            dims_by_granularity[gran] = []
-        dims_by_granularity[gran].append(dim_name)
+        if gran not in inds_by_granularity:
+            inds_by_granularity[gran] = []
+        inds_by_granularity[gran].append(ind_name)
 
     results: dict[str, pl.DataFrame] = {}
 
-    for granularity, dim_names in dims_by_granularity.items():
+    for granularity, ind_names in inds_by_granularity.items():
         if granularity is None:
-            # Time-invariant dimensions - aggregate all values into single row
+            # Time-invariant indicators - aggregate all values into single row
             time_invariant_cols = {}
-            for dim_name in dim_names:
-                dim_data = combined.filter(pl.col("dimension") == dim_name)
-                if dim_data.is_empty():
+            for ind_name in ind_names:
+                ind_data = combined.filter(pl.col("indicator") == ind_name)
+                if ind_data.is_empty():
                     continue
 
-                agg_name = dim_info[dim_name]["aggregation"]
+                agg_name = ind_info[ind_name]["aggregation"]
                 try:
                     agg_fn = get_aggregator(agg_name)
                 except ValueError:
                     agg_fn = get_aggregator("mean")
 
-                agg_value = dim_data.select(agg_fn("numeric_value")).item()
-                time_invariant_cols[dim_name] = [agg_value]
+                agg_value = ind_data.select(agg_fn("numeric_value")).item()
+                time_invariant_cols[ind_name] = [agg_value]
 
             if time_invariant_cols:
                 results["time_invariant"] = pl.DataFrame(time_invariant_cols)
             continue
 
-        # Time-varying dimensions at this granularity
+        # Time-varying indicators at this granularity
         # Filter to rows with valid timestamps
         gran_data = combined.filter(
             pl.col("parsed_ts").is_not_null() &
-            pl.col("dimension").is_in(dim_names)
+            pl.col("indicator").is_in(ind_names)
         )
 
         if gran_data.is_empty():
             continue
 
-        # Process each dimension and collect for joining
-        dim_dfs = []
-        for dim_name in dim_names:
-            dim_data = gran_data.filter(pl.col("dimension") == dim_name)
-            if dim_data.is_empty():
+        # Process each indicator and collect for joining
+        ind_dfs = []
+        for ind_name in ind_names:
+            ind_data = gran_data.filter(pl.col("indicator") == ind_name)
+            if ind_data.is_empty():
                 continue
 
             # Bucket timestamps to this granularity
-            dim_data = dim_data.with_columns(
+            ind_data = ind_data.with_columns(
                 _truncate_to_granularity(pl.col("parsed_ts"), granularity).alias("time_bucket")
             )
 
             # Get aggregation function
-            agg_name = dim_info[dim_name]["aggregation"]
+            agg_name = ind_info[ind_name]["aggregation"]
             try:
                 agg_fn = get_aggregator(agg_name)
             except ValueError:
@@ -291,20 +340,20 @@ def aggregate_worker_measurements(
 
             # Group by time bucket and aggregate
             aggregated = (
-                dim_data
+                ind_data
                 .group_by("time_bucket")
-                .agg(agg_fn("numeric_value").alias(dim_name))
+                .agg(agg_fn("numeric_value").alias(ind_name))
                 .sort("time_bucket")
             )
 
-            dim_dfs.append(aggregated)
+            ind_dfs.append(aggregated)
 
-        if not dim_dfs:
+        if not ind_dfs:
             continue
 
-        # Join all dimensions at this granularity on time_bucket
-        result = dim_dfs[0]
-        for df in dim_dfs[1:]:
+        # Join all indicators at this granularity on time_bucket
+        result = ind_dfs[0]
+        for df in ind_dfs[1:]:
             result = result.join(df, on="time_bucket", how="full", coalesce=True)
 
         # Sort by time
