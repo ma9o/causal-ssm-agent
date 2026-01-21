@@ -84,27 +84,30 @@ COLORS = {
 
 
 def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
-    """Create agraph nodes and edges from DAG data."""
+    """Create agraph nodes and edges from DAG data.
+
+    Expects normalized data with 'constructs' and 'edges' keys.
+    """
     nodes = []
     edges = []
 
-    for dim in data["dimensions"]:
-        if dim.get("is_outcome"):
+    for construct in data["constructs"]:
+        if construct.get("is_outcome"):
             color = COLORS["outcome"]
-        elif dim.get("role") == "exogenous":
+        elif construct.get("role") == "exogenous":
             color = COLORS["exogenous"]
         else:
             color = COLORS["endogenous"]
 
-        label = dim["name"]
-        if dim.get("causal_granularity"):
-            label += f"\n({dim['causal_granularity']})"
+        label = construct["name"]
+        if construct.get("causal_granularity"):
+            label += f"\n({construct['causal_granularity']})"
 
-        is_latent = dim.get("observability") == "latent"
+        is_latent = construct.get("observability") == "latent"
         if is_latent:
             nodes.append(
                 Node(
-                    id=dim["name"],
+                    id=construct["name"],
                     label=label,
                     color={
                         "background": color + "66",
@@ -121,7 +124,7 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
         else:
             nodes.append(
                 Node(
-                    id=dim["name"],
+                    id=construct["name"],
                     label=label,
                     color={
                         "background": color,
@@ -148,11 +151,11 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
     return nodes, edges
 
 
-def render_dimension_info(dim: dict):
-    """Render dimension info as formatted HTML."""
-    role = dim.get("role", "endogenous")
-    obs = dim.get("observability", "observed")
-    is_outcome = dim.get("is_outcome", False)
+def render_construct_info(construct: dict):
+    """Render construct info as formatted HTML."""
+    role = construct.get("role", "endogenous")
+    obs = construct.get("observability", "observed")
+    is_outcome = construct.get("is_outcome", False)
 
     tags = f'<span class="tag tag-{role}">{role}</span>'
     tags += f'<span class="tag tag-{obs}">{obs}</span>'
@@ -162,10 +165,10 @@ def render_dimension_info(dim: dict):
     st.markdown(
         f"""
         <div class="info-box">
-            <div class="info-title">{dim['name']}</div>
+            <div class="info-title">{construct['name']}</div>
             <div class="info-row">
                 <span class="info-label">Description</span>
-                <span class="info-value">{dim.get('description', '—')}</span>
+                <span class="info-value">{construct.get('description', '—')}</span>
             </div>
             <div class="info-row">
                 <span class="info-label">Tags</span>
@@ -173,19 +176,11 @@ def render_dimension_info(dim: dict):
             </div>
             <div class="info-row">
                 <span class="info-label">Temporal</span>
-                <span class="info-value">{dim.get('temporal_status', '—')}</span>
+                <span class="info-value">{construct.get('temporal_status', '—')}</span>
             </div>
             <div class="info-row">
                 <span class="info-label">Granularity</span>
-                <span class="info-value">{dim.get('causal_granularity', '—')}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Data Type</span>
-                <span class="info-value">{dim.get('measurement_dtype', '—')}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Aggregation</span>
-                <span class="info-value">{dim.get('aggregation', '—')}</span>
+                <span class="info-value">{construct.get('causal_granularity', '—')}</span>
             </div>
         </div>
         """,
@@ -228,7 +223,7 @@ with col_input:
     json_input = st.text_area(
         "Paste DAG JSON",
         height=350,
-        placeholder='{\n  "dimensions": [...],\n  "edges": [...]\n}',
+        placeholder='{\n  "structural": {\n    "constructs": [...],\n    "edges": [...]\n  }\n}',
     )
 
     st.markdown("---")
@@ -282,7 +277,7 @@ with col_graph:
             st.session_state["selected_node"] = selected
 
         st.caption(
-            f"**Nodes:** {len(data['dimensions'])} | **Edges:** {len(data['edges'])} — Click a node to inspect"
+            f"**Constructs:** {len(data['constructs'])} | **Edges:** {len(data['edges'])} — Click a node to inspect"
         )
 
         # Copy button
@@ -294,10 +289,10 @@ with col_graph:
         st.markdown("---")
         st.subheader("Causal Identifiability (DoWhy)")
 
-        node_names = [d["name"] for d in data["dimensions"]]
+        node_names = [c["name"] for c in data["constructs"]]
         # Find the marked outcome node (if any)
         default_outcome = next(
-            (d["name"] for d in data["dimensions"] if d.get("is_outcome")), None
+            (c["name"] for c in data["constructs"] if c.get("is_outcome")), None
         )
 
         col_treat, col_out = st.columns(2)
@@ -316,11 +311,11 @@ with col_graph:
         if st.button("Run Identifiability Analysis", type="primary"):
             with st.spinner("Analyzing..."):
                 graph = dag_to_networkx(data)
-                # Extract observed nodes (non-latent dimensions)
+                # Extract observed nodes (non-latent constructs)
                 observed_nodes = [
-                    d["name"]
-                    for d in data["dimensions"]
-                    if d.get("observability", "observed") != "latent"
+                    c["name"]
+                    for c in data["constructs"]
+                    if c.get("observability", "observed") != "latent"
                 ]
                 result = run_identify_effect(graph, treatment, outcome, observed_nodes)
 
@@ -362,11 +357,11 @@ with col_info:
         selected_node = st.session_state.get("selected_node")
 
         if selected_node:
-            dim = next(
-                (d for d in data["dimensions"] if d["name"] == selected_node), None
+            construct = next(
+                (c for c in data["constructs"] if c["name"] == selected_node), None
             )
-            if dim:
-                render_dimension_info(dim)
+            if construct:
+                render_construct_info(construct)
 
                 st.markdown("**Connected Edges**")
                 for edge in data["edges"]:

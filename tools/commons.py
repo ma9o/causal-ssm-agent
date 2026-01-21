@@ -9,34 +9,82 @@ import pandas as pd
 from dowhy import CausalModel
 
 
+def _normalize_dag_format(data: dict) -> dict:
+    """Normalize DAG data to internal format with 'constructs' and 'edges'.
+
+    Supports both:
+    - New format: structural.constructs + structural.edges + measurement.indicators
+    - Old format: dimensions + edges
+
+    Returns normalized dict with 'constructs', 'edges', and optionally 'indicators'.
+    """
+    # New DSEMModel format
+    if "structural" in data and "constructs" in data.get("structural", {}):
+        structural = data["structural"]
+        normalized = {
+            "constructs": structural.get("constructs", []),
+            "edges": structural.get("edges", []),
+        }
+        # Include indicators if present
+        if "measurement" in data and "indicators" in data.get("measurement", {}):
+            normalized["indicators"] = data["measurement"]["indicators"]
+        return normalized
+
+    # Old dimensions format
+    if "dimensions" in data:
+        return {
+            "constructs": data["dimensions"],
+            "edges": data.get("edges", []),
+        }
+
+    return data
+
+
 def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
     """Parse the DAG JSON format.
 
+    Supports both:
+    - New format: structural.constructs + structural.edges (DSEMModel)
+    - Old format: dimensions + edges
+
     Returns (data, error) tuple - one will always be None.
+    Data is normalized to have 'constructs' and 'edges' keys.
     """
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
         return None, f"Invalid JSON: {e}"
 
-    if "dimensions" not in data or "edges" not in data:
-        return None, "JSON must have 'dimensions' and 'edges' arrays"
+    # Check for valid format
+    has_new_format = "structural" in data and "constructs" in data.get("structural", {})
+    has_old_format = "dimensions" in data and "edges" in data
 
-    node_names = {d["name"] for d in data["dimensions"]}
-    for edge in data["edges"]:
+    if not has_new_format and not has_old_format:
+        return None, "JSON must have either 'structural.constructs' (new format) or 'dimensions' and 'edges' arrays (old format)"
+
+    # Normalize to internal format
+    normalized = _normalize_dag_format(data)
+
+    # Validate edges reference valid nodes
+    node_names = {c["name"] for c in normalized["constructs"]}
+    for edge in normalized["edges"]:
         if edge["cause"] not in node_names:
             return None, f"Edge references unknown cause: '{edge['cause']}'"
         if edge["effect"] not in node_names:
             return None, f"Edge references unknown effect: '{edge['effect']}'"
 
-    return data, None
+    return normalized, None
 
 
 def dag_to_networkx(data: dict) -> nx.DiGraph:
-    """Convert DAG JSON to NetworkX DiGraph for DoWhy."""
+    """Convert DAG JSON to NetworkX DiGraph for DoWhy.
+
+    Expects normalized data with 'constructs' and 'edges' keys
+    (as returned by parse_dag_json).
+    """
     G = nx.DiGraph()
-    for dim in data["dimensions"]:
-        G.add_node(dim["name"])
+    for construct in data["constructs"]:
+        G.add_node(construct["name"])
     for edge in data["edges"]:
         G.add_edge(edge["cause"], edge["effect"])
     return G
