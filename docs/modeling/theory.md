@@ -208,7 +208,7 @@ The **proximal causal inference (PCI)** framework (Tchetgen Tchetgen et al., 202
 2. **Outcome-inducing confounding proxies:** Variables related to outcomes only through unmeasured confounders
 3. **Completeness conditions:** The proxies must vary sufficiently relative to the confounder's variability
 
-Under a reflective measurement model, indicators of a latent confounder naturally partition into these categories. The CFA identification conditions (≥3 indicators per construct, or ≥2 with cross-construct correlations) correspond to the completeness conditions ensuring the construct is sufficiently well-measured.
+Under a reflective measurement model, indicators of a latent confounder naturally partition into these categories. The ≥3 indicators requirement ensures the measurement model contributes sufficient information to the joint likelihood that posteriors on latent constructs concentrate around data-informed values rather than reflecting prior assumptions (Bollen, 1989; see Levy & Mislevy, 2016 for Bayesian treatment).
 
 As noted in **"Demystifying Proximal Causal Inference" (2024)**:
 
