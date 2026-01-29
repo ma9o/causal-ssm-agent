@@ -8,6 +8,7 @@ questions:
     question: "I want to resolve errors faster"
     latent: eval/latent_model1.json
     dsem: eval/dsem_model1.json
+    # Target effects are now auto-derived from latent model (all paths to outcome)
   - id: 2
     question: "I want to stop working weekends"
     latent: eval/latent_model2.json

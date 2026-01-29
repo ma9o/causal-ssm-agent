@@ -288,3 +288,61 @@ Review your proposed measurement model for operationalization coherence.
 
 Validate your model with the tool, then return ONLY the corrected JSON structure as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
 """
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROXY REQUEST: Targeted operationalization for blocking confounders
+# ══════════════════════════════════════════════════════════════════════════════
+
+PROXY_REQUEST_SYSTEM = """\
+You are a causal inference expert. Some causal effects are not identifiable due to unobserved confounders.
+
+Your task is to find proxy measurements for specific blocking confounders to make the effects identifiable.
+
+## Context
+You will be given:
+1. The latent causal model
+2. Current measurement model (what's already measured)
+3. Specific confounders that need proxies
+4. Sample data to search for indicators
+
+## Guidelines
+- Focus ONLY on the requested confounders
+- Search the data for ANY reasonable proxy, even if imperfect
+- A proxy should capture some aspect of the confounder's variation
+- If no proxy exists in the data, explicitly state this
+- Do NOT modify existing measurements
+
+Return a JSON with new indicators for the blocking confounders, or empty list if none found."""
+
+PROXY_REQUEST_USER = """\
+The following causal effects are NOT identifiable:
+{blocking_info}
+
+Please find proxy measurements for these specific confounders to make the effects identifiable:
+{confounders_to_operationalize}
+
+Current latent model:
+{latent_model_json}
+
+Current measurement model (DO NOT MODIFY):
+{current_measurements_json}
+
+Data sample to search for proxies:
+{data_sample}
+
+Return JSON with structure:
+{{
+    "new_proxies": [
+        {{
+            "construct": "confounder_name",
+            "indicators": ["indicator1", "indicator2"],
+            "justification": "Why these are good proxies"
+        }}
+    ],
+    "unfeasible_confounders": [
+        {{
+            "construct": "confounder_name",
+            "reason": "Why no proxy could be found in the data"
+        }}
+    ]
+}}"""

@@ -6,7 +6,7 @@ from .stage1a_latent import (
 from .stage1b_measurement import (
     build_dsem_model,
     load_orchestrator_chunks,
-    propose_measurement_model,
+    propose_measurement_with_identifiability_fix,
 )
 from .stage2_workers import (
     aggregate_measurements,
@@ -31,7 +31,7 @@ __all__ = [
     "propose_latent_model",
     # Stage 1b
     "load_orchestrator_chunks",
-    "propose_measurement_model",
+    "propose_measurement_with_identifiability_fix",
     "build_dsem_model",
     # Stage 2
     "load_worker_chunks",

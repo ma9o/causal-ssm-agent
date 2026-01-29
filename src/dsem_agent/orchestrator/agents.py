@@ -29,6 +29,8 @@ from .prompts import (
     MEASUREMENT_MODEL_SYSTEM,
     MEASUREMENT_MODEL_USER,
     MEASUREMENT_MODEL_REVIEW,
+    PROXY_REQUEST_SYSTEM,
+    PROXY_REQUEST_USER,
 )
 from .schemas import DSEMModel, MeasurementModel, LatentModel
 
@@ -206,3 +208,94 @@ def build_dsem_model(latent_model: dict, measurement_model: dict) -> dict:
         measurement=MeasurementModel.model_validate(measurement_model),
     )
     return dsem.model_dump()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROXY REQUEST: Fix non-identifiable effects
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+async def request_proxy_measurements_async(
+    question: str,
+    latent_model: dict,
+    current_measurement: dict,
+    blocking_info: str,
+    confounders_to_operationalize: list[str],
+    data_sample: list[str],
+) -> dict:
+    """
+    Request proxy measurements for specific blocking confounders.
+
+    Args:
+        question: The causal research question
+        latent_model: The latent model dict
+        current_measurement: Current measurement model
+        blocking_info: Description of which effects are blocked
+        confounders_to_operationalize: List of confounder names needing proxies
+        data_sample: Sample chunks from the dataset
+
+    Returns:
+        Dict with 'new_proxies' and 'unfeasible_confounders'
+    """
+    model_name = get_config().stage1_structure_proposal.model
+    model = get_model(model_name)
+
+    # Format the data sample
+    data_text = "\n".join(data_sample[:5])  # Limit to first 5 chunks
+
+    messages = [
+        ChatMessageSystem(content=PROXY_REQUEST_SYSTEM),
+        ChatMessageUser(
+            content=PROXY_REQUEST_USER.format(
+                blocking_info=blocking_info,
+                confounders_to_operationalize=", ".join(confounders_to_operationalize),
+                latent_model_json=json.dumps(latent_model, indent=2),
+                current_measurements_json=json.dumps(current_measurement, indent=2),
+                data_sample=data_text,
+            )
+        ),
+    ]
+
+    # Single-turn generation for proxy request
+    response = await model.generate(messages)
+
+    # Parse response
+    data = parse_json_response(response.completion)
+
+    return data
+
+
+def request_proxy_measurements(
+    question: str,
+    latent_model: dict,
+    current_measurement: dict,
+    blocking_info: str,
+    confounders_to_operationalize: list[str],
+    data_sample: list[str],
+) -> dict:
+    """
+    Synchronous wrapper for request_proxy_measurements_async.
+
+    Args:
+        question: The causal research question
+        latent_model: The latent model dict
+        current_measurement: Current measurement model
+        blocking_info: Description of which effects are blocked
+        confounders_to_operationalize: List of confounder names needing proxies
+        data_sample: Sample chunks from the dataset
+
+    Returns:
+        Dict with 'new_proxies' and 'unfeasible_confounders'
+    """
+    import asyncio
+
+    return asyncio.run(
+        request_proxy_measurements_async(
+            question,
+            latent_model,
+            current_measurement,
+            blocking_info,
+            confounders_to_operationalize,
+            data_sample,
+        )
+    )

@@ -15,6 +15,10 @@ from dsem_agent.utils.data import (
     load_query,
     resolve_input_path,
 )
+from dsem_agent.utils.effects import (
+    get_all_treatments,
+    get_outcome_from_latent_model,
+)
 
 from .stages import (
     # Stage 1a
@@ -22,7 +26,7 @@ from .stages import (
     # Stage 1b
     build_dsem_model,
     load_orchestrator_chunks,
-    propose_measurement_model,
+    propose_measurement_with_identifiability_fix,
     # Stage 2
     aggregate_measurements,
     load_worker_chunks,
@@ -41,15 +45,16 @@ from .stages import (
 @flow(log_prints=True)
 def causal_inference_pipeline(
     query_file: str,
-    target_effects: list[str],
     input_file: str | None = None,
 ):
     """
     Main causal inference pipeline.
 
+    Automatically identifies the outcome from the question and estimates
+    effects of all potential treatments, ranking them by effect size.
+
     Args:
-        query_file: Filename in data/queries/ (e.g., 'smoking-cancer')
-        target_effects: Causal effects to estimate
+        query_file: Filename in data/queries/ (e.g., 'resolve-errors')
         input_file: Filename in data/processed/ (default: latest file)
     """
     # Stage 0: Load question and resolve input path
@@ -69,23 +74,52 @@ def causal_inference_pipeline(
     n_edges = len(latent_model["edges"])
     print(f"Proposed {n_constructs} constructs with {n_edges} causal edges")
 
+    # Identify the outcome and all potential treatments
+    outcome = get_outcome_from_latent_model(latent_model)
+    if not outcome:
+        raise ValueError("No outcome identified in latent model (missing is_outcome=true)")
+    print(f"Outcome variable: {outcome}")
+
+    treatments = get_all_treatments(latent_model)
+    print(f"Potential treatments: {len(treatments)} constructs with paths to {outcome}")
+    for t in treatments[:5]:
+        print(f"  - {t}")
+    if len(treatments) > 5:
+        print(f"  ... and {len(treatments) - 5} more")
+
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 1b: Propose measurement model (with data)
+    # Stage 1b: Propose measurement model (with identifiability check)
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 1b: Measurement Model ===")
+    print("\n=== Stage 1b: Measurement Model with Identifiability ===")
     orchestrator_chunks = load_orchestrator_chunks(input_path)
     print(f"Loaded {len(orchestrator_chunks)} orchestrator chunks")
 
-    measurement_model = propose_measurement_model(
+    # Propose measurements and check identifiability
+    measurement_result = propose_measurement_with_identifiability_fix(
         question,
         latent_model,
         orchestrator_chunks[:SAMPLE_CHUNKS],
     )
-    n_indicators = len(measurement_model["indicators"])
-    print(f"Proposed {n_indicators} indicators")
 
-    # Combine into full DSEM model
-    dsem_model = build_dsem_model(latent_model, measurement_model)
+    measurement_model = measurement_result['measurement_model']
+    identifiability_status = measurement_result['identifiability_status']
+
+    n_indicators = len(measurement_model["indicators"])
+    print(f"Final model has {n_indicators} indicators")
+
+    # Report non-identifiable treatments
+    if not identifiability_status['all_identifiable']:
+        print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS:")
+        for treatment in sorted(identifiability_status['non_identifiable_treatments']):
+            blockers = identifiability_status['blocking_confounders'].get(treatment, [])
+            if blockers:
+                print(f"  - {treatment} → {outcome} (blocked by: {', '.join(blockers)})")
+            else:
+                print(f"  - {treatment} → {outcome}")
+        print("These effects will be flagged in the final ranking.")
+
+    # Combine into full DSEM model with identifiability status
+    dsem_model = build_dsem_model(latent_model, measurement_model, identifiability_status)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 2: Parallel indicator population (worker chunk size)
@@ -110,26 +144,39 @@ def causal_inference_pipeline(
             print(f"  {granularity}: {df.height} time points × {n_indicators} indicators")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 3: Identifiability
+    # Stage 3: Identifiability Report (uses persisted status from Stage 1b)
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 3: Identifiability ===")
-    # TODO: Update to work with new DSEMModel - use latent.edges
-    identifiable = check_identifiability(dsem_model["latent"], target_effects)
+    print("\n=== Stage 3: Identifiability Report ===")
+    id_report = check_identifiability(dsem_model)
+    print(f"Status: {id_report['status']}")
+    print(f"Message: {id_report['message']}")
+
+    if id_report['status'] == 'not_identifiable':
+        print("\nNon-identifiable treatments will be flagged in results:")
+        for treatment in id_report['non_identifiable_treatments']:
+            print(f"  - {treatment}")
+        print(f"\n{id_report['recommendation']}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4: Model specification
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 4: Model Specification ===")
-    # TODO: Update to work with new DSEMModel
     model_spec = specify_model(dsem_model["latent"], dsem_model)
     priors = elicit_priors(model_spec)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 5: Fit and intervene
+    # Stage 5: Fit and intervene (with identifiability awareness)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 5: Inference ===")
+    print(f"Estimating effects of {len(treatments)} treatments on {outcome}")
     fitted = fit_model(model_spec, priors, worker_chunks)
-    results = run_interventions(fitted, target_effects)
+
+    # Run interventions for all treatments
+    results = run_interventions(fitted, treatments, dsem_model)
+
+    # TODO: Rank by effect size
+    print(f"\n=== Treatment Ranking by Effect Size ===")
+    print("(To be implemented: ranking of all treatments by their effect on the outcome)")
 
     return results
 

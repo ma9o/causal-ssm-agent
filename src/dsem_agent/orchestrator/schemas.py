@@ -304,14 +304,38 @@ def compute_lag_hours(
     return 0  # contemporaneous
 
 
+class IdentifiabilityStatus(BaseModel):
+    """Status of causal effect identifiability.
+
+    Since there's exactly one outcome in the model, we only track which
+    treatments have identifiable effects (not treatment-outcome pairs).
+    """
+
+    outcome: str = Field(description="The outcome construct name")
+    all_identifiable: bool = Field(description="Whether all treatment effects are identifiable")
+    non_identifiable_treatments: set[str] = Field(
+        default_factory=set,
+        description="Treatments whose effect on outcome is NOT identifiable"
+    )
+    blocking_confounders: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map of non-identifiable treatment to blocking confounders"
+    )
+
+
 class DSEMModel(BaseModel):
     """Complete DSEM specification combining latent and measurement models.
 
     This is the full model after both Stage 1a (latent) and Stage 1b (measurement).
+    Includes identifiability status for target causal effects.
     """
 
     latent: LatentModel = Field(description="Theoretical causal structure (topological)")
     measurement: MeasurementModel = Field(description="Operationalization into indicators")
+    identifiability: IdentifiabilityStatus | None = Field(
+        default=None,
+        description="Identifiability status of target causal effects"
+    )
 
     @model_validator(mode="after")
     def validate_dsem_model(self):
