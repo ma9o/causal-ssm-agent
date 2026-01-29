@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "dowhy>=0.14",
     "google-genai>=1.56.0",
     "inspect-ai>=0.3.162",
     "networkx>=3.6",
@@ -17,6 +16,7 @@ dependencies = [
     "prefect>=3.6.5",
     "pymc>=5.27.0",
     "python-dotenv>=1.2.1",
+    "y0>=0.2.11",
 ]
 
 [build-system]
