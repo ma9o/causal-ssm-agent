@@ -197,13 +197,8 @@ inspect eval path/to/eval.py --model openrouter/google/gemini-2.0-flash-001
 inspect eval path/to/eval.py --model openrouter/anthropic/claude-sonnet-4 -T param=10 --limit 5
 ```
 
-### Reading Logs
-```python
-from inspect_ai.log import read_eval_log
-log = read_eval_log('logs/xxx.eval')
-for s in log.samples:
-    print(s.id, s.scores)
-```
+### Reading Eval Logs
+See [docs/guides/running_evals.md](docs/guides/running_evals.md) for detailed instructions on reading and debugging eval logs.
 
 # PyMC 
 Docs: https://www.pymc.io/welcome.html
