@@ -4,15 +4,23 @@ DSEM DAG Explorer - Streamlit UI for DAG visualization.
 Run with: uv run streamlit run tools/dag_explorer.py
 """
 
+import sys
+from pathlib import Path
+
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_agraph import Config, Edge, Node, agraph
 
-from commons import (
-    COPY_GRAPH_HTML,
-    dag_to_networkx,
-    parse_dag_json,
-    run_identify_effect,
+# Add src to path for dsem_agent imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from commons import COPY_GRAPH_HTML, parse_dag_json
+from dsem_agent.utils.identifiability import (
+    analyze_unobserved_constructs,
+    check_identifiability,
+    format_identifiability_report,
+    format_marginalization_report,
+    get_observed_constructs,
 )
 
 st.set_page_config(page_title="DSEM DAG Explorer", layout="wide")
@@ -69,6 +77,8 @@ st.markdown(
     .tag-exogenous { background: #da3633aa; color: #ff7b72; }
     .tag-measured { background: #238636aa; color: #3fb950; }
     .tag-unmeasured { background: #6e768133; color: #8b949e; }
+    .tag-marginalize { background: #238636aa; color: #3fb950; }
+    .tag-needsmodel { background: #da3633aa; color: #ff7b72; }
     .indicator-box {
         background: #21262d;
         border: 1px solid #30363d;
@@ -108,14 +118,21 @@ COLORS = {
     "outcome": "#a371f7",
     "edge": "#8b949e",
     "background": "#0d1117",
+    "can_marginalize": "#3fb950",  # Green - safe to ignore
+    "needs_modeling": "#f85149",  # Red - blocks identification
 }
 
 
-def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
+def create_agraph_elements(
+    data: dict,
+    marg_analysis: dict | None = None,
+) -> tuple[list[Node], list[Edge]]:
     """Create agraph nodes and edges from DAG data.
 
     Expects normalized data with 'constructs', 'edges', and 'indicators' keys.
     Constructs without indicators are shown as "unmeasured" (dashed ellipse).
+    If marg_analysis is provided, unmeasured nodes are colored based on whether
+    they can be marginalized (green) or need explicit modeling (red).
     """
     nodes = []
     edges = []
@@ -126,7 +143,14 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
         for ind in data.get("indicators", [])
     }
 
+    # Extract marginalization sets
+    can_marginalize = marg_analysis.get("can_marginalize", set()) if marg_analysis else set()
+    needs_modeling = marg_analysis.get("needs_modeling", set()) if marg_analysis else set()
+
     for construct in data["constructs"]:
+        name = construct["name"]
+
+        # Determine base color by role
         if construct.get("is_outcome"):
             color = COLORS["outcome"]
         elif construct.get("role") == "exogenous":
@@ -134,24 +158,35 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
         else:
             color = COLORS["endogenous"]
 
-        label = construct["name"]
+        label = name
         if construct.get("causal_granularity"):
             label += f"\n({construct['causal_granularity']})"
 
         # A construct is "unmeasured" if it has no indicators
-        is_unmeasured = construct["name"] not in measured_constructs
+        is_unmeasured = name not in measured_constructs
+
         if is_unmeasured:
+            # Override color based on marginalization status
+            if name in needs_modeling:
+                border_color = COLORS["needs_modeling"]
+                label += "\n⚠ needs proxy"
+            elif name in can_marginalize:
+                border_color = COLORS["can_marginalize"]
+                label += "\n✓ can marginalize"
+            else:
+                border_color = color
+
             nodes.append(
                 Node(
-                    id=construct["name"],
+                    id=name,
                     label=label,
                     color={
-                        "background": color + "66",
-                        "border": color,
-                        "highlight": {"background": color, "border": "#f0f6fc"},
+                        "background": border_color + "33",
+                        "border": border_color,
+                        "highlight": {"background": border_color, "border": "#f0f6fc"},
                     },
-                    borderWidth=2,
-                    borderWidthSelected=3,
+                    borderWidth=3 if name in needs_modeling else 2,
+                    borderWidthSelected=4,
                     shapeProperties={"borderDashes": [5, 5]},
                     font={"color": "#ffffff"},
                     shape="ellipse",
@@ -160,7 +195,7 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
         else:
             nodes.append(
                 Node(
-                    id=construct["name"],
+                    id=name,
                     label=label,
                     color={
                         "background": color,
@@ -187,12 +222,17 @@ def create_agraph_elements(data: dict) -> tuple[list[Node], list[Edge]]:
     return nodes, edges
 
 
-def render_construct_info(construct: dict, is_measured: bool):
+def render_construct_info(
+    construct: dict,
+    is_measured: bool,
+    marg_status: str | None = None,
+):
     """Render construct info as formatted HTML.
 
     Args:
         construct: Construct dictionary
         is_measured: Whether this construct has at least one indicator
+        marg_status: "can_marginalize", "needs_modeling", or None
     """
     role = construct.get("role", "endogenous")
     is_outcome = construct.get("is_outcome", False)
@@ -202,6 +242,10 @@ def render_construct_info(construct: dict, is_measured: bool):
     tags += f'<span class="tag tag-{measurement_status}">{measurement_status}</span>'
     if is_outcome:
         tags += '<span class="tag tag-outcome">OUTCOME</span>'
+    if marg_status == "can_marginalize":
+        tags += '<span class="tag tag-marginalize">can marginalize</span>'
+    elif marg_status == "needs_modeling":
+        tags += '<span class="tag tag-needsmodel">needs proxy</span>'
 
     st.markdown(
         f"""
@@ -309,6 +353,9 @@ with col_input:
             <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Measurement</div>
             <div>▢ Has indicators (solid box)</div>
             <div>◯ No indicators (dashed ellipse)</div>
+            <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Identifiability Status</div>
+            <div><span style="color: #f85149;">◯</span> Needs proxy (blocks ID)</div>
+            <div><span style="color: #3fb950;">◯</span> Can marginalize</div>
             <div style="font-weight: 600; margin-top: 10px; margin-bottom: 4px;">Edges</div>
             <div>— Contemporaneous</div>
             <div>┅ Lagged</div>
@@ -326,7 +373,9 @@ with col_graph:
     if error:
         st.error(error)
     elif data:
-        nodes, edges = create_agraph_elements(data)
+        # Pass marginalization analysis if available for color coding
+        marg_analysis = st.session_state.get("marg_analysis")
+        nodes, edges = create_agraph_elements(data, marg_analysis)
 
         config = Config(
             width="100%",
@@ -356,73 +405,113 @@ with col_graph:
         with col_copy:
             components.html(COPY_GRAPH_HTML, height=35)
 
-        # DoWhy Causal Analysis Section
+        # y0-based Identifiability Analysis Section
         st.markdown("---")
-        st.subheader("Causal Identifiability (DoWhy)")
+        st.subheader("Causal Identifiability (y0)")
 
-        node_names = [c["name"] for c in data["constructs"]]
-        # Find the marked outcome node (if any)
-        default_outcome = next(
-            (c["name"] for c in data["constructs"] if c.get("is_outcome")), None
-        )
-
-        col_treat, col_out = st.columns(2)
-
-        with col_treat:
-            treatment = st.selectbox("Treatment", options=node_names, index=0)
-        with col_out:
-            outcome_options = [n for n in node_names if n != treatment]
-            outcome_idx = (
-                outcome_options.index(default_outcome)
-                if default_outcome and default_outcome in outcome_options
-                else 0
-            )
-            outcome = st.selectbox("Outcome", options=outcome_options, index=outcome_idx)
+        # Build latent/measurement dicts for identifiability check
+        latent_model = {
+            "constructs": data["constructs"],
+            "edges": data["edges"],
+        }
+        measurement_model = {
+            "indicators": data["indicators"],
+        }
 
         if st.button("Run Identifiability Analysis", type="primary"):
-            with st.spinner("Analyzing..."):
-                graph = dag_to_networkx(data)
-                # Constructs are "observed" if they have at least one indicator
-                measured_construct_names = {
-                    ind.get("construct") or ind.get("construct_name")
-                    for ind in data.get("indicators", [])
-                }
-                observed_nodes = [
-                    c["name"]
-                    for c in data["constructs"]
-                    if c["name"] in measured_construct_names
-                ]
-                result = run_identify_effect(graph, treatment, outcome, observed_nodes)
+            with st.spinner("Analyzing with y0 ID algorithm..."):
+                try:
+                    # Check identifiability
+                    id_result = check_identifiability(latent_model, measurement_model)
 
-                st.markdown("**Identification Result**")
-                if result.error:
-                    st.error(f"Analysis failed: {result.error}")
-                elif result.identifiable:
-                    st.success("Effect is identifiable!")
-                    st.markdown(
-                        f"""
-                        <div class="info-box">
-                            <div class="info-row">
-                                <span class="info-label">Method</span>
-                                <span class="info-value">{result.method.title() if result.method else 'Unknown'}</span>
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
+                    # Analyze marginalization
+                    marg_analysis = analyze_unobserved_constructs(
+                        latent_model, measurement_model, id_result
                     )
-                    if result.backdoor_vars:
-                        st.markdown(f"**Backdoor variables:** {', '.join(result.backdoor_vars)}")
-                    if result.frontdoor_vars:
-                        st.markdown(f"**Frontdoor variables:** {', '.join(result.frontdoor_vars)}")
-                    if result.iv_vars:
-                        st.markdown(f"**Instrumental variables:** {', '.join(result.iv_vars)}")
 
-                    with st.expander("Full Estimand Details"):
-                        st.text(result.estimand_str)
-                else:
-                    st.warning("Effect may not be identifiable with standard methods.")
-                    with st.expander("Details"):
-                        st.text(result.estimand_str)
+                    # Store in session state for display
+                    st.session_state["id_result"] = id_result
+                    st.session_state["marg_analysis"] = marg_analysis
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    st.session_state.pop("id_result", None)
+                    st.session_state.pop("marg_analysis", None)
+
+        # Display results if available
+        if "id_result" in st.session_state:
+            id_result = st.session_state["id_result"]
+            marg_analysis = st.session_state.get("marg_analysis", {})
+
+            # Summary status
+            all_identifiable = len(id_result["non_identifiable_treatments"]) == 0
+            if all_identifiable:
+                st.success(f"All treatment effects on {id_result['outcome']} are identifiable!")
+            else:
+                n_non_id = len(id_result["non_identifiable_treatments"])
+                n_total = n_non_id + len(id_result["identifiable_treatments"])
+                st.warning(f"{n_non_id}/{n_total} treatments have non-identifiable effects")
+
+            # Identifiable treatments
+            if id_result["identifiable_treatments"]:
+                with st.expander(f"✓ Identifiable Treatments ({len(id_result['identifiable_treatments'])})"):
+                    for treatment, estimand in sorted(id_result["identifiable_treatments"].items()):
+                        st.markdown(f"**{treatment}**")
+                        st.code(estimand, language="text")
+
+            # Non-identifiable treatments
+            if id_result["non_identifiable_treatments"]:
+                with st.expander(f"✗ Non-identifiable Treatments ({len(id_result['non_identifiable_treatments'])})"):
+                    for treatment in sorted(id_result["non_identifiable_treatments"]):
+                        blockers = id_result["blocking_confounders"].get(treatment, [])
+                        if blockers:
+                            st.markdown(f"**{treatment}** — blocked by: {', '.join(blockers)}")
+                        else:
+                            st.markdown(f"**{treatment}** — structural non-identifiability")
+
+            # Marginalization Analysis
+            st.markdown("---")
+            st.markdown("**Unobserved Construct Analysis**")
+
+            can_marg = marg_analysis.get("can_marginalize", set())
+            needs_model = marg_analysis.get("needs_modeling", set())
+
+            if can_marg:
+                st.markdown(
+                    f'<div class="info-box">'
+                    f'<div class="info-title" style="color: #3fb950;">✓ Can Marginalize ({len(can_marg)})</div>'
+                    f'<div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">'
+                    f'These can be omitted from DSEM spec - effects absorbed into error terms</div>',
+                    unsafe_allow_html=True,
+                )
+                for u in sorted(can_marg):
+                    reason = marg_analysis.get("marginalize_reason", {}).get(u, "")
+                    st.markdown(f"- **{u}**: {reason}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if needs_model:
+                st.markdown(
+                    f'<div class="info-box">'
+                    f'<div class="info-title" style="color: #f85149;">✗ Needs Modeling ({len(needs_model)})</div>'
+                    f'<div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">'
+                    f'These block identification - need proxies or explicit latent variables</div>',
+                    unsafe_allow_html=True,
+                )
+                for u in sorted(needs_model):
+                    reason = marg_analysis.get("modeling_reason", {}).get(u, "")
+                    st.markdown(f"- **{u}**: {reason}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if not can_marg and not needs_model:
+                st.info("All constructs are observed - no marginalization analysis needed")
+
+            # Graph info
+            with st.expander("Graph Info"):
+                info = id_result["graph_info"]
+                st.markdown(f"- **Observed:** {len(info['observed_constructs'])}/{info['total_constructs']} constructs")
+                st.markdown(f"- **Directed edges:** {info['n_directed_edges']}")
+                st.markdown(f"- **Bidirected edges:** {info['n_bidirected_edges']} (confounding)")
+                if info["unobserved_confounders"]:
+                    st.markdown(f"- **Unobserved confounders:** {', '.join(info['unobserved_confounders'])}")
     else:
         st.info("Paste DAG JSON to visualize")
 
@@ -441,7 +530,18 @@ with col_info:
                 (c for c in data["constructs"] if c["name"] == selected_node), None
             )
             if construct:
-                render_construct_info(construct, selected_node in measured_constructs)
+                # Determine marginalization status
+                marg_analysis = st.session_state.get("marg_analysis", {})
+                can_marg = marg_analysis.get("can_marginalize", set())
+                needs_model = marg_analysis.get("needs_modeling", set())
+                if selected_node in can_marg:
+                    marg_status = "can_marginalize"
+                elif selected_node in needs_model:
+                    marg_status = "needs_modeling"
+                else:
+                    marg_status = None
+
+                render_construct_info(construct, selected_node in measured_constructs, marg_status)
 
                 # Show indicators for this construct
                 st.markdown("**Indicators**")
