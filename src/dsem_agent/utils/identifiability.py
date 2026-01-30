@@ -49,11 +49,12 @@ def check_identifiability(
     # Determine which constructs have measurements (observed)
     observed_constructs = get_observed_constructs(measurement_model)
 
-    # Convert DAG to ADMG via 2-timestep unrolling
-    admg, unobserved_confounders = dag_to_admg(latent_model, observed_constructs)
-
-    # Get all potential treatments (constructs with paths to outcome)
-    all_treatments = _get_treatments_from_graph(latent_model, outcome)
+    # Get all potential treatments (observed constructs with paths to outcome)
+    # Only observed constructs can be treatments - you can't do(X) on unobserved X
+    all_treatments = [
+        t for t in _get_treatments_from_graph(latent_model, outcome)
+        if t in observed_constructs
+    ]
 
     # Determine if outcome is time-varying or time-invariant
     outcome_is_time_varying = _is_time_varying(latent_model, outcome)
@@ -63,18 +64,28 @@ def check_identifiability(
     non_identifiable_treatments = set()
     blocking_confounders = {}
 
-    for treatment in all_treatments:
-        # Skip if treatment or outcome not observed
-        if treatment not in observed_constructs:
-            non_identifiable_treatments.add(treatment)
-            blocking_confounders[treatment] = [treatment]  # Treatment itself is unobserved
-            continue
-
-        if outcome not in observed_constructs:
+    # If outcome itself is unobserved, no effects are identifiable
+    if outcome not in observed_constructs:
+        for treatment in all_treatments:
             non_identifiable_treatments.add(treatment)
             blocking_confounders[treatment] = [outcome]
-            continue
+        return {
+            'outcome': outcome,
+            'identifiable_treatments': identifiable_treatments,
+            'non_identifiable_treatments': non_identifiable_treatments,
+            'blocking_confounders': blocking_confounders,
+            'graph_info': {
+                'observed_constructs': list(observed_constructs),
+                'total_constructs': len(latent_model['constructs']),
+                'unobserved_confounders': [],
+                'n_directed_edges': 0,
+            },
+        }
 
+    # Convert DAG to ADMG via 2-timestep unrolling
+    admg, unobserved_confounders = dag_to_admg(latent_model, observed_constructs)
+
+    for treatment in all_treatments:
         # Build timestamped variable names for y0 query
         treatment_is_time_varying = _is_time_varying(latent_model, treatment)
 

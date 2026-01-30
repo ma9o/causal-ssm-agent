@@ -132,7 +132,12 @@ def test_identifiability_front_door():
 
 
 def test_identifiability_unobserved_treatment():
-    """Test when the treatment itself is unobserved."""
+    """Test when the treatment itself is unobserved.
+
+    Unobserved constructs are NOT considered as treatments because you can't
+    do(X) on something you don't observe. They should not appear in
+    non_identifiable_treatments - they simply aren't treatments at all.
+    """
     latent_model = {
         'constructs': [
             {'name': 'X', 'role': 'exogenous'},
@@ -152,9 +157,12 @@ def test_identifiability_unobserved_treatment():
 
     result = check_identifiability(latent_model, measurement_model)
 
-    # X not identifiable because X is not observed
-    assert 'X' in result['non_identifiable_treatments']
-    assert 'X' in result['blocking_confounders']['X']  # Treatment itself is the blocker
+    # X is not listed as a treatment at all - unobserved constructs aren't treatments
+    assert 'X' not in result['non_identifiable_treatments']
+    assert 'X' not in result['identifiable_treatments']
+    # No observed treatments with paths to outcome, so both should be empty
+    assert len(result['non_identifiable_treatments']) == 0
+    assert len(result['identifiable_treatments']) == 0
 
 
 def test_lagged_confounding_blocks_identification():
