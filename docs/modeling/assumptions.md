@@ -49,6 +49,30 @@ P(Cₜ | Cₜ₋₁, Cₜ₋₂, ..., C₁) = P(Cₜ | Cₜ₋₁)
 
 ---
 
+## A3a. Latent Confounders Have Bounded Temporal Reach
+
+**Assumption:** Unobserved constructs follow the same first-order Markov dynamics as observed constructs. Latent confounding has maximum latency of 1 timestep.
+
+**Definition:** A latent confounder U can create confounding via:
+- U_t (contemporaneous): U_t → X_t, U_t → Y_t
+- U_{t-1} (lagged): U_{t-1} → X_t, U_{t-1} → Y_t
+
+But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current effects under the Markov property.
+
+**Implications:**
+- A 2-timestep graph segment suffices for identification checking
+- Confounding "memory" is bounded by the Markov property
+- No need to reason about arbitrarily long confounding paths through time
+- The ID algorithm (Shpitser-Pearl) can be applied to a finite unrolled graph
+
+**Justification:** This is the natural extension of A3 to unobserved constructs. If observed constructs are Markov, it's parsimonious to assume latent constructs are too. Without this assumption, identification becomes undecidable—you'd need to consider confounding paths of arbitrary length through time.
+
+**Theoretical foundation:** Jahn, Karnik & Schulman (2025) prove that for periodic causal graphs with width w (variables per timestep) and latency L (max lag), running the ID algorithm on a segment of size O(w × L) suffices to decide identifiability. Under A3 + A3a, L = 1, so a 2-timestep segment suffices.
+
+**Reference:** Jahn, E., Karnik, K., & Schulman, L. J. (2025). Causal Identification in Time Series Models. arXiv:2504.20172.
+
+---
+
 ## A4. Acyclicity Within Time Slice
 
 **Assumption:** Contemporaneous causal relationships (within the same time index) must form a directed acyclic graph (DAG).
@@ -62,7 +86,7 @@ P(Cₜ | Cₜ₋₁, Cₜ₋₂, ..., C₁) = P(Cₜ | Cₜ₋₁)
 
 **Justification:** Cyclic contemporaneous relationships are not identified without additional constraints (instrumental variables, non-Gaussianity). Requiring acyclicity simplifies identification while allowing feedback dynamics through the temporal structure.
 
-**Identification implication:** When checking causal identifiability using algorithms like Shpitser-Pearl, only contemporaneous edges are included. Lagged edges represent cross-time effects (t-1 → t) where causality flows forward through time—these don't create cycles and are handled separately in DSEM estimation by conditioning on lagged values. The DAG (with explicit latent confounders) is projected to an ADMG internally for the identification algorithm, but users always specify structure as a DAG.
+**Identification implication:** When checking causal identifiability, we unroll the temporal graph to 2 timesteps (per A3a) and apply the Shpitser-Pearl ID algorithm to this finite graph. This correctly handles lagged confounding—an unobserved U_{t-1} affecting both X_t and Y_t blocks identification of X_t → Y_t. The unrolled DAG is projected to an ADMG internally for the ID algorithm.
 
 **Reference:** Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic structural equation models. *Structural Equation Modeling*, 25(3), 359-388. https://doi.org/10.1080/10705511.2017.1406803
 

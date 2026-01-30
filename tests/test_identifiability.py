@@ -159,6 +159,40 @@ def test_identifiability_unobserved_treatment():
     assert 'X' in result['blocking_confounders']['X']  # Treatment itself is the blocker
 
 
+def test_lagged_confounding_blocks_identification():
+    """Test that lagged confounding blocks identification.
+
+    U_{t-1} -> X_t, U_{t-1} -> Y_t creates confounding that blocks X_t -> Y_t
+    even though U is only connected via lagged edges.
+    """
+    latent_model = {
+        'constructs': [
+            {'name': 'X', 'role': 'endogenous', 'temporal_status': 'time_varying'},
+            {'name': 'Y', 'role': 'endogenous', 'temporal_status': 'time_varying', 'is_outcome': True},
+            {'name': 'U', 'role': 'exogenous', 'temporal_status': 'time_varying'},
+        ],
+        'edges': [
+            {'cause': 'X', 'effect': 'Y', 'lagged': False},  # X_t -> Y_t
+            {'cause': 'U', 'effect': 'X', 'lagged': True},   # U_{t-1} -> X_t
+            {'cause': 'U', 'effect': 'Y', 'lagged': True},   # U_{t-1} -> Y_t
+        ],
+    }
+
+    # Only X and Y observed, U is unobserved
+    measurement_model = {
+        'indicators': [
+            {'name': 'x_ind', 'construct': 'X'},
+            {'name': 'y_ind', 'construct': 'Y'},
+        ]
+    }
+
+    result = check_identifiability(latent_model, measurement_model)
+
+    # X -> Y should NOT be identifiable due to lagged confounding from U
+    assert 'X' in result['non_identifiable_treatments']
+    assert 'U' in result['blocking_confounders']['X']
+
+
 def test_dag_to_admg():
     """Test ADMG construction with bidirected edges for confounders."""
     latent_model = {
@@ -184,55 +218,88 @@ def test_dag_to_admg():
     assert len(list(admg.undirected.edges())) == 1
 
 
-def test_dag_to_admg_excludes_lagged_edges():
-    """Test that lagged edges are excluded from ADMG by default."""
+def test_dag_to_admg_unrolls_to_two_timesteps():
+    """Test that dag_to_admg creates a 2-timestep unrolled graph."""
+    latent_model = {
+        'constructs': [
+            {'name': 'A', 'role': 'endogenous', 'temporal_status': 'time_varying'},
+            {'name': 'B', 'role': 'endogenous', 'temporal_status': 'time_varying'},
+        ],
+        'edges': [
+            # Contemporaneous: A_t -> B_t
+            {'cause': 'A', 'effect': 'B', 'lagged': False},
+            # Lagged feedback: B_{t-1} -> A_t
+            {'cause': 'B', 'effect': 'A', 'lagged': True},
+        ],
+    }
+
+    observed = {'A', 'B'}
+    admg, confounders = dag_to_admg(latent_model, observed)
+
+    directed_edges = list(admg.directed.edges())
+    edge_names = [(str(e[0]), str(e[1])) for e in directed_edges]
+
+    # Should have:
+    # - A_t -> B_t (contemporaneous)
+    # - B_{t-1} -> A_t (lagged)
+    # - A_{t-1} -> A_t (AR(1) for endogenous)
+    # - B_{t-1} -> B_t (AR(1) for endogenous)
+    assert ('A_t', 'B_t') in edge_names
+    assert ('B_{t-1}', 'A_t') in edge_names
+    assert ('A_{t-1}', 'A_t') in edge_names
+    assert ('B_{t-1}', 'B_t') in edge_names
+
+
+def test_dag_to_admg_lagged_confounding():
+    """Test that lagged confounding is properly captured in unrolled graph.
+
+    U_{t-1} -> X_t, U_{t-1} -> Y_t should create bidirected X_t <-> Y_t
+    when U is unobserved.
+    """
+    latent_model = {
+        'constructs': [
+            {'name': 'X', 'role': 'endogenous', 'temporal_status': 'time_varying'},
+            {'name': 'Y', 'role': 'endogenous', 'temporal_status': 'time_varying'},
+            {'name': 'U', 'role': 'exogenous', 'temporal_status': 'time_varying'},
+        ],
+        'edges': [
+            {'cause': 'X', 'effect': 'Y', 'lagged': False},  # X_t -> Y_t
+            {'cause': 'U', 'effect': 'X', 'lagged': True},   # U_{t-1} -> X_t
+            {'cause': 'U', 'effect': 'Y', 'lagged': True},   # U_{t-1} -> Y_t
+        ],
+    }
+
+    # Only X and Y observed, U is latent
+    observed = {'X', 'Y'}
+    admg, confounders = dag_to_admg(latent_model, observed)
+
+    # U should be detected as a confounder
+    assert 'U' in confounders
+
+    # Should have bidirected edge from U_{t-1} confounding X_t and Y_t
+    undirected_edges = list(admg.undirected.edges())
+    assert len(undirected_edges) >= 1, "Should have bidirected edge from lagged confounding"
+
+
+def test_dag_to_admg_validates_max_lag_one():
+    """Test that dag_to_admg asserts if lag > 1 (violates A3a)."""
     latent_model = {
         'constructs': [
             {'name': 'A'},
             {'name': 'B'},
         ],
         'edges': [
-            # Contemporaneous edge: should be included
-            {'cause': 'A', 'effect': 'B', 'description': 'test', 'lagged': False},
-            # Lagged feedback edge: should be excluded by default
-            {'cause': 'B', 'effect': 'A', 'description': 'test', 'lagged': True},
+            # Invalid: non-boolean lagged value (simulating lag > 1)
+            {'cause': 'A', 'effect': 'B', 'lagged': 2},
         ],
     }
 
     observed = {'A', 'B'}
-    admg, confounders = dag_to_admg(latent_model, observed, include_lagged=False)
 
-    # Only contemporaneous edge should be in the ADMG
-    directed_edges = list(admg.directed.edges())
-    assert len(directed_edges) == 1
-    # The edge should be A -> B (contemporaneous), not B -> A (lagged)
-    edge_names = [(str(e[0]), str(e[1])) for e in directed_edges]
-    assert ('A', 'B') in edge_names
-    assert ('B', 'A') not in edge_names
+    with pytest.raises(AssertionError) as exc_info:
+        dag_to_admg(latent_model, observed)
 
-
-def test_dag_to_admg_includes_lagged_edges():
-    """Test that lagged edges can be included when requested."""
-    latent_model = {
-        'constructs': [
-            {'name': 'A'},
-            {'name': 'B'},
-        ],
-        'edges': [
-            {'cause': 'A', 'effect': 'B', 'description': 'test', 'lagged': False},
-            {'cause': 'B', 'effect': 'A', 'description': 'test', 'lagged': True},
-        ],
-    }
-
-    observed = {'A', 'B'}
-    admg, confounders = dag_to_admg(latent_model, observed, include_lagged=True)
-
-    # Both edges should be in the ADMG
-    directed_edges = list(admg.directed.edges())
-    assert len(directed_edges) == 2
-    edge_names = [(str(e[0]), str(e[1])) for e in directed_edges]
-    assert ('A', 'B') in edge_names
-    assert ('B', 'A') in edge_names
+    assert "A3a" in str(exc_info.value) or "lagged" in str(exc_info.value)
 
 
 def test_format_identifiability_report():

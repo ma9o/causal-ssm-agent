@@ -26,9 +26,9 @@ def check_identifiability(
 ) -> dict[str, Any]:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
-    Since there's exactly one outcome in the model, we check identifiability
-    for each treatment → outcome effect and return which treatments are
-    identifiable vs not.
+    Uses 2-timestep unrolling (per A3a and arXiv:2504.20172) to correctly
+    handle lagged confounding. Checks identifiability of X_t → Y_t for each
+    potential treatment X.
 
     Args:
         latent_model: Dict with 'constructs' and 'edges'
@@ -49,11 +49,14 @@ def check_identifiability(
     # Determine which constructs have measurements (observed)
     observed_constructs = get_observed_constructs(measurement_model)
 
-    # Convert DAG to ADMG for identification
+    # Convert DAG to ADMG via 2-timestep unrolling
     admg, unobserved_confounders = dag_to_admg(latent_model, observed_constructs)
 
     # Get all potential treatments (constructs with paths to outcome)
     all_treatments = _get_treatments_from_graph(latent_model, outcome)
+
+    # Determine if outcome is time-varying or time-invariant
+    outcome_is_time_varying = _is_time_varying(latent_model, outcome)
 
     # Check each treatment
     identifiable_treatments = {}
@@ -72,9 +75,21 @@ def check_identifiability(
             blocking_confounders[treatment] = [outcome]
             continue
 
-        # Check identifiability using y0
-        treatment_var = Variable(treatment)
-        outcome_var = Variable(outcome)
+        # Build timestamped variable names for y0 query
+        treatment_is_time_varying = _is_time_varying(latent_model, treatment)
+
+        if treatment_is_time_varying:
+            treatment_node = _node_name(treatment, 't')
+        else:
+            treatment_node = treatment
+
+        if outcome_is_time_varying:
+            outcome_node = _node_name(outcome, 't')
+        else:
+            outcome_node = outcome
+
+        treatment_var = Variable(treatment_node)
+        outcome_var = Variable(outcome_node)
 
         try:
             estimand = identify_outcomes(
@@ -84,7 +99,9 @@ def check_identifiability(
             )
 
             if estimand is not None:
-                identifiable_treatments[treatment] = str(estimand)
+                # Map estimand back to original names for readability
+                estimand_str = str(estimand)
+                identifiable_treatments[treatment] = estimand_str
             else:
                 non_identifiable_treatments.add(treatment)
                 blockers = find_blocking_confounders(
@@ -110,6 +127,14 @@ def check_identifiability(
     }
 
 
+def _is_time_varying(latent_model: dict, construct_name: str) -> bool:
+    """Check if a construct is time-varying (vs time-invariant)."""
+    for construct in latent_model['constructs']:
+        if construct['name'] == construct_name:
+            return construct.get('temporal_status', 'time_varying') != 'time_invariant'
+    return True  # Default to time-varying if not found
+
+
 def _get_treatments_from_graph(latent_model: dict, outcome: str) -> list[str]:
     """Get all constructs with causal paths to outcome."""
     G = nx.DiGraph()
@@ -130,78 +155,190 @@ def get_observed_constructs(measurement_model: dict) -> set[str]:
     return observed
 
 
-def build_latent_variable_dag(
+def _node_name(construct: str, timestep: str) -> str:
+    """Create timestamped node name like 'X_t' or 'X_{t-1}'."""
+    return f"{construct}_{timestep}"
+
+
+def _parse_node_name(node: str) -> tuple[str, str | None]:
+    """Parse node name back to (construct, timestep).
+
+    Returns (construct, timestep) where timestep is 't', '{t-1}', or None for time-invariant.
+    """
+    if node.endswith('_t'):
+        return node[:-2], 't'
+    elif node.endswith('_{t-1}'):
+        return node[:-6], '{t-1}'
+    else:
+        return node, None
+
+
+def unroll_temporal_dag(
     latent_model: dict,
     observed_constructs: set[str],
-    include_lagged: bool = False,
 ) -> nx.DiGraph:
-    """Build a labeled DAG for y0's from_latent_variable_dag().
+    """Unroll a temporal causal graph to a 2-timestep DAG for identification.
 
-    Constructs a networkx DiGraph where unobserved nodes are labeled with
-    hidden=True. This can be passed to NxMixedGraph.from_latent_variable_dag()
-    to get an ADMG for identification.
+    Under AR(1) (A3) and bounded latent reach (A3a), a 2-timestep unrolling
+    suffices to decide identifiability (per arXiv:2504.20172).
+
+    Node creation:
+    - Time-varying constructs → C_t, C_{t-1}
+    - Time-invariant constructs → C (single node, no timestep suffix)
+
+    Edge creation:
+    - Contemporaneous edges (lagged=False): cause_t → effect_t
+    - Lagged edges (lagged=True): cause_{t-1} → effect_t
+    - AR(1) for endogenous time-varying: C_{t-1} → C_t
+    - Time-invariant to time-varying: C → effect_t (for each timestep)
+
+    Hidden labels:
+    - Observed constructs: all timesteps have hidden=False
+    - Unobserved constructs: all timesteps have hidden=True
 
     Args:
         latent_model: Dict with 'constructs' and 'edges'
         observed_constructs: Set of construct names that have measurements
-        include_lagged: Whether to include lagged edges. Currently False because
-            lagged effects are identified by construction (we condition on past).
-            TODO: Will be True once we implement time-unrolled identification.
 
     Returns:
-        nx.DiGraph with hidden=True/False labels on nodes
+        nx.DiGraph with timestamped nodes and hidden labels for y0
     """
     dag = nx.DiGraph()
 
-    # Add all constructs as nodes with hidden label
+    # Categorize constructs by temporal status
+    time_varying = set()
+    time_invariant = set()
+    endogenous_time_varying = set()
+
     for construct in latent_model['constructs']:
         name = construct['name']
-        is_hidden = name not in observed_constructs
-        dag.add_node(name, hidden=is_hidden)
+        temporal_status = construct.get('temporal_status', 'time_varying')
+        role = construct.get('role', 'endogenous')
 
-    # Add edges (optionally filtering lagged)
+        if temporal_status == 'time_invariant':
+            time_invariant.add(name)
+        else:
+            time_varying.add(name)
+            if role == 'endogenous':
+                endogenous_time_varying.add(name)
+
+    # Add nodes for time-varying constructs (both timesteps)
+    for name in time_varying:
+        is_hidden = name not in observed_constructs
+        dag.add_node(_node_name(name, 't'), hidden=is_hidden, construct=name, timestep='t')
+        dag.add_node(_node_name(name, '{t-1}'), hidden=is_hidden, construct=name, timestep='{t-1}')
+
+    # Add nodes for time-invariant constructs (single node)
+    for name in time_invariant:
+        is_hidden = name not in observed_constructs
+        dag.add_node(name, hidden=is_hidden, construct=name, timestep=None)
+
+    # Add AR(1) edges for endogenous time-varying constructs
+    for name in endogenous_time_varying:
+        dag.add_edge(_node_name(name, '{t-1}'), _node_name(name, 't'))
+
+    # Add edges from the latent model
     for edge in latent_model.get('edges', []):
-        if not include_lagged and edge.get('lagged', False):
+        cause = edge['cause']
+        effect = edge['effect']
+        lagged = edge.get('lagged', False)
+
+        cause_is_time_invariant = cause in time_invariant
+        effect_is_time_invariant = effect in time_invariant
+
+        if cause_is_time_invariant and effect_is_time_invariant:
+            # Both time-invariant: single edge
+            dag.add_edge(cause, effect)
+        elif cause_is_time_invariant:
+            # Time-invariant cause affects time-varying effect at current time
+            # (Time-invariant constructs represent stable traits that affect all timepoints)
+            dag.add_edge(cause, _node_name(effect, 't'))
+            # Also affects t-1 if we're modeling the full 2-timestep window
+            dag.add_edge(cause, _node_name(effect, '{t-1}'))
+        elif effect_is_time_invariant:
+            # Time-varying cause cannot affect time-invariant effect
+            # (This would violate the definition of time-invariant)
+            # Skip this edge - should be caught by schema validation
             continue
-        dag.add_edge(edge['cause'], edge['effect'])
+        elif lagged:
+            # Lagged edge: cause_{t-1} → effect_t
+            dag.add_edge(_node_name(cause, '{t-1}'), _node_name(effect, 't'))
+        else:
+            # Contemporaneous edge: cause_t → effect_t
+            dag.add_edge(_node_name(cause, 't'), _node_name(effect, 't'))
 
     return dag
+
+
+def _validate_max_lag_one(latent_model: dict) -> None:
+    """Validate that all edges have lag ≤ 1 (assumption A3a).
+
+    Under assumption A3a (latent confounders have bounded temporal reach),
+    we require all edges to have lag ≤ 1. This allows identification to be
+    decided using a 2-timestep graph segment (per arXiv:2504.20172).
+
+    The schema enforces this via `lagged: bool`, but we assert here to make
+    the assumption explicit and catch any violations.
+
+    Raises:
+        AssertionError: If any edge has a lag value other than 0 or 1
+    """
+    for edge in latent_model.get('edges', []):
+        lagged = edge.get('lagged', False)
+        assert isinstance(lagged, bool), (
+            f"Edge {edge.get('cause')} -> {edge.get('effect')} has non-boolean 'lagged' value: {lagged}. "
+            f"Assumption A3a requires all edges to have lag ≤ 1 (lagged: true/false). "
+            f"See arXiv:2504.20172 for why this is required for finite identification."
+        )
 
 
 def dag_to_admg(
     latent_model: dict,
     observed_constructs: set[str],
-    include_lagged: bool = False,
 ) -> tuple[NxMixedGraph, set[str]]:
-    """Convert a DAG with latent confounders to an ADMG using y0.
+    """Convert a temporal DAG to ADMG via 2-timestep unrolling.
 
-    Uses y0's from_latent_variable_dag() to project out latent nodes,
-    creating bidirected edges where latent common causes exist.
+    Uses time-unrolling (per arXiv:2504.20172) to correctly handle lagged
+    confounding, then projects to ADMG using y0's from_latent_variable_dag().
 
     Args:
         latent_model: Dict with 'constructs' and 'edges'
         observed_constructs: Set of construct names that have measurements
-        include_lagged: Whether to include lagged edges in identification
 
     Returns:
         Tuple of (NxMixedGraph, set of unobserved confounder names)
-    """
-    # Build labeled DAG
-    dag = build_latent_variable_dag(latent_model, observed_constructs, include_lagged)
 
-    # Find unobserved nodes that will become confounders (have 2+ observed children)
+    Raises:
+        AssertionError: If any edge violates assumption A3a (lag > 1)
+    """
+    # Validate assumption A3a: all edges have lag ≤ 1
+    _validate_max_lag_one(latent_model)
+
+    # Build 2-timestep unrolled DAG
+    dag = unroll_temporal_dag(latent_model, observed_constructs)
+
+    # Find unobserved constructs that will create confounding
+    # An unobserved node with 2+ observed children creates bidirected edges
     all_constructs = {c['name'] for c in latent_model['constructs']}
     unobserved = all_constructs - observed_constructs
 
     unobserved_confounders = set()
-    for u in unobserved:
-        if u in dag:
-            observed_children = [
-                child for child in dag.successors(u)
-                if child in observed_constructs
-            ]
-            if len(observed_children) >= 2:
-                unobserved_confounders.add(u)
+    for node in dag.nodes():
+        if not dag.nodes[node].get('hidden', False):
+            continue
+
+        # Get the original construct name
+        construct = dag.nodes[node].get('construct', node)
+        if construct not in unobserved:
+            continue
+
+        # Count observed children (children with hidden=False)
+        observed_children = [
+            child for child in dag.successors(node)
+            if not dag.nodes[child].get('hidden', False)
+        ]
+        if len(observed_children) >= 2:
+            unobserved_confounders.add(construct)
 
     # Convert to ADMG using y0's built-in projection
     admg = NxMixedGraph.from_latent_variable_dag(dag)

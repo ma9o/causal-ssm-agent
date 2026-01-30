@@ -210,40 +210,37 @@ Docs: https://y0.readthedocs.io/
 
 ## Best Practices
 
-### Design Principle: DAGs First, Project to ADMG
+### Design Principle: DAGs First, Time-Unroll, Project to ADMG
 - **User-facing**: Always specify causal structure as DAGs with explicit latent confounders
-- **Internally**: Project DAG to ADMG for y0's identification algorithm
+- **Internally**: Unroll temporal DAG to 2 timesteps (per A3a), then project to ADMG
 - Never ask users to specify bidirected edges directly
+- Lagged confounding (U_{t-1} → X_t, U_{t-1} → Y_t) is properly handled via unrolling
+
+### Time-Unrolling for Temporal Identification
+Under AR(1) (A3) and bounded latent reach (A3a), a 2-timestep unrolling suffices
+to decide identifiability (per arXiv:2504.20172). This correctly handles lagged
+confounding that would otherwise be missed.
+
+```python
+# unroll_temporal_dag() creates nodes like X_t, X_{t-1}
+# with AR(1) edges for endogenous constructs
+# Lagged edges become: cause_{t-1} → effect_t
+# Contemporaneous edges become: cause_t → effect_t
+```
 
 ### Identification Pattern
 ```python
-import networkx as nx
-from y0.algorithm.identify import identify_outcomes
-from y0.dsl import Variable
-from y0.graph import NxMixedGraph
+from dsem_agent.utils.identifiability import check_identifiability
 
-# Build DAG with explicit latent confounders labeled hidden=True
-dag = nx.DiGraph()
-dag.add_node('U', hidden=True)   # Latent confounder
-dag.add_node('X', hidden=False)  # Observed
-dag.add_node('Y', hidden=False)  # Observed
-dag.add_edges_from([('U', 'X'), ('U', 'Y'), ('X', 'Y')])
-
-# y0 projects out latent nodes, creating bidirected edges
-admg = NxMixedGraph.from_latent_variable_dag(dag)
-# Result: X -> Y (directed), X <-> Y (bidirected from U)
-
-# Check identifiability
-estimand = identify_outcomes(
-    admg,
-    treatments={Variable('X')},
-    outcomes={Variable('Y')},
-)
-# Returns None if not identifiable, otherwise the estimand formula
+result = check_identifiability(latent_model, measurement_model)
+# Internally:
+# 1. Unrolls to 2-timestep DAG with X_t, X_{t-1} nodes
+# 2. Projects to ADMG via y0's from_latent_variable_dag()
+# 3. Checks P(Y_t | do(X_t)) identifiability
 ```
 
-See `src/dsem_agent/utils/identifiability.py` for the full implementation with
-`dag_to_admg()` helper that handles the conversion.
+See `src/dsem_agent/utils/identifiability.py` for `dag_to_admg()` and
+`unroll_temporal_dag()` implementations.
 
 # NetworkX
 Docs: https://networkx.org/documentation/stable/
