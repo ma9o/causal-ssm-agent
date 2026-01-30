@@ -101,6 +101,8 @@ Propose a theoretical causal structure (latent model) for answering this questio
 - You will NOT see data - reason from domain knowledge only
 - Focus on WHAT constructs matter and HOW they relate causally
 - Be rich and deep - later stages will operationalize and validate
+
+Think very hard.
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -242,6 +244,8 @@ Propose indicators to operationalize each construct. Remember:
 - Multiple indicators per construct improve reliability
 - Be specific in how_to_measure instructions
 - Match measurement_granularity to data resolution
+
+Think very hard.
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -262,6 +266,8 @@ Review your proposed latent model for theoretical coherence.
 ## Output
 
 Validate your structure with the tool, then return ONLY the corrected JSON structure as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
+
+Think very hard.
 """
 
 MEASUREMENT_MODEL_REVIEW = """\
@@ -287,6 +293,8 @@ Review your proposed measurement model for operationalization coherence.
 ## Output
 
 Validate your model with the tool, then return ONLY the corrected JSON structure as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
+
+Think very hard.
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -345,4 +353,6 @@ Return JSON with structure:
             "reason": "Why no proxy could be found in the data"
         }}
     ]
-}}"""
+}}
+
+Think very hard."""
