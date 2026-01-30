@@ -15,13 +15,7 @@ from streamlit_agraph import Config, Edge, Node, agraph
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from commons import COPY_GRAPH_HTML, parse_dag_json
-from dsem_agent.utils.identifiability import (
-    analyze_unobserved_constructs,
-    check_identifiability,
-    format_identifiability_report,
-    format_marginalization_report,
-    get_observed_constructs,
-)
+from dag_diagnostics import DagDiagnostics, run_diagnostics
 
 st.set_page_config(page_title="DSEM DAG Explorer", layout="wide")
 
@@ -374,7 +368,8 @@ with col_graph:
         st.error(error)
     elif data:
         # Pass marginalization analysis if available for color coding
-        marg_analysis = st.session_state.get("marg_analysis")
+        diagnostics: DagDiagnostics | None = st.session_state.get("dag_diagnostics")
+        marg_analysis = diagnostics.marginalization if diagnostics else None
         nodes, edges = create_agraph_elements(data, marg_analysis)
 
         config = Config(
@@ -409,38 +404,20 @@ with col_graph:
         st.markdown("---")
         st.subheader("Causal Identifiability (y0)")
 
-        # Build latent/measurement dicts for identifiability check
-        latent_model = {
-            "constructs": data["constructs"],
-            "edges": data["edges"],
-        }
-        measurement_model = {
-            "indicators": data["indicators"],
-        }
-
         if st.button("Run Identifiability Analysis", type="primary"):
             with st.spinner("Analyzing with y0 ID algorithm..."):
                 try:
-                    # Check identifiability
-                    id_result = check_identifiability(latent_model, measurement_model)
-
-                    # Analyze marginalization
-                    marg_analysis = analyze_unobserved_constructs(
-                        latent_model, measurement_model, id_result
-                    )
-
-                    # Store in session state for display
-                    st.session_state["id_result"] = id_result
-                    st.session_state["marg_analysis"] = marg_analysis
+                    diagnostics = run_diagnostics(data)
+                    st.session_state["dag_diagnostics"] = diagnostics
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
-                    st.session_state.pop("id_result", None)
-                    st.session_state.pop("marg_analysis", None)
+                    st.session_state.pop("dag_diagnostics", None)
 
         # Display results if available
-        if "id_result" in st.session_state:
-            id_result = st.session_state["id_result"]
-            marg_analysis = st.session_state.get("marg_analysis", {})
+        diagnostics = st.session_state.get("dag_diagnostics")
+        if diagnostics:
+            id_result = diagnostics.identifiability
+            marg_analysis = diagnostics.marginalization
 
             # Summary status
             all_identifiable = len(id_result["non_identifiable_treatments"]) == 0
@@ -531,7 +508,8 @@ with col_info:
             )
             if construct:
                 # Determine marginalization status
-                marg_analysis = st.session_state.get("marg_analysis", {})
+                diagnostics = st.session_state.get("dag_diagnostics")
+                marg_analysis = diagnostics.marginalization if diagnostics else {}
                 can_marg = marg_analysis.get("can_marginalize", set())
                 needs_model = marg_analysis.get("needs_modeling", set())
                 if selected_node in can_marg:

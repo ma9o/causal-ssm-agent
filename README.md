@@ -59,5 +59,5 @@ dsem-agent/
 │   │   └── stages/    # stage1a_latent, stage1b_measurement, stage2_workers, ...
 │   └── utils/         # Shared utilities
 ├── tests/             # pytest tests (test_{name}.py)
-└── tools/             # Standalone CLI tools (DAG visualization, log readers)
+└── tools/             # CLI tools + UIs (dag_cli.py, dag_explorer.py, log readers)
 ```
