@@ -4,10 +4,15 @@ Uses Pearl's do-calculus via y0 to check if causal effects are identifiable
 given observed/unobserved constructs. This properly handles:
 - Backdoor criterion
 - Front-door criterion
+- Instrumental variables (under linearity assumption)
 - Other identification strategies from Shpitser & Pearl
 
 Design principle: Users specify DAGs with explicit latent confounders. We convert
 to ADMG internally using y0's from_latent_variable_dag() for identification.
+
+Note on IV: y0's nonparametric do-calculus cannot identify effects via IV alone.
+However, DSEM uses linear SEMs where IV identification is valid. We detect IV
+structures separately and mark them as identifiable (with linearity assumption).
 """
 
 from typing import Any
@@ -114,11 +119,23 @@ def check_identifiability(
                 estimand_str = str(estimand)
                 identifiable_treatments[treatment] = estimand_str
             else:
-                non_identifiable_treatments.add(treatment)
-                blockers = find_blocking_confounders(
+                # y0's nonparametric check failed - try IV identification
+                # IV works under linearity (which DSEM assumes)
+                instruments = find_instruments(
                     latent_model, observed_constructs, treatment, outcome
                 )
-                blocking_confounders[treatment] = blockers
+                if instruments:
+                    # IV identification available under linearity
+                    iv_list = ', '.join(instruments)
+                    identifiable_treatments[treatment] = (
+                        f"IV({iv_list}) [requires linearity]"
+                    )
+                else:
+                    non_identifiable_treatments.add(treatment)
+                    blockers = find_blocking_confounders(
+                        latent_model, observed_constructs, treatment, outcome
+                    )
+                    blocking_confounders[treatment] = blockers
         except Exception:
             non_identifiable_treatments.add(treatment)
             blocking_confounders[treatment] = ['unknown (graph error)']
@@ -366,7 +383,20 @@ def find_blocking_confounders(
     treatment: str,
     outcome: str,
 ) -> list[str]:
-    """Find unobserved constructs that confound the treatment-outcome relationship."""
+    """Find unobserved constructs that confound the treatment-outcome relationship.
+
+    A confounder U creates a backdoor path in the projected ADMG. For U to be
+    a confounder in the ADMG:
+    - U must be unobserved
+    - U must have 2+ direct observed children (only then does U create bidirected edges)
+    - Those children must include paths to both treatment and outcome
+
+    Unobserved nodes that only affect other unobserved nodes get absorbed in the
+    ADMG projection - they don't directly create confounding.
+
+    Note: This is a heuristic for reporting. The actual identification decision
+    is made by y0's identify_outcomes() algorithm.
+    """
     G = nx.DiGraph()
     for edge in latent_model.get('edges', []):
         G.add_edge(edge['cause'], edge['effect'])
@@ -378,12 +408,108 @@ def find_blocking_confounders(
     for u in unobserved:
         if u not in G:
             continue
-        has_path_to_treatment = nx.has_path(G, u, treatment) if u != treatment else False
-        has_path_to_outcome = nx.has_path(G, u, outcome) if u != outcome else False
+        if u == treatment or u == outcome:
+            continue
+
+        # Check if U has 2+ direct observed children
+        # (Only then does U create bidirected edges in the projected ADMG)
+        direct_children = list(G.successors(u)) if u in G else []
+        observed_children = [c for c in direct_children if c in observed_constructs]
+
+        if len(observed_children) < 2:
+            # U doesn't create bidirected edges directly
+            # It may affect things through other unobserved nodes, but those
+            # nodes will be the confounders, not U
+            continue
+
+        # Check if U's observed children include paths to both treatment and outcome
+        has_path_to_treatment = any(
+            c == treatment or (c in G and treatment in G and nx.has_path(G, c, treatment))
+            for c in observed_children
+        )
+        has_path_to_outcome = any(
+            c == outcome or (c in G and outcome in G and nx.has_path(G, c, outcome))
+            for c in observed_children
+        )
+
+        # Also check if U directly affects treatment or outcome
+        if treatment in observed_children:
+            has_path_to_treatment = True
+        if outcome in observed_children:
+            has_path_to_outcome = True
+
         if has_path_to_treatment and has_path_to_outcome:
             blocking.append(u)
 
     return blocking
+
+
+def find_instruments(
+    latent_model: dict,
+    observed_constructs: set[str],
+    treatment: str,
+    outcome: str,
+) -> list[str]:
+    """Find valid instrumental variables for the treatment-outcome relationship.
+
+    Based on DoWhy's graph-theoretic approach (py-why/dowhy), adapted to handle
+    explicit unobserved confounders. A valid instrument Z for X → Y requires:
+
+    1. Relevance: Z is a direct parent of X (Z → X edge exists)
+    2. Exclusion: Z is not an ancestor of Y when X's incoming edges are removed
+       (Z affects Y only through X)
+    3. As-if-random (Exogeneity): Z is not a descendant of any node that causes Y
+       (Z is not affected by confounders of the X-Y relationship)
+
+    This enables IV identification under linear SEM assumptions, even when
+    y0's nonparametric do-calculus says the effect is not identifiable.
+
+    Reference: https://github.com/py-why/dowhy/blob/main/dowhy/graph.py
+
+    Args:
+        latent_model: Dict with 'constructs' and 'edges'
+        observed_constructs: Set of observed construct names
+        treatment: The treatment variable name
+        outcome: The outcome variable name
+
+    Returns:
+        List of valid instrument names (observed constructs that satisfy IV conditions)
+    """
+    G = nx.DiGraph()
+    for edge in latent_model.get('edges', []):
+        G.add_edge(edge['cause'], edge['effect'])
+
+    if treatment not in G or outcome not in G:
+        return []
+
+    # Get direct parents of treatment (potential instruments must be parents)
+    parents_treatment = set(G.predecessors(treatment))
+
+    # Do surgery: remove incoming edges to treatment
+    G_surgered = G.copy()
+    incoming_to_treatment = list(G_surgered.in_edges(treatment))
+    G_surgered.remove_edges_from(incoming_to_treatment)
+
+    # Get ancestors of outcome in the surgered graph
+    ancestors_outcome = nx.ancestors(G_surgered, outcome) if outcome in G_surgered else set()
+
+    # Condition 1 & 2 (Relevance + Exclusion):
+    # Instruments must be parents of treatment AND not ancestors of outcome
+    candidate_instruments = parents_treatment - ancestors_outcome
+
+    # Condition 3 (As-if-random/Exogeneity):
+    # Instruments must not be descendants of any ancestor of outcome
+    # This ensures Z is not affected by confounders
+    descendants_of_ancestors = set()
+    for ancestor in ancestors_outcome:
+        descendants_of_ancestors.update(nx.descendants(G_surgered, ancestor))
+
+    valid_instruments = candidate_instruments - descendants_of_ancestors
+
+    # Filter to only observed instruments
+    observed_instruments = [z for z in valid_instruments if z in observed_constructs]
+
+    return observed_instruments
 
 
 def analyze_unobserved_constructs(
