@@ -369,7 +369,7 @@ class TestDSEMModel:
             DSEMModel(latent=latent, measurement=measurement)
 
     def test_latent_construct_without_indicator_is_valid(self):
-        """Latent constructs without indicators are allowed (A2 deferred to DoWhy)."""
+        """Latent constructs without indicators are allowed (A2 deferred to y0)."""
         latent = LatentModel(
             constructs=[
                 self._make_construct("stress", "daily", Role.EXOGENOUS),
@@ -383,7 +383,7 @@ class TestDSEMModel:
                 # stress has no indicator - it's a latent construct
             ]
         )
-        # This should now be valid - DoWhy will check identification in Stage 3
+        # This should now be valid - y0 will check identification in Stage 3
         dsem = DSEMModel(latent=latent, measurement=measurement)
         assert len(dsem.latent.constructs) == 2
         assert len(dsem.measurement.indicators) == 1

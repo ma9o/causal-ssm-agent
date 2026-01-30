@@ -365,20 +365,6 @@ class DSEMModel(BaseModel):
                             f"coarser than construct '{construct.name}' causal_granularity '{causal_gran}'"
                         )
 
-        # TODO: A2 validation commented out. Whether a latent construct without indicators
-        # is problematic depends on the topological structure (e.g., is it a confounder on
-        # a backdoor path?).
-        # This should be checked by DoWhy in Stage 3 using Pearl's identification rules,
-        # not enforced here unconditionally.
-        #
-        # for construct in self.latent.constructs:
-        #     if construct.temporal_status == TemporalStatus.TIME_VARYING:
-        #         if construct.name not in measured_constructs:
-        #             raise ValueError(
-        #                 f"Time-varying construct '{construct.name}' has no indicators. "
-        #                 "Per A2, latent time-varying constructs require at least one indicator."
-        #             )
-
         return self
 
     def get_edge_lag_hours(self, edge: CausalEdge) -> int:
@@ -634,20 +620,6 @@ def validate_measurement_model(
                     continue
 
         valid_indicators.append(indicator)
-
-    # TODO: A2 validation commented out. Whether a latent construct without indicators
-    # is problematic depends on the topological structure (e.g., is it a confounder on
-    # a backdoor path?). This should be checked by DoWhy in Stage 3 using Pearl's
-    # identification rules, not enforced here unconditionally.
-    #
-    # measured_constructs = {i.construct_name for i in valid_indicators}
-    # for construct in latent.constructs:
-    #     if construct.temporal_status == TemporalStatus.TIME_VARYING:
-    #         if construct.name not in measured_constructs:
-    #             errors.append(
-    #                 f"Time-varying construct '{construct.name}' has no indicators. "
-    #                 "Per A2, time-varying constructs require at least one indicator."
-    #             )
 
     if not errors:
         try:
