@@ -16,7 +16,7 @@ dependencies = [
     "prefect>=3.6.5",
     "pymc>=5.27.0",
     "python-dotenv>=1.2.1",
-    "y0>=0.2.11",
+    "y0 @ git+https://github.com/y0-causal-inference/y0.git",
 ]
 
 [build-system]

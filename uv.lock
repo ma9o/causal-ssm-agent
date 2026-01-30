@@ -896,7 +896,7 @@ requires-dist = [
     { name = "prefect", specifier = ">=3.6.5" },
     { name = "pymc", specifier = ">=5.27.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "y0", specifier = ">=0.2.11" },
+    { name = "y0", git = "https://github.com/y0-causal-inference/y0.git" },
 ]
 
 [package.metadata.requires-dev]
@@ -5187,8 +5187,8 @@ wheels = [
 
 [[package]]
 name = "y0"
-version = "0.2.11"
-source = { registry = "https://pypi.org/simple" }
+version = "0.2.12.dev0"
+source = { git = "https://github.com/y0-causal-inference/y0.git#06aba3b17fae1a6cd19b6a95888b632684ed0ec9" }
 dependencies = [
     { name = "click" },
     { name = "more-click" },
@@ -5197,13 +5197,12 @@ dependencies = [
     { name = "pandas" },
     { name = "pyparsing" },
     { name = "scikit-learn" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "statsmodels" },
     { name = "tabulate" },
     { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/44/53/d398db0662d53e32ba4428df7a00627e5aa619d337d62830536ac93df807/y0-0.2.11.tar.gz", hash = "sha256:076d5bcd8c0bf0ad48b0a1ee226b3eaea85f5be9000ebd69325daf9fbdb94172", size = 280482, upload-time = "2024-04-29T06:57:27.236Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/30/c1fd18139043bcfc6dad855251f4891d381f0cfc735a5675781ee228c72b/y0-0.2.11-py3-none-any.whl", hash = "sha256:64d724307f8c9a962ffa10f1b573d8fbb7722ba8e63855874e48a0752097db74", size = 135948, upload-time = "2024-04-29T06:57:24.095Z" },
+    { name = "typing-extensions" },
 ]
 
 [[package]]
