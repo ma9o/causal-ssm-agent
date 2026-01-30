@@ -36,6 +36,7 @@ def get_generate_config() -> GenerateConfig:
     """
     return GenerateConfig(
         max_tokens=65536,
+        timeout=900,  # 15 minutes
         reasoning_effort="high",
         reasoning_tokens=32768,
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
