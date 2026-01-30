@@ -55,7 +55,7 @@ Following Anderson & Gerbing (1988), the schema separates:
 ### DSEMModel Validation (cross-model)
 
 1. **Measurement granularity constraint:** Indicator's `measurement_granularity` cannot be coarser than its construct's `causal_granularity`
-2. **Constructs may lack indicators:** A construct can exist without indicators. Whether the target causal effect is identifiable is checked by DoWhy, not the schema.
+2. **Constructs may lack indicators:** A construct can exist without indicators. Whether the target causal effect is identifiable is checked by y0 (Pearl's ID algorithm), not the schema.
 3. **Indicator-construct consistency:** All indicators must reference valid constructs
 
 ---

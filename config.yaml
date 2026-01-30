@@ -14,7 +14,7 @@ stage2_workers:
   chunk_size: 20  # Lines per chunk for each worker
 
 # Stage 3: Identifiability & Sensitivity Analysis
-# Uses DoWhy - no LLM needed
+# Uses y0 (Pearl's ID algorithm) - no LLM needed
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:

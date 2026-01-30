@@ -160,7 +160,7 @@ The framework implements a two-stage workflow grounded in the structural equatio
 
 3. **Stage 3 (CFA Validation):** For multi-indicator constructs, confirmatory factor analysis validates that proposed indicators load on their intended constructs and that the measurement model is identified.
 
-4. **Stage 3 (Causal Identification):** DoWhy checks identification of target causal effects on the structural model, treating observed constructs (those with indicators) as identifiable.
+4. **Stage 3 (Causal Identification):** y0 checks identification of target causal effects on the structural model using Pearl's ID algorithm, treating observed constructs (those with indicators) as identifiable.
 
 This two-step approach—measurement model first, structural model second—is the standard methodology in SEM research. As Anderson & Gerbing (1988) argue, validating the measurement model is a necessary prerequisite to interpreting structural relationships:
 

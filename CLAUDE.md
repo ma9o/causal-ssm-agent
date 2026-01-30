@@ -28,7 +28,7 @@ We avoid "structural" due to SEM/SCM terminology collision:
 |---------|------|--------|
 | Latent-to-latent DAG (what LLM proposes) | **Latent model** | SEM distinction |
 | Latent-to-observed mapping | **Measurement model** | SEM distinction |
-| DAG encoding parent-child relationships | **Topological structure** | SCM distinction (DoWhy) |
+| DAG encoding parent-child relationships | **Topological structure** | SCM distinction (y0) |
 | Mathematical form of causal mechanisms | **Functional specification** | SCM distinction (PyMC) |
 
 ------
@@ -200,50 +200,38 @@ inspect eval path/to/eval.py --model openrouter/anthropic/claude-sonnet-4 -T par
 ### Reading Eval Logs
 See [docs/guides/running_evals.md](docs/guides/running_evals.md) for detailed instructions on reading and debugging eval logs.
 
-# PyMC 
+# PyMC
 Docs: https://www.pymc.io/welcome.html
 
-# DoWhy
-Docs: https://www.pywhy.org/dowhy/v0.14/
+# y0 (Causal Identification)
+Docs: https://y0.readthedocs.io/
 
 ## Best Practices
 
 ### Graph Format
-- Use NetworkX DiGraph as primary format (preferred by DoWhy)
-- Create from edge list: `nx.DiGraph([('X', 'Y'), ('Y', 'Z')])`
-- Can also use GML string format for CausalModel
+- Use y0's NxMixedGraph for ADMGs (directed + bidirected edges)
+- Directed edges represent causal relationships
+- Bidirected edges represent unobserved confounding
 
-### CausalModel
+### Identification
 ```python
-from dowhy import CausalModel
-import networkx as nx
+from y0.algorithm.identify import identify_outcomes
+from y0.dsl import Variable
+from y0.graph import NxMixedGraph
 
-# From NetworkX graph
-graph = nx.DiGraph([('treatment', 'outcome'), ('confounder', 'treatment'), ('confounder', 'outcome')])
-model = CausalModel(
-    data=df,
-    treatment='treatment',
-    outcome='outcome',
-    graph=graph,  # or GML string
-)
-```
-
-### Identification & Estimation
-```python
-# Identify causal effect
-identified = model.identify_effect()
-
-# Estimate
-estimate = model.estimate_effect(
-    identified,
-    method_name="backdoor.linear_regression"
+# Build ADMG with directed and bidirected edges
+admg = NxMixedGraph.from_edges(
+    directed=[(Variable('X'), Variable('Y'))],
+    undirected=[(Variable('X'), Variable('Y'))],  # confounding
 )
 
-# Refute (sensitivity analysis)
-refutation = model.refute_estimate(
-    identified, estimate,
-    method_name="random_common_cause"
+# Check identifiability
+estimand = identify_outcomes(
+    admg,
+    treatments={Variable('X')},
+    outcomes={Variable('Y')},
 )
+# Returns None if not identifiable, otherwise the estimand formula
 ```
 
 # NetworkX

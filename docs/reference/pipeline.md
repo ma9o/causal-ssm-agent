@@ -8,7 +8,7 @@
 
 **[2] Distributed Discovery (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting data for the proposed dimensions. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
 
-**[3] Identifiability (DoWhy):** Check if target causal effects are identifiable. In case of unobserved confounders that make effects unidentifiable, run sensitivity analysis (Cinelli-Hazlett) on a naive linear model and continue if bias is bounded (return control to user if not).
+**[3] Identifiability (y0):** Check if target causal effects are identifiable using Pearl's ID algorithm. In case of unobserved confounders that make effects unidentifiable, run sensitivity analysis (Cinelli-Hazlett) on a naive linear model and continue if bias is bounded (return control to user if not).
 
 **[4] Model Specification (PyMC):** The orchestrator specifies the statistical model (GLMs) in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
 
