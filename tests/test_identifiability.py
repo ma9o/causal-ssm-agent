@@ -19,11 +19,12 @@ def test_get_observed_constructs():
             {'name': 'ind1', 'construct': 'A', 'how_to_measure': 'test'},
             {'name': 'ind2', 'construct': 'B', 'how_to_measure': 'test'},
             {'name': 'ind3', 'construct': 'A', 'how_to_measure': 'test'},  # Duplicate
+            {'name': 'ind4', 'construct_name': 'C', 'how_to_measure': 'test'},
         ]
     }
 
     observed = get_observed_constructs(measurement_model)
-    assert observed == {'A', 'B'}
+    assert observed == {'A', 'B', 'C'}
 
 
 def test_identifiability_simple_chain():
@@ -53,6 +54,34 @@ def test_identifiability_simple_chain():
     # All effects should be identifiable (no unobserved confounders)
     assert result['outcome'] == 'C'
     assert len(result['non_identifiable_treatments']) == 0
+    assert 'A' in result['identifiable_treatments']
+    assert 'B' in result['identifiable_treatments']
+
+
+def test_identifiability_with_construct_name_measurements():
+    """Identifiability should work when indicators reference construct_name."""
+    latent_model = {
+        'constructs': [
+            {'name': 'A', 'role': 'exogenous'},
+            {'name': 'B', 'role': 'endogenous'},
+            {'name': 'C', 'role': 'endogenous', 'is_outcome': True},
+        ],
+        'edges': [
+            {'cause': 'A', 'effect': 'B', 'description': 'A causes B'},
+            {'cause': 'B', 'effect': 'C', 'description': 'B causes C'},
+        ],
+    }
+
+    measurement_model = {
+        'indicators': [
+            {'name': 'a_ind', 'construct_name': 'A', 'how_to_measure': 'test'},
+            {'name': 'b_ind', 'construct_name': 'B', 'how_to_measure': 'test'},
+            {'name': 'c_ind', 'construct_name': 'C', 'how_to_measure': 'test'},
+        ]
+    }
+
+    result = check_identifiability(latent_model, measurement_model)
+
     assert 'A' in result['identifiable_treatments']
     assert 'B' in result['identifiable_treatments']
 
@@ -221,7 +250,8 @@ def test_dag_to_admg():
 
     # Should have A <-> B bidirected edge from U
     assert 'U' in confounders
-    assert len(list(admg.undirected.edges())) == 1
+    undirected_pairs = {tuple(sorted((str(e[0]), str(e[1])))) for e in admg.undirected.edges()}
+    assert ('A_t', 'B_t') in undirected_pairs
 
 
 def test_dag_to_admg_unrolls_to_two_timesteps():
@@ -247,10 +277,12 @@ def test_dag_to_admg_unrolls_to_two_timesteps():
 
     # Should have:
     # - A_t -> B_t (contemporaneous)
+    # - A_{t-1} -> B_{t-1} (mirrored previous timestep)
     # - B_{t-1} -> A_t (lagged)
     # - A_{t-1} -> A_t (AR(1) for endogenous)
     # - B_{t-1} -> B_t (AR(1) for endogenous)
     assert ('A_t', 'B_t') in edge_names
+    assert ('A_{t-1}', 'B_{t-1}') in edge_names
     assert ('B_{t-1}', 'A_t') in edge_names
     assert ('A_{t-1}', 'A_t') in edge_names
     assert ('B_{t-1}', 'B_t') in edge_names

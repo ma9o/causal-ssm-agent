@@ -161,7 +161,10 @@ def get_observed_constructs(measurement_model: dict) -> set[str]:
     """Get set of constructs that have at least one measurement indicator."""
     observed = set()
     for indicator in measurement_model.get('indicators', []):
-        observed.add(indicator['construct'])
+        construct = indicator.get('construct') or indicator.get('construct_name')
+        if not construct:
+            continue
+        observed.add(construct)
     return observed
 
 
@@ -218,19 +221,15 @@ def unroll_temporal_dag(
     # Categorize constructs by temporal status
     time_varying = set()
     time_invariant = set()
-    endogenous_time_varying = set()
 
     for construct in latent_model['constructs']:
         name = construct['name']
         temporal_status = construct.get('temporal_status', 'time_varying')
-        role = construct.get('role', 'endogenous')
 
         if temporal_status == 'time_invariant':
             time_invariant.add(name)
         else:
             time_varying.add(name)
-            if role == 'endogenous':
-                endogenous_time_varying.add(name)
 
     # Add nodes for time-varying constructs (both timesteps)
     for name in time_varying:
@@ -243,8 +242,9 @@ def unroll_temporal_dag(
         is_hidden = name not in observed_constructs
         dag.add_node(name, hidden=is_hidden, construct=name, timestep=None)
 
-    # Add AR(1) edges for endogenous time-varying constructs
-    for name in endogenous_time_varying:
+    # Add AR(1) edges for all time-varying constructs
+    # Markov dynamics apply regardless of role/observability (A3 + A3a)
+    for name in time_varying:
         dag.add_edge(_node_name(name, '{t-1}'), _node_name(name, 't'))
 
     # Add edges from the latent model
@@ -276,6 +276,8 @@ def unroll_temporal_dag(
         else:
             # Contemporaneous edge: cause_t → effect_t
             dag.add_edge(_node_name(cause, 't'), _node_name(effect, 't'))
+            # Mirror the relationship in the earlier timestep to avoid clamping
+            dag.add_edge(_node_name(cause, '{t-1}'), _node_name(effect, '{t-1}'))
 
     return dag
 
