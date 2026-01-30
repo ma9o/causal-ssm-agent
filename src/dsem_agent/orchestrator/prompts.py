@@ -328,7 +328,6 @@ Your task is to find proxy measurements for specific blocking confounders to mak
 
 ## Guidelines
 - Focus ONLY on the requested confounders
-- Search the data for ANY reasonable proxy, even if imperfect
 - A proxy should capture some aspect of the confounder's variation
 - If no proxy exists in the data, explicitly state this
 - Do NOT modify existing measurements
@@ -339,7 +338,7 @@ PROXY_REQUEST_USER = """\
 The following causal effects are NOT identifiable:
 {blocking_info}
 
-Please find proxy measurements for these specific confounders to make the effects identifiable:
+Think of proxy measurements for these specific confounders to make the effects identifiable:
 {confounders_to_operationalize}
 
 Return JSON with structure:
