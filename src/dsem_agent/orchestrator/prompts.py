@@ -306,13 +306,6 @@ You are a causal inference expert. Some causal effects are not identifiable due 
 
 Your task is to find proxy measurements for specific blocking confounders to make the effects identifiable.
 
-## Context
-You will be given:
-1. The latent causal model
-2. Current measurement model (what's already measured)
-3. Specific confounders that need proxies
-4. Sample data to search for indicators
-
 ## Guidelines
 - Focus ONLY on the requested confounders
 - Search the data for ANY reasonable proxy, even if imperfect
