@@ -1550,7 +1550,7 @@ class TestUnrollingVerification:
         assert 'Y_{t-1}' in nodes
 
     def test_unroll_ar1_edges(self):
-        """Verify AR(1) edges are added for all time-varying constructs."""
+        """Verify AR(1) edges are added for OBSERVED time-varying constructs."""
         latent_model = make_latent_model(
             constructs=[
                 {'name': 'X', 'temporal_status': 'time_varying'},
@@ -1567,6 +1567,45 @@ class TestUnrollingVerification:
         edges = list(dag.edges())
         assert ('X_{t-1}', 'X_t') in edges, "X AR(1)"
         assert ('Y_{t-1}', 'Y_t') in edges, "Y AR(1)"
+
+    def test_unroll_ar1_not_added_for_unobserved(self):
+        """Verify AR(1) edges are NOT added for unobserved constructs.
+
+        AR(1) on hidden nodes doesn't add confounding information for
+        identification - it just models U's internal dynamics. What matters
+        is the confounding edges from U to observed nodes.
+
+        Including AR(1) for hidden nodes would cause y0's projection to
+        incorrectly include hidden nodes in the ADMG.
+        """
+        latent_model = make_latent_model(
+            constructs=[
+                {'name': 'X', 'temporal_status': 'time_varying'},
+                {'name': 'U', 'temporal_status': 'time_varying'},  # Unobserved
+                {'name': 'Y', 'temporal_status': 'time_varying', 'is_outcome': True},
+            ],
+            edges=[
+                {'cause': 'X', 'effect': 'Y', 'lagged': False},
+                {'cause': 'U', 'effect': 'X', 'lagged': False},
+                {'cause': 'U', 'effect': 'Y', 'lagged': False},
+            ]
+        )
+        observed = {'X', 'Y'}  # U is unobserved
+
+        dag = unroll_temporal_dag(latent_model, observed)
+
+        edges = list(dag.edges())
+
+        # Observed constructs should have AR(1) edges
+        assert ('X_{t-1}', 'X_t') in edges, "X AR(1) should exist"
+        assert ('Y_{t-1}', 'Y_t') in edges, "Y AR(1) should exist"
+
+        # Unobserved construct U should NOT have AR(1) edge
+        assert ('U_{t-1}', 'U_t') not in edges, "U AR(1) should NOT exist"
+
+        # But U nodes should still exist (for confounding edges)
+        assert 'U_t' in dag.nodes()
+        assert 'U_{t-1}' in dag.nodes()
 
     def test_unroll_mirrored_contemporaneous(self):
         """Verify contemporaneous edges appear at both timesteps."""

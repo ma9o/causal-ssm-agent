@@ -259,10 +259,17 @@ def unroll_temporal_dag(
         is_hidden = name not in observed_constructs
         dag.add_node(name, hidden=is_hidden, construct=name, timestep=None)
 
-    # Add AR(1) edges for all time-varying constructs
-    # Markov dynamics apply regardless of role/observability (A3 + A3a)
+    # Add AR(1) edges for OBSERVED time-varying constructs only
+    # For identification purposes, AR(1) on hidden nodes doesn't add confounding
+    # information - it just models U's internal dynamics. What matters is the
+    # confounding edges from U to observed nodes.
+    #
+    # Including AR(1) for hidden nodes causes y0's projection to incorrectly
+    # include hidden nodes in the ADMG (because hidden U_{t-1} would have hidden
+    # U_t as a successor, and y0 adds edges between ALL pairs of successors).
     for name in time_varying:
-        dag.add_edge(_node_name(name, '{t-1}'), _node_name(name, 't'))
+        if name in observed_constructs:
+            dag.add_edge(_node_name(name, '{t-1}'), _node_name(name, 't'))
 
     # Add edges from the latent model
     for edge in latent_model.get('edges', []):
