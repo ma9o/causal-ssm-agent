@@ -13,9 +13,9 @@ from .stage2_workers import (
     load_worker_chunks,
     populate_indicators,
 )
-from .stage3_identifiability import (
-    check_identifiability,
-    run_sensitivity_analysis,
+from .stage3_validation import (
+    revalidate_dag_for_missing_proxies,
+    validate_extraction,
 )
 from .stage4_model import (
     elicit_priors,
@@ -38,8 +38,8 @@ __all__ = [
     "populate_indicators",
     "aggregate_measurements",
     # Stage 3
-    "check_identifiability",
-    "run_sensitivity_analysis",
+    "validate_extraction",
+    "revalidate_dag_for_missing_proxies",
     # Stage 4
     "specify_model",
     "elicit_priors",

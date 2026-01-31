@@ -32,7 +32,7 @@ from .stages import (
     load_worker_chunks,
     populate_indicators,
     # Stage 3
-    check_identifiability,
+    validate_extraction,
     # Stage 4
     elicit_priors,
     specify_model,
@@ -149,18 +149,11 @@ def causal_inference_pipeline(
             print(f"  {granularity}: {df.height} time points × {n_indicators} indicators")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 3: Identifiability Report (uses persisted status from Stage 1b)
+    # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 3: Identifiability Report ===")
-    id_report = check_identifiability(dsem_model)
-    print(f"Status: {id_report['status']}")
-    print(f"Message: {id_report['message']}")
-
-    if id_report['status'] == 'not_identifiable':
-        print("\nNon-identifiable treatments will be flagged in results:")
-        for treatment in id_report['non_identifiable_treatments'].keys():
-            print(f"  - {treatment}")
-        print(f"\n{id_report['recommendation']}")
+    print("\n=== Stage 3: Extraction Validation ===")
+    validation_report = validate_extraction(dsem_model, measurements)
+    # TODO: Handle validation failures - revalidate DAG if proxies missing
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4: Model specification
