@@ -64,6 +64,7 @@ def research_prior_task(
     parameter_spec: dict,
     question: str,
     enable_literature: bool = True,
+    n_paraphrases: int = 1,
 ) -> dict:
     """Worker researches prior for a single parameter.
 
@@ -71,6 +72,7 @@ def research_prior_task(
         parameter_spec: ParameterSpec as dict
         question: Research question
         enable_literature: Whether to search Exa
+        n_paraphrases: Number of paraphrased prompts (1 = original single-shot)
 
     Returns:
         PriorProposal as dict
@@ -101,6 +103,7 @@ def research_prior_task(
                 question=question,
                 generate=generate,
                 enable_literature=enable_literature,
+                n_paraphrases=n_paraphrases,
             )
             return result.proposal.model_dump()
         except Exception as e:
@@ -212,6 +215,14 @@ def stage4_orchestrated_flow(
     """
     from prefect.utilities.annotations import unmapped
 
+    from dsem_agent.utils.config import get_config
+
+    config = get_config()
+    paraphrasing = config.stage4_prior_elicitation.paraphrasing
+
+    # Determine paraphrasing settings
+    n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
+
     # 1. Orchestrator proposes GLMM specification
     glmm_spec = propose_glmm_task(dsem_model, question, measurements_data)
 
@@ -221,6 +232,7 @@ def stage4_orchestrated_flow(
         parameter_specs,
         question=unmapped(question),
         enable_literature=unmapped(enable_literature),
+        n_paraphrases=unmapped(n_paraphrases),
     )
 
     # Collect results into dict

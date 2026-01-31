@@ -20,11 +20,16 @@ from dsem_agent.orchestrator.schemas_glmm import (
     ParameterRole,
     ParameterSpec,
 )
-from dsem_agent.workers.prior_research import get_default_prior
+from dsem_agent.workers.prior_research import (
+    aggregate_prior_samples,
+    get_default_prior,
+)
+from dsem_agent.workers.prompts.prior_research import generate_paraphrased_prompts
 from dsem_agent.workers.schemas_prior import (
     PriorProposal,
     PriorSource,
     PriorValidationResult,
+    RawPriorSample,
 )
 
 
@@ -393,3 +398,134 @@ class TestDefaultPriors:
         )
         prior = get_default_prior(param)
         assert prior.confidence == 0.3
+
+
+# --- AutoElicit Tests ---
+
+
+class TestAutoElicit:
+    """Test AutoElicit-style paraphrased prompting and aggregation."""
+
+    def test_aggregate_unimodal_uses_simple(self):
+        """GMM with unimodal data falls back to simple pooling."""
+        # All samples identical -> GMM should select K=1 -> simple pooling
+        samples = [
+            RawPriorSample(paraphrase_id=i, mu=0.3, sigma=0.1, confidence=0.8, reasoning="")
+            for i in range(5)
+        ]
+
+        result = aggregate_prior_samples(samples)
+
+        # Should fall back to simple (K=1 detected)
+        assert result.method == "simple"
+        assert result.mixture_weights is None
+        assert np.isclose(result.mu, 0.3)
+
+    def test_aggregate_bimodal_detects_mixture(self):
+        """GMM detects multimodal distribution (K >= 2)."""
+        # Create clearly bimodal samples with more separation
+        samples = [
+            RawPriorSample(paraphrase_id=0, mu=-2.0, sigma=0.1, confidence=0.8, reasoning=""),
+            RawPriorSample(paraphrase_id=1, mu=-2.0, sigma=0.1, confidence=0.7, reasoning=""),
+            RawPriorSample(paraphrase_id=2, mu=-2.0, sigma=0.1, confidence=0.9, reasoning=""),
+            RawPriorSample(paraphrase_id=3, mu=2.0, sigma=0.1, confidence=0.8, reasoning=""),
+            RawPriorSample(paraphrase_id=4, mu=2.0, sigma=0.1, confidence=0.7, reasoning=""),
+            RawPriorSample(paraphrase_id=5, mu=2.0, sigma=0.1, confidence=0.9, reasoning=""),
+        ]
+
+        result = aggregate_prior_samples(samples)
+
+        # Should detect K >= 2 mixture (BIC may select 2 or 3)
+        assert result.method == "gmm"
+        assert result.mixture_weights is not None
+        assert len(result.mixture_weights) >= 2
+        assert len(result.mixture_means) >= 2
+        assert len(result.mixture_stds) >= 2
+        # Means should span negative and positive values
+        assert min(result.mixture_means) < 0
+        assert max(result.mixture_means) > 0
+
+    def test_aggregate_too_few_samples_uses_simple(self):
+        """GMM with <3 samples falls back to simple."""
+        samples = [
+            RawPriorSample(paraphrase_id=0, mu=0.2, sigma=0.1, confidence=0.8, reasoning=""),
+            RawPriorSample(paraphrase_id=1, mu=0.3, sigma=0.1, confidence=0.7, reasoning=""),
+        ]
+
+        result = aggregate_prior_samples(samples)
+
+        assert result.method == "simple"
+        # Simple pooling formula
+        assert np.isclose(result.mu, 0.25)
+
+    def test_paraphrase_generation_count(self):
+        """generate_paraphrased_prompts returns N prompts."""
+        prompts = generate_paraphrased_prompts(
+            parameter_name="beta_stress_mood",
+            parameter_role="fixed_effect",
+            parameter_constraint="none",
+            parameter_description="Effect of stress on mood",
+            question="How does stress affect mood?",
+            literature_context="No literature found.",
+            n_paraphrases=10,
+        )
+
+        assert len(prompts) == 10
+
+    def test_paraphrase_generation_fewer_than_10(self):
+        """generate_paraphrased_prompts handles n < 10."""
+        prompts = generate_paraphrased_prompts(
+            parameter_name="beta_x",
+            parameter_role="fixed_effect",
+            parameter_constraint="none",
+            parameter_description="Test param",
+            question="Test question",
+            literature_context="",
+            n_paraphrases=3,
+        )
+
+        assert len(prompts) == 3
+
+    def test_paraphrase_generation_content_varies(self):
+        """Each paraphrase template produces different content."""
+        prompts = generate_paraphrased_prompts(
+            parameter_name="beta_x",
+            parameter_role="fixed_effect",
+            parameter_constraint="none",
+            parameter_description="Test param",
+            question="Test question",
+            literature_context="",
+            n_paraphrases=10,
+        )
+
+        # Each prompt should be unique (different template endings)
+        assert len(set(prompts)) == 10
+
+    def test_paraphrase_generation_contains_parameter_info(self):
+        """Paraphrased prompts contain parameter info."""
+        prompts = generate_paraphrased_prompts(
+            parameter_name="beta_stress_mood",
+            parameter_role="fixed_effect",
+            parameter_constraint="none",
+            parameter_description="Effect of stress on mood",
+            question="How does stress affect mood?",
+            literature_context="No literature found.",
+            n_paraphrases=1,
+        )
+
+        assert "beta_stress_mood" in prompts[0]
+        assert "fixed_effect" in prompts[0]
+        assert "Effect of stress on mood" in prompts[0]
+
+    def test_single_sample_returns_input(self):
+        """With n=1, aggregation returns same values as input."""
+        samples = [
+            RawPriorSample(paraphrase_id=0, mu=0.3, sigma=0.15, confidence=0.8, reasoning="test"),
+        ]
+
+        result = aggregate_prior_samples(samples)
+
+        # With single sample: mu = mu, sigma = sigma (var(mu) = 0)
+        assert np.isclose(result.mu, 0.3)
+        assert np.isclose(result.sigma, 0.15)
+        assert result.n_samples == 1

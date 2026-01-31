@@ -34,11 +34,20 @@ class LiteratureSearchConfig:
 
 
 @dataclass(frozen=True)
+class ParaphrasingConfig:
+    """AutoElicit-style paraphrased prompting configuration."""
+
+    enabled: bool = False  # Off by default (cost)
+    n_paraphrases: int = 10
+
+
+@dataclass(frozen=True)
 class Stage4Config:
     """Stage 4: Prior Elicitation (Orchestrator-Worker Architecture)."""
 
     model: str
     literature_search: LiteratureSearchConfig = LiteratureSearchConfig()
+    paraphrasing: ParaphrasingConfig = ParaphrasingConfig()
     worker_model: str | None = None  # If None, uses stage2_workers.model
 
 
@@ -74,9 +83,11 @@ def load_config() -> PipelineConfig:
 
     stage4_raw = raw["stage4_prior_elicitation"]
     lit_search_raw = stage4_raw.get("literature_search", {})
+    paraphrasing_raw = stage4_raw.get("paraphrasing", {})
     stage4_config = Stage4Config(
         model=stage4_raw["model"],
         literature_search=LiteratureSearchConfig(**lit_search_raw) if lit_search_raw else LiteratureSearchConfig(),
+        paraphrasing=ParaphrasingConfig(**paraphrasing_raw) if paraphrasing_raw else ParaphrasingConfig(),
         worker_model=stage4_raw.get("worker_model"),
     )
 

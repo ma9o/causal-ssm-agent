@@ -24,6 +24,10 @@ stage4_prior_elicitation:
     enabled: true
     model: exa-research  # exa-research-fast, exa-research, or exa-research-pro
     timeout_ms: 120000   # Max time to wait for research completion
+  # AutoElicit-style paraphrased prompting for prior elicitation
+  paraphrasing:
+    enabled: false       # Off by default (increases LLM cost)
+    n_paraphrases: 10    # Number of paraphrased prompts per parameter
 
 # Stage 5: Intervention Analysis
 # Uses PyMC - no LLM needed
