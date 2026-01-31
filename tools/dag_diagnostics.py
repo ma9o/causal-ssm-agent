@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from commons import parse_dag_json
+from dsem_agent.utils.effects import get_outcome_from_latent_model
 from dsem_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
@@ -68,7 +69,8 @@ def run_diagnostics(data: dict[str, Any]) -> DagDiagnostics:
         id_result,
     )
 
-    graph_summary = _build_graph_summary(data, measurement_model, id_result)
+    outcome = get_outcome_from_latent_model(latent_model) or 'unknown'
+    graph_summary = _build_graph_summary(data, measurement_model, outcome)
     measurement_summary = _summarize_measurement(data["indicators"])
 
     return DagDiagnostics(
@@ -77,7 +79,7 @@ def run_diagnostics(data: dict[str, Any]) -> DagDiagnostics:
         marginalization=marginalization,
         graph_summary=graph_summary,
         measurement_summary=measurement_summary,
-        identifiability_report=format_identifiability_report(id_result),
+        identifiability_report=format_identifiability_report(id_result, outcome),
         marginalization_report=format_marginalization_report(marginalization),
     )
 
@@ -85,7 +87,7 @@ def run_diagnostics(data: dict[str, Any]) -> DagDiagnostics:
 def _build_graph_summary(
     data: dict[str, Any],
     measurement_model: dict[str, Any],
-    id_result: dict[str, Any],
+    outcome: str,
 ) -> dict[str, Any]:
     observed = get_observed_constructs(measurement_model)
     constructs = {c["name"] for c in data["constructs"]}
@@ -97,7 +99,7 @@ def _build_graph_summary(
         "indicator_count": len(data["indicators"]),
         "observed_constructs": sorted(observed),
         "unobserved_constructs": sorted(unobserved),
-        "outcome": id_result["outcome"],
+        "outcome": outcome,
     }
 
 

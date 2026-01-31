@@ -7,6 +7,8 @@ identifiability status computed in Stage 1b.
 from prefect import task
 from prefect.cache_policies import INPUTS
 
+from dsem_agent.utils.effects import get_outcome_from_latent_model
+
 
 @task(cache_policy=INPUTS)
 def check_identifiability(dsem_model: dict) -> dict:
@@ -24,25 +26,24 @@ def check_identifiability(dsem_model: dict) -> dict:
         return {
             'status': 'unknown',
             'message': 'No identifiability check was performed',
-            'non_identifiable_treatments': set(),
+            'non_identifiable_treatments': {},
         }
 
-    outcome = id_status.get('outcome', 'unknown')
+    outcome = get_outcome_from_latent_model(dsem_model.get('latent', {})) or 'unknown'
+    non_id = id_status.get('non_identifiable_treatments', {})
 
-    if id_status['all_identifiable']:
+    if not non_id:
         return {
             'status': 'identifiable',
             'message': f'All treatment effects on {outcome} are identifiable',
-            'non_identifiable_treatments': set(),
+            'non_identifiable_treatments': {},
         }
 
     # Report non-identifiable treatments
-    non_id = id_status['non_identifiable_treatments']
     return {
         'status': 'not_identifiable',
         'message': f"{len(non_id)} treatment effects on {outcome} are NOT identifiable",
         'non_identifiable_treatments': non_id,
-        'blocking_confounders': id_status.get('blocking_confounders', {}),
         'recommendation': 'Consider sensitivity analysis for these effects',
     }
 

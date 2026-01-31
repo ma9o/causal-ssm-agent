@@ -87,12 +87,29 @@ def assert_not_identifiable(result: dict, treatment: str, msg: str = ""):
         f"{treatment} should NOT be identifiable. {msg}\nResult: {result}"
 
 
+def get_blockers(result: dict, treatment: str) -> list[str]:
+    """Get confounders blocking a treatment."""
+    details = result.get('non_identifiable_treatments', {}).get(treatment, {})
+    if isinstance(details, dict):
+        return details.get('confounders', [])
+    return []
+
+
+def get_estimand(result: dict, treatment: str) -> str:
+    """Get estimand string for an identifiable treatment."""
+    details = result.get('identifiable_treatments', {}).get(treatment, {})
+    if isinstance(details, dict):
+        return details.get('estimand', '')
+    return ''
+
+
 def assert_blocked_by(result: dict, treatment: str, blocker: str, msg: str = ""):
     """Assert that a treatment is blocked by a specific confounder."""
-    assert treatment in result['blocking_confounders'], \
-        f"{treatment} should have blocking confounders. {msg}"
-    assert blocker in result['blocking_confounders'][treatment], \
-        f"{treatment} should be blocked by {blocker}. {msg}\nBlockers: {result['blocking_confounders'][treatment]}"
+    details = result['non_identifiable_treatments'].get(treatment)
+    assert details, f"{treatment} should have blocking confounders. {msg}"
+    blockers = details.get('confounders', []) if isinstance(details, dict) else []
+    assert blocker in blockers, \
+        f"{treatment} should be blocked by {blocker}. {msg}\nBlockers: {blockers}"
 
 
 # =============================================================================
@@ -324,7 +341,7 @@ class TestBackdoorCriterion:
 
         # X is identifiable via IV using Z1
         assert_identifiable(result, 'X', "Z1 is valid instrument")
-        assert 'IV(Z1)' in result['identifiable_treatments']['X']
+        assert 'IV(Z1)' in get_estimand(result, 'X')
 
     def test_no_identification_strategy_available(self):
         """No identification strategy works: no backdoor, no front-door, no IV.
@@ -426,7 +443,7 @@ class TestFrontDoorCriterion:
 
         assert_identifiable(result, 'X', "Front-door through M")
         # The estimand should mention M
-        assert 'M' in result['identifiable_treatments']['X']
+        assert 'M' in get_estimand(result, 'X')
 
     def test_front_door_fails_if_mediator_confounded(self):
         """Front-door fails if U also affects M.
@@ -536,8 +553,8 @@ class TestInstrumentalVariables:
 
         # X -> Y is identifiable via IV (under linearity)
         assert_identifiable(result, 'X', "IV identification under linearity")
-        assert 'IV(Z)' in result['identifiable_treatments']['X']
-        assert 'linearity' in result['identifiable_treatments']['X'].lower()
+        assert 'IV(Z)' in get_estimand(result, 'X')
+        assert 'linearity' in get_estimand(result, 'X').lower()
         # Z -> Y is also identifiable (no confounding)
         assert_identifiable(result, 'Z', "Z -> X -> Y is identifiable")
 
@@ -1069,7 +1086,7 @@ class TestComplexConfounding:
 
         # X is identifiable via IV using A
         assert_identifiable(result, 'X', "A is valid instrument despite U3")
-        assert 'IV(A)' in result['identifiable_treatments']['X']
+        assert 'IV(A)' in get_estimand(result, 'X')
 
     def test_multiple_disjoint_confounders(self):
         """Multiple independent unobserved confounders.
@@ -1101,7 +1118,7 @@ class TestComplexConfounding:
 
         assert_not_identifiable(result, 'X', "Multiple confounders")
         # At least one should be listed as blocking
-        blockers = result['blocking_confounders'].get('X', [])
+        blockers = get_blockers(result, 'X')
         assert 'U1' in blockers or 'U2' in blockers
 
 
@@ -1274,7 +1291,6 @@ class TestEdgeCases:
 
         result = check_identifiability(latent_model, measurement_model)
 
-        assert result['outcome'] == 'Y'
         assert len(result['identifiable_treatments']) == 0
         assert len(result['non_identifiable_treatments']) == 0
 
@@ -1412,7 +1428,7 @@ class TestMarginalizationAnalysis:
         analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
         assert 'U' in analysis['can_marginalize']
-        assert 'U' not in analysis['needs_modeling']
+        assert 'U' not in analysis['blocking_details']
 
     def test_needs_modeling_blocking_confounder(self):
         """Confounder blocking identification needs modeling."""
@@ -1433,9 +1449,9 @@ class TestMarginalizationAnalysis:
         id_result = check_identifiability(latent_model, measurement_model)
         analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
-        assert 'U' in analysis['needs_modeling']
+        assert 'U' in analysis['blocking_details']
+        assert analysis['blocking_details']['U'] == ['X']
         assert 'U' not in analysis['can_marginalize']
-        assert 'X' in analysis['modeling_reason']['U']
 
     def test_marginalize_front_door_handled(self):
         """Confounder handled by front-door can be marginalized."""
@@ -1487,7 +1503,7 @@ class TestMarginalizationAnalysis:
         analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
         assert 'U1' in analysis['can_marginalize']
-        assert 'U2' in analysis['needs_modeling']
+        assert 'U2' in analysis['blocking_details']
 
     def test_chain_of_unobserved_marginalization(self):
         """Chain of unobserved: only the one creating confounding needs modeling.
@@ -1517,7 +1533,7 @@ class TestMarginalizationAnalysis:
         analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
         assert 'U1' in analysis['can_marginalize'], "U1 has no observed children"
-        assert 'U2' in analysis['needs_modeling'], "U2 confounds X and Y"
+        assert 'U2' in analysis['blocking_details'], "U2 confounds X and Y"
 
 
 # =============================================================================
@@ -2092,7 +2108,7 @@ class TestConditionalInstruments:
 
         assert_identifiable(result, 'X', "Multiple valid instruments")
         # Should mention at least one instrument
-        assert 'IV' in result['identifiable_treatments']['X']
+        assert 'IV' in get_estimand(result, 'X')
 
     def test_weak_instrument_chain(self):
         """Instrument through a chain (weaker but valid).
@@ -2133,7 +2149,7 @@ class TestConditionalInstruments:
         # - Exogeneity: U1 -> W, U1 -> X but U1 doesn't affect Y (only U2 does)
         # So W is a valid instrument despite Z being the original exogenous source
         assert_identifiable(result, 'X', "W is valid instrument despite indirect Z")
-        assert 'IV(W)' in result['identifiable_treatments']['X']
+        assert 'IV(W)' in get_estimand(result, 'X')
 
 
 # =============================================================================
@@ -2819,7 +2835,7 @@ class TestSpecialIVStructures:
         result = check_identifiability(latent_model, measurement_model)
 
         assert_identifiable(result, 'D', "R is valid instrument for D")
-        assert 'IV(R)' in result['identifiable_treatments']['D']
+        assert 'IV(R)' in get_estimand(result, 'D')
 
     @pytest.mark.skip(reason="DID requires parallel trends assumption - not graph-identifiable")
     def test_diff_in_diff_like(self):
@@ -2871,7 +2887,7 @@ class TestSpecialIVStructures:
         result = check_identifiability(latent_model, measurement_model)
 
         assert_identifiable(result, 'X', "G is valid MR instrument")
-        assert 'IV(G)' in result['identifiable_treatments']['X']
+        assert 'IV(G)' in get_estimand(result, 'X')
 
 
 # =============================================================================
@@ -2954,7 +2970,7 @@ class TestTemporalUnrollingEdgeCases:
 
         # Trait serves as instrument for X -> Y
         assert_identifiable(result, 'X', "Trait is valid instrument")
-        assert 'IV(Trait)' in result['identifiable_treatments']['X']
+        assert 'IV(Trait)' in get_estimand(result, 'X')
         # Trait -> X -> Y is also identifiable
         assert_identifiable(result, 'Trait', "Trait effect on Y via X")
 

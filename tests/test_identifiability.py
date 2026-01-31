@@ -12,6 +12,22 @@ from dsem_agent.utils.identifiability import (
 )
 
 
+def _blockers(result: dict, treatment: str) -> list[str]:
+    """Helper to extract blocking confounders for a treatment."""
+    details = result.get('non_identifiable_treatments', {}).get(treatment, {})
+    if isinstance(details, dict):
+        return details.get('confounders', [])
+    return []
+
+
+def _estimand(result: dict, treatment: str) -> str:
+    """Helper to get estimand string for a treatment."""
+    details = result.get('identifiable_treatments', {}).get(treatment, {})
+    if isinstance(details, dict):
+        return details.get('estimand', '')
+    return ''
+
+
 def test_get_observed_constructs():
     """Test extraction of observed constructs from measurement model."""
     measurement_model = {
@@ -52,7 +68,6 @@ def test_identifiability_simple_chain():
     result = check_identifiability(latent_model, measurement_model)
 
     # All effects should be identifiable (no unobserved confounders)
-    assert result['outcome'] == 'C'
     assert len(result['non_identifiable_treatments']) == 0
     assert 'A' in result['identifiable_treatments']
     assert 'B' in result['identifiable_treatments']
@@ -116,9 +131,8 @@ def test_identifiability_with_unobserved_confounder():
     result = check_identifiability(latent_model, measurement_model)
 
     # A should NOT be identifiable due to unobserved confounder U
-    assert result['outcome'] == 'B'
     assert 'A' in result['non_identifiable_treatments']
-    assert 'U' in result['blocking_confounders']['A']
+    assert 'U' in _blockers(result, 'A')
 
 
 def test_identifiability_front_door():
@@ -154,10 +168,9 @@ def test_identifiability_front_door():
     result = check_identifiability(latent_model, measurement_model)
 
     # X should be identifiable via front-door through M
-    assert result['outcome'] == 'Y'
     assert 'X' in result['identifiable_treatments']
     # The estimand should involve M (front-door formula)
-    assert 'M' in result['identifiable_treatments']['X']
+    assert 'M' in _estimand(result, 'X')
 
 
 def test_identifiability_unobserved_treatment():
@@ -225,7 +238,7 @@ def test_lagged_confounding_blocks_identification():
 
     # X -> Y should NOT be identifiable due to lagged confounding from U
     assert 'X' in result['non_identifiable_treatments']
-    assert 'U' in result['blocking_confounders']['X']
+    assert 'U' in _blockers(result, 'X')
 
 
 def test_dag_to_admg():
@@ -346,10 +359,16 @@ def test_dag_to_admg_validates_max_lag_one():
 def test_format_identifiability_report():
     """Test formatting of identifiability report."""
     result = {
-        'outcome': 'Y',
-        'identifiable_treatments': {'X': 'P(Y|X)'},
-        'non_identifiable_treatments': {'A'},
-        'blocking_confounders': {'A': ['U', 'V']},
+        'identifiable_treatments': {
+            'X': {
+                'method': 'do_calculus',
+                'estimand': 'P(Y|X)',
+                'marginalized_confounders': [],
+            }
+        },
+        'non_identifiable_treatments': {
+            'A': {'confounders': ['U', 'V']},
+        },
         'graph_info': {
             'observed_constructs': ['X', 'Y', 'A'],
             'total_constructs': 5,
@@ -359,7 +378,7 @@ def test_format_identifiability_report():
         },
     }
 
-    report = format_identifiability_report(result)
+    report = format_identifiability_report(result, outcome='Y')
 
     assert '1/2 treatments have non-identifiable effects on Y' in report
     assert 'A (blocked by: U, V)' in report
@@ -391,7 +410,7 @@ def test_analyze_unobserved_all_observed():
     analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
     assert len(analysis['can_marginalize']) == 0
-    assert len(analysis['needs_modeling']) == 0
+    assert analysis['blocking_details'] == {}
 
 
 def test_analyze_unobserved_blocking_confounder():
@@ -421,9 +440,9 @@ def test_analyze_unobserved_blocking_confounder():
     analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
 
     # U blocks A->B, so it needs modeling
-    assert 'U' in analysis['needs_modeling']
+    assert 'U' in analysis['blocking_details']
+    assert analysis['blocking_details']['U'] == ['A']
     assert len(analysis['can_marginalize']) == 0
-    assert 'A' in analysis['modeling_reason']['U']
 
 
 def test_analyze_unobserved_front_door_marginalized():
@@ -458,7 +477,7 @@ def test_analyze_unobserved_front_door_marginalized():
 
     # X->Y is identifiable via front-door, so U can be marginalized
     assert 'U' in analysis['can_marginalize']
-    assert len(analysis['needs_modeling']) == 0
+    assert 'U' not in analysis['blocking_details']
     assert 'front-door' in analysis['marginalize_reason']['U'] or 'identification strategy' in analysis['marginalize_reason']['U']
 
 
@@ -488,7 +507,7 @@ def test_analyze_unobserved_single_child():
 
     # U only affects A, no confounding created
     assert 'U' in analysis['can_marginalize']
-    assert len(analysis['needs_modeling']) == 0
+    assert 'U' not in analysis['blocking_details']
     assert 'single child' in analysis['marginalize_reason']['U'] or 'no observed children' in analysis['marginalize_reason']['U']
 
 
@@ -496,13 +515,10 @@ def test_format_marginalization_report():
     """Test formatting of marginalization report."""
     analysis = {
         'can_marginalize': {'U1', 'U2'},
-        'needs_modeling': {'U3'},
+        'blocking_details': {'U3': ['Treatment']},
         'marginalize_reason': {
             'U1': 'does not create confounding (single child or no observed children)',
             'U2': 'confounding handled by identification strategy (front-door or similar)',
-        },
-        'modeling_reason': {
-            'U3': 'blocks identification of: Treatment',
         },
     }
 

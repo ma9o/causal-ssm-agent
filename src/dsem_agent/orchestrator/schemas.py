@@ -304,22 +304,44 @@ def compute_lag_hours(
     return 0  # contemporaneous
 
 
-class IdentifiabilityStatus(BaseModel):
-    """Status of causal effect identifiability.
+class IdentifiedTreatmentStatus(BaseModel):
+    """Details on how a treatment effect is identified."""
 
-    Since there's exactly one outcome in the model, we only track which
-    treatments have identifiable effects (not treatment-outcome pairs).
-    """
-
-    outcome: str = Field(description="The outcome construct name")
-    all_identifiable: bool = Field(description="Whether all treatment effects are identifiable")
-    non_identifiable_treatments: set[str] = Field(
-        default_factory=set,
-        description="Treatments whose effect on outcome is NOT identifiable"
+    method: str = Field(description="Identification strategy (e.g., do_calculus, instrumental_variable)")
+    estimand: str = Field(description="Closed-form estimand or IV placeholder")
+    marginalized_confounders: list[str] = Field(
+        default_factory=list,
+        description="Unobserved confounders the estimand integrates out",
     )
-    blocking_confounders: dict[str, list[str]] = Field(
+    instruments: list[str] = Field(
+        default_factory=list,
+        description="Instrumental variables used (if method=instrumental_variable)",
+    )
+
+
+class NonIdentifiableTreatmentStatus(BaseModel):
+    """Context on why a treatment effect is not identifiable."""
+
+    confounders: list[str] = Field(
+        default_factory=list,
+        description="Unobserved constructs blocking identification",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Optional explanation if confounders cannot be enumerated",
+    )
+
+
+class IdentifiabilityStatus(BaseModel):
+    """Status of causal effect identifiability."""
+
+    identifiable_treatments: dict[str, IdentifiedTreatmentStatus] = Field(
         default_factory=dict,
-        description="Map of non-identifiable treatment to blocking confounders"
+        description="Treatments with identifiable effects and how to estimate them",
+    )
+    non_identifiable_treatments: dict[str, NonIdentifiableTreatmentStatus] = Field(
+        default_factory=dict,
+        description="Treatments whose effects are currently not identifiable",
     )
 
 

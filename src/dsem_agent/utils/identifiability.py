@@ -41,10 +41,14 @@ def check_identifiability(
 
     Returns:
         Dict with:
-            - outcome: The outcome construct name
-            - identifiable_treatments: Dict mapping treatment name to estimand string
-            - non_identifiable_treatments: Set of treatment names that aren't identifiable
-            - blocking_confounders: Dict mapping treatment to list of blocking confounders
+            - identifiable_treatments: Map of treatment -> identification details
+                * method: 'do_calculus' or 'instrumental_variable'
+                * estimand: Closed-form estimand or IV placeholder
+                * marginalized_confounders: Unobserved constructs the estimand integrates out
+                * instruments: Optional list of IVs when applicable
+            - non_identifiable_treatments: Map of treatment -> confounder context
+                * confounders: Unobserved constructs blocking identification
+                * notes: Optional explanation when confounders cannot be enumerated
             - graph_info: Debug info about the graph structure
     """
     outcome = get_outcome_from_latent_model(latent_model)
@@ -65,20 +69,19 @@ def check_identifiability(
     outcome_is_time_varying = _is_time_varying(latent_model, outcome)
 
     # Check each treatment
-    identifiable_treatments = {}
-    non_identifiable_treatments = set()
-    blocking_confounders = {}
+    identifiable_treatments: dict[str, dict[str, Any]] = {}
+    non_identifiable_treatments: dict[str, dict[str, Any]] = {}
 
     # If outcome itself is unobserved, no effects are identifiable
     if outcome not in observed_constructs:
         for treatment in all_treatments:
-            non_identifiable_treatments.add(treatment)
-            blocking_confounders[treatment] = [outcome]
+            non_identifiable_treatments[treatment] = {
+                'confounders': [outcome],
+                'notes': 'outcome is unobserved',
+            }
         return {
-            'outcome': outcome,
             'identifiable_treatments': identifiable_treatments,
             'non_identifiable_treatments': non_identifiable_treatments,
-            'blocking_confounders': blocking_confounders,
             'graph_info': {
                 'observed_constructs': list(observed_constructs),
                 'total_constructs': len(latent_model['constructs']),
@@ -117,7 +120,11 @@ def check_identifiability(
             if estimand is not None:
                 # Map estimand back to original names for readability
                 estimand_str = str(estimand)
-                identifiable_treatments[treatment] = estimand_str
+                identifiable_treatments[treatment] = {
+                    'method': 'do_calculus',
+                    'estimand': estimand_str,
+                    'marginalized_confounders': sorted(unobserved_confounders),
+                }
             else:
                 # y0's nonparametric check failed - try IV identification
                 # IV works under linearity (which DSEM assumes)
@@ -127,24 +134,28 @@ def check_identifiability(
                 if instruments:
                     # IV identification available under linearity
                     iv_list = ', '.join(instruments)
-                    identifiable_treatments[treatment] = (
-                        f"IV({iv_list}) [requires linearity]"
-                    )
+                    identifiable_treatments[treatment] = {
+                        'method': 'instrumental_variable',
+                        'estimand': f"IV({iv_list}) [requires linearity]",
+                        'marginalized_confounders': sorted(unobserved_confounders),
+                        'instruments': instruments,
+                    }
                 else:
-                    non_identifiable_treatments.add(treatment)
                     blockers = find_blocking_confounders(
                         latent_model, observed_constructs, treatment, outcome
                     )
-                    blocking_confounders[treatment] = blockers
+                    non_identifiable_treatments[treatment] = {
+                        'confounders': blockers,
+                    }
         except Exception:
-            non_identifiable_treatments.add(treatment)
-            blocking_confounders[treatment] = ['unknown (graph error)']
+            non_identifiable_treatments[treatment] = {
+                'confounders': ['unknown (graph error)'],
+                'notes': 'graph projection failed',
+            }
 
     return {
-        'outcome': outcome,
         'identifiable_treatments': identifiable_treatments,
         'non_identifiable_treatments': non_identifiable_treatments,
-        'blocking_confounders': blocking_confounders,
         'graph_info': {
             'observed_constructs': list(observed_constructs),
             'total_constructs': len(latent_model['constructs']),
@@ -544,9 +555,8 @@ def analyze_unobserved_constructs(
     Returns:
         Dict with:
             - can_marginalize: Set of unobserved constructs safe to ignore in DSEM spec
-            - needs_modeling: Set of unobserved constructs that block identification
             - marginalize_reason: Dict explaining why each can be marginalized
-            - modeling_reason: Dict explaining why each needs modeling
+            - blocking_details: Map of blocking confounder -> treatments they obstruct
     """
     observed = get_observed_constructs(measurement_model)
     all_constructs = {c['name'] for c in latent_model['constructs']}
@@ -557,22 +567,23 @@ def analyze_unobserved_constructs(
     blocking_any = set()
     blocking_details: dict[str, list[str]] = {}  # confounder -> list of treatments it blocks
 
-    for treatment, blockers in identifiability_result.get('blocking_confounders', {}).items():
+    for treatment, info in identifiability_result.get('non_identifiable_treatments', {}).items():
         # Skip if the treatment itself is unobserved (it's blocking itself)
         if treatment in unobserved:
             continue
 
+        blockers = info.get('confounders', []) if isinstance(info, dict) else []
         for blocker in blockers:
-            # Only count confounders that are different from the treatment
             if blocker in unobserved and blocker != treatment:
                 blocking_any.add(blocker)
-                if blocker not in blocking_details:
-                    blocking_details[blocker] = []
-                blocking_details[blocker].append(treatment)
+                blocking_details.setdefault(blocker, []).append(treatment)
+
+    # Sort treatment lists for deterministic output
+    for blocker in blocking_details:
+        blocking_details[blocker] = sorted(blocking_details[blocker])
 
     # Classify unobserved constructs
     can_marginalize = unobserved - blocking_any
-    needs_modeling = unobserved & blocking_any
 
     # Build explanations
     marginalize_reason = {}
@@ -583,43 +594,43 @@ def analyze_unobserved_constructs(
         else:
             marginalize_reason[u] = "does not create confounding (single child or no observed children)"
 
-    modeling_reason = {
-        u: f"blocks identification of: {', '.join(sorted(blocking_details[u]))}"
-        for u in needs_modeling
-    }
-
     return {
         'can_marginalize': can_marginalize,
-        'needs_modeling': needs_modeling,
         'marginalize_reason': marginalize_reason,
-        'modeling_reason': modeling_reason,
+        'blocking_details': blocking_details,
     }
 
 
-def format_identifiability_report(result: dict) -> str:
+def format_identifiability_report(result: dict, outcome: str) -> str:
     """Format identifiability check results for logging."""
     lines = []
 
-    outcome = result['outcome']
-    n_identifiable = len(result['identifiable_treatments'])
-    n_non_identifiable = len(result['non_identifiable_treatments'])
+    identifiable = result.get('identifiable_treatments', {})
+    non_identifiable = result.get('non_identifiable_treatments', {})
+    n_identifiable = len(identifiable)
+    n_non_identifiable = len(non_identifiable)
     total = n_identifiable + n_non_identifiable
 
-    if not result['non_identifiable_treatments']:
+    if not non_identifiable:
         lines.append(f"✓ All {total} treatment effects on {outcome} are identifiable!")
     else:
         lines.append(f"✗ {n_non_identifiable}/{total} treatments have non-identifiable effects on {outcome}:")
-        for treatment in sorted(result['non_identifiable_treatments']):
-            blockers = result['blocking_confounders'].get(treatment, [])
+        for treatment in sorted(non_identifiable.keys()):
+            details = non_identifiable[treatment]
+            blockers = details.get('confounders', []) if isinstance(details, dict) else []
+            notes = details.get('notes') if isinstance(details, dict) else None
             if blockers:
                 lines.append(f"  - {treatment} (blocked by: {', '.join(blockers)})")
+            elif notes:
+                lines.append(f"  - {treatment} ({notes})")
             else:
                 lines.append(f"  - {treatment} (structural non-identifiability)")
 
-    if result['identifiable_treatments']:
+    if identifiable:
         lines.append(f"\n✓ {n_identifiable} treatments have identifiable effects:")
-        for treatment in sorted(result['identifiable_treatments'].keys())[:5]:
-            lines.append(f"  - {treatment}")
+        for treatment in sorted(identifiable.keys())[:5]:
+            method = identifiable[treatment].get('method', 'unknown')
+            lines.append(f"  - {treatment} via {method}")
         if n_identifiable > 5:
             lines.append(f"  ... and {n_identifiable - 5} more")
 
@@ -646,7 +657,8 @@ def format_marginalization_report(analysis: dict) -> str:
     lines = []
 
     can_marginalize = analysis['can_marginalize']
-    needs_modeling = analysis['needs_modeling']
+    blocking_details = analysis.get('blocking_details', {})
+    needs_modeling = set(blocking_details.keys())
 
     lines.append("=" * 60)
     lines.append("UNOBSERVED CONSTRUCT ANALYSIS FOR DSEM SPECIFICATION")
@@ -663,7 +675,8 @@ def format_marginalization_report(analysis: dict) -> str:
         lines.append(f"\n✗ NEEDS MODELING ({len(needs_modeling)} constructs):")
         lines.append("  These block identification - need proxies or explicit latent variables")
         for u in sorted(needs_modeling):
-            reason = analysis['modeling_reason'].get(u, '')
+            treatments = ', '.join(blocking_details.get(u, []))
+            reason = f"blocks identification of: {treatments}" if treatments else ''
             lines.append(f"  - {u}: {reason}")
 
     if not can_marginalize and not needs_modeling:

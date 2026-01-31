@@ -40,9 +40,16 @@ def run_interventions(
 
     # Get identifiability status
     id_status = dsem_model.get('identifiability') if dsem_model else None
-    non_identifiable = set()
-    if id_status and not id_status['all_identifiable']:
-        non_identifiable = id_status['non_identifiable_treatments']
+    non_identifiable: set[str] = set()
+    blocker_details: dict[str, list[str]] = {}
+    if id_status:
+        non_identifiable_map = id_status.get('non_identifiable_treatments', {})
+        non_identifiable = set(non_identifiable_map.keys())
+        blocker_details = {
+            treatment: details.get('confounders', [])
+            for treatment, details in non_identifiable_map.items()
+            if isinstance(details, dict)
+        }
 
     for treatment in treatments:
         result = {
@@ -53,8 +60,11 @@ def run_interventions(
         }
 
         if treatment in non_identifiable:
-            blockers = id_status.get('blocking_confounders', {}).get(treatment, [])
-            result['warning'] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
+            blockers = blocker_details.get(treatment, [])
+            if blockers:
+                result['warning'] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
+            else:
+                result['warning'] = "Effect not identifiable (missing proxies)"
 
         results.append(result)
 

@@ -152,7 +152,8 @@ def create_agraph_elements(
 
     # Extract marginalization sets
     can_marginalize = marg_analysis.get("can_marginalize", set()) if marg_analysis else set()
-    needs_modeling = marg_analysis.get("needs_modeling", set()) if marg_analysis else set()
+    blocking_details = marg_analysis.get("blocking_details", {}) if marg_analysis else {}
+    needs_modeling = set(blocking_details.keys())
 
     for construct in data["constructs"]:
         name = construct["name"]
@@ -448,29 +449,41 @@ with col_graph:
             id_result = diagnostics.identifiability
             marg_analysis = diagnostics.marginalization
 
+            outcome = diagnostics.graph_summary.get("outcome", "outcome")
+
             # Summary status
-            all_identifiable = len(id_result["non_identifiable_treatments"]) == 0
+            non_identifiable = id_result.get("non_identifiable_treatments", {})
+            identifiable = id_result.get("identifiable_treatments", {})
+            all_identifiable = len(non_identifiable) == 0
             if all_identifiable:
-                st.success(f"All treatment effects on {id_result['outcome']} are identifiable!")
+                st.success(f"All treatment effects on {outcome} are identifiable!")
             else:
-                n_non_id = len(id_result["non_identifiable_treatments"])
-                n_total = n_non_id + len(id_result["identifiable_treatments"])
+                n_non_id = len(non_identifiable)
+                n_total = n_non_id + len(identifiable)
                 st.warning(f"{n_non_id}/{n_total} treatments have non-identifiable effects")
 
             # Identifiable treatments
-            if id_result["identifiable_treatments"]:
-                with st.expander(f"✓ Identifiable Treatments ({len(id_result['identifiable_treatments'])})"):
-                    for treatment, estimand in sorted(id_result["identifiable_treatments"].items()):
-                        st.markdown(f"**{treatment}**")
-                        st.code(estimand, language="text")
+            if identifiable:
+                with st.expander(f"✓ Identifiable Treatments ({len(identifiable)})"):
+                    for treatment in sorted(identifiable.keys()):
+                        details = identifiable[treatment]
+                        method = details.get("method", "unknown")
+                        estimand = details.get("estimand", "")
+                        st.markdown(f"**{treatment}** — via {method}")
+                        if estimand:
+                            st.code(estimand, language="text")
 
             # Non-identifiable treatments
-            if id_result["non_identifiable_treatments"]:
-                with st.expander(f"✗ Non-identifiable Treatments ({len(id_result['non_identifiable_treatments'])})"):
-                    for treatment in sorted(id_result["non_identifiable_treatments"]):
-                        blockers = id_result["blocking_confounders"].get(treatment, [])
+            if non_identifiable:
+                with st.expander(f"✗ Non-identifiable Treatments ({len(non_identifiable)})"):
+                    for treatment in sorted(non_identifiable.keys()):
+                        details = non_identifiable[treatment]
+                        blockers = details.get("confounders", []) if isinstance(details, dict) else []
+                        notes = details.get("notes") if isinstance(details, dict) else None
                         if blockers:
                             st.markdown(f"**{treatment}** — blocked by: {', '.join(blockers)}")
+                        elif notes:
+                            st.markdown(f"**{treatment}** — {notes}")
                         else:
                             st.markdown(f"**{treatment}** — structural non-identifiability")
 
@@ -479,7 +492,8 @@ with col_graph:
             st.markdown("**Unobserved Construct Analysis**")
 
             can_marg = marg_analysis.get("can_marginalize", set())
-            needs_model = marg_analysis.get("needs_modeling", set())
+            blocking_details = marg_analysis.get("blocking_details", {})
+            needs_model = set(blocking_details.keys())
 
             if can_marg:
                 st.markdown(
@@ -503,7 +517,10 @@ with col_graph:
                     unsafe_allow_html=True,
                 )
                 for u in sorted(needs_model):
-                    reason = marg_analysis.get("modeling_reason", {}).get(u, "")
+                    reason = ""
+                    treatments = blocking_details.get(u, [])
+                    if treatments:
+                        reason = f"blocks identification of: {', '.join(treatments)}"
                     st.markdown(f"- **{u}**: {reason}")
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -539,7 +556,7 @@ with col_info:
                 diagnostics = st.session_state.get("dag_diagnostics")
                 marg_analysis = diagnostics.marginalization if diagnostics else {}
                 can_marg = marg_analysis.get("can_marginalize", set())
-                needs_model = marg_analysis.get("needs_modeling", set())
+                needs_model = set(marg_analysis.get("blocking_details", {}).keys())
                 if selected_node in can_marg:
                     marg_status = "can_marginalize"
                 elif selected_node in needs_model:

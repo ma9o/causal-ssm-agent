@@ -108,12 +108,17 @@ def causal_inference_pipeline(
     print(f"Final model has {n_indicators} indicators")
 
     # Report non-identifiable treatments
-    if not identifiability_status['all_identifiable']:
+    non_identifiable = identifiability_status.get('non_identifiable_treatments', {})
+    if non_identifiable:
         print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS:")
-        for treatment in sorted(identifiability_status['non_identifiable_treatments']):
-            blockers = identifiability_status['blocking_confounders'].get(treatment, [])
+        for treatment in sorted(non_identifiable.keys()):
+            details = non_identifiable[treatment]
+            blockers = details.get('confounders', []) if isinstance(details, dict) else []
+            notes = details.get('notes') if isinstance(details, dict) else None
             if blockers:
                 print(f"  - {treatment} → {outcome} (blocked by: {', '.join(blockers)})")
+            elif notes:
+                print(f"  - {treatment} → {outcome} ({notes})")
             else:
                 print(f"  - {treatment} → {outcome}")
         print("These effects will be flagged in the final ranking.")
@@ -153,7 +158,7 @@ def causal_inference_pipeline(
 
     if id_report['status'] == 'not_identifiable':
         print("\nNon-identifiable treatments will be flagged in results:")
-        for treatment in id_report['non_identifiable_treatments']:
+        for treatment in id_report['non_identifiable_treatments'].keys():
             print(f"  - {treatment}")
         print(f"\n{id_report['recommendation']}")
 

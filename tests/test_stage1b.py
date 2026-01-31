@@ -112,8 +112,9 @@ class TestGetConfoundersToFix:
     def test_extracts_confounders(self, stage1b_confounded_latent):
         """Extracts confounders from identifiability result."""
         id_result = {
-            "non_identifiable_treatments": {"Treatment"},
-            "blocking_confounders": {"Treatment": ["Confounder"]},
+            "non_identifiable_treatments": {
+                "Treatment": {"confounders": ["Confounder"]}
+            },
         }
 
         blocking_info, confounders = _get_confounders_to_fix(
@@ -127,8 +128,9 @@ class TestGetConfoundersToFix:
     def test_filters_unknown_confounders(self, stage1b_confounded_latent):
         """Filters out confounders not in the latent model."""
         id_result = {
-            "non_identifiable_treatments": {"Treatment"},
-            "blocking_confounders": {"Treatment": ["UnknownNode", "Confounder"]},
+            "non_identifiable_treatments": {
+                "Treatment": {"confounders": ["UnknownNode", "Confounder"]}
+            },
         }
 
         _, confounders = _get_confounders_to_fix(id_result, stage1b_confounded_latent)
@@ -345,11 +347,11 @@ class TestStage1bFlow:
 
         status = result.identifiability_status
 
-        assert "outcome" in status
-        assert "all_identifiable" in status
+        assert "identifiable_treatments" in status
         assert "non_identifiable_treatments" in status
-        assert "blocking_confounders" in status
-        assert status["all_identifiable"] is True
+        assert isinstance(status["identifiable_treatments"], dict)
+        assert isinstance(status["non_identifiable_treatments"], dict)
+        assert len(status["non_identifiable_treatments"]) == 0
 
     def test_marginalization_analysis_included(
         self,
@@ -382,7 +384,7 @@ class TestStage1bFlow:
         # Marginalization analysis should be present
         assert result.marginalization_analysis is not None
         assert "can_marginalize" in result.marginalization_analysis
-        assert "needs_modeling" in result.marginalization_analysis
+        assert "blocking_details" in result.marginalization_analysis
 
         # Confounder blocks identification, so it needs modeling
         assert "Confounder" in result.needs_modeling

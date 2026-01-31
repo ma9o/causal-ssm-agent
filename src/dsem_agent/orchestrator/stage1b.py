@@ -41,10 +41,8 @@ class Stage1bResult:
     def identifiability_status(self) -> dict:
         """Format for storing in DSEMModel."""
         return {
-            'outcome': self.final_identifiability['outcome'],
-            'all_identifiable': len(self.final_identifiability['non_identifiable_treatments']) == 0,
+            'identifiable_treatments': self.final_identifiability['identifiable_treatments'],
             'non_identifiable_treatments': self.final_identifiability['non_identifiable_treatments'],
-            'blocking_confounders': self.final_identifiability['blocking_confounders'],
         }
 
     @property
@@ -57,9 +55,16 @@ class Stage1bResult:
     @property
     def needs_modeling(self) -> set[str]:
         """Unobserved constructs that need explicit modeling (block identification)."""
-        if self.marginalization_analysis:
-            return self.marginalization_analysis.get('needs_modeling', set())
-        return set()
+        final_id = self.final_identifiability or {}
+        needs = set()
+        non_identifiable = final_id.get('non_identifiable_treatments', {})
+        for info in non_identifiable.values():
+            if not isinstance(info, dict):
+                continue
+            for conf in info.get('confounders', []):
+                if conf:
+                    needs.add(conf)
+        return needs
 
 
 @dataclass
@@ -146,20 +151,30 @@ def _get_confounders_to_fix(
     Returns:
         Tuple of (blocking_info_string, list_of_confounder_names)
     """
+    non_identifiable = id_result.get("non_identifiable_treatments", {})
     all_confounders = set()
-    for blockers in id_result["blocking_confounders"].values():
-        all_confounders.update(blockers)
+    for info in non_identifiable.values():
+        if not isinstance(info, dict):
+            continue
+        all_confounders.update(info.get("confounders", []))
 
     # Filter to actual constructs (not "unknown" errors)
     construct_names = {c["name"] for c in latent_model["constructs"]}
     confounders_to_fix = [c for c in all_confounders if c in construct_names]
 
     # Format blocking info
-    blocking_info = "\n".join([
-        f"- {treatment}: blocked by {', '.join(id_result['blocking_confounders'][treatment])}"
-        for treatment in sorted(id_result["non_identifiable_treatments"])
-        if treatment in id_result["blocking_confounders"]
-    ])
+    blocking_lines = []
+    for treatment in sorted(non_identifiable.keys()):
+        details = non_identifiable[treatment]
+        if not isinstance(details, dict):
+            continue
+        blockers = details.get("confounders", [])
+        notes = details.get("notes")
+        if blockers:
+            blocking_lines.append(f"- {treatment}: blocked by {', '.join(blockers)}")
+        elif notes:
+            blocking_lines.append(f"- {treatment}: {notes}")
+    blocking_info = "\n".join(blocking_lines)
 
     return blocking_info, confounders_to_fix
 
