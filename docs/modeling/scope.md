@@ -6,13 +6,13 @@ Previous versions of this document had a confused understanding of scope. Here's
 1. ORIGINAL SIN: We had an "Observability" dimension (Observed/Latent) in the construct taxonomy,
    leading to 8 "types" (2 roles × 2 observabilities × 2 temporal statuses).
 
-2. THE CONFUSION: We excluded Types 3, 6, 7, 8 based on "identification concerns." But 
-   identification is y0's job in Stage 3, not a schema-level exclusion. We were doing 
+2. THE CONFUSION: We excluded Types 3, 6, 7, 8 based on "identification concerns." But
+   identification is y0's job in Stage 1b, not a schema-level exclusion. We were doing
    y0's job at the wrong layer.
 
-3. THE REALIZATION: "Observed" just means "has ≥1 indicator." But whether a construct has 
-   indicators doesn't affect what the schema should accept—it affects whether y0 can 
-   identify your causal effect. That's a Stage 3 concern.
+3. THE REALIZATION: "Observed" just means "has ≥1 indicator." But whether a construct has
+   indicators doesn't affect what the schema should accept—it affects whether y0 can
+   identify your causal effect. That's a Stage 1b concern.
 
 4. THE FIX: Observability is not a schema-level concern. The schema accepts any DAG. 
    y0 checks identification. The only dimensions that matter for the framework's 
@@ -71,7 +71,7 @@ This yields four construct types:
 
 ## Identification
 
-Whether a causal effect is identified depends on the DAG structure and which constructs have indicators. This is checked by y0 in Stage 3, not enforced at the schema level.
+Whether a causal effect is identified depends on the DAG structure and which constructs have indicators. This is checked by y0 in Stage 1b (after measurement model proposal), not enforced at the schema level.
 
 The schema accepts any valid DAG. y0 determines if your target effect can be estimated.
 

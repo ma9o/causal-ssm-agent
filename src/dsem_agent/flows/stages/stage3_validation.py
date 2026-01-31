@@ -1,11 +1,14 @@
 """Stage 3: Extraction Validation.
 
 Validates that worker extraction (Stage 2) produced usable data:
-1. Check that each proxy/indicator actually has data in the extracted dataframes
-2. If proxies are missing or empty, flag for DAG revalidation
-3. Report coverage statistics
+1. Check that each indicator has data in the extracted dataframes
+2. Report coverage statistics (which indicators have data, which are missing/empty)
+3. If critical indicators are missing, suggest DAG modifications or alternative operationalizations
 
-This stage catches extraction failures before model specification.
+This stage catches extraction failures before model specification (Stage 4).
+
+Note: Identifiability checking is done in Stage 1b as part of the measurement model
+proposal. This stage focuses on data quality after extraction, not causal identification.
 """
 
 from prefect import task

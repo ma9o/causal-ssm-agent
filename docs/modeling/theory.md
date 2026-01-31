@@ -34,7 +34,7 @@ Since the algorithm never examines parts of the graph outside An(Y), additions t
 
 When the framework calls `identify_effect(T, O)` for each treatment-outcome pair, each check is independent. If we check effects {(A→B), (B→C), (A→C)} and find (B→C) non-identifiable but (A→B) and (A→C) identifiable, we can proceed with estimating those two effects. The non-identifiability doesn't "infect" the identifiable queries.
 
-This is why Stage 3 can check identification per-effect rather than requiring the entire model to be "fully identified."
+This is why Stage 1b can check identification per-effect rather than requiring the entire model to be "fully identified."
 
 ### References
 
@@ -133,7 +133,8 @@ When the framework encounters an unobserved confounder without indicators:
 
 1. **It does not try to estimate U's effect** — this would be non-identified
 2. **It checks if the target effect X→Y is identified** via backdoor, front-door, or IV
-3. **If not identified**, it runs sensitivity analysis (Cinelli-Hazlett) to bound the bias
+3. **If not identified**, it prompts for proxy indicators to try to resolve the confounding
+4. **If still non-identifiable**, the effect is flagged in the model output (future: sensitivity analysis could bound the bias)
 
 The correlated-error representation is useful for *acknowledging* and *bounding* confounding, not for *resolving* it without additional structure.
 
@@ -156,11 +157,11 @@ The framework implements a two-stage workflow grounded in the structural equatio
 
 1. **Stage 1a (Latent Model):** The orchestrator LLM proposes a theoretical causal DAG over constructs based on domain knowledge alone—no data. This separates theoretical reasoning from operationalization.
 
-2. **Stage 1b (Measurement Model):** Given data, the orchestrator proposes observed indicators for each construct. Indicators follow the reflective measurement model. Constructs may have one indicator (measurement error absorbed) or multiple indicators (CFA identification).
+2. **Stage 1b (Measurement Model with Identifiability):** Given data, the orchestrator proposes observed indicators for each construct. Indicators follow the reflective measurement model. Constructs may have one indicator (measurement error absorbed) or multiple indicators (CFA identification). After proposing measurements, y0 checks identification of target causal effects using Pearl's ID algorithm. If effects are non-identifiable, the orchestrator is prompted to propose proxies for blocking confounders.
 
-3. **Stage 3 (CFA Validation):** For multi-indicator constructs, confirmatory factor analysis validates that proposed indicators load on their intended constructs and that the measurement model is identified.
+3. **Stage 2 (Worker Extraction):** Worker LLMs process data chunks in parallel to extract indicator values.
 
-4. **Stage 3 (Causal Identification):** y0 checks identification of target causal effects on the structural model using Pearl's ID algorithm, treating observed constructs (those with indicators) as identifiable.
+4. **Stage 3 (Extraction Validation):** Validates that worker extraction produced usable data. For multi-indicator constructs, CFA can validate that proposed indicators load on their intended constructs.
 
 This two-step approach—measurement model first, structural model second—is the standard methodology in SEM research. As Anderson & Gerbing (1988) argue, validating the measurement model is a necessary prerequisite to interpreting structural relationships:
 

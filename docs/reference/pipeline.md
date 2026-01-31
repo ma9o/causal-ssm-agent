@@ -4,11 +4,13 @@
 
 **[1a] Latent Model (Orchestrator):** Given only the user's question (no data), the Orchestrator LLM proposes a theoretical causal structure based on domain knowledge. It walks backwards from the implied outcome: what causes Y? What causes those? Output: latent constructs with causal edges. This separates theoretical reasoning from data-driven operationalization.
 
-**[1b] Measurement Model (Orchestrator):** Given the latent structure and a data sample, the Orchestrator operationalizes each latent construct into observed indicators. For each latent, it proposes: `how_to_measure` instructions, `measurement_dtype`, `measurement_granularity`, and `aggregation`. One latent may map to multiple indicators (1:N reflective measurement model). Output: full DSEMStructure.
+**[1b] Measurement Model with Identifiability (Orchestrator):** Given the latent structure and a data sample, the Orchestrator operationalizes each latent construct into observed indicators. For each latent, it proposes: `how_to_measure` instructions, `measurement_dtype`, `measurement_granularity`, and `aggregation`. One latent may map to multiple indicators (1:N reflective measurement model).
 
-**[2] Distributed Discovery (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting data for the proposed dimensions. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
+After proposing measurements, identifiability is checked using y0's ID algorithm (Pearl's do-calculus). If effects are non-identifiable due to unobserved confounders, the Orchestrator is prompted to propose proxy indicators for the blocking confounders. Identifiability is re-checked after adding proxies. Effects that remain non-identifiable are flagged in the model for downstream handling. Output: full DSEMStructure with identifiability status.
 
-**[3] Identifiability (y0):** Check if target causal effects are identifiable using Pearl's ID algorithm. In case of unobserved confounders that make effects unidentifiable, run sensitivity analysis (Cinelli-Hazlett) on a naive linear model and continue if bias is bounded (return control to user if not).
+**[2] Distributed Discovery (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting data for the proposed indicators. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
+
+**[3] Extraction Validation:** Validate that worker extraction (Stage 2) produced usable data. Check that each indicator has data coverage, flag missing or empty indicators. If critical indicators are missing, suggest DAG modifications or alternative operationalizations before proceeding to model specification.
 
 **[4] Model Specification (PyMC):** The orchestrator specifies the statistical model (GLMs) in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
 
