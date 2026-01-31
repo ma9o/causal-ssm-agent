@@ -25,10 +25,20 @@ class Stage2Config:
 
 
 @dataclass(frozen=True)
+class LiteratureSearchConfig:
+    """Literature search configuration for grounding priors."""
+
+    enabled: bool = True
+    model: str = "exa-research"
+    timeout_ms: int = 120000
+
+
+@dataclass(frozen=True)
 class Stage4Config:
     """Stage 4: Prior Elicitation."""
 
     model: str
+    literature_search: LiteratureSearchConfig = LiteratureSearchConfig()
 
 
 @dataclass(frozen=True)
@@ -61,10 +71,17 @@ def load_config() -> PipelineConfig:
     with open(config_path) as f:
         raw = yaml.safe_load(f)
 
+    stage4_raw = raw["stage4_prior_elicitation"]
+    lit_search_raw = stage4_raw.get("literature_search", {})
+    stage4_config = Stage4Config(
+        model=stage4_raw["model"],
+        literature_search=LiteratureSearchConfig(**lit_search_raw) if lit_search_raw else LiteratureSearchConfig(),
+    )
+
     return PipelineConfig(
         stage1_structure_proposal=Stage1Config(**raw["stage1_structure_proposal"]),
         stage2_workers=Stage2Config(**raw["stage2_workers"]),
-        stage4_prior_elicitation=Stage4Config(**raw["stage4_prior_elicitation"]),
+        stage4_prior_elicitation=stage4_config,
     )
 
 

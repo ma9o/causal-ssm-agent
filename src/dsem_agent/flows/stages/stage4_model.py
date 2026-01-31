@@ -226,7 +226,8 @@ def elicit_priors(
     """Elicit domain-informed priors from LLM for model parameters.
 
     Uses the orchestrator LLM to propose effect size priors based on
-    domain knowledge and the causal structure.
+    domain knowledge and the causal structure. Optionally searches
+    literature for empirical effect sizes to ground priors.
 
     Args:
         model_spec: Output from specify_model()
@@ -241,18 +242,43 @@ def elicit_priors(
 
     from dsem_agent.orchestrator.stage4 import run_stage4
     from dsem_agent.utils.config import get_config
+    from dsem_agent.utils.literature_search import (
+        format_literature_for_prompt,
+        search_literature,
+    )
     from dsem_agent.utils.llm import make_orchestrator_generate_fn
 
     async def run():
-        model = get_model(get_config().stage1_structure_proposal.model)
+        config = get_config()
+        model = get_model(config.stage4_prior_elicitation.model)
         generate = make_orchestrator_generate_fn(model)
+
+        # Search literature for empirical evidence (if enabled)
+        literature_context = ""
+        lit_config = config.stage4_prior_elicitation.literature_search
+        if lit_config.enabled:
+            # Extract edges for literature search
+            edges = [
+                {"cause": spec["cause"], "effect": spec["effect"]}
+                for spec in model_spec.get("edges", {}).values()
+            ]
+
+            if edges:
+                lit_result = await search_literature(
+                    question=question,
+                    edges=edges,
+                    model=lit_config.model,
+                    timeout_ms=lit_config.timeout_ms,
+                )
+                literature_context = format_literature_for_prompt(lit_result, edges)
 
         result = await run_stage4(
             model_spec=model_spec,
             question=question,
             generate=generate,
             default_priors=DEFAULT_PRIORS,
-            n_paraphrases=1,  # Single elicitation for now
+            n_paraphrases=1,
+            literature_context=literature_context,
         )
 
         return result.to_prior_dict()

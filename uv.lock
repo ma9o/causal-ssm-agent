@@ -865,6 +865,7 @@ name = "dsem-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "exa-py" },
     { name = "google-genai" },
     { name = "inspect-ai" },
     { name = "networkx" },
@@ -888,6 +889,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "exa-py", specifier = ">=1.0.0" },
     { name = "google-genai", specifier = ">=1.56.0" },
     { name = "inspect-ai", specifier = ">=0.3.162" },
     { name = "networkx", specifier = ">=3.6" },
@@ -954,6 +956,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/42/c0/ba049efa7d216221713cffc303641bd73bbb309ff0e4e2a623f32af2a4ea/etuples-0.3.10.tar.gz", hash = "sha256:26fde81d7e822837146231bfce4d6ba67eab5d7ed55bc58ba7437c2568051167", size = 21493, upload-time = "2025-07-14T18:49:35.654Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/19/bf11636df040a9f9c3fd6959aedea5b5cfddd751272732278fb04ee0a78c/etuples-0.3.10-py3-none-any.whl", hash = "sha256:4408c7940ef06af52dbbea0954a8a1817ed5750ce905ff48091ac3cd3aeb720b", size = 12201, upload-time = "2025-07-14T18:49:34.557Z" },
+]
+
+[[package]]
+name = "exa-py"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/01/aa85d5c8c2ed7452816313eb4db865a9d17b2102fdbc33792182f94a94e6/exa_py-2.2.0.tar.gz", hash = "sha256:0e075705b1bc07bebcdc99935f01567706c72e78359a4d427c313fd382e817b4", size = 47542, upload-time = "2026-01-27T22:29:02.057Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/03/3f/69a5fed1b12489124aad1cdd9a38e094f13c7891df73df6a9c7e4c6d5c52/exa_py-2.2.0-py3-none-any.whl", hash = "sha256:a0f7c7c4d0d5dc8162e69e5fc4d3ff2067442b9abf2ebdef4dbe329f093822c9", size = 62763, upload-time = "2026-01-27T22:29:01.086Z" },
 ]
 
 [[package]]

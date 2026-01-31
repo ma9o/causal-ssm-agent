@@ -19,6 +19,11 @@ stage2_workers:
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
   model: openrouter/anthropic/claude-opus-4.5
+  # Literature search for grounding priors (requires EXA_API_KEY in .env)
+  literature_search:
+    enabled: true
+    model: exa-research  # exa-research-fast, exa-research, or exa-research-pro
+    timeout_ms: 120000   # Max time to wait for research completion
 
 # Stage 5: Intervention Analysis
 # Uses PyMC - no LLM needed

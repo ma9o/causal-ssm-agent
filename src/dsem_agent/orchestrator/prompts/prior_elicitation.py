@@ -18,7 +18,8 @@ Your task is to provide **informative priors** based on domain knowledge, not va
    - Don't be overconfident—LLM priors tend toward overconfidence
 
 3. **Use domain knowledge**:
-   - Reference empirical findings from relevant literature
+   - When literature evidence is provided, use reported effect sizes as anchors
+   - Weight your priors toward meta-analyses and large-scale studies
    - Consider mechanistic reasoning about the causal pathway
    - Think about typical effect magnitudes in this field
 

@@ -80,9 +80,14 @@ def _format_model_structure(model_spec: dict) -> str:
     return "\n".join(lines)
 
 
-def _format_parameters(model_spec: dict) -> str:
-    """Format parameters requiring priors."""
+def _format_parameters(model_spec: dict, literature_context: str = "") -> str:
+    """Format parameters requiring priors, optionally with literature context."""
     lines = []
+
+    # Include literature evidence if available
+    if literature_context:
+        lines.append(literature_context)
+        lines.append("")
 
     # AR coefficients
     lines.append("### AR(1) Coefficients (temporal persistence)")
@@ -236,6 +241,7 @@ async def run_stage4(
     generate: OrchestratorGenerateFn,
     default_priors: dict,
     n_paraphrases: int = 1,
+    literature_context: str = "",
 ) -> Stage4Result:
     """
     Run prior elicitation for all model parameters.
@@ -246,12 +252,13 @@ async def run_stage4(
         generate: Async function (messages, tools, follow_ups) -> completion
         default_priors: Fallback priors if elicitation fails
         n_paraphrases: Number of paraphrased elicitations (1 = no paraphrasing)
+        literature_context: Formatted literature evidence to include in prompt
 
     Returns:
         Stage4Result with elicited priors
     """
     model_structure = _format_model_structure(model_spec)
-    parameters = _format_parameters(model_spec)
+    parameters = _format_parameters(model_spec, literature_context)
 
     # Build elicitation messages
     messages = [
