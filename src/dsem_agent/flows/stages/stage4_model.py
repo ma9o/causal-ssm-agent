@@ -75,6 +75,7 @@ def _build_construct_specs(dsem_model: DSEMModel) -> dict:
     for construct in dsem_model.latent.constructs:
         spec = {
             "name": construct.name,
+            "description": construct.description,
             "role": construct.role.value,
             "temporal_status": construct.temporal_status.value,
             "is_outcome": construct.is_outcome,
@@ -106,6 +107,7 @@ def _build_edge_specs(dsem_model: DSEMModel) -> dict:
         specs[param_name] = {
             "cause": edge.cause,
             "effect": edge.effect,
+            "description": edge.description,
             "lagged": edge.lagged,
             "lag_hours": dsem_model.get_edge_lag_hours(edge),
             "prior": DEFAULT_PRIORS["beta"].copy(),
@@ -217,44 +219,96 @@ def specify_model(latent_dict: dict, dsem_dict: dict) -> dict:
 
 
 @task(retries=2, retry_delay_seconds=10, task_run_name="elicit-priors")
-def elicit_priors(model_spec: dict) -> dict:
+def elicit_priors(
+    model_spec: dict,
+    question: str = "",
+) -> dict:
     """Elicit domain-informed priors from LLM for model parameters.
 
-    Uses AutoElicit-style paraphrased prompting to handle LLM uncertainty:
-    1. Generate N paraphrased task descriptions
-    2. Elicit prior parameters (mean, std) for each paraphrase
-    3. Aggregate into mixture or pooled prior
+    Uses the orchestrator LLM to propose effect size priors based on
+    domain knowledge and the causal structure.
+
+    Args:
+        model_spec: Output from specify_model()
+        question: The research question for context
+
+    Returns:
+        Priors dict with LLM-informed hyperparameters
+    """
+    import asyncio
+
+    from inspect_ai.model import get_model
+
+    from dsem_agent.orchestrator.stage4 import run_stage4
+    from dsem_agent.utils.config import get_config
+    from dsem_agent.utils.llm import make_orchestrator_generate_fn
+
+    async def run():
+        model = get_model(get_config().stage1_structure_proposal.model)
+        generate = make_orchestrator_generate_fn(model)
+
+        result = await run_stage4(
+            model_spec=model_spec,
+            question=question,
+            generate=generate,
+            default_priors=DEFAULT_PRIORS,
+            n_paraphrases=1,  # Single elicitation for now
+        )
+
+        return result.to_prior_dict()
+
+    return asyncio.run(run())
+
+
+@task(cache_policy=INPUTS)
+def elicit_priors_sync(model_spec: dict) -> dict:
+    """Synchronous fallback: return default priors without LLM elicitation.
+
+    Use this when LLM elicitation is not available or for testing.
 
     Args:
         model_spec: Output from specify_model()
 
     Returns:
-        Refined priors dict with LLM-informed hyperparameters
-
-    TODO: Implement LLM elicitation following docs/modeling/functional_spec.md
-        - Use orchestrator LLM to propose effect size priors
-        - Paraphrase prompts N times for robustness
-        - Aggregate responses into final priors
-        - Fall back to defaults if elicitation fails
+        Default priors dict extracted from model_spec
     """
-    # For now, return the default priors from model_spec unchanged
-    # LLM elicitation will refine these
     priors = {}
 
     # Extract AR priors
     for name, spec in model_spec.get("constructs", {}).items():
         if "ar_prior" in spec and spec["ar_prior"]:
-            priors[f"rho_{name}"] = spec["ar_prior"]
+            priors[f"rho_{name}"] = {
+                "mean": 0.5,
+                "std": 0.25,
+                "reasoning": "Default: moderate persistence expected",
+                "source": "default",
+            }
         if "sigma_prior" in spec and spec["sigma_prior"]:
-            priors[f"sigma_{name}"] = spec["sigma_prior"]
+            priors[f"sigma_{name}"] = {
+                "mean": 1.0,
+                "std": 0.5,
+                "reasoning": "Default: unit-scale residual variance",
+                "source": "default",
+            }
 
     # Extract edge priors
     for param_name, spec in model_spec.get("edges", {}).items():
-        priors[param_name] = spec["prior"]
+        prior = spec.get("prior", {})
+        priors[param_name] = {
+            "mean": prior.get("mean", 0.0),
+            "std": prior.get("std", 0.5),
+            "reasoning": "Default: weakly informative prior centered at zero",
+            "source": "default",
+        }
 
     # Extract loading priors
     for name, spec in model_spec.get("measurement", {}).items():
         if spec.get("loading_prior"):
-            priors[f"lambda_{name}"] = spec["loading_prior"]
+            priors[f"lambda_{name}"] = {
+                "mean": 1.0,
+                "std": 0.5,
+                "reasoning": "Default: loadings expected near unity",
+                "source": "default",
+            }
 
     return priors

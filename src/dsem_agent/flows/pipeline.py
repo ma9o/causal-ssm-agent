@@ -160,7 +160,12 @@ def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 4: Model Specification ===")
     model_spec = specify_model(dsem_model["latent"], dsem_model)
-    priors = elicit_priors(model_spec)
+    print(f"Model clock: {model_spec['time_index']}")
+    print(f"Parameters: {len(model_spec['edges'])} causal effects, "
+          f"{sum(1 for c in model_spec['constructs'].values() if c.get('ar_prior'))} AR terms")
+
+    print("\n=== Stage 4b: Prior Elicitation ===")
+    priors = elicit_priors(model_spec, question)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 5: Fit and intervene (with identifiability awareness)
