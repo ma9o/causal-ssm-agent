@@ -223,10 +223,24 @@ confounding that would otherwise be missed.
 
 ```python
 # unroll_temporal_dag() creates nodes like X_t, X_{t-1}
-# with AR(1) edges for endogenous constructs
+# with AR(1) edges for OBSERVED constructs only
 # Lagged edges become: cause_{t-1} → effect_t
 # Contemporaneous edges become: cause_t → effect_t
 ```
+
+### Why AR(1) is Excluded for Hidden Constructs
+Following the standard ADMG representation (Jahn et al. 2025, Shpitser & Pearl 2008):
+- Latent confounders are "marginalized out" into bidirected edges
+- The internal dynamics of latents (AR(1)) are irrelevant for identification
+- What matters is WHERE confounding appears (which observed variables), not HOW the latent evolves
+- Including AR(1) for hidden nodes causes y0's `from_latent_variable_dag()` to incorrectly
+  include hidden nodes in the ADMG (bug workaround)
+
+Example: If U is unobserved and confounds X,Y:
+- We model: U_t → X_t, U_t → Y_t (confounding edges)
+- We DON'T model: U_{t-1} → U_t (AR(1) on hidden)
+- y0 projects to: X_t ↔ Y_t (bidirected edge)
+- The identification decision is the same either way
 
 ### Identification Pattern
 ```python

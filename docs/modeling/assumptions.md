@@ -69,6 +69,8 @@ But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current
 
 **Theoretical foundation:** Jahn, Karnik & Schulman (2025) prove that for periodic causal graphs with width w (variables per timestep) and latency L (max lag), running the ID algorithm on a segment of size O(w × L) suffices to decide identifiability. Under A3 + A3a, L = 1, so a 2-timestep segment suffices.
 
+**Note on latent AR dynamics:** The paper works with ADMGs where latent confounders are represented as bidirected edges, not as explicit nodes with their own temporal dynamics. This is the standard causal inference approach: latent variables are "marginalized out" into bidirected edges that represent the confounding relationship. The internal dynamics of latent confounders (e.g., their AR(1) structure) are irrelevant for identification - what matters is *where* the confounding appears (which observed variables at which timesteps are affected), not how the latent evolves internally. Our implementation follows this convention: AR(1) edges are only added for observed constructs, while unobserved constructs contribute only their confounding edges to the identification graph.
+
 **Reference:** Jahn, E., Karnik, K., & Schulman, L. J. (2025). Causal Identification in Time Series Models. arXiv:2504.20172.
 
 ---
