@@ -8,9 +8,25 @@
 
 After proposing measurements, identifiability is checked using y0's ID algorithm (Pearl's do-calculus). If effects are non-identifiable due to unobserved confounders, the Orchestrator is prompted to propose proxy indicators for the blocking confounders. Identifiability is re-checked after adding proxies. Effects that remain non-identifiable are flagged in the model for downstream handling. Output: full DSEMStructure with identifiability status.
 
-**[2] Distributed Discovery (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting data for the proposed indicators. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
+**[2] Extract (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting raw indicator values as (indicator, value, timestamp) tuples. This is the "E" in ETL. Workers do one thing: extract values from text. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
 
-**[3] Extraction Validation:** Validate that worker extraction (Stage 2) produced usable data. Check that each indicator has data coverage, flag missing or empty indicators. If critical indicators are missing, suggest DAG modifications or alternative operationalizations before proceeding to model specification.
+**[3] Transform + Validate:** This stage performs the "T" (Transform) and semantic validation in an ETL pipeline:
+
+**Stage 3a - Transform (aggregate_measurements):**
+- Concatenate raw worker DataFrames (indicator, value, timestamp)
+- Parse timestamps and bucket to each construct's causal_granularity
+- Apply indicator-specific aggregation (mean, sum, max, etc.)
+- Output: dict[granularity → DataFrame] with time_bucket column + indicator columns
+
+**Stage 3b - Validate (validate_extraction):**
+Semantic checks that Polars schema can't enforce. Structural validation (column existence, dtypes) is handled by Polars and downstream stages.
+
+| Check | What | Failure Condition |
+|-------|------|-------------------|
+| **Variance** | Indicator has variance > 0 | Constant values (zero information) |
+| **Sample size** | Enough time points for temporal modeling | < N observations per granularity |
+
+**Output:** `{is_valid: bool, issues: list[{indicator, issue_type, severity, message}]}`
 
 **[4] Model Specification (PyMC):** The orchestrator specifies the statistical model (GLMs) in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
 

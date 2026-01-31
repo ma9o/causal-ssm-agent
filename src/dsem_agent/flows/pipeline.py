@@ -140,8 +140,10 @@ def causal_inference_pipeline(
     )
 
     # Stage 2b: Aggregate measurements into time-series by causal_granularity
-    measurements = aggregate_measurements(worker_results, dsem_model)
-    for granularity, df in measurements.items():
+    measurements_task = aggregate_measurements(worker_results, dsem_model)
+    measurements_data = measurements_task.result() if hasattr(measurements_task, "result") else measurements_task
+
+    for granularity, df in measurements_data.items():
         n_indicators = len([c for c in df.columns if c != "time_bucket"])
         if granularity == "time_invariant":
             print(f"  {granularity}: {n_indicators} indicators")
@@ -152,8 +154,40 @@ def causal_inference_pipeline(
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 3: Extraction Validation ===")
-    validation_report = validate_extraction(dsem_model, measurements)
-    # TODO: Handle validation failures - revalidate DAG if proxies missing
+    validation_task = validate_extraction(dsem_model, measurements_data)
+    validation_report = validation_task.result() if hasattr(validation_task, "result") else validation_task
+
+    if validation_report:
+        issues = validation_report.get("issues", [])
+        if not validation_report.get("is_valid", True):
+            print("⚠️  Stage 3 validation errors detected:")
+            for issue in issues:
+                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
+        elif issues:
+            print("⚠️  Stage 3 validation warnings:")
+            for issue in issues:
+                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
+
+    constructs = dsem_model.get("latent", {}).get("constructs", [])
+    construct_granularity = {c.get("name"): c.get("causal_granularity") for c in constructs}
+    missing_indicators: list[str] = []
+
+    for indicator in dsem_model.get("measurement", {}).get("indicators", []):
+        ind_name = indicator.get("name")
+        if not ind_name:
+            continue
+
+        construct_name = indicator.get("construct") or indicator.get("construct_name")
+        granularity = construct_granularity.get(construct_name)
+        gran_key = granularity if granularity else "time_invariant"
+
+        df = measurements_data.get(gran_key)
+        if df is None or ind_name not in df.columns:
+            missing_indicators.append(ind_name)
+
+    if missing_indicators:
+        joined = ", ".join(sorted(set(missing_indicators)))
+        print(f"⚠️  Aggregation produced no data for indicators: {joined}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4: Model specification

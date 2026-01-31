@@ -9,12 +9,11 @@ from .stage1b_measurement import (
     propose_measurement_with_identifiability_fix,
 )
 from .stage2_workers import (
-    aggregate_measurements,
     load_worker_chunks,
     populate_indicators,
 )
 from .stage3_validation import (
-    revalidate_dag_for_missing_proxies,
+    aggregate_measurements,
     validate_extraction,
 )
 from .stage4_model import (
@@ -33,13 +32,12 @@ __all__ = [
     "load_orchestrator_chunks",
     "propose_measurement_with_identifiability_fix",
     "build_dsem_model",
-    # Stage 2
+    # Stage 2: Extract
     "load_worker_chunks",
     "populate_indicators",
+    # Stage 3: Transform + Validate
     "aggregate_measurements",
-    # Stage 3
     "validate_extraction",
-    "revalidate_dag_for_missing_proxies",
     # Stage 4
     "specify_model",
     "elicit_priors",

@@ -268,6 +268,87 @@ LLMs can produce invalid statistical objects (negative variances, improper distr
 
 ---
 
+## Model Validation: Predictive Checks
+
+Bayesian model validation uses predictive checks at two points in the workflow. These replace frequentist CFA-style validation with a unified generative approach.
+
+### Prior Predictive Checks (Stage 4)
+
+**When:** After prior elicitation, before fitting to data.
+
+**What:** Simulate data from the generative model using only priors (no observed data):
+1. Sample parameters from their prior distributions (loadings, AR coefficients, effect sizes)
+2. Generate implied indicator values through the measurement model
+3. Check if simulated data is consistent with domain expectations
+
+**Purpose:** Validate that priors + model structure produce plausible data. Catches:
+- Priors too wide (absurd values like loadings of ±30)
+- Priors too narrow (artificially constrained, won't learn from data)
+- Structural misspecification (implied variance structure is unreasonable)
+
+**Implementation:**
+```python
+# PyMC pattern
+with model:
+    prior_pred = pm.sample_prior_predictive(samples=1000)
+
+# Check: are simulated indicator values in plausible range?
+# Check: do simulated effect sizes match domain expectations?
+```
+
+**If check fails:** Iterate on prior specification before proceeding to MCMC.
+
+### Posterior Predictive Checks (Stage 5)
+
+**When:** After fitting the model to extracted data.
+
+**What:** Simulate data from the fitted model and compare to actual data:
+1. Sample parameters from the posterior distribution
+2. Generate replicated datasets through the full model
+3. Compare summary statistics (mean, variance, quantiles) between real and replicated data
+
+**Purpose:** Validate that the fitted model captures relevant aspects of the data. Catches:
+- Measurement model misspecification (indicators don't reflect constructs)
+- Structural misspecification (missing edges, wrong functional form)
+- Distribution misspecification (heavy tails, multimodality)
+
+**Implementation:**
+```python
+# PyMC pattern
+with model:
+    posterior_pred = pm.sample_posterior_predictive(trace)
+
+# Compare: observed vs replicated variance, means, correlations
+# Bayesian p-value: proportion of replicates where test stat > observed
+```
+
+**Interpretation:**
+- p-value near 0.5: Good fit (replicated data indistinguishable from observed)
+- p-value near 0 or 1: Systematic misfit (model fails to capture some aspect)
+
+**If check fails:** Revise model structure, re-fit, and re-check.
+
+### Why Not CFA First?
+
+Traditional SEM uses a two-step approach (Anderson & Gerbing, 1988): validate the measurement model via CFA, then fit the structural model. This is a frequentist computational convenience.
+
+In Bayesian workflow (Gelman et al., 2020; Betancourt, 2018):
+- The full generative model (measurement + structural) is specified and fit together
+- Prior predictive checks validate the model specification before seeing data
+- Posterior predictive checks validate model adequacy after fitting
+- There is no separate "measurement validation" step
+
+The question "is this indicator a good proxy?" is answered by the posterior predictive distribution, not by a pre-fitting validation gate.
+
+### References
+
+- Gelman, A., et al. (2020). Bayesian Workflow. arXiv:2011.01808.
+- Betancourt, M. (2018). Towards a Principled Bayesian Workflow. https://betanalpha.github.io/
+- Gabry, J., et al. (2019). Visualization in Bayesian Workflow. JRSS-A, 182(2), 389-402.
+- Stan Development Team. Posterior and Prior Predictive Checks. https://mc-stan.org/docs/stan-users-guide/posterior-predictive-checks.html
+
+---
+
 ## References
 
 ### Bayesian SEM in PyMC
