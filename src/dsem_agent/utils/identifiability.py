@@ -385,17 +385,20 @@ def find_blocking_confounders(
 ) -> list[str]:
     """Find unobserved constructs that confound the treatment-outcome relationship.
 
-    A confounder U creates a backdoor path in the projected ADMG. For U to be
-    a confounder in the ADMG:
-    - U must be unobserved
-    - U must have 2+ direct observed children (only then does U create bidirected edges)
-    - Those children must include paths to both treatment and outcome
+    A confounder U creates a backdoor path from treatment to outcome. For U to
+    be a *blocking* confounder (one that needs a proxy):
+    - U must be an ancestor of treatment
+    - U must reach outcome through a path that does NOT go through treatment
+    - U must have at least one direct child that is observed
 
-    Unobserved nodes that only affect other unobserved nodes get absorbed in the
-    ADMG projection - they don't directly create confounding.
+    The last condition ensures U is a "proximal" confounder. If U only affects
+    observed nodes through other unobserved nodes (U1 → U2 → X), then U2 is the
+    proximal confounder that needs a proxy, not U1. Observing U1 wouldn't help
+    if U2 remains unobserved.
 
-    Note: This is a heuristic for reporting. The actual identification decision
-    is made by y0's identify_outcomes() algorithm.
+    Note: This may over-report if identification strategies like front-door
+    handle some confounding. The actual identification decision is made by
+    y0's identify_outcomes() algorithm.
     """
     G = nx.DiGraph()
     for edge in latent_model.get('edges', []):
@@ -404,6 +407,11 @@ def find_blocking_confounders(
     all_constructs = {c['name'] for c in latent_model['constructs']}
     unobserved = all_constructs - observed_constructs
 
+    # Create graph with treatment removed to check backdoor paths
+    G_sans_treatment = G.copy()
+    if treatment in G_sans_treatment:
+        G_sans_treatment.remove_node(treatment)
+
     blocking = []
     for u in unobserved:
         if u not in G:
@@ -411,34 +419,24 @@ def find_blocking_confounders(
         if u == treatment or u == outcome:
             continue
 
-        # Check if U has 2+ direct observed children
-        # (Only then does U create bidirected edges in the projected ADMG)
-        direct_children = list(G.successors(u)) if u in G else []
-        observed_children = [c for c in direct_children if c in observed_constructs]
-
-        if len(observed_children) < 2:
-            # U doesn't create bidirected edges directly
-            # It may affect things through other unobserved nodes, but those
-            # nodes will be the confounders, not U
+        # Check if U has any direct observed children
+        # If not, U's confounding effect is mediated through other unobserved nodes
+        direct_children = list(G.successors(u))
+        has_observed_child = any(c in observed_constructs for c in direct_children)
+        if not has_observed_child:
             continue
 
-        # Check if U's observed children include paths to both treatment and outcome
-        has_path_to_treatment = any(
-            c == treatment or (c in G and treatment in G and nx.has_path(G, c, treatment))
-            for c in observed_children
-        )
-        has_path_to_outcome = any(
-            c == outcome or (c in G and outcome in G and nx.has_path(G, c, outcome))
-            for c in observed_children
+        # U is a blocking confounder if:
+        # 1. U is an ancestor of treatment
+        # 2. U reaches outcome WITHOUT going through treatment (backdoor path)
+        is_ancestor_of_treatment = nx.has_path(G, u, treatment)
+        reaches_outcome_via_backdoor = (
+            u in G_sans_treatment
+            and outcome in G_sans_treatment
+            and nx.has_path(G_sans_treatment, u, outcome)
         )
 
-        # Also check if U directly affects treatment or outcome
-        if treatment in observed_children:
-            has_path_to_treatment = True
-        if outcome in observed_children:
-            has_path_to_outcome = True
-
-        if has_path_to_treatment and has_path_to_outcome:
+        if is_ancestor_of_treatment and reaches_outcome_via_backdoor:
             blocking.append(u)
 
     return blocking

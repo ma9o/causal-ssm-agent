@@ -954,6 +954,46 @@ class TestComplexConfounding:
         assert_not_identifiable(result, 'X', "U2 confounds X and Y")
         assert_blocked_by(result, 'X', 'U2')
 
+    def test_find_blocking_confounders_latent_chain_to_outcome(self):
+        """Test find_blocking_confounders catches confounders via latent chains.
+
+        U -> X
+        U -> V -> Y
+        X -> Y
+
+        Where U and V are unobserved. U is a confounder because it creates
+        the backdoor path: X <- U -> V -> Y
+
+        U has only ONE direct observed child (X), so the old heuristic of
+        "2+ direct observed children" would miss it.
+
+        This test directly checks find_blocking_confounders, not full identification.
+        """
+        from dsem_agent.utils.identifiability import find_blocking_confounders
+
+        latent_model = make_latent_model(
+            constructs=[
+                {'name': 'U'},
+                {'name': 'V'},
+                {'name': 'X'},
+                {'name': 'Y', 'is_outcome': True},
+            ],
+            edges=[
+                {'cause': 'U', 'effect': 'X'},
+                {'cause': 'U', 'effect': 'V'},
+                {'cause': 'V', 'effect': 'Y'},
+                {'cause': 'X', 'effect': 'Y'},
+            ]
+        )
+        observed = {'X', 'Y'}
+
+        blockers = find_blocking_confounders(latent_model, observed, 'X', 'Y')
+
+        # U creates backdoor path X <- U -> V -> Y, should be reported
+        assert 'U' in blockers, f"U should be a blocking confounder. Got: {blockers}"
+        # V does NOT create a backdoor path (no path from V to X)
+        assert 'V' not in blockers, f"V should not be a blocking confounder. Got: {blockers}"
+
     def test_m_bias_structure(self):
         """M-bias (butterfly): Classic structure where naive adjustment fails.
 
