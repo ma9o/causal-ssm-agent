@@ -55,9 +55,9 @@ dsem-agent/
 │   │   ├── prompts/   # LLM prompts for all stages
 │   │   │   ├── latent_model.py      # Stage 1a prompts
 │   │   │   ├── measurement_model.py # Stage 1b prompts
-│   │   │   └── glmm_proposal.py     # Stage 4 GLMM specification prompts
+│   │   │   └── model_proposal.py    # Stage 4 model specification prompts
 │   │   ├── schemas.py        # Construct, Indicator, LatentModel, MeasurementModel, DSEMModel
-│   │   ├── schemas_glmm.py   # GLMMSpec, ParameterSpec for Stage 4
+│   │   ├── schemas_model.py  # ModelSpec, ParameterSpec for Stage 4
 │   │   └── stage4_orchestrator.py   # Stage 4 orchestrator logic
 │   ├── workers/       # Indicator extraction + prior research LLMs
 │   │   ├── agents.py         # Stage 2 worker agents

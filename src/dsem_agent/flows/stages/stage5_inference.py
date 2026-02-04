@@ -17,7 +17,7 @@ def fit_model(stage4_result: dict, data: list[str]) -> Any:
 
     Args:
         stage4_result: Result from stage4_orchestrated_flow containing
-            glmm_spec, priors, and model_info
+            model_spec, priors, and model_info
         data: Raw data chunks
 
     Returns:

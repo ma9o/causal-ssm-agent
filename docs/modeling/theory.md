@@ -224,3 +224,88 @@ As noted in **"Demystifying Proximal Causal Inference" (2024)**:
 - Rosseel, Y., & Loh, W. W. (2024). Structural-after-measurement (SAM) approach to structural equation modeling. *Psychological Methods*.
 - Tchetgen Tchetgen, E. J., Ying, A., Cui, Y., Shi, X., & Miao, W. (2020). An introduction to proximal causal inference. *arXiv:2009.10982*.
 
+---
+
+## 4. Bayesian Unification of GLM, SEM, and DSEM
+
+**Principle:** GLM/GLMM from biostatistics, SEM from psychometrics, and DSEM for intensive longitudinal data are all special cases of Bayesian hierarchical models. The key insight crystallized in Skrondal & Rabe-Hesketh's 2004 GLLAMM framework: **random effects ARE latent variables**—both are unobserved quantities drawn from population distributions and estimated through identical computational machinery.
+
+### The Generative Modeling Perspective
+
+The Bayesian perspective, articulated most influentially by Andrew Gelman and Richard McElreath, reveals that the GLM/SEM distinction is artificial. Both involve:
+
+- Latent (unobserved) parameters varying across units
+- Population distributions describing this variation
+- Observation models linking parameters to data
+- Prior information constraining estimation
+
+As McElreath emphasizes in *Statistical Rethinking*: the question shifts from "which technique should I use?" to "what is the generative process that created my data?" Once you specify your beliefs about data generation—distributions, dependencies, hierarchical structure—the Bayesian framework handles estimation uniformly regardless of whether the model resembles a traditional mixed-effects regression, factor analysis, or time-series model.
+
+### The Mathematical Equivalences
+
+| Traditional Framing | Bayesian Hierarchical Equivalent |
+|---------------------|----------------------------------|
+| Confirmatory factor analysis | Hierarchical model where indicators depend on latent factors |
+| Random intercepts model | Hierarchical model where observations depend on group-specific intercepts |
+| Latent growth model | Simultaneously a repeated-measures multilevel model and an SEM |
+| Random slopes | Latent factors with covariate-dependent loadings |
+
+In Bayesian computation, both random effects and latent variables are treated identically—as parameters sampled from conditional posteriors.
+
+### Priors as Soft Structural Constraints
+
+Traditional SEM fixes a factor loading or latent variance to set scale. Bayesian priors provide "soft" constraints:
+
+- **Informative priors** encode structural assumptions
+- **Shrinkage priors** (horseshoe, LASSO-type) regularize while allowing exploration
+- **Small-variance priors** allow cross-loadings while constraining toward zero
+
+Muthén & Asparouhov (2012) proposed "replacing parameter specifications of exact zeros with approximate zeros based on informative, small-variance priors"—a more theoretically honest approach than assuming exact zeros.
+
+### Non-Centered Parameterization
+
+For hierarchical models with varying effects, non-centered parameterization is critical. Instead of sampling θ ~ Normal(μ_θ, σ_θ) directly (which creates funnel geometries that challenge MCMC), sample θ_raw ~ Normal(0, 1) and transform: θ = μ_θ + σ_θ × θ_raw. This dramatically improves sampling efficiency and is essential for DSEM models with many person-specific random effects.
+
+### DSEM-Specific Prior Recommendations
+
+For temporal parameters in DSEM, the methodological literature suggests:
+
+| Parameter | Recommended Prior | Rationale |
+|-----------|-------------------|-----------|
+| AR coefficients | Normal(0, 0.5) | Encourages stationarity without hard constraint |
+| Cross-lagged effects | Normal(0, 0.3-0.5) | Cross-lagged effects rarely exceed ±0.5 |
+| Random effect SDs | Half-Cauchy(0, 2.5) | Weakly informative, critical for small N |
+| Correlations | LKJ(η=2) | Slight shrinkage toward zero |
+
+Stan documentation advises against hard stationarity constraints: "If the data are not well fit by a stationary model it is best to know this." Weakly informative priors that encourage but don't enforce stationarity provide better diagnostics.
+
+### Sample Size Requirements
+
+From the methodological literature on Bayesian DSEM:
+
+- **N > 100 persons, T > 50 timepoints:** Excellent convergence and unbiased parameter recovery
+- **N = 50-100, T = 30-50:** Works with slight variance bias
+- **N < 50:** Requires informative priors for stable estimation
+
+Bayesian DSEM's key advantage over frequentist alternatives: MCMC handles many random effects where maximum likelihood becomes intractable.
+
+### Connection to This Framework
+
+The framework implements this unified perspective:
+
+1. **DAG specification layer:** LLM proposes construct-level causal structure from domain knowledge
+2. **Identification layer:** y0 applies do-calculus to derive estimands
+3. **Estimation layer:** PyMC builds Bayesian hierarchical models with appropriate priors
+4. **Uncertainty communication:** Full posterior distributions, not point estimates
+
+The theoretical unification—random effects as latent variables, both subsumed by Bayesian hierarchical models—has practical consequences: you're no longer choosing between techniques but specifying generative processes. The question shifts from "should I use mixed models or SEM?" to "what distributional assumptions and dependency structure match my understanding of how these data arose?"
+
+### References
+
+- Gelman, A., & Hill, J. (2006). *Data Analysis Using Regression and Multilevel/Hierarchical Models*. Cambridge University Press.
+- McElreath, R. (2020). *Statistical Rethinking* (2nd ed.). CRC Press.
+- Muthén, B. (2002). Beyond SEM: General latent variable modeling. *Behaviormetrika*, 29(1), 81-117.
+- Muthén, B., & Asparouhov, T. (2012). Bayesian structural equation modeling: A more flexible representation of substantive theory. *Psychological Methods*, 17(3), 313-335.
+- Skrondal, A., & Rabe-Hesketh, S. (2004). *Generalized Latent Variable Modeling*. Chapman & Hall/CRC.
+- Stan Development Team. (2024). Stan User's Guide: Time-Series Models.
+

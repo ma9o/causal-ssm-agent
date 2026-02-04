@@ -8,12 +8,12 @@ import numpy as np
 import polars as pl
 
 from dsem_agent.models.dsem_model_builder import DSEMModelBuilder
-from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
+from dsem_agent.orchestrator.schemas_model import ModelSpec
 from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 
 def validate_prior_predictive(
-    glmm_spec: GLMMSpec | dict,
+    model_spec: ModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
     measurements_data: dict[str, pl.DataFrame],
     n_samples: int = 500,
@@ -26,7 +26,7 @@ def validate_prior_predictive(
     3. Domain violations (negative for positive-constrained, outside [0,1] for unit_interval)
 
     Args:
-        glmm_spec: GLMM specification
+        model_spec: Model specification
         priors: Prior proposals for each parameter
         measurements_data: Dict of granularity -> polars DataFrame
         n_samples: Number of prior predictive samples
@@ -38,10 +38,10 @@ def validate_prior_predictive(
     all_valid = True
 
     # Convert inputs to dicts if needed
-    if isinstance(glmm_spec, GLMMSpec):
-        glmm_dict = glmm_spec.model_dump()
+    if isinstance(model_spec, ModelSpec):
+        model_dict = model_spec.model_dump()
     else:
-        glmm_dict = glmm_spec
+        model_dict = model_spec
 
     priors_dict = {}
     for name, prior in priors.items():
@@ -55,7 +55,7 @@ def validate_prior_predictive(
 
     try:
         # Build the model
-        builder = DSEMModelBuilder(glmm_spec=glmm_dict, priors=priors_dict)
+        builder = DSEMModelBuilder(model_spec=model_dict, priors=priors_dict)
         builder.build_model(X)
 
         # Sample from prior predictive
@@ -69,7 +69,7 @@ def validate_prior_predictive(
                 all_valid = False
 
         # Check prior predictive of observed variables
-        for lik_spec in glmm_dict.get("likelihoods", []):
+        for lik_spec in model_dict.get("likelihoods", []):
             var_name = lik_spec.get("variable")
             if var_name and hasattr(idata, 'prior_predictive') and var_name in idata.prior_predictive:
                 result = _validate_prior_predictive_samples(

@@ -1,30 +1,31 @@
-"""Stage 4 Orchestrator: GLMM Specification Proposal.
+"""Stage 4 Orchestrator: Model Specification Proposal.
 
-The orchestrator proposes a complete GLMM specification based on the DSEMModel,
-enumerating all parameters needing priors with search context for literature.
+The orchestrator proposes a complete Bayesian hierarchical model specification
+based on the DSEMModel, enumerating all parameters needing priors with search
+context for literature.
 """
 
-from dsem_agent.orchestrator.prompts.glmm_proposal import (
-    SYSTEM as GLMM_PROPOSAL_SYSTEM,
-    USER as GLMM_PROPOSAL_USER,
+from dsem_agent.orchestrator.prompts.model_proposal import (
+    SYSTEM as MODEL_PROPOSAL_SYSTEM,
+    USER as MODEL_PROPOSAL_USER,
     format_constructs,
     format_edges,
     format_indicators,
 )
-from dsem_agent.orchestrator.schemas_glmm import (
-    GLMMSpec,
+from dsem_agent.orchestrator.schemas_model import (
+    ModelSpec,
     Stage4OrchestratorResult,
 )
 from dsem_agent.utils.llm import OrchestratorGenerateFn, parse_json_response
 
 
-async def propose_glmm_spec(
+async def propose_model_spec(
     dsem_model: dict,
     data_summary: str,
     question: str,
     generate: OrchestratorGenerateFn,
 ) -> Stage4OrchestratorResult:
-    """Orchestrator proposes complete GLMM specification.
+    """Orchestrator proposes complete model specification.
 
     Args:
         dsem_model: The full DSEMModel dict (latent + measurement)
@@ -33,7 +34,7 @@ async def propose_glmm_spec(
         generate: Async generate function (messages, tools, follow_ups) -> str
 
     Returns:
-        Stage4OrchestratorResult with GLMMSpec
+        Stage4OrchestratorResult with ModelSpec
     """
     # Format model components for the prompt
     constructs_str = format_constructs(dsem_model)
@@ -42,8 +43,8 @@ async def propose_glmm_spec(
 
     # Build messages
     messages = [
-        {"role": "system", "content": GLMM_PROPOSAL_SYSTEM},
-        {"role": "user", "content": GLMM_PROPOSAL_USER.format(
+        {"role": "system", "content": MODEL_PROPOSAL_SYSTEM},
+        {"role": "user", "content": MODEL_PROPOSAL_USER.format(
             question=question,
             constructs=constructs_str,
             edges=edges_str,
@@ -52,17 +53,17 @@ async def propose_glmm_spec(
         )},
     ]
 
-    # Generate GLMM specification
+    # Generate model specification
     completion = await generate(messages, None, None)
 
     # Parse JSON response
-    glmm_data = parse_json_response(completion)
+    model_data = parse_json_response(completion)
 
-    # Validate into GLMMSpec
-    glmm_spec = GLMMSpec.model_validate(glmm_data)
+    # Validate into ModelSpec
+    model_spec = ModelSpec.model_validate(model_data)
 
     return Stage4OrchestratorResult(
-        glmm_spec=glmm_spec,
+        model_spec=model_spec,
         raw_response=completion,
     )
 

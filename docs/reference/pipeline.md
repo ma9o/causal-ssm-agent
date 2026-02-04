@@ -28,7 +28,7 @@ Semantic checks that Polars schema can't enforce. Structural validation (column 
 
 **Output:** `{is_valid: bool, issues: list[{indicator, issue_type, severity, message}]}`
 
-**[4] Model Specification (PyMC):** The orchestrator specifies the statistical model (GLMs) in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
+**[4] Model Specification (PyMC):** The orchestrator specifies the Bayesian hierarchical model in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
 
 **[5] Inference:** Fit the model with PyMC, run proposed interventions and counterfactual simulations, return results to user ranked by effect size.
 

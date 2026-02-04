@@ -1,7 +1,7 @@
 """Stage 4: Model Specification & Prior Elicitation.
 
 Orchestrator-Worker architecture with PyMC grounding:
-1. Orchestrator proposes GLMM specification
+1. Orchestrator proposes Bayesian hierarchical model specification
 2. Workers research priors in parallel (one per parameter via Exa + LLM)
 3. PyMC model is built as grounding step (validates priors compile)
 4. Prior predictive checks validate reasonableness
@@ -13,13 +13,13 @@ import polars as pl
 from prefect import flow, task
 
 
-@task(retries=2, retry_delay_seconds=10, task_run_name="propose-glmm-spec")
-def propose_glmm_task(
+@task(retries=2, retry_delay_seconds=10, task_run_name="propose-model-spec")
+def propose_model_task(
     dsem_model: dict,
     question: str,
     measurements_data: dict[str, pl.DataFrame],
 ) -> dict:
-    """Orchestrator proposes GLMM specification.
+    """Orchestrator proposes model specification.
 
     Args:
         dsem_model: Full DSEM model dict
@@ -27,7 +27,7 @@ def propose_glmm_task(
         measurements_data: Measurement data by granularity
 
     Returns:
-        GLMMSpec as dict
+        ModelSpec as dict
     """
     import asyncio
 
@@ -35,7 +35,7 @@ def propose_glmm_task(
 
     from dsem_agent.orchestrator.stage4_orchestrator import (
         build_data_summary,
-        propose_glmm_spec,
+        propose_model_spec,
     )
     from dsem_agent.utils.config import get_config
     from dsem_agent.utils.llm import make_orchestrator_generate_fn
@@ -47,14 +47,14 @@ def propose_glmm_task(
 
         data_summary = build_data_summary(measurements_data)
 
-        result = await propose_glmm_spec(
+        result = await propose_model_spec(
             dsem_model=dsem_model,
             data_summary=data_summary,
             question=question,
             generate=generate,
         )
 
-        return result.glmm_spec.model_dump()
+        return result.model_spec.model_dump()
 
     return asyncio.run(run())
 
@@ -81,7 +81,7 @@ def research_prior_task(
 
     from inspect_ai.model import get_model
 
-    from dsem_agent.orchestrator.schemas_glmm import ParameterSpec
+    from dsem_agent.orchestrator.schemas_model import ParameterSpec
     from dsem_agent.utils.config import get_config
     from dsem_agent.utils.llm import make_worker_generate_fn
     from dsem_agent.workers.prior_research import (
@@ -115,14 +115,14 @@ def research_prior_task(
 
 @task(retries=1, task_run_name="validate-priors")
 def validate_priors_task(
-    glmm_spec: dict,
+    model_spec: dict,
     priors: dict[str, dict],
     measurements_data: dict[str, pl.DataFrame],
 ) -> dict:
     """Validate priors via prior predictive sampling.
 
     Args:
-        glmm_spec: GLMM specification dict
+        model_spec: Model specification dict
         priors: Prior proposals by parameter name
         measurements_data: Measurement data
 
@@ -132,7 +132,7 @@ def validate_priors_task(
     from dsem_agent.models.prior_predictive import validate_prior_predictive
 
     is_valid, results = validate_prior_predictive(
-        glmm_spec=glmm_spec,
+        model_spec=model_spec,
         priors=priors,
         measurements_data=measurements_data,
     )
@@ -146,14 +146,14 @@ def validate_priors_task(
 
 @task(task_run_name="build-dsem-model")
 def build_model_task(
-    glmm_spec: dict,
+    model_spec: dict,
     priors: dict[str, dict],
     measurements_data: dict[str, pl.DataFrame],
 ) -> dict:
     """Build DSEMModelBuilder from spec and priors.
 
     Args:
-        glmm_spec: GLMM specification
+        model_spec: Model specification
         priors: Prior proposals
         measurements_data: Measurement data
 
@@ -165,7 +165,7 @@ def build_model_task(
     from dsem_agent.models.dsem_model_builder import DSEMModelBuilder
 
     try:
-        builder = DSEMModelBuilder(glmm_spec=glmm_spec, priors=priors)
+        builder = DSEMModelBuilder(model_spec=model_spec, priors=priors)
 
         dfs = []
         for granularity, df in measurements_data.items():
@@ -199,7 +199,7 @@ def stage4_orchestrated_flow(
 ) -> dict:
     """Stage 4 orchestrated flow with parallel worker prior research.
 
-    1. Orchestrator proposes GLMM specification
+    1. Orchestrator proposes model specification
     2. Workers research priors in parallel (one per parameter)
     3. Validate via prior predictive checks
     4. Build PyMC model
@@ -211,7 +211,7 @@ def stage4_orchestrated_flow(
         enable_literature: Whether to search Exa for literature
 
     Returns:
-        Stage 4 result dict with glmm_spec, priors, validation
+        Stage 4 result dict with model_spec, priors, validation
     """
     from prefect.utilities.annotations import unmapped
 
@@ -223,11 +223,11 @@ def stage4_orchestrated_flow(
     # Determine paraphrasing settings
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
 
-    # 1. Orchestrator proposes GLMM specification
-    glmm_spec = propose_glmm_task(dsem_model, question, measurements_data)
+    # 1. Orchestrator proposes model specification
+    model_spec = propose_model_task(dsem_model, question, measurements_data)
 
     # 2. Workers research priors in parallel
-    parameter_specs = glmm_spec.get("parameters", [])
+    parameter_specs = model_spec.get("parameters", [])
     prior_results = research_prior_task.map(
         parameter_specs,
         question=unmapped(question),
@@ -242,15 +242,15 @@ def stage4_orchestrated_flow(
         priors[param_name] = prior_result.result() if hasattr(prior_result, "result") else prior_result
 
     # 3. Validate priors
-    validation = validate_priors_task(glmm_spec, priors, measurements_data)
+    validation = validate_priors_task(model_spec, priors, measurements_data)
     validation_result = validation.result() if hasattr(validation, "result") else validation
 
     # 4. Build PyMC model
-    model_info = build_model_task(glmm_spec, priors, measurements_data)
+    model_info = build_model_task(model_spec, priors, measurements_data)
     model_result = model_info.result() if hasattr(model_info, "result") else model_info
 
     return {
-        "glmm_spec": glmm_spec,
+        "model_spec": model_spec,
         "priors": priors,
         "validation": validation_result,
         "model_info": model_result,

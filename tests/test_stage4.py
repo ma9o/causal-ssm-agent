@@ -11,9 +11,9 @@ from dsem_agent.models.prior_predictive import (
     _validate_prior_predictive_samples,
     format_validation_report,
 )
-from dsem_agent.orchestrator.schemas_glmm import (
+from dsem_agent.orchestrator.schemas_model import (
     DistributionFamily,
-    GLMMSpec,
+    ModelSpec,
     LikelihoodSpec,
     LinkFunction,
     ParameterConstraint,
@@ -37,8 +37,8 @@ from dsem_agent.workers.schemas_prior import (
 
 
 @pytest.fixture
-def simple_glmm_spec() -> dict:
-    """A minimal GLMM spec for testing."""
+def simple_model_spec() -> dict:
+    """A minimal model spec for testing."""
     return {
         "likelihoods": [
             {
@@ -79,7 +79,7 @@ def simple_glmm_spec() -> dict:
 
 @pytest.fixture
 def simple_priors() -> dict:
-    """Simple priors matching the GLMM spec."""
+    """Simple priors matching the model spec."""
     return {
         "intercept_mood_score": {
             "parameter": "intercept_mood_score",
@@ -123,7 +123,7 @@ def simple_data() -> pd.DataFrame:
 
 
 class TestSchemas:
-    """Test GLMM and prior schemas."""
+    """Test model and prior schemas."""
 
     def test_parameter_spec_validation(self):
         """ParameterSpec validates correctly."""
@@ -147,9 +147,9 @@ class TestSchemas:
         )
         assert spec.distribution == DistributionFamily.NORMAL
 
-    def test_glmm_spec_validation(self, simple_glmm_spec):
-        """GLMMSpec validates from dict."""
-        spec = GLMMSpec.model_validate(simple_glmm_spec)
+    def test_model_spec_validation(self, simple_model_spec):
+        """ModelSpec validates from dict."""
+        spec = ModelSpec.model_validate(simple_model_spec)
         assert len(spec.likelihoods) == 1
         assert len(spec.parameters) == 3
 
@@ -180,19 +180,19 @@ class TestSchemas:
 class TestDSEMModelBuilder:
     """Test PyMC model building."""
 
-    def test_builder_init(self, simple_glmm_spec, simple_priors):
+    def test_builder_init(self, simple_model_spec, simple_priors):
         """Builder initializes with spec and priors."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         assert builder._model_type == "DSEM"
         assert builder.version == "0.1.0"
 
-    def test_build_model(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_build_model(self, simple_model_spec, simple_priors, simple_data):
         """Builder creates a valid PyMC model."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         model = builder.build_model(simple_data)
@@ -203,18 +203,18 @@ class TestDSEMModelBuilder:
         assert "sigma_mood_score" in model.named_vars
         assert "mood_score" in model.named_vars  # likelihood
 
-    def test_output_var(self, simple_glmm_spec, simple_priors):
+    def test_output_var(self, simple_model_spec, simple_priors):
         """output_var returns the first likelihood variable."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         assert builder.output_var == "mood_score"
 
-    def test_create_distribution_normal(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_create_distribution_normal(self, simple_model_spec, simple_priors, simple_data):
         """Normal distribution created correctly."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         builder.build_model(simple_data)
@@ -222,30 +222,30 @@ class TestDSEMModelBuilder:
         var = builder.model.named_vars["intercept_mood_score"]
         assert "normal" in str(var.type).lower() or var is not None
 
-    def test_create_distribution_halfnormal(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_create_distribution_halfnormal(self, simple_model_spec, simple_priors, simple_data):
         """HalfNormal distribution created correctly."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         builder.build_model(simple_data)
         var = builder.model.named_vars["sigma_mood_score"]
         assert var is not None
 
-    def test_create_distribution_beta(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_create_distribution_beta(self, simple_model_spec, simple_priors, simple_data):
         """Beta distribution created correctly."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         builder.build_model(simple_data)
         var = builder.model.named_vars["rho_mood"]
         assert var is not None
 
-    def test_sample_prior_predictive(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_sample_prior_predictive(self, simple_model_spec, simple_priors, simple_data):
         """Prior predictive sampling works."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         builder.build_model(simple_data)
@@ -254,10 +254,10 @@ class TestDSEMModelBuilder:
         assert hasattr(idata, "prior")
         assert "intercept_mood_score" in idata.prior
 
-    def test_sample_prior_predictive_without_build_raises(self, simple_glmm_spec, simple_priors):
+    def test_sample_prior_predictive_without_build_raises(self, simple_model_spec, simple_priors):
         """sample_prior_predictive raises if model not built."""
         builder = DSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         with pytest.raises(ValueError, match="Model must be built"):

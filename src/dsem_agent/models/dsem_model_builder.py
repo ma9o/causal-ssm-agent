@@ -1,6 +1,6 @@
 """DSEM Model Builder using PyMC ModelBuilder.
 
-Builds Dynamic Structural Equation Models from GLMMSpec + priors.
+Builds Dynamic Structural Equation Models from ModelSpec + priors.
 Supports AR(1) dynamics, cross-lagged effects, and multiple distribution families.
 """
 
@@ -12,7 +12,7 @@ import pymc as pm
 import pytensor.tensor as pt
 from pymc_extras.model_builder import ModelBuilder
 
-from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
+from dsem_agent.orchestrator.schemas_model import ModelSpec
 from dsem_agent.workers.schemas_prior import PriorProposal
 
 
@@ -26,7 +26,7 @@ class DSEMModelBuilder(ModelBuilder):
     - Random effects for hierarchical structure
 
     The model is built from:
-    1. GLMMSpec: Specifies likelihoods, parameters, and their roles
+    1. ModelSpec: Specifies likelihoods, parameters, and their roles
     2. Priors: Prior distributions for each parameter
 
     Data expectations:
@@ -40,7 +40,7 @@ class DSEMModelBuilder(ModelBuilder):
 
     def __init__(
         self,
-        glmm_spec: GLMMSpec | dict | None = None,
+        model_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
@@ -48,18 +48,18 @@ class DSEMModelBuilder(ModelBuilder):
         """Initialize the DSEM model builder.
 
         Args:
-            glmm_spec: GLMM specification from orchestrator
+            model_spec: Model specification from orchestrator
             priors: Prior proposals for each parameter
             model_config: Override model configuration
             sampler_config: Override sampler configuration
         """
-        if glmm_spec is not None:
-            if isinstance(glmm_spec, GLMMSpec):
-                self._glmm_spec_dict = glmm_spec.model_dump()
+        if model_spec is not None:
+            if isinstance(model_spec, ModelSpec):
+                self._model_spec_dict = model_spec.model_dump()
             else:
-                self._glmm_spec_dict = glmm_spec
+                self._model_spec_dict = model_spec
         else:
-            self._glmm_spec_dict = {}
+            self._model_spec_dict = {}
 
         if priors is not None:
             self._priors_dict = {}
@@ -73,7 +73,7 @@ class DSEMModelBuilder(ModelBuilder):
 
         if model_config is None:
             model_config = {
-                "glmm_spec": self._glmm_spec_dict,
+                "model_spec": self._model_spec_dict,
                 "priors": self._priors_dict,
             }
 
@@ -84,7 +84,7 @@ class DSEMModelBuilder(ModelBuilder):
 
     @staticmethod
     def get_default_model_config() -> dict:
-        return {"glmm_spec": {}, "priors": {}}
+        return {"model_spec": {}, "priors": {}}
 
     @staticmethod
     def get_default_sampler_config() -> dict:
@@ -98,7 +98,7 @@ class DSEMModelBuilder(ModelBuilder):
 
     @property
     def output_var(self) -> str:
-        likelihoods = self.model_config.get("glmm_spec", {}).get("likelihoods", [])
+        likelihoods = self.model_config.get("model_spec", {}).get("likelihoods", [])
         if likelihoods:
             return likelihoods[0]["variable"]
         return "y"
@@ -113,7 +113,7 @@ class DSEMModelBuilder(ModelBuilder):
         y: pd.Series | np.ndarray | None = None,
         **kwargs: Any,
     ) -> pm.Model:
-        """Build the PyMC model from GLMM spec and priors.
+        """Build the PyMC model from model spec and priors.
 
         Args:
             X: Data with indicator columns and lagged columns ({name}_lag1)
@@ -122,13 +122,13 @@ class DSEMModelBuilder(ModelBuilder):
         Returns:
             The constructed PyMC model
         """
-        glmm_spec = self.model_config.get("glmm_spec", {})
+        model_spec = self.model_config.get("model_spec", {})
         priors_config = self.model_config.get("priors", {})
 
-        # Parse GLMMSpec structure
-        likelihoods = glmm_spec.get("likelihoods", [])
-        parameters = glmm_spec.get("parameters", [])
-        random_effects = glmm_spec.get("random_effects", [])
+        # Parse ModelSpec structure
+        likelihoods = model_spec.get("likelihoods", [])
+        parameters = model_spec.get("parameters", [])
+        random_effects = model_spec.get("random_effects", [])
 
         # Index parameters by role for easy lookup
         params_by_role = self._index_parameters_by_role(parameters)
@@ -485,7 +485,7 @@ class DSEMModelBuilder(ModelBuilder):
 
     def _save_input_params(self, idata: Any) -> None:
         """Save additional parameters to inference data."""
-        idata.attrs["glmm_spec"] = str(self.model_config.get("glmm_spec", {}))
+        idata.attrs["model_spec"] = str(self.model_config.get("model_spec", {}))
         idata.attrs["priors"] = str(self.model_config.get("priors", {}))
 
     def sample_prior_predictive(self, samples: int = 500) -> Any:

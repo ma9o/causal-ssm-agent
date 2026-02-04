@@ -157,7 +157,7 @@ The AR parameter and residual variance are mechanically related via:
 Var(Y_it | i) = σ² / (1 - ϕ²)
 ```
 
-**Current status:** GLMMSpec supports variance parameters but unclear if person-specific random variances are implemented.
+**Current status:** ModelSpec supports variance parameters but unclear if person-specific random variances are implemented.
 
 **Priority:** Medium-High - affects AR coefficient estimates when variance heterogeneity exists
 
@@ -197,7 +197,7 @@ Var(Y_it | i) = σ² / (1 - ϕ²)
 
 | Feature | Paper | Framework Status | Action Needed |
 |---------|-------|------------------|---------------|
-| Random slopes (person-specific β_i) | Full support | GLMMSpec has ParameterSpec but unclear if random by person | Verify PyMC implementation |
+| Random slopes (person-specific β_i) | Full support | ModelSpec has ParameterSpec but unclear if random by person | Verify PyMC implementation |
 | Categorical outcomes | Probit link, thresholds | `measurement_dtype` includes binary/ordinal | Verify PyMC handles these |
 | Model comparison | DIC with detailed caveats | Deferred to PyMC | Document recommended approach (LOO/WAIC) |
 | Dynamic factor analysis | DAFS, WNFS, hybrid models | Latent constructs exist | Out of scope? |

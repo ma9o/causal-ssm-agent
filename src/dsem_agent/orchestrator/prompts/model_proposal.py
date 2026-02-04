@@ -1,15 +1,19 @@
-"""Stage 4 prompts: GLMM Specification Proposal.
+"""Stage 4 prompts: Model Specification Proposal.
 
-The orchestrator proposes the complete GLMM structure including:
+The orchestrator proposes the complete Bayesian hierarchical model structure including:
 - Distribution families and link functions for each indicator
 - Random effects structure
 - All parameters requiring priors with search context for literature
 """
 
 SYSTEM = """\
-You are a Bayesian statistician designing a Generalized Linear Mixed Model (GLMM) for causal inference.
+You are a Bayesian statistician specifying a generative model for causal inference.
 
-Your task is to translate a causal DAG with measurement model into a complete GLMM specification that PyMC can fit.
+Your task is to translate a causal DAG with measurement model into a complete Bayesian hierarchical model specification that PyMC can fit.
+
+## Background
+
+In Bayesian modeling, we specify our beliefs about the generative process that created the data. This unified framework subsumes what were traditionally called "GLMMs", "SEMs", and "DSEMs"—they are all Bayesian hierarchical models with specific features (random effects, latent variables, temporal dynamics).
 
 ## Your Responsibilities
 
@@ -75,7 +79,7 @@ Return a JSON object with this structure:
     }
   ],
   "model_clock": "daily|hourly|weekly",
-  "reasoning": "Overall justification for the GLMM design choices"
+  "reasoning": "Overall justification for the model design choices"
 }
 ```
 
@@ -85,7 +89,7 @@ Return a JSON object with this structure:
 - Prefer simpler models when uncertainty is high
 - Consider the sample size when proposing complex hierarchical structures
 - Provide specific, searchable queries in `search_context` that would find meta-analyses or large-scale studies
-- Remember: AR coefficients must be in [0, 1] for stationarity
+- Remember: AR coefficients should be in [0, 1] for stationarity (use weakly informative priors that encourage but don't enforce this)
 """
 
 USER = """\
@@ -113,7 +117,7 @@ USER = """\
 
 ---
 
-Based on the causal structure and measurement model above, propose a complete GLMM specification.
+Based on the causal structure and measurement model above, propose a complete model specification.
 
 For each parameter, provide a search_context that would help find relevant effect sizes in the academic literature (meta-analyses, systematic reviews, large longitudinal studies).
 

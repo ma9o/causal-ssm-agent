@@ -11,7 +11,7 @@ import os
 
 import numpy as np
 
-from dsem_agent.orchestrator.schemas_glmm import ParameterSpec
+from dsem_agent.orchestrator.schemas_model import ParameterSpec
 from dsem_agent.utils.llm import WorkerGenerateFn, parse_json_response
 from dsem_agent.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
@@ -256,7 +256,7 @@ async def research_single_prior(
     """Research and propose a prior for a single parameter.
 
     Args:
-        parameter: The parameter spec from GLMMSpec
+        parameter: The parameter spec from ModelSpec
         question: The research question for context
         generate: Async generate function (messages, tools) -> str
         enable_literature: Whether to search Exa for literature
@@ -421,7 +421,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     Returns:
         Default PriorProposal based on parameter role/constraint
     """
-    from dsem_agent.orchestrator.schemas_glmm import ParameterConstraint, ParameterRole
+    from dsem_agent.orchestrator.schemas_model import ParameterConstraint, ParameterRole
 
     # Choose distribution based on constraint
     if parameter.constraint == ParameterConstraint.POSITIVE:

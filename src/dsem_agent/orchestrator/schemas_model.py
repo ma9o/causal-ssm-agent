@@ -1,7 +1,7 @@
-"""GLMM specification schemas for Stage 4 orchestrator.
+"""Model specification schemas for Stage 4 orchestrator.
 
 These schemas define the structure proposed by the orchestrator LLM
-for the Generalized Linear Mixed Model specification.
+for the Bayesian hierarchical model specification.
 """
 
 from enum import Enum
@@ -34,7 +34,7 @@ class LinkFunction(str, Enum):
 
 
 class ParameterRole(str, Enum):
-    """Role of a parameter in the GLMM."""
+    """Role of a parameter in the model."""
 
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
     AR_COEFFICIENT = "ar_coefficient"  # Rho for autoregressive terms
@@ -108,11 +108,11 @@ class ParameterSpec(BaseModel):
     )
 
 
-class GLMMSpec(BaseModel):
-    """Complete GLMM specification from orchestrator.
+class ModelSpec(BaseModel):
+    """Complete model specification from orchestrator.
 
     This is what the orchestrator proposes based on the DSEMModel structure.
-    It enumerates all parameters needing priors and specifies the statistical model.
+    It enumerates all parameters needing priors and specifies the generative model.
     """
 
     likelihoods: list[LikelihoodSpec] = Field(
@@ -129,7 +129,7 @@ class GLMMSpec(BaseModel):
         description="Temporal granularity at which the model operates (e.g., 'daily')"
     )
     reasoning: str = Field(
-        description="Overall reasoning for the GLMM specification choices"
+        description="Overall reasoning for the model specification choices"
     )
 
 
@@ -137,11 +137,13 @@ class GLMMSpec(BaseModel):
 
 
 class Stage4OrchestratorResult(BaseModel):
-    """Result of Stage 4 orchestrator: proposed GLMM specification."""
+    """Result of Stage 4 orchestrator: proposed model specification."""
 
-    glmm_spec: GLMMSpec = Field(
-        description="The proposed GLMM specification"
+    model_spec: ModelSpec = Field(
+        description="The proposed model specification"
     )
     raw_response: str = Field(
         description="Raw LLM response for debugging"
     )
+
+

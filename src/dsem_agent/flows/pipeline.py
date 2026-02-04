@@ -189,13 +189,13 @@ def causal_inference_pipeline(
         print(f"⚠️  Aggregation produced no data for indicators: {joined}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 4: GLMM Specification (Orchestrator-Worker Architecture)
+    # Stage 4: Model Specification (Orchestrator-Worker Architecture)
     # ══════════════════════════════════════════════════════════════════════════
     from dsem_agent.utils.config import get_config
 
     config = get_config()
 
-    print("\n=== Stage 4: GLMM Specification ===")
+    print("\n=== Stage 4: Model Specification ===")
     stage4_result = stage4_orchestrated_flow(
         dsem_model=dsem_model,
         question=question,
@@ -203,9 +203,9 @@ def causal_inference_pipeline(
         enable_literature=config.stage4_prior_elicitation.literature_search.enabled,
     )
 
-    glmm_spec = stage4_result.get("glmm_spec", {})
-    print(f"Model clock: {glmm_spec.get('model_clock', 'unknown')}")
-    print(f"Parameters: {len(glmm_spec.get('parameters', []))} total")
+    model_spec = stage4_result.get("model_spec", {})
+    print(f"Model clock: {model_spec.get('model_clock', 'unknown')}")
+    print(f"Parameters: {len(model_spec.get('parameters', []))} total")
 
     # Report validation issues
     validation = stage4_result.get("validation", {})
