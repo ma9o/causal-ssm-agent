@@ -36,3 +36,8 @@ dev = [
     "dspy>=3.0.4",
     "rpy2>=3.6.4",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
