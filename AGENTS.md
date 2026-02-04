@@ -18,6 +18,8 @@ ALWAYS THINK VERY HARD
 
 9. ALWAYS encode structural assumptions as DAGs with explicit latent confounders. NEVER use ADMGs (bidirected edges) as user-facing representations. If unobserved confounding exists, model it as an explicit unobserved node (e.g., `U -> X`, `U -> Y`) rather than a bidirected edge (`X <-> Y`). ADMGs are only used internally for running y0's identification algorithm via projection.
 
+10. Interpret `cp` as an alias for "commit and push".
+
 ------
 
 # Terminology: Causal Modeling
