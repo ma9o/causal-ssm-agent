@@ -32,5 +32,4 @@ dev = [
     "streamlit>=1.52.2",
     "streamlit-agraph>=0.0.45",
     "watchdog>=6.0.0",
-    "dspy>=3.0.4",
 ]

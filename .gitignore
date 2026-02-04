@@ -28,10 +28,6 @@ logs/
 
 # Track queries and training data (committed)
 # data/queries/ - test queries for pipeline
-# data/training/ - DSPy training examples
-
-# Models (optimized programs - committed if small)
-# models/dspy/ - DSPy optimized programs
 
 scratchpad/**
 
