@@ -90,7 +90,7 @@ class TestCoreUtilities:
         c = jnp.array([0.1, 0.2])
 
         # Very small dt should give ~identity drift
-        disc_drift, disc_Q, disc_c = discretize_system(A, Q, c, dt=1e-6)
+        disc_drift, disc_Q, _ = discretize_system(A, Q, c, dt=1e-6)
 
         assert jnp.allclose(disc_drift, jnp.eye(2), atol=1e-5)
         assert jnp.allclose(disc_Q, jnp.zeros((2, 2)), atol=1e-5)
@@ -105,7 +105,7 @@ class TestCoreUtilities:
         Q = jnp.array([[1.0, 0.0], [0.0, 1.0]])
         c = jnp.array([0.1, 0.2])
 
-        disc_drift, disc_Q, disc_c = discretize_system(A, Q, c, dt=1.0)
+        disc_drift, disc_Q, _ = discretize_system(A, Q, c, dt=1.0)
 
         # Check discrete drift = exp(A)
         expected_drift = jla.expm(A)
@@ -833,9 +833,8 @@ class TestParityEdgeCases:
             r_result = r_discretize(drift, diffusion_cov, cint, dt)
             r_disc_drift = np.asarray(r_result[0])
             r_disc_Q = np.asarray(r_result[1])
-            r_disc_c = np.asarray(r_result[2])
 
-        py_disc_drift, py_disc_Q, py_disc_c = discretize_system(
+        py_disc_drift, py_disc_Q, _ = discretize_system(
             jnp.array(drift), jnp.array(diffusion_cov), jnp.array(cint), dt
         )
 
@@ -966,9 +965,8 @@ class TestParityEdgeCases:
             r_result = r_discretize(drift, diffusion_cov, cint, dt)
             r_disc_drift = np.asarray(r_result[0])
             r_disc_Q = np.asarray(r_result[1])
-            r_disc_c = np.asarray(r_result[2])
 
-        py_disc_drift, py_disc_Q, py_disc_c = discretize_system(
+        py_disc_drift, py_disc_Q, _ = discretize_system(
             jnp.array(drift), jnp.array(diffusion_cov), jnp.array(cint), dt
         )
 
@@ -996,7 +994,6 @@ class TestParityEdgeCases:
 
         n_latent = 2
         n_manifest = 2
-        T = 5
 
         drift = np.array([[-0.5, 0.1], [0.2, -0.8]])
         diffusion_chol = np.array([[0.3, 0.0], [0.05, 0.25]])
@@ -2116,7 +2113,7 @@ class TestCTSEMModelBuilder:
                 "num_chains": 1,
             }
         )
-        mcmc = builder.fit(X)
+        builder.fit(X)
 
         samples = builder.get_samples()
         assert "drift_diag_pop" in samples

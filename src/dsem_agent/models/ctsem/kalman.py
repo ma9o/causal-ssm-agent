@@ -136,7 +136,7 @@ def kalman_update(
 
     # Compute log-likelihood contribution
     # For missing data, we use the masked computation approach
-    sign, logdet = jnp.linalg.slogdet(S_obs)
+    _, logdet = jnp.linalg.slogdet(S_obs)
 
     # Masked Mahalanobis distance (only count observed)
     innovation_obs = observation - y_pred
@@ -194,7 +194,7 @@ def kalman_update_simple(
 
     # Log-likelihood
     n_manifest = observation.shape[0]
-    sign, logdet = jnp.linalg.slogdet(S)
+    _, logdet = jnp.linalg.slogdet(S)
     mahal = innovation @ jla.solve(S, innovation, assume_a="pos")
     ll = -0.5 * (n_manifest * jnp.log(2 * jnp.pi) + logdet + mahal)
 
@@ -234,15 +234,6 @@ def kalman_filter(
     """
     from dsem_agent.models.ctsem.core import discretize_system
 
-    T, n_manifest = observations.shape
-    n_latent = drift.shape[0]
-
-    # Initialize storage
-    filtered_means = jnp.zeros((T, n_latent))
-    filtered_covs = jnp.zeros((T, n_latent, n_latent))
-    predicted_means = jnp.zeros((T, n_latent))
-    predicted_covs = jnp.zeros((T, n_latent, n_latent))
-
     if obs_mask is None:
         obs_mask = ~jnp.isnan(observations)
 
@@ -280,7 +271,7 @@ def kalman_filter(
 
     # Run filter
     inputs = (observations, time_intervals, obs_mask)
-    (final_mean, final_cov, total_ll), outputs = lax.scan(
+    (_, _, total_ll), outputs = lax.scan(
         scan_fn, (state_mean, state_cov, 0.0), inputs
     )
 
@@ -320,8 +311,6 @@ def kalman_log_likelihood(
         Total log-likelihood (scalar)
     """
     from dsem_agent.models.ctsem.core import discretize_system
-
-    T, n_manifest = observations.shape
 
     if obs_mask is None:
         obs_mask = ~jnp.isnan(observations)

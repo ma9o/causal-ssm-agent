@@ -7,10 +7,15 @@ NOTE: CT-SEM implementation pending merge from numpyro-ctsem.
 Currently provides stub validation that passes through.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import polars as pl
 
 from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
+
+if TYPE_CHECKING:
+    from arviz import InferenceData
 from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 
@@ -42,11 +47,8 @@ def validate_prior_predictive(
     # TODO: Implement with CTSEMModelBuilder once merged
     # For now, return valid to allow pipeline to proceed
 
-    # Convert inputs to dicts if needed
-    if isinstance(glmm_spec, GLMMSpec):
-        glmm_dict = glmm_spec.model_dump()
-    else:
-        glmm_dict = glmm_spec
+    # Convert inputs to dicts if needed (for future implementation)
+    # Note: glmm_spec not currently used but kept for API consistency
 
     priors_dict = {}
     for name, prior in priors.items():
