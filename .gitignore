@@ -37,5 +37,20 @@ scratchpad/**
 
 repomix-output.xml
 
+# R/renv (project-local R library for ctsem parity tests)
+# Track: renv.lock, renv/activate.R, renv/settings.json, .Rprofile
+# Ignore: library and other generated directories
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+renv/.installed
+.Rhistory
+.RData
+.Rproj.user
+
 # Streamlit component artifacts
 lib/

@@ -34,4 +34,10 @@ dev = [
     "streamlit-agraph>=0.0.45",
     "watchdog>=6.0.0",
     "dspy>=3.0.4",
+    "rpy2>=3.6.4",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
