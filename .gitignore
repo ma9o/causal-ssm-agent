@@ -23,16 +23,15 @@ data/processed/**
 # Inspect AI eval logs
 logs/
 
-# Always track gitkeeps
-!**/.gitkeep
-
 # Track queries and training data (committed)
 # data/queries/ - test queries for pipeline
 
 scratchpad/**
-!scratchpad/.gitkeep
 
 repomix-output.xml
 
 # Streamlit component artifacts
 lib/
+
+# Always track gitkeeps (must be last to override above patterns)
+!**/.gitkeep
