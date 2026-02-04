@@ -7,8 +7,6 @@ Uses dependency injection for the LLM generate function.
 import json
 from dataclasses import dataclass
 
-from .prompts import measurement_model
-from .schemas import LatentModel, MeasurementModel
 from dsem_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
@@ -18,6 +16,9 @@ from dsem_agent.utils.llm import (
     make_validate_measurement_model_tool,
     parse_json_response,
 )
+
+from .prompts import measurement_model
+from .schemas import LatentModel, MeasurementModel
 
 
 @dataclass
@@ -35,15 +36,17 @@ class Stage1bResult:
     def identifiability_status(self) -> dict:
         """Format for storing in DSEMModel."""
         return {
-            'identifiable_treatments': self.final_identifiability['identifiable_treatments'],
-            'non_identifiable_treatments': self.final_identifiability['non_identifiable_treatments'],
+            "identifiable_treatments": self.final_identifiability["identifiable_treatments"],
+            "non_identifiable_treatments": self.final_identifiability[
+                "non_identifiable_treatments"
+            ],
         }
 
     @property
     def can_marginalize(self) -> set[str]:
         """Unobserved constructs that can be ignored in DSEM specification."""
         if self.marginalization_analysis:
-            return self.marginalization_analysis.get('can_marginalize', set())
+            return self.marginalization_analysis.get("can_marginalize", set())
         return set()
 
     @property
@@ -51,11 +54,11 @@ class Stage1bResult:
         """Unobserved constructs that need explicit modeling (block identification)."""
         final_id = self.final_identifiability or {}
         needs = set()
-        non_identifiable = final_id.get('non_identifiable_treatments', {})
+        non_identifiable = final_id.get("non_identifiable_treatments", {})
         for info in non_identifiable.values():
             if not isinstance(info, dict):
                 continue
-            for conf in info.get('confounders', []):
+            for conf in info.get("confounders", []):
                 if conf:
                     needs.add(conf)
         return needs
@@ -74,12 +77,15 @@ class Stage1bMessages:
         """Build messages for initial measurement proposal."""
         return [
             {"role": "system", "content": measurement_model.SYSTEM},
-            {"role": "user", "content": measurement_model.USER.format(
-                question=self.question,
-                latent_model_json=json.dumps(self.latent_model, indent=2),
-                dataset_summary=self.dataset_summary or "Not provided",
-                chunks="\n".join(self.chunks),
-            )},
+            {
+                "role": "user",
+                "content": measurement_model.USER.format(
+                    question=self.question,
+                    latent_model_json=json.dumps(self.latent_model, indent=2),
+                    dataset_summary=self.dataset_summary or "Not provided",
+                    chunks="\n".join(self.chunks),
+                ),
+            },
         ]
 
     def proxy_messages(
@@ -91,13 +97,16 @@ class Stage1bMessages:
         """Build messages for proxy request."""
         return [
             {"role": "system", "content": measurement_model.PROXY_SYSTEM},
-            {"role": "user", "content": measurement_model.PROXY_USER.format(
-                blocking_info=blocking_info,
-                confounders_to_operationalize=", ".join(confounders),
-                latent_model_json=json.dumps(self.latent_model, indent=2),
-                current_measurements_json=json.dumps(current_measurement, indent=2),
-                data_sample="\n".join(self.chunks[:5]),
-            )},
+            {
+                "role": "user",
+                "content": measurement_model.PROXY_USER.format(
+                    blocking_info=blocking_info,
+                    confounders_to_operationalize=", ".join(confounders),
+                    latent_model_json=json.dumps(self.latent_model, indent=2),
+                    current_measurements_json=json.dumps(current_measurement, indent=2),
+                    data_sample="\n".join(self.chunks[:5]),
+                ),
+            },
         ]
 
 
@@ -123,15 +132,19 @@ def _merge_proxies(measurement: dict, proxy_response: dict | None) -> dict:
                 ind["construct"] = proxy["construct"]
                 # Prepend proxy justification to how_to_measure if provided
                 if proxy.get("justification") and "how_to_measure" in ind:
-                    ind["how_to_measure"] = f"Proxy for {proxy['construct']}: {ind['how_to_measure']}"
+                    ind["how_to_measure"] = (
+                        f"Proxy for {proxy['construct']}: {ind['how_to_measure']}"
+                    )
                 result["indicators"].append(ind)
             else:
                 # Model returned just indicator name (string) - build minimal indicator
-                result["indicators"].append({
-                    "name": indicator,
-                    "construct": proxy["construct"],
-                    "how_to_measure": f"Proxy for {proxy['construct']}: {proxy.get('justification', '')}",
-                })
+                result["indicators"].append(
+                    {
+                        "name": indicator,
+                        "construct": proxy["construct"],
+                        "how_to_measure": f"Proxy for {proxy['construct']}: {proxy.get('justification', '')}",
+                    }
+                )
 
     return result
 

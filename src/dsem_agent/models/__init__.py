@@ -8,6 +8,6 @@ from .prior_predictive import (
 
 __all__ = [
     "DSEMModelBuilder",
-    "validate_prior_predictive",
     "format_validation_report",
+    "validate_prior_predictive",
 ]

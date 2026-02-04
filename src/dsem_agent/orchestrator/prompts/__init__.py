@@ -10,7 +10,7 @@ Stage 4: GLMM specification proposal by orchestrator.
 from . import glmm_proposal, latent_model, measurement_model
 
 __all__ = [
+    "glmm_proposal",
     "latent_model",
     "measurement_model",
-    "glmm_proposal",
 ]

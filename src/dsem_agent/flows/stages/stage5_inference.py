@@ -30,7 +30,7 @@ def fit_model(stage4_result: dict, data: list[str]) -> Any:
 
 @task
 def run_interventions(
-    fitted_model: Any,
+    _fitted_model: Any,
     treatments: list[str],
     dsem_model: dict | None = None,
 ) -> list[dict]:
@@ -49,32 +49,32 @@ def run_interventions(
     results = []
 
     # Get identifiability status
-    id_status = dsem_model.get('identifiability') if dsem_model else None
+    id_status = dsem_model.get("identifiability") if dsem_model else None
     non_identifiable: set[str] = set()
     blocker_details: dict[str, list[str]] = {}
     if id_status:
-        non_identifiable_map = id_status.get('non_identifiable_treatments', {})
+        non_identifiable_map = id_status.get("non_identifiable_treatments", {})
         non_identifiable = set(non_identifiable_map.keys())
         blocker_details = {
-            treatment: details.get('confounders', [])
+            treatment: details.get("confounders", [])
             for treatment, details in non_identifiable_map.items()
             if isinstance(details, dict)
         }
 
     for treatment in treatments:
         result = {
-            'treatment': treatment,
-            'effect_size': None,  # TODO: compute from fitted model
-            'credible_interval': None,
-            'identifiable': treatment not in non_identifiable,
+            "treatment": treatment,
+            "effect_size": None,  # TODO: compute from fitted model
+            "credible_interval": None,
+            "identifiable": treatment not in non_identifiable,
         }
 
         if treatment in non_identifiable:
             blockers = blocker_details.get(treatment, [])
             if blockers:
-                result['warning'] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
+                result["warning"] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
             else:
-                result['warning'] = "Effect not identifiable (missing proxies)"
+                result["warning"] = "Effect not identifiable (missing proxies)"
 
         results.append(result)
 

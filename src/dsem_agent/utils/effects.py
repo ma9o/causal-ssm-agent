@@ -12,9 +12,9 @@ def get_outcome_from_latent_model(latent_model: dict) -> str | None:
     Returns:
         Name of the outcome construct, or None if not found
     """
-    for construct in latent_model.get('constructs', []):
-        if construct.get('is_outcome', False):
-            return construct['name']
+    for construct in latent_model.get("constructs", []):
+        if construct.get("is_outcome", False):
+            return construct["name"]
     return None
 
 
@@ -36,13 +36,10 @@ def get_all_treatments(latent_model: dict) -> list[str]:
 
     # Build graph
     G = nx.DiGraph()
-    for edge in latent_model.get('edges', []):
-        G.add_edge(edge['cause'], edge['effect'])
+    for edge in latent_model.get("edges", []):
+        G.add_edge(edge["cause"], edge["effect"])
 
     # Find all nodes with causal paths to outcome
-    treatments = [
-        node for node in G.nodes()
-        if node != outcome and nx.has_path(G, node, outcome)
-    ]
+    treatments = [node for node in G.nodes() if node != outcome and nx.has_path(G, node, outcome)]
 
     return sorted(treatments)

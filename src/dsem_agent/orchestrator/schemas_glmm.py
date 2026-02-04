@@ -4,12 +4,12 @@ These schemas define the structure proposed by the orchestrator LLM
 for the Generalized Linear Mixed Model specification.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class DistributionFamily(str, Enum):
+class DistributionFamily(StrEnum):
     """Likelihood distribution families for observed variables."""
 
     NORMAL = "Normal"
@@ -22,7 +22,7 @@ class DistributionFamily(str, Enum):
     CATEGORICAL = "Categorical"
 
 
-class LinkFunction(str, Enum):
+class LinkFunction(StrEnum):
     """Link functions mapping linear predictor to distribution mean."""
 
     IDENTITY = "identity"  # Normal
@@ -33,7 +33,7 @@ class LinkFunction(str, Enum):
     SOFTMAX = "softmax"  # Categorical
 
 
-class ParameterRole(str, Enum):
+class ParameterRole(StrEnum):
     """Role of a parameter in the GLMM."""
 
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
@@ -45,7 +45,7 @@ class ParameterRole(str, Enum):
     LOADING = "loading"  # Factor loading for multi-indicator constructs
 
 
-class ParameterConstraint(str, Enum):
+class ParameterConstraint(StrEnum):
     """Constraints on parameter values."""
 
     NONE = "none"  # Unconstrained (can be any real number)
@@ -57,49 +57,29 @@ class ParameterConstraint(str, Enum):
 class LikelihoodSpec(BaseModel):
     """Specification for a likelihood (observed variable distribution)."""
 
-    variable: str = Field(
-        description="Name of the observed indicator variable"
-    )
-    distribution: DistributionFamily = Field(
-        description="Distribution family for this variable"
-    )
-    link: LinkFunction = Field(
-        description="Link function mapping linear predictor to mean"
-    )
-    reasoning: str = Field(
-        description="Why this distribution/link was chosen for this variable"
-    )
+    variable: str = Field(description="Name of the observed indicator variable")
+    distribution: DistributionFamily = Field(description="Distribution family for this variable")
+    link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
+    reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
 
 
 class RandomEffectSpec(BaseModel):
     """Specification for a random effect (hierarchical structure)."""
 
-    grouping: str = Field(
-        description="Grouping variable (e.g., 'subject', 'item', 'day')"
-    )
-    effect_type: str = Field(
-        description="Type of effect: 'intercept' or 'slope'"
-    )
+    grouping: str = Field(description="Grouping variable (e.g., 'subject', 'item', 'day')")
+    effect_type: str = Field(description="Type of effect: 'intercept' or 'slope'")
     applies_to: list[str] = Field(
         description="Which constructs/coefficients have this random effect"
     )
-    reasoning: str = Field(
-        description="Why this random effect structure is appropriate"
-    )
+    reasoning: str = Field(description="Why this random effect structure is appropriate")
 
 
 class ParameterSpec(BaseModel):
     """Specification for a parameter requiring a prior."""
 
-    name: str = Field(
-        description="Parameter name (e.g., 'beta_stress_anxiety', 'rho_mood')"
-    )
-    role: ParameterRole = Field(
-        description="Role of this parameter in the model"
-    )
-    constraint: ParameterConstraint = Field(
-        description="Constraint on parameter values"
-    )
+    name: str = Field(description="Parameter name (e.g., 'beta_stress_anxiety', 'rho_mood')")
+    role: ParameterRole = Field(description="Role of this parameter in the model")
+    constraint: ParameterConstraint = Field(description="Constraint on parameter values")
     description: str = Field(
         description="Human-readable description of what this parameter represents"
     )
@@ -119,18 +99,13 @@ class GLMMSpec(BaseModel):
         description="Likelihood specifications for each observed indicator"
     )
     random_effects: list[RandomEffectSpec] = Field(
-        default_factory=list,
-        description="Random effect specifications for hierarchical structure"
+        default_factory=list, description="Random effect specifications for hierarchical structure"
     )
-    parameters: list[ParameterSpec] = Field(
-        description="All parameters requiring priors"
-    )
+    parameters: list[ParameterSpec] = Field(description="All parameters requiring priors")
     model_clock: str = Field(
         description="Temporal granularity at which the model operates (e.g., 'daily')"
     )
-    reasoning: str = Field(
-        description="Overall reasoning for the GLMM specification choices"
-    )
+    reasoning: str = Field(description="Overall reasoning for the GLMM specification choices")
 
 
 # Result schemas for the orchestrator stage
@@ -139,9 +114,5 @@ class GLMMSpec(BaseModel):
 class Stage4OrchestratorResult(BaseModel):
     """Result of Stage 4 orchestrator: proposed GLMM specification."""
 
-    glmm_spec: GLMMSpec = Field(
-        description="The proposed GLMM specification"
-    )
-    raw_response: str = Field(
-        description="Raw LLM response for debugging"
-    )
+    glmm_spec: GLMMSpec = Field(description="The proposed GLMM specification")
+    raw_response: str = Field(description="Raw LLM response for debugging")

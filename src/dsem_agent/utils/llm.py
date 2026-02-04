@@ -1,7 +1,8 @@
 """Shared LLM utilities for multi-turn generation."""
 
 import json
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from inspect_ai.model import (
     ChatMessageAssistant,
@@ -9,23 +10,23 @@ from inspect_ai.model import (
     ChatMessageUser,
     GenerateConfig,
     Model,
-    get_model,
 )
 from inspect_ai.tool import Tool, tool
 
 if TYPE_CHECKING:
     from inspect_ai.model import ChatMessage
+
     from dsem_agent.orchestrator.schemas import LatentModel
 
 
 # Type aliases for generate functions
 OrchestratorGenerateFn = Callable[
     [list, list | None, list[str] | None],  # (messages, tools, follow_ups)
-    Awaitable[str]
+    Awaitable[str],
 ]
 WorkerGenerateFn = Callable[
     [list, list | None],  # (messages, tools)
-    Awaitable[str]
+    Awaitable[str],
 ]
 
 
@@ -61,7 +62,9 @@ def dict_messages_to_chat(messages: list[dict]) -> list["ChatMessage"]:
     return chat_messages
 
 
-def make_orchestrator_generate_fn(model: Model, config: GenerateConfig | None = None) -> OrchestratorGenerateFn:
+def make_orchestrator_generate_fn(
+    model: Model, config: GenerateConfig | None = None
+) -> OrchestratorGenerateFn:
     """Create a generate function for orchestrator stages (1a, 1b).
 
     The returned function has signature: (messages, tools, follow_ups) -> str
@@ -160,7 +163,7 @@ def validate_latent_model_tool():
         except json.JSONDecodeError as e:
             return f"JSON parse error: {e}"
 
-        structure, errors = validate_latent_model(data)
+        _structure, errors = validate_latent_model(data)
 
         if not errors:
             return "VALID"
@@ -201,7 +204,7 @@ def make_validate_measurement_model_tool(latent_model: "LatentModel") -> Tool:
             except json.JSONDecodeError as e:
                 return f"JSON parse error: {e}"
 
-            model, errors = validate_measurement_model(data, latent_model)
+            _model, errors = validate_measurement_model(data, latent_model)
 
             if not errors:
                 return "VALID"
@@ -265,7 +268,7 @@ def make_validate_worker_output_tool(schema: dict) -> Tool:
                 return f"JSON parse error: {e}"
 
             # Validate and collect all errors
-            output, errors = validate_worker_output(data, schema)
+            _output, errors = validate_worker_output(data, schema)
 
             if not errors:
                 return "VALID"
@@ -294,10 +297,10 @@ def calculate():
         # Whitelist of allowed characters for safe evaluation
         allowed_chars = set("0123456789+-*/%()._ ")
         if not all(c in allowed_chars for c in expression):
-            return f"Error: Expression contains invalid characters. Only numbers and +-*/%()._ are allowed."
+            return "Error: Expression contains invalid characters. Only numbers and +-*/%()._ are allowed."
 
         try:
-            result = eval(expression)  # noqa: S307 - safe due to character whitelist
+            result = eval(expression)
             return str(result)
         except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
             return f"Error evaluating expression: {e}"

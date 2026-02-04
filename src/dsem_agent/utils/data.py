@@ -38,7 +38,7 @@ SAMPLE_CHUNKS = get_sample_chunks()
 
 def load_lines(path: Path) -> list[str]:
     """Load individual lines from a preprocessed file."""
-    with open(path) as f:
+    with path.open() as f:
         return [line.strip() for line in f if line.strip()]
 
 

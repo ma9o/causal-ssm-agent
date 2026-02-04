@@ -19,15 +19,15 @@ from dsem_agent.orchestrator.schemas import (
 )
 
 
-def score_latent_model(example, pred, trace=None) -> float:
+def score_latent_model(_example, pred, _trace=None) -> float:
     """Score a latent model proposal.
 
     Compatible with DSPy metric interface but can be used standalone.
 
     Args:
-        example: Context/reference (unused, for DSPy compatibility)
+        _example: Context/reference (unused, for DSPy compatibility)
         pred: Object with 'structure' field containing JSON string
-        trace: Optional trace (unused, for DSPy compatibility)
+        _trace: Optional trace (unused, for DSPy compatibility)
 
     Returns:
         Float score: 0 if any rule violated, otherwise sum of rule instance points

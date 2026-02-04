@@ -1,7 +1,5 @@
 """Tests for literature search module."""
 
-import pytest
-
 from dsem_agent.utils.literature_search import (
     LiteratureContext,
     LiteratureEvidence,
@@ -26,7 +24,9 @@ class TestFormatLiteratureForPrompt:
                 effect="mood",
                 summary="Stress negatively affects mood.",
                 effect_sizes=["r=-0.3", "d=-0.5"],
-                sources=[{"title": "Meta-analysis 2023", "url": "http://example.com", "snippet": "..."}],
+                sources=[
+                    {"title": "Meta-analysis 2023", "url": "http://example.com", "snippet": "..."}
+                ],
                 confidence="high",
             )
         }

@@ -12,9 +12,10 @@ from inspect_ai.model import get_model
 
 from dsem_agent.utils.config import get_config
 from dsem_agent.utils.llm import make_orchestrator_generate_fn
+
+from .schemas import DSEMModel, LatentModel, MeasurementModel
 from .stage1a import run_stage1a
 from .stage1b import run_stage1b
-from .schemas import DSEMModel, MeasurementModel, LatentModel
 
 # Load environment variables from .env file (for API keys)
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")

@@ -16,11 +16,9 @@ from dsem_agent.orchestrator.schemas import (
     Construct,
     Indicator,
     LatentModel,
-    MeasurementModel,
     Role,
     TemporalStatus,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FACTORY FIXTURES

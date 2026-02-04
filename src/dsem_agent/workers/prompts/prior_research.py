@@ -124,7 +124,6 @@ Consider:
 If no literature evidence is available, use domain reasoning and be explicit about your uncertainty.
 
 Output your prior as JSON.""",
-
     # 1: Uncertainty emphasis
     """\
 Focus on expressing your uncertainty about this parameter's value.
@@ -137,7 +136,6 @@ Think about:
 Be honest about what you don't know. Wider priors are better than overconfident narrow ones.
 
 Output your prior as JSON.""",
-
     # 2: Direction focus
     """\
 First, think about the DIRECTION of this effect before its magnitude.
@@ -148,7 +146,6 @@ Ask yourself:
 3. Only after establishing direction, what magnitude seems reasonable?
 
 Output your prior as JSON.""",
-
     # 3: Zero anchor
     """\
 Start from the null hypothesis: assume this effect is zero.
@@ -161,7 +158,6 @@ Now consider:
 A prior centered near zero expresses skepticism. Move away only with good reason.
 
 Output your prior as JSON.""",
-
     # 4: Magnitude thinking
     """\
 Think in terms of practical significance, not just statistical significance.
@@ -174,7 +170,6 @@ Consider:
 Cohen's conventions (d=0.2, 0.5, 0.8) may or may not apply. Use domain-specific reasoning.
 
 Output your prior as JSON.""",
-
     # 5: Conservative framing
     """\
 Take a skeptical, conservative stance on this parameter.
@@ -187,7 +182,6 @@ Ask:
 Err on the side of wider, more conservative priors.
 
 Output your prior as JSON.""",
-
     # 6: Optimistic framing
     """\
 Assume the literature evidence is reliable and well-measured.
@@ -200,7 +194,6 @@ Consider:
 You can be more confident if evidence is consistent across studies.
 
 Output your prior as JSON.""",
-
     # 7: Practical significance
     """\
 Think about what effect size would matter in practice.
@@ -213,7 +206,6 @@ Consider:
 Connect statistical effect to real-world impact.
 
 Output your prior as JSON.""",
-
     # 8: Cross-study variation
     """\
 Focus on how much this effect varies across studies and populations.
@@ -226,7 +218,6 @@ Think about:
 Higher heterogeneity → wider prior uncertainty.
 
 Output your prior as JSON.""",
-
     # 9: Bound checking
     """\
 Think about the logical and empirical bounds on this parameter.

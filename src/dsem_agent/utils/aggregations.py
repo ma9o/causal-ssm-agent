@@ -1,6 +1,6 @@
 """Aggregation registry for DSEM time-series aggregations using Polars."""
 
-from typing import Callable
+from collections.abc import Callable
 
 import polars as pl
 
@@ -28,9 +28,7 @@ def agg_entropy(col: str) -> pl.Expr:
         .value_counts()
         .struct.field("count")
         .cast(pl.Float64)
-        .map_batches(
-            lambda s: pl.Series([-((p := s / s.sum()) * (p + 1e-10).log()).sum()])
-        )
+        .map_batches(lambda s: pl.Series([-((p := s / s.sum()) * (p + 1e-10).log()).sum()]))
         .first()
     )
 
@@ -106,7 +104,9 @@ def list_aggregations() -> list[str]:
     return sorted(AGGREGATION_REGISTRY.keys())
 
 
-def apply_aggregation(df: pl.DataFrame, col: str, agg_name: str, group_by: list[str] | None = None) -> pl.DataFrame:
+def apply_aggregation(
+    df: pl.DataFrame, col: str, agg_name: str, group_by: list[str] | None = None
+) -> pl.DataFrame:
     """Apply an aggregation to a DataFrame column.
 
     Args:
@@ -144,7 +144,9 @@ def _truncate_to_granularity(ts: pl.Expr, granularity: str) -> pl.Expr:
         "yearly": "1y",
     }
     if granularity not in truncate_map:
-        raise ValueError(f"Unknown granularity '{granularity}'. Must be one of: {list(truncate_map.keys())}")
+        raise ValueError(
+            f"Unknown granularity '{granularity}'. Must be one of: {list(truncate_map.keys())}"
+        )
     return ts.dt.truncate(truncate_map[granularity])
 
 
@@ -177,10 +179,7 @@ def _get_indicator_metadata(dsem_model: dict) -> dict[str, dict]:
     constructs = dsem_model.get("latent", {}).get("constructs", [])
 
     # Build construct name -> causal_granularity map
-    construct_granularity = {
-        c.get("name"): c.get("causal_granularity")
-        for c in constructs
-    }
+    construct_granularity = {c.get("name"): c.get("causal_granularity") for c in constructs}
 
     indicator_info = {}
     for ind in indicators:
@@ -238,9 +237,7 @@ def aggregate_worker_measurements(
     # Parse timestamps - try multiple formats
     # time_zone="UTC" handles timestamps with timezone info (e.g., +00:00 or Z suffix)
     combined = combined.with_columns(
-        pl.col("timestamp")
-        .str.to_datetime(strict=False, time_zone="UTC")
-        .alias("parsed_ts")
+        pl.col("timestamp").str.to_datetime(strict=False, time_zone="UTC").alias("parsed_ts")
     )
 
     # Coerce values to numeric
@@ -285,8 +282,7 @@ def aggregate_worker_measurements(
         # Time-varying indicators at this granularity
         # Filter to rows with valid timestamps
         gran_data = combined.filter(
-            pl.col("parsed_ts").is_not_null() &
-            pl.col("indicator").is_in(ind_names)
+            pl.col("parsed_ts").is_not_null() & pl.col("indicator").is_in(ind_names)
         )
 
         if gran_data.is_empty():
@@ -313,8 +309,7 @@ def aggregate_worker_measurements(
 
             # Group by time bucket and aggregate
             aggregated = (
-                ind_data
-                .group_by("time_bucket")
+                ind_data.group_by("time_bucket")
                 .agg(agg_fn("numeric_value").alias(ind_name))
                 .sort("time_bucket")
             )

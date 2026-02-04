@@ -1,7 +1,7 @@
 """Tests for aggregation registry."""
 
-import pytest
 import polars as pl
+import pytest
 
 from dsem_agent.utils.aggregations import (
     AGGREGATION_REGISTRY,
@@ -18,10 +18,30 @@ class TestAggregationRegistry:
     def test_registry_has_expected_keys(self):
         """Registry should have all documented aggregations."""
         expected = {
-            "mean", "sum", "min", "max", "std", "var", "first", "last", "count",
-            "median", "p10", "p25", "p75", "p90", "p99", "skew", "kurtosis", "iqr",
-            "range", "cv",
-            "entropy", "instability", "trend", "n_unique",
+            "mean",
+            "sum",
+            "min",
+            "max",
+            "std",
+            "var",
+            "first",
+            "last",
+            "count",
+            "median",
+            "p10",
+            "p25",
+            "p75",
+            "p90",
+            "p99",
+            "skew",
+            "kurtosis",
+            "iqr",
+            "range",
+            "cv",
+            "entropy",
+            "instability",
+            "trend",
+            "n_unique",
         }
         assert expected.issubset(set(AGGREGATION_REGISTRY.keys()))
 
@@ -202,23 +222,40 @@ class TestAggregateWorkerMeasurements:
             },
             "measurement": {
                 "indicators": [
-                    {"name": "hourly_metric", "construct_name": "hourly_construct", "aggregation": "mean"},
-                    {"name": "daily_metric", "construct_name": "daily_construct", "aggregation": "sum"},
+                    {
+                        "name": "hourly_metric",
+                        "construct_name": "hourly_construct",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "daily_metric",
+                        "construct_name": "daily_construct",
+                        "aggregation": "sum",
+                    },
                 ],
             },
         }
 
-        df = pl.DataFrame({
-            "indicator": ["hourly_metric", "hourly_metric", "hourly_metric", "daily_metric", "daily_metric"],
-            "value": [10.0, 20.0, 30.0, 100.0, 200.0],
-            "timestamp": [
-                "2024-01-01 10:15",  # hourly bucket: 10:00
-                "2024-01-01 10:45",  # hourly bucket: 10:00
-                "2024-01-01 11:30",  # hourly bucket: 11:00
-                "2024-01-01 10:00",  # daily bucket: 2024-01-01
-                "2024-01-01 22:00",  # daily bucket: 2024-01-01
-            ],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": [
+                    "hourly_metric",
+                    "hourly_metric",
+                    "hourly_metric",
+                    "daily_metric",
+                    "daily_metric",
+                ],
+                "value": [10.0, 20.0, 30.0, 100.0, 200.0],
+                "timestamp": [
+                    "2024-01-01 10:15",  # hourly bucket: 10:00
+                    "2024-01-01 10:45",  # hourly bucket: 10:00
+                    "2024-01-01 11:30",  # hourly bucket: 11:00
+                    "2024-01-01 10:00",  # daily bucket: 2024-01-01
+                    "2024-01-01 22:00",  # daily bucket: 2024-01-01
+                ],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], schema)
 
@@ -249,11 +286,14 @@ class TestAggregateWorkerMeasurements:
 
     def test_only_includes_known_indicators(self, daily_aggregation_schema):
         """Only indicators defined in schema are processed."""
-        df = pl.DataFrame({
-            "indicator": ["unknown_metric", "temperature"],
-            "value": [8.0, 20.0],
-            "timestamp": ["2024-01-01 08:00", "2024-01-01 10:00"],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": ["unknown_metric", "temperature"],
+                "value": [8.0, 20.0],
+                "timestamp": ["2024-01-01 08:00", "2024-01-01 10:00"],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], daily_aggregation_schema)
 
@@ -279,11 +319,14 @@ class TestAggregateWorkerMeasurements:
             },
         }
 
-        df = pl.DataFrame({
-            "indicator": ["age", "age", "mood"],
-            "value": [30, 31, 7.5],
-            "timestamp": ["2024-01-01", "2024-01-02", "2024-01-01 10:00"],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": ["age", "age", "mood"],
+                "value": [30, 31, 7.5],
+                "timestamp": ["2024-01-01", "2024-01-02", "2024-01-01 10:00"],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], schema)
 
@@ -305,11 +348,14 @@ class TestAggregateWorkerMeasurements:
 
     def test_handles_unparseable_timestamps(self, daily_aggregation_schema):
         """Rows with unparseable timestamps are filtered out."""
-        df = pl.DataFrame({
-            "indicator": ["temperature", "temperature", "temperature"],
-            "value": [20.0, 22.0, 24.0],
-            "timestamp": ["2024-01-01 10:00", "invalid-date", "2024-01-01 14:00"],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": ["temperature", "temperature", "temperature"],
+                "value": [20.0, 22.0, 24.0],
+                "timestamp": ["2024-01-01 10:00", "invalid-date", "2024-01-01 14:00"],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], daily_aggregation_schema)
 
@@ -334,11 +380,19 @@ class TestAggregateWorkerMeasurements:
             },
         }
 
-        df = pl.DataFrame({
-            "indicator": ["is_active", "is_active", "is_active", "is_active"],
-            "value": [True, False, True, True],
-            "timestamp": ["2024-01-01 08:00", "2024-01-01 10:00", "2024-01-01 12:00", "2024-01-01 14:00"],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": ["is_active", "is_active", "is_active", "is_active"],
+                "value": [True, False, True, True],
+                "timestamp": [
+                    "2024-01-01 08:00",
+                    "2024-01-01 10:00",
+                    "2024-01-01 12:00",
+                    "2024-01-01 14:00",
+                ],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], schema)
 
@@ -364,11 +418,14 @@ class TestAggregateWorkerMeasurements:
             },
         }
 
-        df = pl.DataFrame({
-            "indicator": ["ind_a", "ind_a", "ind_b"],
-            "value": [10.0, 20.0, 100.0],
-            "timestamp": ["2024-01-01 10:00", "2024-01-02 10:00", "2024-01-01 10:00"],
-        }, schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8})
+        df = pl.DataFrame(
+            {
+                "indicator": ["ind_a", "ind_a", "ind_b"],
+                "value": [10.0, 20.0, 100.0],
+                "timestamp": ["2024-01-01 10:00", "2024-01-02 10:00", "2024-01-01 10:00"],
+            },
+            schema={"indicator": pl.Utf8, "value": pl.Object, "timestamp": pl.Utf8},
+        )
 
         result = aggregate_worker_measurements([df], schema)
         daily_df = result["daily"].sort("time_bucket")
@@ -379,4 +436,3 @@ class TestAggregateWorkerMeasurements:
         jan2 = daily_df.filter(pl.col("time_bucket").dt.day() == 2)
         assert jan2["ind_a"][0] == pytest.approx(20.0)
         assert jan2["ind_b"][0] is None
-

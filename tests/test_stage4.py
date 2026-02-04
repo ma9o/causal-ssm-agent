@@ -7,7 +7,6 @@ import pytest
 from dsem_agent.models.dsem_model_builder import DSEMModelBuilder
 from dsem_agent.models.prior_predictive import (
     _get_constraint_from_distribution,
-    _validate_parameter,
     _validate_prior_predictive_samples,
     format_validation_report,
 )
@@ -31,7 +30,6 @@ from dsem_agent.workers.schemas_prior import (
     PriorValidationResult,
     RawPriorSample,
 )
-
 
 # --- Fixtures ---
 
@@ -112,11 +110,13 @@ def simple_priors() -> dict:
 def simple_data() -> pd.DataFrame:
     """Simple test data with lagged columns."""
     n = 50
-    return pd.DataFrame({
-        "mood_score": np.random.randn(n) * 1.5 + 5,
-        "mood_score_lag1": np.random.randn(n) * 1.5 + 5,
-        "subject_id": np.repeat(np.arange(5), 10),
-    })
+    return pd.DataFrame(
+        {
+            "mood_score": np.random.randn(n) * 1.5 + 5,
+            "mood_score_lag1": np.random.randn(n) * 1.5 + 5,
+            "subject_id": np.repeat(np.arange(5), 10),
+        }
+    )
 
 
 # --- Schema Tests ---
@@ -316,7 +316,9 @@ class TestPriorValidation:
     def test_format_validation_report_passed(self):
         """Report formats correctly for passed validation."""
         results = [
-            PriorValidationResult(parameter="x", is_valid=True, issue=None, suggested_adjustment=None),
+            PriorValidationResult(
+                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
+            ),
         ]
         report = format_validation_report(True, results)
         assert "PASSED" in report
@@ -324,7 +326,9 @@ class TestPriorValidation:
     def test_format_validation_report_failed(self):
         """Report formats correctly for failed validation."""
         results = [
-            PriorValidationResult(parameter="x", is_valid=False, issue="Bad values", suggested_adjustment=None),
+            PriorValidationResult(
+                parameter="x", is_valid=False, issue="Bad values", suggested_adjustment=None
+            ),
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report

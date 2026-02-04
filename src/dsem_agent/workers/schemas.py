@@ -75,9 +75,13 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
 
     dtype_checks = {
         "continuous": lambda v: isinstance(v, (int, float)),
-        "binary": lambda v: isinstance(v, bool) or v in (0, 1, "0", "1", "true", "false", "True", "False"),
+        "binary": lambda v: (
+            isinstance(v, bool) or v in (0, 1, "0", "1", "true", "false", "True", "False")
+        ),
         "count": lambda v: isinstance(v, int) or (isinstance(v, float) and v == int(v) and v >= 0),
-        "ordinal": lambda v: isinstance(v, (int, float, str)),  # Flexible - can be numeric or string
+        "ordinal": lambda v: isinstance(
+            v, (int, float, str)
+        ),  # Flexible - can be numeric or string
         "categorical": lambda v: isinstance(v, str),
     }
 
@@ -203,9 +207,7 @@ def validate_worker_output(
             # Check not already in schema (check both indicators and constructs)
             all_names = set(indicator_info.keys()) | all_construct_names
             if name in all_names:
-                errors.append(
-                    f"proposed_indicators[{i}]: '{name}' already exists in schema"
-                )
+                errors.append(f"proposed_indicators[{i}]: '{name}' already exists in schema")
                 continue
 
             normalized_prop = {
@@ -213,7 +215,9 @@ def validate_worker_output(
                 "description": prop_data.get("description", ""),
                 "evidence": prop_data.get("evidence", ""),
                 "relevant_because": prop_data.get("relevant_because", ""),
-                "not_already_in_indicators_because": prop_data.get("not_already_in_indicators_because", ""),
+                "not_already_in_indicators_because": prop_data.get(
+                    "not_already_in_indicators_because", ""
+                ),
             }
 
             try:

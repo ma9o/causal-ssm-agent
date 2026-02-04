@@ -11,7 +11,6 @@ import json
 
 import pytest
 
-from tests.helpers import make_mock_generate
 from dsem_agent.orchestrator.stage1b import (
     Stage1bMessages,
     Stage1bResult,
@@ -19,7 +18,7 @@ from dsem_agent.orchestrator.stage1b import (
     _merge_proxies,
     run_stage1b,
 )
-
+from tests.helpers import make_mock_generate
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UNIT TESTS: Helper Functions
@@ -64,9 +63,7 @@ class TestMergeProxies:
         assert new_indicator["construct"] == "Confounder"
         assert "confounder_proxy" in new_indicator["name"]
 
-    def test_merge_handles_full_indicator_objects(
-        self, stage1b_measurement_missing_confounder
-    ):
+    def test_merge_handles_full_indicator_objects(self, stage1b_measurement_missing_confounder):
         """Proxy response with full indicator objects (not just names) is handled correctly."""
         # This is what models sometimes produce - full indicator specs instead of just names
         proxy_response = {
@@ -112,14 +109,10 @@ class TestGetConfoundersToFix:
     def test_extracts_confounders(self, stage1b_confounded_latent):
         """Extracts confounders from identifiability result."""
         id_result = {
-            "non_identifiable_treatments": {
-                "Treatment": {"confounders": ["Confounder"]}
-            },
+            "non_identifiable_treatments": {"Treatment": {"confounders": ["Confounder"]}},
         }
 
-        blocking_info, confounders = _get_confounders_to_fix(
-            id_result, stage1b_confounded_latent
-        )
+        blocking_info, confounders = _get_confounders_to_fix(id_result, stage1b_confounded_latent)
 
         assert "Confounder" in confounders
         assert "Treatment" in blocking_info

@@ -4,10 +4,16 @@ Validates proposed priors by sampling from the prior predictive distribution
 and checking for domain violations (NaN/Inf, wrong sign for constrained params).
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import polars as pl
 
 from dsem_agent.models.dsem_model_builder import DSEMModelBuilder
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from arviz import InferenceData
 from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
 from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
@@ -71,7 +77,11 @@ def validate_prior_predictive(
         # Check prior predictive of observed variables
         for lik_spec in glmm_dict.get("likelihoods", []):
             var_name = lik_spec.get("variable")
-            if var_name and hasattr(idata, 'prior_predictive') and var_name in idata.prior_predictive:
+            if (
+                var_name
+                and hasattr(idata, "prior_predictive")
+                and var_name in idata.prior_predictive
+            ):
                 result = _validate_prior_predictive_samples(
                     var_name,
                     idata.prior_predictive[var_name].values,
@@ -83,12 +93,14 @@ def validate_prior_predictive(
 
     except Exception as e:
         # Model building failed - report as validation failure
-        results.append(PriorValidationResult(
-            parameter="model_build",
-            is_valid=False,
-            issue=f"Model building failed: {e}",
-            suggested_adjustment=None,
-        ))
+        results.append(
+            PriorValidationResult(
+                parameter="model_build",
+                is_valid=False,
+                issue=f"Model building failed: {e}",
+                suggested_adjustment=None,
+            )
+        )
         all_valid = False
 
     return all_valid, results

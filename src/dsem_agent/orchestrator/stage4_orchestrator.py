@@ -6,7 +6,11 @@ enumerating all parameters needing priors with search context for literature.
 
 from dsem_agent.orchestrator.prompts.glmm_proposal import (
     SYSTEM as GLMM_PROPOSAL_SYSTEM,
+)
+from dsem_agent.orchestrator.prompts.glmm_proposal import (
     USER as GLMM_PROPOSAL_USER,
+)
+from dsem_agent.orchestrator.prompts.glmm_proposal import (
     format_constructs,
     format_edges,
     format_indicators,
@@ -43,13 +47,16 @@ async def propose_glmm_spec(
     # Build messages
     messages = [
         {"role": "system", "content": GLMM_PROPOSAL_SYSTEM},
-        {"role": "user", "content": GLMM_PROPOSAL_USER.format(
-            question=question,
-            constructs=constructs_str,
-            edges=edges_str,
-            indicators=indicators_str,
-            data_summary=data_summary,
-        )},
+        {
+            "role": "user",
+            "content": GLMM_PROPOSAL_USER.format(
+                question=question,
+                constructs=constructs_str,
+                edges=edges_str,
+                indicators=indicators_str,
+                data_summary=data_summary,
+            ),
+        },
     ]
 
     # Generate GLMM specification

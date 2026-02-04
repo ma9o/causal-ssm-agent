@@ -14,6 +14,8 @@ from dsem_agent.orchestrator.stage1b import run_stage1b
 from dsem_agent.utils.config import get_config
 from dsem_agent.utils.data import (
     get_orchestrator_chunk_size,
+)
+from dsem_agent.utils.data import (
     load_text_chunks as load_text_chunks_util,
 )
 from dsem_agent.utils.llm import make_orchestrator_generate_fn
@@ -27,13 +29,11 @@ def load_orchestrator_chunks(input_path: Path) -> list[str]:
 
 @task(cache_policy=INPUTS)
 def build_dsem_model(
-    latent_model: dict,
-    measurement_model: dict,
-    identifiability_status: dict | None = None
+    latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
 ) -> dict:
     """Combine latent and measurement models into full DSEMModel with identifiability."""
     dsem = build_dsem_model_agent(latent_model, measurement_model)
-    dsem['identifiability'] = identifiability_status
+    dsem["identifiability"] = identifiability_status
     return dsem
 
 
@@ -71,8 +71,8 @@ def propose_measurement_with_identifiability_fix(
             dataset_summary=dataset_summary,
         )
         return {
-            'measurement_model': result.measurement_model,
-            'identifiability_status': result.identifiability_status,
+            "measurement_model": result.measurement_model,
+            "identifiability_status": result.identifiability_status,
         }
 
     return asyncio.run(run())

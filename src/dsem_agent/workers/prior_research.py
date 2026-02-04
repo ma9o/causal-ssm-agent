@@ -15,7 +15,11 @@ from dsem_agent.orchestrator.schemas_glmm import ParameterSpec
 from dsem_agent.utils.llm import WorkerGenerateFn, parse_json_response
 from dsem_agent.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
+)
+from dsem_agent.workers.prompts.prior_research import (
     USER as PRIOR_RESEARCH_USER,
+)
+from dsem_agent.workers.prompts.prior_research import (
     format_literature_for_parameter,
     generate_paraphrased_prompts,
 )
@@ -227,12 +231,12 @@ def _aggregate_gmm(
     mu_pooled = float(np.sum(best_gmm.weights_ * best_gmm.means_.flatten()))
 
     # For sigma, combine GMM variance with between-sample variance
-    gmm_variance = float(np.sum(
-        best_gmm.weights_ * (
-            best_gmm.covariances_.flatten() +
-            (best_gmm.means_.flatten() - mu_pooled)**2
+    gmm_variance = float(
+        np.sum(
+            best_gmm.weights_
+            * (best_gmm.covariances_.flatten() + (best_gmm.means_.flatten() - mu_pooled) ** 2)
         )
-    ))
+    )
     sigma_pooled = float(np.sqrt(gmm_variance + np.mean(sigmas**2)))
 
     return AggregatedPrior(
@@ -306,14 +310,17 @@ async def _research_single_prior_single_shot(
     # Build messages
     messages = [
         {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
-        {"role": "user", "content": PRIOR_RESEARCH_USER.format(
-            parameter_name=parameter.name,
-            parameter_role=parameter.role.value,
-            parameter_constraint=parameter.constraint.value,
-            parameter_description=parameter.description,
-            question=question,
-            literature_context=literature_context,
-        )},
+        {
+            "role": "user",
+            "content": PRIOR_RESEARCH_USER.format(
+                parameter_name=parameter.name,
+                parameter_role=parameter.role.value,
+                parameter_constraint=parameter.constraint.value,
+                parameter_description=parameter.description,
+                question=question,
+                literature_context=literature_context,
+            ),
+        },
     ]
 
     # Generate prior proposal
@@ -325,12 +332,14 @@ async def _research_single_prior_single_shot(
     # Build sources from literature + LLM response
     sources = []
     for src in prior_data.get("sources", []):
-        sources.append(PriorSource(
-            title=src.get("title", "Unknown"),
-            url=src.get("url"),
-            snippet=src.get("snippet", ""),
-            effect_size=src.get("effect_size"),
-        ))
+        sources.append(
+            PriorSource(
+                title=src.get("title", "Unknown"),
+                url=src.get("url"),
+                snippet=src.get("snippet", ""),
+                effect_size=src.get("effect_size"),
+            )
+        )
 
     # Build prior proposal
     proposal = PriorProposal(
@@ -371,10 +380,7 @@ async def _research_single_prior_paraphrased(
     )
 
     # Elicit priors in parallel
-    tasks = [
-        _elicit_single_paraphrase(i, prompt, generate)
-        for i, prompt in enumerate(prompts)
-    ]
+    tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
     results = await asyncio.gather(*tasks)
 
     # Filter out failed elicitations
