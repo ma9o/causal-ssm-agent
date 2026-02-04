@@ -1,17 +1,4 @@
-from dsem_agent.utils.aggregations import (
-    AGGREGATION_REGISTRY,
-    Aggregator,
-    aggregate_worker_measurements,
-    apply_aggregation,
-    get_aggregator,
-    list_aggregations,
-)
+"""Utility functions for dsem-agent."""
 
-__all__ = [
-    "AGGREGATION_REGISTRY",
-    "Aggregator",
-    "aggregate_worker_measurements",
-    "apply_aggregation",
-    "get_aggregator",
-    "list_aggregations",
-]
+# NOTE: Aggregation utilities have been removed.
+# CT-SEM handles raw timestamped data directly without upfront aggregation.

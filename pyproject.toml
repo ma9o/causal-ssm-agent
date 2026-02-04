@@ -11,12 +11,13 @@ dependencies = [
     "exa-py>=1.0.0",
     "google-genai>=1.56.0",
     "inspect-ai>=0.3.162",
+    "jax>=0.4.35",
+    "jaxlib>=0.4.35",
     "networkx>=3.6",
+    "numpyro>=0.16.0",
     "openai>=2.9.0",
     "polars>=1.35.2",
     "prefect>=3.6.5",
-    "pymc>=5.27.0",
-    "pymc-extras>=0.7.0",
     "python-dotenv>=1.2.1",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
 ]
@@ -28,13 +29,13 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.1.0",
-    "nbconvert>=7.17.0",
-    "nbformat>=5.10.4",
     "pytest>=9.0.2",
     "ruff>=0.9.0",
     "streamlit>=1.52.2",
     "streamlit-agraph>=0.0.45",
     "watchdog>=6.0.0",
+    "dspy>=3.0.4",
+    "rpy2>=3.6.4",
 ]
 
 [tool.ruff]
@@ -84,5 +85,4 @@ skip-magic-trailing-comma = false
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "serial",
 ]

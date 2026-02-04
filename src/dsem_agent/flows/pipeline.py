@@ -21,23 +21,23 @@ from dsem_agent.utils.effects import (
 )
 
 from .stages import (
-    # Stage 2
-    aggregate_measurements,
-    # Stage 1b
-    build_dsem_model,
-    # Stage 5
-    fit_model,
-    load_orchestrator_chunks,
-    load_worker_chunks,
-    populate_indicators,
     # Stage 1a
     propose_latent_model,
+    # Stage 1b
+    build_dsem_model,
+    load_orchestrator_chunks,
     propose_measurement_with_identifiability_fix,
-    run_interventions,
+    # Stage 2
+    load_worker_chunks,
+    populate_indicators,
+    # Stage 3
+    combine_worker_results,
+    validate_extraction,
     # Stage 4
     stage4_orchestrated_flow,
-    # Stage 3
-    validate_extraction,
+    # Stage 5
+    fit_model,
+    run_interventions,
 )
 
 
@@ -100,20 +100,20 @@ def causal_inference_pipeline(
         orchestrator_chunks[:SAMPLE_CHUNKS],
     )
 
-    measurement_model = measurement_result["measurement_model"]
-    identifiability_status = measurement_result["identifiability_status"]
+    measurement_model = measurement_result['measurement_model']
+    identifiability_status = measurement_result['identifiability_status']
 
     n_indicators = len(measurement_model["indicators"])
     print(f"Final model has {n_indicators} indicators")
 
     # Report non-identifiable treatments
-    non_identifiable = identifiability_status.get("non_identifiable_treatments", {})
+    non_identifiable = identifiability_status.get('non_identifiable_treatments', {})
     if non_identifiable:
         print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS:")
         for treatment in sorted(non_identifiable.keys()):
             details = non_identifiable[treatment]
-            blockers = details.get("confounders", []) if isinstance(details, dict) else []
-            notes = details.get("notes") if isinstance(details, dict) else None
+            blockers = details.get('confounders', []) if isinstance(details, dict) else []
+            notes = details.get('notes') if isinstance(details, dict) else None
             if blockers:
                 print(f"  - {treatment} → {outcome} (blocked by: {', '.join(blockers)})")
             elif notes:
@@ -138,82 +138,49 @@ def causal_inference_pipeline(
         dsem_model=unmapped(dsem_model),
     )
 
-    # Stage 2b: Aggregate measurements into time-series by causal_granularity
-    measurements_task = aggregate_measurements(worker_results, dsem_model)
-    measurements_data = (
-        measurements_task.result() if hasattr(measurements_task, "result") else measurements_task
-    )
-
-    for granularity, df in measurements_data.items():
-        n_indicators = len([c for c in df.columns if c != "time_bucket"])
-        if granularity == "time_invariant":
-            print(f"  {granularity}: {n_indicators} indicators")
-        else:
-            print(f"  {granularity}: {df.height} time points × {n_indicators} indicators")
+    # Combine raw worker results (no upfront aggregation - CT-SEM handles irregular times)
+    raw_data = combine_worker_results(worker_results)
+    raw_data_result = raw_data.result() if hasattr(raw_data, "result") else raw_data
+    n_observations = len(raw_data_result)
+    n_unique_indicators = raw_data_result["indicator"].n_unique() if n_observations > 0 else 0
+    print(f"  Combined {n_observations} observations across {n_unique_indicators} indicators")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 3: Extraction Validation ===")
-    validation_task = validate_extraction(dsem_model, measurements_data)
-    validation_report = (
-        validation_task.result() if hasattr(validation_task, "result") else validation_task
-    )
+    validation_task = validate_extraction(dsem_model, worker_results)
+    validation_report = validation_task.result() if hasattr(validation_task, "result") else validation_task
 
     if validation_report:
         issues = validation_report.get("issues", [])
         if not validation_report.get("is_valid", True):
             print("⚠️  Stage 3 validation errors detected:")
             for issue in issues:
-                print(
-                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
-                )
+                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
         elif issues:
             print("⚠️  Stage 3 validation warnings:")
             for issue in issues:
-                print(
-                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
-                )
-
-    constructs = dsem_model.get("latent", {}).get("constructs", [])
-    construct_granularity = {c.get("name"): c.get("causal_granularity") for c in constructs}
-    missing_indicators: list[str] = []
-
-    for indicator in dsem_model.get("measurement", {}).get("indicators", []):
-        ind_name = indicator.get("name")
-        if not ind_name:
-            continue
-
-        construct_name = indicator.get("construct") or indicator.get("construct_name")
-        granularity = construct_granularity.get(construct_name)
-        gran_key = granularity if granularity else "time_invariant"
-
-        df = measurements_data.get(gran_key)
-        if df is None or ind_name not in df.columns:
-            missing_indicators.append(ind_name)
-
-    if missing_indicators:
-        joined = ", ".join(sorted(set(missing_indicators)))
-        print(f"⚠️  Aggregation produced no data for indicators: {joined}")
+                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 4: Model Specification (Orchestrator-Worker Architecture)
+    # Stage 4: CT-SEM Specification (Orchestrator-Worker Architecture)
     # ══════════════════════════════════════════════════════════════════════════
     from dsem_agent.utils.config import get_config
 
     config = get_config()
 
-    print("\n=== Stage 4: Model Specification ===")
+    print("\n=== Stage 4: CT-SEM Specification ===")
     stage4_result = stage4_orchestrated_flow(
         dsem_model=dsem_model,
         question=question,
-        measurements_data=measurements_data,
+        raw_data=raw_data_result,  # Pass raw timestamped data instead of aggregated
         enable_literature=config.stage4_prior_elicitation.literature_search.enabled,
     )
 
-    model_spec = stage4_result.get("model_spec", {})
-    print(f"Model clock: {model_spec.get('model_clock', 'unknown')}")
-    print(f"Parameters: {len(model_spec.get('parameters', []))} total")
+    glmm_spec = stage4_result.get("glmm_spec", {})
+    print(f"Model clock: {glmm_spec.get('model_clock', 'unknown')}")
+    print(f"Parameters: {len(glmm_spec.get('parameters', []))} total")
 
     # Report validation issues
     validation = stage4_result.get("validation", {})
@@ -232,13 +199,13 @@ def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 5: Inference ===")
     print(f"Estimating effects of {len(treatments)} treatments on {outcome}")
-    fitted = fit_model(stage4_result, worker_chunks)
+    fitted = fit_model(stage4_result, raw_data_result)
 
     # Run interventions for all treatments
     results = run_interventions(fitted, treatments, dsem_model)
 
     # TODO: Rank by effect size
-    print("\n=== Treatment Ranking by Effect Size ===")
+    print(f"\n=== Treatment Ranking by Effect Size ===")
     print("(To be implemented: ranking of all treatments by their effect on the outcome)")
 
     return results

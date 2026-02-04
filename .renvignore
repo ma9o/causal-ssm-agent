@@ -1,0 +1,11 @@
+# Ignore Python virtual environment
+.venv/
+
+# Ignore data directories
+data/
+
+# Ignore logs
+logs/
+
+# Ignore scratchpad
+scratchpad/

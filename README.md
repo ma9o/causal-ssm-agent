@@ -1,6 +1,14 @@
 # dsem-agent
 
-This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and PyMC for full Bayesian GLM estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
+This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and NumPyro for full Bayesian Continuous-Time SEM (CT-SEM) estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
+
+**Key Innovation: Continuous-Time Modeling**
+
+Unlike traditional discrete-time approaches that require upfront aggregation, this framework uses Continuous-Time Structural Equation Modeling (CT-SEM) which:
+- Handles irregularly-spaced observations natively via Kalman filtering
+- Avoids information loss from pre-aggregation
+- Models dynamics via stochastic differential equations
+- Supports hierarchical (multi-subject) panel data
 
 ## Key Feature: Natural Language Causal Queries
 
@@ -21,8 +29,8 @@ The orchestrator LLM translates these informal queries into formal causal struct
 - DSPy for prompt optimization
 - NetworkX for causal DAG representation
 - y0 for identifiability checks (Pearl's ID algorithm)
-- PyMC for Bayesian GLM estimation
-- ArViz for posterior diagnostics
+- JAX/NumPyro for Bayesian CT-SEM estimation
+- Kalman filter for continuous-time likelihood computation
 
 ## Documentation
 
@@ -66,9 +74,12 @@ dsem-agent/
 │   │   ├── prior_research.py # Stage 4 worker prior research
 │   │   └── prompts/          # Worker prompts
 │   ├── causal/        # y0 identifiability, sensitivity analysis
-│   ├── models/        # PyMC model specification
-│   │   ├── dsem_model_builder.py  # PyMC ModelBuilder subclass with save/load
-│   │   └── prior_predictive.py    # Prior predictive validation
+│   ├── models/        # NumPyro CT-SEM model specification
+│   │   ├── ctsem/              # Continuous-Time SEM implementation
+│   │   │   ├── model.py        # CTSEMModel, CTSEMSpec, CTSEMPriors
+│   │   │   └── ...             # (impl merged from numpyro-ctsem)
+│   │   ├── ctsem_builder.py    # CTSEMModelBuilder for pipeline integration
+│   │   └── prior_predictive.py # Prior predictive validation
 │   ├── flows/         # Prefect pipeline + stages/
 │   │   └── stages/    # stage1a_latent, stage1b_measurement, stage2_workers, stage4_model, ...
 │   └── utils/         # Shared utilities (config, llm, data, etc.)

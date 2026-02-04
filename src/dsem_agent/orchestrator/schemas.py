@@ -9,7 +9,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from dsem_agent.utils.aggregations import AGGREGATION_REGISTRY
+# Valid aggregation functions for indicator specifications
+# NOTE: These are metadata for documentation - CT-SEM handles aggregation internally
+VALID_AGGREGATIONS = {
+    "mean", "sum", "min", "max", "std", "var", "last", "first", "count",
+    "median", "p10", "p25", "p75", "p90", "p99", "skew", "kurtosis", "iqr",
+    "range", "cv", "entropy", "instability", "trend", "n_unique",
+}
 
 
 class Role(StrEnum):
@@ -225,14 +231,14 @@ class Indicator(BaseModel):
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"
     )
     aggregation: str = Field(
-        description=f"Aggregation function to collapse to causal_granularity. Available: {', '.join(sorted(AGGREGATION_REGISTRY.keys()))}",
+        description=f"Aggregation function (metadata). Available: {', '.join(sorted(VALID_AGGREGATIONS))}",
     )
 
     @field_validator("aggregation")
     @classmethod
     def validate_aggregation(cls, v: str) -> str:
-        if v not in AGGREGATION_REGISTRY:
-            available = ", ".join(sorted(AGGREGATION_REGISTRY.keys()))
+        if v not in VALID_AGGREGATIONS:
+            available = ", ".join(sorted(VALID_AGGREGATIONS))
             raise ValueError(f"Unknown aggregation '{v}'. Available: {available}")
         return v
 
