@@ -9,11 +9,11 @@ from dsem_agent.models.prior_predictive import (
     _validate_prior_predictive_samples,
     format_validation_report,
 )
-from dsem_agent.orchestrator.schemas_glmm import (
+from dsem_agent.orchestrator.schemas_model import (
     DistributionFamily,
-    GLMMSpec,
     LikelihoodSpec,
     LinkFunction,
+    ModelSpec,
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
@@ -34,8 +34,8 @@ from dsem_agent.workers.schemas_prior import (
 
 
 @pytest.fixture
-def simple_glmm_spec() -> dict:
-    """A minimal GLMM spec for testing."""
+def simple_model_spec() -> dict:
+    """A minimal model spec for testing."""
     return {
         "likelihoods": [
             {
@@ -76,7 +76,7 @@ def simple_glmm_spec() -> dict:
 
 @pytest.fixture
 def simple_priors() -> dict:
-    """Simple priors matching the GLMM spec."""
+    """Simple priors matching the model spec."""
     return {
         "intercept_mood_score": {
             "parameter": "intercept_mood_score",
@@ -120,7 +120,7 @@ def simple_data() -> pd.DataFrame:
 
 
 class TestSchemas:
-    """Test GLMM and prior schemas."""
+    """Test model and prior schemas."""
 
     def test_parameter_spec_validation(self):
         """ParameterSpec validates correctly."""
@@ -144,9 +144,9 @@ class TestSchemas:
         )
         assert spec.distribution == DistributionFamily.NORMAL
 
-    def test_glmm_spec_validation(self, simple_glmm_spec):
-        """GLMMSpec validates from dict."""
-        spec = GLMMSpec.model_validate(simple_glmm_spec)
+    def test_model_spec_validation(self, simple_model_spec):
+        """ModelSpec validates from dict."""
+        spec = ModelSpec.model_validate(simple_model_spec)
         assert len(spec.likelihoods) == 1
         assert len(spec.parameters) == 3
 
@@ -178,23 +178,23 @@ class TestSchemas:
 class TestCTSEMModelBuilder:
     """Test CT-SEM model building."""
 
-    def test_builder_init(self, simple_glmm_spec, simple_priors):
+    def test_builder_init(self, simple_model_spec, simple_priors):
         """Builder initializes with spec and priors."""
         from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
 
         builder = CTSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         assert builder._model_type == "CT-SEM"
         assert builder.version == "0.1.0"
 
-    def test_builder_builds_model(self, simple_glmm_spec, simple_priors, simple_data):
+    def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
         """Builder creates a CT-SEM model."""
         from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
 
         builder = CTSEMModelBuilder(
-            glmm_spec=simple_glmm_spec,
+            model_spec=simple_model_spec,
             priors=simple_priors,
         )
         model = builder.build_model(simple_data)

@@ -1,7 +1,7 @@
 """Model specification schemas for Stage 4 orchestrator.
 
 These schemas define the structure proposed by the orchestrator LLM
-for the Bayesian hierarchical model specification.
+for the statistical model specification.
 """
 
 from enum import StrEnum
@@ -92,7 +92,7 @@ class ModelSpec(BaseModel):
     """Complete model specification from orchestrator.
 
     This is what the orchestrator proposes based on the DSEMModel structure.
-    It enumerates all parameters needing priors and specifies the generative model.
+    It enumerates all parameters needing priors and specifies the statistical model.
     """
 
     likelihoods: list[LikelihoodSpec] = Field(

@@ -1,6 +1,6 @@
 """Stage 4 prompts: Model Specification Proposal.
 
-The orchestrator proposes the complete Bayesian hierarchical model structure including:
+The orchestrator proposes the complete model structure including:
 - Distribution families and link functions for each indicator
 - Random effects structure
 - All parameters requiring priors with search context for literature
@@ -9,7 +9,7 @@ The orchestrator proposes the complete Bayesian hierarchical model structure inc
 SYSTEM = """\
 You are a Bayesian statistician specifying a generative model for causal inference.
 
-Your task is to translate a causal DAG with measurement model into a complete Bayesian hierarchical model specification that PyMC can fit.
+Your task is to translate a causal DAG with measurement model into a complete model specification that PyMC can fit.
 
 ## Background
 

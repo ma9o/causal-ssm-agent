@@ -1,8 +1,7 @@
 """Stage 4 Orchestrator: Model Specification Proposal.
 
-The orchestrator proposes a complete Bayesian hierarchical model specification
-based on the DSEMModel, enumerating all parameters needing priors with search
-context for literature.
+The orchestrator proposes a complete model specification based on the DSEMModel,
+enumerating all parameters needing priors with search context for literature.
 """
 
 from dsem_agent.orchestrator.prompts.model_proposal import (

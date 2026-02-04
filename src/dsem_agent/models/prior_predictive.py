@@ -12,15 +12,16 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
-from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
+from dsem_agent.orchestrator.schemas_model import ModelSpec
 
 if TYPE_CHECKING:
     from arviz import InferenceData
+
 from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 
 def validate_prior_predictive(
-    glmm_spec: GLMMSpec | dict,
+    model_spec: ModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
     raw_data: pl.DataFrame | None = None,
     n_samples: int = 500,
@@ -33,7 +34,7 @@ def validate_prior_predictive(
     3. Domain violations (negative for positive-constrained, outside [0,1] for unit_interval)
 
     Args:
-        glmm_spec: GLMM specification
+        model_spec: Model specification
         priors: Prior proposals for each parameter
         raw_data: Raw timestamped data (optional)
         n_samples: Number of prior predictive samples
@@ -46,9 +47,6 @@ def validate_prior_predictive(
     """
     # TODO: Implement with CTSEMModelBuilder once merged
     # For now, return valid to allow pipeline to proceed
-
-    # Convert inputs to dicts if needed (for future implementation)
-    # Note: glmm_spec not currently used but kept for API consistency
 
     priors_dict = {}
     for name, prior in priors.items():

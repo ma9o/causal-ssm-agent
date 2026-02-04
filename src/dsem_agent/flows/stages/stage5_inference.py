@@ -19,7 +19,7 @@ def fit_model(stage4_result: dict, raw_data: pl.DataFrame) -> Any:
 
     Args:
         stage4_result: Result from stage4_orchestrated_flow containing
-            glmm_spec, priors, and model_info
+            model_spec, priors, and model_info
         raw_data: Raw timestamped data (indicator, value, timestamp)
 
     Returns:
@@ -29,11 +29,11 @@ def fit_model(stage4_result: dict, raw_data: pl.DataFrame) -> Any:
     """
     from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
 
-    glmm_spec = stage4_result.get("glmm_spec", {})
+    model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
 
     try:
-        builder = CTSEMModelBuilder(glmm_spec=glmm_spec, priors=priors)
+        builder = CTSEMModelBuilder(model_spec=model_spec, priors=priors)
 
         # Convert raw data to wide format
         if raw_data.is_empty():
