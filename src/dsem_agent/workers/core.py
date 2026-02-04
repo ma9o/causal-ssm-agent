@@ -8,13 +8,14 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from .prompts import WORKER_WO_PROPOSALS_SYSTEM, WORKER_USER
-from .schemas import WorkerOutput
 from dsem_agent.utils.llm import (
     WorkerGenerateFn,
     make_worker_tools,
     parse_json_response,
 )
+
+from .prompts import WORKER_USER, WORKER_WO_PROPOSALS_SYSTEM
+from .schemas import WorkerOutput
 
 
 @dataclass
@@ -73,12 +74,15 @@ class WorkerMessages:
 
         return [
             {"role": "system", "content": WORKER_WO_PROPOSALS_SYSTEM},
-            {"role": "user", "content": WORKER_USER.format(
-                question=self.question,
-                outcome_description=outcome_description,
-                indicators=indicators_text,
-                chunk=self.chunk,
-            )},
+            {
+                "role": "user",
+                "content": WORKER_USER.format(
+                    question=self.question,
+                    outcome_description=outcome_description,
+                    indicators=indicators_text,
+                    chunk=self.chunk,
+                ),
+            },
         ]
 
 
@@ -126,9 +130,9 @@ async def run_worker_extraction(
 
 # Re-export helper functions for backwards compatibility
 __all__ = [
-    "run_worker_extraction",
     "WorkerExtractionResult",
     "WorkerMessages",
     "_format_indicators",
     "_get_outcome_description",
+    "run_worker_extraction",
 ]

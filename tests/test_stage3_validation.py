@@ -18,7 +18,6 @@ from dsem_agent.flows.stages.stage3_validation import (
 )
 from dsem_agent.utils.aggregations import aggregate_worker_measurements
 
-
 # ==============================================================================
 # FIXTURES
 # ==============================================================================
@@ -148,11 +147,13 @@ class TestValidateExtraction:
         # 14+ days of daily data with variance
         dates = [f"2024-01-{d:02d}" for d in range(1, 20)]
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series(dates).str.to_datetime(),
-                "stress_score": [float(i % 5 + 1) for i in range(19)],  # 1-5 varying
-                "sleep_hours": [6.0 + (i % 3) for i in range(19)],  # 6-8 varying
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(dates).str.to_datetime(),
+                    "stress_score": [float(i % 5 + 1) for i in range(19)],  # 1-5 varying
+                    "sleep_hours": [6.0 + (i % 3) for i in range(19)],  # 6-8 varying
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
         assert result["is_valid"] is True
@@ -161,11 +162,13 @@ class TestValidateExtraction:
     def test_missing_indicator_in_dataframe(self, simple_dsem_model):
         """Missing indicator column is not flagged (structural issue)."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series(["2024-01-01"] * 20).str.to_datetime(),
-                "stress_score": [float(i) for i in range(20)],
-                # sleep_hours is missing
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(["2024-01-01"] * 20).str.to_datetime(),
+                    "stress_score": [float(i) for i in range(20)],
+                    # sleep_hours is missing
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
         # Only issues for stress_score if any, not for missing sleep_hours
@@ -174,11 +177,13 @@ class TestValidateExtraction:
     def test_all_nulls_no_issue(self, simple_dsem_model):
         """Indicator with all nulls is skipped (no data to check)."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series(["2024-01-01"] * 5).str.to_datetime(),
-                "stress_score": [None] * 5,
-                "sleep_hours": [7.0, 7.5, 8.0, 7.0, 6.5],
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(["2024-01-01"] * 5).str.to_datetime(),
+                    "stress_score": [None] * 5,
+                    "sleep_hours": [7.0, 7.5, 8.0, 7.0, 6.5],
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
         # stress_score should not generate issue since all nulls
@@ -192,11 +197,15 @@ class TestValidateExtraction:
     def test_zero_variance_is_error(self, simple_dsem_model):
         """Constant values (zero variance) should return error."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 20)]).str.to_datetime(),
-                "stress_score": [5.0] * 19,  # Constant!
-                "sleep_hours": [6.0 + (i % 3) for i in range(19)],
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 20)]
+                    ).str.to_datetime(),
+                    "stress_score": [5.0] * 19,  # Constant!
+                    "sleep_hours": [6.0 + (i % 3) for i in range(19)],
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
@@ -211,28 +220,31 @@ class TestValidateExtraction:
     def test_nonzero_variance_no_error(self, simple_dsem_model):
         """Non-constant values should not generate variance error."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 20)]).str.to_datetime(),
-                "stress_score": [float(i) for i in range(19)],  # 0-18
-                "sleep_hours": [7.0, 8.0] * 9 + [7.5],  # Varying
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 20)]
+                    ).str.to_datetime(),
+                    "stress_score": [float(i) for i in range(19)],  # 0-18
+                    "sleep_hours": [7.0, 8.0] * 9 + [7.5],  # Varying
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
-        variance_errors = [
-            i for i in result["issues"]
-            if i["issue_type"] == "no_variance"
-        ]
+        variance_errors = [i for i in result["issues"] if i["issue_type"] == "no_variance"]
         assert len(variance_errors) == 0
 
     def test_single_value_variance_edge_case(self, simple_dsem_model):
         """Single non-null value may have undefined/zero variance."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series(["2024-01-01"]).str.to_datetime(),
-                "stress_score": [5.0],
-                "sleep_hours": [7.0],
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(["2024-01-01"]).str.to_datetime(),
+                    "stress_score": [5.0],
+                    "sleep_hours": [7.0],
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
         # Single value - variance is undefined/zero, but also low_n
@@ -243,11 +255,15 @@ class TestValidateExtraction:
     def test_multiple_zero_variance_indicators(self, simple_dsem_model):
         """Multiple constant indicators all flagged as errors."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 20)]).str.to_datetime(),
-                "stress_score": [3.0] * 19,  # Constant
-                "sleep_hours": [7.0] * 19,  # Constant
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 20)]
+                    ).str.to_datetime(),
+                    "stress_score": [3.0] * 19,  # Constant
+                    "sleep_hours": [7.0] * 19,  # Constant
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
@@ -266,11 +282,15 @@ class TestValidateExtraction:
         """Fewer than 14 daily observations should return warning."""
         # Only 10 days (less than MIN_OBSERVATIONS["daily"] = 14)
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 11)]).str.to_datetime(),
-                "stress_score": [float(i) for i in range(10)],
-                "sleep_hours": [7.0 + i * 0.1 for i in range(10)],
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 11)]
+                    ).str.to_datetime(),
+                    "stress_score": [float(i) for i in range(10)],
+                    "sleep_hours": [7.0 + i * 0.1 for i in range(10)],
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
@@ -285,25 +305,32 @@ class TestValidateExtraction:
         """Sufficient observations should not generate warning."""
         # 14+ days
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 20)]).str.to_datetime(),
-                "stress_score": [float(i) for i in range(19)],
-                "sleep_hours": [7.0 + i * 0.1 for i in range(19)],
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 20)]
+                    ).str.to_datetime(),
+                    "stress_score": [float(i) for i in range(19)],
+                    "sleep_hours": [7.0 + i * 0.1 for i in range(19)],
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
         low_n_warnings = [i for i in result["issues"] if i["issue_type"] == "low_n"]
         assert len(low_n_warnings) == 0
 
-    @pytest.mark.parametrize("granularity,min_n", [
-        ("hourly", 48),
-        ("daily", 14),
-        ("weekly", 8),
-        ("monthly", 6),
-        ("yearly", 3),
-        ("time_invariant", 1),
-    ])
+    @pytest.mark.parametrize(
+        "granularity,min_n",
+        [
+            ("hourly", 48),
+            ("daily", 14),
+            ("weekly", 8),
+            ("monthly", 6),
+            ("yearly", 3),
+            ("time_invariant", 1),
+        ],
+    )
     def test_sample_size_thresholds(self, granularity, min_n):
         """Test each granularity has correct minimum threshold."""
         assert MIN_OBSERVATIONS[granularity] == min_n
@@ -312,28 +339,43 @@ class TestValidateExtraction:
         """Hourly needs 48+ observations."""
         # Only 30 hourly observations
         extracted = {
-            "hourly": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-01T{h:02d}:00" for h in range(24)] +
-                                        [f"2024-01-02T{h:02d}:00" for h in range(6)]).str.to_datetime(),
-                "steps": [float(1000 + i * 10) for i in range(30)],
-                "heart_rate": [float(70 + i % 10) for i in range(30)],
-            }),
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 20)]).str.to_datetime(),
-                "mood_score": [float(i % 5) for i in range(19)],
-            }),
-            "weekly": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-{w:02d}-01" for w in range(1, 12)]).str.to_datetime(),
-                "weight": [float(70 + i * 0.1) for i in range(11)],
-            }),
-            "time_invariant": pl.DataFrame({
-                "age": [35.0],
-            }),
+            "hourly": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-01T{h:02d}:00" for h in range(24)]
+                        + [f"2024-01-02T{h:02d}:00" for h in range(6)]
+                    ).str.to_datetime(),
+                    "steps": [float(1000 + i * 10) for i in range(30)],
+                    "heart_rate": [float(70 + i % 10) for i in range(30)],
+                }
+            ),
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 20)]
+                    ).str.to_datetime(),
+                    "mood_score": [float(i % 5) for i in range(19)],
+                }
+            ),
+            "weekly": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-{w:02d}-01" for w in range(1, 12)]
+                    ).str.to_datetime(),
+                    "weight": [float(70 + i * 0.1) for i in range(11)],
+                }
+            ),
+            "time_invariant": pl.DataFrame(
+                {
+                    "age": [35.0],
+                }
+            ),
         }
         result = validate_extraction.fn(multi_granularity_model, extracted)
 
         hourly_warnings = [
-            i for i in result["issues"]
+            i
+            for i in result["issues"]
             if i["issue_type"] == "low_n" and i["indicator"] in ("steps", "heart_rate")
         ]
         assert len(hourly_warnings) == 2
@@ -346,11 +388,15 @@ class TestValidateExtraction:
         """Indicator can have both variance error and sample size warning."""
         # 5 constant values
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 6)]).str.to_datetime(),
-                "stress_score": [5.0] * 5,  # Constant AND low N
-                "sleep_hours": [7.0 + i * 0.1 for i in range(5)],  # Only low N
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 6)]
+                    ).str.to_datetime(),
+                    "stress_score": [5.0] * 5,  # Constant AND low N
+                    "sleep_hours": [7.0 + i * 0.1 for i in range(5)],  # Only low N
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
@@ -365,11 +411,15 @@ class TestValidateExtraction:
     def test_only_warnings_is_valid(self, simple_dsem_model):
         """is_valid=True when only warnings exist (no errors)."""
         extracted = {
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 6)]).str.to_datetime(),
-                "stress_score": [float(i) for i in range(5)],  # Varying but low N
-                "sleep_hours": [7.0 + i * 0.1 for i in range(5)],  # Varying but low N
-            })
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 6)]
+                    ).str.to_datetime(),
+                    "stress_score": [float(i) for i in range(5)],  # Varying but low N
+                    "sleep_hours": [7.0 + i * 0.1 for i in range(5)],  # Varying but low N
+                }
+            )
         }
         result = validate_extraction.fn(simple_dsem_model, extracted)
 
@@ -380,23 +430,37 @@ class TestValidateExtraction:
     def test_mixed_issues_across_indicators(self, multi_granularity_model):
         """Different indicators can have different issues."""
         extracted = {
-            "hourly": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-01T{h:02d}:00" for h in range(24)] +
-                                        [f"2024-01-02T{h:02d}:00" for h in range(24)]).str.to_datetime(),
-                "steps": [1000.0] * 48,  # Constant - error
-                "heart_rate": [float(70 + i % 20) for i in range(48)],  # Good
-            }),
-            "daily": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-01-{d:02d}" for d in range(1, 5)]).str.to_datetime(),
-                "mood_score": [float(i) for i in range(4)],  # Low N - warning
-            }),
-            "weekly": pl.DataFrame({
-                "time_bucket": pl.Series([f"2024-{w:02d}-01" for w in range(1, 12)]).str.to_datetime(),
-                "weight": [float(70 + i * 0.1) for i in range(11)],  # Good
-            }),
-            "time_invariant": pl.DataFrame({
-                "age": [35.0],  # Good
-            }),
+            "hourly": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-01T{h:02d}:00" for h in range(24)]
+                        + [f"2024-01-02T{h:02d}:00" for h in range(24)]
+                    ).str.to_datetime(),
+                    "steps": [1000.0] * 48,  # Constant - error
+                    "heart_rate": [float(70 + i % 20) for i in range(48)],  # Good
+                }
+            ),
+            "daily": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-01-{d:02d}" for d in range(1, 5)]
+                    ).str.to_datetime(),
+                    "mood_score": [float(i) for i in range(4)],  # Low N - warning
+                }
+            ),
+            "weekly": pl.DataFrame(
+                {
+                    "time_bucket": pl.Series(
+                        [f"2024-{w:02d}-01" for w in range(1, 12)]
+                    ).str.to_datetime(),
+                    "weight": [float(70 + i * 0.1) for i in range(11)],  # Good
+                }
+            ),
+            "time_invariant": pl.DataFrame(
+                {
+                    "age": [35.0],  # Good
+                }
+            ),
         }
         result = validate_extraction.fn(multi_granularity_model, extracted)
 
@@ -529,6 +593,7 @@ class TestStage3Integration:
             List of DataFrames in worker output format (indicator, value, timestamp)
         """
         import random
+
         random.seed(42)
 
         worker_dfs = []
@@ -550,48 +615,60 @@ class TestStage3Integration:
                     timestamp = f"{date_str} {hour:02d}:{random.randint(0, 59):02d}"
 
                     # step_count: 3000-15000 per reading
-                    records.append({
-                        "indicator": "step_count",
-                        "value": float(random.randint(3000, 15000)),
-                        "timestamp": timestamp,
-                    })
+                    records.append(
+                        {
+                            "indicator": "step_count",
+                            "value": float(random.randint(3000, 15000)),
+                            "timestamp": timestamp,
+                        }
+                    )
 
                     # active_minutes: 10-60 per reading
-                    records.append({
-                        "indicator": "active_minutes",
-                        "value": float(random.randint(10, 60)),
-                        "timestamp": timestamp,
-                    })
+                    records.append(
+                        {
+                            "indicator": "active_minutes",
+                            "value": float(random.randint(10, 60)),
+                            "timestamp": timestamp,
+                        }
+                    )
 
                     # sleep_duration: 5-9 hours
                     if reading == 0:  # Only one sleep reading per day
-                        records.append({
-                            "indicator": "sleep_duration",
-                            "value": round(random.uniform(5.0, 9.0), 1),
-                            "timestamp": f"{date_str} 07:00",
-                        })
+                        records.append(
+                            {
+                                "indicator": "sleep_duration",
+                                "value": round(random.uniform(5.0, 9.0), 1),
+                                "timestamp": f"{date_str} 07:00",
+                            }
+                        )
 
                         # sleep_score: 1-10
-                        records.append({
-                            "indicator": "sleep_score",
-                            "value": float(random.randint(4, 10)),
-                            "timestamp": f"{date_str} 07:00",
-                        })
+                        records.append(
+                            {
+                                "indicator": "sleep_score",
+                                "value": float(random.randint(4, 10)),
+                                "timestamp": f"{date_str} 07:00",
+                            }
+                        )
 
                         # stress_level: 1-10
-                        records.append({
-                            "indicator": "stress_level",
-                            "value": float(random.randint(1, 8)),
-                            "timestamp": f"{date_str} 20:00",
-                        })
+                        records.append(
+                            {
+                                "indicator": "stress_level",
+                                "value": float(random.randint(1, 8)),
+                                "timestamp": f"{date_str} 20:00",
+                            }
+                        )
 
             # Time-invariant: age appears once per worker (they may extract it multiple times)
             if worker_id == 0:
-                records.append({
-                    "indicator": "age",
-                    "value": 35,
-                    "timestamp": "2024-01-01",
-                })
+                records.append(
+                    {
+                        "indicator": "age",
+                        "value": 35,
+                        "timestamp": "2024-01-01",
+                    }
+                )
 
             df = pl.DataFrame(
                 records,
@@ -663,14 +740,36 @@ class TestStage3Integration:
         for day in range(1, 20):
             date_str = f"2024-01-{day:02d}"
 
-            records.extend([
-                {"indicator": "step_count", "value": float(5000 + day * 100), "timestamp": f"{date_str} 10:00"},
-                {"indicator": "active_minutes", "value": float(30 + day), "timestamp": f"{date_str} 10:00"},
-                {"indicator": "sleep_duration", "value": 7.0 + (day % 3) * 0.5, "timestamp": f"{date_str} 07:00"},
-                {"indicator": "sleep_score", "value": float(5 + day % 4), "timestamp": f"{date_str} 07:00"},
-                {"indicator": "stress_level", "value": 5.0, "timestamp": f"{date_str} 20:00"},  # CONSTANT!
-                {"indicator": "age", "value": 35, "timestamp": "2024-01-01"},
-            ])
+            records.extend(
+                [
+                    {
+                        "indicator": "step_count",
+                        "value": float(5000 + day * 100),
+                        "timestamp": f"{date_str} 10:00",
+                    },
+                    {
+                        "indicator": "active_minutes",
+                        "value": float(30 + day),
+                        "timestamp": f"{date_str} 10:00",
+                    },
+                    {
+                        "indicator": "sleep_duration",
+                        "value": 7.0 + (day % 3) * 0.5,
+                        "timestamp": f"{date_str} 07:00",
+                    },
+                    {
+                        "indicator": "sleep_score",
+                        "value": float(5 + day % 4),
+                        "timestamp": f"{date_str} 07:00",
+                    },
+                    {
+                        "indicator": "stress_level",
+                        "value": 5.0,
+                        "timestamp": f"{date_str} 20:00",
+                    },  # CONSTANT!
+                    {"indicator": "age", "value": 35, "timestamp": "2024-01-01"},
+                ]
+            )
 
         df = pl.DataFrame(
             records,
@@ -684,7 +783,8 @@ class TestStage3Integration:
         assert validation["is_valid"] is False
 
         stress_errors = [
-            i for i in validation["issues"]
+            i
+            for i in validation["issues"]
             if i["indicator"] == "stress_level" and i["issue_type"] == "no_variance"
         ]
         assert len(stress_errors) == 1
@@ -712,6 +812,7 @@ class TestStage3Integration:
     def test_full_pipeline_multiple_granularities(self, multi_granularity_model):
         """Test pipeline handles multiple granularities correctly."""
         import random
+
         random.seed(123)
 
         records = []
@@ -721,18 +822,38 @@ class TestStage3Integration:
             day = hour // 24 + 1
             h = hour % 24
             timestamp = f"2024-01-{day:02d} {h:02d}:00"
-            records.append({"indicator": "steps", "value": float(random.randint(100, 500)), "timestamp": timestamp})
-            records.append({"indicator": "heart_rate", "value": float(random.randint(60, 100)), "timestamp": timestamp})
+            records.append(
+                {
+                    "indicator": "steps",
+                    "value": float(random.randint(100, 500)),
+                    "timestamp": timestamp,
+                }
+            )
+            records.append(
+                {
+                    "indicator": "heart_rate",
+                    "value": float(random.randint(60, 100)),
+                    "timestamp": timestamp,
+                }
+            )
 
         # Daily data (need 14+ observations)
         for day in range(1, 20):
             timestamp = f"2024-01-{day:02d} 20:00"
-            records.append({"indicator": "mood_score", "value": float(random.randint(1, 10)), "timestamp": timestamp})
+            records.append(
+                {
+                    "indicator": "mood_score",
+                    "value": float(random.randint(1, 10)),
+                    "timestamp": timestamp,
+                }
+            )
 
         # Weekly data (need 8+ observations)
         for week in range(1, 12):
             timestamp = f"2024-{week:02d}-01 12:00"
-            records.append({"indicator": "weight", "value": float(70 + week * 0.1), "timestamp": timestamp})
+            records.append(
+                {"indicator": "weight", "value": float(70 + week * 0.1), "timestamp": timestamp}
+            )
 
         # Time-invariant
         records.append({"indicator": "age", "value": 30, "timestamp": "2024-01-01"})
@@ -771,13 +892,35 @@ class TestStage3Integration:
 
         # Add more days to avoid low_n warnings
         for day in range(2, 20):
-            records.extend([
-                {"indicator": "step_count", "value": 5000.0, "timestamp": f"2024-01-{day:02d} 12:00"},
-                {"indicator": "sleep_duration", "value": 7.5, "timestamp": f"2024-01-{day:02d} 07:00"},
-                {"indicator": "sleep_score", "value": 7.0, "timestamp": f"2024-01-{day:02d} 07:00"},
-                {"indicator": "stress_level", "value": float(day % 5 + 1), "timestamp": f"2024-01-{day:02d} 20:00"},
-                {"indicator": "active_minutes", "value": 30.0, "timestamp": f"2024-01-{day:02d} 12:00"},
-            ])
+            records.extend(
+                [
+                    {
+                        "indicator": "step_count",
+                        "value": 5000.0,
+                        "timestamp": f"2024-01-{day:02d} 12:00",
+                    },
+                    {
+                        "indicator": "sleep_duration",
+                        "value": 7.5,
+                        "timestamp": f"2024-01-{day:02d} 07:00",
+                    },
+                    {
+                        "indicator": "sleep_score",
+                        "value": 7.0,
+                        "timestamp": f"2024-01-{day:02d} 07:00",
+                    },
+                    {
+                        "indicator": "stress_level",
+                        "value": float(day % 5 + 1),
+                        "timestamp": f"2024-01-{day:02d} 20:00",
+                    },
+                    {
+                        "indicator": "active_minutes",
+                        "value": 30.0,
+                        "timestamp": f"2024-01-{day:02d} 12:00",
+                    },
+                ]
+            )
 
         records.append({"indicator": "age", "value": 40, "timestamp": "2024-01-01"})
 

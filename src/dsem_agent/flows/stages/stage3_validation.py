@@ -135,24 +135,28 @@ def validate_extraction(
             variance = series.drop_nulls().var()
             if variance is not None and variance == 0:
                 min_val = series.drop_nulls().min()
-                issues.append({
-                    "indicator": ind_name,
-                    "issue_type": "no_variance",
-                    "severity": "error",
-                    "message": f"Zero variance (constant value = {min_val})",
-                })
+                issues.append(
+                    {
+                        "indicator": ind_name,
+                        "issue_type": "no_variance",
+                        "severity": "error",
+                        "message": f"Zero variance (constant value = {min_val})",
+                    }
+                )
         except Exception:
             pass
 
         # Check sample size
         min_n = MIN_OBSERVATIONS.get(gran_key, 10)
         if n_non_null < min_n:
-            issues.append({
-                "indicator": ind_name,
-                "issue_type": "low_n",
-                "severity": "warning",
-                "message": f"Only {n_non_null} observations (recommend >= {min_n})",
-            })
+            issues.append(
+                {
+                    "indicator": ind_name,
+                    "issue_type": "low_n",
+                    "severity": "warning",
+                    "message": f"Only {n_non_null} observations (recommend >= {min_n})",
+                }
+            )
 
     errors = [i for i in issues if i["severity"] == "error"]
     is_valid = len(errors) == 0

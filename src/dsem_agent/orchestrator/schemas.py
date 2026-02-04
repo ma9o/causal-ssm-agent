@@ -5,21 +5,21 @@ Separates:
 2. MeasurementModel - observed indicators that reflect constructs (data-driven)
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from dsem_agent.utils.aggregations import AGGREGATION_REGISTRY
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     """Whether a variable is modeled (endogenous) or given (exogenous)."""
 
     ENDOGENOUS = "endogenous"  # Has inbound edges, is modeled
     EXOGENOUS = "exogenous"  # No inbound edges, given/external
 
 
-class TemporalStatus(str, Enum):
+class TemporalStatus(StrEnum):
     """Whether a variable changes over time."""
 
     TIME_VARYING = "time_varying"  # Changes within person over time
@@ -252,7 +252,9 @@ class Indicator(BaseModel):
     def validate_measurement_dtype(cls, v: str) -> str:
         valid = {"continuous", "binary", "count", "ordinal", "categorical"}
         if v not in valid:
-            raise ValueError(f"Invalid measurement_dtype '{v}'. Must be one of: {', '.join(sorted(valid))}")
+            raise ValueError(
+                f"Invalid measurement_dtype '{v}'. Must be one of: {', '.join(sorted(valid))}"
+            )
         return v
 
 
@@ -307,7 +309,9 @@ def compute_lag_hours(
 class IdentifiedTreatmentStatus(BaseModel):
     """Details on how a treatment effect is identified."""
 
-    method: str = Field(description="Identification strategy (e.g., do_calculus, instrumental_variable)")
+    method: str = Field(
+        description="Identification strategy (e.g., do_calculus, instrumental_variable)"
+    )
     estimand: str = Field(description="Closed-form estimand or IV placeholder")
     marginalized_confounders: list[str] = Field(
         default_factory=list,
@@ -355,15 +359,13 @@ class DSEMModel(BaseModel):
     latent: LatentModel = Field(description="Theoretical causal structure (topological)")
     measurement: MeasurementModel = Field(description="Operationalization into indicators")
     identifiability: IdentifiabilityStatus | None = Field(
-        default=None,
-        description="Identifiability status of target causal effects"
+        default=None, description="Identifiability status of target causal effects"
     )
 
     @model_validator(mode="after")
     def validate_dsem_model(self):
         """Validate that measurement model covers all constructs."""
         construct_names = {c.name for c in self.latent.constructs}
-        measured_constructs = {i.construct_name for i in self.measurement.indicators}
 
         # Check all indicator references are valid
         for indicator in self.measurement.indicators:
@@ -373,7 +375,9 @@ class DSEMModel(BaseModel):
                 )
 
             # Validate measurement_granularity vs causal_granularity
-            construct = next(c for c in self.latent.constructs if c.name == indicator.construct_name)
+            construct = next(
+                c for c in self.latent.constructs if c.name == indicator.construct_name
+            )
             if construct.temporal_status == TemporalStatus.TIME_VARYING:
                 causal_gran = construct.causal_granularity
                 meas_gran = indicator.measurement_granularity
@@ -668,11 +672,11 @@ def validate_dsem_model(
     """
     latent, latent_errors = validate_latent_model(latent_data)
     if latent is None:
-        return None, ["Latent model errors:"] + latent_errors
+        return None, ["Latent model errors:", *latent_errors]
 
     measurement, measurement_errors = validate_measurement_model(measurement_data, latent)
     if measurement is None:
-        return None, ["Measurement model errors:"] + measurement_errors
+        return None, ["Measurement model errors:", *measurement_errors]
 
     try:
         model = DSEMModel(latent=latent, measurement=measurement)

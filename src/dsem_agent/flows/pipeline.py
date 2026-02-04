@@ -21,23 +21,23 @@ from dsem_agent.utils.effects import (
 )
 
 from .stages import (
-    # Stage 1a
-    propose_latent_model,
-    # Stage 1b
-    build_dsem_model,
-    load_orchestrator_chunks,
-    propose_measurement_with_identifiability_fix,
     # Stage 2
     aggregate_measurements,
-    load_worker_chunks,
-    populate_indicators,
-    # Stage 3
-    validate_extraction,
-    # Stage 4
-    stage4_orchestrated_flow,
+    # Stage 1b
+    build_dsem_model,
     # Stage 5
     fit_model,
+    load_orchestrator_chunks,
+    load_worker_chunks,
+    populate_indicators,
+    # Stage 1a
+    propose_latent_model,
+    propose_measurement_with_identifiability_fix,
     run_interventions,
+    # Stage 4
+    stage4_orchestrated_flow,
+    # Stage 3
+    validate_extraction,
 )
 
 
@@ -100,20 +100,20 @@ def causal_inference_pipeline(
         orchestrator_chunks[:SAMPLE_CHUNKS],
     )
 
-    measurement_model = measurement_result['measurement_model']
-    identifiability_status = measurement_result['identifiability_status']
+    measurement_model = measurement_result["measurement_model"]
+    identifiability_status = measurement_result["identifiability_status"]
 
     n_indicators = len(measurement_model["indicators"])
     print(f"Final model has {n_indicators} indicators")
 
     # Report non-identifiable treatments
-    non_identifiable = identifiability_status.get('non_identifiable_treatments', {})
+    non_identifiable = identifiability_status.get("non_identifiable_treatments", {})
     if non_identifiable:
         print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS:")
         for treatment in sorted(non_identifiable.keys()):
             details = non_identifiable[treatment]
-            blockers = details.get('confounders', []) if isinstance(details, dict) else []
-            notes = details.get('notes') if isinstance(details, dict) else None
+            blockers = details.get("confounders", []) if isinstance(details, dict) else []
+            notes = details.get("notes") if isinstance(details, dict) else None
             if blockers:
                 print(f"  - {treatment} → {outcome} (blocked by: {', '.join(blockers)})")
             elif notes:
@@ -140,7 +140,9 @@ def causal_inference_pipeline(
 
     # Stage 2b: Aggregate measurements into time-series by causal_granularity
     measurements_task = aggregate_measurements(worker_results, dsem_model)
-    measurements_data = measurements_task.result() if hasattr(measurements_task, "result") else measurements_task
+    measurements_data = (
+        measurements_task.result() if hasattr(measurements_task, "result") else measurements_task
+    )
 
     for granularity, df in measurements_data.items():
         n_indicators = len([c for c in df.columns if c != "time_bucket"])
@@ -154,18 +156,24 @@ def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 3: Extraction Validation ===")
     validation_task = validate_extraction(dsem_model, measurements_data)
-    validation_report = validation_task.result() if hasattr(validation_task, "result") else validation_task
+    validation_report = (
+        validation_task.result() if hasattr(validation_task, "result") else validation_task
+    )
 
     if validation_report:
         issues = validation_report.get("issues", [])
         if not validation_report.get("is_valid", True):
             print("⚠️  Stage 3 validation errors detected:")
             for issue in issues:
-                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
+                print(
+                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
+                )
         elif issues:
             print("⚠️  Stage 3 validation warnings:")
             for issue in issues:
-                print(f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}")
+                print(
+                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
+                )
 
     constructs = dsem_model.get("latent", {}).get("constructs", [])
     construct_granularity = {c.get("name"): c.get("causal_granularity") for c in constructs}
@@ -230,7 +238,7 @@ def causal_inference_pipeline(
     results = run_interventions(fitted, treatments, dsem_model)
 
     # TODO: Rank by effect size
-    print(f"\n=== Treatment Ranking by Effect Size ===")
+    print("\n=== Treatment Ranking by Effect Size ===")
     print("(To be implemented: ranking of all treatments by their effect on the outcome)")
 
     return results

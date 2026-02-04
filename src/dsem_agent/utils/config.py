@@ -78,7 +78,7 @@ def load_config() -> PipelineConfig:
     """
     config_path = _find_config_path()
 
-    with open(config_path) as f:
+    with config_path.open() as f:
         raw = yaml.safe_load(f)
 
     stage4_raw = raw["stage4_prior_elicitation"]
@@ -86,8 +86,12 @@ def load_config() -> PipelineConfig:
     paraphrasing_raw = stage4_raw.get("paraphrasing", {})
     stage4_config = Stage4Config(
         model=stage4_raw["model"],
-        literature_search=LiteratureSearchConfig(**lit_search_raw) if lit_search_raw else LiteratureSearchConfig(),
-        paraphrasing=ParaphrasingConfig(**paraphrasing_raw) if paraphrasing_raw else ParaphrasingConfig(),
+        literature_search=LiteratureSearchConfig(**lit_search_raw)
+        if lit_search_raw
+        else LiteratureSearchConfig(),
+        paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
+        if paraphrasing_raw
+        else ParaphrasingConfig(),
         worker_model=stage4_raw.get("worker_model"),
     )
 

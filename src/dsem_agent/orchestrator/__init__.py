@@ -7,16 +7,16 @@ Two-stage approach following Anderson & Gerbing (1988):
 
 from .agents import (
     build_dsem_model,
-    propose_measurement_model,
     propose_latent_model,
+    propose_measurement_model,
 )
 from .schemas import (
     CausalEdge,
     Construct,
     DSEMModel,
     Indicator,
-    MeasurementModel,
     LatentModel,
+    MeasurementModel,
 )
 
 __all__ = [

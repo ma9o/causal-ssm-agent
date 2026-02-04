@@ -239,7 +239,9 @@ def stage4_orchestrated_flow(
     priors = {}
     for param_spec, prior_result in zip(parameter_specs, prior_results):
         param_name = param_spec.get("name", "unknown")
-        priors[param_name] = prior_result.result() if hasattr(prior_result, "result") else prior_result
+        priors[param_name] = (
+            prior_result.result() if hasattr(prior_result, "result") else prior_result
+        )
 
     # 3. Validate priors
     validation = validate_priors_task(model_spec, priors, measurements_data)

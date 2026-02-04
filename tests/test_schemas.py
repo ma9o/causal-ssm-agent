@@ -9,14 +9,14 @@ Two-stage schema:
 import pytest
 
 from dsem_agent.orchestrator.schemas import (
+    GRANULARITY_HOURS,
     CausalEdge,
     Construct,
     DSEMModel,
-    GRANULARITY_HOURS,
     Indicator,
+    LatentModel,
     MeasurementModel,
     Role,
-    LatentModel,
     TemporalStatus,
     compute_lag_hours,
 )
@@ -64,7 +64,9 @@ class TestConstruct:
 
     def test_time_varying_requires_causal_granularity(self):
         """Time-varying construct requires causal_granularity."""
-        with pytest.raises(ValueError, match="Time-varying construct .* requires causal_granularity"):
+        with pytest.raises(
+            ValueError, match=r"Time-varying construct .* requires causal_granularity"
+        ):
             Construct(
                 name="mood",
                 description="Invalid",
@@ -74,7 +76,9 @@ class TestConstruct:
 
     def test_time_invariant_forbids_causal_granularity(self):
         """Time-invariant construct must not have causal_granularity."""
-        with pytest.raises(ValueError, match="Time-invariant construct .* must not have causal_granularity"):
+        with pytest.raises(
+            ValueError, match=r"Time-invariant construct .* must not have causal_granularity"
+        ):
             Construct(
                 name="age",
                 description="Invalid",
@@ -85,7 +89,7 @@ class TestConstruct:
 
     def test_exogenous_cannot_be_outcome(self):
         """Exogenous construct cannot be outcome."""
-        with pytest.raises(ValueError, match="Outcome construct .* must be endogenous"):
+        with pytest.raises(ValueError, match=r"Outcome construct .* must be endogenous"):
             Construct(
                 name="weather",
                 description="Invalid",
@@ -101,12 +105,16 @@ class TestCausalEdge:
 
     def test_contemporaneous_edge(self):
         """Contemporaneous edge (lagged=False) is valid."""
-        edge = CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)
+        edge = CausalEdge(
+            cause="stress", effect="mood", description="Stress affects mood", lagged=False
+        )
         assert edge.lagged is False
 
     def test_lagged_edge(self):
         """Lagged edge (default) is valid."""
-        edge = CausalEdge(cause="sleep", effect="mood", description="Sleep quality affects next day mood")
+        edge = CausalEdge(
+            cause="sleep", effect="mood", description="Sleep quality affects next day mood"
+        )
         assert edge.lagged is True
 
 
@@ -120,7 +128,11 @@ class TestLatentModel:
                 construct_factory("stress", "daily", Role.EXOGENOUS),
                 construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
             ],
-            edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)],
+            edges=[
+                CausalEdge(
+                    cause="stress", effect="mood", description="Stress affects mood", lagged=False
+                )
+            ],
         )
         assert len(structure.constructs) == 2
         assert len(structure.edges) == 1
@@ -152,18 +164,29 @@ class TestLatentModel:
                     construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
                     construct_factory("weather", "daily", Role.EXOGENOUS),
                 ],
-                edges=[CausalEdge(cause="mood", effect="weather", description="Invalid edge", lagged=False)],
+                edges=[
+                    CausalEdge(
+                        cause="mood", effect="weather", description="Invalid edge", lagged=False
+                    )
+                ],
             )
 
     def test_invalid_contemporaneous_cross_timescale(self, construct_factory):
         """Contemporaneous edge requires same timescale."""
-        with pytest.raises(ValueError, match="Contemporaneous edge.*requires same timescale"):
+        with pytest.raises(ValueError, match=r"Contemporaneous edge.*requires same timescale"):
             LatentModel(
                 constructs=[
                     construct_factory("hourly_stress", "hourly", Role.EXOGENOUS),
                     construct_factory("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
                 ],
-                edges=[CausalEdge(cause="hourly_stress", effect="daily_mood", description="Invalid", lagged=False)],
+                edges=[
+                    CausalEdge(
+                        cause="hourly_stress",
+                        effect="daily_mood",
+                        description="Invalid",
+                        lagged=False,
+                    )
+                ],
             )
 
     def test_invalid_no_outcome(self, construct_factory):
@@ -195,7 +218,11 @@ class TestLatentModel:
                 construct_factory("stress", "daily", Role.EXOGENOUS),
                 construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
             ],
-            edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood", lagged=False)],
+            edges=[
+                CausalEdge(
+                    cause="stress", effect="mood", description="Stress affects mood", lagged=False
+                )
+            ],
         )
         G = structure.to_networkx()
         assert "stress" in G.nodes
@@ -316,7 +343,9 @@ class TestDSEMModel:
         assert len(dsem.latent.constructs) == 2
         assert len(dsem.measurement.indicators) == 2
 
-    def test_invalid_indicator_references_unknown_construct(self, construct_factory, indicator_factory):
+    def test_invalid_indicator_references_unknown_construct(
+        self, construct_factory, indicator_factory
+    ):
         """Indicator must reference a valid construct."""
         latent = LatentModel(
             constructs=[
@@ -333,7 +362,9 @@ class TestDSEMModel:
         with pytest.raises(ValueError, match="references unknown construct 'unknown'"):
             DSEMModel(latent=latent, measurement=measurement)
 
-    def test_latent_construct_without_indicator_is_valid(self, construct_factory, indicator_factory):
+    def test_latent_construct_without_indicator_is_valid(
+        self, construct_factory, indicator_factory
+    ):
         """Latent constructs without indicators are allowed (A2 deferred to y0)."""
         latent = LatentModel(
             constructs=[
@@ -353,7 +384,9 @@ class TestDSEMModel:
         assert len(dsem.latent.constructs) == 2
         assert len(dsem.measurement.indicators) == 1
 
-    def test_invalid_measurement_granularity_coarser_than_causal(self, construct_factory, indicator_factory):
+    def test_invalid_measurement_granularity_coarser_than_causal(
+        self, construct_factory, indicator_factory
+    ):
         """Indicator measurement_granularity must be finer than construct's causal_granularity."""
         latent = LatentModel(
             constructs=[
@@ -363,7 +396,9 @@ class TestDSEMModel:
         )
         measurement = MeasurementModel(
             indicators=[
-                indicator_factory("mood_rating", "mood", granularity="weekly"),  # coarser than daily
+                indicator_factory(
+                    "mood_rating", "mood", granularity="weekly"
+                ),  # coarser than daily
             ]
         )
         with pytest.raises(ValueError, match="coarser than construct"):
@@ -400,7 +435,11 @@ class TestDSEMModel:
                 construct_factory("sleep", "daily", Role.EXOGENOUS),
                 construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
             ],
-            edges=[CausalEdge(cause="sleep", effect="mood", description="Sleep affects mood", lagged=True)],
+            edges=[
+                CausalEdge(
+                    cause="sleep", effect="mood", description="Sleep affects mood", lagged=True
+                )
+            ],
         )
         measurement = MeasurementModel(
             indicators=[
@@ -442,7 +481,9 @@ class TestComputeLagHours:
     def test_cross_timescale_coarser_to_finer(self):
         """Cross-timescale returns coarser granularity regardless of lagged flag."""
         assert compute_lag_hours("weekly", "daily", lagged=True) == 168
-        assert compute_lag_hours("weekly", "daily", lagged=False) == 168  # cross-scale always uses max
+        assert (
+            compute_lag_hours("weekly", "daily", lagged=False) == 168
+        )  # cross-scale always uses max
         assert compute_lag_hours("daily", "hourly", lagged=True) == 24
 
     def test_cross_timescale_finer_to_coarser(self):

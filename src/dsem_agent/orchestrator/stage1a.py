@@ -6,13 +6,14 @@ Uses dependency injection for the LLM generate function.
 
 from dataclasses import dataclass
 
-from .prompts import latent_model
-from .schemas import LatentModel
 from dsem_agent.utils.llm import (
     OrchestratorGenerateFn,
     parse_json_response,
     validate_latent_model_tool,
 )
+
+from .prompts import latent_model
+from .schemas import LatentModel
 
 
 @dataclass

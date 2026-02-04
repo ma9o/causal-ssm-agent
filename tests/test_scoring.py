@@ -2,19 +2,16 @@
 
 import json
 
-import pytest
-
+from dsem_agent.orchestrator.schemas import (
+    CausalEdge,
+    LatentModel,
+    Role,
+)
 from dsem_agent.orchestrator.scoring import (
     _count_rule_points,
     score_latent_model,
     score_latent_model_normalized,
 )
-from dsem_agent.orchestrator.schemas import (
-    CausalEdge,
-    Role,
-    LatentModel,
-)
-
 from tests.helpers import MockPrediction
 
 
@@ -95,7 +92,14 @@ class TestScoreLatentModel:
                     "causal_granularity": "daily",
                 },
             ],
-            "edges": [{"cause": "stress", "effect": "mood", "description": "Stress affects mood", "lagged": False}],
+            "edges": [
+                {
+                    "cause": "stress",
+                    "effect": "mood",
+                    "description": "Stress affects mood",
+                    "lagged": False,
+                }
+            ],
         }
         pred = MockPrediction(structure=json.dumps(valid))
         score = score_latent_model(None, pred)
@@ -157,7 +161,12 @@ class TestScoreLatentModel:
             ],
             "edges": [
                 {"cause": "stress", "effect": "mood", "description": "Stress affects mood"},
-                {"cause": "sleep", "effect": "mood", "description": "Sleep affects mood", "lagged": False},
+                {
+                    "cause": "sleep",
+                    "effect": "mood",
+                    "description": "Sleep affects mood",
+                    "lagged": False,
+                },
                 {"cause": "mood", "effect": "sleep", "description": "Mood affects sleep"},
             ],
         }
@@ -215,7 +224,11 @@ class TestCountRulePoints:
                 construct_factory("hourly_stress", "hourly", Role.EXOGENOUS),
                 construct_factory("daily_mood", "daily", Role.ENDOGENOUS, is_outcome=True),
             ],
-            edges=[CausalEdge(cause="hourly_stress", effect="daily_mood", description="Stress affects mood")],
+            edges=[
+                CausalEdge(
+                    cause="hourly_stress", effect="daily_mood", description="Stress affects mood"
+                )
+            ],
         )
         points = _count_rule_points(structure)
         # Cross-timescale gives +2 instead of +1
@@ -280,7 +293,9 @@ class TestExogenousEffectViolation:
                     "causal_granularity": "daily",
                 },
             ],
-            "edges": [{"cause": "mood", "effect": "weather", "description": "Invalid"}],  # Invalid: exogenous effect
+            "edges": [
+                {"cause": "mood", "effect": "weather", "description": "Invalid"}
+            ],  # Invalid: exogenous effect
         }
         pred = MockPrediction(structure=json.dumps(invalid))
         assert score_latent_model(None, pred) == 0.0
@@ -310,7 +325,11 @@ class TestCrossScaleEdges:
                 },
             ],
             "edges": [
-                {"cause": "hourly_stress", "effect": "daily_mood", "description": "Hourly affects daily"}
+                {
+                    "cause": "hourly_stress",
+                    "effect": "daily_mood",
+                    "description": "Hourly affects daily",
+                }
             ],
         }
         pred = MockPrediction(structure=json.dumps(valid))
@@ -337,7 +356,11 @@ class TestCrossScaleEdges:
                 },
             ],
             "edges": [
-                {"cause": "weekly_stress", "effect": "daily_mood", "description": "Weekly affects daily"}
+                {
+                    "cause": "weekly_stress",
+                    "effect": "daily_mood",
+                    "description": "Weekly affects daily",
+                }
             ],
         }
         pred = MockPrediction(structure=json.dumps(valid))

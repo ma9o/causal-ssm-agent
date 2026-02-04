@@ -1,22 +1,22 @@
 """Minimal test suite - verify code interprets correctly."""
 
-import pytest
-
 
 def test_import_pipeline():
     from dsem_agent.flows.pipeline import causal_inference_pipeline
+
     assert callable(causal_inference_pipeline)
 
 
 def test_import_orchestrator():
     from dsem_agent.orchestrator.agents import propose_latent_model, propose_measurement_model
-    from dsem_agent.orchestrator.schemas import LatentModel, MeasurementModel, DSEMModel, CausalEdge
+
     assert callable(propose_latent_model)
     assert callable(propose_measurement_model)
 
 
 def test_import_workers():
-    from dsem_agent.workers import process_chunk, process_chunks, WorkerOutput
+    from dsem_agent.workers import process_chunk, process_chunks
+
     assert callable(process_chunk)
     assert callable(process_chunks)
 
@@ -24,18 +24,16 @@ def test_import_workers():
 def test_import_utils():
     from dsem_agent.utils.data import (
         load_text_chunks,
-        resolve_input_path,
-        load_query,
-        get_latest_preprocessed_file,
     )
+
     assert callable(load_text_chunks)
 
 
 def test_preprocessing_script():
     from evals.scripts.preprocess_google_takeout import (
         parse_takeout_zip,
-        export_as_text_chunks,
     )
+
     assert callable(parse_takeout_zip)
 
 
@@ -45,9 +43,9 @@ def test_schema_to_networkx():
         Construct,
         DSEMModel,
         Indicator,
+        LatentModel,
         MeasurementModel,
         Role,
-        LatentModel,
         TemporalStatus,
     )
 

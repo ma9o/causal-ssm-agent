@@ -8,11 +8,10 @@ from inspect_ai.model import get_model
 
 from dsem_agent.utils.config import get_config
 from dsem_agent.utils.llm import make_worker_generate_fn
+
 from .core import (
-    run_worker_extraction,
     WorkerExtractionResult,
-    _format_indicators,
-    _get_outcome_description,
+    run_worker_extraction,
 )
 
 # Load environment variables from .env file (for API keys)
@@ -86,10 +85,7 @@ async def process_chunks_async(
     """
     model = get_model(get_config().stage2_workers.model)
     generate = make_worker_generate_fn(model)
-    tasks = [
-        run_worker_extraction(chunk, question, dsem_model, generate)
-        for chunk in chunks
-    ]
+    tasks = [run_worker_extraction(chunk, question, dsem_model, generate) for chunk in chunks]
 
     return await asyncio.gather(*tasks)
 

@@ -7,7 +7,11 @@ context for literature.
 
 from dsem_agent.orchestrator.prompts.model_proposal import (
     SYSTEM as MODEL_PROPOSAL_SYSTEM,
+)
+from dsem_agent.orchestrator.prompts.model_proposal import (
     USER as MODEL_PROPOSAL_USER,
+)
+from dsem_agent.orchestrator.prompts.model_proposal import (
     format_constructs,
     format_edges,
     format_indicators,
@@ -44,13 +48,16 @@ async def propose_model_spec(
     # Build messages
     messages = [
         {"role": "system", "content": MODEL_PROPOSAL_SYSTEM},
-        {"role": "user", "content": MODEL_PROPOSAL_USER.format(
-            question=question,
-            constructs=constructs_str,
-            edges=edges_str,
-            indicators=indicators_str,
-            data_summary=data_summary,
-        )},
+        {
+            "role": "user",
+            "content": MODEL_PROPOSAL_USER.format(
+                question=question,
+                constructs=constructs_str,
+                edges=edges_str,
+                indicators=indicators_str,
+                data_summary=data_summary,
+            ),
+        },
     ]
 
     # Generate model specification

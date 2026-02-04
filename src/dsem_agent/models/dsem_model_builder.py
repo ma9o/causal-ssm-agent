@@ -111,7 +111,7 @@ class DSEMModelBuilder(ModelBuilder):
         self,
         X: pd.DataFrame,
         y: pd.Series | np.ndarray | None = None,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> pm.Model:
         """Build the PyMC model from model spec and priors.
 
@@ -156,9 +156,7 @@ class DSEMModelBuilder(ModelBuilder):
 
         return self.model
 
-    def _index_parameters_by_role(
-        self, parameters: list[dict]
-    ) -> dict[str, list[dict]]:
+    def _index_parameters_by_role(self, parameters: list[dict]) -> dict[str, list[dict]]:
         """Index parameters by their role for easy lookup."""
         by_role: dict[str, list[dict]] = {}
         for param in parameters:
@@ -323,7 +321,7 @@ class DSEMModelBuilder(ModelBuilder):
         self,
         indicator: str,
         param_vars: dict[str, Any],
-        params_by_role: dict[str, list[dict]],
+        params_by_role: dict[str, list[dict]],  # noqa: ARG002
         random_effect_vars: dict[str, Any],
         data_vars: dict[str, Any],
         X: pd.DataFrame,
@@ -411,9 +409,7 @@ class DSEMModelBuilder(ModelBuilder):
         else:
             return mu
 
-    def _get_residual_sd(
-        self, indicator: str, param_vars: dict[str, Any]
-    ) -> Any:
+    def _get_residual_sd(self, indicator: str, param_vars: dict[str, Any]) -> Any:
         """Get the residual SD parameter for an indicator."""
         sd_names = [f"sigma_{indicator}", f"sd_{indicator}", f"residual_sd_{indicator}"]
         for sd_name in sd_names:
@@ -452,13 +448,13 @@ class DSEMModelBuilder(ModelBuilder):
             # alpha = (mu/sigma)^2, beta = mu/sigma^2
             mu_pos = pt.maximum(mu, 1e-6)
             alpha = (mu_pos / sigma) ** 2
-            beta = mu_pos / (sigma ** 2)
+            beta = mu_pos / (sigma**2)
             pm.Gamma(name, alpha=alpha, beta=beta, observed=observed)
 
         elif distribution == "Beta":
             # mu is mean in (0,1), sigma controls concentration
             mu_clipped = pt.clip(mu, 1e-6, 1 - 1e-6)
-            kappa = pt.maximum(1.0 / (sigma ** 2), 2.0)  # concentration
+            kappa = pt.maximum(1.0 / (sigma**2), 2.0)  # concentration
             alpha = mu_clipped * kappa
             beta = (1 - mu_clipped) * kappa
             pm.Beta(name, alpha=alpha, beta=beta, observed=observed)
@@ -478,10 +474,9 @@ class DSEMModelBuilder(ModelBuilder):
                 if col in self.model.named_vars:
                     pm.set_data({col: X[col].values.astype(float)})
 
-            if y is not None:
-                if "y" in self.model.named_vars:
-                    y_arr = y.values if isinstance(y, pd.Series) else y
-                    pm.set_data({"y": np.asarray(y_arr).astype(float)})
+            if y is not None and "y" in self.model.named_vars:
+                y_arr = y.values if isinstance(y, pd.Series) else y
+                pm.set_data({"y": np.asarray(y_arr).astype(float)})
 
     def _save_input_params(self, idata: Any) -> None:
         """Save additional parameters to inference data."""

@@ -61,8 +61,7 @@ def check_identifiability(
     # Get all potential treatments (observed constructs with paths to outcome)
     # Only observed constructs can be treatments - you can't do(X) on unobserved X
     all_treatments = [
-        t for t in _get_treatments_from_graph(latent_model, outcome)
-        if t in observed_constructs
+        t for t in _get_treatments_from_graph(latent_model, outcome) if t in observed_constructs
     ]
 
     # Determine if outcome is time-varying or time-invariant
@@ -76,17 +75,17 @@ def check_identifiability(
     if outcome not in observed_constructs:
         for treatment in all_treatments:
             non_identifiable_treatments[treatment] = {
-                'confounders': [outcome],
-                'notes': 'outcome is unobserved',
+                "confounders": [outcome],
+                "notes": "outcome is unobserved",
             }
         return {
-            'identifiable_treatments': identifiable_treatments,
-            'non_identifiable_treatments': non_identifiable_treatments,
-            'graph_info': {
-                'observed_constructs': list(observed_constructs),
-                'total_constructs': len(latent_model['constructs']),
-                'unobserved_confounders': [],
-                'n_directed_edges': 0,
+            "identifiable_treatments": identifiable_treatments,
+            "non_identifiable_treatments": non_identifiable_treatments,
+            "graph_info": {
+                "observed_constructs": list(observed_constructs),
+                "total_constructs": len(latent_model["constructs"]),
+                "unobserved_confounders": [],
+                "n_directed_edges": 0,
             },
         }
 
@@ -98,12 +97,12 @@ def check_identifiability(
         treatment_is_time_varying = _is_time_varying(latent_model, treatment)
 
         if treatment_is_time_varying:
-            treatment_node = _node_name(treatment, 't')
+            treatment_node = _node_name(treatment, "t")
         else:
             treatment_node = treatment
 
         if outcome_is_time_varying:
-            outcome_node = _node_name(outcome, 't')
+            outcome_node = _node_name(outcome, "t")
         else:
             outcome_node = outcome
 
@@ -121,9 +120,9 @@ def check_identifiability(
                 # Map estimand back to original names for readability
                 estimand_str = str(estimand)
                 identifiable_treatments[treatment] = {
-                    'method': 'do_calculus',
-                    'estimand': estimand_str,
-                    'marginalized_confounders': sorted(unobserved_confounders),
+                    "method": "do_calculus",
+                    "estimand": estimand_str,
+                    "marginalized_confounders": sorted(unobserved_confounders),
                 }
             else:
                 # y0's nonparametric check failed - try IV identification
@@ -133,63 +132,60 @@ def check_identifiability(
                 )
                 if instruments:
                     # IV identification available under linearity
-                    iv_list = ', '.join(instruments)
+                    iv_list = ", ".join(instruments)
                     identifiable_treatments[treatment] = {
-                        'method': 'instrumental_variable',
-                        'estimand': f"IV({iv_list}) [requires linearity]",
-                        'marginalized_confounders': sorted(unobserved_confounders),
-                        'instruments': instruments,
+                        "method": "instrumental_variable",
+                        "estimand": f"IV({iv_list}) [requires linearity]",
+                        "marginalized_confounders": sorted(unobserved_confounders),
+                        "instruments": instruments,
                     }
                 else:
                     blockers = find_blocking_confounders(
                         latent_model, observed_constructs, treatment, outcome
                     )
                     non_identifiable_treatments[treatment] = {
-                        'confounders': blockers,
+                        "confounders": blockers,
                     }
         except Exception:
             non_identifiable_treatments[treatment] = {
-                'confounders': ['unknown (graph error)'],
-                'notes': 'graph projection failed',
+                "confounders": ["unknown (graph error)"],
+                "notes": "graph projection failed",
             }
 
     return {
-        'identifiable_treatments': identifiable_treatments,
-        'non_identifiable_treatments': non_identifiable_treatments,
-        'graph_info': {
-            'observed_constructs': list(observed_constructs),
-            'total_constructs': len(latent_model['constructs']),
-            'unobserved_confounders': list(unobserved_confounders),
-            'n_directed_edges': len(list(admg.directed.edges())),
+        "identifiable_treatments": identifiable_treatments,
+        "non_identifiable_treatments": non_identifiable_treatments,
+        "graph_info": {
+            "observed_constructs": list(observed_constructs),
+            "total_constructs": len(latent_model["constructs"]),
+            "unobserved_confounders": list(unobserved_confounders),
+            "n_directed_edges": len(list(admg.directed.edges())),
         },
     }
 
 
 def _is_time_varying(latent_model: dict, construct_name: str) -> bool:
     """Check if a construct is time-varying (vs time-invariant)."""
-    for construct in latent_model['constructs']:
-        if construct['name'] == construct_name:
-            return construct.get('temporal_status', 'time_varying') != 'time_invariant'
+    for construct in latent_model["constructs"]:
+        if construct["name"] == construct_name:
+            return construct.get("temporal_status", "time_varying") != "time_invariant"
     return True  # Default to time-varying if not found
 
 
 def _get_treatments_from_graph(latent_model: dict, outcome: str) -> list[str]:
     """Get all constructs with causal paths to outcome."""
     G = nx.DiGraph()
-    for edge in latent_model.get('edges', []):
-        G.add_edge(edge['cause'], edge['effect'])
+    for edge in latent_model.get("edges", []):
+        G.add_edge(edge["cause"], edge["effect"])
 
-    return [
-        node for node in G.nodes()
-        if node != outcome and nx.has_path(G, node, outcome)
-    ]
+    return [node for node in G.nodes() if node != outcome and nx.has_path(G, node, outcome)]
 
 
 def get_observed_constructs(measurement_model: dict) -> set[str]:
     """Get set of constructs that have at least one measurement indicator."""
     observed = set()
-    for indicator in measurement_model.get('indicators', []):
-        construct = indicator.get('construct') or indicator.get('construct_name')
+    for indicator in measurement_model.get("indicators", []):
+        construct = indicator.get("construct") or indicator.get("construct_name")
         if not construct:
             continue
         observed.add(construct)
@@ -206,10 +202,10 @@ def _parse_node_name(node: str) -> tuple[str, str | None]:
 
     Returns (construct, timestep) where timestep is 't', '{t-1}', or None for time-invariant.
     """
-    if node.endswith('_t'):
-        return node[:-2], 't'
-    elif node.endswith('_{t-1}'):
-        return node[:-6], '{t-1}'
+    if node.endswith("_t"):
+        return node[:-2], "t"
+    elif node.endswith("_{t-1}"):
+        return node[:-6], "{t-1}"
     else:
         return node, None
 
@@ -250,11 +246,11 @@ def unroll_temporal_dag(
     time_varying = set()
     time_invariant = set()
 
-    for construct in latent_model['constructs']:
-        name = construct['name']
-        temporal_status = construct.get('temporal_status', 'time_varying')
+    for construct in latent_model["constructs"]:
+        name = construct["name"]
+        temporal_status = construct.get("temporal_status", "time_varying")
 
-        if temporal_status == 'time_invariant':
+        if temporal_status == "time_invariant":
             time_invariant.add(name)
         else:
             time_varying.add(name)
@@ -262,8 +258,8 @@ def unroll_temporal_dag(
     # Add nodes for time-varying constructs (both timesteps)
     for name in time_varying:
         is_hidden = name not in observed_constructs
-        dag.add_node(_node_name(name, 't'), hidden=is_hidden, construct=name, timestep='t')
-        dag.add_node(_node_name(name, '{t-1}'), hidden=is_hidden, construct=name, timestep='{t-1}')
+        dag.add_node(_node_name(name, "t"), hidden=is_hidden, construct=name, timestep="t")
+        dag.add_node(_node_name(name, "{t-1}"), hidden=is_hidden, construct=name, timestep="{t-1}")
 
     # Add nodes for time-invariant constructs (single node)
     for name in time_invariant:
@@ -280,13 +276,13 @@ def unroll_temporal_dag(
     # U_t as a successor, and y0 adds edges between ALL pairs of successors).
     for name in time_varying:
         if name in observed_constructs:
-            dag.add_edge(_node_name(name, '{t-1}'), _node_name(name, 't'))
+            dag.add_edge(_node_name(name, "{t-1}"), _node_name(name, "t"))
 
     # Add edges from the latent model
-    for edge in latent_model.get('edges', []):
-        cause = edge['cause']
-        effect = edge['effect']
-        lagged = edge.get('lagged', False)
+    for edge in latent_model.get("edges", []):
+        cause = edge["cause"]
+        effect = edge["effect"]
+        lagged = edge.get("lagged", False)
 
         cause_is_time_invariant = cause in time_invariant
         effect_is_time_invariant = effect in time_invariant
@@ -297,9 +293,9 @@ def unroll_temporal_dag(
         elif cause_is_time_invariant:
             # Time-invariant cause affects time-varying effect at current time
             # (Time-invariant constructs represent stable traits that affect all timepoints)
-            dag.add_edge(cause, _node_name(effect, 't'))
+            dag.add_edge(cause, _node_name(effect, "t"))
             # Also affects t-1 if we're modeling the full 2-timestep window
-            dag.add_edge(cause, _node_name(effect, '{t-1}'))
+            dag.add_edge(cause, _node_name(effect, "{t-1}"))
         elif effect_is_time_invariant:
             # Time-varying cause cannot affect time-invariant effect
             # (This would violate the definition of time-invariant)
@@ -307,12 +303,12 @@ def unroll_temporal_dag(
             continue
         elif lagged:
             # Lagged edge: cause_{t-1} → effect_t
-            dag.add_edge(_node_name(cause, '{t-1}'), _node_name(effect, 't'))
+            dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "t"))
         else:
             # Contemporaneous edge: cause_t → effect_t
-            dag.add_edge(_node_name(cause, 't'), _node_name(effect, 't'))
+            dag.add_edge(_node_name(cause, "t"), _node_name(effect, "t"))
             # Mirror the relationship in the earlier timestep to avoid clamping
-            dag.add_edge(_node_name(cause, '{t-1}'), _node_name(effect, '{t-1}'))
+            dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "{t-1}"))
 
     return dag
 
@@ -330,8 +326,8 @@ def _validate_max_lag_one(latent_model: dict) -> None:
     Raises:
         AssertionError: If any edge has a lag value other than 0 or 1
     """
-    for edge in latent_model.get('edges', []):
-        lagged = edge.get('lagged', False)
+    for edge in latent_model.get("edges", []):
+        lagged = edge.get("lagged", False)
         assert isinstance(lagged, bool), (
             f"Edge {edge.get('cause')} -> {edge.get('effect')} has non-boolean 'lagged' value: {lagged}. "
             f"Assumption A3a requires all edges to have lag ≤ 1 (lagged: true/false). "
@@ -366,23 +362,22 @@ def dag_to_admg(
 
     # Find unobserved constructs that will create confounding
     # An unobserved node with 2+ observed children creates bidirected edges
-    all_constructs = {c['name'] for c in latent_model['constructs']}
+    all_constructs = {c["name"] for c in latent_model["constructs"]}
     unobserved = all_constructs - observed_constructs
 
     unobserved_confounders = set()
     for node in dag.nodes():
-        if not dag.nodes[node].get('hidden', False):
+        if not dag.nodes[node].get("hidden", False):
             continue
 
         # Get the original construct name
-        construct = dag.nodes[node].get('construct', node)
+        construct = dag.nodes[node].get("construct", node)
         if construct not in unobserved:
             continue
 
         # Count observed children (children with hidden=False)
         observed_children = [
-            child for child in dag.successors(node)
-            if not dag.nodes[child].get('hidden', False)
+            child for child in dag.successors(node) if not dag.nodes[child].get("hidden", False)
         ]
         if len(observed_children) >= 2:
             unobserved_confounders.add(construct)
@@ -391,8 +386,6 @@ def dag_to_admg(
     admg = NxMixedGraph.from_latent_variable_dag(dag)
 
     return admg, unobserved_confounders
-
-
 
 
 def find_blocking_confounders(
@@ -419,10 +412,10 @@ def find_blocking_confounders(
     y0's identify_outcomes() algorithm.
     """
     G = nx.DiGraph()
-    for edge in latent_model.get('edges', []):
-        G.add_edge(edge['cause'], edge['effect'])
+    for edge in latent_model.get("edges", []):
+        G.add_edge(edge["cause"], edge["effect"])
 
-    all_constructs = {c['name'] for c in latent_model['constructs']}
+    all_constructs = {c["name"] for c in latent_model["constructs"]}
     unobserved = all_constructs - observed_constructs
 
     # Create graph with treatment removed to check backdoor paths
@@ -434,7 +427,7 @@ def find_blocking_confounders(
     for u in unobserved:
         if u not in G:
             continue
-        if u == treatment or u == outcome:
+        if u in (treatment, outcome):
             continue
 
         # Check if U has any direct observed children
@@ -492,8 +485,8 @@ def find_instruments(
         List of valid instrument names (observed constructs that satisfy IV conditions)
     """
     G = nx.DiGraph()
-    for edge in latent_model.get('edges', []):
-        G.add_edge(edge['cause'], edge['effect'])
+    for edge in latent_model.get("edges", []):
+        G.add_edge(edge["cause"], edge["effect"])
 
     if treatment not in G or outcome not in G:
         return []
@@ -559,7 +552,7 @@ def analyze_unobserved_constructs(
             - blocking_details: Map of blocking confounder -> treatments they obstruct
     """
     observed = get_observed_constructs(measurement_model)
-    all_constructs = {c['name'] for c in latent_model['constructs']}
+    all_constructs = {c["name"] for c in latent_model["constructs"]}
     unobserved = all_constructs - observed
 
     # Collect confounders that block identification of OBSERVED treatments
@@ -567,12 +560,12 @@ def analyze_unobserved_constructs(
     blocking_any = set()
     blocking_details: dict[str, list[str]] = {}  # confounder -> list of treatments it blocks
 
-    for treatment, info in identifiability_result.get('non_identifiable_treatments', {}).items():
+    for treatment, info in identifiability_result.get("non_identifiable_treatments", {}).items():
         # Skip if the treatment itself is unobserved (it's blocking itself)
         if treatment in unobserved:
             continue
 
-        blockers = info.get('confounders', []) if isinstance(info, dict) else []
+        blockers = info.get("confounders", []) if isinstance(info, dict) else []
         for blocker in blockers:
             if blocker in unobserved and blocker != treatment:
                 blocking_any.add(blocker)
@@ -589,15 +582,19 @@ def analyze_unobserved_constructs(
     marginalize_reason = {}
     for u in can_marginalize:
         # Check if U creates any confounding at all (is in unobserved_confounders)
-        if u in identifiability_result['graph_info'].get('unobserved_confounders', []):
-            marginalize_reason[u] = "confounding handled by identification strategy (front-door or similar)"
+        if u in identifiability_result["graph_info"].get("unobserved_confounders", []):
+            marginalize_reason[u] = (
+                "confounding handled by identification strategy (front-door or similar)"
+            )
         else:
-            marginalize_reason[u] = "does not create confounding (single child or no observed children)"
+            marginalize_reason[u] = (
+                "does not create confounding (single child or no observed children)"
+            )
 
     return {
-        'can_marginalize': can_marginalize,
-        'marginalize_reason': marginalize_reason,
-        'blocking_details': blocking_details,
+        "can_marginalize": can_marginalize,
+        "marginalize_reason": marginalize_reason,
+        "blocking_details": blocking_details,
     }
 
 
@@ -605,8 +602,8 @@ def format_identifiability_report(result: dict, outcome: str) -> str:
     """Format identifiability check results for logging."""
     lines = []
 
-    identifiable = result.get('identifiable_treatments', {})
-    non_identifiable = result.get('non_identifiable_treatments', {})
+    identifiable = result.get("identifiable_treatments", {})
+    non_identifiable = result.get("non_identifiable_treatments", {})
     n_identifiable = len(identifiable)
     n_non_identifiable = len(non_identifiable)
     total = n_identifiable + n_non_identifiable
@@ -614,11 +611,13 @@ def format_identifiability_report(result: dict, outcome: str) -> str:
     if not non_identifiable:
         lines.append(f"✓ All {total} treatment effects on {outcome} are identifiable!")
     else:
-        lines.append(f"✗ {n_non_identifiable}/{total} treatments have non-identifiable effects on {outcome}:")
+        lines.append(
+            f"✗ {n_non_identifiable}/{total} treatments have non-identifiable effects on {outcome}:"
+        )
         for treatment in sorted(non_identifiable.keys()):
             details = non_identifiable[treatment]
-            blockers = details.get('confounders', []) if isinstance(details, dict) else []
-            notes = details.get('notes') if isinstance(details, dict) else None
+            blockers = details.get("confounders", []) if isinstance(details, dict) else []
+            notes = details.get("notes") if isinstance(details, dict) else None
             if blockers:
                 lines.append(f"  - {treatment} (blocked by: {', '.join(blockers)})")
             elif notes:
@@ -629,20 +628,20 @@ def format_identifiability_report(result: dict, outcome: str) -> str:
     if identifiable:
         lines.append(f"\n✓ {n_identifiable} treatments have identifiable effects:")
         for treatment in sorted(identifiable.keys())[:5]:
-            method = identifiable[treatment].get('method', 'unknown')
+            method = identifiable[treatment].get("method", "unknown")
             lines.append(f"  - {treatment} via {method}")
         if n_identifiable > 5:
             lines.append(f"  ... and {n_identifiable - 5} more")
 
-    info = result['graph_info']
+    info = result["graph_info"]
     lines.append(
         f"\nGraph: {len(info['observed_constructs'])}/{info['total_constructs']} constructs observed, "
         f"{info['n_directed_edges']} directed edges"
     )
-    if info['unobserved_confounders']:
+    if info["unobserved_confounders"]:
         lines.append(f"Unobserved confounders: {', '.join(info['unobserved_confounders'])}")
 
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
 def format_marginalization_report(analysis: dict) -> str:
@@ -656,8 +655,8 @@ def format_marginalization_report(analysis: dict) -> str:
     """
     lines = []
 
-    can_marginalize = analysis['can_marginalize']
-    blocking_details = analysis.get('blocking_details', {})
+    can_marginalize = analysis["can_marginalize"]
+    blocking_details = analysis.get("blocking_details", {})
     needs_modeling = set(blocking_details.keys())
 
     lines.append("=" * 60)
@@ -668,18 +667,18 @@ def format_marginalization_report(analysis: dict) -> str:
         lines.append(f"\n✓ CAN MARGINALIZE ({len(can_marginalize)} constructs):")
         lines.append("  These can be omitted from DSEM spec - effects absorbed into error terms")
         for u in sorted(can_marginalize):
-            reason = analysis['marginalize_reason'].get(u, '')
+            reason = analysis["marginalize_reason"].get(u, "")
             lines.append(f"  - {u}: {reason}")
 
     if needs_modeling:
         lines.append(f"\n✗ NEEDS MODELING ({len(needs_modeling)} constructs):")
         lines.append("  These block identification - need proxies or explicit latent variables")
         for u in sorted(needs_modeling):
-            treatments = ', '.join(blocking_details.get(u, []))
-            reason = f"blocks identification of: {treatments}" if treatments else ''
+            treatments = ", ".join(blocking_details.get(u, []))
+            reason = f"blocks identification of: {treatments}" if treatments else ""
             lines.append(f"  - {u}: {reason}")
 
     if not can_marginalize and not needs_modeling:
         lines.append("\n✓ All constructs are observed - no marginalization analysis needed")
 
-    return '\n'.join(lines)
+    return "\n".join(lines)

@@ -12,10 +12,12 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from dsem_agent.utils.data import (
-    load_text_chunks as load_text_chunks_util,
     get_worker_chunk_size,
 )
-from dsem_agent.workers.agents import process_chunk, WorkerResult
+from dsem_agent.utils.data import (
+    load_text_chunks as load_text_chunks_util,
+)
+from dsem_agent.workers.agents import WorkerResult, process_chunk
 
 
 @task(cache_policy=INPUTS)
