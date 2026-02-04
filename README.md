@@ -72,6 +72,8 @@ dsem-agent/
 │   ├── flows/         # Prefect pipeline + stages/
 │   │   └── stages/    # stage1a_latent, stage1b_measurement, stage2_workers, stage4_model, ...
 │   └── utils/         # Shared utilities (config, llm, data, etc.)
+├── notebooks/         # PyMC showcase notebooks (tracked)
+├── scratchpad/        # Temporary work files (gitignored contents)
 ├── tests/             # pytest tests (test_{name}.py)
 └── tools/             # CLI tools + UIs (dag_cli.py, dag_explorer.py, log readers)
 ```
