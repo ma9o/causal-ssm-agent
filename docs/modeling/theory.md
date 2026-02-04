@@ -138,6 +138,8 @@ When the framework encounters an unobserved confounder without indicators:
 
 The correlated-error representation is useful for *acknowledging* and *bounding* confounding, not for *resolving* it without additional structure.
 
+For a worked example demonstrating why marginalization matters for MCMC convergence, see [`notebooks/frontdoor_pymc_demo.ipynb`](../../notebooks/frontdoor_pymc_demo.ipynb).
+
 ### References
 
 - D'Amour, A., Ding, P., Feller, A., Lei, L., & Sekhon, J. (2019). On multi-cause causal inference with unobserved confounding. *AISTATS*.
