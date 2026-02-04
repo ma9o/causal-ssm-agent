@@ -30,6 +30,7 @@ logs/
 # data/queries/ - test queries for pipeline
 
 scratchpad/**
+!scratchpad/.gitkeep
 
 repomix-output.xml
 
