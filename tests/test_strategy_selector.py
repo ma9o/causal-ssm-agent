@@ -129,7 +129,7 @@ class TestGetLikelihoodBackend:
         assert isinstance(backend, KalmanLikelihood)
 
     def test_ukf_backend_created(self):
-        """UKF backend should be created (raises on compute_log_likelihood)."""
+        """UKF backend should be created and work."""
         from dsem_agent.models.likelihoods.ukf import UKFLikelihood
         from dsem_agent.models.strategy_selector import (
             InferenceStrategy,
@@ -138,13 +138,11 @@ class TestGetLikelihoodBackend:
 
         backend = get_likelihood_backend(InferenceStrategy.UKF)
         assert isinstance(backend, UKFLikelihood)
-
-        # NotImplementedError raised when trying to compute
-        with pytest.raises(NotImplementedError, match="dynamax"):
-            backend.compute_log_likelihood(None, None, None, None, None)
+        assert backend.hyperparams.alpha == 1e-3
+        assert backend.hyperparams.beta == 2.0
 
     def test_particle_backend_created(self):
-        """Particle backend should be created (raises on compute_log_likelihood)."""
+        """Particle backend should be created and work."""
         from dsem_agent.models.likelihoods.particle import ParticleLikelihood
         from dsem_agent.models.strategy_selector import (
             InferenceStrategy,
@@ -153,10 +151,175 @@ class TestGetLikelihoodBackend:
 
         backend = get_likelihood_backend(InferenceStrategy.PARTICLE)
         assert isinstance(backend, ParticleLikelihood)
+        assert backend.n_particles == 1000
+        assert backend.ess_threshold == 0.5
 
-        # NotImplementedError raised when trying to compute
-        with pytest.raises(NotImplementedError, match="cuthbert"):
-            backend.compute_log_likelihood(None, None, None, None, None)
+
+class TestUKFLikelihood:
+    """Test UKF likelihood computation."""
+
+    def test_ukf_log_likelihood_finite(self):
+        """UKF should produce finite log-likelihood on simple data."""
+        from dsem_agent.models.likelihoods.base import (
+            CTParams,
+            InitialStateParams,
+            MeasurementParams,
+        )
+        from dsem_agent.models.likelihoods.ukf import UKFLikelihood
+
+        # Simple 2-state, 2-observation model
+        n_latent, n_manifest, T = 2, 2, 10
+
+        ct_params = CTParams(
+            drift=jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
+            diffusion_cov=0.1 * jnp.eye(n_latent),
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=0.5 * jnp.eye(n_manifest),
+        )
+        init_state = InitialStateParams(
+            mean=jnp.zeros(n_latent),
+            cov=jnp.eye(n_latent),
+        )
+
+        observations = jnp.ones((T, n_manifest)) * 0.5
+        time_intervals = jnp.ones(T)
+
+        backend = UKFLikelihood()
+        ll = backend.compute_log_likelihood(
+            ct_params, meas_params, init_state, observations, time_intervals
+        )
+
+        assert jnp.isfinite(ll)
+
+    def test_ukf_matches_kalman_on_linear(self):
+        """UKF should approximate Kalman on linear-Gaussian models."""
+        from dsem_agent.models.likelihoods.base import (
+            CTParams,
+            InitialStateParams,
+            MeasurementParams,
+        )
+        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        from dsem_agent.models.likelihoods.ukf import UKFLikelihood
+
+        n_latent, n_manifest, T = 2, 2, 5
+
+        ct_params = CTParams(
+            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+            diffusion_cov=0.1 * jnp.eye(n_latent),
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=0.5 * jnp.eye(n_manifest),
+        )
+        init_state = InitialStateParams(
+            mean=jnp.zeros(n_latent),
+            cov=jnp.eye(n_latent),
+        )
+
+        observations = jnp.array([[0.1, 0.2], [0.3, 0.4], [0.2, 0.1], [0.4, 0.3], [0.5, 0.5]])
+        time_intervals = jnp.ones(T)
+
+        kalman = KalmanLikelihood()
+        ukf = UKFLikelihood()
+
+        ll_kalman = kalman.compute_log_likelihood(
+            ct_params, meas_params, init_state, observations, time_intervals
+        )
+        ll_ukf = ukf.compute_log_likelihood(
+            ct_params, meas_params, init_state, observations, time_intervals
+        )
+
+        # UKF should be close to Kalman for linear models (within ~1%)
+        assert jnp.abs(ll_ukf - ll_kalman) / jnp.abs(ll_kalman) < 0.05
+
+
+class TestParticleLikelihood:
+    """Test particle filter likelihood computation."""
+
+    def test_particle_log_likelihood_finite(self):
+        """Particle filter should produce finite log-likelihood."""
+        from dsem_agent.models.likelihoods.base import (
+            CTParams,
+            InitialStateParams,
+            MeasurementParams,
+        )
+        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+
+        n_latent, n_manifest, T = 2, 2, 5
+
+        ct_params = CTParams(
+            drift=jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
+            diffusion_cov=0.1 * jnp.eye(n_latent),
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=0.5 * jnp.eye(n_manifest),
+        )
+        init_state = InitialStateParams(
+            mean=jnp.zeros(n_latent),
+            cov=jnp.eye(n_latent),
+        )
+
+        observations = jnp.ones((T, n_manifest)) * 0.5
+        time_intervals = jnp.ones(T)
+
+        backend = ParticleLikelihood(n_particles=500, seed=42)
+        ll = backend.compute_log_likelihood(
+            ct_params, meas_params, init_state, observations, time_intervals
+        )
+
+        assert jnp.isfinite(ll)
+
+    def test_particle_consistency_across_seeds(self):
+        """Particle filter should give similar results across seeds."""
+        from dsem_agent.models.likelihoods.base import (
+            CTParams,
+            InitialStateParams,
+            MeasurementParams,
+        )
+        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+
+        n_latent, n_manifest, T = 2, 2, 5
+
+        ct_params = CTParams(
+            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+            diffusion_cov=0.1 * jnp.eye(n_latent),
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=0.5 * jnp.eye(n_manifest),
+        )
+        init_state = InitialStateParams(
+            mean=jnp.zeros(n_latent),
+            cov=jnp.eye(n_latent),
+        )
+
+        observations = jnp.array([[0.1, 0.2], [0.3, 0.4], [0.2, 0.1], [0.4, 0.3], [0.5, 0.5]])
+        time_intervals = jnp.ones(T)
+
+        # Run with different seeds - should be within ~20% of each other
+        lls = []
+        for seed in [0, 1, 2]:
+            backend = ParticleLikelihood(n_particles=1000, seed=seed)
+            ll = backend.compute_log_likelihood(
+                ct_params, meas_params, init_state, observations, time_intervals
+            )
+            lls.append(float(ll))
+
+        # Check variance is reasonable
+        mean_ll = sum(lls) / len(lls)
+        max_deviation = max(abs(ll - mean_ll) for ll in lls)
+        assert max_deviation / abs(mean_ll) < 0.2
 
 
 class TestNoiseFamily:
