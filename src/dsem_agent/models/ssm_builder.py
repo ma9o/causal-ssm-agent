@@ -1,7 +1,7 @@
-"""CT-SEM Model Builder for DSEM pipeline integration.
+"""SSM Model Builder for DSEM pipeline integration.
 
 Provides a model builder interface compatible with the DSEM pipeline
-while using the NumPyro CT-SEM implementation underneath.
+while using the NumPyro SSM implementation underneath.
 """
 
 from typing import Any
@@ -11,45 +11,45 @@ import numpy as np
 import pandas as pd
 from numpyro.infer import MCMC
 
-from dsem_agent.models.ctsem import CTSEMModel, CTSEMPriors, CTSEMSpec
+from dsem_agent.models.ssm import SSMModel, SSMPriors, SSMSpec
 from dsem_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 from dsem_agent.workers.schemas_prior import PriorProposal
 
 
-class CTSEMModelBuilder:
-    """Model builder for CT-SEM using NumPyro.
+class SSMModelBuilder:
+    """Model builder for SSM using NumPyro.
 
     This class provides an interface compatible with the DSEM pipeline,
-    translating from the ModelSpec to CTSEMSpec internally.
+    translating from the ModelSpec to SSMSpec internally.
     """
 
-    _model_type = "CT-SEM"
+    _model_type = "SSM"
     version = "0.1.0"
 
     def __init__(
         self,
         glmm_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
-        ctsem_spec: CTSEMSpec | None = None,
+        ssm_spec: SSMSpec | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
     ):
-        """Initialize the CT-SEM model builder.
+        """Initialize the SSM model builder.
 
         Args:
             glmm_spec: GLMM specification from orchestrator (will be converted)
             priors: Prior proposals for each parameter
-            ctsem_spec: Direct CTSEMSpec (overrides glmm_spec conversion)
+            ssm_spec: Direct SSMSpec (overrides glmm_spec conversion)
             model_config: Override model configuration
             sampler_config: Override sampler configuration
         """
         self._glmm_spec = glmm_spec
         self._priors = priors or {}
-        self._ctsem_spec = ctsem_spec
+        self._ssm_spec = ssm_spec
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
 
-        self._model: CTSEMModel | None = None
+        self._model: SSMModel | None = None
         self._mcmc: MCMC | None = None
 
     @staticmethod
@@ -62,10 +62,10 @@ class CTSEMModelBuilder:
             "seed": 0,
         }
 
-    def _convert_glmm_to_ctsem(
+    def _convert_spec_to_ssm(
         self, glmm_spec: ModelSpec | dict, data: pd.DataFrame
-    ) -> CTSEMSpec:
-        """Convert ModelSpec to CTSEMSpec.
+    ) -> SSMSpec:
+        """Convert ModelSpec to SSMSpec.
 
         This is a heuristic conversion that maps the discrete-time
         GLMM specification to continuous-time parameters.
@@ -75,7 +75,7 @@ class CTSEMModelBuilder:
             data: Data frame with indicator columns
 
         Returns:
-            CTSEMSpec for continuous-time model
+            SSMSpec for continuous-time model
         """
         if isinstance(glmm_spec, dict):
             from dsem_agent.orchestrator.schemas_model import ModelSpec
@@ -101,7 +101,7 @@ class CTSEMModelBuilder:
         # Create default lambda matrix (identity mapping)
         lambda_mat = jnp.eye(n_manifest, n_latent)
 
-        return CTSEMSpec(
+        return SSMSpec(
             n_latent=n_latent,
             n_manifest=n_manifest,
             lambda_mat=lambda_mat,
@@ -118,21 +118,21 @@ class CTSEMModelBuilder:
             manifest_names=manifest_cols,
         )
 
-    def _convert_priors_to_ctsem(
+    def _convert_priors_to_ssm(
         self, priors: dict[str, dict], glmm_spec: ModelSpec | dict | None
-    ) -> CTSEMPriors:
-        """Convert prior proposals to CTSEMPriors.
+    ) -> SSMPriors:
+        """Convert prior proposals to SSMPriors.
 
-        Maps the GLMM parameter priors to the CT-SEM parameterization.
+        Maps the GLMM parameter priors to the SSM parameterization.
 
         Args:
             priors: Prior proposals from workers
             glmm_spec: GLMM specification for context (optional)
 
         Returns:
-            CTSEMPriors for the model
+            SSMPriors for the model
         """
-        ctsem_priors = CTSEMPriors()
+        ssm_priors = SSMPriors()
 
         # Skip ModelSpec validation if empty or None - just use priors directly
         if glmm_spec and isinstance(glmm_spec, dict) and glmm_spec.get("likelihoods"):
@@ -140,7 +140,7 @@ class CTSEMModelBuilder:
             glmm_spec = ModelSpec.model_validate(glmm_spec)
 
         # Map AR coefficients to drift diagonal
-        # In CT-SEM, drift diagonal ≈ log(AR coefficient) / dt
+        # In SSM, drift diagonal ≈ log(AR coefficient) / dt
         # For simplicity, use the prior for AR as a guide for drift
         for param_name, prior_spec in priors.items():
             if "rho" in param_name.lower() or "ar" in param_name.lower():
@@ -148,41 +148,41 @@ class CTSEMModelBuilder:
                 # Typical AR(1) in [0, 1] -> drift in [-inf, 0]
                 mu = prior_spec.get("params", {}).get("mu", -0.5)
                 sigma = prior_spec.get("params", {}).get("sigma", 1.0)
-                ctsem_priors.drift_diag = {"mu": mu, "sigma": sigma}
+                ssm_priors.drift_diag = {"mu": mu, "sigma": sigma}
 
             elif "beta" in param_name.lower():
                 # Cross-lag coefficient -> drift off-diagonal
                 mu = prior_spec.get("params", {}).get("mu", 0.0)
                 sigma = prior_spec.get("params", {}).get("sigma", 0.5)
-                ctsem_priors.drift_offdiag = {"mu": mu, "sigma": sigma}
+                ssm_priors.drift_offdiag = {"mu": mu, "sigma": sigma}
 
             elif "sigma" in param_name.lower() or "sd" in param_name.lower():
                 # Residual SD -> diffusion diagonal
                 sigma = prior_spec.get("params", {}).get("sigma", 1.0)
-                ctsem_priors.diffusion_diag = {"sigma": sigma}
+                ssm_priors.diffusion_diag = {"sigma": sigma}
 
-        return ctsem_priors
+        return ssm_priors
 
     def build_model(
         self,
         X: pd.DataFrame,
-        y: pd.Series | np.ndarray | None = None,
-        **kwargs: Any,
-    ) -> CTSEMModel:
-        """Build the NumPyro CT-SEM model.
+        y: pd.Series | np.ndarray | None = None,  # noqa: ARG002
+        **kwargs: Any,  # noqa: ARG002
+    ) -> SSMModel:
+        """Build the NumPyro SSM model.
 
         Args:
             X: Data with indicator columns, time, and optional subject_id
             y: Optional target (if not in X)
 
         Returns:
-            The constructed CTSEMModel
+            The constructed SSMModel
         """
         # Determine specification
-        if self._ctsem_spec is not None:
-            spec = self._ctsem_spec
+        if self._ssm_spec is not None:
+            spec = self._ssm_spec
         elif self._glmm_spec is not None:
-            spec = self._convert_glmm_to_ctsem(self._glmm_spec, X)
+            spec = self._convert_spec_to_ssm(self._glmm_spec, X)
         else:
             # Auto-detect from data
             manifest_cols = [
@@ -190,7 +190,7 @@ class CTSEMModelBuilder:
                 if c not in ["time", "time_bucket", "subject_id", "subject"]
                 and not c.endswith("_lag1")
             ]
-            spec = CTSEMSpec(
+            spec = SSMSpec(
                 n_latent=len(manifest_cols),
                 n_manifest=len(manifest_cols),
                 lambda_mat=jnp.eye(len(manifest_cols)),
@@ -199,10 +199,10 @@ class CTSEMModelBuilder:
             )
 
         # Convert priors
-        priors = self._convert_priors_to_ctsem(self._priors, self._glmm_spec or {})
+        priors = self._convert_priors_to_ssm(self._priors, self._glmm_spec or {})
 
         # Create model
-        self._model = CTSEMModel(spec, priors)
+        self._model = SSMModel(spec, priors)
         self._spec = spec
 
         return self._model
@@ -213,7 +213,7 @@ class CTSEMModelBuilder:
         y: pd.Series | np.ndarray | None = None,
         **kwargs: Any,
     ) -> MCMC:
-        """Fit the CT-SEM model to data.
+        """Fit the SSM model to data.
 
         Args:
             X: Data with indicator columns, time, and optional subject_id
@@ -245,7 +245,7 @@ class CTSEMModelBuilder:
     def _prepare_data(
         self, X: pd.DataFrame
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
-        """Prepare data for CT-SEM fitting.
+        """Prepare data for SSM fitting.
 
         Args:
             X: DataFrame with observations
@@ -337,15 +337,15 @@ class CTSEMModelBuilder:
         return pd.DataFrame(summary_data)
 
 
-def glmm_to_ctsem_spec(
+def glmm_to_ssm_spec(
     glmm_spec: ModelSpec,
     n_latent: int | None = None,
     n_manifest: int | None = None,
-) -> CTSEMSpec:
-    """Convert a ModelSpec to CTSEMSpec.
+) -> SSMSpec:
+    """Convert a ModelSpec to SSMSpec.
 
     This is a standalone conversion function for cases where you have
-    a ModelSpec but want to fit a CT-SEM model.
+    a ModelSpec but want to fit a SSM model.
 
     Args:
         glmm_spec: GLMM specification
@@ -353,7 +353,7 @@ def glmm_to_ctsem_spec(
         n_manifest: Number of manifest indicators (inferred if None)
 
     Returns:
-        CTSEMSpec for continuous-time model
+        SSMSpec for continuous-time model
     """
     # Infer dimensions
     if n_manifest is None:
@@ -368,7 +368,7 @@ def glmm_to_ctsem_spec(
     # Check for hierarchical structure
     hierarchical = len(glmm_spec.random_effects) > 0
 
-    return CTSEMSpec(
+    return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
         lambda_mat=jnp.eye(n_manifest, n_latent),

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
-    from dsem_agent.models.ctsem.model import CTSEMSpec
+    from dsem_agent.models.ssm.model import SSMSpec
 
 
 class InferenceStrategy(Enum):
@@ -49,7 +49,7 @@ NONLINEAR_FUNCTIONS = frozenset(
 )
 
 
-def select_strategy(spec: "CTSEMSpec") -> InferenceStrategy:
+def select_strategy(spec: "SSMSpec") -> InferenceStrategy:
     """Select inference strategy based on model specification.
 
     Pure rule-based selection on model structure:
@@ -59,25 +59,25 @@ def select_strategy(spec: "CTSEMSpec") -> InferenceStrategy:
     4. Check if observation noise is Gaussian
 
     Args:
-        spec: Model specification (CTSEMSpec)
+        spec: Model specification (SSMSpec)
 
     Returns:
         InferenceStrategy enum value
 
     Example:
-        >>> from dsem_agent.models.ctsem import CTSEMSpec, NoiseFamily
-        >>> spec = CTSEMSpec(n_latent=2, n_manifest=2)
+        >>> from dsem_agent.models.ssm import SSMSpec, NoiseFamily
+        >>> spec = SSMSpec(n_latent=2, n_manifest=2)
         >>> select_strategy(spec)
         <InferenceStrategy.KALMAN: 'kalman'>
 
-        >>> spec_nongaussian = CTSEMSpec(
+        >>> spec_nongaussian = SSMSpec(
         ...     n_latent=2, n_manifest=2,
         ...     manifest_dist=NoiseFamily.POISSON
         ... )
         >>> select_strategy(spec_nongaussian)
         <InferenceStrategy.PARTICLE: 'particle'>
     """
-    from dsem_agent.models.ctsem.model import NoiseFamily
+    from dsem_agent.models.ssm.model import NoiseFamily
 
     # Check dynamics linearity
     linear_dynamics = not _has_state_dependent_terms(spec.drift)

@@ -178,13 +178,13 @@ def validate_priors_task(
     }
 
 
-@task(task_run_name="build-ctsem-model")
+@task(task_run_name="build-ssm-model")
 def build_model_task(
     model_spec: dict,
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
 ) -> dict:
-    """Build CTSEMModelBuilder from spec and priors.
+    """Build SSMModelBuilder from spec and priors.
 
     Args:
         model_spec: Model specification
@@ -194,13 +194,13 @@ def build_model_task(
     Returns:
         Dict with model_built status and builder info
     """
-    from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
+    from dsem_agent.models.ssm_builder import SSMModelBuilder
 
     try:
-        builder = CTSEMModelBuilder(model_spec=model_spec, priors=priors)
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
 
         # Convert raw data to wide format for model building
-        # CT-SEM expects: time column + indicator columns
+        # SSM expects: time column + indicator columns
         if raw_data.is_empty():
             return {
                 "model_built": False,
@@ -217,7 +217,7 @@ def build_model_task(
 
         X = wide_data.to_pandas()
 
-        # Rename timestamp to time for CT-SEM
+        # Rename timestamp to time for SSM
         if "timestamp" in X.columns:
             X = X.rename(columns={"timestamp": "time"})
 
@@ -230,10 +230,9 @@ def build_model_task(
         }
 
     except NotImplementedError:
-        # Expected - implementation will be merged from numpyro-ctsem
         return {
             "model_built": False,
-            "error": "CT-SEM implementation pending merge from numpyro-ctsem",
+            "error": "SSM implementation not available",
         }
     except Exception as e:
         return {

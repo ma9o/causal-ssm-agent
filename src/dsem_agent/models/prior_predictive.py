@@ -3,7 +3,7 @@
 Validates proposed priors by sampling from the prior predictive distribution
 and checking for domain violations (NaN/Inf, wrong sign for constrained params).
 
-NOTE: CT-SEM implementation pending merge from numpyro-ctsem.
+NOTE: Uses NumPyro SSM implementation for sampling.
 Currently provides stub validation that passes through.
 """
 
@@ -21,10 +21,10 @@ from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResul
 
 
 def validate_prior_predictive(
-    model_spec: ModelSpec | dict,
+    model_spec: ModelSpec | dict,  # noqa: ARG001
     priors: dict[str, PriorProposal] | dict[str, dict],
-    raw_data: pl.DataFrame | None = None,
-    n_samples: int = 500,
+    raw_data: pl.DataFrame | None = None,  # noqa: ARG001
+    n_samples: int = 500,  # noqa: ARG001
 ) -> tuple[bool, list[PriorValidationResult]]:
     """Validate priors via prior predictive sampling.
 
@@ -42,10 +42,10 @@ def validate_prior_predictive(
     Returns:
         Tuple of (is_valid, list of validation results)
 
-    NOTE: Full implementation will be merged from numpyro-ctsem.
+    NOTE: Full implementation with SSMModelBuilder pending.
     Currently returns valid for all priors.
     """
-    # TODO: Implement with CTSEMModelBuilder once merged
+    # TODO: Implement with SSMModelBuilder once merged
     # For now, return valid to allow pipeline to proceed
 
     priors_dict = {}

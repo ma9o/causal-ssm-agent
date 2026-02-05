@@ -3,7 +3,7 @@
 Fits the CT-SEM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 
-NOTE: Uses CTSEMModelBuilder with raw timestamped data.
+NOTE: Uses SSMModelBuilder with raw timestamped data.
 No upfront aggregation - CT-SEM handles irregular time intervals directly.
 """
 
@@ -25,15 +25,15 @@ def fit_model(stage4_result: dict, raw_data: pl.DataFrame) -> Any:
     Returns:
         Fitted model results
 
-    NOTE: Implementation will be merged from numpyro-ctsem.
+    NOTE: Uses NumPyro SSM implementation.
     """
-    from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
+    from dsem_agent.models.ssm_builder import SSMModelBuilder
 
     model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
 
     try:
-        builder = CTSEMModelBuilder(model_spec=model_spec, priors=priors)
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
 
         # Convert raw data to wide format
         if raw_data.is_empty():
@@ -60,10 +60,9 @@ def fit_model(stage4_result: dict, raw_data: pl.DataFrame) -> Any:
         }
 
     except NotImplementedError:
-        # Expected until numpyro-ctsem is merged
         return {
             "fitted": False,
-            "error": "CT-SEM implementation pending merge from numpyro-ctsem",
+            "error": "SSM implementation not available",
         }
     except Exception as e:
         return {

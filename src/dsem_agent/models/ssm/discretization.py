@@ -1,7 +1,7 @@
 """CT→DT Discretization for continuous-time state-space models.
 
 Implements the mathematical operations needed for continuous-to-discrete
-transformation in CT-SEM models:
+transformation in state-space models:
 
 1. Matrix exponential: exp(A*dt) for discrete drift
 2. Lyapunov solver: A*Q + Q*A' = -GG' for asymptotic diffusion
@@ -20,8 +20,7 @@ from jax import lax
 def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     """Solve the continuous Lyapunov equation: A*X + X*A' = -Q.
 
-    This is equivalent to ctsem's ksolve function for computing the
-    asymptotic diffusion covariance.
+    Computes the asymptotic diffusion covariance.
 
     For a stable system (eigenvalues of A have negative real parts),
     this gives the stationary covariance of the process.

@@ -74,19 +74,19 @@ dsem-agent/
 │   │   ├── prior_research.py # Stage 4 worker prior research
 │   │   └── prompts/          # Worker prompts
 │   ├── causal/        # y0 identifiability, sensitivity analysis
-│   ├── models/        # NumPyro CT-SEM model specification
-│   │   ├── ctsem/              # Continuous-Time SEM implementation
-│   │   │   ├── model.py        # CTSEMModel, CTSEMSpec, CTSEMPriors
+│   ├── models/        # NumPyro state-space model specification
+│   │   ├── ssm/                # State-space model implementation
+│   │   │   ├── model.py        # SSMModel, SSMSpec, SSMPriors
 │   │   │   ├── kalman.py       # Kalman filter implementation
 │   │   │   ├── discretization.py # CT→DT conversion
 │   │   │   └── core.py         # Utility functions
 │   │   ├── likelihoods/        # State-space likelihood backends
 │   │   │   ├── base.py         # Protocol, CTParams, DTParams
 │   │   │   ├── kalman.py       # Kalman filter wrapper
-│   │   │   ├── ukf.py          # UKF wrapper (stub - needs dynamax)
-│   │   │   └── particle.py     # Particle filter wrapper (stub - needs cuthbert)
+│   │   │   ├── ukf.py          # Unscented Kalman filter (pure JAX)
+│   │   │   └── particle.py     # Bootstrap particle filter (pure JAX)
 │   │   ├── strategy_selector.py # Rule-based inference strategy selection
-│   │   ├── ctsem_builder.py    # CTSEMModelBuilder for pipeline integration
+│   │   ├── ssm_builder.py      # SSMModelBuilder for pipeline integration
 │   │   └── prior_predictive.py # Prior predictive validation
 │   ├── flows/         # Prefect pipeline + stages/
 │   │   └── stages/    # stage1a_latent, stage1b_measurement, stage2_workers, stage4_model, ...

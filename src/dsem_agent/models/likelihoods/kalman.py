@@ -15,15 +15,15 @@ This is the exact solution - no approximation needed.
 import jax.numpy as jnp
 from jax import lax
 
-from dsem_agent.models.ctsem.discretization import discretize_system
-from dsem_agent.models.ctsem.kalman import (
-    kalman_predict,
-    kalman_update,
-)
 from dsem_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
+)
+from dsem_agent.models.ssm.discretization import discretize_system
+from dsem_agent.models.ssm.kalman import (
+    kalman_predict,
+    kalman_update,
 )
 
 

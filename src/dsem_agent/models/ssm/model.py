@@ -1,7 +1,6 @@
-"""NumPyro CT-SEM Model.
+"""NumPyro State-Space Model.
 
-Hierarchical Bayesian Continuous-Time Structural Equation Model
-using NumPyro for inference.
+Hierarchical Bayesian State-Space Model using NumPyro for inference.
 
 Supports:
 - Single-subject time series
@@ -20,7 +19,7 @@ import numpyro.distributions as dist
 from jax import vmap
 from numpyro.infer import MCMC, NUTS
 
-from dsem_agent.models.ctsem.kalman import kalman_log_likelihood
+from dsem_agent.models.ssm.kalman import kalman_log_likelihood
 
 
 class NoiseFamily(StrEnum):
@@ -37,10 +36,10 @@ class NoiseFamily(StrEnum):
 
 
 @dataclass
-class CTSEMSpec:
-    """Specification for a CT-SEM model.
+class SSMSpec:
+    """Specification for a state-space model.
 
-    Follows the ctsem convention for matrix naming:
+    Matrix naming convention:
     - DRIFT: n_latent x n_latent continuous-time auto/cross effects
     - DIFFUSION: n_latent x n_latent process noise (Cholesky)
     - CINT: n_latent x 1 continuous intercept
@@ -84,8 +83,8 @@ class CTSEMSpec:
 
 
 @dataclass
-class CTSEMPriors:
-    """Prior specifications for CT-SEM parameters.
+class SSMPriors:
+    """Prior specifications for state-space model parameters.
 
     Each prior is specified as a dict with distribution parameters.
     """
@@ -141,10 +140,10 @@ class CTSEMPriors:
     )
 
 
-class CTSEMModel:
-    """NumPyro CT-SEM model.
+class SSMModel:
+    """NumPyro state-space model.
 
-    Implements hierarchical Bayesian CT-SEM with:
+    Implements hierarchical Bayesian state-space model with:
     - Continuous-time dynamics via stochastic differential equations
     - Kalman filter likelihood computation
     - Optional hierarchical structure for multiple subjects with individual variation
@@ -152,17 +151,17 @@ class CTSEMModel:
 
     def __init__(
         self,
-        spec: CTSEMSpec,
-        priors: CTSEMPriors | None = None,
+        spec: SSMSpec,
+        priors: SSMPriors | None = None,
     ):
-        """Initialize CT-SEM model.
+        """Initialize state-space model.
 
         Args:
             spec: Model specification
             priors: Prior distributions (uses defaults if None)
         """
         self.spec = spec
-        self.priors = priors or CTSEMPriors()
+        self.priors = priors or SSMPriors()
         self._strategy = None  # Cached strategy selection
 
     def get_inference_strategy(self):
@@ -175,7 +174,7 @@ class CTSEMModel:
             InferenceStrategy enum value
 
         Example:
-            >>> model = CTSEMModel(CTSEMSpec(n_latent=2, n_manifest=2))
+            >>> model = SSMModel(SSMSpec(n_latent=2, n_manifest=2))
             >>> model.get_inference_strategy()
             <InferenceStrategy.KALMAN: 'kalman'>
         """
@@ -185,7 +184,7 @@ class CTSEMModel:
         return self._strategy
 
     def _sample_drift(
-        self, spec: CTSEMSpec, n_subjects: int = 1, hierarchical: bool = False
+        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
     ) -> jnp.ndarray:
         """Sample drift matrix with stability constraints.
 
@@ -281,7 +280,7 @@ class CTSEMModel:
         return drift
 
     def _sample_diffusion(
-        self, spec: CTSEMSpec, n_subjects: int = 1, hierarchical: bool = False
+        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
     ) -> jnp.ndarray:
         """Sample diffusion matrix (lower Cholesky)."""
         n = spec.n_latent
@@ -341,7 +340,7 @@ class CTSEMModel:
         return diffusion
 
     def _sample_cint(
-        self, spec: CTSEMSpec, n_subjects: int = 1, hierarchical: bool = False
+        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
     ) -> jnp.ndarray | None:
         """Sample continuous intercept."""
         if spec.cint is None:
@@ -377,7 +376,7 @@ class CTSEMModel:
         numpyro.deterministic("cint", cint)
         return cint
 
-    def _sample_lambda(self, spec: CTSEMSpec) -> jnp.ndarray:
+    def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix (shared across subjects)."""
         if isinstance(spec.lambda_mat, jnp.ndarray):
             return spec.lambda_mat
@@ -406,7 +405,7 @@ class CTSEMModel:
         numpyro.deterministic("lambda", lambda_mat)
         return lambda_mat
 
-    def _sample_manifest_params(self, spec: CTSEMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _sample_manifest_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample manifest means and variance (shared across subjects)."""
         n_m = spec.n_manifest
 
@@ -437,7 +436,7 @@ class CTSEMModel:
         return manifest_means, manifest_chol
 
     def _sample_t0_params(
-        self, spec: CTSEMSpec, n_subjects: int = 1, hierarchical: bool = False
+        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
         n_l = spec.n_latent
@@ -699,15 +698,15 @@ class CTSEMModel:
         return predictive(rng_key, dummy_obs, times)
 
 
-def build_ctsem_model(
+def build_ssm_model(
     n_latent: int,
     n_manifest: int,
     lambda_mat: jnp.ndarray | None = None,
     hierarchical: bool = False,
     n_subjects: int = 1,
     indvarying: list[str] | None = None,
-) -> CTSEMModel:
-    """Convenience function to build a CT-SEM model.
+) -> SSMModel:
+    """Convenience function to build a state-space model.
 
     Args:
         n_latent: Number of latent processes
@@ -718,9 +717,9 @@ def build_ctsem_model(
         indvarying: Which parameters vary across individuals
 
     Returns:
-        CTSEMModel instance
+        SSMModel instance
     """
-    spec = CTSEMSpec(
+    spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
         lambda_mat=lambda_mat if lambda_mat is not None else "free",
@@ -728,4 +727,4 @@ def build_ctsem_model(
         n_subjects=n_subjects,
         indvarying=indvarying or ["t0_means"],
     )
-    return CTSEMModel(spec)
+    return SSMModel(spec)

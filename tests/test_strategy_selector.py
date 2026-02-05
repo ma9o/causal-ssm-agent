@@ -1,7 +1,6 @@
 """Tests for inference strategy selection."""
 
 import jax.numpy as jnp
-import pytest
 
 
 class TestStrategySelection:
@@ -9,10 +8,10 @@ class TestStrategySelection:
 
     def test_linear_gaussian_returns_kalman(self):
         """Linear-Gaussian model should use Kalman filter."""
-        from dsem_agent.models.ctsem import CTSEMSpec, NoiseFamily
+        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
         from dsem_agent.models.strategy_selector import InferenceStrategy, select_strategy
 
-        spec = CTSEMSpec(
+        spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
             diffusion_dist=NoiseFamily.GAUSSIAN,
@@ -22,10 +21,10 @@ class TestStrategySelection:
 
     def test_nongaussian_observation_returns_particle(self):
         """Non-Gaussian observation noise should use particle filter."""
-        from dsem_agent.models.ctsem import CTSEMSpec, NoiseFamily
+        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
         from dsem_agent.models.strategy_selector import InferenceStrategy, select_strategy
 
-        spec = CTSEMSpec(
+        spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
             diffusion_dist=NoiseFamily.GAUSSIAN,
@@ -35,10 +34,10 @@ class TestStrategySelection:
 
     def test_nongaussian_process_returns_particle(self):
         """Non-Gaussian process noise should use particle filter."""
-        from dsem_agent.models.ctsem import CTSEMSpec, NoiseFamily
+        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
         from dsem_agent.models.strategy_selector import InferenceStrategy, select_strategy
 
-        spec = CTSEMSpec(
+        spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
             diffusion_dist=NoiseFamily.STUDENT_T,
@@ -47,11 +46,11 @@ class TestStrategySelection:
         assert select_strategy(spec) == InferenceStrategy.PARTICLE
 
     def test_default_spec_is_kalman(self):
-        """Default CTSEMSpec (no explicit distributions) should use Kalman."""
-        from dsem_agent.models.ctsem import CTSEMSpec
+        """Default SSMSpec (no explicit distributions) should use Kalman."""
+        from dsem_agent.models.ssm import SSMSpec
         from dsem_agent.models.strategy_selector import InferenceStrategy, select_strategy
 
-        spec = CTSEMSpec(n_latent=2, n_manifest=2)
+        spec = SSMSpec(n_latent=2, n_manifest=2)
         assert select_strategy(spec) == InferenceStrategy.KALMAN
 
 
@@ -327,7 +326,7 @@ class TestNoiseFamily:
 
     def test_noise_family_values(self):
         """NoiseFamily should have expected values."""
-        from dsem_agent.models.ctsem.model import NoiseFamily
+        from dsem_agent.models.ssm.model import NoiseFamily
 
         assert NoiseFamily.GAUSSIAN == "gaussian"
         assert NoiseFamily.STUDENT_T == "student_t"
@@ -335,10 +334,10 @@ class TestNoiseFamily:
         assert NoiseFamily.GAMMA == "gamma"
 
     def test_noise_family_in_spec(self):
-        """CTSEMSpec should accept NoiseFamily enum values."""
-        from dsem_agent.models.ctsem import CTSEMSpec, NoiseFamily
+        """SSMSpec should accept NoiseFamily enum values."""
+        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
 
-        spec = CTSEMSpec(
+        spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
             diffusion_dist=NoiseFamily.GAUSSIAN,

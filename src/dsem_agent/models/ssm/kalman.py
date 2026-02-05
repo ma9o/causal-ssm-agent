@@ -232,7 +232,7 @@ def kalman_filter(
     Returns:
         KalmanFilterResult with filtered states and log-likelihood
     """
-    from dsem_agent.models.ctsem.discretization import discretize_system
+    from dsem_agent.models.ssm.discretization import discretize_system
 
     if obs_mask is None:
         obs_mask = ~jnp.isnan(observations)
@@ -310,7 +310,7 @@ def kalman_log_likelihood(
     Returns:
         Total log-likelihood (scalar)
     """
-    from dsem_agent.models.ctsem.discretization import discretize_system
+    from dsem_agent.models.ssm.discretization import discretize_system
 
     if obs_mask is None:
         obs_mask = ~jnp.isnan(observations)

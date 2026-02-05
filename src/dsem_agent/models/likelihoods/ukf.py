@@ -22,12 +22,12 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 from jax import lax
 
-from dsem_agent.models.ctsem.discretization import discretize_system
 from dsem_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
+from dsem_agent.models.ssm.discretization import discretize_system
 
 
 class UKFHyperParams(NamedTuple):

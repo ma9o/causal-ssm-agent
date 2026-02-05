@@ -171,18 +171,17 @@ class TestSchemas:
         assert len(proposal.sources) == 1
 
 
-# --- CTSEMModelBuilder Tests ---
-# NOTE: Full tests will be added when implementation is merged from numpyro-ctsem
+# --- SSMModelBuilder Tests ---
 
 
-class TestCTSEMModelBuilder:
-    """Test CT-SEM model building."""
+class TestSSMModelBuilder:
+    """Test SSM model building."""
 
     def test_builder_init(self, simple_model_spec, simple_priors):
         """Builder initializes with spec and priors."""
-        from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
+        from dsem_agent.models.ssm_builder import SSMModelBuilder
 
-        builder = CTSEMModelBuilder(
+        builder = SSMModelBuilder(
             model_spec=simple_model_spec,
             priors=simple_priors,
         )
@@ -191,9 +190,9 @@ class TestCTSEMModelBuilder:
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
         """Builder creates a CT-SEM model."""
-        from dsem_agent.models.ctsem_builder import CTSEMModelBuilder
+        from dsem_agent.models.ssm_builder import SSMModelBuilder
 
-        builder = CTSEMModelBuilder(
+        builder = SSMModelBuilder(
             model_spec=simple_model_spec,
             priors=simple_priors,
         )

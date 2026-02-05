@@ -1,4 +1,4 @@
-"""Core utility functions for CT-SEM.
+"""Core utility functions for state-space models.
 
 Contains helper functions for parameter transformations and matrix operations
 that are not specific to discretization or inference.
@@ -10,7 +10,7 @@ import jax.numpy as jnp
 def cholesky_of_diffusion(diffusion_raw: jnp.ndarray) -> jnp.ndarray:
     """Convert raw lower triangular diffusion to covariance.
 
-    In ctsem, DIFFUSION is specified as a lower-triangular Cholesky factor.
+    DIFFUSION is specified as a lower-triangular Cholesky factor.
     The covariance is G*G'.
 
     Args:
@@ -27,7 +27,7 @@ def cholesky_of_diffusion(diffusion_raw: jnp.ndarray) -> jnp.ndarray:
 def ensure_stability(drift: jnp.ndarray, eps: float = 1e-6) -> jnp.ndarray:
     """Ensure drift matrix eigenvalues have negative real parts.
 
-    For a stable CT-SEM, all eigenvalues of the drift matrix must have
+    For a stable state-space model, all eigenvalues of the drift matrix must have
     negative real parts. This function projects to the nearest stable matrix.
 
     Args:

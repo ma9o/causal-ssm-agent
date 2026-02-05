@@ -1,18 +1,18 @@
-"""NumPyro CT-SEM model builders and validation."""
+"""NumPyro state-space model builders and validation."""
 
-from .ctsem import CTSEMModel, CTSEMPriors, CTSEMSpec
-from .ctsem_builder import CTSEMModelBuilder
 from .prior_predictive import (
     format_validation_report,
     validate_prior_predictive,
 )
+from .ssm import SSMModel, SSMPriors, SSMSpec
+from .ssm_builder import SSMModelBuilder
 
 __all__ = [
-    # CT-SEM model
-    "CTSEMModel",
-    "CTSEMPriors",
-    "CTSEMSpec",
-    "CTSEMModelBuilder",
+    # State-space model
+    "SSMModel",
+    "SSMPriors",
+    "SSMSpec",
+    "SSMModelBuilder",
     # Validation
     "validate_prior_predictive",
     "format_validation_report",
