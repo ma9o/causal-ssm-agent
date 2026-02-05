@@ -77,7 +77,15 @@ dsem-agent/
 │   ├── models/        # NumPyro CT-SEM model specification
 │   │   ├── ctsem/              # Continuous-Time SEM implementation
 │   │   │   ├── model.py        # CTSEMModel, CTSEMSpec, CTSEMPriors
-│   │   │   └── ...             # (impl merged from numpyro-ctsem)
+│   │   │   ├── kalman.py       # Kalman filter implementation
+│   │   │   ├── discretization.py # CT→DT conversion
+│   │   │   └── core.py         # Utility functions
+│   │   ├── likelihoods/        # State-space likelihood backends
+│   │   │   ├── base.py         # Protocol, CTParams, DTParams
+│   │   │   ├── kalman.py       # Kalman filter wrapper
+│   │   │   ├── ukf.py          # UKF wrapper (stub - needs dynamax)
+│   │   │   └── particle.py     # Particle filter wrapper (stub - needs cuthbert)
+│   │   ├── strategy_selector.py # Rule-based inference strategy selection
 │   │   ├── ctsem_builder.py    # CTSEMModelBuilder for pipeline integration
 │   │   └── prior_predictive.py # Prior predictive validation
 │   ├── flows/         # Prefect pipeline + stages/
