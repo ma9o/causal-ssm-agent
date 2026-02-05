@@ -75,7 +75,8 @@ def systematic_resample(
 
     # Resample
     resampled = particles[indices]
-    new_log_weights = jnp.zeros(n_particles) - jnp.log(n_particles)
+    # Reset to normalized uniform log weights: w_i = 1/N, log_w_i = -log(N)
+    new_log_weights = jnp.full(n_particles, -jnp.log(n_particles))
 
     return resampled, new_log_weights
 
@@ -221,7 +222,9 @@ class ParticleLikelihood:
         key, subkey = random.split(key)
         t0_chol = jla.cholesky(t0_cov + jnp.eye(n_latent) * 1e-8, lower=True)
         particles = t0_mean + random.normal(subkey, shape=(self.n_particles, n_latent)) @ t0_chol.T
-        log_weights = jnp.zeros(self.n_particles) - jnp.log(self.n_particles)
+        # Initialize with normalized uniform weights: w_i = 1/N, log_w_i = -log(N)
+        # logsumexp(log_weights) = 0 for normalized weights
+        log_weights = jnp.full(self.n_particles, -jnp.log(self.n_particles))
 
         def scan_fn(carry, inputs):
             particles, log_weights, total_ll, key = carry
@@ -274,10 +277,9 @@ class ParticleLikelihood:
                 )
                 new_log_weights = log_weights + particle_lls
 
-            # Compute log-likelihood increment (log of mean weight)
-            log_mean_weight = jax.scipy.special.logsumexp(new_log_weights) - jnp.log(
-                self.n_particles
-            )
+            # Compute log-likelihood increment: log(Σ w_i * p(y|x_i))
+            # Since weights are normalized (Σ w = 1), this is just logsumexp(log_w + ll)
+            log_mean_weight = jax.scipy.special.logsumexp(new_log_weights)
 
             # Normalize weights
             new_log_weights_norm = new_log_weights - jax.scipy.special.logsumexp(new_log_weights)
@@ -288,9 +290,13 @@ class ParticleLikelihood:
 
             # Resample if ESS is low
             def do_resample(_):
-                return systematic_resample(subkey, new_particles, new_log_weights_norm)
+                resampled_particles, resampled_weights = systematic_resample(
+                    subkey, new_particles, new_log_weights
+                )
+                return resampled_particles, resampled_weights
 
             def no_resample(_):
+                # Keep normalized weights (don't resample, just normalize)
                 return new_particles, new_log_weights_norm
 
             final_particles, final_log_weights = lax.cond(

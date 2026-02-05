@@ -36,10 +36,17 @@ class InferenceStrategy(Enum):
 
 
 # Pattern to detect state-dependent terms in expressions
-# Matches: state#eta1, state#latent_2, ss_eta1, etc.
+# Matches various state reference styles:
+# - state#eta1, state#latent_2 (ctsem-style)
+# - state[0], state[1] (array indexing)
+# - ss_level, ss_eta1 (state-space variable)
+# - ss[0], ss[1] (array indexing)
+# - eta_1, eta_2 (when used as state reference)
 STATE_DEPENDENT_PATTERN = re.compile(
     r"\bstate#\w+|"  # state#eta1 style
+    r"\bstate\s*\[|"  # state[0] style (array indexing)
     r"\bss_\w+|"  # ss_level style (state-space variable)
+    r"\bss\s*\[|"  # ss[0] style (array indexing)
     r"\beta_\d+\b"  # eta_1 when used as state reference
 )
 
