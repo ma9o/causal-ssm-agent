@@ -12,7 +12,7 @@ import pandas as pd
 from numpyro.infer import MCMC
 
 from dsem_agent.models.ctsem import CTSEMModel, CTSEMPriors, CTSEMSpec
-from dsem_agent.orchestrator.schemas_glmm import GLMMSpec, ParameterRole
+from dsem_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 from dsem_agent.workers.schemas_prior import PriorProposal
 
 
@@ -20,7 +20,7 @@ class CTSEMModelBuilder:
     """Model builder for CT-SEM using NumPyro.
 
     This class provides an interface compatible with the DSEM pipeline,
-    translating from the GLMMSpec to CTSEMSpec internally.
+    translating from the ModelSpec to CTSEMSpec internally.
     """
 
     _model_type = "CT-SEM"
@@ -28,7 +28,7 @@ class CTSEMModelBuilder:
 
     def __init__(
         self,
-        glmm_spec: GLMMSpec | dict | None = None,
+        glmm_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         ctsem_spec: CTSEMSpec | None = None,
         model_config: dict | None = None,
@@ -63,9 +63,9 @@ class CTSEMModelBuilder:
         }
 
     def _convert_glmm_to_ctsem(
-        self, glmm_spec: GLMMSpec | dict, data: pd.DataFrame
+        self, glmm_spec: ModelSpec | dict, data: pd.DataFrame
     ) -> CTSEMSpec:
-        """Convert GLMMSpec to CTSEMSpec.
+        """Convert ModelSpec to CTSEMSpec.
 
         This is a heuristic conversion that maps the discrete-time
         GLMM specification to continuous-time parameters.
@@ -78,8 +78,8 @@ class CTSEMModelBuilder:
             CTSEMSpec for continuous-time model
         """
         if isinstance(glmm_spec, dict):
-            from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
-            glmm_spec = GLMMSpec.model_validate(glmm_spec)
+            from dsem_agent.orchestrator.schemas_model import ModelSpec
+            glmm_spec = ModelSpec.model_validate(glmm_spec)
 
         # Extract dimensions from data
         manifest_cols = [lik.variable for lik in glmm_spec.likelihoods]
@@ -119,7 +119,7 @@ class CTSEMModelBuilder:
         )
 
     def _convert_priors_to_ctsem(
-        self, priors: dict[str, dict], glmm_spec: GLMMSpec | dict | None
+        self, priors: dict[str, dict], glmm_spec: ModelSpec | dict | None
     ) -> CTSEMPriors:
         """Convert prior proposals to CTSEMPriors.
 
@@ -134,10 +134,10 @@ class CTSEMModelBuilder:
         """
         ctsem_priors = CTSEMPriors()
 
-        # Skip GLMMSpec validation if empty or None - just use priors directly
+        # Skip ModelSpec validation if empty or None - just use priors directly
         if glmm_spec and isinstance(glmm_spec, dict) and glmm_spec.get("likelihoods"):
-            from dsem_agent.orchestrator.schemas_glmm import GLMMSpec
-            glmm_spec = GLMMSpec.model_validate(glmm_spec)
+            from dsem_agent.orchestrator.schemas_model import ModelSpec
+            glmm_spec = ModelSpec.model_validate(glmm_spec)
 
         # Map AR coefficients to drift diagonal
         # In CT-SEM, drift diagonal ≈ log(AR coefficient) / dt
@@ -338,14 +338,14 @@ class CTSEMModelBuilder:
 
 
 def glmm_to_ctsem_spec(
-    glmm_spec: GLMMSpec,
+    glmm_spec: ModelSpec,
     n_latent: int | None = None,
     n_manifest: int | None = None,
 ) -> CTSEMSpec:
-    """Convert a GLMMSpec to CTSEMSpec.
+    """Convert a ModelSpec to CTSEMSpec.
 
     This is a standalone conversion function for cases where you have
-    a GLMMSpec but want to fit a CT-SEM model.
+    a ModelSpec but want to fit a CT-SEM model.
 
     Args:
         glmm_spec: GLMM specification
