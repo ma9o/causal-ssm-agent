@@ -244,11 +244,11 @@ class TestCuthbertBootstrapFilter:
         """Cuthbert filter should produce finite log-likelihood."""
         import jax.random as random
 
-        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
+        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
 
         n_latent, n_manifest, T = 2, 2, 5
 
-        model = CTSEMAdapter(n_latent, n_manifest)
+        model = SSMAdapter(n_latent, n_manifest)
         params = {
             "drift": jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
             "diffusion_cov": 0.1 * jnp.eye(n_latent),
@@ -281,11 +281,11 @@ class TestCuthbertBootstrapFilter:
         """Cuthbert filter should give similar results across seeds."""
         import jax.random as random
 
-        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
+        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
 
         n_latent, n_manifest, T = 2, 2, 5
 
-        model = CTSEMAdapter(n_latent, n_manifest)
+        model = SSMAdapter(n_latent, n_manifest)
         params = {
             "drift": jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
             "diffusion_cov": 0.1 * jnp.eye(n_latent),
@@ -322,11 +322,11 @@ class TestCuthbertBootstrapFilter:
         """PMMH kernel should use cuthbert filter by default."""
         import jax.random as random
 
-        from dsem_agent.models.pmmh import CTSEMAdapter, pmmh_kernel
+        from dsem_agent.models.pmmh import SSMAdapter, pmmh_kernel
 
         n_latent, n_manifest, T = 2, 2, 5
 
-        model = CTSEMAdapter(n_latent, n_manifest)
+        model = SSMAdapter(n_latent, n_manifest)
         observations = jnp.ones((T, n_manifest)) * 0.5
         time_intervals = jnp.ones(T)
         obs_mask = ~jnp.isnan(observations)

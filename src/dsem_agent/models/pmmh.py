@@ -57,16 +57,28 @@ class SSMProtocol(Protocol):
         ...
 
 
-class CTSEMAdapter:
+class SSMAdapter:
     """Adapts CT-SEM parameters into SSMProtocol-compatible functions.
 
     Maps the CT-SEM structure (drift, diffusion, measurement) into
     initial_sample, transition_sample, and observation_log_prob.
+
+    Supports non-Gaussian observation and process noise families:
+        - manifest_dist: "gaussian", "poisson", "student_t", "gamma"
+        - diffusion_dist: "gaussian", "student_t"
     """
 
-    def __init__(self, n_latent: int, n_manifest: int):
+    def __init__(
+        self,
+        n_latent: int,
+        n_manifest: int,
+        manifest_dist: str = "gaussian",
+        diffusion_dist: str = "gaussian",
+    ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
+        self.manifest_dist = manifest_dist
+        self.diffusion_dist = diffusion_dist
 
     def initial_sample(self, key: jax.Array, params: dict) -> jax.Array:
         """Sample η_0 ~ N(t0_mean, t0_cov)."""
@@ -80,7 +92,8 @@ class CTSEMAdapter:
     ) -> jax.Array:
         """Sample η_t | η_{t-1} via CT→DT discretization.
 
-        η_t ~ N(Ad * η_{t-1} + cd, Qd)
+        For gaussian: η_t ~ N(Ad * η_{t-1} + cd, Qd)
+        For student_t: same mean, but multivariate Student-t noise.
         """
         Ad, Qd, cd = discretize_system(
             params["drift"], params["diffusion_cov"], params.get("cint"), dt
@@ -89,16 +102,47 @@ class CTSEMAdapter:
         if cd is not None:
             mean = mean + cd.flatten()
         chol = jla.cholesky(Qd + jnp.eye(self.n_latent) * 1e-8, lower=True)
-        return mean + chol @ random.normal(key, (self.n_latent,))
+
+        if self.diffusion_dist == "student_t":
+            df = params.get("proc_df", 5.0)
+            # Multivariate Student-t: scale normal samples by chi2 to get
+            # correct marginal distribution with variance = Qd
+            key_z, key_chi2 = random.split(key)
+            z = random.normal(key_z, (self.n_latent,))
+            # chi2(df) = gamma(df/2, 2) — use gamma sampling
+            chi2_sample = random.gamma(key_chi2, df / 2.0) * 2.0
+            # Scale to get t-distributed samples with variance Qd
+            scale = jnp.sqrt(df / chi2_sample)
+            return mean + chol @ (z / scale)
+        else:
+            return mean + chol @ random.normal(key, (self.n_latent,))
 
     def observation_log_prob(
         self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
     ) -> float:
         """Compute log p(y | x) under measurement model.
 
-        y = Λx + μ + ε, ε ~ N(0, R)
-        Handles missing data via mask.
+        Dispatches on self.manifest_dist:
+            - gaussian: y ~ N(Λx + μ, R)
+            - poisson:  y ~ Poisson(exp(Λx + μ))
+            - student_t: y ~ StudentT(df, Λx + μ, sqrt(diag(R)))
+            - gamma: y ~ Gamma(shape, scale=exp(Λx + μ)/shape)
         """
+        if self.manifest_dist == "gaussian":
+            return self._obs_log_prob_gaussian(y, x, params, obs_mask)
+        elif self.manifest_dist == "poisson":
+            return self._obs_log_prob_poisson(y, x, params, obs_mask)
+        elif self.manifest_dist == "student_t":
+            return self._obs_log_prob_student_t(y, x, params, obs_mask)
+        elif self.manifest_dist == "gamma":
+            return self._obs_log_prob_gamma(y, x, params, obs_mask)
+        else:
+            raise ValueError(f"Unknown manifest_dist: {self.manifest_dist}")
+
+    def _obs_log_prob_gaussian(
+        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
+    ) -> float:
+        """Gaussian observation: y ~ N(Λx + μ, R)."""
         lambda_mat = params["lambda_mat"]
         manifest_means = params["manifest_means"]
         manifest_cov = params["manifest_cov"]
@@ -120,6 +164,50 @@ class CTSEMAdapter:
 
         return jnp.where(n_observed > 0, ll, 0.0)
 
+    def _obs_log_prob_poisson(
+        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
+    ) -> float:
+        """Poisson observation: y_i ~ Poisson(exp(η_i)), η = Λx + μ (log-link)."""
+        lambda_mat = params["lambda_mat"]
+        manifest_means = params["manifest_means"]
+
+        eta = lambda_mat @ x + manifest_means
+        rate = jnp.exp(eta)
+
+        log_probs = jax.scipy.stats.poisson.logpmf(y, rate)
+        # Use jnp.where to avoid -inf * 0 = nan at missing entries
+        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
+
+    def _obs_log_prob_student_t(
+        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
+    ) -> float:
+        """Student-t observation: y_i ~ StudentT(df, η_i, scale_i)."""
+        lambda_mat = params["lambda_mat"]
+        manifest_means = params["manifest_means"]
+        manifest_cov = params["manifest_cov"]
+
+        eta = lambda_mat @ x + manifest_means
+        scale = jnp.sqrt(jnp.diag(manifest_cov))
+        df = params.get("obs_df", 5.0)
+
+        log_probs = jax.scipy.stats.t.logpdf(y, df, loc=eta, scale=scale)
+        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
+
+    def _obs_log_prob_gamma(
+        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
+    ) -> float:
+        """Gamma observation: y_i ~ Gamma(shape, scale=exp(η_i)/shape), log-link for mean."""
+        lambda_mat = params["lambda_mat"]
+        manifest_means = params["manifest_means"]
+
+        eta = lambda_mat @ x + manifest_means
+        mean = jnp.exp(eta)
+        shape = params.get("obs_shape", 1.0)
+        scale = mean / shape
+
+        log_probs = jax.scipy.stats.gamma.logpdf(y, shape, scale=scale)
+        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
+
 
 # =============================================================================
 # Bootstrap Particle Filter
@@ -135,7 +223,7 @@ class PFResult(NamedTuple):
 
 
 def bootstrap_filter(
-    model: CTSEMAdapter,
+    model: SSMAdapter,
     params: dict,
     observations: jnp.ndarray,
     time_intervals: jnp.ndarray,
@@ -239,7 +327,7 @@ def bootstrap_filter(
 
 
 def cuthbert_bootstrap_filter(
-    model: CTSEMAdapter,
+    model: SSMAdapter,
     params: dict,
     observations: jnp.ndarray,
     time_intervals: jnp.ndarray,
@@ -342,7 +430,7 @@ class PMMHInfo(NamedTuple):
 
 
 def pmmh_kernel(
-    model: CTSEMAdapter,
+    model: SSMAdapter,
     observations: jnp.ndarray,
     time_intervals: jnp.ndarray,
     obs_mask: jnp.ndarray,
@@ -441,7 +529,7 @@ class PMMHResult(NamedTuple):
 
 
 def run_pmmh(
-    model: CTSEMAdapter,
+    model: SSMAdapter,
     observations: jnp.ndarray,
     time_intervals: jnp.ndarray,
     obs_mask: jnp.ndarray,
