@@ -106,14 +106,16 @@ class SSMAdapter:
         if self.diffusion_dist == "student_t":
             df = params.get("proc_df", 5.0)
             # Multivariate Student-t: scale normal samples by chi2 to get
-            # correct marginal distribution with variance = Qd
+            # correct marginal distribution with variance = Qd.
+            # For df <= 2, variance is infinite; clamp for numerical stability.
+            df = jnp.maximum(df, 2.1)
             key_z, key_chi2 = random.split(key)
             z = random.normal(key_z, (self.n_latent,))
             # chi2(df) = gamma(df/2, 2) — use gamma sampling
             chi2_sample = random.gamma(key_chi2, df / 2.0) * 2.0
             # Scale to get t-distributed samples with variance Qd
-            scale = jnp.sqrt(df / chi2_sample)
-            return mean + chol @ (z / scale)
+            scale = jnp.sqrt((df - 2.0) / chi2_sample)
+            return mean + chol @ (z * scale)
         else:
             return mean + chol @ random.normal(key, (self.n_latent,))
 
@@ -159,6 +161,9 @@ class SSMAdapter:
         R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(self.n_manifest) * 1e-8
 
         _, logdet = jnp.linalg.slogdet(R_adj)
+        n_missing = self.n_manifest - n_observed
+        # Remove missing-dimension penalty from the log-determinant
+        logdet = logdet - n_missing * jnp.log(large_var)
         mahal = innovation @ jla.solve(R_adj, innovation, assume_a="pos")
         ll = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
 

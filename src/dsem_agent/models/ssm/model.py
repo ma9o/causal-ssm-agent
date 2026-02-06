@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax.random as random
 import numpyro
 import numpyro.distributions as dist
-from jax import vmap
+from jax import lax, vmap
 from numpyro.infer import MCMC, NUTS
 
 from dsem_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
@@ -595,26 +595,34 @@ class SSMModel:
             subj_ct = CTParams(drift=subj_drift, diffusion_cov=subj_diff_cov, cint=subj_cint)
             subj_init = InitialStateParams(mean=subj_t0_mean, cov=t0_cov)
 
-            # Get subject's observations
+            # Build subject-specific observation mask
             mask = subject_ids == subj_idx
-            subj_obs = jnp.where(mask[:, None], observations, jnp.nan)
-            subj_times = jnp.where(mask, times, jnp.inf)
-
-            # Sort by time and filter
-            sort_idx = jnp.argsort(subj_times)
-            subj_obs_sorted = subj_obs[sort_idx]
-            subj_times_sorted = subj_times[sort_idx]
+            obs_mask = mask[:, None] & ~jnp.isnan(observations)
 
             # Count valid observations
             n_valid = jnp.sum(mask)
 
-            # Compute time intervals
-            time_intervals = jnp.diff(subj_times_sorted, prepend=subj_times_sorted[0])
-            time_intervals = time_intervals.at[0].set(1e-6)
+            # Compute subject-specific time intervals without inf padding
+            def scan_fn(carry, inputs):
+                last_time, seen = carry
+                t, is_obs = inputs
+                dt = jnp.where(is_obs, jnp.where(seen, t - last_time, 1e-6), 0.0)
+                new_last = jnp.where(is_obs, t, last_time)
+                new_seen = seen | is_obs
+                return (new_last, new_seen), dt
 
-            # Compute likelihood via backend
+            (_, _), time_intervals = lax.scan(
+                scan_fn, (0.0, False), (times, mask)
+            )
+
+            # Compute likelihood via backend (masked)
             ll = backend.compute_log_likelihood(
-                subj_ct, meas_params, subj_init, subj_obs_sorted, time_intervals
+                subj_ct,
+                meas_params,
+                subj_init,
+                observations,
+                time_intervals,
+                obs_mask=obs_mask,
             )
 
             # Only count if subject has observations

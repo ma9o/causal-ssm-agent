@@ -28,7 +28,7 @@ class SSMModelBuilder:
 
     def __init__(
         self,
-        glmm_spec: ModelSpec | dict | None = None,
+        model_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         ssm_spec: SSMSpec | None = None,
         model_config: dict | None = None,
@@ -37,13 +37,13 @@ class SSMModelBuilder:
         """Initialize the SSM model builder.
 
         Args:
-            glmm_spec: GLMM specification from orchestrator (will be converted)
+            model_spec: Model specification from orchestrator (will be converted)
             priors: Prior proposals for each parameter
-            ssm_spec: Direct SSMSpec (overrides glmm_spec conversion)
+            ssm_spec: Direct SSMSpec (overrides model_spec conversion)
             model_config: Override model configuration
             sampler_config: Override sampler configuration
         """
-        self._glmm_spec = glmm_spec
+        self._model_spec = model_spec
         self._priors = priors or {}
         self._ssm_spec = ssm_spec
         self._model_config = model_config or {}
@@ -63,37 +63,37 @@ class SSMModelBuilder:
         }
 
     def _convert_spec_to_ssm(
-        self, glmm_spec: ModelSpec | dict, data: pd.DataFrame
+        self, model_spec: ModelSpec | dict, data: pd.DataFrame
     ) -> SSMSpec:
         """Convert ModelSpec to SSMSpec.
 
-        This is a heuristic conversion that maps the discrete-time
-        GLMM specification to continuous-time parameters.
+        This is a heuristic conversion that maps the ModelSpec
+        to continuous-time parameters.
 
         Args:
-            glmm_spec: GLMM specification
+            model_spec: Model specification
             data: Data frame with indicator columns
 
         Returns:
             SSMSpec for continuous-time model
         """
-        if isinstance(glmm_spec, dict):
+        if isinstance(model_spec, dict):
             from dsem_agent.orchestrator.schemas_model import ModelSpec
-            glmm_spec = ModelSpec.model_validate(glmm_spec)
+            model_spec = ModelSpec.model_validate(model_spec)
 
         # Extract dimensions from data
-        manifest_cols = [lik.variable for lik in glmm_spec.likelihoods]
+        manifest_cols = [lik.variable for lik in model_spec.likelihoods]
         n_manifest = len(manifest_cols)
 
         # Infer latent structure from parameters
         # Look for AR coefficients to determine number of latent processes
         ar_params = [
-            p for p in glmm_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT
+            p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT
         ]
         n_latent = max(len(ar_params), 1)
 
         # Check for hierarchical structure
-        hierarchical = len(glmm_spec.random_effects) > 0
+        hierarchical = len(model_spec.random_effects) > 0
         n_subjects = 1
         if hierarchical and "subject_id" in data.columns:
             n_subjects = data["subject_id"].nunique()
@@ -119,15 +119,15 @@ class SSMModelBuilder:
         )
 
     def _convert_priors_to_ssm(
-        self, priors: dict[str, dict], glmm_spec: ModelSpec | dict | None
+        self, priors: dict[str, dict], model_spec: ModelSpec | dict | None
     ) -> SSMPriors:
         """Convert prior proposals to SSMPriors.
 
-        Maps the GLMM parameter priors to the SSM parameterization.
+        Maps the ModelSpec parameter priors to the SSM parameterization.
 
         Args:
             priors: Prior proposals from workers
-            glmm_spec: GLMM specification for context (optional)
+            model_spec: Model specification for context (optional)
 
         Returns:
             SSMPriors for the model
@@ -135,9 +135,9 @@ class SSMModelBuilder:
         ssm_priors = SSMPriors()
 
         # Skip ModelSpec validation if empty or None - just use priors directly
-        if glmm_spec and isinstance(glmm_spec, dict) and glmm_spec.get("likelihoods"):
+        if model_spec and isinstance(model_spec, dict) and model_spec.get("likelihoods"):
             from dsem_agent.orchestrator.schemas_model import ModelSpec
-            glmm_spec = ModelSpec.model_validate(glmm_spec)
+            model_spec = ModelSpec.model_validate(model_spec)
 
         # Map AR coefficients to drift diagonal
         # In SSM, drift diagonal ≈ log(AR coefficient) / dt
@@ -181,8 +181,8 @@ class SSMModelBuilder:
         # Determine specification
         if self._ssm_spec is not None:
             spec = self._ssm_spec
-        elif self._glmm_spec is not None:
-            spec = self._convert_spec_to_ssm(self._glmm_spec, X)
+        elif self._model_spec is not None:
+            spec = self._convert_spec_to_ssm(self._model_spec, X)
         else:
             # Auto-detect from data
             manifest_cols = [
@@ -199,7 +199,7 @@ class SSMModelBuilder:
             )
 
         # Convert priors
-        priors = self._convert_priors_to_ssm(self._priors, self._glmm_spec or {})
+        priors = self._convert_priors_to_ssm(self._priors, self._model_spec or {})
 
         # Create model
         self._model = SSMModel(spec, priors)
@@ -337,8 +337,8 @@ class SSMModelBuilder:
         return pd.DataFrame(summary_data)
 
 
-def glmm_to_ssm_spec(
-    glmm_spec: ModelSpec,
+def model_spec_to_ssm_spec(
+    model_spec: ModelSpec,
     n_latent: int | None = None,
     n_manifest: int | None = None,
 ) -> SSMSpec:
@@ -348,7 +348,7 @@ def glmm_to_ssm_spec(
     a ModelSpec but want to fit a SSM model.
 
     Args:
-        glmm_spec: GLMM specification
+        model_spec: Model specification
         n_latent: Number of latent processes (inferred if None)
         n_manifest: Number of manifest indicators (inferred if None)
 
@@ -357,16 +357,16 @@ def glmm_to_ssm_spec(
     """
     # Infer dimensions
     if n_manifest is None:
-        n_manifest = len(glmm_spec.likelihoods)
+        n_manifest = len(model_spec.likelihoods)
 
     if n_latent is None:
         ar_params = [
-            p for p in glmm_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT
+            p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT
         ]
         n_latent = max(len(ar_params), n_manifest)
 
     # Check for hierarchical structure
-    hierarchical = len(glmm_spec.random_effects) > 0
+    hierarchical = len(model_spec.random_effects) > 0
 
     return SSMSpec(
         n_latent=n_latent,
@@ -381,5 +381,5 @@ def glmm_to_ssm_spec(
         t0_var="diag",
         hierarchical=hierarchical,
         indvarying=["t0_means"],
-        manifest_names=[lik.variable for lik in glmm_spec.likelihoods],
+        manifest_names=[lik.variable for lik in model_spec.likelihoods],
     )
