@@ -8,11 +8,13 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "blackjax>=1.2.0",
+    "dynamax>=1.0.1",
     "exa-py>=1.0.0",
     "google-genai>=1.56.0",
     "inspect-ai>=0.3.162",
-    "jax>=0.4.35",
-    "jaxlib>=0.4.35",
+    "jax>=0.4.35,<0.5",
+    "jaxlib>=0.4.35,<0.5",
     "networkx>=3.6",
     "numpyro>=0.16.0",
     "openai>=2.9.0",
