@@ -11,9 +11,22 @@ import numpy as np
 import pandas as pd
 from numpyro.infer import MCMC
 
-from dsem_agent.models.ssm import SSMModel, SSMPriors, SSMSpec
-from dsem_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
+from dsem_agent.models.pmmh import PMMHResult
+from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMPriors, SSMSpec
+from dsem_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec, ParameterRole
 from dsem_agent.workers.schemas_prior import PriorProposal
+
+# Mapping from user-facing DistributionFamily to internal NoiseFamily
+_DIST_TO_NOISE: dict[DistributionFamily, NoiseFamily] = {
+    DistributionFamily.NORMAL: NoiseFamily.GAUSSIAN,
+    DistributionFamily.POISSON: NoiseFamily.POISSON,
+    DistributionFamily.GAMMA: NoiseFamily.GAMMA,
+    DistributionFamily.NEGATIVE_BINOMIAL: NoiseFamily.POISSON,  # count data → particle
+    DistributionFamily.BERNOULLI: NoiseFamily.POISSON,  # discrete → particle
+    DistributionFamily.BETA: NoiseFamily.GAUSSIAN,  # fallback
+    DistributionFamily.ORDERED_LOGISTIC: NoiseFamily.GAUSSIAN,  # fallback
+    DistributionFamily.CATEGORICAL: NoiseFamily.GAUSSIAN,  # fallback
+}
 
 
 class SSMModelBuilder:
@@ -51,6 +64,7 @@ class SSMModelBuilder:
 
         self._model: SSMModel | None = None
         self._mcmc: MCMC | None = None
+        self._pmmh_result: PMMHResult | None = None
 
     @staticmethod
     def get_default_sampler_config() -> dict:
@@ -98,6 +112,14 @@ class SSMModelBuilder:
         if hierarchical and "subject_id" in data.columns:
             n_subjects = data["subject_id"].nunique()
 
+        # Determine manifest noise family from likelihoods
+        manifest_dist = NoiseFamily.GAUSSIAN
+        for lik in model_spec.likelihoods:
+            noise = _DIST_TO_NOISE.get(lik.distribution, NoiseFamily.GAUSSIAN)
+            if noise != NoiseFamily.GAUSSIAN:
+                manifest_dist = noise
+                break  # Any non-Gaussian triggers particle filter
+
         # Create default lambda matrix (identity mapping)
         lambda_mat = jnp.eye(n_manifest, n_latent)
 
@@ -110,6 +132,7 @@ class SSMModelBuilder:
             cint="free",  # Enable CINT for non-zero asymptotic means
             manifest_means=None,  # Will be zeros
             manifest_var="diag",
+            manifest_dist=manifest_dist,
             t0_means="free",
             t0_var="diag",
             hierarchical=hierarchical,
@@ -212,8 +235,11 @@ class SSMModelBuilder:
         X: pd.DataFrame,
         y: pd.Series | np.ndarray | None = None,
         **kwargs: Any,
-    ) -> MCMC:
+    ) -> MCMC | PMMHResult:
         """Fit the SSM model to data.
+
+        Automatically dispatches to NUTS (Kalman/UKF) or PMMH (Particle)
+        based on the model's noise families.
 
         Args:
             X: Data with indicator columns, time, and optional subject_id
@@ -221,7 +247,7 @@ class SSMModelBuilder:
             **kwargs: Additional arguments passed to MCMC
 
         Returns:
-            MCMC object with posterior samples
+            MCMC object (for Kalman/UKF) or PMMHResult (for Particle)
         """
         if self._model is None:
             self.build_model(X, y)
@@ -232,15 +258,20 @@ class SSMModelBuilder:
         # Merge sampler config with kwargs
         sampler_config = {**self._sampler_config, **kwargs}
 
-        # Fit
-        self._mcmc = self._model.fit(
+        # Fit — may return MCMC or PMMHResult
+        result = self._model.fit(
             observations=observations,
             times=times,
             subject_ids=subject_ids,
             **sampler_config,
         )
 
-        return self._mcmc
+        if isinstance(result, PMMHResult):
+            self._pmmh_result = result
+        else:
+            self._mcmc = result
+
+        return result
 
     def _prepare_data(
         self, X: pd.DataFrame
@@ -305,11 +336,14 @@ class SSMModelBuilder:
         """Get posterior samples.
 
         Returns:
-            Dict of posterior samples
+            Dict of posterior samples (from MCMC or PMMH)
         """
-        if self._mcmc is None:
-            raise ValueError("Model must be fit before getting samples")
-        return self._mcmc.get_samples()
+        if self._pmmh_result is not None:
+            # Return raw PMMH samples as a single array keyed by "theta"
+            return {"theta": self._pmmh_result.samples}
+        if self._mcmc is not None:
+            return self._mcmc.get_samples()
+        raise ValueError("Model must be fit before getting samples")
 
     def summary(self) -> pd.DataFrame:
         """Get summary statistics for posterior.
@@ -317,10 +351,11 @@ class SSMModelBuilder:
         Returns:
             DataFrame with summary statistics
         """
-        if self._mcmc is None:
+        if self._mcmc is None and self._pmmh_result is None:
             raise ValueError("Model must be fit before getting summary")
 
-        self._mcmc.print_summary()
+        if self._mcmc is not None:
+            self._mcmc.print_summary()
 
         # Also return as DataFrame
         samples = self.get_samples()
@@ -334,6 +369,16 @@ class SSMModelBuilder:
                     "5%": float(jnp.percentile(values, 5)),
                     "95%": float(jnp.percentile(values, 95)),
                 })
+            elif values.ndim == 2:
+                # PMMH samples: (n_samples, d) — summarize each dimension
+                for i in range(values.shape[1]):
+                    summary_data.append({
+                        "parameter": f"{name}[{i}]",
+                        "mean": float(jnp.mean(values[:, i])),
+                        "std": float(jnp.std(values[:, i])),
+                        "5%": float(jnp.percentile(values[:, i], 5)),
+                        "95%": float(jnp.percentile(values[:, i], 95)),
+                    })
         return pd.DataFrame(summary_data)
 
 
