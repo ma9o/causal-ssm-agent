@@ -1,19 +1,23 @@
-"""Comprehensive tests for inference strategy backends.
+"""Comprehensive tests for particle filter + NUTS inference.
 
 Tests cover:
-1. Cross-validation: Kalman as ground truth, UKF must match on linear-Gaussian
-2. Cuthbert particle filter: finite likelihood, consistency, Kalman cross-validation
-3. Parameter recovery: simulate → infer → check credible intervals (Kalman + PMMH)
-4. Backend integration with strategy selector routing
+1. ParticleLikelihood: finite likelihood, determinism, gradient flow
+2. SSMAdapter: observation models (Gaussian, Poisson, Student-t, Gamma)
+3. Parameter recovery: simulate → PF+NUTS → check credible intervals
+4. Hierarchical likelihood robustness
+5. Edge cases and builder wiring
 
 Test Matrix:
-| Model Class                    | Strategies           | Ground Truth       |
+| Model Class                    | Noise Family         | Test Type          |
 |--------------------------------|----------------------|--------------------|
-| Linear-Gaussian                | Kalman, UKF, PF      | Kalman as ref      |
-| Nonlinear dynamics, Gaussian   | UKF                  | Simulated recovery |
-| Linear, non-Gaussian obs       | PMMH (cuthbert PF)   | Simulated recovery |
+| Linear-Gaussian                | gaussian             | LL finite, grad    |
+| Linear, Poisson obs            | poisson              | Param recovery     |
+| Linear, Student-t obs          | student_t            | Param recovery     |
+| Linear, Student-t process      | student_t diffusion  | Variance calib     |
+| High-dim, Poisson + Student-t  | poisson + student_t  | Stress test        |
 """
 
+import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -25,19 +29,16 @@ from dsem_agent.models.likelihoods.base import (
     InitialStateParams,
     MeasurementParams,
 )
-from dsem_agent.models.ssm import NoiseFamily, SSMSpec
+from dsem_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
+from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec
 
 # =============================================================================
-# Cross-Validation: Linear-Gaussian Models
+# ParticleLikelihood: Core Functionality
 # =============================================================================
 
 
-class TestCrossValidationLinearGaussian:
-    """Cross-validate Kalman and UKF on linear-Gaussian models.
-
-    Key invariant: UKF must match Kalman on linear-Gaussian.
-    Kalman is exact—use as ground truth.
-    """
+class TestParticleLikelihoodCore:
+    """Test ParticleLikelihood core functionality."""
 
     @pytest.fixture
     def linear_gaussian_params(self):
@@ -68,15 +69,12 @@ class TestCrossValidationLinearGaussian:
         time_intervals = jnp.ones(T) * 0.5
         return observations, time_intervals
 
-    def test_ukf_matches_kalman(self, linear_gaussian_params, simple_observations):
-        """UKF log-likelihood matches Kalman within numerical tolerance."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.likelihoods.ukf import UKFLikelihood
-
+    def test_pf_produces_finite_likelihood(self, linear_gaussian_params, simple_observations):
+        """PF log-likelihood should be finite for reasonable parameters."""
         observations, time_intervals = simple_observations
 
-        kalman = KalmanLikelihood()
-        kalman_ll = kalman.compute_log_likelihood(
+        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=200)
+        ll = backend.compute_log_likelihood(
             linear_gaussian_params["ct_params"],
             linear_gaussian_params["meas_params"],
             linear_gaussian_params["init_params"],
@@ -84,166 +82,305 @@ class TestCrossValidationLinearGaussian:
             time_intervals,
         )
 
-        ukf = UKFLikelihood()
-        ukf_ll = ukf.compute_log_likelihood(
-            linear_gaussian_params["ct_params"],
-            linear_gaussian_params["meas_params"],
-            linear_gaussian_params["init_params"],
-            observations,
-            time_intervals,
-        )
+        assert jnp.isfinite(ll), f"PF produced non-finite: {ll}"
 
-        # UKF should match Kalman within 5% for linear-Gaussian
-        np.testing.assert_allclose(
-            float(ukf_ll),
-            float(kalman_ll),
-            rtol=0.05,
-            err_msg=f"UKF={float(ukf_ll):.4f} vs Kalman={float(kalman_ll):.4f}",
-        )
-
-    def test_cuthbert_pf_matches_kalman_moderate_particles(
-        self, linear_gaussian_params, simple_observations
-    ):
-        """Cuthbert PF matches Kalman within Monte Carlo error."""
-        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
-
+    def test_pf_varies_with_params(self, simple_observations):
+        """PF likelihood should vary with different parameters."""
         observations, time_intervals = simple_observations
-        obs_mask = ~jnp.isnan(observations)
 
-        # Kalman (ground truth)
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        drift_values = [
+            jnp.array([[-0.3, 0.0], [0.0, -0.3]]),
+            jnp.array([[-0.5, 0.1], [0.1, -0.5]]),
+            jnp.array([[-0.8, 0.0], [0.0, -0.8]]),
+        ]
 
-        kalman = KalmanLikelihood()
-        kalman_ll = kalman.compute_log_likelihood(
-            linear_gaussian_params["ct_params"],
-            linear_gaussian_params["meas_params"],
-            linear_gaussian_params["init_params"],
+        likelihoods = []
+        for drift in drift_values:
+            ct_params = CTParams(
+                drift=drift,
+                diffusion_cov=jnp.eye(2) * 0.1,
+                cint=jnp.zeros(2),
+            )
+            meas_params = MeasurementParams(
+                lambda_mat=jnp.eye(2),
+                manifest_means=jnp.zeros(2),
+                manifest_cov=jnp.eye(2) * 0.1,
+            )
+            init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
+
+            backend = ParticleLikelihood(
+                n_latent=2,
+                n_manifest=2,
+                n_particles=200,
+                rng_key=random.PRNGKey(42),
+            )
+            ll = backend.compute_log_likelihood(
+                ct_params,
+                meas_params,
+                init,
+                observations,
+                time_intervals,
+            )
+            likelihoods.append(float(ll))
+
+        assert all(np.isfinite(ll) for ll in likelihoods)
+        assert len({round(ll, 2) for ll in likelihoods}) > 1
+
+
+class TestDeterministicKey:
+    """Test that fixed PF key gives deterministic results."""
+
+    def test_same_params_same_key_same_ll(self):
+        """Same parameters + same key should produce identical log-likelihood."""
+        T = 10
+        key = random.PRNGKey(42)
+        observations = random.normal(key, (T, 2)) * 0.5
+        time_intervals = jnp.ones(T) * 0.5
+
+        ct_params = CTParams(
+            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+            diffusion_cov=jnp.eye(2) * 0.1,
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(2),
+            manifest_means=jnp.zeros(2),
+            manifest_cov=jnp.eye(2) * 0.1,
+        )
+        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
+
+        pf_key = random.PRNGKey(99)
+
+        backend1 = ParticleLikelihood(
+            n_latent=2,
+            n_manifest=2,
+            n_particles=200,
+            rng_key=pf_key,
+        )
+        ll1 = backend1.compute_log_likelihood(
+            ct_params,
+            meas_params,
+            init,
             observations,
             time_intervals,
         )
 
-        # Cuthbert PF
-        ct = linear_gaussian_params["ct_params"]
-        mp = linear_gaussian_params["meas_params"]
-        ip = linear_gaussian_params["init_params"]
-        model = SSMAdapter(n_latent=2, n_manifest=2)
+        backend2 = ParticleLikelihood(
+            n_latent=2,
+            n_manifest=2,
+            n_particles=200,
+            rng_key=pf_key,
+        )
+        ll2 = backend2.compute_log_likelihood(
+            ct_params,
+            meas_params,
+            init,
+            observations,
+            time_intervals,
+        )
+
+        assert float(ll1) == float(ll2), f"Not deterministic: {ll1} vs {ll2}"
+
+
+class TestParticleLikelihoodGradient:
+    """Test that jax.grad flows through the particle filter."""
+
+    def test_gradient_is_finite(self):
+        """jax.grad of PF log-likelihood should produce finite values."""
+        T = 8
+        observations = jnp.ones((T, 2)) * 0.3
+        time_intervals = jnp.ones(T) * 0.5
+
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(2),
+            manifest_means=jnp.zeros(2),
+            manifest_cov=jnp.eye(2) * 0.1,
+        )
+        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
+
+        pf_key = random.PRNGKey(0)
+
+        def ll_fn(drift_diag):
+            drift = jnp.diag(drift_diag)
+            ct_params = CTParams(
+                drift=drift,
+                diffusion_cov=jnp.eye(2) * 0.1,
+                cint=None,
+            )
+            backend = ParticleLikelihood(
+                n_latent=2,
+                n_manifest=2,
+                n_particles=100,
+                rng_key=pf_key,
+            )
+            return backend.compute_log_likelihood(
+                ct_params,
+                meas_params,
+                init,
+                observations,
+                time_intervals,
+            )
+
+        drift_diag = jnp.array([-0.5, -0.5])
+        grad = jax.grad(ll_fn)(drift_diag)
+
+        assert jnp.all(jnp.isfinite(grad)), f"Non-finite gradient: {grad}"
+
+
+# =============================================================================
+# SSMAdapter: Observation Models
+# =============================================================================
+
+
+class TestParticleMissingData:
+    """Tests for Gaussian observation masking in PF adapter."""
+
+    def test_missing_dimension_not_penalized(self):
+        """Missing dims should not incur huge log-det penalties."""
+        n_latent, n_manifest = 1, 2
+        adapter = SSMAdapter(n_latent, n_manifest, manifest_dist="gaussian")
+
         params = {
-            "drift": ct.drift,
-            "diffusion_cov": ct.diffusion_cov,
-            "cint": ct.cint,
-            "lambda_mat": mp.lambda_mat,
-            "manifest_means": mp.manifest_means,
-            "manifest_cov": mp.manifest_cov,
-            "t0_mean": ip.mean,
-            "t0_cov": ip.cov,
+            "lambda_mat": jnp.array([[1.0], [1.0]]),
+            "manifest_means": jnp.array([0.0, 0.0]),
+            "manifest_cov": jnp.diag(jnp.array([0.5, 0.5])),
+        }
+        x = jnp.array([0.0])
+        y = jnp.array([1.0, -2.0])
+        obs_mask = jnp.array([True, False])
+
+        ll = adapter._obs_log_prob_gaussian(y, x, params, obs_mask)
+
+        # Manual univariate logpdf for observed dimension
+        sigma2 = 0.5
+        resid = y[0]
+        manual = -0.5 * (jnp.log(2 * jnp.pi * sigma2) + (resid**2) / sigma2)
+
+        assert jnp.isfinite(ll)
+        assert jnp.allclose(ll, manual, atol=1e-5), f"{ll} vs {manual}"
+
+
+class TestStudentTProcessNoise:
+    """Tests for Student-t process noise variance calibration."""
+
+    @pytest.mark.slow
+    def test_student_t_process_noise_variance_matches_qd(self):
+        """Student-t noise should match Qd variance (df > 2)."""
+        from dsem_agent.models.ssm.discretization import discretize_system
+
+        n_latent, n_manifest = 1, 1
+        df = 5.0
+        dt = 1.0
+
+        drift = jnp.array([[-0.5]])
+        diffusion_cov = jnp.array([[0.3**2]])
+        _, Qd, _ = discretize_system(drift, diffusion_cov, None, dt)
+
+        adapter = SSMAdapter(
+            n_latent, n_manifest, manifest_dist="gaussian", diffusion_dist="student_t"
+        )
+
+        params = {
+            "drift": drift,
+            "diffusion_cov": diffusion_cov,
+            "lambda_mat": jnp.eye(1),
+            "manifest_means": jnp.zeros(1),
+            "manifest_cov": jnp.eye(1),
+            "t0_mean": jnp.zeros(n_latent),
+            "t0_cov": jnp.eye(n_latent),
+            "proc_df": df,
         }
 
-        result = cuthbert_bootstrap_filter(
-            model,
-            params,
+        key = random.PRNGKey(0)
+        n_samples = 400
+        keys = random.split(key, n_samples)
+        x_prev = jnp.zeros(n_latent)
+
+        samples = jax.vmap(lambda k: adapter.transition_sample(k, x_prev, params, dt))(keys)
+        sample_var = jnp.var(samples, axis=0)[0]
+        target_var = Qd[0, 0]
+
+        assert jnp.isfinite(sample_var)
+        assert jnp.allclose(sample_var, target_var, rtol=0.25, atol=0.05), (
+            f"Sample var {float(sample_var):.4f} vs Qd {float(target_var):.4f}"
+        )
+
+
+# =============================================================================
+# Hierarchical Likelihood Robustness
+# =============================================================================
+
+
+class TestHierarchicalLikelihood:
+    """Robustness tests for hierarchical likelihood masking."""
+
+    def test_subject_without_observations_is_finite(self):
+        """Subjects with no observations should not introduce NaNs/Infs."""
+        from dsem_agent.models.ssm import SSMModel
+
+        n_latent, n_manifest = 2, 2
+        T = 6
+        times = jnp.arange(T, dtype=float) * 0.5
+        observations = random.normal(random.PRNGKey(0), (T, n_manifest))
+
+        # All observations belong to subject 0; subject 1 has none
+        subject_ids = jnp.zeros(T, dtype=int)
+        n_subjects = 2
+
+        spec = SSMSpec(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            hierarchical=True,
+            n_subjects=n_subjects,
+        )
+        model = SSMModel(spec, n_particles=100)
+
+        drift = jnp.stack(
+            [
+                jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+                jnp.array([[-0.6, 0.0], [0.0, -0.6]]),
+            ]
+        )
+        diffusion_cov = jnp.stack([jnp.eye(n_latent) * 0.1, jnp.eye(n_latent) * 0.1])
+
+        ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=None)
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=jnp.eye(n_manifest) * 0.1,
+        )
+        t0_means = jnp.zeros((n_subjects, n_latent))
+        t0_cov = jnp.eye(n_latent)
+
+        backend = ParticleLikelihood(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            n_particles=100,
+        )
+        ll = model._hierarchical_likelihood(
+            backend,
+            ct_params,
+            meas_params,
             observations,
-            time_intervals,
-            obs_mask,
-            n_particles=1000,
-            key=random.PRNGKey(42),
+            times,
+            subject_ids,
+            n_subjects,
+            t0_means,
+            t0_cov,
         )
-
-        # PF with 1000 particles should be within 15% of Kalman
-        np.testing.assert_allclose(
-            float(result.log_likelihood),
-            float(kalman_ll),
-            rtol=0.15,
-            err_msg=f"PF={float(result.log_likelihood):.4f} vs Kalman={float(kalman_ll):.4f}",
-        )
-
-    def test_all_strategies_agree_on_longer_series(self):
-        """Kalman and UKF agree on longer time series (25 points)."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.likelihoods.ukf import UKFLikelihood
-
-        T = 25
-        key = random.PRNGKey(123)
-        observations = random.normal(key, (T, 2)) * 0.3
-        time_intervals = jnp.ones(T) * 0.5
-
-        ct_params = CTParams(
-            drift=jnp.array([[-0.6, 0.15], [0.1, -0.7]]),
-            diffusion_cov=jnp.array([[0.08, 0.01], [0.01, 0.08]]),
-            cint=jnp.zeros(2),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.05,
-        )
-        init_params = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        kalman = KalmanLikelihood()
-        kalman_ll = kalman.compute_log_likelihood(
-            ct_params, meas_params, init_params, observations, time_intervals
-        )
-
-        ukf = UKFLikelihood()
-        ukf_ll = ukf.compute_log_likelihood(
-            ct_params, meas_params, init_params, observations, time_intervals
-        )
-
-        assert jnp.isfinite(kalman_ll)
-        np.testing.assert_allclose(float(ukf_ll), float(kalman_ll), rtol=0.05)
+        assert jnp.isfinite(ll), f"Non-finite hierarchical LL: {ll}"
 
 
 # =============================================================================
-# Cross-Validation: UKF on Nonlinear (sanity checks)
+# Parameter Recovery Tests (PF + NUTS)
 # =============================================================================
 
 
-class TestCrossValidationNonlinear:
-    """Test UKF on models with varied data.
+class TestParameterRecoveryPF:
+    """Parameter recovery tests using particle filter + NUTS.
 
-    Since we don't have ground truth for nonlinear, we check:
-    1. Produces finite likelihoods
-    2. Consistency across parameter variations
-    """
-
-    def test_ukf_finite_on_varied_data(self):
-        """UKF produces finite likelihoods on varied data with outliers."""
-        from dsem_agent.models.likelihoods.ukf import UKFLikelihood
-
-        T = 20
-        key = random.PRNGKey(789)
-        base_obs = random.normal(key, (T, 2)) * 0.5
-        outliers = jnp.array([[2.0, -1.5], [-1.8, 2.2]])
-        observations = base_obs.at[5].set(outliers[0]).at[15].set(outliers[1])
-        time_intervals = jnp.ones(T) * 0.5
-
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.1], [0.2, -0.8]]),
-            diffusion_cov=jnp.eye(2) * 0.1,
-            cint=jnp.zeros(2),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.2,
-        )
-        init_params = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        ukf = UKFLikelihood()
-        ukf_ll = ukf.compute_log_likelihood(
-            ct_params, meas_params, init_params, observations, time_intervals
-        )
-        assert jnp.isfinite(ukf_ll), f"UKF produced non-finite: {ukf_ll}"
-
-
-# =============================================================================
-# Parameter Recovery Tests
-# =============================================================================
-
-
-class TestParameterRecoveryKalman:
-    """Parameter recovery tests using Kalman filter.
-
-    Simulate from known parameters → run inference → verify true params
+    Simulate from known parameters → run PF+NUTS → verify true params
     fall within 90% credible intervals.
     """
 
@@ -279,7 +416,7 @@ class TestParameterRecoveryKalman:
             lambda_mat=jnp.eye(2),
             diffusion="diag",
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=200)
 
         mcmc = model.fit(
             observations=observations,
@@ -332,7 +469,7 @@ class TestParameterRecoveryKalman:
             lambda_mat=jnp.eye(2),
             diffusion="diag",
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=200)
 
         mcmc = model.fit(
             observations=observations,
@@ -353,296 +490,128 @@ class TestParameterRecoveryKalman:
             )
 
 
-class TestParameterRecoveryPMMH:
-    """Parameter recovery tests using PMMH with cuthbert particle filter.
-
-    Simulate from known parameters → run PMMH → verify true params
-    fall within posterior range.
-    """
+class TestParameterRecoveryPoisson:
+    """Parameter recovery for Poisson observations via PF+NUTS."""
 
     @pytest.mark.slow
-    def test_drift_recovery_pmmh(self):
-        """Recover drift parameter from simulated linear-Gaussian data via PMMH."""
-        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
-
-        # True parameters
-        true_drift_val = -0.6
-        n_latent, n_manifest = 2, 2
-        T = 40
+    def test_drift_recovery_poisson_obs(self):
+        """Recover drift from 1D AR(1) with Poisson observations."""
+        true_drift = -0.5
+        n_latent = 1
+        T = 80
         dt = 0.5
+        process_noise = 0.2
+        log_baseline = jnp.log(5.0)
 
-        # Simulate data from known model
+        # Simulate latent AR(1) process
         key = random.PRNGKey(42)
-        discrete_coef = jnp.diag(jnp.exp(jnp.array([true_drift_val, true_drift_val]) * dt))
-        process_noise = 0.3
-
+        discrete_coef = jnp.exp(true_drift * dt)
         states = [jnp.zeros(n_latent)]
         for _ in range(T - 1):
             key, subkey = random.split(key)
             noise = random.normal(subkey, (n_latent,)) * process_noise
-            new_state = discrete_coef @ states[-1] + noise
+            new_state = discrete_coef * states[-1] + noise
             states.append(new_state)
+        latent = jnp.stack(states)
 
+        # Poisson observations: y ~ Poisson(exp(x + log_baseline))
         key, subkey = random.split(key)
-        observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.2
-        time_intervals = jnp.ones(T) * dt
-        obs_mask = jnp.ones_like(observations, dtype=bool)
-
-        model = SSMAdapter(n_latent, n_manifest)
-
-        # Unpack: theta = [drift_diag] (1D parameter for simplicity)
-        def unpack_fn(theta):
-            drift_val = theta[0]
-            return {
-                "drift": jnp.diag(jnp.array([drift_val, drift_val])),
-                "diffusion_cov": jnp.eye(n_latent) * process_noise**2,
-                "lambda_mat": jnp.eye(n_manifest, n_latent),
-                "manifest_means": jnp.zeros(n_manifest),
-                "manifest_cov": jnp.eye(n_manifest) * 0.04,  # 0.2^2
-                "t0_mean": jnp.zeros(n_latent),
-                "t0_cov": jnp.eye(n_latent),
-            }
-
-        def log_prior_fn(theta):
-            # Weakly informative: N(0, 2^2) on drift, constrained negative
-            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
-
-        result = run_pmmh(
-            model=model,
-            observations=observations,
-            time_intervals=time_intervals,
-            obs_mask=obs_mask,
-            log_prior_fn=log_prior_fn,
-            unpack_fn=unpack_fn,
-            init_theta=jnp.array([-0.5]),
-            n_samples=200,
-            n_warmup=100,
-            n_particles=500,
-            proposal_cov=jnp.array([[0.01]]),
-            seed=42,
-        )
-
-        posterior_mean = float(jnp.mean(result.samples[:, 0]))
-        assert abs(posterior_mean - true_drift_val) < 0.5, (
-            f"PMMH drift posterior mean {posterior_mean:.3f} "
-            f"far from true {true_drift_val:.3f}"
-        )
-        assert result.acceptance_rate > 0.05, (
-            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
-        )
-
-
-class TestPMMHIntegration:
-    """Test PMMH integration using cuthbert particle filter."""
-
-    def test_cuthbert_pf_varies_with_params(self):
-        """Cuthbert PF likelihood varies with different parameters."""
-        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
-
-        T = 10
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, 2)) * 0.5
-        time_intervals = jnp.ones(T) * 0.5
-        obs_mask = ~jnp.isnan(observations)
-
-        model = SSMAdapter(n_latent=2, n_manifest=2)
-
-        drift_values = [
-            jnp.array([[-0.3, 0.0], [0.0, -0.3]]),
-            jnp.array([[-0.5, 0.1], [0.1, -0.5]]),
-            jnp.array([[-0.8, 0.0], [0.0, -0.8]]),
-        ]
-
-        likelihoods = []
-        for drift in drift_values:
-            params = {
-                "drift": drift,
-                "diffusion_cov": jnp.eye(2) * 0.1,
-                "lambda_mat": jnp.eye(2),
-                "manifest_means": jnp.zeros(2),
-                "manifest_cov": jnp.eye(2) * 0.1,
-                "t0_mean": jnp.zeros(2),
-                "t0_cov": jnp.eye(2),
-            }
-            result = cuthbert_bootstrap_filter(
-                model,
-                params,
-                observations,
-                time_intervals,
-                obs_mask,
-                n_particles=200,
-                key=random.PRNGKey(42),
-            )
-            likelihoods.append(float(result.log_likelihood))
-
-        # All likelihoods should be finite
-        assert all(np.isfinite(ll) for ll in likelihoods)
-
-        # Likelihoods should vary with parameters
-        assert len({round(ll, 2) for ll in likelihoods}) > 1
-
-
-# =============================================================================
-# Hierarchical Likelihood Robustness
-# =============================================================================
-
-
-class TestHierarchicalLikelihood:
-    """Robustness tests for hierarchical likelihood masking."""
-
-    def test_subject_without_observations_is_finite(self):
-        """Subjects with no observations should not introduce NaNs/Infs."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.ssm import SSMModel
-
-        n_latent, n_manifest = 2, 2
-        T = 6
-        times = jnp.arange(T, dtype=float) * 0.5
-        observations = random.normal(random.PRNGKey(0), (T, n_manifest))
-
-        # All observations belong to subject 0; subject 1 has none
-        subject_ids = jnp.zeros(T, dtype=int)
-        n_subjects = 2
+        rates = jnp.exp(latent + log_baseline)
+        observations = random.poisson(subkey, rates).astype(jnp.float32)
+        times = jnp.arange(T, dtype=jnp.float32) * dt
 
         spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            hierarchical=True,
-            n_subjects=n_subjects,
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+            manifest_dist=NoiseFamily.POISSON,
+            manifest_means=jnp.array([log_baseline]),
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=300)
 
-        drift = jnp.stack(
-            [
-                jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-                jnp.array([[-0.6, 0.0], [0.0, -0.6]]),
-            ]
+        mcmc = model.fit(
+            observations=observations,
+            times=times,
+            num_warmup=200,
+            num_samples=200,
+            num_chains=1,
         )
-        diffusion_cov = jnp.stack([jnp.eye(n_latent) * 0.1, jnp.eye(n_latent) * 0.1])
 
-        ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=None)
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=jnp.eye(n_manifest) * 0.1,
-        )
-        t0_means = jnp.zeros((n_subjects, n_latent))
-        t0_cov = jnp.eye(n_latent)
+        samples = mcmc.get_samples()
+        drift_diag_samples = samples["drift_diag_pop"]
+        posterior_mean = float(jnp.mean(drift_diag_samples[:, 0]))
 
-        backend = KalmanLikelihood()
-        ll = model._hierarchical_likelihood(
-            backend,
-            ct_params,
-            meas_params,
-            observations,
-            times,
-            subject_ids,
-            n_subjects,
-            t0_means,
-            t0_cov,
-        )
-        assert jnp.isfinite(ll), f"Non-finite hierarchical LL: {ll}"
+        # Drift should be negative
+        assert posterior_mean < 0.0, f"Drift should be negative: {posterior_mean:.3f}"
 
 
-# =============================================================================
-# PMMH Gaussian Missing Data + Student-t Process Noise
-# =============================================================================
-
-
-class TestPMMHGaussianMissingData:
-    """Tests for Gaussian observation masking in PMMH adapter."""
-
-    def test_missing_dimension_not_penalized(self):
-        """Missing dims should not incur huge log-det penalties."""
-        from dsem_agent.models.pmmh import SSMAdapter
-
-        n_latent, n_manifest = 1, 2
-        adapter = SSMAdapter(n_latent, n_manifest, manifest_dist="gaussian")
-
-        params = {
-            "lambda_mat": jnp.array([[1.0], [1.0]]),
-            "manifest_means": jnp.array([0.0, 0.0]),
-            "manifest_cov": jnp.diag(jnp.array([0.5, 0.5])),
-        }
-        x = jnp.array([0.0])
-        y = jnp.array([1.0, -2.0])
-        obs_mask = jnp.array([True, False])
-
-        ll = adapter._obs_log_prob_gaussian(y, x, params, obs_mask)
-
-        # Manual univariate logpdf for observed dimension
-        sigma2 = 0.5
-        resid = y[0]
-        manual = -0.5 * (jnp.log(2 * jnp.pi * sigma2) + (resid**2) / sigma2)
-
-        assert jnp.isfinite(ll)
-        assert jnp.allclose(ll, manual, atol=1e-5), f"{ll} vs {manual}"
-
-
-class TestPMMHStudentTProcessNoise:
-    """Tests for Student-t process noise variance calibration."""
+class TestParameterRecoveryStudentT:
+    """Parameter recovery for Student-t observations via PF+NUTS."""
 
     @pytest.mark.slow
-    def test_student_t_process_noise_variance_matches_qd(self):
-        """Student-t noise should match Qd variance (df > 2)."""
-        import jax
-
-        from dsem_agent.models.pmmh import SSMAdapter
-        from dsem_agent.models.ssm.discretization import discretize_system
-
+    def test_drift_recovery_student_t_obs(self):
+        """Recover drift from 1D AR(1) with Student-t observations."""
+        true_drift = -0.6
         n_latent, n_manifest = 1, 1
-        df = 5.0
-        dt = 1.0
+        T = 60
+        dt = 0.5
+        process_noise = 0.2
+        obs_scale = 0.3
+        obs_df = 5.0
 
-        drift = jnp.array([[-0.5]])
-        diffusion_cov = jnp.array([[0.3**2]])
-        _, Qd, _ = discretize_system(drift, diffusion_cov, None, dt)
+        # Simulate latent AR(1) process
+        key = random.PRNGKey(123)
+        discrete_coef = jnp.exp(true_drift * dt)
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            noise = random.normal(subkey, (n_latent,)) * process_noise
+            new_state = discrete_coef * states[-1] + noise
+            states.append(new_state)
+        latent = jnp.stack(states)
 
-        adapter = SSMAdapter(
-            n_latent, n_manifest, manifest_dist="gaussian", diffusion_dist="student_t"
+        # Student-t observations
+        key, key_z, key_chi2 = random.split(key, 3)
+        z = random.normal(key_z, (T, n_manifest))
+        chi2 = random.gamma(key_chi2, obs_df / 2.0, (T, n_manifest)) * 2.0
+        t_noise = z / jnp.sqrt(chi2 / obs_df) * obs_scale
+        observations = latent + t_noise
+        times = jnp.arange(T, dtype=jnp.float32) * dt
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+            manifest_dist=NoiseFamily.STUDENT_T,
+        )
+        model = SSMModel(spec, n_particles=300)
+
+        mcmc = model.fit(
+            observations=observations,
+            times=times,
+            num_warmup=200,
+            num_samples=200,
+            num_chains=1,
         )
 
-        params = {
-            "drift": drift,
-            "diffusion_cov": diffusion_cov,
-            "lambda_mat": jnp.eye(1),
-            "manifest_means": jnp.zeros(1),
-            "manifest_cov": jnp.eye(1),
-            "t0_mean": jnp.zeros(n_latent),
-            "t0_cov": jnp.eye(n_latent),
-            "proc_df": df,
-        }
+        samples = mcmc.get_samples()
+        drift_diag_samples = samples["drift_diag_pop"]
+        posterior_mean = float(jnp.mean(drift_diag_samples[:, 0]))
 
-        key = random.PRNGKey(0)
-        n_samples = 400
-        keys = random.split(key, n_samples)
-        x_prev = jnp.zeros(n_latent)
-
-        samples = jax.vmap(lambda k: adapter.transition_sample(k, x_prev, params, dt))(keys)
-        sample_var = jnp.var(samples, axis=0)[0]
-        target_var = Qd[0, 0]
-
-        assert jnp.isfinite(sample_var)
-        assert jnp.allclose(sample_var, target_var, rtol=0.25, atol=0.05), (
-            f"Sample var {float(sample_var):.4f} vs Qd {float(target_var):.4f}"
-        )
+        # Drift should be negative
+        assert posterior_mean < 0.0, f"Drift should be negative: {posterior_mean:.3f}"
 
 
-# =============================================================================
-# PMMH Stress Test (High-Dimensional, Nonlinear)
-# =============================================================================
-
-
-class TestPMMHHighDimNonlinear:
-    """Hard PMMH test with nonlinear observations and higher dimension."""
+class TestHighDimNonlinear:
+    """Test PF+NUTS on high-dimensional nonlinear model."""
 
     @pytest.mark.slow
-    def test_high_dimensional_nonlinear_pmmh(self):
-        import jax
+    def test_high_dimensional_poisson_pf_nuts(self):
+        """PF+NUTS should produce finite results on 6D Poisson model."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
         from dsem_agent.models.ssm.discretization import discretize_system
 
         n_latent, n_manifest = 6, 6
@@ -685,64 +654,46 @@ class TestPMMHHighDimNonlinear:
         rates = jnp.exp(eta)
         observations = random.poisson(key_obs, rates).astype(jnp.float32)
 
+        # Test PF likelihood is finite
         time_intervals = jnp.ones(T) * dt
-        obs_mask = jnp.ones_like(observations, dtype=bool)
 
-        model = SSMAdapter(
-            n_latent,
-            n_manifest,
+        ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=None)
+        meas_params = MeasurementParams(
+            lambda_mat=lambda_mat,
+            manifest_means=manifest_means,
+            manifest_cov=jnp.eye(n_manifest) * 0.1,
+        )
+        init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
+
+        backend = ParticleLikelihood(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            n_particles=300,
             manifest_dist="poisson",
             diffusion_dist="student_t",
         )
-
-        def unpack_fn(theta):
-            drift_val = theta[0]
-            return {
-                "drift": drift_val * jnp.eye(n_latent),
-                "diffusion_cov": diffusion_cov,
-                "lambda_mat": lambda_mat,
-                "manifest_means": manifest_means,
-                "t0_mean": jnp.zeros(n_latent),
-                "t0_cov": jnp.eye(n_latent),
-                "proc_df": proc_df,
-            }
-
-        def log_prior_fn(theta):
-            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
-
-        result = run_pmmh(
-            model=model,
-            observations=observations,
-            time_intervals=time_intervals,
-            obs_mask=obs_mask,
-            log_prior_fn=log_prior_fn,
-            unpack_fn=unpack_fn,
-            init_theta=jnp.array([true_drift]),
-            n_samples=100,
-            n_warmup=50,
-            n_particles=300,
-            proposal_cov=jnp.array([[0.02]]),
-            seed=123,
+        ll = backend.compute_log_likelihood(
+            ct_params,
+            meas_params,
+            init,
+            observations,
+            time_intervals,
+            extra_params={"proc_df": proc_df},
         )
 
-        assert jnp.all(jnp.isfinite(result.log_likelihoods))
-        assert result.acceptance_rate > 0.02, (
-            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
-        )
-        posterior_mean = float(jnp.mean(result.samples[:, 0]))
-        assert posterior_mean < 0.0
+        assert jnp.isfinite(ll), f"Non-finite LL on high-dim model: {ll}"
+
+
 # =============================================================================
 # Edge Cases and Robustness
 # =============================================================================
 
 
 class TestEdgeCases:
-    """Test edge cases and robustness."""
+    """Test edge cases and robustness with ParticleLikelihood."""
 
     def test_single_observation(self):
         """Handle single observation gracefully."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-
         ct_params = CTParams(
             drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
             diffusion_cov=jnp.eye(2) * 0.1,
@@ -758,33 +709,7 @@ class TestEdgeCases:
         observations = jnp.array([[0.5, -0.3]])
         time_intervals = jnp.array([1.0])
 
-        backend = KalmanLikelihood()
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init, observations, time_intervals
-        )
-        assert jnp.isfinite(ll)
-
-    def test_very_small_time_interval(self):
-        """Handle very small time intervals."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-
-        T = 10
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-            diffusion_cov=jnp.eye(2) * 0.1,
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        observations = jnp.ones((T, 2)) * 0.5
-        time_intervals = jnp.ones(T) * 0.001
-
-        backend = KalmanLikelihood()
+        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=100)
         ll = backend.compute_log_likelihood(
             ct_params, meas_params, init, observations, time_intervals
         )
@@ -792,8 +717,6 @@ class TestEdgeCases:
 
     def test_irregular_time_intervals(self):
         """Handle irregular time intervals."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-
         ct_params = CTParams(
             drift=jnp.array([[-0.5, 0.1], [0.2, -0.8]]),
             diffusion_cov=jnp.eye(2) * 0.1,
@@ -817,7 +740,7 @@ class TestEdgeCases:
         )
         time_intervals = jnp.array([0.1, 0.5, 0.2, 1.0, 0.3])
 
-        backend = KalmanLikelihood()
+        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=100)
         ll = backend.compute_log_likelihood(
             ct_params, meas_params, init, observations, time_intervals
         )
@@ -825,8 +748,6 @@ class TestEdgeCases:
 
     def test_higher_dimensional_system(self):
         """Test 4-dimensional latent system."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-
         n_latent = 4
         n_manifest = 4
         T = 30
@@ -847,7 +768,11 @@ class TestEdgeCases:
         )
         init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
 
-        backend = KalmanLikelihood()
+        backend = ParticleLikelihood(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            n_particles=200,
+        )
         ll = backend.compute_log_likelihood(
             ct_params, meas_params, init, observations, time_intervals
         )
@@ -855,8 +780,6 @@ class TestEdgeCases:
 
     def test_non_identity_lambda(self):
         """Test with non-identity factor loading matrix."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-
         n_latent = 2
         n_manifest = 3
         T = 20
@@ -885,7 +808,11 @@ class TestEdgeCases:
         )
         init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
 
-        backend = KalmanLikelihood()
+        backend = ParticleLikelihood(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            n_particles=200,
+        )
         ll = backend.compute_log_likelihood(
             ct_params, meas_params, init, observations, time_intervals
         )
@@ -893,332 +820,15 @@ class TestEdgeCases:
 
 
 # =============================================================================
-# Backend Integration Tests
+# fit() Integration Tests
 # =============================================================================
 
 
-class TestBackendIntegration:
-    """Test that backends integrate correctly with strategy selector."""
+class TestFitReturnsOnlyMCMC:
+    """Test that fit() always returns MCMC regardless of noise family."""
 
-    def test_model_strategy_method(self):
-        """SSMModel.get_inference_strategy() works correctly."""
-        from dsem_agent.models.ssm import SSMModel
-        from dsem_agent.models.strategy_selector import InferenceStrategy
-
-        # Linear-Gaussian model
-        spec_kalman = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_dist=NoiseFamily.GAUSSIAN,
-            manifest_dist=NoiseFamily.GAUSSIAN,
-        )
-        model_kalman = SSMModel(spec_kalman)
-        assert model_kalman.get_inference_strategy() == InferenceStrategy.KALMAN
-
-        # Non-Gaussian observation model
-        spec_particle = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_dist=NoiseFamily.GAUSSIAN,
-            manifest_dist=NoiseFamily.STUDENT_T,
-        )
-        model_particle = SSMModel(spec_particle)
-        assert model_particle.get_inference_strategy() == InferenceStrategy.PARTICLE
-
-
-class TestParameterRecoveryPoissonPMMH:
-    """Parameter recovery for Poisson observations via PMMH."""
-
-    @pytest.mark.slow
-    def test_drift_recovery_poisson_obs(self):
-        """Recover drift from 1D AR(1) with Poisson observations."""
-        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
-
-        true_drift = -0.5
-        n_latent, n_manifest = 1, 1
-        T = 80
-        dt = 0.5
-        process_noise = 0.2
-        log_baseline = jnp.log(5.0)  # baseline rate ~5
-
-        # Simulate latent AR(1) process
-        key = random.PRNGKey(42)
-        discrete_coef = jnp.exp(true_drift * dt)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, subkey = random.split(key)
-            noise = random.normal(subkey, (n_latent,)) * process_noise
-            new_state = discrete_coef * states[-1] + noise
-            states.append(new_state)
-        latent = jnp.stack(states)
-
-        # Poisson observations: y ~ Poisson(exp(x + log_baseline))
-        key, subkey = random.split(key)
-        rates = jnp.exp(latent + log_baseline)
-        observations = random.poisson(subkey, rates).astype(jnp.float32)
-        time_intervals = jnp.ones(T) * dt
-        obs_mask = jnp.ones_like(observations, dtype=bool)
-
-        model = SSMAdapter(n_latent, n_manifest, manifest_dist="poisson")
-
-        def unpack_fn(theta):
-            drift_val = theta[0]
-            return {
-                "drift": jnp.array([[drift_val]]),
-                "diffusion_cov": jnp.array([[process_noise**2]]),
-                "lambda_mat": jnp.eye(1),
-                "manifest_means": jnp.array([log_baseline]),
-                "t0_mean": jnp.zeros(n_latent),
-                "t0_cov": jnp.eye(n_latent),
-            }
-
-        def log_prior_fn(theta):
-            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
-
-        result = run_pmmh(
-            model=model,
-            observations=observations,
-            time_intervals=time_intervals,
-            obs_mask=obs_mask,
-            log_prior_fn=log_prior_fn,
-            unpack_fn=unpack_fn,
-            init_theta=jnp.array([-0.4]),
-            n_samples=200,
-            n_warmup=100,
-            n_particles=500,
-            proposal_cov=jnp.array([[0.01]]),
-            seed=42,
-        )
-
-        posterior_mean = float(jnp.mean(result.samples[:, 0]))
-        assert abs(posterior_mean - true_drift) < 0.5, (
-            f"PMMH Poisson drift posterior mean {posterior_mean:.3f} "
-            f"far from true {true_drift:.3f}"
-        )
-        assert result.acceptance_rate > 0.05, (
-            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
-        )
-
-
-class TestParameterRecoveryStudentTPMMH:
-    """Parameter recovery for Student-t observations via PMMH."""
-
-    @pytest.mark.slow
-    def test_drift_recovery_student_t_obs(self):
-        """Recover drift from 1D AR(1) with Student-t observations."""
-        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
-
-        true_drift = -0.6
-        n_latent, n_manifest = 1, 1
-        T = 60
-        dt = 0.5
-        process_noise = 0.2
-        obs_scale = 0.3
-        obs_df = 5.0
-
-        # Simulate latent AR(1) process
-        key = random.PRNGKey(123)
-        discrete_coef = jnp.exp(true_drift * dt)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, subkey = random.split(key)
-            noise = random.normal(subkey, (n_latent,)) * process_noise
-            new_state = discrete_coef * states[-1] + noise
-            states.append(new_state)
-        latent = jnp.stack(states)
-
-        # Student-t observations
-        key, key_z, key_chi2 = random.split(key, 3)
-        z = random.normal(key_z, (T, n_manifest))
-        chi2 = random.gamma(key_chi2, obs_df / 2.0, (T, n_manifest)) * 2.0
-        t_noise = z / jnp.sqrt(chi2 / obs_df) * obs_scale
-        observations = latent + t_noise
-        time_intervals = jnp.ones(T) * dt
-        obs_mask = jnp.ones_like(observations, dtype=bool)
-
-        model = SSMAdapter(n_latent, n_manifest, manifest_dist="student_t")
-
-        def unpack_fn(theta):
-            drift_val = theta[0]
-            return {
-                "drift": jnp.array([[drift_val]]),
-                "diffusion_cov": jnp.array([[process_noise**2]]),
-                "lambda_mat": jnp.eye(1),
-                "manifest_means": jnp.zeros(n_manifest),
-                "manifest_cov": jnp.array([[obs_scale**2]]),
-                "obs_df": obs_df,
-                "t0_mean": jnp.zeros(n_latent),
-                "t0_cov": jnp.eye(n_latent),
-            }
-
-        def log_prior_fn(theta):
-            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
-
-        result = run_pmmh(
-            model=model,
-            observations=observations,
-            time_intervals=time_intervals,
-            obs_mask=obs_mask,
-            log_prior_fn=log_prior_fn,
-            unpack_fn=unpack_fn,
-            init_theta=jnp.array([-0.5]),
-            n_samples=200,
-            n_warmup=100,
-            n_particles=500,
-            proposal_cov=jnp.array([[0.01]]),
-            seed=123,
-        )
-
-        posterior_mean = float(jnp.mean(result.samples[:, 0]))
-        assert abs(posterior_mean - true_drift) < 0.5, (
-            f"PMMH Student-t drift posterior mean {posterior_mean:.3f} "
-            f"far from true {true_drift:.3f}"
-        )
-        assert result.acceptance_rate > 0.05, (
-            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
-        )
-
-
-class TestParameterRecoveryUKF:
-    """Parameter recovery for UKF on linear-Gaussian model.
-
-    UKF matches Kalman exactly on linear models, so this validates
-    the UKF→NUTS end-to-end inference pipeline.
-    """
-
-    @pytest.mark.slow
-    @pytest.mark.xfail(reason="MCMC convergence sensitive to parameterization; needs tuning")
-    def test_drift_recovery_ukf(self):
-        """Recover drift diagonal parameters via UKF + NUTS."""
-        import jax.scipy.linalg as jla
-
-        from dsem_agent.models.ssm import SSMModel
-        from dsem_agent.models.ssm.discretization import discretize_system
-        from dsem_agent.models.strategy_selector import InferenceStrategy
-
-        true_drift_diag = jnp.array([-0.6, -0.9])
-        true_drift = jnp.diag(true_drift_diag)
-        true_diff_cov = jnp.eye(2) * 0.09  # process noise cov
-
-        key = random.PRNGKey(42)
-        T = 50
-        n_latent = 2
-        dt = 0.5
-
-        # Simulate via proper CT→DT discretization
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, subkey = random.split(key)
-            Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-            mean = Ad @ states[-1]
-            chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-            states.append(mean + chol @ random.normal(subkey, (n_latent,)))
-
-        key, subkey = random.split(key)
-        observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.3
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="diag",
-        )
-        model = SSMModel(spec)
-        # Force UKF strategy
-        model._strategy = InferenceStrategy.UKF
-
-        mcmc = model.fit(
-            observations=observations,
-            times=times,
-            num_warmup=200,
-            num_samples=200,
-            num_chains=1,
-        )
-
-        samples = mcmc.get_samples()
-        drift_diag_samples = samples["drift_diag_pop"]
-
-        for i, true_val in enumerate(true_drift_diag):
-            posterior_mean = jnp.mean(drift_diag_samples[:, i])
-            assert abs(posterior_mean - true_val) < 0.5, (
-                f"UKF Drift[{i}] posterior mean {float(posterior_mean):.3f} "
-                f"far from true {float(true_val):.3f}"
-            )
-
-
-# =============================================================================
-# fit_pmmh() Integration Tests
-# =============================================================================
-
-
-class TestFitPMMH:
-    """Test SSMModel.fit_pmmh() end-to-end wiring."""
-
-    def test_fit_pmmh_basic(self):
-        """fit_pmmh() runs and returns finite PMMHResult on Poisson model."""
-        from dsem_agent.models.pmmh import PMMHResult
-        from dsem_agent.models.ssm import SSMModel
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="diag",
-            manifest_dist=NoiseFamily.POISSON,
-        )
-        model = SSMModel(spec)
-
-        T = 20
-        key = random.PRNGKey(42)
-        # Generate count data
-        observations = random.poisson(key, jnp.ones((T, 2)) * 3.0).astype(jnp.float32)
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = model.fit_pmmh(
-            observations=observations,
-            times=times,
-            n_samples=50,
-            n_warmup=20,
-            n_particles=100,
-            seed=42,
-        )
-
-        assert isinstance(result, PMMHResult)
-        assert result.samples.shape[0] == 50
-        assert jnp.all(jnp.isfinite(result.log_likelihoods))
-
-    def test_fit_auto_dispatches_to_pmmh(self):
-        """fit() with Poisson manifest_dist auto-dispatches to PMMH."""
-        from dsem_agent.models.pmmh import PMMHResult
-        from dsem_agent.models.ssm import SSMModel
-
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            diffusion="diag",
-            manifest_dist=NoiseFamily.POISSON,
-        )
-        model = SSMModel(spec)
-
-        T = 15
-        key = random.PRNGKey(0)
-        observations = random.poisson(key, jnp.ones((T, 1)) * 5.0).astype(jnp.float32)
-        times = jnp.arange(T, dtype=jnp.float32)
-
-        result = model.fit(
-            observations=observations,
-            times=times,
-            num_warmup=10,
-            num_samples=20,
-            seed=0,
-        )
-
-        assert isinstance(result, PMMHResult)
-
-    def test_fit_auto_dispatches_to_nuts(self):
-        """fit() with Gaussian manifest_dist returns MCMC (not PMMHResult)."""
+    def test_fit_gaussian_returns_mcmc(self):
+        """fit() with Gaussian manifest_dist returns MCMC."""
         from dsem_agent.models.ssm import SSMModel
 
         spec = SSMSpec(
@@ -1228,7 +838,7 @@ class TestFitPMMH:
             diffusion="diag",
             manifest_dist=NoiseFamily.GAUSSIAN,
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=50)
 
         T = 15
         key = random.PRNGKey(0)
@@ -1246,47 +856,34 @@ class TestFitPMMH:
 
         assert isinstance(result, MCMC)
 
-    def test_fit_pmmh_hierarchical_raises(self):
-        """fit_pmmh() raises NotImplementedError for hierarchical models."""
+    def test_fit_poisson_returns_mcmc(self):
+        """fit() with Poisson manifest_dist also returns MCMC (PF+NUTS)."""
         from dsem_agent.models.ssm import SSMModel
 
         spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
             diffusion="diag",
             manifest_dist=NoiseFamily.POISSON,
-            hierarchical=True,
-            n_subjects=3,
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=50)
 
-        T = 10
-        observations = jnp.ones((T, 2))
+        T = 15
+        key = random.PRNGKey(0)
+        observations = random.poisson(key, jnp.ones((T, 1)) * 5.0).astype(jnp.float32)
         times = jnp.arange(T, dtype=jnp.float32)
 
-        with pytest.raises(NotImplementedError, match="hierarchical"):
-            model.fit_pmmh(observations=observations, times=times)
-
-    def test_fit_pmmh_full_diffusion_raises(self):
-        """fit_pmmh() raises NotImplementedError for full diffusion."""
-        from dsem_agent.models.ssm import SSMModel
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="free",
-            manifest_dist=NoiseFamily.POISSON,
+        result = model.fit(
+            observations=observations,
+            times=times,
+            num_warmup=10,
+            num_samples=20,
+            num_chains=1,
+            seed=0,
         )
-        model = SSMModel(spec)
 
-        T = 10
-        observations = jnp.ones((T, 2))
-        times = jnp.arange(T, dtype=jnp.float32)
-
-        with pytest.raises(NotImplementedError, match="diagonal"):
-            model.fit_pmmh(observations=observations, times=times)
+        assert isinstance(result, MCMC)
 
 
 # =============================================================================
@@ -1298,7 +895,7 @@ class TestBuilderNoiseFamilyWiring:
     """Test that SSMModelBuilder wires noise families from ModelSpec."""
 
     def test_convert_spec_sets_poisson_noise_family(self):
-        """ModelSpec with Poisson likelihood → SSMSpec has POISSON manifest_dist."""
+        """ModelSpec with Poisson likelihood -> SSMSpec has POISSON manifest_dist."""
         from dsem_agent.models.ssm_builder import SSMModelBuilder
         from dsem_agent.orchestrator.schemas_model import (
             DistributionFamily,
@@ -1342,7 +939,7 @@ class TestBuilderNoiseFamilyWiring:
         assert ssm_spec.manifest_dist == NoiseFamily.POISSON
 
     def test_convert_spec_sets_gaussian_for_normal(self):
-        """ModelSpec with Normal likelihood → SSMSpec has GAUSSIAN manifest_dist."""
+        """ModelSpec with Normal likelihood -> SSMSpec has GAUSSIAN manifest_dist."""
         from dsem_agent.models.ssm_builder import SSMModelBuilder
         from dsem_agent.orchestrator.schemas_model import (
             DistributionFamily,

@@ -187,7 +187,7 @@ class TestSSMModelBuilder:
             model_spec=simple_model_spec,
             priors=simple_priors,
         )
-        assert builder._model_type == "CT-SEM"
+        assert builder._model_type == "SSM"
         assert builder.version == "0.1.0"
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):

@@ -2,7 +2,7 @@
 
 Tests core functionality:
 1. Matrix utilities (expm, Lyapunov solver, discretization)
-2. Kalman filter correctness
+2. ParticleLikelihood correctness
 3. NumPyro model compilation and sampling
 """
 
@@ -96,17 +96,17 @@ class TestCoreUtilities:
         assert jnp.allclose(Q_inf, expected, atol=1e-6)
 
 
-class TestKalmanLikelihoodBackend:
-    """Test Kalman likelihood via cuthbert backend."""
+class TestParticleLikelihoodBackend:
+    """Test particle filter likelihood backend."""
 
-    def test_kalman_log_likelihood_finite(self):
-        """Test that log-likelihood is finite for reasonable data."""
+    def test_pf_log_likelihood_finite(self):
+        """Test that PF log-likelihood is finite for reasonable data."""
         from dsem_agent.models.likelihoods.base import (
             CTParams,
             InitialStateParams,
             MeasurementParams,
         )
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
 
         T, n_latent, n_manifest = 10, 2, 2
 
@@ -125,7 +125,11 @@ class TestKalmanLikelihoodBackend:
         observations = jnp.ones((T, n_manifest)) * 0.5
         time_intervals = jnp.ones(T)
 
-        backend = KalmanLikelihood()
+        backend = ParticleLikelihood(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            n_particles=200,
+        )
         ll = backend.compute_log_likelihood(
             ct_params, meas_params, init, observations, time_intervals
         )
@@ -141,7 +145,7 @@ class TestSSMModel:
         from dsem_agent.models.ssm import SSMModel, SSMSpec
 
         spec = SSMSpec(n_latent=2, n_manifest=2)
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=50)
 
         # Create dummy data
         T = 10
@@ -159,11 +163,11 @@ class TestSSMModel:
         assert "diffusion_diag_pop" in trace
 
     def test_prior_predictive(self):
-        """Test prior predictive sampling."""
+        """Test prior predictive sampling (should skip PF via handlers.block)."""
         from dsem_agent.models.ssm import SSMModel, SSMSpec
 
         spec = SSMSpec(n_latent=2, n_manifest=2)
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=50)
 
         times = jnp.arange(10, dtype=float)
         prior_samples = model.prior_predictive(times, num_samples=10)
@@ -182,7 +186,7 @@ class TestSSMModel:
             n_manifest=2,
             lambda_mat=jnp.eye(2),  # Fix loadings to simplify
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, n_particles=50)
 
         # Generate simple data
         T = 20
@@ -280,6 +284,32 @@ class TestSSMModelBuilder:
 
         samples = builder.get_samples()
         assert "drift_diag_pop" in samples
+
+
+class TestNoiseFamily:
+    """Test NoiseFamily enum."""
+
+    def test_noise_family_values(self):
+        """NoiseFamily should have expected values."""
+        from dsem_agent.models.ssm.model import NoiseFamily
+
+        assert NoiseFamily.GAUSSIAN == "gaussian"
+        assert NoiseFamily.STUDENT_T == "student_t"
+        assert NoiseFamily.POISSON == "poisson"
+        assert NoiseFamily.GAMMA == "gamma"
+
+    def test_noise_family_in_spec(self):
+        """SSMSpec should accept NoiseFamily enum values."""
+        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            diffusion_dist=NoiseFamily.GAUSSIAN,
+            manifest_dist=NoiseFamily.POISSON,
+        )
+        assert spec.diffusion_dist == NoiseFamily.GAUSSIAN
+        assert spec.manifest_dist == NoiseFamily.POISSON
 
 
 if __name__ == "__main__":
