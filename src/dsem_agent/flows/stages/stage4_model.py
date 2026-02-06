@@ -155,9 +155,9 @@ def research_prior_task(
 
 @task(retries=1, task_run_name="validate-priors")
 def validate_priors_task(
-    model_spec: dict,
-    priors: dict[str, dict],
-    raw_data: pl.DataFrame,
+    model_spec: dict,  # noqa: ARG001
+    priors: dict[str, dict],  # noqa: ARG001
+    raw_data: pl.DataFrame,  # noqa: ARG001
 ) -> dict:
     """Validate priors via prior predictive sampling.
 
