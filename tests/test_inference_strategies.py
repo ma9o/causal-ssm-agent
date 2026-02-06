@@ -396,7 +396,7 @@ class TestParameterRecoveryPF:
         T = 60
         n_latent = 2
         dt = 0.5
-        discrete_coef = jnp.exp(jnp.diag(true_drift_diag) * dt)
+        discrete_coef = jnp.diag(jnp.exp(true_drift_diag * dt))
         process_noise = 0.3
 
         states = [jnp.zeros(n_latent)]
@@ -450,7 +450,7 @@ class TestParameterRecoveryPF:
         n_latent = 2
         dt = 0.5
 
-        discrete_coef = jnp.exp(jnp.diag(true_drift_diag) * dt)
+        discrete_coef = jnp.diag(jnp.exp(true_drift_diag * dt))
 
         states = [jnp.zeros(n_latent)]
         for _ in range(T - 1):
