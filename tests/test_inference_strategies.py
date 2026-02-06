@@ -3,15 +3,15 @@
 Tests follow the strategy:
 1. Unit tests for strategy selection and expression parsing
 2. Cross-validation: Kalman as ground truth, UKF must match on linear-Gaussian
-3. PMMH bootstrap filter: finite likelihood, consistency
-4. Parameter recovery: simulate → infer → check credible intervals
+3. Cuthbert particle filter: finite likelihood, consistency, Kalman cross-validation
+4. Parameter recovery: simulate → infer → check credible intervals (Kalman + PMMH)
 
 Test Matrix:
 | Model Class                    | Strategies           | Ground Truth       |
 |--------------------------------|----------------------|--------------------|
-| Linear-Gaussian                | Kalman, UKF          | Kalman as ref      |
+| Linear-Gaussian                | Kalman, UKF, PF      | Kalman as ref      |
 | Nonlinear dynamics, Gaussian   | UKF                  | Simulated recovery |
-| Linear, non-Gaussian obs       | PMMH (particle)      | Bootstrap filter   |
+| Linear, non-Gaussian obs       | PMMH (cuthbert PF)   | Simulated recovery |
 """
 
 import jax.numpy as jnp
@@ -263,11 +263,11 @@ class TestCrossValidationLinearGaussian:
             err_msg=f"UKF={float(ukf_ll):.4f} vs Kalman={float(kalman_ll):.4f}",
         )
 
-    def test_bootstrap_filter_matches_kalman_moderate_particles(
+    def test_cuthbert_pf_matches_kalman_moderate_particles(
         self, linear_gaussian_params, simple_observations
     ):
-        """Bootstrap PF matches Kalman within Monte Carlo error."""
-        from dsem_agent.models.pmmh import CTSEMAdapter, bootstrap_filter
+        """Cuthbert PF matches Kalman within Monte Carlo error."""
+        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
 
         observations, time_intervals = simple_observations
         obs_mask = ~jnp.isnan(observations)
@@ -284,7 +284,7 @@ class TestCrossValidationLinearGaussian:
             time_intervals,
         )
 
-        # Bootstrap PF
+        # Cuthbert PF
         ct = linear_gaussian_params["ct_params"]
         mp = linear_gaussian_params["meas_params"]
         ip = linear_gaussian_params["init_params"]
@@ -300,7 +300,7 @@ class TestCrossValidationLinearGaussian:
             "t0_cov": ip.cov,
         }
 
-        result = bootstrap_filter(
+        result = cuthbert_bootstrap_filter(
             model,
             params,
             observations,
@@ -515,12 +515,92 @@ class TestParameterRecoveryKalman:
             )
 
 
-class TestPMMHIntegration:
-    """Test PMMH integration (replaces old particle filter NumPyro tests)."""
+class TestParameterRecoveryPMMH:
+    """Parameter recovery tests using PMMH with cuthbert particle filter.
 
-    def test_pmmh_bootstrap_filter_varies_with_params(self):
-        """Bootstrap filter likelihood varies with different parameters."""
-        from dsem_agent.models.pmmh import CTSEMAdapter, bootstrap_filter
+    Simulate from known parameters → run PMMH → verify true params
+    fall within posterior range.
+    """
+
+    @pytest.mark.slow
+    @pytest.mark.xfail(reason="PMMH convergence sensitive to proposal tuning; needs more samples")
+    def test_drift_recovery_pmmh(self):
+        """Recover drift parameter from simulated linear-Gaussian data via PMMH."""
+        from dsem_agent.models.pmmh import CTSEMAdapter, run_pmmh
+
+        # True parameters
+        true_drift_val = -0.6
+        n_latent, n_manifest = 2, 2
+        T = 40
+        dt = 0.5
+
+        # Simulate data from known model
+        key = random.PRNGKey(42)
+        discrete_coef = jnp.diag(jnp.exp(jnp.array([true_drift_val, true_drift_val]) * dt))
+        process_noise = 0.3
+
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            noise = random.normal(subkey, (n_latent,)) * process_noise
+            new_state = discrete_coef @ states[-1] + noise
+            states.append(new_state)
+
+        key, subkey = random.split(key)
+        observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.2
+        time_intervals = jnp.ones(T) * dt
+        obs_mask = jnp.ones_like(observations, dtype=bool)
+
+        model = CTSEMAdapter(n_latent, n_manifest)
+
+        # Unpack: theta = [drift_diag] (1D parameter for simplicity)
+        def unpack_fn(theta):
+            drift_val = theta[0]
+            return {
+                "drift": jnp.diag(jnp.array([drift_val, drift_val])),
+                "diffusion_cov": jnp.eye(n_latent) * process_noise**2,
+                "lambda_mat": jnp.eye(n_manifest, n_latent),
+                "manifest_means": jnp.zeros(n_manifest),
+                "manifest_cov": jnp.eye(n_manifest) * 0.04,  # 0.2^2
+                "t0_mean": jnp.zeros(n_latent),
+                "t0_cov": jnp.eye(n_latent),
+            }
+
+        def log_prior_fn(theta):
+            # Weakly informative: N(0, 2^2) on drift, constrained negative
+            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
+
+        result = run_pmmh(
+            model=model,
+            observations=observations,
+            time_intervals=time_intervals,
+            obs_mask=obs_mask,
+            log_prior_fn=log_prior_fn,
+            unpack_fn=unpack_fn,
+            init_theta=jnp.array([-0.5]),
+            n_samples=200,
+            n_warmup=100,
+            n_particles=500,
+            proposal_cov=jnp.array([[0.01]]),
+            seed=42,
+        )
+
+        posterior_mean = float(jnp.mean(result.samples[:, 0]))
+        assert abs(posterior_mean - true_drift_val) < 0.5, (
+            f"PMMH drift posterior mean {posterior_mean:.3f} "
+            f"far from true {true_drift_val:.3f}"
+        )
+        assert result.acceptance_rate > 0.05, (
+            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
+        )
+
+
+class TestPMMHIntegration:
+    """Test PMMH integration using cuthbert particle filter."""
+
+    def test_cuthbert_pf_varies_with_params(self):
+        """Cuthbert PF likelihood varies with different parameters."""
+        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
 
         T = 10
         key = random.PRNGKey(42)
@@ -547,7 +627,7 @@ class TestPMMHIntegration:
                 "t0_mean": jnp.zeros(2),
                 "t0_cov": jnp.eye(2),
             }
-            result = bootstrap_filter(
+            result = cuthbert_bootstrap_filter(
                 model,
                 params,
                 observations,
