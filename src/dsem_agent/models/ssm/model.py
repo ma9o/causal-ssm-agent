@@ -1,7 +1,7 @@
 """NumPyro State-Space Model.
 
-Hierarchical Bayesian State-Space Model using NumPyro for inference.
-All models use differentiable particle filter + NUTS for inference.
+Hierarchical Bayesian State-Space Model definition using NumPyro.
+This module defines the probabilistic model only — inference is in inference.py.
 
 Supports:
 - Single-subject time series
@@ -14,15 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
-import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from jax import lax, vmap
-from numpyro.infer import MCMC, NUTS, init_to_median
 
 from dsem_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 
@@ -119,12 +117,14 @@ class SSMPriors:
 
 
 class SSMModel:
-    """NumPyro state-space model with particle filter likelihood.
+    """NumPyro state-space model definition with particle filter likelihood.
 
-    Implements hierarchical Bayesian state-space model with:
+    Defines the probabilistic model for hierarchical Bayesian state-space models.
+    Inference is handled externally by ssm.inference.fit().
+
+    Features:
     - Continuous-time dynamics via stochastic differential equations
     - Differentiable particle filter for likelihood computation
-    - NUTS for posterior sampling (all noise families)
     - Optional hierarchical structure for multiple subjects
     """
 
@@ -610,91 +610,6 @@ class SSMModel:
         # Sum over all subjects
         subject_indices = jnp.arange(n_subjects)
         return jnp.sum(vmap(subject_ll)(subject_indices))
-
-    def fit(
-        self,
-        observations: jnp.ndarray,
-        times: jnp.ndarray,
-        subject_ids: jnp.ndarray | None = None,
-        num_warmup: int = 1000,
-        num_samples: int = 1000,
-        num_chains: int = 4,
-        seed: int = 0,
-        dense_mass: bool = False,
-        target_accept_prob: float = 0.85,
-        max_tree_depth: int = 8,
-        **mcmc_kwargs: Any,
-    ) -> MCMC:
-        """Fit the model using NUTS with particle filter likelihood.
-
-        Args:
-            observations: (N, n_manifest) observed data
-            times: (N,) observation times
-            subject_ids: (N,) subject indices, 0-indexed (for hierarchical)
-            num_warmup: Number of warmup samples
-            num_samples: Number of posterior samples
-            num_chains: Number of MCMC chains
-            seed: Random seed
-            dense_mass: Use dense mass matrix (for correlated posteriors)
-            target_accept_prob: Target acceptance probability (0.85 for PF noise)
-            max_tree_depth: Max tree depth (8 to limit cost with noisy PF gradients)
-            **mcmc_kwargs: Additional MCMC arguments
-
-        Returns:
-            MCMC object with posterior samples
-        """
-        kernel = NUTS(
-            self.model,
-            init_strategy=init_to_median(num_samples=15),
-            target_accept_prob=target_accept_prob,
-            max_tree_depth=max_tree_depth,
-            dense_mass=dense_mass,
-            regularize_mass_matrix=True,
-        )
-        mcmc = MCMC(
-            kernel,
-            num_warmup=num_warmup,
-            num_samples=num_samples,
-            num_chains=num_chains,
-            **mcmc_kwargs,
-        )
-
-        rng_key = random.PRNGKey(seed)
-        mcmc.run(rng_key, observations, times, subject_ids)
-
-        return mcmc
-
-    def prior_predictive(
-        self,
-        times: jnp.ndarray,
-        num_samples: int = 100,
-        seed: int = 0,
-    ) -> dict[str, jnp.ndarray]:
-        """Sample from the prior predictive distribution.
-
-        Uses handlers.block to skip the PF likelihood computation,
-        which is unnecessary and expensive for prior sampling.
-
-        Args:
-            times: (T,) time points
-            num_samples: Number of prior samples
-            seed: Random seed
-
-        Returns:
-            Dict of prior predictive samples
-        """
-        from numpyro import handlers
-        from numpyro.infer import Predictive
-
-        rng_key = random.PRNGKey(seed)
-        blocked_model = handlers.block(self.model, hide=["log_likelihood"])
-        predictive = Predictive(blocked_model, num_samples=num_samples)
-
-        # Create dummy observations
-        dummy_obs = jnp.zeros((len(times), self.spec.n_manifest))
-
-        return predictive(rng_key, dummy_obs, times)
-
 
 def build_ssm_model(
     n_latent: int,

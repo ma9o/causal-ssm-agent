@@ -3,7 +3,7 @@
 This module implements hierarchical Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Differentiable particle filter likelihood + NUTS inference
+- Multiple inference backends: SVI (default), PMMH, NUTS
 """
 
 from dsem_agent.models.ssm.core import cholesky_of_diffusion, ensure_stability
@@ -16,6 +16,7 @@ from dsem_agent.models.ssm.discretization import (
     matrix_fraction_decomposition,
     solve_lyapunov,
 )
+from dsem_agent.models.ssm.inference import InferenceResult, fit
 from dsem_agent.models.ssm.model import (
     NoiseFamily,
     SSMModel,
@@ -42,4 +43,7 @@ __all__ = [
     "SSMSpec",
     "NoiseFamily",
     "build_ssm_model",
+    # Inference
+    "InferenceResult",
+    "fit",
 ]
