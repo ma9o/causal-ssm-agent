@@ -5,12 +5,12 @@ for parameter inference when the particle filter is needed for likelihood
 estimation. This is a completely separate inference path from NumPyro NUTS.
 
 Architecture:
-    SSMSpec → SSMProtocol adapter → bootstrap_filter (log p̂(y|θ))
+    SSMSpec → SSMProtocol adapter → cuthbert particle filter (log p̂(y|θ))
     → PMMH kernel (MH with stochastic LL) → posterior samples
 
 Components:
     - SSMProtocol: adapter mapping CT-SEM SSMSpec into PF-compatible functions
-    - bootstrap_filter: reference pure-JAX bootstrap particle filter
+    - cuthbert_bootstrap_filter: cuthbert-backed bootstrap particle filter
     - pmmh_kernel: random-walk Metropolis-Hastings with particle filter LL
     - run_pmmh / run_pmmh_chains: samplers
     - tune_proposal: adaptive proposal covariance (Roberts & Rosenthal, 2001)
@@ -227,110 +227,6 @@ class PFResult(NamedTuple):
     final_log_weights: jnp.ndarray  # (n_particles,)
 
 
-def bootstrap_filter(
-    model: SSMAdapter,
-    params: dict,
-    observations: jnp.ndarray,
-    time_intervals: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    n_particles: int,
-    key: jax.Array,
-    ess_threshold: float = 0.5,
-) -> PFResult:
-    """Bootstrap particle filter for log-likelihood estimation.
-
-    Reference implementation in pure JAX. Returns unbiased log p̂(y|θ).
-
-    Args:
-        model: SSMProtocol-compatible model adapter
-        params: dict of model parameters
-        observations: (T, n_manifest) observed data
-        time_intervals: (T,) time intervals (first is dummy ~1e-6)
-        obs_mask: (T, n_manifest) boolean mask
-        n_particles: number of particles
-        key: JAX random key
-        ess_threshold: resample when ESS/N < threshold
-
-    Returns:
-        PFResult with log-likelihood, final particles and weights
-    """
-    # Initialize particles from prior
-    key, subkey = random.split(key)
-    keys = random.split(subkey, n_particles)
-    particles = jax.vmap(lambda k: model.initial_sample(k, params))(keys)
-    log_weights = jnp.full(n_particles, -jnp.log(n_particles))
-
-    def _systematic_resample(key, particles, log_weights):
-        n = particles.shape[0]
-        log_w_norm = log_weights - jax.scipy.special.logsumexp(log_weights)
-        weights = jnp.exp(log_w_norm)
-        cumsum = jnp.cumsum(weights)
-        u = random.uniform(key) / n
-        positions = u + jnp.arange(n) / n
-        indices = jnp.searchsorted(cumsum, positions)
-        indices = jnp.clip(indices, 0, n - 1)
-        return particles[indices], jnp.full(n, -jnp.log(n))
-
-    def _compute_ess(log_weights):
-        n = log_weights.shape[0]
-        log_w_norm = log_weights - jax.scipy.special.logsumexp(log_weights)
-        return 1.0 / jnp.sum(jnp.exp(2 * log_w_norm)) / n
-
-    def scan_fn(carry, inputs):
-        particles, log_weights, total_ll, key = carry
-        obs, dt, mask = inputs
-
-        # Propagate particles through dynamics
-        key, subkey = random.split(key)
-        keys = random.split(subkey, n_particles)
-        new_particles = jax.vmap(lambda k, x: model.transition_sample(k, x, params, dt))(
-            keys, particles
-        )
-
-        # Weight by observation likelihood
-        obs_clean = jnp.nan_to_num(obs, nan=0.0)
-        particle_lls = jax.vmap(lambda x: model.observation_log_prob(obs_clean, x, params, mask))(
-            new_particles
-        )
-        new_log_weights = log_weights + particle_lls
-
-        # Log-likelihood increment
-        ll_increment = jax.scipy.special.logsumexp(new_log_weights)
-        total_ll = total_ll + ll_increment
-
-        # Normalize
-        new_log_weights = new_log_weights - jax.scipy.special.logsumexp(new_log_weights)
-
-        # Adaptive resampling
-        key, subkey = random.split(key)
-        ess = _compute_ess(new_log_weights)
-
-        resampled_p, resampled_w = _systematic_resample(subkey, new_particles, new_log_weights)
-        final_particles = jnp.where(
-            ess < ess_threshold,
-            resampled_p,
-            new_particles,
-        )
-        final_log_weights = jnp.where(
-            ess < ess_threshold,
-            resampled_w,
-            new_log_weights,
-        )
-
-        return (final_particles, final_log_weights, total_ll, key), None
-
-    init = (particles, log_weights, 0.0, key)
-    (final_particles, final_log_weights, total_ll, _), _ = lax.scan(
-        scan_fn, init, (observations, time_intervals, obs_mask)
-    )
-
-    return PFResult(
-        log_likelihood=total_ll,
-        final_particles=final_particles,
-        final_log_weights=final_log_weights,
-    )
-
-
 def cuthbert_bootstrap_filter(
     model: SSMAdapter,
     params: dict,
@@ -457,7 +353,6 @@ def pmmh_kernel(
         n_particles: number of particles for PF
         proposal_cov: (d, d) random-walk proposal covariance
         filter_fn: particle filter function (default: cuthbert_bootstrap_filter).
-            Must have same signature as bootstrap_filter().
 
     Returns:
         (init_fn, step_fn) tuple
@@ -564,7 +459,6 @@ def run_pmmh(
         proposal_cov: (d, d) proposal covariance
         seed: random seed
         filter_fn: particle filter function (default: cuthbert_bootstrap_filter).
-            Must have same signature as bootstrap_filter().
 
     Returns:
         PMMHResult with samples and diagnostics
