@@ -523,7 +523,6 @@ class TestParameterRecoveryPMMH:
     """
 
     @pytest.mark.slow
-    @pytest.mark.xfail(reason="PMMH convergence sensitive to proposal tuning; needs more samples")
     def test_drift_recovery_pmmh(self):
         """Recover drift parameter from simulated linear-Gaussian data via PMMH."""
         from dsem_agent.models.pmmh import CTSEMAdapter, run_pmmh
