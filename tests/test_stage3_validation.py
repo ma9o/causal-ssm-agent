@@ -75,16 +75,20 @@ class TestCombineWorkerResults:
 
     def test_combines_multiple_workers(self):
         """Combines DataFrames from multiple workers."""
-        df1 = pl.DataFrame({
-            "indicator": ["stress_score"],
-            "value": ["5.0"],
-            "timestamp": ["2024-01-01 10:00"],
-        })
-        df2 = pl.DataFrame({
-            "indicator": ["sleep_hours"],
-            "value": ["7.5"],
-            "timestamp": ["2024-01-01 08:00"],
-        })
+        df1 = pl.DataFrame(
+            {
+                "indicator": ["stress_score"],
+                "value": ["5.0"],
+                "timestamp": ["2024-01-01 10:00"],
+            }
+        )
+        df2 = pl.DataFrame(
+            {
+                "indicator": ["sleep_hours"],
+                "value": ["7.5"],
+                "timestamp": ["2024-01-01 08:00"],
+            }
+        )
 
         results = [MockWorkerResult(dataframe=df1), MockWorkerResult(dataframe=df2)]
         combined = combine_worker_results.fn(results)
@@ -99,11 +103,13 @@ class TestCombineWorkerResults:
 
     def test_handles_none_dataframes(self):
         """Skips None DataFrames."""
-        df = pl.DataFrame({
-            "indicator": ["stress_score"],
-            "value": ["5.0"],
-            "timestamp": ["2024-01-01 10:00"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["stress_score"],
+                "value": ["5.0"],
+                "timestamp": ["2024-01-01 10:00"],
+            }
+        )
         results = [
             MockWorkerResult(dataframe=df),
             MockWorkerResult(dataframe=None),
@@ -131,16 +137,20 @@ class TestValidateExtraction:
         """Valid data with sufficient variance and sample size passes."""
         records = []
         for i in range(20):
-            records.append({
-                "indicator": "stress_score",
-                "value": str(float(i % 5 + 1)),  # 1-5 varying
-                "timestamp": f"2024-01-{i+1:02d} 10:00",
-            })
-            records.append({
-                "indicator": "sleep_hours",
-                "value": str(6.0 + (i % 3)),  # 6-8 varying
-                "timestamp": f"2024-01-{i+1:02d} 08:00",
-            })
+            records.append(
+                {
+                    "indicator": "stress_score",
+                    "value": str(float(i % 5 + 1)),  # 1-5 varying
+                    "timestamp": f"2024-01-{i + 1:02d} 10:00",
+                }
+            )
+            records.append(
+                {
+                    "indicator": "sleep_hours",
+                    "value": str(6.0 + (i % 3)),  # 6-8 varying
+                    "timestamp": f"2024-01-{i + 1:02d} 08:00",
+                }
+            )
 
         worker_results = _create_worker_results(records)
         result = validate_extraction.fn(simple_dsem_model, worker_results)
@@ -167,16 +177,20 @@ class TestValidateExtraction:
         """Constant values (zero variance) returns error."""
         records = []
         for i in range(20):
-            records.append({
-                "indicator": "stress_score",
-                "value": "5.0",  # Constant!
-                "timestamp": f"2024-01-{i+1:02d} 10:00",
-            })
-            records.append({
-                "indicator": "sleep_hours",
-                "value": str(6.0 + (i % 3)),  # Varying
-                "timestamp": f"2024-01-{i+1:02d} 08:00",
-            })
+            records.append(
+                {
+                    "indicator": "stress_score",
+                    "value": "5.0",  # Constant!
+                    "timestamp": f"2024-01-{i + 1:02d} 10:00",
+                }
+            )
+            records.append(
+                {
+                    "indicator": "sleep_hours",
+                    "value": str(6.0 + (i % 3)),  # Varying
+                    "timestamp": f"2024-01-{i + 1:02d} 08:00",
+                }
+            )
 
         worker_results = _create_worker_results(records)
         result = validate_extraction.fn(simple_dsem_model, worker_results)
@@ -257,16 +271,20 @@ class TestValidateExtraction:
         records = []
         # Only 5 observations but varying
         for i in range(5):
-            records.append({
-                "indicator": "stress_score",
-                "value": str(float(i + 1)),
-                "timestamp": f"2024-01-{i+1:02d} 10:00",
-            })
-            records.append({
-                "indicator": "sleep_hours",
-                "value": str(6.0 + i * 0.5),
-                "timestamp": f"2024-01-{i+1:02d} 08:00",
-            })
+            records.append(
+                {
+                    "indicator": "stress_score",
+                    "value": str(float(i + 1)),
+                    "timestamp": f"2024-01-{i + 1:02d} 10:00",
+                }
+            )
+            records.append(
+                {
+                    "indicator": "sleep_hours",
+                    "value": str(6.0 + i * 0.5),
+                    "timestamp": f"2024-01-{i + 1:02d} 08:00",
+                }
+            )
 
         worker_results = _create_worker_results(records)
         result = validate_extraction.fn(simple_dsem_model, worker_results)
