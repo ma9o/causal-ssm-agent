@@ -267,7 +267,7 @@ class TestCrossValidationLinearGaussian:
         self, linear_gaussian_params, simple_observations
     ):
         """Cuthbert PF matches Kalman within Monte Carlo error."""
-        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
+        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
 
         observations, time_intervals = simple_observations
         obs_mask = ~jnp.isnan(observations)
@@ -288,7 +288,7 @@ class TestCrossValidationLinearGaussian:
         ct = linear_gaussian_params["ct_params"]
         mp = linear_gaussian_params["meas_params"]
         ip = linear_gaussian_params["init_params"]
-        model = CTSEMAdapter(n_latent=2, n_manifest=2)
+        model = SSMAdapter(n_latent=2, n_manifest=2)
         params = {
             "drift": ct.drift,
             "diffusion_cov": ct.diffusion_cov,
@@ -525,7 +525,7 @@ class TestParameterRecoveryPMMH:
     @pytest.mark.slow
     def test_drift_recovery_pmmh(self):
         """Recover drift parameter from simulated linear-Gaussian data via PMMH."""
-        from dsem_agent.models.pmmh import CTSEMAdapter, run_pmmh
+        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
 
         # True parameters
         true_drift_val = -0.6
@@ -550,7 +550,7 @@ class TestParameterRecoveryPMMH:
         time_intervals = jnp.ones(T) * dt
         obs_mask = jnp.ones_like(observations, dtype=bool)
 
-        model = CTSEMAdapter(n_latent, n_manifest)
+        model = SSMAdapter(n_latent, n_manifest)
 
         # Unpack: theta = [drift_diag] (1D parameter for simplicity)
         def unpack_fn(theta):
@@ -599,7 +599,7 @@ class TestPMMHIntegration:
 
     def test_cuthbert_pf_varies_with_params(self):
         """Cuthbert PF likelihood varies with different parameters."""
-        from dsem_agent.models.pmmh import CTSEMAdapter, cuthbert_bootstrap_filter
+        from dsem_agent.models.pmmh import SSMAdapter, cuthbert_bootstrap_filter
 
         T = 10
         key = random.PRNGKey(42)
@@ -607,7 +607,7 @@ class TestPMMHIntegration:
         time_intervals = jnp.ones(T) * 0.5
         obs_mask = ~jnp.isnan(observations)
 
-        model = CTSEMAdapter(n_latent=2, n_manifest=2)
+        model = SSMAdapter(n_latent=2, n_manifest=2)
 
         drift_values = [
             jnp.array([[-0.3, 0.0], [0.0, -0.3]]),
@@ -856,6 +856,226 @@ class TestBackendIntegration:
         )
         model_particle = SSMModel(spec_particle)
         assert model_particle.get_inference_strategy() == InferenceStrategy.PARTICLE
+
+
+class TestParameterRecoveryPoissonPMMH:
+    """Parameter recovery for Poisson observations via PMMH."""
+
+    @pytest.mark.slow
+    def test_drift_recovery_poisson_obs(self):
+        """Recover drift from 1D AR(1) with Poisson observations."""
+        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
+
+        true_drift = -0.5
+        n_latent, n_manifest = 1, 1
+        T = 80
+        dt = 0.5
+        process_noise = 0.2
+        log_baseline = jnp.log(5.0)  # baseline rate ~5
+
+        # Simulate latent AR(1) process
+        key = random.PRNGKey(42)
+        discrete_coef = jnp.exp(true_drift * dt)
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            noise = random.normal(subkey, (n_latent,)) * process_noise
+            new_state = discrete_coef * states[-1] + noise
+            states.append(new_state)
+        latent = jnp.stack(states)
+
+        # Poisson observations: y ~ Poisson(exp(x + log_baseline))
+        key, subkey = random.split(key)
+        rates = jnp.exp(latent + log_baseline)
+        observations = random.poisson(subkey, rates).astype(jnp.float32)
+        time_intervals = jnp.ones(T) * dt
+        obs_mask = jnp.ones_like(observations, dtype=bool)
+
+        model = SSMAdapter(n_latent, n_manifest, manifest_dist="poisson")
+
+        def unpack_fn(theta):
+            drift_val = theta[0]
+            return {
+                "drift": jnp.array([[drift_val]]),
+                "diffusion_cov": jnp.array([[process_noise**2]]),
+                "lambda_mat": jnp.eye(1),
+                "manifest_means": jnp.array([log_baseline]),
+                "t0_mean": jnp.zeros(n_latent),
+                "t0_cov": jnp.eye(n_latent),
+            }
+
+        def log_prior_fn(theta):
+            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
+
+        result = run_pmmh(
+            model=model,
+            observations=observations,
+            time_intervals=time_intervals,
+            obs_mask=obs_mask,
+            log_prior_fn=log_prior_fn,
+            unpack_fn=unpack_fn,
+            init_theta=jnp.array([-0.4]),
+            n_samples=200,
+            n_warmup=100,
+            n_particles=500,
+            proposal_cov=jnp.array([[0.01]]),
+            seed=42,
+        )
+
+        posterior_mean = float(jnp.mean(result.samples[:, 0]))
+        assert abs(posterior_mean - true_drift) < 0.5, (
+            f"PMMH Poisson drift posterior mean {posterior_mean:.3f} "
+            f"far from true {true_drift:.3f}"
+        )
+        assert result.acceptance_rate > 0.05, (
+            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
+        )
+
+
+class TestParameterRecoveryStudentTPMMH:
+    """Parameter recovery for Student-t observations via PMMH."""
+
+    @pytest.mark.slow
+    def test_drift_recovery_student_t_obs(self):
+        """Recover drift from 1D AR(1) with Student-t observations."""
+        from dsem_agent.models.pmmh import SSMAdapter, run_pmmh
+
+        true_drift = -0.6
+        n_latent, n_manifest = 1, 1
+        T = 60
+        dt = 0.5
+        process_noise = 0.2
+        obs_scale = 0.3
+        obs_df = 5.0
+
+        # Simulate latent AR(1) process
+        key = random.PRNGKey(123)
+        discrete_coef = jnp.exp(true_drift * dt)
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            noise = random.normal(subkey, (n_latent,)) * process_noise
+            new_state = discrete_coef * states[-1] + noise
+            states.append(new_state)
+        latent = jnp.stack(states)
+
+        # Student-t observations
+        key, key_z, key_chi2 = random.split(key, 3)
+        z = random.normal(key_z, (T, n_manifest))
+        chi2 = random.gamma(key_chi2, obs_df / 2.0, (T, n_manifest)) * 2.0
+        t_noise = z / jnp.sqrt(chi2 / obs_df) * obs_scale
+        observations = latent + t_noise
+        time_intervals = jnp.ones(T) * dt
+        obs_mask = jnp.ones_like(observations, dtype=bool)
+
+        model = SSMAdapter(n_latent, n_manifest, manifest_dist="student_t")
+
+        def unpack_fn(theta):
+            drift_val = theta[0]
+            return {
+                "drift": jnp.array([[drift_val]]),
+                "diffusion_cov": jnp.array([[process_noise**2]]),
+                "lambda_mat": jnp.eye(1),
+                "manifest_means": jnp.zeros(n_manifest),
+                "manifest_cov": jnp.array([[obs_scale**2]]),
+                "obs_df": obs_df,
+                "t0_mean": jnp.zeros(n_latent),
+                "t0_cov": jnp.eye(n_latent),
+            }
+
+        def log_prior_fn(theta):
+            return jnp.where(theta[0] < 0, -0.5 * (theta[0] / 2.0) ** 2, -jnp.inf)
+
+        result = run_pmmh(
+            model=model,
+            observations=observations,
+            time_intervals=time_intervals,
+            obs_mask=obs_mask,
+            log_prior_fn=log_prior_fn,
+            unpack_fn=unpack_fn,
+            init_theta=jnp.array([-0.5]),
+            n_samples=200,
+            n_warmup=100,
+            n_particles=500,
+            proposal_cov=jnp.array([[0.01]]),
+            seed=123,
+        )
+
+        posterior_mean = float(jnp.mean(result.samples[:, 0]))
+        assert abs(posterior_mean - true_drift) < 0.5, (
+            f"PMMH Student-t drift posterior mean {posterior_mean:.3f} "
+            f"far from true {true_drift:.3f}"
+        )
+        assert result.acceptance_rate > 0.05, (
+            f"Acceptance rate too low: {float(result.acceptance_rate):.3f}"
+        )
+
+
+class TestParameterRecoveryUKF:
+    """Parameter recovery for UKF on linear-Gaussian model.
+
+    UKF matches Kalman exactly on linear models, so this validates
+    the UKF→NUTS end-to-end inference pipeline.
+    """
+
+    @pytest.mark.slow
+    def test_drift_recovery_ukf(self):
+        """Recover drift diagonal parameters via UKF + NUTS."""
+        import jax.scipy.linalg as jla
+
+        from dsem_agent.models.ssm import SSMModel, SSMSpec
+        from dsem_agent.models.ssm.discretization import discretize_system
+        from dsem_agent.models.strategy_selector import InferenceStrategy
+
+        true_drift_diag = jnp.array([-0.6, -0.9])
+        true_drift = jnp.diag(true_drift_diag)
+        true_diff_cov = jnp.eye(2) * 0.09  # process noise cov
+
+        key = random.PRNGKey(42)
+        T = 50
+        n_latent = 2
+        dt = 0.5
+
+        # Simulate via proper CT→DT discretization
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
+            mean = Ad @ states[-1]
+            chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
+            states.append(mean + chol @ random.normal(subkey, (n_latent,)))
+
+        key, subkey = random.split(key)
+        observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.3
+        times = jnp.arange(T, dtype=float) * dt
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            diffusion="diag",
+        )
+        model = SSMModel(spec)
+        # Force UKF strategy
+        model._strategy = InferenceStrategy.UKF
+
+        mcmc = model.fit(
+            observations=observations,
+            times=times,
+            num_warmup=200,
+            num_samples=200,
+            num_chains=1,
+        )
+
+        samples = mcmc.get_samples()
+        drift_diag_samples = samples["drift_diag_pop"]
+
+        for i, true_val in enumerate(true_drift_diag):
+            posterior_mean = jnp.mean(drift_diag_samples[:, i])
+            assert abs(posterior_mean - true_val) < 0.5, (
+                f"UKF Drift[{i}] posterior mean {float(posterior_mean):.3f} "
+                f"far from true {float(true_val):.3f}"
+            )
 
 
 if __name__ == "__main__":
