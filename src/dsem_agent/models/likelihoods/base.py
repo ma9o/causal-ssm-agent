@@ -1,10 +1,10 @@
 """Base protocol and parameter types for likelihood computation.
 
-Defines the interface that all likelihood backends must implement:
+Defines the interface that likelihood backends must implement:
 compute_log_likelihood(params, observations, times) -> float
 
-This allows plugging different state-space marginalization strategies
-(Kalman, UKF, particle filter) into NumPyro models via numpyro.factor().
+Used by ParticleLikelihood to integrate out latent states via bootstrap PF
+and inject the result into NumPyro models via numpyro.factor().
 """
 
 from typing import NamedTuple, Protocol
@@ -84,10 +84,8 @@ class LikelihoodBackend(Protocol):
     The returned value is used in NumPyro via:
         numpyro.factor("ssm", backend.compute_log_likelihood(...))
 
-    Example implementations:
-    - KalmanLikelihood: Exact for linear-Gaussian (cuthbert)
-    - UKFLikelihood: Approximate for mildly nonlinear (cuthbert moments)
-    - ParticleLikelihood: General nonlinear/non-Gaussian (cuthbert SMC)
+    Implementation:
+    - ParticleLikelihood: Universal backend via differentiable bootstrap PF (cuthbert SMC)
     """
 
     def compute_log_likelihood(

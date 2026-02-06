@@ -4,10 +4,7 @@ Each backend implements compute_log_likelihood() to integrate out latent states
 and return p(y|θ) for use in NumPyro via numpyro.factor().
 
 Available backends:
-- kalman: Exact inference for linear-Gaussian models (cuthbert)
-- ukf: Moments filter for mildly nonlinear models (cuthbert)
-
-For particle-based inference, use dsem_agent.models.pmmh (PMMH path).
+- particle: Universal backend via differentiable bootstrap PF (cuthbert SMC)
 """
 
 from dsem_agent.models.likelihoods.base import (
@@ -17,8 +14,7 @@ from dsem_agent.models.likelihoods.base import (
     LikelihoodBackend,
     MeasurementParams,
 )
-from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-from dsem_agent.models.likelihoods.ukf import UKFLikelihood
+from dsem_agent.models.likelihoods.particle import ParticleLikelihood
 
 __all__ = [
     "CTParams",
@@ -26,6 +22,5 @@ __all__ = [
     "InitialStateParams",
     "MeasurementParams",
     "LikelihoodBackend",
-    "KalmanLikelihood",
-    "UKFLikelihood",
+    "ParticleLikelihood",
 ]
