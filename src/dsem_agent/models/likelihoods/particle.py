@@ -314,7 +314,10 @@ class ParticleLikelihood:
             mask = model_inputs["obs_mask"]
             return adapter.observation_log_prob(obs, state, params, mask)
 
-        # Build model_inputs with leading temporal dimension T
+        # Build model_inputs with leading temporal dimension T.
+        # cuthbert convention: model_inputs[0] → init_prepare (sample particles
+        # and weight against obs[0]); model_inputs[k] for k=1..T-1 → propagate
+        # with dt[k] and weight against obs[k].
         model_inputs = {
             "observation": clean_obs,
             "dt": time_intervals,
