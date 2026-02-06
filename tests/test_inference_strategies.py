@@ -1,11 +1,12 @@
-"""Comprehensive tests for particle filter + NUTS inference.
+"""Comprehensive tests for SSM inference backends.
 
 Tests cover:
 1. ParticleLikelihood: finite likelihood, determinism, gradient flow
 2. SSMAdapter: observation models (Gaussian, Poisson, Student-t, Gamma)
-3. Parameter recovery: simulate → PF+NUTS → check credible intervals
+3. Parameter recovery: simulate → fit() → check credible intervals
 4. Hierarchical likelihood robustness
 5. Edge cases and builder wiring
+6. SVI and PMMH inference backends
 
 Test Matrix:
 | Model Class                    | Noise Family         | Test Type          |
@@ -22,7 +23,6 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
-from numpyro.infer import MCMC
 
 from dsem_agent.models.likelihoods.base import (
     CTParams,
@@ -30,7 +30,7 @@ from dsem_agent.models.likelihoods.base import (
     MeasurementParams,
 )
 from dsem_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
-from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec
+from dsem_agent.models.ssm import InferenceResult, NoiseFamily, SSMModel, SSMSpec, fit
 
 # =============================================================================
 # ParticleLikelihood: Core Functionality
@@ -316,8 +316,6 @@ class TestHierarchicalLikelihood:
 
     def test_subject_without_observations_is_finite(self):
         """Subjects with no observations should not introduce NaNs/Infs."""
-        from dsem_agent.models.ssm import SSMModel
-
         n_latent, n_manifest = 2, 2
         T = 6
         times = jnp.arange(T, dtype=float) * 0.5
@@ -388,8 +386,6 @@ class TestParameterRecoveryPF:
     @pytest.mark.xfail(reason="MCMC convergence sensitive to parameterization; needs tuning")
     def test_drift_diagonal_recovery(self):
         """Recover drift diagonal parameters from simulated data."""
-        from dsem_agent.models.ssm import SSMModel
-
         true_drift_diag = jnp.array([-0.6, -0.9])
 
         key = random.PRNGKey(42)
@@ -418,15 +414,17 @@ class TestParameterRecoveryPF:
         )
         model = SSMModel(spec, n_particles=200)
 
-        mcmc = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
+            method="nuts",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
         )
 
-        samples = mcmc.get_samples()
+        samples = result.get_samples()
         drift_diag_samples = samples["drift_diag_pop"]
 
         for i, true_val in enumerate(true_drift_diag):
@@ -440,8 +438,6 @@ class TestParameterRecoveryPF:
     @pytest.mark.xfail(reason="MCMC convergence sensitive to parameterization; needs tuning")
     def test_diffusion_recovery(self):
         """Recover diffusion parameters from simulated data."""
-        from dsem_agent.models.ssm import SSMModel
-
         true_diffusion_diag = jnp.array([0.4, 0.4])
         true_drift_diag = jnp.array([-0.5, -0.5])
 
@@ -471,15 +467,17 @@ class TestParameterRecoveryPF:
         )
         model = SSMModel(spec, n_particles=200)
 
-        mcmc = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
+            method="nuts",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
         )
 
-        samples = mcmc.get_samples()
+        samples = result.get_samples()
         diffusion_samples = samples["diffusion_diag_pop"]
 
         for i, true_val in enumerate(true_diffusion_diag):
@@ -530,15 +528,17 @@ class TestParameterRecoveryPoisson:
         )
         model = SSMModel(spec, n_particles=300)
 
-        mcmc = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
+            method="nuts",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
         )
 
-        samples = mcmc.get_samples()
+        samples = result.get_samples()
         drift_diag_samples = samples["drift_diag_pop"]
         posterior_mean = float(jnp.mean(drift_diag_samples[:, 0]))
 
@@ -588,15 +588,17 @@ class TestParameterRecoveryStudentT:
         )
         model = SSMModel(spec, n_particles=300)
 
-        mcmc = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
+            method="nuts",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
         )
 
-        samples = mcmc.get_samples()
+        samples = result.get_samples()
         drift_diag_samples = samples["drift_diag_pop"]
         posterior_mean = float(jnp.mean(drift_diag_samples[:, 0]))
 
@@ -824,13 +826,11 @@ class TestEdgeCases:
 # =============================================================================
 
 
-class TestFitReturnsOnlyMCMC:
-    """Test that fit() always returns MCMC regardless of noise family."""
+class TestFitReturnsInferenceResult:
+    """Test that fit() returns InferenceResult for all methods."""
 
-    def test_fit_gaussian_returns_mcmc(self):
-        """fit() with Gaussian manifest_dist returns MCMC."""
-        from dsem_agent.models.ssm import SSMModel
-
+    def test_fit_nuts_returns_inference_result(self):
+        """fit() with method='nuts' returns InferenceResult."""
         spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
@@ -845,21 +845,89 @@ class TestFitReturnsOnlyMCMC:
         observations = random.normal(key, (T, 2)) * 0.5
         times = jnp.arange(T, dtype=jnp.float32) * 0.5
 
-        result = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
+            method="nuts",
             num_warmup=10,
             num_samples=20,
             num_chains=1,
             seed=0,
         )
 
-        assert isinstance(result, MCMC)
+        assert isinstance(result, InferenceResult)
+        assert result.method == "nuts"
+        samples = result.get_samples()
+        assert "drift_diag_pop" in samples
 
-    def test_fit_poisson_returns_mcmc(self):
-        """fit() with Poisson manifest_dist also returns MCMC (PF+NUTS)."""
-        from dsem_agent.models.ssm import SSMModel
+    def test_fit_svi_returns_inference_result(self):
+        """fit() with method='svi' returns InferenceResult."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            diffusion="diag",
+            manifest_dist=NoiseFamily.GAUSSIAN,
+        )
+        model = SSMModel(spec, n_particles=50)
 
+        T = 15
+        key = random.PRNGKey(0)
+        observations = random.normal(key, (T, 2)) * 0.5
+        times = jnp.arange(T, dtype=jnp.float32) * 0.5
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="svi",
+            num_steps=50,
+            num_samples=20,
+            seed=0,
+        )
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "svi"
+        samples = result.get_samples()
+        # SVI Predictive returns deterministic sites (drift, diffusion, etc.)
+        assert "drift" in samples
+        assert samples["drift"].shape[0] == 20
+
+    def test_fit_pmmh_returns_inference_result(self):
+        """fit() with method='pmmh' returns InferenceResult."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            diffusion="diag",
+            manifest_dist=NoiseFamily.GAUSSIAN,
+        )
+        model = SSMModel(spec, n_particles=50)
+
+        T = 15
+        key = random.PRNGKey(0)
+        observations = random.normal(key, (T, 2)) * 0.5
+        times = jnp.arange(T, dtype=jnp.float32) * 0.5
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="pmmh",
+            num_warmup=10,
+            num_samples=20,
+            seed=0,
+        )
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "pmmh"
+        samples = result.get_samples()
+        assert "drift_diag_pop" in samples
+        assert samples["drift_diag_pop"].shape[0] == 20
+
+    def test_fit_poisson_svi_returns_inference_result(self):
+        """fit() with Poisson manifest_dist + SVI returns InferenceResult."""
         spec = SSMSpec(
             n_latent=1,
             n_manifest=1,
@@ -874,16 +942,183 @@ class TestFitReturnsOnlyMCMC:
         observations = random.poisson(key, jnp.ones((T, 1)) * 5.0).astype(jnp.float32)
         times = jnp.arange(T, dtype=jnp.float32)
 
-        result = model.fit(
+        result = fit(
+            model,
             observations=observations,
             times=times,
-            num_warmup=10,
+            method="svi",
+            num_steps=50,
             num_samples=20,
-            num_chains=1,
             seed=0,
         )
 
-        assert isinstance(result, MCMC)
+        assert isinstance(result, InferenceResult)
+        assert result.method == "svi"
+
+
+# =============================================================================
+# SVI-specific Tests
+# =============================================================================
+
+
+class TestSVIBackend:
+    """Tests specific to SVI inference backend."""
+
+    def test_svi_losses_decrease(self):
+        """ELBO loss should generally decrease during SVI training."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, n_particles=50)
+
+        T = 15
+        key = random.PRNGKey(42)
+        observations = random.normal(key, (T, 2)) * 0.5
+        times = jnp.arange(T, dtype=jnp.float32) * 0.5
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="svi",
+            num_steps=200,
+            num_samples=10,
+        )
+
+        losses = result.diagnostics["losses"]
+        # Compare first 10% mean to last 10% mean
+        n = len(losses)
+        early_mean = float(jnp.mean(losses[: n // 10]))
+        late_mean = float(jnp.mean(losses[-n // 10 :]))
+        assert late_mean < early_mean, (
+            f"SVI loss did not decrease: early={early_mean:.1f}, late={late_mean:.1f}"
+        )
+
+    def test_svi_guide_types(self):
+        """All guide types should produce valid results."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+
+        T = 10
+        key = random.PRNGKey(0)
+        observations = random.normal(key, (T, 1)) * 0.5
+        times = jnp.arange(T, dtype=jnp.float32) * 0.5
+
+        for guide_type in ["normal", "mvn", "delta"]:
+            model = SSMModel(spec, n_particles=50)
+            result = fit(
+                model,
+                observations=observations,
+                times=times,
+                method="svi",
+                guide_type=guide_type,
+                num_steps=50,
+                num_samples=10,
+            )
+            assert isinstance(result, InferenceResult)
+            assert len(result.get_samples()) > 0
+
+
+# =============================================================================
+# PMMH-specific Tests
+# =============================================================================
+
+
+class TestPMMHBackend:
+    """Tests specific to PMMH inference backend."""
+
+    def test_pmmh_acceptance_rate_reasonable(self):
+        """PMMH acceptance rate should be between 0.05 and 0.95."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, n_particles=100)
+
+        T = 15
+        key = random.PRNGKey(42)
+        observations = random.normal(key, (T, 1)) * 0.5
+        times = jnp.arange(T, dtype=jnp.float32) * 0.5
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="pmmh",
+            num_warmup=50,
+            num_samples=50,
+        )
+
+        rate = result.diagnostics["acceptance_rate"]
+        assert 0.05 < rate < 0.95, f"Acceptance rate out of range: {rate:.3f}"
+
+
+# =============================================================================
+# SVI Parameter Recovery
+# =============================================================================
+
+
+class TestSVIParameterRecovery:
+    """Parameter recovery tests using SVI."""
+
+    @pytest.mark.slow
+    def test_svi_drift_recovery(self):
+        """SVI should recover drift direction from simulated Gaussian data."""
+        true_drift_diag = jnp.array([-0.6, -0.9])
+
+        key = random.PRNGKey(42)
+        T = 60
+        n_latent = 2
+        dt = 0.5
+        discrete_coef = jnp.diag(jnp.exp(true_drift_diag * dt))
+        process_noise = 0.3
+
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, subkey = random.split(key)
+            noise = random.normal(subkey, (n_latent,)) * process_noise
+            new_state = discrete_coef @ states[-1] + noise
+            states.append(new_state)
+
+        key, subkey = random.split(key)
+        observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.1
+        times = jnp.arange(T, dtype=float) * dt
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, n_particles=200)
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="svi",
+            num_steps=2000,
+            num_samples=200,
+        )
+
+        samples = result.get_samples()
+        drift_diag_samples = samples["drift_diag_pop"]
+
+        # Check drift is negative (correct sign)
+        for i in range(n_latent):
+            posterior_mean = float(jnp.mean(drift_diag_samples[:, i]))
+            assert posterior_mean < 0.0, (
+                f"Drift[{i}] posterior mean {posterior_mean:.3f} should be negative"
+            )
 
 
 # =============================================================================

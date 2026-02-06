@@ -165,12 +165,13 @@ class TestSSMModel:
     def test_prior_predictive(self):
         """Test prior predictive sampling (should skip PF via handlers.block)."""
         from dsem_agent.models.ssm import SSMModel, SSMSpec
+        from dsem_agent.models.ssm.inference import prior_predictive
 
         spec = SSMSpec(n_latent=2, n_manifest=2)
         model = SSMModel(spec, n_particles=50)
 
         times = jnp.arange(10, dtype=float)
-        prior_samples = model.prior_predictive(times, num_samples=10)
+        prior_samples = prior_predictive(model, times, num_samples=10)
 
         # Should have samples for key parameters
         assert "drift" in prior_samples
@@ -179,7 +180,7 @@ class TestSSMModel:
     @pytest.mark.slow
     def test_fit_runs(self):
         """Test that fitting runs without errors (minimal samples)."""
-        from dsem_agent.models.ssm import SSMModel, SSMSpec
+        from dsem_agent.models.ssm import SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=2,
@@ -194,10 +195,11 @@ class TestSSMModel:
         observations = random.normal(key, (T, 2)) * 0.5
         times = jnp.arange(T, dtype=float)
 
-        # Run with minimal samples
-        mcmc = model.fit(observations, times, num_warmup=10, num_samples=10, num_chains=1)
+        # Run with minimal samples using NUTS
+        result = fit(model, observations, times, method="nuts",
+                     num_warmup=10, num_samples=10, num_chains=1)
 
-        samples = mcmc.get_samples()
+        samples = result.get_samples()
         assert "drift_diag_pop" in samples
 
 
