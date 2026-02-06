@@ -30,7 +30,8 @@ The orchestrator LLM translates these informal queries into formal causal struct
 - NetworkX for causal DAG representation
 - y0 for identifiability checks (Pearl's ID algorithm)
 - JAX/NumPyro for Bayesian CT-SEM estimation
-- Kalman filter for continuous-time likelihood computation
+- dynamax for Kalman/UKF likelihood computation
+- PMMH for particle-based inference (non-Gaussian models)
 
 ## Documentation
 
@@ -77,14 +78,13 @@ dsem-agent/
 │   ├── models/        # NumPyro state-space model specification
 │   │   ├── ssm/                # State-space model implementation
 │   │   │   ├── model.py        # SSMModel, SSMSpec, SSMPriors
-│   │   │   ├── kalman.py       # Kalman filter implementation
-│   │   │   ├── discretization.py # CT→DT conversion
+│   │   │   ├── discretization.py # CT→DT conversion (incl. batched vmap)
 │   │   │   └── core.py         # Utility functions
 │   │   ├── likelihoods/        # State-space likelihood backends
-│   │   │   ├── base.py         # Protocol, CTParams, DTParams
-│   │   │   ├── kalman.py       # Kalman filter wrapper
-│   │   │   ├── ukf.py          # Unscented Kalman filter (pure JAX)
-│   │   │   └── particle.py     # Bootstrap particle filter (pure JAX)
+│   │   │   ├── base.py         # Protocol, CTParams, MeasurementParams, InitialStateParams
+│   │   │   ├── kalman.py       # Kalman filter via dynamax lgssm_filter
+│   │   │   └── ukf.py          # UKF via dynamax building blocks
+│   │   ├── pmmh.py             # PMMH: bootstrap PF, MH kernel, samplers, ArviZ
 │   │   ├── strategy_selector.py # Rule-based inference strategy selection
 │   │   ├── ssm_builder.py      # SSMModelBuilder for pipeline integration
 │   │   └── prior_predictive.py # Prior predictive validation

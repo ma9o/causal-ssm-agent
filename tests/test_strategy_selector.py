@@ -140,18 +140,17 @@ class TestGetLikelihoodBackend:
         assert backend.hyperparams.alpha == 1e-3
         assert backend.hyperparams.beta == 2.0
 
-    def test_particle_backend_created(self):
-        """Particle backend should be created and work."""
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    def test_particle_backend_raises(self):
+        """PARTICLE strategy should raise ValueError (uses PMMH instead)."""
+        import pytest
+
         from dsem_agent.models.strategy_selector import (
             InferenceStrategy,
             get_likelihood_backend,
         )
 
-        backend = get_likelihood_backend(InferenceStrategy.PARTICLE)
-        assert isinstance(backend, ParticleLikelihood)
-        assert backend.n_particles == 1000
-        assert backend.ess_threshold == 0.5
+        with pytest.raises(ValueError, match="PMMH"):
+            get_likelihood_backend(InferenceStrategy.PARTICLE)
 
 
 class TestUKFLikelihood:
@@ -238,82 +237,79 @@ class TestUKFLikelihood:
         assert jnp.abs(ll_ukf - ll_kalman) / jnp.abs(ll_kalman) < 0.05
 
 
-class TestParticleLikelihood:
-    """Test particle filter likelihood computation."""
+class TestPMMHBootstrapFilter:
+    """Test PMMH bootstrap particle filter."""
 
-    def test_particle_log_likelihood_finite(self):
-        """Particle filter should produce finite log-likelihood."""
-        from dsem_agent.models.likelihoods.base import (
-            CTParams,
-            InitialStateParams,
-            MeasurementParams,
-        )
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    def test_bootstrap_filter_finite_likelihood(self):
+        """Bootstrap filter should produce finite log-likelihood."""
+        import jax.random as random
+
+        from dsem_agent.models.pmmh import CTSEMAdapter, bootstrap_filter
 
         n_latent, n_manifest, T = 2, 2, 5
 
-        ct_params = CTParams(
-            drift=jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
-            diffusion_cov=0.1 * jnp.eye(n_latent),
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=0.5 * jnp.eye(n_manifest),
-        )
-        init_state = InitialStateParams(
-            mean=jnp.zeros(n_latent),
-            cov=jnp.eye(n_latent),
-        )
+        model = CTSEMAdapter(n_latent, n_manifest)
+        params = {
+            "drift": jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
+            "diffusion_cov": 0.1 * jnp.eye(n_latent),
+            "lambda_mat": jnp.eye(n_manifest, n_latent),
+            "manifest_means": jnp.zeros(n_manifest),
+            "manifest_cov": 0.5 * jnp.eye(n_manifest),
+            "t0_mean": jnp.zeros(n_latent),
+            "t0_cov": jnp.eye(n_latent),
+        }
 
         observations = jnp.ones((T, n_manifest)) * 0.5
         time_intervals = jnp.ones(T)
+        obs_mask = ~jnp.isnan(observations)
 
-        backend = ParticleLikelihood(n_particles=500, seed=42)
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init_state, observations, time_intervals
+        result = bootstrap_filter(
+            model,
+            params,
+            observations,
+            time_intervals,
+            obs_mask,
+            n_particles=500,
+            key=random.PRNGKey(42),
         )
 
-        assert jnp.isfinite(ll)
+        assert jnp.isfinite(result.log_likelihood)
 
-    def test_particle_consistency_across_seeds(self):
-        """Particle filter should give similar results across seeds."""
-        from dsem_agent.models.likelihoods.base import (
-            CTParams,
-            InitialStateParams,
-            MeasurementParams,
-        )
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    def test_bootstrap_filter_consistency_across_seeds(self):
+        """Bootstrap filter should give similar results across seeds."""
+        import jax.random as random
+
+        from dsem_agent.models.pmmh import CTSEMAdapter, bootstrap_filter
 
         n_latent, n_manifest, T = 2, 2, 5
 
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-            diffusion_cov=0.1 * jnp.eye(n_latent),
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=0.5 * jnp.eye(n_manifest),
-        )
-        init_state = InitialStateParams(
-            mean=jnp.zeros(n_latent),
-            cov=jnp.eye(n_latent),
-        )
+        model = CTSEMAdapter(n_latent, n_manifest)
+        params = {
+            "drift": jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+            "diffusion_cov": 0.1 * jnp.eye(n_latent),
+            "lambda_mat": jnp.eye(n_manifest, n_latent),
+            "manifest_means": jnp.zeros(n_manifest),
+            "manifest_cov": 0.5 * jnp.eye(n_manifest),
+            "t0_mean": jnp.zeros(n_latent),
+            "t0_cov": jnp.eye(n_latent),
+        }
 
         observations = jnp.array([[0.1, 0.2], [0.3, 0.4], [0.2, 0.1], [0.4, 0.3], [0.5, 0.5]])
         time_intervals = jnp.ones(T)
+        obs_mask = ~jnp.isnan(observations)
 
-        # Run with different seeds - should be within ~20% of each other
         lls = []
         for seed in [0, 1, 2]:
-            backend = ParticleLikelihood(n_particles=1000, seed=seed)
-            ll = backend.compute_log_likelihood(
-                ct_params, meas_params, init_state, observations, time_intervals
+            result = bootstrap_filter(
+                model,
+                params,
+                observations,
+                time_intervals,
+                obs_mask,
+                n_particles=1000,
+                key=random.PRNGKey(seed),
             )
-            lls.append(float(ll))
+            lls.append(float(result.log_likelihood))
 
         # Check variance is reasonable
         mean_ll = sum(lls) / len(lls)

@@ -96,88 +96,38 @@ class TestCoreUtilities:
         assert jnp.allclose(Q_inf, expected, atol=1e-6)
 
 
-class TestKalmanFilter:
-    """Test Kalman filter implementation."""
-
-    def test_kalman_predict(self):
-        """Test Kalman prediction step."""
-        from dsem_agent.models.ssm.kalman import kalman_predict
-
-        state_mean = jnp.array([1.0, 0.0])
-        state_cov = jnp.eye(2)
-        discrete_drift = 0.9 * jnp.eye(2)
-        discrete_Q = 0.1 * jnp.eye(2)
-        discrete_cint = jnp.array([0.1, 0.1])
-
-        pred_mean, pred_cov = kalman_predict(
-            state_mean, state_cov, discrete_drift, discrete_Q, discrete_cint
-        )
-
-        # Check mean prediction
-        expected_mean = discrete_drift @ state_mean + discrete_cint
-        assert jnp.allclose(pred_mean, expected_mean)
-
-        # Check covariance prediction
-        expected_cov = discrete_drift @ state_cov @ discrete_drift.T + discrete_Q
-        assert jnp.allclose(pred_cov, expected_cov)
-
-    def test_kalman_update_reduces_uncertainty(self):
-        """Test that Kalman update reduces uncertainty."""
-        from dsem_agent.models.ssm.kalman import kalman_update_simple
-
-        pred_mean = jnp.array([0.0, 0.0])
-        pred_cov = jnp.eye(2)
-        observation = jnp.array([1.0, 0.5])
-        lambda_mat = jnp.eye(2)
-        manifest_means = jnp.zeros(2)
-        manifest_cov = 0.5 * jnp.eye(2)
-
-        upd_mean, upd_cov, ll = kalman_update_simple(
-            pred_mean, pred_cov, observation, lambda_mat, manifest_means, manifest_cov
-        )
-
-        # Updated covariance should have smaller trace (less uncertainty)
-        assert jnp.trace(upd_cov) < jnp.trace(pred_cov)
-
-        # Updated mean should be closer to observation
-        assert jnp.linalg.norm(upd_mean - observation) < jnp.linalg.norm(
-            pred_mean - observation
-        )
-
-        # Log-likelihood should be finite
-        assert jnp.isfinite(ll)
+class TestKalmanLikelihoodBackend:
+    """Test Kalman likelihood via dynamax backend."""
 
     def test_kalman_log_likelihood_finite(self):
         """Test that log-likelihood is finite for reasonable data."""
-        from dsem_agent.models.ssm.kalman import kalman_log_likelihood
+        from dsem_agent.models.likelihoods.base import (
+            CTParams,
+            InitialStateParams,
+            MeasurementParams,
+        )
+        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
 
         T, n_latent, n_manifest = 10, 2, 2
 
-        # Simple observations
+        ct_params = CTParams(
+            drift=jnp.array([[-1.0, 0.0], [0.0, -1.0]]),
+            diffusion_cov=0.1 * jnp.eye(n_latent),
+            cint=None,
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=0.1 * jnp.eye(n_manifest),
+        )
+        init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
+
         observations = jnp.ones((T, n_manifest)) * 0.5
         time_intervals = jnp.ones(T)
 
-        # Stable parameters
-        drift = jnp.array([[-1.0, 0.0], [0.0, -1.0]])
-        diffusion_cov = 0.1 * jnp.eye(n_latent)
-        cint = None
-        lambda_mat = jnp.eye(n_manifest, n_latent)
-        manifest_means = jnp.zeros(n_manifest)
-        manifest_cov = 0.1 * jnp.eye(n_manifest)
-        t0_mean = jnp.zeros(n_latent)
-        t0_cov = jnp.eye(n_latent)
-
-        ll = kalman_log_likelihood(
-            observations,
-            time_intervals,
-            drift,
-            diffusion_cov,
-            cint,
-            lambda_mat,
-            manifest_means,
-            manifest_cov,
-            t0_mean,
-            t0_cov,
+        backend = KalmanLikelihood()
+        ll = backend.compute_log_likelihood(
+            ct_params, meas_params, init, observations, time_intervals
         )
 
         assert jnp.isfinite(ll)
@@ -241,9 +191,7 @@ class TestSSMModel:
         times = jnp.arange(T, dtype=float)
 
         # Run with minimal samples
-        mcmc = model.fit(
-            observations, times, num_warmup=10, num_samples=10, num_chains=1
-        )
+        mcmc = model.fit(observations, times, num_warmup=10, num_samples=10, num_chains=1)
 
         samples = mcmc.get_samples()
         assert "drift_diag_pop" in samples
@@ -269,11 +217,13 @@ class TestSSMModelBuilder:
 
         # Create sample data
         T = 20
-        X = pd.DataFrame({
-            "mood": np.random.randn(T),
-            "stress": np.random.randn(T),
-            "time": np.arange(T, dtype=float),
-        })
+        X = pd.DataFrame(
+            {
+                "mood": np.random.randn(T),
+                "stress": np.random.randn(T),
+                "time": np.arange(T, dtype=float),
+            }
+        )
 
         builder = SSMModelBuilder(ssm_spec=spec)
         model = builder.build_model(X)
@@ -289,11 +239,13 @@ class TestSSMModelBuilder:
         from dsem_agent.models.ssm_builder import SSMModelBuilder
 
         T = 15
-        X = pd.DataFrame({
-            "x": np.random.randn(T),
-            "y": np.random.randn(T),
-            "time": np.arange(T, dtype=float),
-        })
+        X = pd.DataFrame(
+            {
+                "x": np.random.randn(T),
+                "y": np.random.randn(T),
+                "time": np.arange(T, dtype=float),
+            }
+        )
 
         builder = SSMModelBuilder()
         model = builder.build_model(X)
@@ -309,11 +261,13 @@ class TestSSMModelBuilder:
         from dsem_agent.models.ssm_builder import SSMModelBuilder
 
         T = 20
-        X = pd.DataFrame({
-            "x": np.random.randn(T) * 0.5,
-            "y": np.random.randn(T) * 0.5,
-            "time": np.arange(T, dtype=float),
-        })
+        X = pd.DataFrame(
+            {
+                "x": np.random.randn(T) * 0.5,
+                "y": np.random.randn(T) * 0.5,
+                "time": np.arange(T, dtype=float),
+            }
+        )
 
         builder = SSMModelBuilder(
             sampler_config={

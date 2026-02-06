@@ -134,17 +134,41 @@ Linear dynamics with non-Gaussian observations (Poisson counts, Student-t errors
 
 We default to particle filtering for non-Gaussian observations. The optimizations above are future work, triggered by performance needs.
 
+## Two Inference Paths
+
+The particle filter produces a *stochastic* log-likelihood estimate, which is incompatible with gradient-based NUTS. This leads to two distinct inference paths:
+
+### Path 1: NumPyro NUTS (Kalman/UKF)
+
+```
+SSMModel.model() → dynamax Kalman/UKF → numpyro.factor(ll) → NumPyro NUTS
+```
+
+For linear-Gaussian and mildly nonlinear models. The likelihood backend (`KalmanLikelihood` or `UKFLikelihood`) wraps dynamax's filters and returns a deterministic, differentiable log-likelihood. This plugs directly into NumPyro via `numpyro.factor()`.
+
+### Path 2: PMMH (Particle)
+
+```
+SSMSpec → CTSEMAdapter → bootstrap_filter (log p̂(y|θ)) → PMMH kernel → posterior samples
+```
+
+For non-Gaussian/strongly nonlinear models. Uses Particle Marginal Metropolis-Hastings (Andrieu et al., 2010). The bootstrap particle filter provides an unbiased log-likelihood *estimate*, which is valid for pseudo-marginal MCMC (Andrieu & Roberts, 2009). This path is completely separate from NumPyro.
+
+Key components in `dsem_agent.models.pmmh`:
+- `CTSEMAdapter`: Maps CT-SEM SSMSpec into particle-filter-compatible functions
+- `bootstrap_filter`: Pure-JAX bootstrap PF with systematic resampling
+- `pmmh_kernel`: Random-walk MH with particle filter likelihood
+- `run_pmmh`: Full sampler with warmup/sampling via `lax.scan`
+
 ## Library Mapping
 
-| Strategy | Backend | Notes |
-|----------|---------|-------|
-| Kalman | dynamax | Exact, O(T·n³) |
-| EKF | dynamax | JAX autodiff for Jacobians |
-| UKF | dynamax | Sigma-point propagation, no Jacobians |
-| Particle | cuthbert | Bootstrap filter, arbitrary models |
-| PMMH | cuthbert + blackjax | Particle MCMC for parameters |
+| Strategy | Backend | Inference Engine | Notes |
+|----------|---------|-----------------|-------|
+| Kalman | dynamax `lgssm_filter` | NumPyro NUTS | Exact, O(T·n³) |
+| UKF | dynamax `_predict`/`_condition_on` | NumPyro NUTS | Sigma-point propagation |
+| Particle | pure-JAX bootstrap PF | PMMH | Arbitrary models, O(T·n·P) |
 
-All backends are pure JAX, composable with NumPyro via `numpyro.factor`.
+Kalman and UKF backends are pure JAX, composable with NumPyro via `numpyro.factor`. The particle path uses a custom PMMH sampler.
 
 ## References
 
