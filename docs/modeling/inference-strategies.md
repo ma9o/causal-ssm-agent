@@ -141,25 +141,24 @@ The particle filter produces a *stochastic* log-likelihood estimate, which is in
 ### Path 1: NumPyro NUTS (Kalman/UKF)
 
 ```
-SSMModel.model() → dynamax Kalman/UKF → numpyro.factor(ll) → NumPyro NUTS
+SSMModel.model() → cuthbert moments filter → numpyro.factor(ll) → NumPyro NUTS
 ```
 
-For linear-Gaussian and mildly nonlinear models. The likelihood backend (`KalmanLikelihood` or `UKFLikelihood`) wraps dynamax's filters and returns a deterministic, differentiable log-likelihood. This plugs directly into NumPyro via `numpyro.factor()`.
+For linear-Gaussian and mildly nonlinear models. The likelihood backend (`KalmanLikelihood` or `UKFLikelihood`) wraps cuthbert's `gaussian.moments` filter (non-associative, for stable gradients) and returns a deterministic, differentiable log-likelihood. This plugs directly into NumPyro via `numpyro.factor()`.
 
 ### Path 2: PMMH (Particle)
 
 ```
-SSMSpec → CTSEMAdapter → cuthbert PF (log p̂(y|θ)) → PMMH kernel → posterior samples
+SSMSpec → SSMAdapter → cuthbert PF (log p̂(y|θ)) → PMMH kernel → posterior samples
 ```
 
 For non-Gaussian/strongly nonlinear models. Uses Particle Marginal Metropolis-Hastings (Andrieu et al., 2010). The bootstrap particle filter provides an unbiased log-likelihood *estimate*, which is valid for pseudo-marginal MCMC (Andrieu & Roberts, 2009). This path is completely separate from NumPyro.
 
-The particle filter uses **cuthbert** (Feynman-Kac particle filter library) for production filtering with systematic resampling. A pure-JAX reference implementation (`bootstrap_filter`) is also available for testing and fallback.
+The particle filter uses **cuthbert** (Feynman-Kac particle filter library) for production filtering with systematic resampling.
 
 Key components in `dsem_agent.models.pmmh`:
-- `CTSEMAdapter`: Maps CT-SEM SSMSpec into particle-filter-compatible functions
-- `cuthbert_bootstrap_filter`: Production PF via cuthbert's Feynman-Kac machinery (default)
-- `bootstrap_filter`: Reference pure-JAX bootstrap PF (fallback)
+- `SSMAdapter`: Maps CT-SEM SSMSpec into particle-filter-compatible functions
+- `cuthbert_bootstrap_filter`: Production PF via cuthbert's Feynman-Kac machinery
 - `pmmh_kernel`: Random-walk MH with particle filter likelihood (accepts `filter_fn` parameter)
 - `run_pmmh`: Full sampler with warmup/sampling via `lax.scan`
 
@@ -167,11 +166,13 @@ Key components in `dsem_agent.models.pmmh`:
 
 | Strategy | Backend | Inference Engine | Notes |
 |----------|---------|-----------------|-------|
-| Kalman | dynamax `lgssm_filter` | NumPyro NUTS | Exact, O(T·n³) |
-| UKF | dynamax `_predict`/`_condition_on` | NumPyro NUTS | Sigma-point propagation |
-| Particle | cuthbert bootstrap PF | PMMH | Arbitrary models, O(T·n·P) |
+| Kalman | cuthbert `gaussian.moments` (linear closures) | NumPyro NUTS | Exact, O(T·n³) |
+| UKF | cuthbert `gaussian.moments` (Jacobian linearization) | NumPyro NUTS | Approximate, O(T·n³) |
+| Particle | cuthbert `smc.particle_filter` | PMMH | Arbitrary models, O(T·n·P) |
 
-Kalman and UKF backends are pure JAX, composable with NumPyro via `numpyro.factor`. The particle path uses cuthbert for likelihood estimation and a custom PMMH sampler for parameter inference.
+All backends use cuthbert and are pure JAX. Kalman and UKF are composable with NumPyro via `numpyro.factor`. The particle path uses cuthbert for likelihood estimation and a custom PMMH sampler for parameter inference.
+
+For a detailed walkthrough of the full estimation pipeline, see [estimation.md](estimation.md).
 
 ## References
 
@@ -179,5 +180,4 @@ Kalman and UKF backends are pure JAX, composable with NumPyro via `numpyro.facto
 - Särkkä (2013): Bayesian Filtering and Smoothing
 - Driver & Voelkle (2018): Hierarchical Bayesian Continuous Time Dynamic Modeling
 - [Birch automatic marginalization docs](https://birch-lang.org/concepts/automatic-marginalization/)
-- [dynamax documentation](https://probml.github.io/dynamax/)
 - [cuthbert repository](https://github.com/probml/cuthbert)
