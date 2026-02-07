@@ -134,6 +134,7 @@ class SSMModel:
         priors: SSMPriors | None = None,
         n_particles: int = 200,
         pf_seed: int = 0,
+        likelihood: Literal["particle", "kalman"] = "particle",
     ):
         """Initialize state-space model.
 
@@ -142,11 +143,14 @@ class SSMModel:
             priors: Prior distributions (uses defaults if None)
             n_particles: Number of particles for bootstrap PF
             pf_seed: Seed for fixed PF random key (deterministic for NUTS)
+            likelihood: Likelihood backend - "particle" (universal, any noise family)
+                or "kalman" (exact, linear Gaussian only)
         """
         self.spec = spec
         self.priors = priors or SSMPriors()
         self.n_particles = n_particles
         self.pf_key = jax.random.PRNGKey(pf_seed)
+        self.likelihood = likelihood
 
     def _sample_drift(
         self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
@@ -494,15 +498,23 @@ class SSMModel:
         if spec.diffusion_dist == NoiseFamily.STUDENT_T:
             extra_params["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
 
-        # Create particle filter backend
-        backend = ParticleLikelihood(
-            n_latent=spec.n_latent,
-            n_manifest=spec.n_manifest,
-            n_particles=self.n_particles,
-            rng_key=self.pf_key,
-            manifest_dist=spec.manifest_dist.value,
-            diffusion_dist=spec.diffusion_dist.value,
-        )
+        # Create likelihood backend
+        if self.likelihood == "kalman":
+            from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+
+            backend = KalmanLikelihood(
+                n_latent=spec.n_latent,
+                n_manifest=spec.n_manifest,
+            )
+        else:
+            backend = ParticleLikelihood(
+                n_latent=spec.n_latent,
+                n_manifest=spec.n_manifest,
+                n_particles=self.n_particles,
+                rng_key=self.pf_key,
+                manifest_dist=spec.manifest_dist.value,
+                diffusion_dist=spec.diffusion_dist.value,
+            )
 
         ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint)
         meas_params = MeasurementParams(
