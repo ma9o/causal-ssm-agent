@@ -348,6 +348,8 @@ def fit_hessmc2(
     step_size: float = 0.1,
     fallback_step_size: float = 0.01,
     adapt_step_size: bool = True,
+    warmup_iters: int = 0,
+    warmup_step_size: float | None = None,
     seed: int = 0,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
@@ -368,6 +370,10 @@ def fit_hessmc2(
         step_size: epsilon -- proposal step size
         fallback_step_size: step size when Hessian is not PSD (SO only)
         adapt_step_size: adapt step size based on ESS (default True)
+        warmup_iters: number of initial RW iterations before switching to the
+            requested proposal. Helps avoid initial particle collapse when
+            priors are diffuse relative to the posterior.
+        warmup_step_size: step size during warmup (defaults to step_size)
         seed: random seed
 
     Returns:
@@ -433,10 +439,17 @@ def fit_hessmc2(
     reverse_batch = jax.jit(jax.vmap(_rev, in_axes=(0, 0, 0, None, None)))
     weight_batch = jax.jit(jax.vmap(_compute_weight, in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None)))
 
+    # Build RW batch functions for warmup (cheap — no grad/hessian needed)
+    if warmup_iters > 0 and proposal != "rw":
+        propose_batch_rw = jax.jit(jax.vmap(_propose_rw, in_axes=(0, 0, 0, 0, None, None)))
+        reverse_batch_rw = jax.jit(jax.vmap(_reverse_rw, in_axes=(0, 0, 0, None, None)))
+        _warmup_eps = warmup_step_size if warmup_step_size is not None else step_size
+
     # 3. Initialize N particles from prior — sample each distribution directly
     # via JAX (vectorized), bypassing numpyro handlers which aren't vmappable.
     # Sort by key name to match ravel_pytree's pytree leaf ordering.
-    print(f"Hess-MC²: N={N}, K={K}, D={D}, proposal={proposal}, eps={step_size}")
+    warmup_tag = f", warmup={warmup_iters}" if warmup_iters > 0 else ""
+    print(f"Hess-MC²: N={N}, K={K}, D={D}, proposal={proposal}, eps={step_size}{warmup_tag}")
     print(f"  Initializing {N} particles from prior...")
 
     parts = []
@@ -449,19 +462,34 @@ def fit_hessmc2(
 
     particles = jnp.concatenate(parts, axis=1)  # (N, D)
 
-    # Batch evaluate all initial particles at once
+    # Batch evaluate all initial particles at once.
+    # When warmup_iters > 0, the first iterations use RW which doesn't need
+    # grads or hessians — skip the expensive initial computation.
     hessians = jnp.zeros((N, D, D))
-    if proposal == "rw":
+    if warmup_iters > 0:
+        log_posts = batch_log_post(particles)
+        grads = jnp.zeros((N, D))
+    elif proposal == "rw":
         log_posts = batch_log_post(particles)
         grads = jnp.zeros((N, D))
     else:
         log_posts, grads = batch_val_and_grad(particles)
-    if proposal == "hessian":
-        hessians = batch_hessian(particles)
+        if proposal == "hessian":
+            hessians = batch_hessian(particles)
 
-    # Initial weights: log w = log [pi(theta)/q(theta)] = log_post - log_prior = log_lik
+    # Initial weights and tempering setup
     init_log_priors = batch_log_prior(particles)
-    logw = log_posts - init_log_priors
+    log_liks = log_posts - init_log_priors
+
+    if warmup_iters > 0:
+        # Tempered warmup: gradually increase β from 1/warmup to 1.0
+        # β_k * log_lik is much less peaked than log_lik for small β
+        betas = [float(i + 1) / warmup_iters for i in range(warmup_iters)]
+        logw = betas[0] * log_liks
+        beta_prev = betas[0]
+    else:
+        # Standard: log w = log [π(θ)/q(θ)] = log_post - log_prior = log_lik
+        logw = log_liks
 
     # Diagnostics and recycling storage (Eq 26, [18])
     ess_history = []
@@ -471,6 +499,22 @@ def fit_hessmc2(
 
     # 4. Main SMC loop
     for k in range(K):
+        in_warmup = warmup_iters > 0 and k < warmup_iters
+
+        # --- Tempering increment: reweight by lik^{β_k - β_{k-1}} ---
+        if in_warmup and k > 0:
+            beta_k = betas[k]
+            logw = logw + (beta_k - beta_prev) * log_liks
+            beta_prev = beta_k
+
+        # At transition from warmup → main proposal, recompute grads/hessians
+        # (warmup iterations only track log_posts, not grads/hessians)
+        if warmup_iters > 0 and k == warmup_iters:
+            if proposal != "rw":
+                log_posts, grads = batch_val_and_grad(particles)
+            if proposal == "hessian":
+                hessians = batch_hessian(particles)
+
         # --- Normalize weights, ESS (single logsumexp) ---
         lse = jax.nn.logsumexp(logw)
         log_wn = logw - lse
@@ -488,6 +532,8 @@ def fit_hessmc2(
             log_posts = log_posts[idx]
             grads = grads[idx]
             hessians = hessians[idx]
+            if in_warmup:
+                log_liks = log_liks[idx]
             logw = jnp.full(N, -jnp.log(float(N)))
             did_resample = True
 
@@ -496,29 +542,54 @@ def fit_hessmc2(
         z_all = random.normal(noise_key, (N, D))
 
         # --- Vectorized proposal (pure JAX, no handlers) ---
-        particles_new, v_all, v_half_all, fwd_chol_all, fwd_ss_all = propose_batch(
-            particles, grads, hessians, z_all, step_size, fallback_step_size
-        )
+        if in_warmup:
+            particles_new, v_all, v_half_all, fwd_chol_all, fwd_ss_all = propose_batch_rw(
+                particles, grads, hessians, z_all, _warmup_eps, fallback_step_size
+            )
+        else:
+            particles_new, v_all, v_half_all, fwd_chol_all, fwd_ss_all = propose_batch(
+                particles, grads, hessians, z_all, step_size, fallback_step_size
+            )
 
         # --- Batch evaluate all new particles (vmapped) ---
-        hessians_new = jnp.zeros((N, D, D))
-        if proposal == "rw":
+        if in_warmup:
+            # During warmup, skip expensive grad/hessian computation
             log_posts_new = batch_log_post(particles_new)
             grads_new = jnp.zeros((N, D))
+            hessians_new = jnp.zeros((N, D, D))
         else:
-            log_posts_new, grads_new = batch_val_and_grad(particles_new)
-        if proposal == "hessian":
-            hessians_new = batch_hessian(particles_new)
+            hessians_new = jnp.zeros((N, D, D))
+            if proposal == "rw":
+                log_posts_new = batch_log_post(particles_new)
+                grads_new = jnp.zeros((N, D))
+            else:
+                log_posts_new, grads_new = batch_val_and_grad(particles_new)
+            if proposal == "hessian":
+                hessians_new = batch_hessian(particles_new)
 
         # --- Vectorized reverse momentum + weight update ---
-        v_new_all, rev_chol_all, rev_ss_all = reverse_batch(
-            v_half_all, grads_new, hessians_new, step_size, fallback_step_size
-        )
+        if in_warmup:
+            v_new_all, rev_chol_all, rev_ss_all = reverse_batch_rw(
+                v_half_all, grads_new, hessians_new, _warmup_eps, fallback_step_size
+            )
+            # Weight update uses tempered posterior: β*lik + prior
+            beta_k = betas[k]
+            log_priors_new = batch_log_prior(particles_new)
+            log_liks_new = log_posts_new - log_priors_new
+            tempered_new = beta_k * log_liks_new + log_priors_new
+            log_priors_old = batch_log_prior(particles)
+            tempered_old = beta_k * log_liks + log_priors_old
+        else:
+            v_new_all, rev_chol_all, rev_ss_all = reverse_batch(
+                v_half_all, grads_new, hessians_new, step_size, fallback_step_size
+            )
+            tempered_new = log_posts_new
+            tempered_old = log_posts
 
         logw = weight_batch(
             logw,
-            log_posts_new,
-            log_posts,
+            tempered_new,
+            tempered_old,
             v_all,
             v_new_all,
             fwd_chol_all,
@@ -533,22 +604,27 @@ def fit_hessmc2(
         log_posts = log_posts_new
         grads = grads_new
         hessians = hessians_new
+        if in_warmup:
+            log_liks = log_liks_new
 
-        # Adapt step size based on ESS
-        if adapt_step_size:
+        # Adapt step size based on ESS (only for main proposal, not warmup)
+        if adapt_step_size and not in_warmup:
             ess_ratio = ess / N
             if ess_ratio > 0.8:
                 step_size = min(step_size * 1.1, 1.0)
             elif ess_ratio < 0.2:
                 step_size = max(step_size * 0.8, 1e-4)
 
-        # Store for recycling (Eq 26, [18])
-        recycled_particles.append(particles)
-        recycled_logw.append(logw)
+        # Store for recycling (Eq 26, [18]) — only after warmup (β=1)
+        if not in_warmup:
+            recycled_particles.append(particles)
+            recycled_logw.append(logw)
 
         resamp_tag = " [resampled]" if did_resample else ""
         eps_tag = f"  eps={step_size:.4f}" if adapt_step_size else ""
-        print(f"  step {k + 1}/{K}  ESS={ess:.1f}/{N}{resamp_tag}{eps_tag}")
+        beta_tag = f"  β={betas[k]:.2f}" if in_warmup else ""
+        warmup_label = " [warmup/RW]" if in_warmup else ""
+        print(f"  step {k + 1}/{K}  ESS={ess:.1f}/{N}{resamp_tag}{eps_tag}{beta_tag}{warmup_label}")
 
     # 5. Final resampling from recycled pool
     rng_key, final_key = random.split(rng_key)
@@ -581,5 +657,6 @@ def fit_hessmc2(
             "n_iterations": K,
             "proposal": proposal,
             "step_size": step_size,
+            "warmup_iters": warmup_iters,
         },
     )

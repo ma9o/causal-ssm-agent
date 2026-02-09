@@ -200,16 +200,18 @@ def run(local: bool = False):
 
     if local:
         T = 80
-        N_SMC = 32
-        K_ITER = 10
+        N_SMC = 64
+        K_ITER = 15
+        K_WARMUP = 5
         N_PF = 200
     else:
         T = 200
-        N_SMC = 128
+        N_SMC = 512
         K_ITER = 30
+        K_WARMUP = 10
         N_PF = 500
 
-    print(f"T={T}, N_smc={N_SMC}, K={K_ITER}, N_pf={N_PF}")
+    print(f"T={T}, N_smc={N_SMC}, K={K_ITER}, warmup={K_WARMUP}, N_pf={N_PF}")
     print()
 
     # ==================================================================
@@ -332,7 +334,9 @@ def run(local: bool = False):
         n_smc_particles=N_SMC,
         n_iterations=K_ITER,
         proposal="hessian",
-        step_size=1.0,
+        step_size=0.5,
+        warmup_iters=K_WARMUP,
+        warmup_step_size=0.5,
         adapt_step_size=False,
         seed=0,
     )
