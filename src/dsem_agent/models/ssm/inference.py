@@ -37,7 +37,7 @@ class InferenceResult:
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal["nuts", "svi", "pmmh"]
+    method: Literal["nuts", "svi", "pmmh", "hessmc2"]
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -100,7 +100,9 @@ def fit(
 
         return fit_hessmc2(model, observations, times, subject_ids, **kwargs)
     else:
-        raise ValueError(f"Unknown inference method: {method!r}. Use 'svi', 'pmmh', 'nuts', or 'hessmc2'.")
+        raise ValueError(
+            f"Unknown inference method: {method!r}. Use 'svi', 'pmmh', 'nuts', or 'hessmc2'."
+        )
 
 
 def prior_predictive(
@@ -245,11 +247,7 @@ def _fit_svi(
     raw_samples = predictive(sample_key, observations, times, subject_ids)
 
     # Filter out the log_likelihood factor site (observed)
-    samples = {
-        name: values
-        for name, values in raw_samples.items()
-        if name != "log_likelihood"
-    }
+    samples = {name: values for name, values in raw_samples.items() if name != "log_likelihood"}
 
     return InferenceResult(
         _samples=samples,
@@ -336,7 +334,11 @@ def _fit_pmmh(
 
     site_info = {}  # name -> (shape, distribution, transform)
     for name, site in trace.items():
-        if site["type"] == "sample" and not site.get("is_observed", False) and name != "log_likelihood":
+        if (
+            site["type"] == "sample"
+            and not site.get("is_observed", False)
+            and name != "log_likelihood"
+        ):
             d = site["fn"]
             transform = dist.transforms.biject_to(d.support)
             site_info[name] = {
@@ -361,9 +363,9 @@ def _fit_pmmh(
     # Add Jacobian correction for unconstrained -> constrained
     log_jacobian = 0.0
     for name, info in site_info.items():
-        log_jacobian = log_jacobian + jnp.sum(info["transform"].log_abs_det_jacobian(
-            unconstrained[name], constrained[name]
-        ))
+        log_jacobian = log_jacobian + jnp.sum(
+            info["transform"].log_abs_det_jacobian(unconstrained[name], constrained[name])
+        )
     current_log_joint = log_lik + log_prior + log_jacobian
 
     # 3. MH loop
@@ -393,9 +395,11 @@ def _fit_pmmh(
         )
         prop_log_jacobian = 0.0
         for name, info in site_info.items():
-            prop_log_jacobian = prop_log_jacobian + jnp.sum(info["transform"].log_abs_det_jacobian(
-                proposed_unconstrained[name], proposed_constrained[name]
-            ))
+            prop_log_jacobian = prop_log_jacobian + jnp.sum(
+                info["transform"].log_abs_det_jacobian(
+                    proposed_unconstrained[name], proposed_constrained[name]
+                )
+            )
         proposed_log_joint = prop_log_lik + prop_log_prior + prop_log_jacobian
 
         # d. MH accept/reject
