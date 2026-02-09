@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent  # project root
 try:
     import modal
 
-    GPU = "B200"
+    GPU = "A100"
 
     image = (
         modal.Image.debian_slim(python_version="3.12")
