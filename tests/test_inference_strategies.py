@@ -1571,51 +1571,93 @@ class TestHessMC2VmapBatching:
 
 
 class TestHessMC2Smoke:
-    """Minimal end-to-end smoke test for Hess-MC² on Poisson SSM.
+    """End-to-end smoke test for Hess-MC² on a non-linear non-Gaussian SSM.
 
-    DGP: 1-latent CT-SSM with Poisson observations (log-link).
-    Non-linear (exp link) + non-Gaussian (Poisson counts).
-    Uses tiny settings (N=8, K=3) just to verify the pipeline runs.
+    DGP: 3-latent CT-SSM with 5 Poisson indicators and Student-t process noise.
+    - Non-linear observation: y ~ Poisson(exp(Λx + μ))  (log-link)
+    - Non-Gaussian process:  Student-t innovations (df=5)
+    - Non-Gaussian observation: Poisson counts
+    - Cross-coupled drift (6 off-diagonal elements)
+    - Free factor loadings (identity block + 6 free cross-loadings)
+    - D=33 total free parameters
+
+    Uses tiny inference settings (N=8, K=3) — exercises the full pipeline
+    without waiting for convergence.
     """
 
     @pytest.mark.timeout(30)
-    def test_poisson_smoke(self):
-        """Hess-MC² MALA runs on Poisson SSM and returns valid result.
+    def test_poisson_student_t_smoke(self):
+        """Hess-MC² MALA on 3-latent, 5-indicator Poisson + Student-t SSM.
 
-        Performance gate: must complete within 30s (JIT compile + N=8, K=3).
+        Performance gate: must complete within 30s.
         """
         import time
 
+        import jax.scipy.linalg as jla
+
+        from dsem_agent.models.ssm import discretize_system
+
         t0 = time.perf_counter()
 
-        # -- Simulate 1D Poisson SSM --
-        T, dt = 30, 1.0
-        true_drift = -0.5
-        log_baseline = jnp.log(5.0)
+        # -- Ground truth --
+        n_latent, n_manifest = 3, 5
+        T, dt = 40, 0.5
+        proc_df = 5.0
+
+        true_drift = jnp.array(
+            [
+                [-0.6, 0.15, 0.0],
+                [0.1, -0.8, 0.2],
+                [0.0, -0.1, -0.5],
+            ]
+        )
+        true_diff_diag = jnp.array([0.3, 0.25, 0.2])
+        true_cint = jnp.array([0.3, 0.0, -0.2])
+        true_lambda = jnp.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.6, 0.4, 0.0],
+                [0.0, 0.3, 0.7],
+            ]
+        )
+        log_baselines = jnp.log(jnp.array([5.0, 3.0, 4.0, 6.0, 2.0]))
+
+        # -- Simulate latent states with Student-t process noise --
+        diff_cov = jnp.diag(true_diff_diag**2)
+        Ad, Qd, cd = discretize_system(true_drift, diff_cov, true_cint, dt)
+        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
 
         key = random.PRNGKey(42)
-        discrete_coef = jnp.exp(true_drift * dt)
-        states = [jnp.zeros(1)]
+        states = [jnp.zeros(n_latent)]
         for _ in range(T - 1):
-            key, sk = random.split(key)
-            states.append(discrete_coef * states[-1] + random.normal(sk, (1,)) * 0.2)
+            key, nk, chi_k = random.split(key, 3)
+            z = random.normal(nk, (n_latent,))
+            chi2 = random.gamma(chi_k, proc_df / 2.0) * 2.0
+            noise = Qd_chol @ (z * jnp.sqrt((proc_df - 2.0) / chi2))
+            states.append(Ad @ states[-1] + cd.flatten() + noise)
         latent = jnp.stack(states)
 
+        # -- Poisson observations: y ~ Poisson(exp(Λx + μ)) --
         key, obs_key = random.split(key)
-        eta = jnp.clip(latent + log_baseline, -10.0, 6.0)
+        eta = jax.vmap(lambda x: true_lambda @ x + log_baselines)(latent)
+        eta = jnp.clip(eta, -10.0, 6.0)
         observations = random.poisson(obs_key, jnp.exp(eta)).astype(jnp.float32)
         times = jnp.arange(T, dtype=float) * dt
 
-        # -- Fit with tiny settings --
+        # -- Fit (N=8, K=3, D=33) --
         spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            lambda_mat="free",
             diffusion="diag",
+            cint="free",
             manifest_dist=NoiseFamily.POISSON,
-            manifest_means=jnp.array([log_baseline]),
+            diffusion_dist=NoiseFamily.STUDENT_T,
+            manifest_means=log_baselines,
         )
-        model = SSMModel(spec, n_particles=50)
+        model = SSMModel(spec, n_particles=30)
 
         result = fit(
             model,
@@ -1629,11 +1671,25 @@ class TestHessMC2Smoke:
             seed=0,
         )
 
-        # -- Basic sanity checks --
+        # -- Checks --
         assert isinstance(result, InferenceResult)
         assert result.method == "hessmc2"
         samples = result.get_samples()
-        assert len(samples) > 0
+
+        for site in [
+            "drift_diag_pop",
+            "drift_offdiag_pop",
+            "diffusion_diag_pop",
+            "cint_pop",
+            "lambda_free",
+            "proc_df",
+        ]:
+            assert site in samples, f"Missing sample site: {site}"
+
+        assert samples["drift_diag_pop"].shape[1] == n_latent
+        assert samples["drift_offdiag_pop"].shape[1] == n_latent * (n_latent - 1)
+        assert samples["cint_pop"].shape[1] == n_latent
+        assert samples["proc_df"].ndim == 1
 
         ess = result.diagnostics["ess_history"]
         assert len(ess) == 3
