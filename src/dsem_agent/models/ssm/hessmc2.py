@@ -12,6 +12,25 @@ target the log-posterior (paper Eq 9, 11).
 
 Reference: Murphy et al., "Hess-MC²: Sequential Monte Carlo Squared using
 Hessian Information and Second Order Proposals", 2025.
+
+Design Notes
+------------
+**No tempering (by design):** Unlike standard SMC samplers that use a tempering
+ladder β_0=0 → β_K=1, Hess-MC² targets the full posterior π(θ) from iteration
+1. The paper (Section III, Eq 24) defines initial weights as v_1^i = π(θ_1^i) /
+q_1(θ_1^i) — the full posterior ratio, with no β scaling. The thesis is that
+gradient- and Hessian-informed proposals provide sufficient exploration without
+tempering. The authors' reference implementation (github.com/j-j-murphy/
+SMC-Squared-Langevin, SMCsq_BASE.py line 137) confirms: ``logw = p_logpdf_x -
+p_log_q0_x`` with no tempering parameter anywhere. Do NOT add tempering.
+
+**Full Hessian vs diagonal:** The reference implementation uses the full DxD
+Hessian matrix: ``np.linalg.pinv(neg_hess)`` for inversion and full MVN
+sampling (proposals.py lines 65-68). Our current diagonal approximation loses
+off-diagonal curvature — the correlation structure that makes SO proposals
+better than FO in the paper's experiments (Table I, II). Upgrading to full
+Hessian (O(D³) per particle, but D is typically 5-30 for DSEM) is the main
+fidelity gap vs. the paper. Do NOT downgrade to scalar or remove the Hessian.
 """
 
 from __future__ import annotations
@@ -69,11 +88,15 @@ def _build_eval_fns(model, observations, times, subject_ids, site_info, unravel_
         unc = unravel_fn(z)
         return {name: transforms[name](unc[name]) for name in unc}, unc
 
-    def log_lik_fn(z):
+    def _log_lik_fn(z):
         """Log-likelihood p(y|theta) via PF or Kalman."""
         con, _ = _constrain(z)
         log_lik, _ = _eval_model(model.model, con, observations, times, subject_ids)
         return log_lik
+
+    # Checkpoint: recompute PF intermediates during backward pass instead of
+    # storing them. Trades ~2x compute for O(1) memory in time-series length.
+    log_lik_fn = jax.checkpoint(_log_lik_fn)
 
     def log_prior_unc_fn(z):
         """Log-prior in unconstrained space: log p(T(z)) + log|J(z)|."""
@@ -277,21 +300,25 @@ def fit_hessmc2(
     def log_post_fn(z):
         return log_lik_fn(z) + log_prior_unc_fn(z)
 
-    grad_post_fn = jax.grad(log_post_fn)
-
     # --- Batched evaluators: vmap over particles, JIT the whole batch ---
     def _safe_log_post(z):
         ll = log_lik_fn(z)
         lp = log_prior_unc_fn(z)
         return jnp.where(jnp.isfinite(ll) & jnp.isfinite(lp), lp + ll, -1e30)
 
-    def _safe_grad(z):
-        g = grad_post_fn(z)
-        return jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
-
     batch_log_post = jax.jit(jax.vmap(_safe_log_post))
     batch_log_prior = jax.jit(jax.vmap(log_prior_unc_fn))
-    batch_grad = jax.jit(jax.vmap(_safe_grad))
+
+    # Fused value-and-gradient: saves one full forward pass (including the
+    # expensive PF likelihood) per call vs separate batch_log_post + batch_grad.
+    # Reverse-mode AD already computes the forward value internally.
+    def _safe_val_and_grad(z):
+        val, grad = jax.value_and_grad(log_post_fn)(z)
+        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
+        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+        return safe_val, safe_grad
+
+    batch_val_and_grad = jax.jit(jax.vmap(_safe_val_and_grad))
 
     if proposal == "hessian":
 
@@ -313,27 +340,29 @@ def fit_hessmc2(
     reverse_batch = jax.jit(jax.vmap(_rev, in_axes=(0, 0, 0, None, None)))
     weight_batch = jax.jit(jax.vmap(_compute_weight, in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None)))
 
-    # 3. Initialize N particles from prior (sequential — handlers not vmappable)
-    particles = jnp.zeros((N, D))
-
+    # 3. Initialize N particles from prior — sample each distribution directly
+    # via JAX (vectorized), bypassing numpyro handlers which aren't vmappable.
+    # Sort by key name to match ravel_pytree's pytree leaf ordering.
     print(f"Hess-MC²: N={N}, K={K}, D={D}, proposal={proposal}, eps={step_size}")
     print(f"  Initializing {N} particles from prior...")
 
-    for i in range(N):
-        rng_key, init_key = random.split(rng_key)
-        with handlers.seed(rng_seed=int(init_key[0])):
-            trace = handlers.trace(model.model).get_trace(observations, times, subject_ids)
-        init_unc = {}
-        for name, info in site_info.items():
-            init_unc[name] = info["transform"].inv(trace[name]["value"])
-        particles = particles.at[i].set(ravel_pytree(init_unc)[0])
+    parts = []
+    for name in sorted(site_info.keys()):
+        info = site_info[name]
+        rng_key, sample_key = random.split(rng_key)
+        prior_samples = info["distribution"].sample(sample_key, (N,))
+        unc_samples = info["transform"].inv(prior_samples)
+        parts.append(unc_samples.reshape(N, -1))
+
+    particles = jnp.concatenate(parts, axis=1)  # (N, D)
 
     # Batch evaluate all initial particles at once
-    log_posts = batch_log_post(particles)
-    grads = jnp.zeros((N, D))
     hess_diags = jnp.zeros((N, D))
-    if proposal in ("mala", "hessian"):
-        grads = batch_grad(particles)
+    if proposal == "rw":
+        log_posts = batch_log_post(particles)
+        grads = jnp.zeros((N, D))
+    else:
+        log_posts, grads = batch_val_and_grad(particles)
     if proposal == "hessian":
         hess_diags = batch_hessian(particles)
 
@@ -378,11 +407,12 @@ def fit_hessmc2(
         )
 
         # --- Batch evaluate all new particles (vmapped) ---
-        log_posts_new = batch_log_post(particles_new)
-        grads_new = jnp.zeros((N, D))
         hess_diags_new = jnp.zeros((N, D))
-        if proposal in ("mala", "hessian"):
-            grads_new = batch_grad(particles_new)
+        if proposal == "rw":
+            log_posts_new = batch_log_post(particles_new)
+            grads_new = jnp.zeros((N, D))
+        else:
+            log_posts_new, grads_new = batch_val_and_grad(particles_new)
         if proposal == "hessian":
             hess_diags_new = batch_hessian(particles_new)
 
