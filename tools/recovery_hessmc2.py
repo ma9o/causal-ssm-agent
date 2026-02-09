@@ -5,23 +5,41 @@ with off-diagonal drift, a 6-indicator measurement model, and continuous
 intercepts. Fits with SMC² using RW, MALA, and Hessian proposals.
 
 Usage:
-    uv run python tools/recovery_hessmc2.py            # local CPU
+    modal run tools/recovery_hessmc2.py            # remote GPU
+    uv run python tools/recovery_hessmc2.py        # local CPU (smoke test)
 """
 
 from __future__ import annotations
 
-import time
+from pathlib import Path
 
-import jax
-import jax.numpy as jnp
-import jax.random as random
-import jax.scipy.linalg as jla
-import numpy as np
-
-from dsem_agent.models.ssm import SSMModel, SSMPriors, SSMSpec, discretize_system, fit
+ROOT = Path(__file__).resolve().parent.parent  # project root
 
 # ---------------------------------------------------------------------------
-# Helpers (shared with recovery.py)
+# Modal setup (only used when invoked via `modal run`)
+# ---------------------------------------------------------------------------
+try:
+    import modal
+
+    GPU = "L4"
+
+    image = (
+        modal.Image.debian_slim(python_version="3.12")
+        .apt_install("git")
+        .pip_install("uv")
+        .uv_sync(uv_project_dir=str(ROOT), groups=["dev"], frozen=True)
+        .uv_pip_install("jax[cuda12]", gpu=GPU)
+        .env({"PYTHONPATH": "/root/src"})
+        .add_local_dir(ROOT / "src" / "dsem_agent", remote_path="/root/src/dsem_agent")
+    )
+    app = modal.App("dsem-recovery-hessmc2", image=image)
+    HAS_MODAL = True
+except Exception:
+    HAS_MODAL = False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -33,6 +51,8 @@ def header(title: str):
 
 
 def print_recovery(name: str, true_val, samples_arr) -> bool:
+    import jax.numpy as jnp
+
     mean = float(jnp.mean(samples_arr))
     std = float(jnp.std(samples_arr))
     q5 = float(jnp.percentile(samples_arr, 5))
@@ -49,6 +69,8 @@ def print_recovery(name: str, true_val, samples_arr) -> bool:
 
 
 def print_matrix(m, row_labels, col_labels):
+    import numpy as np
+
     a = np.array(m)
     w = 8
     print(f"{'':>{w}s}", "".join(f"{c:>{w}s}" for c in col_labels))
@@ -58,6 +80,8 @@ def print_matrix(m, row_labels, col_labels):
 
 
 def extract_drift(samples, n_latent):
+    import jax.numpy as jnp
+
     if "drift" in samples and samples["drift"].ndim == 3:
         return samples["drift"]
     drift_diag = samples["drift_diag_pop"]
@@ -79,6 +103,8 @@ def extract_drift(samples, n_latent):
 
 
 def extract_diffusion_diag(samples, n_latent):
+    import jax.numpy as jnp
+
     if "diffusion" in samples and samples["diffusion"].ndim == 3:
         return jnp.array([samples["diffusion"][:, i, i] for i in range(n_latent)]).T
     return samples["diffusion_diag_pop"]
@@ -91,6 +117,9 @@ def extract_cint(samples):
 
 
 def report_recovery(method_name, samples, true_drift, true_diff_diag, true_cint, names, n_latent):
+    import jax.numpy as jnp
+    import numpy as np
+
     header(f"RESULTS: {method_name}")
 
     offdiag_pairs = [(i, j) for i in range(n_latent) for j in range(n_latent) if i != j]
@@ -155,17 +184,34 @@ def report_recovery(method_name, samples, true_drift, true_diff_diag, true_cint,
 # ---------------------------------------------------------------------------
 
 
-def run():
+def run(local: bool = False):
+    import time
+
+    import jax
+    import jax.numpy as jnp
+    import jax.random as random
+    import jax.scipy.linalg as jla
+    import numpy as np
+
+    from dsem_agent.models.ssm import SSMModel, SSMPriors, SSMSpec, discretize_system, fit
+
     header("ENVIRONMENT")
     print(f"JAX {jax.__version__}  backend={jax.default_backend()}  devices={jax.devices()}")
 
-    # Tuning: local smoke test settings
-    T = 80
-    N_SMC = 32
-    K_ITER = 10
-    N_PF = 200
-    STEP_SIZE_RW = 0.05
-    STEP_SIZE_MALA = 0.01
+    if local:
+        T = 80
+        N_SMC = 32
+        K_ITER = 10
+        N_PF = 200
+        STEP_SIZE_RW = 0.05
+        STEP_SIZE_MALA = 0.01
+    else:
+        T = 200
+        N_SMC = 128
+        K_ITER = 30
+        N_PF = 500
+        STEP_SIZE_RW = 0.05
+        STEP_SIZE_MALA = 0.01
 
     print(f"T={T}, N_smc={N_SMC}, K={K_ITER}, N_pf={N_PF}")
     print()
@@ -336,5 +382,21 @@ def run():
         print(f"{method:<15s}  {t:>8.1f}  {r:>8.4f}  {c:>8.4f}")
 
 
+# ---------------------------------------------------------------------------
+# Entrypoints
+# ---------------------------------------------------------------------------
+
+if HAS_MODAL:
+
+    @app.function(gpu=GPU, timeout=3600)
+    def recovery_remote():
+        run(local=False)
+
+    @app.local_entrypoint()
+    def main():
+        recovery_remote.remote()
+
+
 if __name__ == "__main__":
-    run()
+    # Direct invocation: local CPU smoke test
+    run(local=True)
