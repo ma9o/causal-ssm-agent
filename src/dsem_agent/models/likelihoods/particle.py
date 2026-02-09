@@ -291,6 +291,12 @@ class ParticleLikelihood:
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))
 
+        # Pre-compute Cholesky of Qd for all timesteps (once, not per particle).
+        # cuthbert vmaps propagate_sample over N_PF particles with model_inputs
+        # broadcast — without this, each particle redundantly recomputes Cholesky.
+        jitter = jnp.eye(n) * 1e-6
+        chol_Qd = jax.vmap(lambda Q: jla.cholesky(Q + jitter, lower=True))(Qd)
+
         # Build params dict for observation model + initial state
         params = {
             "lambda_mat": measurement_params.lambda_mat,
@@ -314,15 +320,13 @@ class ParticleLikelihood:
         def init_sample(key, _model_inputs):
             return adapter.initial_sample(key, params)
 
-        jitter = jnp.eye(n) * 1e-6
-
         def propagate_sample(key, state, model_inputs):
             # Use pre-discretized params from model_inputs — no discretize_system call.
-            # Cholesky is computed here (not pre-batched) for gradient stability.
+            # Cholesky is pre-computed (not per-particle) to avoid N_PF redundant
+            # decompositions per timestep under cuthbert's vmap.
             Ad_t = model_inputs["Ad"]
             cd_t = model_inputs["cd"]
-            Qd_t = model_inputs["Qd"]
-            chol_Qd_t = jla.cholesky(Qd_t + jitter, lower=True)
+            chol_Qd_t = model_inputs["chol_Qd"]
             mean = Ad_t @ state + cd_t
 
             if self.diffusion_dist == "student_t":
@@ -351,6 +355,7 @@ class ParticleLikelihood:
             "Ad": Ad,
             "cd": cd,
             "Qd": Qd,
+            "chol_Qd": chol_Qd,
         }
 
         # Build and run filter
