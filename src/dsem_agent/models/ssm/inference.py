@@ -73,7 +73,7 @@ def fit(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    method: Literal["svi", "pmmh", "nuts"] = "svi",
+    method: Literal["svi", "pmmh", "nuts", "hessmc2"] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -95,8 +95,12 @@ def fit(
         return _fit_svi(model, observations, times, subject_ids, **kwargs)
     elif method == "pmmh":
         return _fit_pmmh(model, observations, times, subject_ids, **kwargs)
+    elif method == "hessmc2":
+        from dsem_agent.models.ssm.hessmc2 import fit_hessmc2
+
+        return fit_hessmc2(model, observations, times, subject_ids, **kwargs)
     else:
-        raise ValueError(f"Unknown inference method: {method!r}. Use 'svi', 'pmmh', or 'nuts'.")
+        raise ValueError(f"Unknown inference method: {method!r}. Use 'svi', 'pmmh', 'nuts', or 'hessmc2'.")
 
 
 def prior_predictive(
