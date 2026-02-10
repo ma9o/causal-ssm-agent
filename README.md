@@ -95,6 +95,12 @@ dsem-agent/
 │   ├── flows/         # Prefect pipeline + stages/
 │   │   └── stages/    # stage1a_latent, stage1b_measurement, stage2_workers, stage4_model, ...
 │   └── utils/         # Shared utilities (config, llm, data, etc.)
+├── benchmarks/        # Inference method benchmarks (parameter recovery)
+│   ├── problems/      # Standardized test problems (ground truths)
+│   ├── metrics.py     # Recovery metrics (RMSE, coverage, reporting)
+│   ├── modal_infra.py # Shared Modal GPU setup
+│   ├── run.py         # Unified CLI (--method pgas/tempered_smc/all)
+│   └── results.md     # Empirical results across methods
 ├── notebooks/         # PyMC showcase notebooks (tracked)
 ├── scratchpad/        # Temporary work files (gitignored contents)
 ├── tests/             # pytest tests (test_{name}.py)
