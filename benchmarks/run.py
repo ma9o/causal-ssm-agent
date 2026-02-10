@@ -276,10 +276,10 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         pgas_kwargs = {}
         if is_baseline:
             pgas_kwargs = {"block_sampling": False}
-            print("  [BASELINE] block_sampling=False")
+            print("  [BASELINE] block_sampling=False, svi_warmstart=on, HMC(L=5), dual_avg")
         else:
             pgas_kwargs = {"block_sampling": True}
-            print("  [UPGRADED] block_sampling=True, optimal_proposal=auto, preconditioning=on")
+            print("  [UPGRADED] block_sampling=True, svi_warmstart=on, HMC(L=5), dual_avg")
         print()
         t0 = time.perf_counter()
         result = fit(
@@ -305,6 +305,8 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
             f"  MALA accept: mean={sum(rates) / len(rates):.2f}  "
             f"final_step={result.diagnostics['param_step_size']:.4f}"
         )
+        if result.diagnostics.get("svi_warmstart"):
+            print("  SVI warmstart: ACTIVE")
         if result.diagnostics.get("gaussian_obs"):
             print("  Optimal proposal: ACTIVE")
         if result.diagnostics.get("block_sampling"):
