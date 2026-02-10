@@ -19,9 +19,14 @@ from .stage3_validation import (
 from .stage4_model import (
     stage4_orchestrated_flow,
 )
+from .stage4b_parametric_id import (
+    parametric_id_task,
+    stage4b_parametric_id_flow,
+)
 from .stage5_inference import (
     fit_model,
     run_interventions,
+    run_power_scaling,
 )
 
 __all__ = [
@@ -39,7 +44,11 @@ __all__ = [
     "validate_extraction",
     # Stage 4
     "stage4_orchestrated_flow",
+    # Stage 4b
+    "parametric_id_task",
+    "stage4b_parametric_id_flow",
     # Stage 5
     "fit_model",
     "run_interventions",
+    "run_power_scaling",
 ]
