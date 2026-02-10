@@ -62,10 +62,72 @@ Metrics:
 
 3. **Scaling**: 521s on A100 for T=200, 500 iters. The bottleneck is the sequential CSMC sweep (T steps, not parallelizable). GPU helps with the vmap over particles but doesn't help with the time axis.
 
+## Tempered SMC with Preconditioned MALA
+
+**Algorithm**: Linear tempering (beta: 0->1) with preconditioned MALA mutations (1-step leapfrog HMC + MH correction). Pilot adaptation at beta=0, adaptive step size, weighted precision mass matrix. Marginalizes trajectories via PF (no CSMC conditioning).
+
+### Development History
+
+#### Run A: M=covariance (BUG)
+
+Mass matrix set to covariance instead of precision. Three GPU runs with identical settings but different code states.
+
+| Run | Coverage | RMSE | Corr | Final eps | Accept at beta=1 |
+|-----|----------|------|------|-----------|-------------------|
+| A1 | 13/24 | 0.507 | 0.772 | 0.0000 | 0.40 (deceptive) |
+| A2 | 0/24 | 0.412 | 0.638 | 0.0000 | 0.00 |
+| A3 | 11/24 | 0.361 | 0.646 | 0.0000 | 0.03 |
+
+**Diagnosis:** With M=cov, the MALA position update is `z += eps * cov^{-1} * p`, giving noise variance `eps^2 * cov^{-1}` -- non-isotropic, tiny steps in wide directions, large in narrow. Step size adaptation fights this by driving eps to zero.
+
+#### Run B: M=precision, target=0.50, rate=0.3
+
+Fixed mass matrix to precision (inverse covariance). MALA noise becomes `eps * N(0, I)` in standardized space -- perfectly isotropic.
+
+| Run | Coverage | RMSE | Corr | Final eps | Accept at beta=1 |
+|-----|----------|------|------|-----------|-------------------|
+| B1 | 21/24 | 0.160 | 0.929 | 0.0005 | 0.30 |
+
+**Observation:** Dramatic improvement. eps still decays to 0.0005 near beta=1 because acceptance (0.44) consistently below target (0.50), so adaptation keeps shrinking.
+
+#### Run C: M=precision, target=0.44, rate=0.1 (FINAL)
+
+Lowered target acceptance to match natural equilibrium with PF noise. Slower adaptation rate prevents over-reacting to transient dips.
+
+| Run | Coverage | RMSE | Corr | Final eps | Accept at beta=1 |
+|-----|----------|------|------|-----------|-------------------|
+| C1 | **22/24** | **0.183** | **0.882** | 0.020 | 0.28 |
+
+**This is the committed configuration.**
+
+Breakdown: drift diag **4/4**, drift off-diag 11/12, diffusion **4/4**, cint 3/4.
+
+Misses: Perf->Stress off-diagonal (bias +0.42), Stress continuous intercept (bias -0.56). Both are weakly identified parameters with wide posteriors.
+
+eps trajectory: 0.26 (pilot) -> 0.16 (beta=0.2) -> 0.10 (beta=0.5) -> 0.05 (beta=0.8) -> 0.02 (beta=1.0). Healthy decay reflecting genuinely harder posterior at higher beta, not adaptation pathology.
+
+Settings: `N_SMC=128, K=200 (100 warmup), N_MH=15, N_PF=500, target_accept=0.44, adapt_rate=0.1, pilot=30 steps, B200 GPU, ~35 min`
+
+### Key Lessons
+
+1. **Mass matrix convention (CRITICAL)**: For MALA/HMC, M should be the **precision** (inverse covariance), not the covariance. This matches Stan/NUTS convention where "inverse mass matrix" = covariance, so M = precision.
+
+2. **Step size adaptation**: Target acceptance ~0.44 works for MALA with noisy PF likelihood (lower than theoretical 0.574 due to gradient noise). Slow adaptation rate (0.1) prevents over-adapting to transient acceptance dips from PF noise.
+
+3. **Tempering**: Linear schedule beta=k/n_outer is simple and robust. Guarded mass matrix: only update when ESS > N/4 to prevent degenerate covariance estimates.
+
 ## Hess-MC2 (SMC-squared with Hessian proposals)
 
-*Results pending.*
+Fundamentally fails at D=52. Importance-weighted proposals cannot bridge the prior-posterior gap in high dimensions -- ESS collapses to 1/N even with tempered warmup. Works at D=3 (1-latent LGSS) but does not scale.
 
 ## PMMH (Particle Marginal Metropolis-Hastings)
 
 *Results pending.*
+
+## Summary Table
+
+| Method | Coverage | RMSE | Corr | Notes |
+|--------|----------|------|------|-------|
+| PGAS (Gibbs CSMC + MALA) | 14/24 | 0.258 | 0.89 | A100, drift-diffusion confounding |
+| **Tempered SMC + MALA** | **22/24** | **0.183** | **0.88** | B200, precision preconditioning |
+| Hess-MC2 (D=52) | fails | -- | -- | ESS collapse in high dimensions |

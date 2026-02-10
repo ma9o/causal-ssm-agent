@@ -1714,8 +1714,9 @@ class TestHessMC2Smoke:
 
         # drift_diag_pop: model applies -abs(), so recovered drift = -abs(sample)
         drift_samples = -jnp.abs(samples["drift_diag_pop"][:, 0])
-        drift_q5, drift_q95 = float(jnp.percentile(drift_samples, 5)), float(
-            jnp.percentile(drift_samples, 95)
+        drift_q5, drift_q95 = (
+            float(jnp.percentile(drift_samples, 5)),
+            float(jnp.percentile(drift_samples, 95)),
         )
         assert drift_q5 <= lgss_data["true_drift_diag"] <= drift_q95, (
             f"Drift {lgss_data['true_drift_diag']:.2f} outside "
@@ -1724,8 +1725,9 @@ class TestHessMC2Smoke:
 
         # diffusion_diag_pop: HalfNormal, positive
         diff_samples = samples["diffusion_diag_pop"][:, 0]
-        diff_q5, diff_q95 = float(jnp.percentile(diff_samples, 5)), float(
-            jnp.percentile(diff_samples, 95)
+        diff_q5, diff_q95 = (
+            float(jnp.percentile(diff_samples, 5)),
+            float(jnp.percentile(diff_samples, 95)),
         )
         assert diff_q5 <= lgss_data["true_diff_diag"] <= diff_q95, (
             f"Diffusion {lgss_data['true_diff_diag']:.2f} outside "
@@ -1734,12 +1736,12 @@ class TestHessMC2Smoke:
 
         # manifest_var_diag: observation noise SD
         obs_samples = samples["manifest_var_diag"][:, 0]
-        obs_q5, obs_q95 = float(jnp.percentile(obs_samples, 5)), float(
-            jnp.percentile(obs_samples, 95)
+        obs_q5, obs_q95 = (
+            float(jnp.percentile(obs_samples, 5)),
+            float(jnp.percentile(obs_samples, 95)),
         )
         assert obs_q5 <= lgss_data["true_obs_sd"] <= obs_q95, (
-            f"Obs SD {lgss_data['true_obs_sd']:.2f} outside "
-            f"90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
+            f"Obs SD {lgss_data['true_obs_sd']:.2f} outside 90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
         )
 
 
@@ -1868,8 +1870,9 @@ class TestPGASSmoke:
 
         # drift_diag_pop: model applies -abs(), so recovered drift = -abs(sample)
         drift_samples = -jnp.abs(samples["drift_diag_pop"][:, 0])
-        drift_q5, drift_q95 = float(jnp.percentile(drift_samples, 5)), float(
-            jnp.percentile(drift_samples, 95)
+        drift_q5, drift_q95 = (
+            float(jnp.percentile(drift_samples, 5)),
+            float(jnp.percentile(drift_samples, 95)),
         )
         assert drift_q5 <= lgss_data["true_drift_diag"] <= drift_q95, (
             f"Drift {lgss_data['true_drift_diag']:.2f} outside "
@@ -1878,8 +1881,9 @@ class TestPGASSmoke:
 
         # diffusion_diag_pop: HalfNormal, positive
         diff_samples = samples["diffusion_diag_pop"][:, 0]
-        diff_q5, diff_q95 = float(jnp.percentile(diff_samples, 5)), float(
-            jnp.percentile(diff_samples, 95)
+        diff_q5, diff_q95 = (
+            float(jnp.percentile(diff_samples, 5)),
+            float(jnp.percentile(diff_samples, 95)),
         )
         assert diff_q5 <= lgss_data["true_diff_diag"] <= diff_q95, (
             f"Diffusion {lgss_data['true_diff_diag']:.2f} outside "
@@ -1888,12 +1892,167 @@ class TestPGASSmoke:
 
         # manifest_var_diag: observation noise SD
         obs_samples = samples["manifest_var_diag"][:, 0]
-        obs_q5, obs_q95 = float(jnp.percentile(obs_samples, 5)), float(
-            jnp.percentile(obs_samples, 95)
+        obs_q5, obs_q95 = (
+            float(jnp.percentile(obs_samples, 5)),
+            float(jnp.percentile(obs_samples, 95)),
         )
         assert obs_q5 <= lgss_data["true_obs_sd"] <= obs_q95, (
-            f"Obs SD {lgss_data['true_obs_sd']:.2f} outside "
-            f"90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
+            f"Obs SD {lgss_data['true_obs_sd']:.2f} outside 90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
+        )
+
+
+class TestTemperedSMCSmoke:
+    """End-to-end smoke test for Tempered SMC with preconditioned MALA.
+
+    Uses the same 1D LGSS setup as TestHessMC2Smoke. Verifies that the
+    tempered SMC loop (tempering + MALA mutations) produces valid samples.
+    """
+
+    @pytest.fixture
+    def lgss_data(self):
+        """1D Linear Gaussian SSM data (same as Hess-MC2 smoke test)."""
+        import jax.scipy.linalg as jla
+
+        from dsem_agent.models.ssm import discretize_system
+
+        n_latent, n_manifest = 1, 1
+        T, dt = 100, 1.0
+
+        true_drift = jnp.array([[-0.3]])
+        true_diff_cov = jnp.array([[0.3**2]])
+        true_obs_var = jnp.array([[0.5**2]])
+
+        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
+        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
+        R_chol = jla.cholesky(true_obs_var, lower=True)
+
+        key = random.PRNGKey(42)
+        states = [jnp.zeros(n_latent)]
+        for _ in range(T - 1):
+            key, nk = random.split(key)
+            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
+        latent = jnp.stack(states)
+
+        key, obs_key = random.split(key)
+        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
+        times = jnp.arange(T, dtype=float) * dt
+
+        spec = SSMSpec(
+            n_latent=n_latent,
+            n_manifest=n_manifest,
+            lambda_mat=jnp.eye(n_manifest, n_latent),
+            manifest_means=jnp.zeros(n_manifest),
+            diffusion="diag",
+            t0_means=jnp.zeros(n_latent),
+            t0_var=jnp.eye(n_latent),
+        )
+
+        return {
+            "observations": observations,
+            "times": times,
+            "spec": spec,
+            "true_drift_diag": -0.3,
+            "true_diff_diag": 0.3,
+            "true_obs_sd": 0.5,
+            "n_latent": n_latent,
+        }
+
+    @pytest.mark.timeout(60)
+    def test_tempered_smc_smoke(self, lgss_data):
+        """Tempered SMC pipeline check on 1D LGSS (D=3).
+
+        Verifies: instantiation, inference completes, correct output structure.
+        Performance gate: must complete within 60s.
+        """
+        import time
+
+        t0 = time.perf_counter()
+
+        model = SSMModel(lgss_data["spec"], n_particles=50)
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="tempered_smc",
+            n_outer=6,
+            n_csmc_particles=8,
+            n_mh_steps=3,
+            param_step_size=0.01,
+            n_warmup=3,
+            seed=0,
+        )
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "tempered_smc"
+        samples = result.get_samples()
+
+        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
+            assert site in samples, f"Missing sample site: {site}"
+
+        # Post-warmup samples: n_outer - n_warmup = 3
+        assert samples["drift_diag_pop"].shape == (3, 1)
+        assert samples["diffusion_diag_pop"].shape == (3, 1)
+        assert samples["manifest_var_diag"].shape == (3, 1)
+
+        # Diagnostics present
+        assert "accept_rates" in result.diagnostics
+        assert len(result.diagnostics["accept_rates"]) == 6
+
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 60.0, f"Tempered SMC smoke took {elapsed:.1f}s, must be under 60s"
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(180)
+    def test_tempered_smc_recovery(self, lgss_data):
+        """Tempered SMC recovers 1D LGSS params (D=3) within 90% CIs."""
+        model = SSMModel(lgss_data["spec"], n_particles=50)
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="tempered_smc",
+            n_outer=100,
+            n_csmc_particles=20,
+            n_mh_steps=10,
+            param_step_size=0.1,
+            n_warmup=50,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        # drift_diag_pop: model applies -abs(), so recovered drift = -abs(sample)
+        drift_samples = -jnp.abs(samples["drift_diag_pop"][:, 0])
+        drift_q5, drift_q95 = (
+            float(jnp.percentile(drift_samples, 5)),
+            float(jnp.percentile(drift_samples, 95)),
+        )
+        assert drift_q5 <= lgss_data["true_drift_diag"] <= drift_q95, (
+            f"Drift {lgss_data['true_drift_diag']:.2f} outside "
+            f"90% CI [{drift_q5:.3f}, {drift_q95:.3f}]"
+        )
+
+        # diffusion_diag_pop: HalfNormal, positive
+        diff_samples = samples["diffusion_diag_pop"][:, 0]
+        diff_q5, diff_q95 = (
+            float(jnp.percentile(diff_samples, 5)),
+            float(jnp.percentile(diff_samples, 95)),
+        )
+        assert diff_q5 <= lgss_data["true_diff_diag"] <= diff_q95, (
+            f"Diffusion {lgss_data['true_diff_diag']:.2f} outside "
+            f"90% CI [{diff_q5:.3f}, {diff_q95:.3f}]"
+        )
+
+        # manifest_var_diag: observation noise SD
+        obs_samples = samples["manifest_var_diag"][:, 0]
+        obs_q5, obs_q95 = (
+            float(jnp.percentile(obs_samples, 5)),
+            float(jnp.percentile(obs_samples, 95)),
+        )
+        assert obs_q5 <= lgss_data["true_obs_sd"] <= obs_q95, (
+            f"Obs SD {lgss_data['true_obs_sd']:.2f} outside 90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
         )
 
 

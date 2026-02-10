@@ -78,6 +78,10 @@ dsem-agent/
 │   ├── models/        # NumPyro state-space model specification
 │   │   ├── ssm/                # State-space model implementation
 │   │   │   ├── model.py        # SSMModel, SSMSpec, SSMPriors
+│   │   │   ├── inference.py    # fit() dispatcher + InferenceResult
+│   │   │   ├── hessmc2.py      # Hess-MC² (SMC with CoV L-kernels)
+│   │   │   ├── pgas.py         # PGAS (Gibbs CSMC + MALA parameters)
+│   │   │   ├── tempered_smc.py # Tempered SMC + preconditioned MALA
 │   │   │   ├── discretization.py # CT→DT conversion (incl. batched vmap)
 │   │   │   └── core.py         # Utility functions
 │   │   ├── likelihoods/        # State-space likelihood backends
