@@ -388,7 +388,7 @@ def model_spec_to_ssm_spec(
 
     if n_latent is None:
         ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
-        n_latent = max(len(ar_params), n_manifest)
+        n_latent = max(len(ar_params), 1)
 
     # Check for hierarchical structure
     hierarchical = len(model_spec.random_effects) > 0

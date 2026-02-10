@@ -28,9 +28,11 @@ Semantic checks that Polars schema can't enforce. Structural validation (column 
 
 **Output:** `{is_valid: bool, issues: list[{indicator, issue_type, severity, message}]}`
 
-**[4] Model Specification (PyMC):** The orchestrator specifies the Bayesian hierarchical model in PyMC and queries the workers for priors. (see: Zhu et al. 2024).
+**[4] Model Specification (NumPyro/JAX):** The orchestrator specifies the Bayesian hierarchical state-space model and queries the workers for priors. The output is consumed by `SSMModelBuilder` to produce an `SSMSpec`/`SSMModel`. (see: Zhu et al. 2024).
 
-**[5] Inference:** Fit the model with PyMC, run proposed interventions and counterfactual simulations, return results to user ranked by effect size.
+**[4b] Parametric Identifiability:** Pre-fit diagnostics that check whether model parameters are constrained by the data before running expensive inference. Detects structural non-identifiability (rank-deficient Fisher information), boundary identifiability, and weak parameters. See `src/dsem_agent/flows/stages/stage4b_parametric_id.py`.
+
+**[5] Inference:** Fit the model with NumPyro/JAX (SVI, NUTS, Hess-MC2, PGAS, or Tempered SMC), run proposed interventions, return results to user ranked by effect size.
 
 ---
 

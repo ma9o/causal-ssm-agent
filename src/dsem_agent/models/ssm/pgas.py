@@ -36,7 +36,6 @@ from numpyro.optim import ClippedAdam
 
 from dsem_agent.models.likelihoods.particle import SSMAdapter
 from dsem_agent.models.ssm.discretization import discretize_system_batched
-from dsem_agent.models.ssm.hessmc2 import _assemble_deterministics, _discover_sites
 from dsem_agent.models.ssm.inference import InferenceResult
 from dsem_agent.models.ssm.mcmc_utils import (
     compute_weighted_chol_mass,
@@ -44,6 +43,7 @@ from dsem_agent.models.ssm.mcmc_utils import (
     dual_averaging_update,
     hmc_step,
 )
+from dsem_agent.models.ssm.utils import _assemble_deterministics, _discover_sites
 
 # ---------------------------------------------------------------------------
 # SVI warmstart for mass matrix initialization
@@ -125,7 +125,6 @@ def _svi_warmstart(
     print(f"  SVI warmstart: {num_steps} steps, final ELBO={final_loss:.0f}")
 
     return init_theta, chol_mass_full, block_chol_masses
-
 
 # ---------------------------------------------------------------------------
 # Transition log-prob

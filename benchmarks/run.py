@@ -55,22 +55,6 @@ METHOD_CONFIGS = {
         "gpu_type": "L4",
         "timeout": 3600,
     },
-    "pmmh": {
-        "local": {
-            "T": 80,
-            "num_warmup": 50,
-            "num_samples": 50,
-            "n_particles": 100,
-        },
-        "gpu": {
-            "T": 200,
-            "num_warmup": 500,
-            "num_samples": 500,
-            "n_particles": 2000,
-        },
-        "gpu_type": "L4",
-        "timeout": 3600,
-    },
     "pgas": {
         "local": {
             "T": 80,
@@ -279,31 +263,6 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
                 "n_manifest": problem.n_manifest,
             }
         )
-
-    elif method == "pmmh":
-        model = SSMModel(
-            problem.spec,
-            priors=problem.priors,
-            n_particles=cfg["n_particles"],
-            pf_seed=42,
-        )
-        t0 = time.perf_counter()
-        result = fit(
-            model,
-            observations=obs,
-            times=times,
-            method="pmmh",
-            num_warmup=cfg["num_warmup"],
-            num_samples=cfg["num_samples"],
-            seed=0,
-        )
-        elapsed = time.perf_counter() - t0
-        diag = result.diagnostics
-        total = cfg["num_warmup"] + cfg["num_samples"]
-        print(f"Done in {elapsed:.1f}s ({elapsed / total:.2f}s/step)")
-        print(f"Accept rate: {diag.get('acceptance_rate', 0):.3f}")
-        print(f"Final proposal scale: {diag.get('final_proposal_scale', 0):.4f}")
-        print()
 
     elif method in ("pgas", "pgas_baseline"):
         is_baseline = method.endswith("_baseline")

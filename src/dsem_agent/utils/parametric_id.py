@@ -21,7 +21,7 @@ from jax import lax
 from jax.flatten_util import ravel_pytree
 
 from dsem_agent.models.ssm.discretization import discretize_system_batched
-from dsem_agent.models.ssm.hessmc2 import (
+from dsem_agent.models.ssm.utils import (
     _assemble_deterministics,
     _build_eval_fns,
     _discover_sites,

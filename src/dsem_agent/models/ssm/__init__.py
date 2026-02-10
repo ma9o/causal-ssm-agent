@@ -3,10 +3,9 @@
 This module implements hierarchical Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Multiple inference backends: SVI (default), PMMH, NUTS
+- Multiple inference backends: SVI (default), NUTS, Hess-MC², PGAS, Tempered SMC
 """
 
-from dsem_agent.models.ssm.core import cholesky_of_diffusion, ensure_stability
 from dsem_agent.models.ssm.discretization import (
     compute_asymptotic_diffusion,
     compute_discrete_cint,
@@ -26,9 +25,6 @@ from dsem_agent.models.ssm.model import (
 )
 
 __all__ = [
-    # Core utilities
-    "cholesky_of_diffusion",
-    "ensure_stability",
     # Discretization
     "solve_lyapunov",
     "compute_asymptotic_diffusion",

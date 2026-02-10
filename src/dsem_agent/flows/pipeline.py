@@ -35,8 +35,11 @@ from .stages import (
     propose_latent_model,
     propose_measurement_with_identifiability_fix,
     run_interventions,
+    run_power_scaling,
     # Stage 4
     stage4_orchestrated_flow,
+    # Stage 4b
+    stage4b_parametric_id_flow,
     validate_extraction,
 )
 
@@ -201,11 +204,49 @@ def causal_inference_pipeline(
         print(f"⚠️  Stage 4 model build failed: {model_info.get('error')}")
 
     # ══════════════════════════════════════════════════════════════════════════
+    # Stage 4b: Parametric Identifiability Diagnostics
+    # ══════════════════════════════════════════════════════════════════════════
+    print("\n=== Stage 4b: Parametric Identifiability ===")
+    stage4_result = stage4b_parametric_id_flow(stage4_result)
+
+    param_id = stage4_result.get("parametric_id", {})
+    if param_id.get("checked", False):
+        summary = param_id.get("summary", {})
+        if summary.get("structural_issues"):
+            print("⚠️  STRUCTURAL non-identifiability detected — some parameters unconstrained")
+        elif summary.get("boundary_issues"):
+            print("⚠️  Boundary identifiability issues at some prior draws")
+        else:
+            print("Parametric identifiability OK")
+        weak = summary.get("weak_params", [])
+        if weak:
+            print(f"  Weak parameters (low contraction): {weak}")
+    else:
+        print(f"  Skipped: {param_id.get('error', 'unknown')}")
+
+    # ══════════════════════════════════════════════════════════════════════════
     # Stage 5: Fit and intervene (with identifiability awareness)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 5: Inference ===")
     print(f"Estimating effects of {len(treatments)} treatments on {outcome}")
     fitted = fit_model(stage4_result, raw_data_result)
+
+    # Post-fit power-scaling sensitivity diagnostic
+    print("\n--- Power-Scaling Sensitivity ---")
+    power_scaling = run_power_scaling(fitted, raw_data_result)
+    ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling
+    if ps_result.get("checked", False):
+        diagnosis = ps_result.get("diagnosis", {})
+        prior_dominated = [k for k, v in diagnosis.items() if v == "prior_dominated"]
+        conflicts = [k for k, v in diagnosis.items() if v == "prior_data_conflict"]
+        if prior_dominated:
+            print(f"  Prior-dominated parameters: {prior_dominated}")
+        if conflicts:
+            print(f"  Prior-data conflicts: {conflicts}")
+        if not prior_dominated and not conflicts:
+            print("  All parameters well-identified")
+    else:
+        print(f"  Skipped: {ps_result.get('error', 'unknown')}")
 
     # Run interventions for all treatments
     results = run_interventions(fitted, treatments, dsem_model)

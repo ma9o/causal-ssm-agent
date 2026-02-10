@@ -10,7 +10,6 @@ Available backends:
 
 from dsem_agent.models.likelihoods.base import (
     CTParams,
-    DTParams,
     InitialStateParams,
     LikelihoodBackend,
     MeasurementParams,
@@ -20,7 +19,6 @@ from dsem_agent.models.likelihoods.particle import ParticleLikelihood
 
 __all__ = [
     "CTParams",
-    "DTParams",
     "InitialStateParams",
     "MeasurementParams",
     "LikelihoodBackend",

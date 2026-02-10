@@ -297,7 +297,7 @@ The framework implements this unified perspective:
 
 1. **DAG specification layer:** LLM proposes construct-level causal structure from domain knowledge
 2. **Identification layer:** y0 applies do-calculus to derive estimands
-3. **Estimation layer:** PyMC builds Bayesian hierarchical models with appropriate priors
+3. **Estimation layer:** NumPyro/JAX builds Bayesian hierarchical state-space models with appropriate priors
 4. **Uncertainty communication:** Full posterior distributions, not point estimates
 
 The theoretical unification—random effects as latent variables, both subsumed by Bayesian hierarchical models—has practical consequences: you're no longer choosing between techniques but specifying generative processes. The question shifts from "should I use mixed models or SEM?" to "what distributional assumptions and dependency structure match my understanding of how these data arose?"

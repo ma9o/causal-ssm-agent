@@ -30,8 +30,9 @@ The orchestrator LLM translates these informal queries into formal causal struct
 - NetworkX for causal DAG representation
 - y0 for identifiability checks (Pearl's ID algorithm)
 - JAX/NumPyro for Bayesian CT-SEM estimation
-- dynamax for Kalman/UKF likelihood computation
-- PMMH for particle-based inference (non-Gaussian models)
+- dynamax for Kalman likelihood computation
+- cuthbert for differentiable particle filtering
+- Multiple inference backends: SVI, NUTS, Hess-MC², PGAS, Tempered SMC
 
 ## Documentation
 
@@ -81,15 +82,16 @@ dsem-agent/
 │   │   │   ├── inference.py    # fit() dispatcher + InferenceResult
 │   │   │   ├── hessmc2.py      # Hess-MC² (SMC with CoV L-kernels)
 │   │   │   ├── pgas.py         # PGAS (Gibbs CSMC + MALA parameters)
-│   │   │   ├── tempered_smc.py # Tempered SMC + preconditioned MALA
+│   │   │   ├── tempered_smc.py # Tempered SMC + preconditioned HMC/MALA
+│   │   │   ├── mcmc_utils.py   # Shared MCMC utilities (HMC step, mass matrix)
+│   │   │   ├── utils.py        # Shared site discovery and matrix assembly
 │   │   │   ├── discretization.py # CT→DT conversion (incl. batched vmap)
 │   │   │   └── core.py         # Utility functions
 │   │   ├── likelihoods/        # State-space likelihood backends
 │   │   │   ├── base.py         # Protocol, CTParams, MeasurementParams, InitialStateParams
 │   │   │   ├── kalman.py       # Kalman filter via dynamax lgssm_filter
-│   │   │   └── ukf.py          # UKF via dynamax building blocks
-│   │   ├── pmmh.py             # PMMH: bootstrap PF, MH kernel, samplers, ArviZ
-│   │   ├── strategy_selector.py # Rule-based inference strategy selection
+│   │   │   ├── particle.py     # Bootstrap PF via cuthbert (auto-upgrades to RBPF)
+│   │   │   └── rao_blackwell.py # Rao-Blackwell PF (Kalman + quadrature)
 │   │   ├── ssm_builder.py      # SSMModelBuilder for pipeline integration
 │   │   └── prior_predictive.py # Prior predictive validation
 │   ├── flows/         # Prefect pipeline + stages/

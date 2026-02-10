@@ -5,10 +5,11 @@ model; this module provides fit() to run inference with different backends:
 
 - SVI (default): Fast approximate posterior via ELBO optimization.
   Tolerates PF gradient noise because SGD is designed for noisy gradients.
-- PMMH: Exact posterior via gradient-free MH with PF as unbiased likelihood
-  estimator. Slow but correct.
 - NUTS: HMC-based sampling. Works well with Kalman likelihood but struggles
   with PF resampling discontinuities.
+- Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
+- PGAS: Particle Gibbs with ancestor sampling + gradient-informed proposals.
+- Tempered SMC: Adaptive tempering with preconditioned HMC/MALA mutations.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import jax.numpy as jnp
 import jax.random as random
-import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_median
 from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
@@ -32,12 +32,11 @@ if TYPE_CHECKING:
 class InferenceResult:
     """Container for inference results across all backends.
 
-    Provides a uniform interface regardless of whether SVI, PMMH, or NUTS
-    was used for inference.
+    Provides a uniform interface regardless of which backend was used.
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal["nuts", "svi", "pmmh", "hessmc2", "pgas", "tempered_smc"]
+    method: Literal["nuts", "svi", "hessmc2", "pgas", "tempered_smc"]
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -73,7 +72,7 @@ def fit(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    method: Literal["svi", "pmmh", "nuts", "hessmc2", "pgas", "tempered_smc"] = "svi",
+    method: Literal["svi", "nuts", "hessmc2", "pgas", "tempered_smc"] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -83,7 +82,7 @@ def fit(
         observations: (N, n_manifest) observed data
         times: (N,) observation times
         subject_ids: (N,) subject indices (0-indexed, for hierarchical)
-        method: Inference method - "svi" (default), "pmmh", or "nuts"
+        method: Inference method - "svi" (default), "nuts", "hessmc2", "pgas", "tempered_smc"
         **kwargs: Method-specific arguments
 
     Returns:
@@ -93,8 +92,6 @@ def fit(
         return _fit_nuts(model, observations, times, subject_ids, **kwargs)
     elif method == "svi":
         return _fit_svi(model, observations, times, subject_ids, **kwargs)
-    elif method == "pmmh":
-        return _fit_pmmh(model, observations, times, subject_ids, **kwargs)
     elif method == "hessmc2":
         from dsem_agent.models.ssm.hessmc2 import fit_hessmc2
 
@@ -110,7 +107,7 @@ def fit(
     else:
         raise ValueError(
             f"Unknown inference method: {method!r}. "
-            "Use 'svi', 'pmmh', 'nuts', 'hessmc2', 'pgas', or 'tempered_smc'."
+            "Use 'svi', 'nuts', 'hessmc2', 'pgas', or 'tempered_smc'."
         )
 
 
@@ -301,152 +298,3 @@ def _eval_model(
                 log_prior = log_prior + jnp.sum(site["fn"].log_prob(site["value"]))
 
     return log_lik, log_prior
-
-
-def _fit_pmmh(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
-    num_warmup: int = 500,
-    num_samples: int = 1000,
-    seed: int = 0,
-    proposal_scale: float = 0.01,
-    **kwargs: Any,  # noqa: ARG001
-) -> InferenceResult:
-    """Fit using Particle Marginal Metropolis-Hastings.
-
-    Gradient-free MH in unconstrained space with PF as unbiased likelihood
-    estimator. Essential: uses a fresh PF random key per step for
-    pseudo-marginal correctness (Andrieu & Roberts 2009).
-
-    Args:
-        model: SSMModel instance
-        observations: (N, n_manifest) observed data
-        times: (N,) observation times
-        subject_ids: (N,) subject indices
-        num_warmup: Number of warmup steps (for proposal adaptation)
-        num_samples: Number of posterior samples
-        seed: Random seed
-        proposal_scale: Initial proposal standard deviation
-        **kwargs: Ignored
-
-    Returns:
-        InferenceResult with PMMH samples
-    """
-    rng_key = random.PRNGKey(seed)
-
-    # 1. Trace model once to discover sample sites (names, shapes, distributions)
-    rng_key, trace_key = random.split(rng_key)
-    with handlers.seed(rng_seed=int(trace_key[0])):
-        trace = handlers.trace(model.model).get_trace(observations, times, subject_ids)
-
-    site_info = {}  # name -> (shape, distribution, transform)
-    for name, site in trace.items():
-        if (
-            site["type"] == "sample"
-            and not site.get("is_observed", False)
-            and name != "log_likelihood"
-        ):
-            d = site["fn"]
-            transform = dist.transforms.biject_to(d.support)
-            site_info[name] = {
-                "shape": site["value"].shape,
-                "distribution": d,
-                "transform": transform,
-                "value": site["value"],
-            }
-
-    # 2. Initialize: pack current values into unconstrained space
-    unconstrained = {}
-    constrained = {}
-    for name, info in site_info.items():
-        constrained[name] = info["value"]
-        unconstrained[name] = info["transform"].inv(info["value"])
-
-    # Compute initial log-joint
-    rng_key, pf_key = random.split(rng_key)
-    model.pf_key = pf_key
-    log_lik, log_prior = _eval_model(model.model, constrained, observations, times, subject_ids)
-
-    # Add Jacobian correction for unconstrained -> constrained
-    log_jacobian = 0.0
-    for name, info in site_info.items():
-        log_jacobian = log_jacobian + jnp.sum(
-            info["transform"].log_abs_det_jacobian(unconstrained[name], constrained[name])
-        )
-    current_log_joint = log_lik + log_prior + log_jacobian
-
-    # 3. MH loop
-    total_steps = num_warmup + num_samples
-    samples_list = []
-    n_accepted = 0
-    scale = proposal_scale
-
-    for step in range(total_steps):
-        rng_key, prop_key, pf_key, accept_key = random.split(rng_key, 4)
-
-        # a. Propose in unconstrained space
-        proposed_unconstrained = {}
-        proposed_constrained = {}
-        for name, info in site_info.items():
-            noise = random.normal(prop_key, info["shape"]) * scale
-            prop_key, _ = random.split(prop_key)
-            proposed_unconstrained[name] = unconstrained[name] + noise
-            proposed_constrained[name] = info["transform"](proposed_unconstrained[name])
-
-        # b. Fresh PF key for pseudo-marginal correctness
-        model.pf_key = pf_key
-
-        # c. Evaluate proposed parameters
-        prop_log_lik, prop_log_prior = _eval_model(
-            model.model, proposed_constrained, observations, times, subject_ids
-        )
-        prop_log_jacobian = 0.0
-        for name, info in site_info.items():
-            prop_log_jacobian = prop_log_jacobian + jnp.sum(
-                info["transform"].log_abs_det_jacobian(
-                    proposed_unconstrained[name], proposed_constrained[name]
-                )
-            )
-        proposed_log_joint = prop_log_lik + prop_log_prior + prop_log_jacobian
-
-        # d. MH accept/reject
-        log_alpha = proposed_log_joint - current_log_joint
-        u = random.uniform(accept_key)
-        accept = jnp.log(u) < log_alpha
-
-        if bool(accept) and bool(jnp.isfinite(proposed_log_joint)):
-            unconstrained = proposed_unconstrained
-            constrained = proposed_constrained
-            current_log_joint = proposed_log_joint
-            n_accepted += 1
-
-        # e. Adapt proposal scale during warmup
-        if step < num_warmup and step > 0 and step % 50 == 0:
-            acceptance_rate = n_accepted / (step + 1)
-            if acceptance_rate < 0.15:
-                scale *= 0.5
-            elif acceptance_rate > 0.35:
-                scale *= 1.5
-
-        # f. Store post-warmup samples
-        if step >= num_warmup:
-            samples_list.append({name: val.copy() for name, val in constrained.items()})
-
-    # 4. Stack samples
-    stacked_samples = {}
-    if samples_list:
-        for name in samples_list[0]:
-            stacked_samples[name] = jnp.stack([s[name] for s in samples_list])
-
-    acceptance_rate = n_accepted / total_steps
-
-    return InferenceResult(
-        _samples=stacked_samples,
-        method="pmmh",
-        diagnostics={
-            "acceptance_rate": acceptance_rate,
-            "final_proposal_scale": scale,
-        },
-    )

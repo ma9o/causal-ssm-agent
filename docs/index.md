@@ -19,7 +19,7 @@ docs/
 - Read `modeling/dsem_overview.md` for temporal granularity and cross-timescale rules
 - Check `modeling/assumptions.md` for specific technical assumptions (A1-A9)
 - See `modeling/theory.md` for theoretical foundations (identification locality, correlated errors, SEM/Pearl bridge, Bayesian unification)
-- See `modeling/estimation.md` for the estimation pipeline (CT-SDE, discretization, Kalman/UKF/PMMH inference, cuthbert integration)
+- See `modeling/estimation.md` for the estimation pipeline (CT-SDE, discretization, SVI/NUTS/Hess-MC2/PGAS/Tempered-SMC inference, cuthbert integration)
 
 **Implementing or modifying:**
 - `reference/schema.md` for Pydantic models and validation

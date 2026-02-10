@@ -30,6 +30,8 @@ In a formative model, indicators cause the construct (e.g., SES is "formed" by i
 
 ---
 
+<!-- A2 is intentionally absent. It was removed during an early revision; numbering is kept stable to avoid breaking cross-references in code and other docs. -->
+
 ## A3. Markov Property for Temporal Dynamics
 
 **Assumption:** All endogenous time-varying constructs follow first-order Markov dynamics. The state at t-1 is a sufficient statistic for all prior history.
@@ -201,7 +203,7 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 The following are explicitly NOT assumed and may be added in future versions:
 
 - **Non-linear relationships:** Currently all structural effects are linear in parameters
-- **Non-Gaussian distributions:** Currently residuals are assumed Gaussian
+- **Non-Gaussian distributions:** Poisson, Student-t, and Gamma are supported in the observation model (see `NoiseFamily` in `src/dsem_agent/models/ssm/model.py` and the Rao-Blackwell particle filter). Additional families may be added.
 - **Time-varying parameters:** Currently all causal coefficients are time-invariant
 - **Random slopes:** Currently only random intercepts, not person-specific effect sizes
 - **Cross-level interactions:** Currently between-person variables do not moderate within-person effects

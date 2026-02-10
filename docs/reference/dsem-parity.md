@@ -137,7 +137,7 @@ For ϕ = 0.3 and T = 10: bias = -0.144 (estimate of 0.16 instead of 0.30).
 
 **Paper's solution:** Center by **latent mean** (Y_{2,i}), not sample mean. DSEM handles this automatically because Y_{2,i} is estimated jointly with AR parameters.
 
-**Current status:** Framework uses latent constructs, but unclear if PyMC model builder correctly implements latent centering. Need to verify the AR specification in `DSEMModelBuilder.build_model()`.
+**Current status:** Framework uses latent constructs, but unclear if the SSM model builder correctly implements latent centering. Need to verify the AR specification in `SSMModelBuilder`.
 
 **Priority:** Critical - affects validity of all AR estimates
 
@@ -157,7 +157,7 @@ The AR parameter and residual variance are mechanically related via:
 Var(Y_it | i) = σ² / (1 - ϕ²)
 ```
 
-**Current status:** ModelSpec supports variance parameters but unclear if person-specific random variances are implemented.
+**Current status:** SSMSpec supports variance parameters but unclear if person-specific random variances are implemented.
 
 **Priority:** Medium-High - affects AR coefficient estimates when variance heterogeneity exists
 
@@ -197,9 +197,9 @@ Var(Y_it | i) = σ² / (1 - ϕ²)
 
 | Feature | Paper | Framework Status | Action Needed |
 |---------|-------|------------------|---------------|
-| Random slopes (person-specific β_i) | Full support | ModelSpec has ParameterSpec but unclear if random by person | Verify PyMC implementation |
-| Categorical outcomes | Probit link, thresholds | `measurement_dtype` includes binary/ordinal | Verify PyMC handles these |
-| Model comparison | DIC with detailed caveats | Deferred to PyMC | Document recommended approach (LOO/WAIC) |
+| Random slopes (person-specific β_i) | Full support | SSMSpec supports per-subject parameters but unclear if random by person | Verify NumPyro implementation |
+| Categorical outcomes | Probit link, thresholds | `measurement_dtype` includes binary/ordinal | Verify NumPyro handles these |
+| Model comparison | DIC with detailed caveats | Deferred to ArviZ | Document recommended approach (LOO/WAIC) |
 | Dynamic factor analysis | DAFS, WNFS, hybrid models | Latent constructs exist | Out of scope? |
 
 ---
@@ -228,7 +228,7 @@ Var(Y_it | i) = σ² / (1 - ϕ²)
 ## Recommended Actions
 
 ### High Priority
-1. **Verify latent centering** in PyMC model builder - critical for unbiased AR estimates
+1. **Verify latent centering** in SSMModelBuilder - critical for unbiased AR estimates
 2. **Document MEAR(1) consideration** - decide if measurement error vs. innovation variance decomposition is needed
 
 ### Medium Priority

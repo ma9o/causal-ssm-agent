@@ -1,6 +1,6 @@
 # Functional Specification (Stage 4)
 
-This document describes how Stage 4 translates the causal DAG (topological structure) into a fully specified PyMC model (functional specification). The approach combines rule-based constraints with LLM-assisted prior elicitation.
+This document describes how Stage 4 translates the causal DAG (topological structure) into a fully specified NumPyro/JAX state-space model (functional specification). The approach combines rule-based constraints with LLM-assisted prior elicitation.
 
 ---
 
@@ -13,7 +13,7 @@ Per CLAUDE.md, we distinguish:
 | DAG encoding parent-child relationships | **Topological structure** | Stage 1a/1b |
 | Mathematical form of causal mechanisms | **Functional specification** | Stage 4 |
 
-Stage 4 bridges these: given the DAG, it specifies the regression equations, distributions, and priors needed to fit the model in PyMC.
+Stage 4 bridges these: given the DAG, it specifies the regression equations, distributions, and priors needed to fit the model in NumPyro.
 
 ---
 
@@ -25,13 +25,13 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 
 **1.1 Link Functions from Indicator dtype**
 
-| `measurement_dtype` | Distribution | Link | PyMC |
-|---------------------|--------------|------|------|
-| `continuous` | Gaussian | identity | `pm.Normal` |
-| `binary` | Bernoulli | logit | `pm.Bernoulli(logit_p=...)` |
-| `count` | Poisson | log | `pm.Poisson(mu=pm.math.exp(...))` |
-| `ordinal` | OrderedLogistic | cumulative logit | `pm.OrderedLogistic` |
-| `categorical` | Categorical | softmax | `pm.Categorical` |
+| `measurement_dtype` | Distribution | Link | NumPyro |
+|---------------------|--------------|------|---------|
+| `continuous` | Gaussian | identity | `numpyro.distributions.Normal` |
+| `binary` | Bernoulli | logit | `numpyro.distributions.Bernoulli(logits=...)` |
+| `count` | Poisson | log | `numpyro.distributions.Poisson(rate=jnp.exp(...))` |
+| `ordinal` | OrderedLogistic | cumulative logit | `numpyro.distributions.OrderedLogistic` |
+| `categorical` | Categorical | softmax | `numpyro.distributions.Categorical` |
 
 **1.2 Temporal Structure (from A3 Markov assumption)**
 
@@ -60,21 +60,21 @@ x_i = τ_i + λ_i · ξ + ε_i
 
 Where x is the observed indicator, τ is the intercept, λ is the factor loading, ξ is the latent construct, and ε is measurement error.
 
-**PyMC Implementation Pattern** (from [PyMC CFA/SEM Example](https://www.pymc.io/projects/examples/en/latest/case_studies/CFA_SEM.html)):
+**NumPyro Implementation Pattern:**
 
 ```python
-import pymc as pm
-import pytensor.tensor as pt
+import numpyro
+import numpyro.distributions as dist
+import jax.numpy as jnp
 
-with pm.Model():
+def model():
     # Estimate all loadings with weakly informative prior
-    lambdas_ = pm.Normal("lambdas_raw", mu=1, sigma=10, dims="indicators")
+    lambdas_raw = numpyro.sample("lambdas_raw", dist.Normal(1.0, 10.0).expand([n_indicators]))
 
     # Fix first loading to 1 for scale identification
-    lambdas = pm.Deterministic(
+    lambdas = numpyro.deterministic(
         "lambdas",
-        pt.set_subtensor(lambdas_[0], 1.0),
-        dims="indicators"
+        lambdas_raw.at[0].set(1.0),
     )
 ```
 
@@ -157,7 +157,7 @@ From N elicited priors {(μ_k, σ_k)}:
 
 ## Output Schema
 
-Stage 4 produces a `ModelSpec` dict:
+Stage 4 produces a model specification dict that is consumed by `SSMModelBuilder` to construct an `SSMSpec`/`SSMModel`:
 
 ```python
 {
@@ -198,6 +198,19 @@ Stage 4 produces a `ModelSpec` dict:
 
 ---
 
+## Stage 4b: Parametric Identifiability
+
+After Stage 4 produces the model specification, **Stage 4b** runs pre-fit parametric identifiability diagnostics before handing off to Stage 5 (inference). This catches structural non-identifiability, boundary identifiability, and weakly informed parameters early -- before spending compute on expensive MCMC/SVI.
+
+Stage 4b computes the Fisher information matrix at prior draws and checks:
+- **Rank deficiency:** Structurally non-identifiable parameters (zero Fisher information)
+- **Boundary identifiability:** Intermittent rank deficiency across draws
+- **Weak contraction:** Parameters with low expected prior-to-posterior contraction
+
+See `src/dsem_agent/flows/stages/stage4b_parametric_id.py` and `src/dsem_agent/utils/parametric_id.py` for implementation.
+
+---
+
 ## Literature Foundation
 
 ### LLM-Assisted Prior Elicitation
@@ -232,7 +245,7 @@ Effect sizes are fundamentally domain-specific. A β = -0.3 between stress and m
 
 ### Why Not Fully LLM-Based?
 
-LLMs can produce invalid statistical objects (negative variances, improper distributions). Rule-based guardrails ensure the output is always a valid PyMC model.
+LLMs can produce invalid statistical objects (negative variances, improper distributions). Rule-based guardrails ensure the output is always a valid NumPyro model.
 
 ### The Hybrid Approach
 
@@ -263,7 +276,7 @@ LLMs can produce invalid statistical objects (negative variances, improper distr
           └────────────┬────────────┘
                        │
                        ▼
-              PyMC-Ready ModelSpec
+             SSMSpec (NumPyro-ready)
 ```
 
 ---
@@ -288,9 +301,11 @@ Bayesian model validation uses predictive checks at two points in the workflow. 
 
 **Implementation:**
 ```python
-# PyMC pattern
-with model:
-    prior_pred = pm.sample_prior_predictive(samples=1000)
+# NumPyro pattern — uses numpyro.infer.Predictive
+from numpyro.infer import Predictive
+
+predictive = Predictive(model_fn, num_samples=1000)
+prior_pred = predictive(rng_key)
 
 # Check: are simulated indicator values in plausible range?
 # Check: do simulated effect sizes match domain expectations?
@@ -314,9 +329,11 @@ with model:
 
 **Implementation:**
 ```python
-# PyMC pattern
-with model:
-    posterior_pred = pm.sample_posterior_predictive(trace)
+# NumPyro pattern — uses numpyro.infer.Predictive with posterior samples
+from numpyro.infer import Predictive
+
+predictive = Predictive(model_fn, posterior_samples=samples)
+posterior_pred = predictive(rng_key)
 
 # Compare: observed vs replicated variance, means, correlations
 # Bayesian p-value: proportion of replicates where test stat > observed
@@ -351,9 +368,9 @@ The question "is this indicator a good proxy?" is answered by the posterior pred
 
 ## References
 
-### Bayesian SEM in PyMC
+### Bayesian SEM
 
-- PyMC Development Team. [Confirmatory Factor Analysis and Structural Equation Models in Psychometrics](https://www.pymc.io/projects/examples/en/latest/case_studies/CFA_SEM.html). PyMC Example Gallery.
+- PyMC Development Team. [Confirmatory Factor Analysis and Structural Equation Models in Psychometrics](https://www.pymc.io/projects/examples/en/latest/case_studies/CFA_SEM.html). PyMC Example Gallery. (Reference for CFA/SEM theory; implementation uses NumPyro/JAX.)
 
 ### LLM-Assisted Prior Elicitation
 
