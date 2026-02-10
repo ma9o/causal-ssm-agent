@@ -60,24 +60,24 @@ METHOD_CONFIGS = {
     "pgas": {
         "local": {
             "T": 80,
-            "n_outer": 200,
+            "n_outer": 100,
             "n_csmc_particles": 30,
-            "n_mh_steps": 10,
+            "n_mh_steps": 5,
             "n_pf": 100,
-            "n_warmup": 100,
+            "n_warmup": 50,
             "param_step_size": 0.05,
         },
         "gpu": {
             "T": 200,
-            "n_outer": 500,
+            "n_outer": 200,
             "n_csmc_particles": 100,  # N >= T/2 for good CSMC mixing
-            "n_mh_steps": 15,
+            "n_mh_steps": 5,  # HMC(L=5) covers more ground per step
             "n_pf": 200,
-            "n_warmup": 250,
+            "n_warmup": 100,
             "param_step_size": 0.05,
         },
         "gpu_type": "A100",
-        "timeout": 7200,
+        "timeout": 3600,
     },
     "tempered_smc": {
         "local": {
@@ -105,24 +105,24 @@ METHOD_CONFIGS = {
     "pgas_baseline": {
         "local": {
             "T": 80,
-            "n_outer": 200,
+            "n_outer": 100,
             "n_csmc_particles": 30,
-            "n_mh_steps": 10,
+            "n_mh_steps": 5,
             "n_pf": 100,
-            "n_warmup": 100,
+            "n_warmup": 50,
             "param_step_size": 0.05,
         },
         "gpu": {
             "T": 200,
-            "n_outer": 500,
-            "n_csmc_particles": 100,  # N >= T/2 for good CSMC mixing
-            "n_mh_steps": 15,
+            "n_outer": 200,
+            "n_csmc_particles": 100,
+            "n_mh_steps": 5,
             "n_pf": 200,
-            "n_warmup": 250,
+            "n_warmup": 100,
             "param_step_size": 0.05,
         },
         "gpu_type": "A100",
-        "timeout": 7200,
+        "timeout": 3600,
     },
     "tempered_smc_baseline": {
         "local": {
@@ -278,11 +278,11 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         # SOTA flags: baseline disables all upgrades, upgraded enables them
         pgas_kwargs = {}
         if is_baseline:
-            pgas_kwargs = {"block_sampling": False}
-            print("  [BASELINE] block_sampling=False, svi_warmstart=on, HMC(L=5), dual_avg")
+            pgas_kwargs = {"svi_warmstart": False, "n_leapfrog": 1}
+            print("  [BASELINE] no svi_warmstart, MALA(L=1), dual_avg")
         else:
-            pgas_kwargs = {"block_sampling": True}
-            print("  [UPGRADED] block_sampling=True, svi_warmstart=on, HMC(L=5), dual_avg")
+            pgas_kwargs = {}  # svi_warmstart=True, n_leapfrog=5 by default
+            print("  [UPGRADED] svi_warmstart=on, HMC(L=5), dual_avg")
         print()
         t0 = time.perf_counter()
         result = fit(
