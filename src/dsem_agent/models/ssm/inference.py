@@ -37,7 +37,7 @@ class InferenceResult:
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal["nuts", "svi", "pmmh", "hessmc2", "pgas"]
+    method: Literal["nuts", "svi", "pmmh", "hessmc2", "pgas", "tempered_smc"]
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -73,7 +73,7 @@ def fit(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    method: Literal["svi", "pmmh", "nuts", "hessmc2", "pgas"] = "svi",
+    method: Literal["svi", "pmmh", "nuts", "hessmc2", "pgas", "tempered_smc"] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -103,10 +103,14 @@ def fit(
         from dsem_agent.models.ssm.pgas import fit_pgas
 
         return fit_pgas(model, observations, times, subject_ids, **kwargs)
+    elif method == "tempered_smc":
+        from dsem_agent.models.ssm.tempered_smc import fit_tempered_smc
+
+        return fit_tempered_smc(model, observations, times, subject_ids, **kwargs)
     else:
         raise ValueError(
             f"Unknown inference method: {method!r}. "
-            "Use 'svi', 'pmmh', 'nuts', 'hessmc2', or 'pgas'."
+            "Use 'svi', 'pmmh', 'nuts', 'hessmc2', 'pgas', or 'tempered_smc'."
         )
 
 
