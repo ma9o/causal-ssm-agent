@@ -308,28 +308,39 @@ class ParticleLikelihood:
         if extra_params:
             params.update(extra_params)
 
-        # Create SSMAdapter (only used for init_sample and observation_log_prob)
-        adapter = SSMAdapter(
-            self.n_latent,
-            self.n_manifest,
-            self.manifest_dist,
-            self.diffusion_dist,
-        )
+        # Build Feynman-Kac model closures.
+        # When dynamics are Gaussian, use Rao-Blackwellized callbacks that
+        # run a Kalman filter inside each particle (strictly lower variance).
+        # Otherwise fall back to bootstrap PF callbacks.
+        if self.diffusion_dist == "gaussian":
+            from dsem_agent.models.likelihoods.rao_blackwell import make_rb_callbacks
 
-        # Build Feynman-Kac model closures
-        def init_sample(key, _model_inputs):
-            return adapter.initial_sample(key, params)
+            init_sample, propagate_sample, log_potential = make_rb_callbacks(
+                n_latent=n,
+                n_manifest=self.n_manifest,
+                manifest_dist=self.manifest_dist,
+                params=params,
+                extra_params=extra_params or {},
+                m0=initial_state.mean,
+                P0=initial_state.cov,
+            )
+        else:
+            adapter = SSMAdapter(
+                self.n_latent,
+                self.n_manifest,
+                self.manifest_dist,
+                self.diffusion_dist,
+            )
 
-        def propagate_sample(key, state, model_inputs):
-            # Use pre-discretized params from model_inputs — no discretize_system call.
-            # Cholesky is pre-computed (not per-particle) to avoid N_PF redundant
-            # decompositions per timestep under cuthbert's vmap.
-            Ad_t = model_inputs["Ad"]
-            cd_t = model_inputs["cd"]
-            chol_Qd_t = model_inputs["chol_Qd"]
-            mean = Ad_t @ state + cd_t
+            def init_sample(key, _model_inputs):
+                return adapter.initial_sample(key, params)
 
-            if self.diffusion_dist == "student_t":
+            def propagate_sample(key, state, model_inputs):
+                Ad_t = model_inputs["Ad"]
+                cd_t = model_inputs["cd"]
+                chol_Qd_t = model_inputs["chol_Qd"]
+                mean = Ad_t @ state + cd_t
+
                 df = params.get("proc_df", 5.0)
                 df = jnp.maximum(df, 2.1)
                 key_z, key_chi2 = random.split(key)
@@ -337,13 +348,11 @@ class ParticleLikelihood:
                 chi2_sample = random.gamma(key_chi2, df / 2.0) * 2.0
                 scale = jnp.sqrt((df - 2.0) / chi2_sample)
                 return mean + chol_Qd_t @ (z * scale)
-            else:
-                return mean + chol_Qd_t @ random.normal(key, (n,))
 
-        def log_potential(_state_prev, state, model_inputs):
-            obs = model_inputs["observation"]
-            mask = model_inputs["obs_mask"]
-            return adapter.observation_log_prob(obs, state, params, mask)
+            def log_potential(_state_prev, state, model_inputs):
+                obs = model_inputs["observation"]
+                mask = model_inputs["obs_mask"]
+                return adapter.observation_log_prob(obs, state, params, mask)
 
         # Build model_inputs with leading temporal dimension T.
         # cuthbert convention: model_inputs[0] → init_prepare (sample particles
