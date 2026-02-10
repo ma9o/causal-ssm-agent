@@ -76,7 +76,7 @@ def fit_tempered_smc(
     adaptive_tempering: bool = True,
     target_ess_ratio: float = 0.5,
     waste_free: bool = False,
-    n_leapfrog: int = 1,
+    n_leapfrog: int = 5,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM parameters via tempered SMC with preconditioned HMC mutations.

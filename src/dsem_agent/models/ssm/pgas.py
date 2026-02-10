@@ -537,7 +537,7 @@ def fit_pgas(
     param_step_size: float = 0.1,
     n_warmup: int | None = None,
     seed: int = 0,
-    n_leapfrog: int = 1,
+    n_leapfrog: int = 5,
     block_sampling: bool = False,
     svi_warmstart: bool = True,
     svi_num_steps: int = 500,
