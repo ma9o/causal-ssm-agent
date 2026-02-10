@@ -6,7 +6,7 @@ Tests cover:
 3. Parameter recovery: simulate → fit() → check credible intervals
 4. Hierarchical likelihood robustness
 5. Edge cases and builder wiring
-6. SVI and PMMH inference backends
+6. SVI inference backend
 
 Test Matrix:
 | Model Class                    | Noise Family         | Test Type          |
@@ -899,39 +899,6 @@ class TestFitReturnsInferenceResult:
         assert samples["drift"].shape[0] == 20
 
     @pytest.mark.slow
-    def test_fit_pmmh_returns_inference_result(self):
-        """fit() with method='pmmh' returns InferenceResult."""
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="diag",
-            manifest_dist=NoiseFamily.GAUSSIAN,
-        )
-        model = SSMModel(spec, n_particles=50)
-
-        T = 15
-        key = random.PRNGKey(0)
-        observations = random.normal(key, (T, 2)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="pmmh",
-            num_warmup=10,
-            num_samples=20,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "pmmh"
-        samples = result.get_samples()
-        assert "drift_diag_pop" in samples
-        assert samples["drift_diag_pop"].shape[0] == 20
-
-    @pytest.mark.slow
     def test_fit_poisson_svi_returns_inference_result(self):
         """fit() with Poisson manifest_dist + SVI returns InferenceResult."""
         spec = SSMSpec(
@@ -1032,43 +999,6 @@ class TestSVIBackend:
             )
             assert isinstance(result, InferenceResult)
             assert len(result.get_samples()) > 0
-
-
-# =============================================================================
-# PMMH-specific Tests
-# =============================================================================
-
-
-class TestPMMHBackend:
-    """Tests specific to PMMH inference backend."""
-
-    @pytest.mark.slow
-    def test_pmmh_acceptance_rate_reasonable(self):
-        """PMMH acceptance rate should be between 0.05 and 0.95."""
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            diffusion="diag",
-        )
-        model = SSMModel(spec, n_particles=100)
-
-        T = 15
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, 1)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="pmmh",
-            num_warmup=50,
-            num_samples=50,
-        )
-
-        rate = result.diagnostics["acceptance_rate"]
-        assert 0.05 < rate < 0.95, f"Acceptance rate out of range: {rate:.3f}"
 
 
 # =============================================================================
