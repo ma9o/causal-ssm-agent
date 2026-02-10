@@ -453,7 +453,7 @@ def fit_pgas(
     n_warmup: int | None = None,
     seed: int = 0,
     n_leapfrog: int = 1,
-    block_sampling: bool = True,
+    block_sampling: bool = False,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM via PGAS with gradient-informed CSMC and HMC parameter updates.

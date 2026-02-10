@@ -313,12 +313,13 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
             n_particles=cfg["n_pf"],
             pf_seed=42,
         )
-        # SOTA flags: baseline disables all upgrades
+        # SOTA flags: baseline disables all upgrades, upgraded enables them
         pgas_kwargs = {}
         if is_baseline:
             pgas_kwargs = {"block_sampling": False}
             print("  [BASELINE] block_sampling=False")
         else:
+            pgas_kwargs = {"block_sampling": True}
             print("  [UPGRADED] block_sampling=True, optimal_proposal=auto, preconditioning=on")
         print()
         t0 = time.perf_counter()

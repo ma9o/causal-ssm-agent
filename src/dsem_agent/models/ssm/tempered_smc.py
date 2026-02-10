@@ -75,7 +75,7 @@ def fit_tempered_smc(
     seed: int = 0,
     adaptive_tempering: bool = True,
     target_ess_ratio: float = 0.5,
-    waste_free: bool = True,
+    waste_free: bool = False,
     n_leapfrog: int = 1,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
