@@ -43,16 +43,16 @@ import jax.random as random
 from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
-from dsem_agent.models.ssm.hessmc2 import (
-    _assemble_deterministics,
-    _build_eval_fns,
-    _discover_sites,
-)
 from dsem_agent.models.ssm.inference import InferenceResult
 from dsem_agent.models.ssm.mcmc_utils import (
     compute_weighted_chol_mass,
     find_next_beta,
     hmc_step,
+)
+from dsem_agent.models.ssm.utils import (
+    _assemble_deterministics,
+    _build_eval_fns,
+    _discover_sites,
 )
 
 # ---------------------------------------------------------------------------

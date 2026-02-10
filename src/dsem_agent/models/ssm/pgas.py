@@ -33,9 +33,9 @@ from jax.flatten_util import ravel_pytree
 
 from dsem_agent.models.likelihoods.particle import SSMAdapter
 from dsem_agent.models.ssm.discretization import discretize_system_batched
-from dsem_agent.models.ssm.hessmc2 import _assemble_deterministics, _discover_sites
 from dsem_agent.models.ssm.inference import InferenceResult
 from dsem_agent.models.ssm.mcmc_utils import compute_weighted_chol_mass, hmc_step
+from dsem_agent.models.ssm.utils import _assemble_deterministics, _discover_sites
 
 # ---------------------------------------------------------------------------
 # Transition log-prob
