@@ -639,21 +639,7 @@ def power_scaling_sensitivity(
     lik_log_weights = lik_log_weights - jax.nn.logsumexp(lik_log_weights)
     lik_weights = jnp.exp(lik_log_weights)
 
-    # 5. PSIS: Pareto-smoothed importance sampling for reliability
-    # Simple Pareto k-hat diagnostic on the largest weights
-    def _pareto_k_hat(log_w: jnp.ndarray) -> float:
-        """Estimate Pareto k from the largest importance weights."""
-        n = log_w.shape[0]
-        # Use top 20% of weights
-        m = max(int(0.2 * n), 5)
-        sorted_w = jnp.sort(log_w)[-m:]
-        # Simple moment-based k estimator
-        mean_w = jnp.mean(sorted_w)
-        var_w = jnp.var(sorted_w)
-        k = 0.5 * (1.0 + mean_w**2 / jnp.maximum(var_w, 1e-10))
-        return float(jnp.clip(k, 0.0, 2.0))
-
-    # 6. Compute per-parameter sensitivity
+    # 5. Compute per-parameter sensitivity
     prior_sensitivity = {}
     likelihood_sensitivity = {}
     diagnosis = {}
@@ -679,8 +665,12 @@ def power_scaling_sensitivity(
         prior_sensitivity[name] = prior_shift
         likelihood_sensitivity[name] = lik_shift
 
-        # k-hat from prior weights
-        psis_k_hat[name] = _pareto_k_hat(prior_log_weights)
+        # k-hat from prior weights via PSIS
+        import arviz as az
+        import numpy as np
+
+        _, kss = az.psislw(np.asarray(prior_log_weights))
+        psis_k_hat[name] = float(kss)
 
         # Diagnosis
         if prior_shift > 0.05 and lik_shift < 0.05:
