@@ -5,10 +5,9 @@ by the data before running expensive inference. Sits between Stage 4
 (model specification) and Stage 5 (inference).
 
 Detects:
-- Structural non-identifiability (rank-deficient Fisher information)
-- Boundary identifiability (intermittent rank deficiency)
-- Weak parameters (low expected prior→posterior contraction)
-- Uninformative estimands (target quantities not constrained by data)
+- Structural non-identifiability (flat profile likelihood)
+- Practical non-identifiability (profile doesn't cross threshold)
+- Well-identified parameters (profile crosses threshold on both sides)
 """
 
 import polars as pl
@@ -20,22 +19,22 @@ def parametric_id_task(
     model_spec: dict,
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
-    n_draws: int = 5,
-    fisher_method: str = "hessian",
+    n_grid: int = 20,
+    confidence: float = 0.95,
 ) -> dict:
-    """Run parametric identifiability checks.
+    """Run parametric identifiability checks via profile likelihood.
 
     1. Build SSMModel from spec + priors
-    2. Prepare data (pivot raw → wide)
-    3. Call check_parametric_id()
+    2. Prepare data (pivot raw -> wide)
+    3. Call profile_likelihood()
     4. Return result summary
 
     Args:
         model_spec: Model specification dict
         priors: Prior proposals by parameter name
         raw_data: Raw timestamped data (indicator, value, timestamp)
-        n_draws: Number of prior draws for Hessian analysis
-        fisher_method: "hessian", "opg", or "profile"
+        n_grid: Number of grid points for profile likelihood
+        confidence: Confidence level for chi-squared threshold
 
     Returns:
         Dict with parametric ID diagnostics
@@ -43,7 +42,7 @@ def parametric_id_task(
     import jax.numpy as jnp
 
     from dsem_agent.models.ssm_builder import SSMModelBuilder
-    from dsem_agent.utils.parametric_id import check_parametric_id
+    from dsem_agent.utils.parametric_id import profile_likelihood
 
     try:
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
@@ -71,13 +70,13 @@ def parametric_id_task(
         observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
         times = jnp.array(X["time"].values, dtype=jnp.float32)
 
-        # Run parametric ID check
-        result = check_parametric_id(
+        # Run profile likelihood check
+        result = profile_likelihood(
             model=ssm_model,
             observations=observations,
             times=times,
-            n_draws=n_draws,
-            fisher_method=fisher_method,
+            n_grid=n_grid,
+            confidence=confidence,
         )
 
         result.print_report()
@@ -86,7 +85,6 @@ def parametric_id_task(
         return {
             "checked": True,
             "summary": summary,
-            "n_draws": n_draws,
             "n_parameters": len(result.parameter_names),
             "parameter_names": result.parameter_names,
         }

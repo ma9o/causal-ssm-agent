@@ -3,17 +3,21 @@
 # Aggregation utilities in dsem_agent.utils.aggregations
 
 from dsem_agent.utils.parametric_id import (
-    ParametricIDResult,
     PowerScalingResult,
-    check_parametric_id,
+    ProfileLikelihoodResult,
+    SBCResult,
     power_scaling_sensitivity,
+    profile_likelihood,
+    sbc_check,
     simulate_ssm,
 )
 
 __all__ = [
-    "ParametricIDResult",
     "PowerScalingResult",
-    "check_parametric_id",
+    "ProfileLikelihoodResult",
+    "SBCResult",
     "power_scaling_sensitivity",
+    "profile_likelihood",
+    "sbc_check",
     "simulate_ssm",
 ]

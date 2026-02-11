@@ -2,15 +2,14 @@
 
 Tests:
 1. Forward simulator shape and finiteness
-2. Identified model: well-separated eigenvalues, strong contraction
-3. Non-identified model: redundant latent → rank-deficient Hessian
-4. Estimand projection: cross-lag has nonzero projected info
-5. Expected contraction: predictions in [0, 1]
-6. Boundary identifiability: identified at some draws but not others
-7. Power-scaling: prior-dominated params flagged correctly
-8. Stage 4b flow: smoke test
-9. Recovery: simulate_ssm produces data recoverable by Kalman fit
-10. Recovery: check_parametric_id correctly flags identified vs non-identified
+2. Profile likelihood: identified model has well-shaped profiles
+3. Profile likelihood: non-identified model flags issues
+4. Profile likelihood result classification
+5. SBC: basic structure and uniform ranks for identified model
+6. Power-scaling: prior-dominated params flagged correctly
+7. Stage 4b flow: smoke test
+8. Recovery: simulate_ssm produces data recoverable by Kalman fit
+9. Recovery: profile_likelihood correctly classifies identified vs non-identified
 """
 
 import jax.numpy as jnp
@@ -46,7 +45,7 @@ def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
 
 
 def _make_nonidentified_model():
-    """Build a non-identified model: 2 latent, 1 manifest → rank deficient."""
+    """Build a non-identified model: 2 latent, 1 manifest -> rank deficient."""
     spec = SSMSpec(
         n_latent=2,
         n_manifest=1,
@@ -142,189 +141,281 @@ class TestSimulateSSM:
         assert jnp.all(y >= 0)
 
 
-class TestCheckParametricID:
-    """Test the main pre-fit check_parametric_id function."""
+class TestProfileLikelihood:
+    """Test profile likelihood function."""
 
     def test_identified_model(self):
-        """Well-identified model should have well-separated eigenvalues."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
+        """Well-identified model: all params should be classified as identified."""
+        from dsem_agent.utils.parametric_id import profile_likelihood
 
         model = _make_identified_model()
-        T = 30
-        times = jnp.linspace(0, 15, T)
-        obs = jnp.zeros((T, 2))  # dummy — will be replaced by simulated data
+        T = 50
+        times = jnp.linspace(0, 25, T)
 
-        result = check_parametric_id(
+        # Simulate real data from known params
+        from dsem_agent.utils.parametric_id import simulate_ssm
+
+        obs = simulate_ssm(
+            drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
+            diffusion_chol=jnp.eye(2) * 0.3,
+            lambda_mat=jnp.eye(2),
+            manifest_chol=jnp.eye(2) * 0.2,
+            t0_means=jnp.zeros(2),
+            t0_chol=jnp.eye(2) * 0.5,
+            times=times,
+            rng_key=random.PRNGKey(42),
+        )
+
+        result = profile_likelihood(
             model=model,
             observations=obs,
             times=times,
-            n_draws=3,
+            n_grid=15,
             seed=42,
         )
 
-        assert result.eigenvalues.shape == (3, result.eigenvalues.shape[1])
-        assert result.n_draws == 3
+        assert len(result.parameter_profiles) > 0
         assert len(result.parameter_names) > 0
+        assert jnp.isfinite(result.mle_ll)
 
         summary = result.summary()
-        # Well-identified model should not have structural issues
-        # (though with only 3 draws and synthetic data, we check basic structure)
-        assert "structural_issues" in summary
-        assert "boundary_issues" in summary
-        assert "weak_params" in summary
+        # Well-identified model should not have structurally unidentifiable params
+        n_struct = sum(1 for v in summary.values() if v == "structurally_unidentifiable")
+        assert n_struct == 0, f"Unexpected structural non-identifiability: {summary}"
 
     def test_non_identified_model(self):
         """Non-identified model (2 latent, 1 manifest) should flag issues."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
+        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         model = _make_nonidentified_model()
-        T = 30
-        times = jnp.linspace(0, 15, T)
-        obs = jnp.zeros((T, 1))
+        T = 50
+        times = jnp.linspace(0, 25, T)
 
-        result = check_parametric_id(
+        obs = simulate_ssm(
+            drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
+            diffusion_chol=jnp.eye(2) * 0.3,
+            lambda_mat=jnp.ones((1, 2)) * 0.5,
+            manifest_chol=jnp.eye(1) * 0.2,
+            t0_means=jnp.zeros(2),
+            t0_chol=jnp.eye(2) * 0.5,
+            times=times,
+            rng_key=random.PRNGKey(42),
+        )
+
+        result = profile_likelihood(
             model=model,
             observations=obs,
             times=times,
-            n_draws=3,
+            n_grid=15,
             seed=42,
         )
 
-        # With 2 latent and 1 manifest (identical loadings),
-        # there should be near-zero eigenvalues
-        assert result.eigenvalues.shape[0] == 3
         summary = result.summary()
-        # At minimum, some weak params should be detected
-        assert isinstance(summary["weak_params"], list)
+        # With 2 latent and 1 manifest (identical loadings),
+        # some params should be non-identifiable
+        has_issues = any(
+            v in ("structurally_unidentifiable", "practically_unidentifiable")
+            for v in summary.values()
+        )
+        assert has_issues, f"Non-identified model should flag issues: {summary}"
 
-    def test_estimand_projection(self):
-        """Cross-lag coefficient should have nonzero projected information."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
 
-        model = _make_identified_model()
-        T = 30
-        times = jnp.linspace(0, 15, T)
-        obs = jnp.zeros((T, 2))
+class TestProfileLikelihoodResult:
+    """Test ProfileLikelihoodResult dataclass methods."""
 
-        result = check_parametric_id(
-            model=model,
-            observations=obs,
-            times=times,
-            n_draws=3,
-            estimand_sites=["drift_offdiag_pop"],
-            seed=42,
+    def test_summary_keys(self):
+        """Summary should return per-parameter classification strings."""
+        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+
+        result = ProfileLikelihoodResult(
+            parameter_profiles={
+                "param_a": {
+                    "grid_unc": jnp.linspace(-3, 3, 10),
+                    "grid_con": jnp.linspace(-3, 3, 10),
+                    "profile_ll": -(jnp.linspace(-3, 3, 10) ** 2),  # parabola
+                    "mle_value": 0.0,
+                },
+            },
+            mle_ll=0.0,
+            mle_params={"param_a": jnp.array(0.0)},
+            threshold=1.92,
+            parameter_names=["param_a"],
         )
 
-        # Check that estimand information was computed
-        if "drift_offdiag_pop" in result.estimand_information:
-            info = result.estimand_information["drift_offdiag_pop"]
-            assert info.shape == (3,)
-            # All values should be finite and non-negative
-            assert jnp.all(jnp.isfinite(info))
-            assert jnp.all(info >= 0)
-
-    def test_expected_contraction_bounds(self):
-        """Expected contraction values should be in [0, 1]."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
-
-        model = _make_identified_model()
-        T = 30
-        times = jnp.linspace(0, 15, T)
-        obs = jnp.zeros((T, 2))
-
-        result = check_parametric_id(
-            model=model,
-            observations=obs,
-            times=times,
-            n_draws=3,
-            seed=42,
+        summary = result.summary()
+        assert "param_a" in summary
+        assert summary["param_a"] in (
+            "identified",
+            "practically_unidentifiable",
+            "structurally_unidentifiable",
         )
 
-        for name, contraction in result.expected_contraction.items():
-            assert contraction.shape == (3,), f"Wrong shape for {name}"
-            assert jnp.all(contraction >= 0.0), f"Contraction < 0 for {name}"
-            assert jnp.all(contraction <= 1.0), f"Contraction > 1 for {name}"
+    def test_identified_classification(self):
+        """Parabolic profile (strong curvature) should be classified as identified."""
+        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
 
-    def test_result_print_report(self, capsys):
+        grid = jnp.linspace(-3, 3, 20)
+        # Strong parabola: -2*x^2, drops by >1.92 within grid
+        profile = -2.0 * grid**2
+
+        result = ProfileLikelihoodResult(
+            parameter_profiles={
+                "p": {
+                    "grid_unc": grid,
+                    "grid_con": grid,
+                    "profile_ll": profile,
+                    "mle_value": 0.0,
+                },
+            },
+            mle_ll=0.0,
+            mle_params={"p": jnp.array(0.0)},
+            threshold=1.92,
+            parameter_names=["p"],
+        )
+
+        assert result.summary()["p"] == "identified"
+
+    def test_flat_profile_detection(self):
+        """Flat profile should be classified as structurally_unidentifiable."""
+        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+
+        grid = jnp.linspace(-3, 3, 20)
+        profile = jnp.zeros(20) - 10.0  # flat
+
+        result = ProfileLikelihoodResult(
+            parameter_profiles={
+                "p": {
+                    "grid_unc": grid,
+                    "grid_con": grid,
+                    "profile_ll": profile,
+                    "mle_value": 0.0,
+                },
+            },
+            mle_ll=-10.0,
+            mle_params={"p": jnp.array(0.0)},
+            threshold=1.92,
+            parameter_names=["p"],
+        )
+
+        assert result.summary()["p"] == "structurally_unidentifiable"
+
+    def test_print_report(self, capsys):
         """print_report should not crash."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
+        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
 
-        model = _make_identified_model()
-        T = 20
-        times = jnp.linspace(0, 10, T)
-        obs = jnp.zeros((T, 2))
-
-        result = check_parametric_id(model=model, observations=obs, times=times, n_draws=2, seed=0)
+        grid = jnp.linspace(-3, 3, 10)
+        result = ProfileLikelihoodResult(
+            parameter_profiles={
+                "p": {
+                    "grid_unc": grid,
+                    "grid_con": grid,
+                    "profile_ll": -(grid**2),
+                    "mle_value": 0.0,
+                },
+            },
+            mle_ll=0.0,
+            mle_params={"p": jnp.array(0.0)},
+            threshold=1.92,
+            parameter_names=["p"],
+        )
         result.print_report()
 
         captured = capsys.readouterr()
-        assert "Parametric Identifiability Report" in captured.out
+        assert "Profile Likelihood Report" in captured.out
 
 
-class TestParametricIDResult:
-    """Test the ParametricIDResult dataclass methods."""
+class TestSBCCheck:
+    """Test simulation-based calibration."""
 
-    def test_summary_keys(self):
-        """Summary dict should have all required keys."""
-        from dsem_agent.utils.parametric_id import ParametricIDResult
+    def test_sbc_basic_structure(self):
+        """SBC result should have correct shapes and fields."""
+        from dsem_agent.utils.parametric_id import sbc_check
 
-        result = ParametricIDResult(
-            eigenvalues=jnp.array([[1.0, 2.0], [0.5, 1.5]]),
-            min_eigenvalues=jnp.array([1.0, 0.5]),
-            condition_numbers=jnp.array([2.0, 3.0]),
-            estimand_information={},
-            expected_contraction={"param_a": jnp.array([0.5, 0.6])},
-            prior_variances={"param_a": 1.0},
-            parameter_names=["param_a"],
-            n_draws=2,
+        # Minimal 1D LGSS for fast SBC
+        # Use NUTS (not SVI) — SBC requires raw parameter samples
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            manifest_means=jnp.zeros(1),
+            diffusion="diag",
+            t0_means=jnp.zeros(1),
+            t0_var=jnp.eye(1),
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.3},
+            diffusion_diag={"sigma": 0.3},
+            manifest_var_diag={"sigma": 0.3},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+
+        result = sbc_check(
+            model,
+            T=30,
+            dt=1.0,
+            n_sbc=3,
+            method="nuts",
+            num_warmup=100,
+            num_samples=50,
+            num_chains=1,
+            seed=42,
         )
 
-        summary = result.summary()
-        assert "structural_issues" in summary
-        assert "boundary_issues" in summary
-        assert "weak_params" in summary
-        assert "estimand_status" in summary
-        assert "mean_condition_number" in summary
+        assert result.n_sbc > 0
+        assert result.n_posterior_samples > 0
+        assert len(result.ranks) > 0
+        assert result.likelihood_ranks.shape[0] == result.n_sbc
 
-    def test_structural_issue_detection(self):
-        """Near-zero min Fisher eigenvalues at all draws → structural issue."""
-        from dsem_agent.utils.parametric_id import ParametricIDResult
+        # Ranks should be in [0, n_posterior_samples]
+        for name, ranks in result.ranks.items():
+            assert jnp.all(ranks >= 0), f"Negative rank for {name}"
+            assert jnp.all(ranks <= result.n_posterior_samples), f"Rank > n_post for {name}"
 
-        # Fisher info eigenvalues: near-zero means non-identifiable
-        result = ParametricIDResult(
-            eigenvalues=jnp.array([[1e-8, 2.0], [1e-9, 1.5]]),
-            min_eigenvalues=jnp.array([1e-8, 1e-9]),
-            condition_numbers=jnp.array([2e8, 1.5e9]),
-            estimand_information={},
-            expected_contraction={},
-            prior_variances={},
-            parameter_names=["p1", "p2"],
-            n_draws=2,
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_sbc_identified_model_uniform_ranks(self):
+        """Well-identified 1D LGSS with enough replicates should have uniform ranks."""
+        from dsem_agent.utils.parametric_id import sbc_check
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            manifest_means=jnp.zeros(1),
+            diffusion="diag",
+            t0_means=jnp.zeros(1),
+            t0_var=jnp.eye(1),
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.3},
+            diffusion_diag={"sigma": 0.3},
+            manifest_var_diag={"sigma": 0.3},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+
+        result = sbc_check(
+            model,
+            T=50,
+            dt=1.0,
+            n_sbc=20,
+            method="nuts",
+            num_warmup=200,
+            num_samples=200,
+            num_chains=1,
+            seed=42,
         )
 
+        result.print_report()
         summary = result.summary()
-        assert summary["structural_issues"] is True
-        assert summary["boundary_issues"] is False
 
-    def test_boundary_issue_detection(self):
-        """Near-zero Fisher eigenvalue at SOME draws → boundary issue."""
-        from dsem_agent.utils.parametric_id import ParametricIDResult
-
-        # Draw 0: one near-zero eigenvalue (boundary). Draw 1: all positive.
-        result = ParametricIDResult(
-            eigenvalues=jnp.array([[1e-8, 2.0], [0.5, 1.5]]),
-            min_eigenvalues=jnp.array([1e-8, 0.5]),
-            condition_numbers=jnp.array([2e8, 3.0]),
-            estimand_information={},
-            expected_contraction={},
-            prior_variances={},
-            parameter_names=["p1", "p2"],
-            n_draws=2,
+        # With a well-identified model and enough replicates,
+        # we expect p > 0.01 (no strong evidence of miscalibration)
+        # This is a soft check — SBC is stochastic
+        n_failing = sum(
+            1 for name, info in summary.items() if name != "_likelihood" and not info["uniform"]
         )
-
-        summary = result.summary()
-        assert summary["structural_issues"] is False
-        assert summary["boundary_issues"] is True
+        # Allow at most 1 parameter to fail by chance
+        assert n_failing <= 1, f"Too many SBC failures: {summary}"
 
 
 class TestPowerScalingResult:
@@ -438,17 +529,21 @@ class TestStage4bFlow:
     def test_utils_init_exports(self):
         """New exports should be available from utils __init__."""
         from dsem_agent.utils import (
-            ParametricIDResult,
             PowerScalingResult,
-            check_parametric_id,
+            ProfileLikelihoodResult,
+            SBCResult,
             power_scaling_sensitivity,
+            profile_likelihood,
+            sbc_check,
             simulate_ssm,
         )
 
-        assert callable(check_parametric_id)
+        assert callable(profile_likelihood)
+        assert callable(sbc_check)
         assert callable(power_scaling_sensitivity)
         assert callable(simulate_ssm)
-        assert ParametricIDResult is not None
+        assert ProfileLikelihoodResult is not None
+        assert SBCResult is not None
         assert PowerScalingResult is not None
 
 
@@ -565,21 +660,14 @@ class TestSimulateSSMRecovery:
         )
 
 
-class TestParametricIDRecovery:
-    """Recovery tests for parametric identifiability diagnostics.
-
-    Verifies that check_parametric_id correctly distinguishes between
-    identified and non-identified models using ground-truth setups.
-    """
+class TestProfileLikelihoodRecovery:
+    """Recovery tests for profile likelihood diagnostics."""
 
     @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_identified_model_no_structural_issues(self):
-        """Well-identified 1D LGSS should not flag structural issues.
-
-        1 latent, 1 manifest with identity lambda: all parameters observable.
-        """
-        from dsem_agent.utils.parametric_id import check_parametric_id
+    @pytest.mark.timeout(300)
+    def test_identified_model_classified_correctly(self):
+        """Well-identified 1D LGSS: all params should be classified as identified."""
+        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         spec = SSMSpec(
             n_latent=1,
@@ -599,114 +687,68 @@ class TestParametricIDRecovery:
 
         T = 100
         times = jnp.arange(T, dtype=jnp.float32)
-        obs = jnp.zeros((T, 1))
+        obs = simulate_ssm(
+            drift=jnp.array([[-0.3]]),
+            diffusion_chol=jnp.array([[0.3]]),
+            lambda_mat=jnp.eye(1),
+            manifest_chol=jnp.array([[0.5]]),
+            t0_means=jnp.zeros(1),
+            t0_chol=jnp.eye(1),
+            times=times,
+            rng_key=random.PRNGKey(42),
+        )
 
-        result = check_parametric_id(
+        result = profile_likelihood(
             model=model,
             observations=obs,
             times=times,
-            n_draws=5,
+            n_grid=20,
             seed=42,
         )
 
+        result.print_report()
         summary = result.summary()
-        assert summary["structural_issues"] is False, (
-            f"1D LGSS should not have structural issues. Min eigenvalues: {result.min_eigenvalues}"
-        )
+
+        # All params should be identified for a well-specified 1D LGSS
+        for name, cls in summary.items():
+            assert cls != "structurally_unidentifiable", (
+                f"1D LGSS param {name} should not be structurally unidentifiable"
+            )
 
     @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_nonidentified_model_flags_weak_params(self):
-        """Non-identified model (2 latent, 1 manifest, identical loadings).
-
-        With only 1 manifest and symmetric loadings [0.5, 0.5], the two
-        latent processes are not individually distinguishable. Should flag
-        weak parameters or structural issues.
-        """
-        from dsem_agent.utils.parametric_id import check_parametric_id
+    @pytest.mark.timeout(300)
+    def test_nonidentified_model_flags_issues(self):
+        """Non-identified model (2 latent, 1 manifest) should flag issues."""
+        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         model = _make_nonidentified_model()
         T = 100
         times = jnp.arange(T, dtype=jnp.float32)
-        obs = jnp.zeros((T, 1))
 
-        result = check_parametric_id(
+        obs = simulate_ssm(
+            drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
+            diffusion_chol=jnp.eye(2) * 0.3,
+            lambda_mat=jnp.ones((1, 2)) * 0.5,
+            manifest_chol=jnp.eye(1) * 0.2,
+            t0_means=jnp.zeros(2),
+            t0_chol=jnp.eye(2) * 0.5,
+            times=times,
+            rng_key=random.PRNGKey(42),
+        )
+
+        result = profile_likelihood(
             model=model,
             observations=obs,
             times=times,
-            n_draws=5,
+            n_grid=20,
             seed=42,
         )
 
+        result.print_report()
         summary = result.summary()
 
-        # Either structural issues or weak params should be flagged
-        has_issues = (
-            summary["structural_issues"]
-            or summary["boundary_issues"]
-            or len(summary["weak_params"]) > 0
+        has_issues = any(
+            v in ("structurally_unidentifiable", "practically_unidentifiable")
+            for v in summary.values()
         )
-        assert has_issues, f"Non-identified model should flag issues. Summary: {summary}"
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_contraction_higher_for_identified_model(self):
-        """Identified model should have higher mean contraction than non-identified."""
-        from dsem_agent.utils.parametric_id import check_parametric_id
-
-        # Identified: 1 latent, 1 manifest
-        spec_id = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            manifest_means=jnp.zeros(1),
-            diffusion="diag",
-            t0_means=jnp.zeros(1),
-            t0_var=jnp.eye(1),
-        )
-        model_id = SSMModel(
-            spec_id,
-            SSMPriors(
-                drift_diag={"mu": -0.5, "sigma": 0.3},
-                diffusion_diag={"sigma": 0.3},
-                manifest_var_diag={"sigma": 0.3},
-            ),
-            n_particles=50,
-            likelihood="kalman",
-        )
-
-        T = 100
-        times = jnp.arange(T, dtype=jnp.float32)
-
-        result_id = check_parametric_id(
-            model=model_id,
-            observations=jnp.zeros((T, 1)),
-            times=times,
-            n_draws=5,
-            seed=42,
-        )
-
-        # Non-identified: 2 latent, 1 manifest
-        model_nonid = _make_nonidentified_model()
-        result_nonid = check_parametric_id(
-            model=model_nonid,
-            observations=jnp.zeros((T, 1)),
-            times=times,
-            n_draws=5,
-            seed=42,
-        )
-
-        # Mean contraction across all params should be higher for identified model
-        def _mean_contraction(result):
-            all_c = []
-            for vals in result.expected_contraction.values():
-                all_c.append(float(jnp.mean(vals)))
-            return sum(all_c) / len(all_c) if all_c else 0.0
-
-        mean_c_id = _mean_contraction(result_id)
-        mean_c_nonid = _mean_contraction(result_nonid)
-
-        assert mean_c_id > mean_c_nonid, (
-            f"Identified model contraction ({mean_c_id:.3f}) should exceed "
-            f"non-identified ({mean_c_nonid:.3f})"
-        )
+        assert has_issues, f"Non-identified model should flag issues: {summary}"

@@ -1,9 +1,10 @@
 """Parametric identifiability diagnostics for state-space models.
 
 Pre-fit diagnostics (Stage 4b):
-- Eigenspectrum analysis of the Fisher information (Hessian of log-likelihood)
-- Estimand projection: does the data inform the quantity of interest?
-- Expected contraction: BvM approximation of prior→posterior shrinkage
+- Profile likelihood: per-parameter identifiability classification via
+  constrained optimization (Raue et al. 2009). Uses only 1st-order AD.
+- Simulation-based calibration (SBC): posterior calibration validation
+  with data-dependent test quantities (Modrak et al. 2023).
 
 Post-fit diagnostics (Stage 5):
 - Power-scaling sensitivity: detect prior-dominated or conflicting parameters
@@ -51,7 +52,7 @@ def simulate_ssm(
 ) -> jnp.ndarray:
     """Generate synthetic observations from constrained SSM parameters.
 
-    Uses discretize_system_batched for CT→DT conversion, then lax.scan
+    Uses discretize_system_batched for CT->DT conversion, then lax.scan
     for JAX-traceable forward simulation.
 
     Args:
@@ -140,91 +141,199 @@ def simulate_ssm(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _simulate_from_params(con_dict, spec, times, rng_key):
+    """Simulate observations from constrained parameter dict."""
+    det = _assemble_deterministics({k: v[None, ...] for k, v in con_dict.items()}, spec)
+    det = {k: v[0] for k, v in det.items()}
+    n_l, n_m = spec.n_latent, spec.n_manifest
+    return simulate_ssm(
+        drift=det.get("drift", jnp.zeros((n_l, n_l))),
+        diffusion_chol=det.get("diffusion", jnp.eye(n_l)),
+        lambda_mat=det.get("lambda", jnp.eye(n_m, n_l)),
+        manifest_chol=jnp.linalg.cholesky(
+            det.get("manifest_cov", jnp.eye(n_m)) + jnp.eye(n_m) * 1e-8
+        ),
+        t0_means=det.get("t0_means", jnp.zeros(n_l)),
+        t0_chol=jnp.linalg.cholesky(det.get("t0_cov", jnp.eye(n_l)) + jnp.eye(n_l) * 1e-8),
+        times=times,
+        rng_key=rng_key,
+        cint=det.get("cint"),
+        manifest_dist=spec.manifest_dist.value,
+    )
+
+
+def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: int) -> float:
+    """Chi-squared uniformity test on discrete rank statistics.
+
+    Uses regularized incomplete gamma for p-value (no scipy needed).
+    """
+    ranks = jnp.asarray(ranks, dtype=jnp.float32)
+    n = ranks.shape[0]
+    bin_width = (max_rank + 1) / n_bins
+    bin_idx = jnp.clip((ranks / bin_width).astype(jnp.int32), 0, n_bins - 1)
+    observed = jnp.array([float(jnp.sum(bin_idx == i)) for i in range(n_bins)], dtype=jnp.float32)
+    expected = float(n) / n_bins
+    chi2 = jnp.sum((observed - expected) ** 2 / jnp.maximum(expected, 1e-10))
+    df = n_bins - 1
+    return float(1.0 - jax.scipy.special.gammainc(df / 2.0, chi2 / 2.0))
+
+
+def _build_scalar_names(param_names, site_info):
+    """Build flat list of scalar element names from parameter groups."""
+    names = []
+    for name in param_names:
+        size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
+        if size == 1:
+            names.append(name)
+        else:
+            for k in range(size):
+                names.append(f"{name}[{k}]")
+    return names
+
+
+def _build_param_index(param_names, site_info):
+    """Build {param_name: (offset, size)} map into flat vector."""
+    index = {}
+    offset = 0
+    for name in param_names:
+        size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
+        index[name] = (offset, size)
+        offset += size
+    return index
+
+
+def _sample_prior_unc(param_names, site_info, rng_key, n_samples=200):
+    """Sample from prior in unconstrained space. Returns (n_samples, D) array."""
+    samples = []
+    for _ in range(n_samples):
+        parts = []
+        for name in param_names:
+            info = site_info[name]
+            rng_key, sk = random.split(rng_key)
+            con = info["distribution"].sample(sk, ())
+            unc = info["transform"].inv(con)
+            parts.append(unc.reshape(-1))
+        samples.append(jnp.concatenate(parts))
+    return jnp.stack(samples), rng_key
+
+
+# ---------------------------------------------------------------------------
 # Result dataclasses
 # ---------------------------------------------------------------------------
 
 
 @dataclass
-class ParametricIDResult:
-    """Results from pre-fit parametric identifiability analysis."""
+class ProfileLikelihoodResult:
+    """Results from profile likelihood identifiability analysis."""
 
-    eigenvalues: jnp.ndarray  # (n_draws, D) — Fisher information eigenvalues
-    min_eigenvalues: jnp.ndarray  # (n_draws,) — min Fisher eigenvalue per draw
-    condition_numbers: jnp.ndarray  # (n_draws,)
-    estimand_information: dict[str, jnp.ndarray]  # site -> (n_draws,)
-    expected_contraction: dict[str, jnp.ndarray]  # site -> (n_draws,) per-param
-    prior_variances: dict[str, float]
-    parameter_names: list[str]
-    n_draws: int
-    fisher_method: str = "hessian"
+    parameter_profiles: dict[
+        str, dict
+    ]  # scalar_name -> {grid_unc, grid_con, profile_ll, mle_value}
+    mle_ll: float  # MAP log-posterior
+    mle_params: dict[str, jnp.ndarray]  # MAP parameter values (constrained)
+    threshold: float  # chi-squared threshold (1.92 for 95%)
+    parameter_names: list[str]  # scalar element names that were profiled
 
-    def summary(self) -> dict:
-        """Produce diagnostic flags from the analysis.
+    def summary(self) -> dict[str, str]:
+        """Per-parameter classification based on profile shape.
 
         Returns:
-            Dict with keys: structural_issues, boundary_issues,
-            weak_params, estimand_status
+            Dict mapping scalar parameter name to one of:
+            - "identified": profile drops below threshold on both sides
+            - "practically_unidentifiable": doesn't cross threshold on one/both sides
+            - "structurally_unidentifiable": profile is flat (range < 0.5)
         """
-        # Structural: min eigenvalue ≈ 0 across ALL draws
-        struct_threshold = 1e-4
-        structural_issues = bool(jnp.all(self.min_eigenvalues < struct_threshold))
+        eps = 0.5
+        classifications = {}
+        for name, prof in self.parameter_profiles.items():
+            pll = jnp.asarray(prof["profile_ll"])
+            pll_max = float(jnp.max(pll))
+            ref = max(pll_max, self.mle_ll)
+            ratio = pll - ref
+            ll_range = float(pll_max - jnp.min(pll))
 
-        # Boundary: min eigenvalue ≈ 0 at SOME draws but not all
-        boundary_issues = bool(
-            jnp.any(self.min_eigenvalues < struct_threshold)
-            and not jnp.all(self.min_eigenvalues < struct_threshold)
-        )
+            if ll_range < eps:
+                classifications[name] = "structurally_unidentifiable"
+                continue
 
-        # Weak params: expected contraction < 0.1
-        weak_params = []
-        for name, contraction in self.expected_contraction.items():
-            mean_contraction = float(jnp.mean(contraction))
-            if mean_contraction < 0.1:
-                weak_params.append(name)
+            peak = int(jnp.argmax(pll))
+            left = ratio[:peak] if peak > 0 else jnp.array([0.0])
+            right = ratio[peak + 1 :] if peak < len(pll) - 1 else jnp.array([0.0])
+            left_ok = bool(jnp.any(left < -self.threshold))
+            right_ok = bool(jnp.any(right < -self.threshold))
 
-        # Estimand status
-        estimand_status = {}
-        for name, info in self.estimand_information.items():
-            mean_info = float(jnp.mean(info))
-            if mean_info < 1e-4:
-                estimand_status[name] = "unidentified"
-            elif mean_info < 1.0:
-                estimand_status[name] = "weakly_identified"
+            if left_ok and right_ok:
+                classifications[name] = "identified"
             else:
-                estimand_status[name] = "identified"
+                classifications[name] = "practically_unidentifiable"
 
-        return {
-            "structural_issues": structural_issues,
-            "boundary_issues": boundary_issues,
-            "weak_params": weak_params,
-            "estimand_status": estimand_status,
-            "mean_condition_number": float(jnp.mean(self.condition_numbers)),
-        }
+        return classifications
 
     def print_report(self) -> None:
-        """Print a human-readable diagnostic report."""
+        """Print a human-readable profile likelihood report."""
         summary = self.summary()
-        print("\n=== Parametric Identifiability Report ===")
-        print(f"  Draws: {self.n_draws}")
-        print(f"  Parameters: {len(self.parameter_names)}")
-        print(f"  Mean condition number: {summary['mean_condition_number']:.2e}")
+        markers = {
+            "identified": "[ok]",
+            "practically_unidentifiable": "[~]",
+            "structurally_unidentifiable": "[!]",
+        }
+        print("\n=== Profile Likelihood Report ===")
+        print(f"  Parameters profiled: {len(self.parameter_profiles)}")
+        print(f"  Threshold: {self.threshold:.2f}")
+        print(f"  MAP log-posterior: {self.mle_ll:.2f}")
+        for name, cls in summary.items():
+            print(f"  {markers.get(cls, '[?]')} {name}: {cls}")
 
-        if summary["structural_issues"]:
-            print("  [!] STRUCTURAL non-identifiability detected")
-            print("      Min eigenvalue ≈ 0 at all prior draws")
-        elif summary["boundary_issues"]:
-            print("  [~] BOUNDARY identifiability issues")
-            print("      Min eigenvalue ≈ 0 at some prior draws")
-        else:
-            print("  [ok] No structural identifiability issues")
 
-        if summary["weak_params"]:
-            print(f"  [~] Weak parameters (contraction < 0.1): {summary['weak_params']}")
+@dataclass
+class SBCResult:
+    """Results from simulation-based calibration (Modrak et al. 2023)."""
 
-        if summary["estimand_status"]:
-            print("  Estimand status:")
-            for name, status in summary["estimand_status"].items():
-                print(f"    {name}: {status}")
+    ranks: dict[str, jnp.ndarray]  # scalar_name -> (n_sbc,) rank stats
+    likelihood_ranks: jnp.ndarray  # (n_sbc,) data-dependent test quantity
+    n_sbc: int
+    n_posterior_samples: int
+    parameter_names: list[str]
+
+    def summary(self) -> dict[str, dict]:
+        """Per-parameter uniformity test (chi-squared on binned ranks).
+
+        Returns:
+            Dict mapping param name -> {p_value, uniform, mean_rank, expected_mean}.
+            Also includes "_likelihood" key for data-dependent test quantity.
+        """
+        result = {}
+        n_bins = max(5, int(self.n_sbc**0.5))
+        for name, r in self.ranks.items():
+            pv = _chi_squared_uniformity_pvalue(r, self.n_posterior_samples, n_bins)
+            result[name] = {
+                "p_value": pv,
+                "uniform": pv > 0.01,
+                "mean_rank": float(jnp.mean(r)),
+                "expected_mean": self.n_posterior_samples / 2.0,
+            }
+        ll_pv = _chi_squared_uniformity_pvalue(
+            self.likelihood_ranks, self.n_posterior_samples, n_bins
+        )
+        result["_likelihood"] = {"p_value": ll_pv, "uniform": ll_pv > 0.01}
+        return result
+
+    def print_report(self) -> None:
+        """Print a human-readable SBC report."""
+        summary = self.summary()
+        print(f"\n=== SBC Calibration Report (n={self.n_sbc}) ===")
+        for name, info in summary.items():
+            tag = "ok" if info["uniform"] else "FAIL"
+            if name == "_likelihood":
+                print(f"  [{tag}] likelihood: p={info['p_value']:.4f}")
+            else:
+                print(
+                    f"  [{tag}] {name}: p={info['p_value']:.4f} (mean_rank={info['mean_rank']:.1f})"
+                )
 
 
 @dataclass
@@ -247,117 +356,44 @@ class PowerScalingResult:
             reliable = "reliable" if k_hat < 0.7 else "UNRELIABLE"
             print(
                 f"  {name}: prior_sens={prior_s:.3f}, lik_sens={lik_s:.3f} "
-                f"→ {diag} (k_hat={k_hat:.2f}, {reliable})"
+                f"-> {diag} (k_hat={k_hat:.2f}, {reliable})"
             )
 
 
 # ---------------------------------------------------------------------------
-# Fisher information estimators
+# Pre-fit: profile_likelihood
 # ---------------------------------------------------------------------------
 
 
-def _fisher_hessian(z_i, log_lik_fn):
-    """Fisher via negative Hessian of log-likelihood (second-order AD)."""
-    H = jax.hessian(log_lik_fn)(z_i)
-    H = jnp.nan_to_num(H, nan=0.0, posinf=0.0, neginf=0.0)
-    return -H
-
-
-def _fisher_opg(
-    z_i, model, times, subject_ids, site_info, unravel_fn, simulate_fn, n_score_samples, rng_key
-):
-    """OPG Fisher: F = (1/K) sum_k s_k s_k^T where s_k = grad_z log p(y_k|z).
-
-    Simulates K independent datasets from z_i and computes the score
-    (gradient of log-likelihood) for each. The outer product of gradients
-    is mathematically always PSD (float32 may introduce small relative
-    negative eigenvalues which are harmless for downstream analysis).
-    Uses only first-order AD (jax.grad).
-    """
-    scores = []
-    for _k in range(n_score_samples):
-        rng_key, sim_key = random.split(rng_key)
-        y_k = simulate_fn(sim_key)
-
-        log_lik_k, _ = _build_eval_fns(model, y_k, times, subject_ids, site_info, unravel_fn)
-        s_k = jax.grad(log_lik_k)(z_i)
-        s_k = jnp.nan_to_num(s_k, nan=0.0, posinf=0.0, neginf=0.0)
-        scores.append(s_k)
-
-    if not scores:
-        D = z_i.shape[0]
-        return jnp.zeros((D, D))
-
-    S = jnp.stack(scores)  # (K, D)
-    # S^T S is mathematically PSD; float32 may introduce small relative
-    # negative eigenvalues which are harmless for downstream analysis.
-    return S.T @ S / len(scores)  # (D, D)
-
-
-def _fisher_profile(z_i, log_lik_fn, D, step=0.01):
-    """Diagonal Fisher via finite-difference curvature of log-likelihood.
-
-    Computes per-parameter curvature using central finite differences:
-        F_jj = -(LL(z+h*e_j) - 2*LL(z) + LL(z-h*e_j)) / h^2
-
-    This avoids second-order AD entirely (only scalar log-likelihood evals),
-    making it more numerically stable for recursive filter models.
-    Cost: 2*D + 1 log-likelihood evaluations.
-
-    Returns a diagonal Fisher matrix.
-    """
-    ll_center = log_lik_fn(z_i)
-    fisher_diag = jnp.zeros(D)
-
-    for j in range(D):
-        e_j = jnp.zeros(D).at[j].set(step)
-        ll_plus = log_lik_fn(z_i + e_j)
-        ll_minus = log_lik_fn(z_i - e_j)
-        curvature = (ll_plus - 2.0 * ll_center + ll_minus) / (step**2)
-        fisher_diag = fisher_diag.at[j].set(jnp.maximum(-curvature, 0.0))
-
-    return jnp.diag(fisher_diag)
-
-
-# ---------------------------------------------------------------------------
-# Pre-fit: check_parametric_id
-# ---------------------------------------------------------------------------
-
-
-def check_parametric_id(
+def profile_likelihood(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    n_draws: int = 5,
-    estimand_sites: list[str] | None = None,
+    profile_params: list[str] | None = None,
+    n_grid: int = 20,
+    confidence: float = 0.95,
     seed: int = 42,
-    fisher_method: str = "hessian",
-    n_score_samples: int = 100,
-    profile_step: float = 0.01,
-) -> ParametricIDResult:
-    """Pre-fit parametric identifiability diagnostics.
+) -> ProfileLikelihoodResult:
+    """Profile likelihood identifiability diagnostic.
 
-    For each of n_draws prior draws:
-    1. Draw z from prior, simulate synthetic data y
-    2. Compute Fisher information at z with data y
-    3. Analyse eigenspectrum, estimand projection, expected contraction
+    For each scalar parameter element:
+    1. Fix the parameter at grid points around the MAP
+    2. Optimize all other parameters (BFGS, 1st-order AD only)
+    3. Classify based on profile shape vs chi-squared threshold
 
     Args:
         model: SSMModel instance
-        observations: (T, n_manifest) observed data (used for shape/times only)
+        observations: (T, n_manifest) observed data
         times: (T,) observation times
         subject_ids: optional subject indices
-        n_draws: number of prior draws to evaluate
-        estimand_sites: parameter sites to project onto (e.g. ["drift_offdiag_pop"])
+        profile_params: parameter group names to profile (None = all)
+        n_grid: number of grid points per parameter
+        confidence: confidence level for threshold (0.95 or 0.99)
         seed: random seed
-        fisher_method: "hessian" (2nd-order AD), "opg" (outer product of gradients),
-            or "profile" (finite-difference diagonal curvature)
-        n_score_samples: number of simulated datasets for OPG (default 100)
-        profile_step: finite-difference step for profile method (default 0.01)
 
     Returns:
-        ParametricIDResult with diagnostic information
+        ProfileLikelihoodResult with per-parameter profiles and classifications
     """
     rng_key = random.PRNGKey(seed)
 
@@ -367,176 +403,293 @@ def check_parametric_id(
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
-
     param_names = sorted(site_info.keys())
 
-    # Compute prior variances from distributions
-    prior_variances = {}
-    for name in param_names:
-        d = site_info[name]["distribution"]
-        try:
-            var = float(jnp.sum(d.variance))
-        except (NotImplementedError, AttributeError):
-            var = float("inf")
-        prior_variances[name] = var
+    # 2. Build eval fns
+    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
+        model, observations, times, subject_ids, site_info, unravel_fn
+    )
 
-    # Storage
-    all_eigenvalues = []
-    estimand_info_storage: dict[str, list[float]] = {s: [] for s in (estimand_sites or [])}
-    contraction_storage: dict[str, list[float]] = {n: [] for n in param_names}
+    def neg_log_post(z):
+        val = -(log_lik_fn(z) + log_prior_unc_fn(z))
+        return jnp.where(jnp.isfinite(val), val, jnp.array(1e10))
 
-    for _i in range(n_draws):
-        # 2. Draw z_i from prior
-        parts = []
+    # 3. Prior stds in unconstrained space (for grid range)
+    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=200)
+    prior_stds = jnp.std(prior_z, axis=0)
+    prior_stds = jnp.maximum(prior_stds, 0.1)
+
+    # 4. Find MAP (optimize posterior for stability)
+    z_init = jnp.median(prior_z, axis=0)
+    map_result = jax.scipy.optimize.minimize(neg_log_post, z_init, method="BFGS")
+    z_map = map_result.x
+    if not jnp.all(jnp.isfinite(z_map)):
+        z_map = z_init
+    # Record log-LIKELIHOOD at MAP (not posterior) for profile comparison.
+    # Raue et al. 2009: profile the likelihood to detect structural
+    # non-identifiability; optimize the posterior for numerical stability.
+    mle_ll = float(log_lik_fn(z_map))
+
+    # 5. Parameter index map
+    param_index = _build_param_index(param_names, site_info)
+    scalar_names = _build_scalar_names(param_names, site_info)
+
+    # 6. Determine which scalar indices to profile
+    if profile_params is not None:
+        indices = []
+        for pname in profile_params:
+            if pname in param_index:
+                off, sz = param_index[pname]
+                indices.extend(range(off, off + sz))
+    else:
+        indices = list(range(D))
+
+    # Threshold: chi2(1, alpha)/2
+    threshold = 3.32 if confidence >= 0.99 else 1.92
+
+    # 7. Transforms for constrained mapping
+    transforms = {name: site_info[name]["transform"] for name in site_info}
+    unc_map = unravel_fn(z_map)
+
+    # 8. Profile each scalar element
+    parameter_profiles = {}
+
+    for j in indices:
+        sname = scalar_names[j]
+        prior_std_j = float(prior_stds[j])
+        z_map_j = float(z_map[j])
+
+        grid_unc = jnp.linspace(
+            z_map_j - 3 * prior_std_j,
+            z_map_j + 3 * prior_std_j,
+            n_grid,
+        )
+
+        profile_ll = []
+
+        if D > 1:
+            # Build JIT-compiled profiler for this j.
+            # Optimize posterior (stable), return optimized z and LL.
+            _j = j  # capture for closure
+
+            @jax.jit
+            def _profile_point(z_mj_init, z_j_val, _j=_j):
+                def _obj(z_mj):
+                    z_full = jnp.concatenate([z_mj[:_j], z_j_val[None], z_mj[_j:]])
+                    return neg_log_post(z_full)
+
+                res = jax.scipy.optimize.minimize(_obj, z_mj_init, method="BFGS")
+                # Evaluate log-LIKELIHOOD (not posterior) at optimum
+                z_opt = jnp.concatenate([res.x[:_j], z_j_val[None], res.x[_j:]])
+                ll_val = log_lik_fn(z_opt)
+                return res.x, ll_val
+
+            z_mj_warm = jnp.concatenate([z_map[:j], z_map[j + 1 :]])
+
+            for g_idx in range(n_grid):
+                g_val = grid_unc[g_idx]
+                z_mj_opt, ll_val = _profile_point(z_mj_warm, g_val)
+                if jnp.all(jnp.isfinite(z_mj_opt)):
+                    z_mj_warm = z_mj_opt
+                profile_ll.append(float(ll_val))
+        else:
+            # D=1: no inner optimization, just evaluate likelihood
+            for g_idx in range(n_grid):
+                z_full = grid_unc[g_idx : g_idx + 1]
+                profile_ll.append(float(log_lik_fn(z_full)))
+
+        profile_ll = jnp.array(profile_ll)
+
+        # Convert grid to constrained space
+        # Find which param group owns this scalar index
+        grid_con = grid_unc  # fallback
+        mle_value = z_map_j
+        for name in param_names:
+            off, sz = param_index[name]
+            if off <= j < off + sz:
+                local_idx = j - off
+                con_vals = []
+                for g_val in grid_unc:
+                    z_temp = z_map.at[j].set(g_val)
+                    unc_dict = unravel_fn(z_temp)
+                    con_val = transforms[name](unc_dict[name])
+                    flat_con = con_val.reshape(-1)
+                    con_vals.append(float(flat_con[local_idx]))
+                grid_con = jnp.array(con_vals)
+                # MLE value in constrained space
+                con_map = transforms[name](unc_map[name])
+                flat_map = con_map.reshape(-1)
+                mle_value = float(flat_map[local_idx])
+                break
+
+        parameter_profiles[sname] = {
+            "grid_unc": grid_unc,
+            "grid_con": grid_con,
+            "profile_ll": profile_ll,
+            "mle_value": mle_value,
+        }
+
+    # MAP params in constrained space
+    mle_params = {name: transforms[name](unc_map[name]) for name in unc_map}
+
+    return ProfileLikelihoodResult(
+        parameter_profiles=parameter_profiles,
+        mle_ll=mle_ll,
+        mle_params=mle_params,
+        threshold=threshold,
+        parameter_names=[scalar_names[j] for j in indices],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pre-fit: sbc_check
+# ---------------------------------------------------------------------------
+
+
+def sbc_check(
+    model: SSMModel,
+    T: int = 100,
+    dt: float = 0.5,
+    n_sbc: int = 50,
+    method: str = "laplace_em",
+    seed: int = 42,
+    **fit_kwargs,
+) -> SBCResult:
+    """Simulation-based calibration check (Modrak et al. 2023).
+
+    For each replicate:
+    1. Draw true params from prior
+    2. Simulate data from true params
+    3. Fit model to simulated data
+    4. Compute rank of true value within posterior samples
+    5. Compute rank of true log-likelihood among posterior log-likelihoods
+
+    Well-calibrated posteriors produce uniform rank distributions.
+
+    Args:
+        model: SSMModel instance
+        T: number of time points per replicate
+        dt: time step between observations
+        n_sbc: number of SBC replicates
+        method: inference method for fitting
+        seed: random seed
+        **fit_kwargs: additional arguments passed to fit()
+
+    Returns:
+        SBCResult with rank statistics and uniformity tests
+    """
+    from dsem_agent.models.ssm.inference import fit
+
+    rng_key = random.PRNGKey(seed)
+    times = jnp.arange(T, dtype=jnp.float32) * dt
+
+    # Discover sites from dummy data
+    dummy_obs = jnp.zeros((T, model.spec.n_manifest))
+    rng_key, trace_key = random.split(rng_key)
+    site_info = _discover_sites(model, dummy_obs, times, None, trace_key)
+    param_names = sorted(site_info.keys())
+
+    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+    _, unravel_fn = ravel_pytree(example_unc)
+
+    param_index = _build_param_index(param_names, site_info)
+    scalar_names = _build_scalar_names(param_names, site_info)
+
+    all_ranks: dict[str, list[int]] = {sn: [] for sn in scalar_names}
+    ll_ranks: list[int] = []
+    n_post = 0
+
+    for _rep in range(n_sbc):
+        # a. Draw true params from prior
+        true_con = {}
+        true_unc_parts = []
         for name in param_names:
             info = site_info[name]
-            rng_key, sample_key = random.split(rng_key)
-            prior_sample = info["distribution"].sample(sample_key, ())
-            unc_sample = info["transform"].inv(prior_sample)
-            parts.append(unc_sample.reshape(-1))
-        z_i = jnp.concatenate(parts)
+            rng_key, sk = random.split(rng_key)
+            con_sample = info["distribution"].sample(sk, ())
+            true_con[name] = con_sample
+            true_unc_parts.append(info["transform"].inv(con_sample).reshape(-1))
+        true_z = jnp.concatenate(true_unc_parts)
 
-        # 3. Constrain z_i → simulate synthetic observations
-        unc_dict = unravel_fn(z_i)
-        transforms = {name: info["transform"] for name, info in site_info.items()}
-        con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
-
-        # Assemble SSM matrices from constrained samples for simulation
-        det = _assemble_deterministics({k: v[None, ...] for k, v in con_dict.items()}, model.spec)
-        # Squeeze batch dim
-        det = {k: v[0] for k, v in det.items()}
-
+        # b+c. Simulate data
         rng_key, sim_key = random.split(rng_key)
-        y_i = simulate_ssm(
-            drift=det.get("drift", jnp.zeros((model.spec.n_latent, model.spec.n_latent))),
-            diffusion_chol=det.get("diffusion", jnp.eye(model.spec.n_latent)),
-            lambda_mat=det.get("lambda", jnp.eye(model.spec.n_manifest, model.spec.n_latent)),
-            manifest_chol=jnp.linalg.cholesky(
-                det.get("manifest_cov", jnp.eye(model.spec.n_manifest))
-                + jnp.eye(model.spec.n_manifest) * 1e-8
-            ),
-            t0_means=det.get("t0_means", jnp.zeros(model.spec.n_latent)),
-            t0_chol=jnp.linalg.cholesky(
-                det.get("t0_cov", jnp.eye(model.spec.n_latent))
-                + jnp.eye(model.spec.n_latent) * 1e-8
-            ),
-            times=times,
-            rng_key=sim_key,
-            cint=det.get("cint"),
-            manifest_dist=model.spec.manifest_dist.value,
-        )
-
-        # 4. Build log-likelihood function for simulated data
-        log_lik_fn, _log_prior_unc_fn = _build_eval_fns(
-            model, y_i, times, subject_ids, site_info, unravel_fn
-        )
-
-        # 5. Compute Fisher information matrix
-        if fisher_method == "opg":
-            # Build a simulate_fn closure that generates data from the same z_i
-            def _simulate_from_zi(sim_rng, _det=det):
-                return simulate_ssm(
-                    drift=_det.get("drift", jnp.zeros((model.spec.n_latent, model.spec.n_latent))),
-                    diffusion_chol=_det.get("diffusion", jnp.eye(model.spec.n_latent)),
-                    lambda_mat=_det.get(
-                        "lambda", jnp.eye(model.spec.n_manifest, model.spec.n_latent)
-                    ),
-                    manifest_chol=jnp.linalg.cholesky(
-                        _det.get("manifest_cov", jnp.eye(model.spec.n_manifest))
-                        + jnp.eye(model.spec.n_manifest) * 1e-8
-                    ),
-                    t0_means=_det.get("t0_means", jnp.zeros(model.spec.n_latent)),
-                    t0_chol=jnp.linalg.cholesky(
-                        _det.get("t0_cov", jnp.eye(model.spec.n_latent))
-                        + jnp.eye(model.spec.n_latent) * 1e-8
-                    ),
-                    times=times,
-                    rng_key=sim_rng,
-                    cint=_det.get("cint"),
-                    manifest_dist=model.spec.manifest_dist.value,
-                )
-
-            rng_key, opg_key = random.split(rng_key)
-            fisher_i = _fisher_opg(
-                z_i,
-                model,
-                times,
-                subject_ids,
-                site_info,
-                unravel_fn,
-                _simulate_from_zi,
-                n_score_samples,
-                opg_key,
-            )
-        elif fisher_method == "profile":
-            fisher_i = _fisher_profile(z_i, log_lik_fn, D, profile_step)
-        else:
-            fisher_i = _fisher_hessian(z_i, log_lik_fn)
-
-        # Eigenspectrum of Fisher info: near-zero eigenvalues → non-identifiability
-        fisher_eigvals_i = jnp.linalg.eigvalsh(fisher_i)
-        all_eigenvalues.append(fisher_eigvals_i)
-
-        # 6. Estimand projection
-        if estimand_sites:
-            for site_name in estimand_sites:
-                if site_name in param_names:
-                    # Build projection function: g(z) extracts the site value
-                    def _make_g(sname, _transforms=transforms):
-                        def g(z):
-                            unc = unravel_fn(z)
-                            t = _transforms[sname]
-                            return jnp.sum(t(unc[sname]))
-
-                        return g  # noqa: B023
-
-                    g = _make_g(site_name)
-                    grad_g = jax.grad(g)(z_i)
-                    grad_g = jnp.nan_to_num(grad_g, nan=0.0)
-                    # Projected Fisher information: grad_g^T F grad_g
-                    I_g = float(grad_g @ fisher_i @ grad_g)
-                    estimand_info_storage[site_name].append(max(I_g, 0.0))
-
-        # 7. Expected contraction: BvM approximation
-        # posterior_var ≈ diag(F^{-1}), contraction = 1 - post_var / prior_var
-        fisher_reg = fisher_i + jnp.eye(D) * 1e-6
         try:
-            H_inv_diag = jnp.diag(jnp.linalg.inv(fisher_reg))
+            y_star = _simulate_from_params(true_con, model.spec, times, sim_key)
         except Exception:
-            H_inv_diag = jnp.full(D, float("inf"))
+            continue  # skip replicate on simulation failure
 
-        # Map diagonal elements back to parameter names
-        offset = 0
-        for name in param_names:
-            size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
-            post_var = float(jnp.mean(jnp.abs(H_inv_diag[offset : offset + size])))
-            pv = prior_variances[name]
-            if pv > 0 and jnp.isfinite(pv):
-                contraction = max(0.0, min(1.0, 1.0 - post_var / pv))
+        if not jnp.all(jnp.isfinite(y_star)):
+            continue
+
+        # d. Fit model
+        rng_key, fit_key = random.split(rng_key)
+        try:
+            fit_result = fit(
+                model, y_star, times, method=method, seed=int(fit_key[0]), **fit_kwargs
+            )
+        except Exception:
+            continue  # skip replicate on fit failure
+
+        # e. Get posterior samples
+        samples = fit_result.get_samples()
+        if not samples:
+            continue
+        n_post = next(iter(samples.values())).shape[0]
+
+        # Check which raw param names are available in samples
+        available = [n for n in param_names if n in samples]
+
+        # f. Compute parameter ranks (only for methods returning raw params)
+        for name in available:
+            _off, sz = param_index[name]
+            true_flat = true_con[name].reshape(-1)
+            post_flat = samples[name].reshape(n_post, -1)
+
+            for k in range(sz):
+                sname = name if sz == 1 else f"{name}[{k}]"
+                rank = int(jnp.sum(post_flat[:, k] < true_flat[k]))
+                all_ranks[sname].append(rank)
+
+        # g. Likelihood rank (data-dependent test quantity)
+        if available:
+            # Can build unconstrained vectors from raw param samples
+            log_lik_fn, _ = _build_eval_fns(model, y_star, times, None, site_info, unravel_fn)
+            true_ll = float(log_lik_fn(true_z))
+
+            post_z_list = []
+            for i in range(n_post):
+                parts = []
+                for name in param_names:
+                    if name in samples:
+                        unc = site_info[name]["transform"].inv(samples[name][i])
+                        parts.append(unc.reshape(-1))
+                if parts:
+                    post_z_list.append(jnp.concatenate(parts))
+
+            if post_z_list:
+                post_z = jnp.stack(post_z_list)
+                batch_ll = jax.vmap(log_lik_fn)
+                post_lls = []
+                chunk_size = 32
+                for start in range(0, post_z.shape[0], chunk_size):
+                    post_lls.append(batch_ll(post_z[start : start + chunk_size]))
+                post_lls = jnp.concatenate(post_lls)
+                ll_rank = int(jnp.sum(post_lls < true_ll))
             else:
-                contraction = 0.0
-            contraction_storage[name].append(contraction)
-            offset += size
+                ll_rank = 0
+        else:
+            ll_rank = 0
+        ll_ranks.append(ll_rank)
 
-    # Assemble results
-    eigenvalues = jnp.stack(all_eigenvalues)
-    min_eigenvalues = jnp.min(eigenvalues, axis=1)
-    max_eigenvalues = jnp.max(jnp.abs(eigenvalues), axis=1)
-    condition_numbers = max_eigenvalues / jnp.maximum(jnp.abs(min_eigenvalues), 1e-30)
+    # Filter out empty rank lists
+    ranks_dict = {sn: jnp.array(v) for sn, v in all_ranks.items() if v}
 
-    estimand_information = {name: jnp.array(vals) for name, vals in estimand_info_storage.items()}
-    expected_contraction = {name: jnp.array(vals) for name, vals in contraction_storage.items()}
-
-    return ParametricIDResult(
-        eigenvalues=eigenvalues,
-        min_eigenvalues=min_eigenvalues,
-        condition_numbers=condition_numbers,
-        estimand_information=estimand_information,
-        expected_contraction=expected_contraction,
-        prior_variances=prior_variances,
-        parameter_names=param_names,
-        n_draws=n_draws,
-        fisher_method=fisher_method,
+    return SBCResult(
+        ranks=ranks_dict,
+        likelihood_ranks=jnp.array(ll_ranks) if ll_ranks else jnp.zeros(0),
+        n_sbc=len(ll_ranks),
+        n_posterior_samples=n_post,
+        parameter_names=list(ranks_dict.keys()),
     )
 
 
