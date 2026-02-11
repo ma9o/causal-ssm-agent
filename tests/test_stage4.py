@@ -10,6 +10,8 @@ from dsem_agent.models.prior_predictive import (
     format_validation_report,
 )
 from dsem_agent.orchestrator.schemas_model import (
+    EXPECTED_CONSTRAINT_FOR_ROLE,
+    VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LikelihoodSpec,
     LinkFunction,
@@ -17,6 +19,7 @@ from dsem_agent.orchestrator.schemas_model import (
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
+    validate_model_spec,
 )
 from dsem_agent.workers.prior_research import (
     aggregate_prior_samples,
@@ -472,3 +475,86 @@ class TestAutoElicit:
         assert np.isclose(result.mu, 0.3)
         assert np.isclose(result.sigma, 0.15)
         assert result.n_samples == 1
+
+
+# --- Domain Validation Tests ---
+
+
+class TestDomainValidation:
+    """Test domain validation rules from schemas_model."""
+
+    def test_valid_spec_no_issues(self, simple_model_spec):
+        """A well-formed ModelSpec produces no validation issues."""
+        spec = ModelSpec.model_validate(simple_model_spec)
+        issues = validate_model_spec(spec)
+        assert issues == []
+
+    def test_wrong_link_for_distribution(self):
+        """Bernoulli + identity link is flagged as error."""
+        spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="x",
+                    distribution=DistributionFamily.BERNOULLI,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                )
+            ],
+            parameters=[],
+            model_clock="daily",
+            reasoning="test",
+        )
+        issues = validate_model_spec(spec)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "error"
+        assert "identity" in issues[0]["issue"]
+
+    def test_wrong_constraint_for_role(self):
+        """ar_coefficient + none constraint is flagged as warning."""
+        spec = ModelSpec(
+            likelihoods=[],
+            parameters=[
+                ParameterSpec(
+                    name="rho_x",
+                    role=ParameterRole.AR_COEFFICIENT,
+                    constraint=ParameterConstraint.NONE,
+                    description="test",
+                    search_context="test",
+                )
+            ],
+            model_clock="daily",
+            reasoning="test",
+        )
+        issues = validate_model_spec(spec)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "warning"
+        assert "unit_interval" in issues[0]["issue"]
+
+    def test_wrong_distribution_for_dtype(self):
+        """Normal for binary dtype is flagged when indicators provided."""
+        spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="flag",
+                    distribution=DistributionFamily.NORMAL,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                )
+            ],
+            parameters=[],
+            model_clock="daily",
+            reasoning="test",
+        )
+        indicators = [{"name": "flag", "measurement_dtype": "binary"}]
+        issues = validate_model_spec(spec, indicators=indicators)
+        assert any(i["severity"] == "error" and "binary" in i["issue"] for i in issues)
+
+    def test_all_distributions_have_link_rules(self):
+        """Every DistributionFamily member has an entry in VALID_LINKS_FOR_DISTRIBUTION."""
+        for dist in DistributionFamily:
+            assert dist in VALID_LINKS_FOR_DISTRIBUTION, f"Missing link rule for {dist}"
+
+    def test_all_roles_have_constraint_rules(self):
+        """Every ParameterRole member has an entry in EXPECTED_CONSTRAINT_FOR_ROLE."""
+        for role in ParameterRole:
+            assert role in EXPECTED_CONSTRAINT_FOR_ROLE, f"Missing constraint rule for {role}"
