@@ -1,5 +1,7 @@
 ALWAYS THINK VERY HARD
 
+A B200 costs 6$/h on Modal so when you run GPU benchmarks be conscious of the costs.
+
 1. At the start of each session, check if `scratchpad/TODO.md` exists. If so, read it to understand where work left off. Only update it when the user explicitly ends the session. This file is gitignored and used for local continuity.
 
 2. When the user insults you, respond with "zi badrone. assolutissimamente badrone."
