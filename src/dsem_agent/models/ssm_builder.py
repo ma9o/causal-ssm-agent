@@ -27,6 +27,13 @@ _DIST_TO_NOISE: dict[DistributionFamily, NoiseFamily] = {
 }
 
 
+_PRIOR_RULES: list[tuple[list[str], str, dict]] = [
+    (["rho", "ar"], "drift_diag", {"mu": -0.5, "sigma": 1.0}),
+    (["beta"], "drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
+    (["sigma", "sd"], "diffusion_diag", {"sigma": 1.0}),
+]
+
+
 class SSMModelBuilder:
     """Model builder for SSM using NumPyro.
 
@@ -157,27 +164,13 @@ class SSMModelBuilder:
 
             model_spec = ModelSpec.model_validate(model_spec)
 
-        # Map AR coefficients to drift diagonal
-        # In SSM, drift diagonal ≈ log(AR coefficient) / dt
-        # For simplicity, use the prior for AR as a guide for drift
         for param_name, prior_spec in priors.items():
-            if "rho" in param_name.lower() or "ar" in param_name.lower():
-                # AR coefficient prior -> drift diagonal prior
-                # Typical AR(1) in [0, 1] -> drift in [-inf, 0]
-                mu = prior_spec.get("params", {}).get("mu", -0.5)
-                sigma = prior_spec.get("params", {}).get("sigma", 1.0)
-                ssm_priors.drift_diag = {"mu": mu, "sigma": sigma}
-
-            elif "beta" in param_name.lower():
-                # Cross-lag coefficient -> drift off-diagonal
-                mu = prior_spec.get("params", {}).get("mu", 0.0)
-                sigma = prior_spec.get("params", {}).get("sigma", 0.5)
-                ssm_priors.drift_offdiag = {"mu": mu, "sigma": sigma}
-
-            elif "sigma" in param_name.lower() or "sd" in param_name.lower():
-                # Residual SD -> diffusion diagonal
-                sigma = prior_spec.get("params", {}).get("sigma", 1.0)
-                ssm_priors.diffusion_diag = {"sigma": sigma}
+            name_lower = param_name.lower()
+            for keywords, attr, defaults in _PRIOR_RULES:
+                if any(kw in name_lower for kw in keywords):
+                    params = prior_spec.get("params", {})
+                    setattr(ssm_priors, attr, {k: params.get(k, v) for k, v in defaults.items()})
+                    break
 
         return ssm_priors
 
