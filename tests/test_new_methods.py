@@ -261,7 +261,7 @@ class TestDPF:
 
         # Diagnostics present
         assert "accept_rates" in result.diagnostics
-        assert "proposal_params" in result.diagnostics
+        assert "proposal_net" in result.diagnostics
         assert len(result.diagnostics["accept_rates"]) == 6
 
         elapsed = time.perf_counter() - t0

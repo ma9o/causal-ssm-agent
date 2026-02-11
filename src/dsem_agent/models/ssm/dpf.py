@@ -26,10 +26,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
+from numpyro.distributions import MultivariateNormal, Normal
 
 from dsem_agent.models.likelihoods.emissions import get_emission_fn
 from dsem_agent.models.ssm.discretization import discretize_system_batched
@@ -44,91 +46,57 @@ if TYPE_CHECKING:
     from dsem_agent.models.ssm.inference import InferenceResult
 
 # ---------------------------------------------------------------------------
-# Proposal network: MLP-parameterized Gaussian
+# Proposal network: Equinox MLP-parameterized Gaussian
 # ---------------------------------------------------------------------------
 
 
-def _init_proposal_params(D_latent, D_obs, hidden_dim=64, rng_key=None):
-    """Initialize parameters for the Gaussian proposal network.
+class ProposalNetwork(eqx.Module):
+    """MLP-parameterized Gaussian proposal q_phi(z_t | z_{t-1}, y_t).
 
-    q_phi(z_t | z_{t-1}, y_t) = N(mu_phi(z_{t-1}, y_t), diag(sigma_phi(z_{t-1}, y_t)^2))
-
-    Architecture: [z_{t-1}, y_t] -> MLP -> (mu, log_sigma)
-
-    Args:
-        D_latent: latent state dimension
-        D_obs: observation dimension
-        hidden_dim: hidden layer size
-        rng_key: PRNG key
-
-    Returns:
-        proposal_params: dict of MLP parameters
+    Architecture: [z_{t-1}, y_t] -> 2-layer MLP -> (mu, log_sigma)
     """
-    if rng_key is None:
-        rng_key = random.PRNGKey(42)
 
-    input_dim = D_latent + D_obs
-    k1, k2, k3, k4 = random.split(rng_key, 4)
+    layers: list
+    mu_head: eqx.nn.Linear
+    log_sigma_head: eqx.nn.Linear
 
-    # Two-layer MLP: input -> hidden -> hidden -> (mu, log_sigma)
-    scale1 = jnp.sqrt(2.0 / input_dim)
-    scale2 = jnp.sqrt(2.0 / hidden_dim)
+    def __init__(self, D_latent, D_obs, hidden_dim=64, *, key):
+        k1, k2, k3, k4 = random.split(key, 4)
+        input_dim = D_latent + D_obs
+        self.layers = [
+            eqx.nn.Linear(input_dim, hidden_dim, key=k1),
+            eqx.nn.Linear(hidden_dim, hidden_dim, key=k2),
+        ]
+        self.mu_head = eqx.nn.Linear(hidden_dim, D_latent, key=k3)
+        # Initialize log_sigma bias to -1.0 for small initial variance
+        log_sigma_linear = eqx.nn.Linear(hidden_dim, D_latent, key=k4)
+        self.log_sigma_head = eqx.tree_at(
+            lambda layer: layer.bias, log_sigma_linear, log_sigma_linear.bias - 1.0
+        )
 
-    return {
-        "W1": random.normal(k1, (input_dim, hidden_dim)) * scale1,
-        "b1": jnp.zeros(hidden_dim),
-        "W2": random.normal(k2, (hidden_dim, hidden_dim)) * scale2,
-        "b2": jnp.zeros(hidden_dim),
-        "W_mu": random.normal(k3, (hidden_dim, D_latent)) * 0.01,
-        "b_mu": jnp.zeros(D_latent),
-        "W_log_sigma": random.normal(k4, (hidden_dim, D_latent)) * 0.01,
-        "b_log_sigma": jnp.zeros(D_latent) - 1.0,  # Initialize to small variance
-    }
+    def __call__(self, z_prev, y_t):
+        """Forward pass returning (mu, log_sigma)."""
+        x = jnp.concatenate([z_prev, y_t])
+        for layer in self.layers:
+            x = jax.nn.relu(layer(x))
+        mu = self.mu_head(x)
+        log_sigma = jnp.clip(self.log_sigma_head(x), -5.0, 2.0)
+        return mu, log_sigma
 
+    def sample(self, z_prev, y_t, rng_key):
+        """Sample z_new and compute log q(z_new | z_prev, y_t)."""
+        mu, log_sigma = self(z_prev, y_t)
+        sigma = jnp.exp(log_sigma)
+        eps = random.normal(rng_key, mu.shape)
+        z_new = mu + sigma * eps  # reparameterization trick
+        log_q = Normal(mu, sigma).log_prob(z_new).sum()
+        return z_new, log_q
 
-def _proposal_forward(params, z_prev, y_t):
-    """Evaluate the proposal network.
-
-    Args:
-        params: MLP parameters
-        z_prev: (D_latent,) previous state
-        y_t: (D_obs,) current observation
-
-    Returns:
-        mu: (D_latent,) proposal mean
-        log_sigma: (D_latent,) log proposal std
-    """
-    x = jnp.concatenate([z_prev, y_t])
-    h = jax.nn.relu(x @ params["W1"] + params["b1"])
-    h = jax.nn.relu(h @ params["W2"] + params["b2"])
-    mu = h @ params["W_mu"] + params["b_mu"]
-    log_sigma = h @ params["W_log_sigma"] + params["b_log_sigma"]
-    # Clamp log_sigma for numerical stability
-    log_sigma = jnp.clip(log_sigma, -5.0, 2.0)
-    return mu, log_sigma
-
-
-def _proposal_sample(params, z_prev, y_t, rng_key):
-    """Sample from the proposal and compute log-density.
-
-    Returns:
-        z_new: (D_latent,) proposed state
-        log_q: scalar log q(z_new | z_prev, y_t)
-    """
-    mu, log_sigma = _proposal_forward(params, z_prev, y_t)
-    sigma = jnp.exp(log_sigma)
-    eps = random.normal(rng_key, mu.shape)
-    z_new = mu + sigma * eps
-    log_q = -0.5 * jnp.sum(jnp.log(2 * jnp.pi) + 2 * log_sigma + eps**2)
-    return z_new, log_q
-
-
-def _proposal_log_prob(params, z_prev, y_t, z_new):
-    """Evaluate log q(z_new | z_prev, y_t) without sampling."""
-    mu, log_sigma = _proposal_forward(params, z_prev, y_t)
-    sigma = jnp.exp(log_sigma)
-    normalized = (z_new - mu) / sigma
-    return -0.5 * jnp.sum(jnp.log(2 * jnp.pi) + 2 * log_sigma + normalized**2)
+    def log_prob(self, z_prev, y_t, z_new):
+        """Evaluate log q(z_new | z_prev, y_t) without sampling."""
+        mu, log_sigma = self(z_prev, y_t)
+        sigma = jnp.exp(log_sigma)
+        return Normal(mu, sigma).log_prob(z_new).sum()
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +136,7 @@ def _soft_resample(log_weights, particles, alpha=0.5):
 
 
 def _dpf_forward(
-    proposal_params,
+    proposal_net,
     observations,
     obs_mask,
     Ad,
@@ -188,7 +156,7 @@ def _dpf_forward(
     """Run differentiable particle filter with learned proposals.
 
     Args:
-        proposal_params: MLP parameters for q_phi
+        proposal_net: ProposalNetwork module
         observations: (T, n_manifest) observations
         obs_mask: (T, n_manifest) mask
         Ad, Qd, cd: (T, D, D), (T, D, D), (T, D) discrete dynamics
@@ -245,15 +213,12 @@ def _dpf_forward(
         propose_keys = random.split(propose_key, n_particles)
 
         def _propose_and_weight(key, z_prev):
-            z_new, log_q = _proposal_sample(proposal_params, z_prev, y_t, key)
+            z_new, log_q = proposal_net.sample(z_prev, y_t, key)
 
             # Transition log-prob: log p(z_new | z_prev)
             mean_trans = Ad_t @ z_prev + cd_t
-            diff = z_new - mean_trans
             Qd_reg = Qd_t + jitter
-            _, logdet_Q = jnp.linalg.slogdet(Qd_reg)
-            mahal = diff @ jla.solve(Qd_reg, diff, assume_a="pos")
-            log_trans = -0.5 * (D * jnp.log(2 * jnp.pi) + logdet_Q + mahal)
+            log_trans = MultivariateNormal(mean_trans, covariance_matrix=Qd_reg).log_prob(z_new)
 
             # Emission log-prob: log p(y_t | z_new)
             log_obs = emission_log_prob_fn(y_t, z_new, H, d_meas, R, mask_t)
@@ -408,15 +373,15 @@ def _train_proposal(
         seed: random seed
 
     Returns:
-        trained proposal_params
+        trained ProposalNetwork
     """
     import optax
 
     rng_key = random.PRNGKey(seed)
 
-    # Initialize proposal
+    # Initialize proposal network
     rng_key, init_key = random.split(rng_key)
-    proposal_params = _init_proposal_params(D_latent, n_manifest, rng_key=init_key)
+    proposal_net = ProposalNetwork(D_latent, n_manifest, key=init_key)
 
     # Pre-generate training sequences
     rng_key, data_key = random.split(rng_key)
@@ -447,10 +412,10 @@ def _train_proposal(
 
     obs_mask_all = jnp.ones_like(all_obs, dtype=bool)  # No missing data in training
 
-    optimizer = optax.adam(lr)
-    opt_state = optimizer.init(proposal_params)
+    optimizer = optax.chain(optax.clip_by_global_norm(5.0), optax.adam(lr))
+    opt_state = optimizer.init(eqx.filter(proposal_net, eqx.is_array))
 
-    def _vsmc_loss(proposal_params, batch_idx, rng_key):
+    def _vsmc_loss(proposal_net, batch_idx, rng_key):
         """Negative VSMC objective for a batch of sequences."""
         obs = all_obs[batch_idx]
         Ad = all_Ad[batch_idx]
@@ -459,7 +424,7 @@ def _train_proposal(
         mask = obs_mask_all[batch_idx]
 
         log_Z = _dpf_forward(
-            proposal_params,
+            proposal_net,
             obs,
             mask,
             Ad,
@@ -478,13 +443,12 @@ def _train_proposal(
         )
         return -log_Z  # Minimize negative VSMC
 
-    @jax.jit
-    def _train_step(proposal_params, opt_state, batch_idx, rng_key):
-        loss, grads = jax.value_and_grad(_vsmc_loss)(proposal_params, batch_idx, rng_key)
-        grads = jax.tree.map(lambda g: jnp.clip(g, -5.0, 5.0), grads)
+    @eqx.filter_jit
+    def _train_step(proposal_net, opt_state, batch_idx, rng_key):
+        loss, grads = eqx.filter_value_and_grad(_vsmc_loss)(proposal_net, batch_idx, rng_key)
         updates, opt_state_new = optimizer.update(grads, opt_state)
-        params_new = optax.apply_updates(proposal_params, updates)
-        return params_new, opt_state_new, loss
+        proposal_net_new = eqx.apply_updates(proposal_net, updates)
+        return proposal_net_new, opt_state_new, loss
 
     print(
         f"  Training proposal: {n_train_steps} steps, {n_train_seqs} sequences, "
@@ -494,13 +458,13 @@ def _train_proposal(
     for step in range(n_train_steps):
         rng_key, step_key, batch_key = random.split(rng_key, 3)
         batch_idx = random.randint(batch_key, (), 0, n_train_seqs)
-        proposal_params, opt_state, loss = _train_step(
-            proposal_params, opt_state, batch_idx, step_key
+        proposal_net, opt_state, loss = _train_step(
+            proposal_net, opt_state, batch_idx, step_key
         )
         if (step + 1) % 50 == 0:
             print(f"    step {step + 1}/{n_train_steps}: VSMC loss = {float(loss):.2f}")
 
-    return proposal_params
+    return proposal_net
 
 
 # ---------------------------------------------------------------------------
@@ -521,14 +485,14 @@ class DPFLikelihood:
         n_manifest: int,
         manifest_dist: str = "gaussian",
         n_particles: int = 100,
-        proposal_params: dict | None = None,
+        proposal_net: ProposalNetwork | None = None,
         rng_key: jax.Array | None = None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
         self.manifest_dist = manifest_dist
         self.n_particles = n_particles
-        self.proposal_params = proposal_params
+        self.proposal_net = proposal_net
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
 
     def compute_log_likelihood(
@@ -557,11 +521,11 @@ class DPFLikelihood:
 
         emission_fn = get_emission_fn(self.manifest_dist, extra_params)
 
-        if self.proposal_params is None:
+        if self.proposal_net is None:
             raise ValueError("Proposal not trained. Call _train_proposal first.")
 
         log_Z = _dpf_forward(
-            self.proposal_params,
+            self.proposal_net,
             clean_obs,
             obs_mask,
             Ad,
@@ -649,7 +613,7 @@ def fit_dpf(
 
     print("DPF: Phase 1 - Training proposal network...")
     rng_key, train_key = random.split(rng_key)
-    proposal_params = _train_proposal(
+    proposal_net = _train_proposal(
         D_latent=spec.n_latent,
         n_manifest=spec.n_manifest,
         H=H_train,
@@ -688,7 +652,7 @@ def fit_dpf(
             "n_pf_particles": n_pf_particles,
             "n_train_seqs": n_train_seqs,
             "n_train_steps": n_train_steps,
-            "proposal_params": proposal_params,
+            "proposal_net": proposal_net,
         },
         print_prefix="DPF",
     )
