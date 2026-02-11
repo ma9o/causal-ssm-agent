@@ -134,12 +134,10 @@ def _svi_warmstart(
 
 def _transition_log_prob(x_curr, x_prev, Ad_t, chol_t, cd_t):
     """Log N(x_curr; Ad_t @ x_prev + cd_t, Qd_t) where Qd_t = chol_t @ chol_t.T."""
+    from numpyro.distributions import MultivariateNormal
+
     mean = Ad_t @ x_prev + cd_t
-    diff = x_curr - mean
-    Linv_d = jla.solve_triangular(chol_t, diff, lower=True)
-    logdet = jnp.sum(jnp.log(jnp.diag(chol_t)))
-    n = x_curr.shape[0]
-    return -0.5 * jnp.dot(Linv_d, Linv_d) - logdet - 0.5 * n * jnp.log(2 * jnp.pi)
+    return MultivariateNormal(mean, scale_tril=chol_t).log_prob(x_curr)
 
 
 # ---------------------------------------------------------------------------
