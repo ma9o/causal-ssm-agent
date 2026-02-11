@@ -10,16 +10,12 @@ from dsem_agent.utils.config import get_config
 from dsem_agent.utils.llm import make_worker_generate_fn
 
 from .core import (
-    WorkerExtractionResult,
+    WorkerResult,
     run_worker_extraction,
 )
 
 # Load environment variables from .env file (for API keys)
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
-
-
-# Re-export for backwards compatibility
-WorkerResult = WorkerExtractionResult
 
 
 async def process_chunk_async(

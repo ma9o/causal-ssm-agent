@@ -26,8 +26,8 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
 from dsem_agent.utils.llm import make_worker_generate_fn
-from dsem_agent.workers.core import WorkerExtractionResult, run_worker_extraction
-from dsem_agent.workers.prompts import WORKER_WO_PROPOSALS_SYSTEM
+from dsem_agent.workers.core import WorkerResult, run_worker_extraction
+from dsem_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS
 from dsem_agent.workers.schemas import _get_indicator_info
 from evals.common import (
     get_eval_questions,
@@ -141,7 +141,7 @@ def _validate_dtype(value, expected_dtype: str) -> bool:
 
 
 def _score_worker_result(
-    result: WorkerExtractionResult,
+    result: WorkerResult,
     indicator_dtypes: dict[str, str],
 ) -> dict:
     """Score a worker extraction result.
@@ -212,8 +212,8 @@ def worker_extraction_scorer():
     """
 
     async def score(state: TaskState, target: Target) -> Score:
-        # Get the WorkerExtractionResult from metadata (set by solver)
-        result: WorkerExtractionResult | None = state.metadata.get("worker_result")
+        # Get the WorkerResult from metadata (set by solver)
+        result: WorkerResult | None = state.metadata.get("worker_result")
         indicator_dtypes = state.metadata.get("indicator_dtypes", {})
 
         if result is None:
@@ -314,7 +314,7 @@ def worker_eval(
             input_file=input_file,
         ),
         solver=[
-            system_message(WORKER_WO_PROPOSALS_SYSTEM),
+            system_message(SYSTEM_WITHOUT_PROPOSALS),
             worker_extraction_solver(question_id=question_id),
         ],
         scorer=worker_extraction_scorer(),

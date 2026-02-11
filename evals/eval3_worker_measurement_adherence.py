@@ -33,7 +33,7 @@ from dsem_agent.workers.core import (
     _get_outcome_description,
     run_worker_extraction,
 )
-from dsem_agent.workers.prompts import WORKER_USER, WORKER_WO_PROPOSALS_SYSTEM
+from dsem_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS, USER
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
@@ -187,7 +187,7 @@ def create_eval_dataset(
             chunk_idx += 1
 
             # Build the full worker prompts that will be shown to the judge
-            worker_user_prompt = WORKER_USER.format(
+            worker_user_prompt = USER.format(
                 question=q["question"],
                 outcome_description=outcome_description,
                 indicators=indicators_text,
@@ -204,7 +204,7 @@ def create_eval_dataset(
                         "question": q["question"],
                         "chunk": chunk,
                         "chunk_index": i,
-                        "worker_system_prompt": WORKER_WO_PROPOSALS_SYSTEM,
+                        "worker_system_prompt": SYSTEM_WITHOUT_PROPOSALS,
                         "worker_user_prompt": worker_user_prompt,
                     },
                 )

@@ -14,12 +14,12 @@ from dsem_agent.utils.llm import (
     parse_json_response,
 )
 
-from .prompts import WORKER_USER, WORKER_WO_PROPOSALS_SYSTEM
+from .prompts.extraction import SYSTEM_WITHOUT_PROPOSALS, USER
 from .schemas import WorkerOutput
 
 
 @dataclass
-class WorkerExtractionResult:
+class WorkerResult:
     """Result of worker extraction for a single chunk."""
 
     output: WorkerOutput
@@ -66,10 +66,10 @@ class WorkerMessages:
         outcome_description = _get_outcome_description(self.dsem_model)
 
         return [
-            {"role": "system", "content": WORKER_WO_PROPOSALS_SYSTEM},
+            {"role": "system", "content": SYSTEM_WITHOUT_PROPOSALS},
             {
                 "role": "user",
-                "content": WORKER_USER.format(
+                "content": USER.format(
                     question=self.question,
                     outcome_description=outcome_description,
                     indicators=indicators_text,
@@ -84,7 +84,7 @@ async def run_worker_extraction(
     question: str,
     dsem_model: dict,
     generate: WorkerGenerateFn,
-) -> WorkerExtractionResult:
+) -> WorkerResult:
     """
     Run worker extraction for a single chunk.
 
@@ -98,7 +98,7 @@ async def run_worker_extraction(
         generate: Async function (messages, tools) -> completion
 
     Returns:
-        WorkerExtractionResult with output, dataframe, and raw completion
+        WorkerResult with output, dataframe, and raw completion
     """
     msgs = WorkerMessages(question, dsem_model, chunk)
 
@@ -114,18 +114,15 @@ async def run_worker_extraction(
     output = WorkerOutput.model_validate(data)
     dataframe = output.to_dataframe()
 
-    return WorkerExtractionResult(
+    return WorkerResult(
         output=output,
         dataframe=dataframe,
         raw_completion=completion,
     )
 
 
-# Re-export helper functions for backwards compatibility
 __all__ = [
-    "WorkerExtractionResult",
+    "WorkerResult",
     "WorkerMessages",
-    "_format_indicators",
-    "_get_outcome_description",
     "run_worker_extraction",
 ]

@@ -35,11 +35,14 @@ from dsem_agent.utils.llm import (
     multi_turn_generate,
     parse_json_response,
 )
-from dsem_agent.workers.agents import (
+from dsem_agent.workers.core import (
     _format_indicators,
     _get_outcome_description,
 )
-from dsem_agent.workers.prompts import WORKER_USER, WORKER_W_PROPOSALS_SYSTEM
+from dsem_agent.workers.prompts.extraction import (
+    SYSTEM_WITH_PROPOSALS,
+    USER,
+)
 
 # Load config
 _CONFIG = load_eval_config()
@@ -143,9 +146,9 @@ async def generate_worker_output(
     outcome_description = _get_outcome_description(dsem_model)
 
     messages = [
-        ChatMessageSystem(content=WORKER_W_PROPOSALS_SYSTEM),
+        ChatMessageSystem(content=SYSTEM_WITH_PROPOSALS),
         ChatMessageUser(
-            content=WORKER_USER.format(
+            content=USER.format(
                 question=question,
                 outcome_description=outcome_description,
                 indicators=indicators_text,

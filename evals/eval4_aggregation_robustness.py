@@ -38,7 +38,7 @@ from dsem_agent.workers.core import (
     _get_outcome_description,
     run_worker_extraction,
 )
-from dsem_agent.workers.prompts import WORKER_USER
+from dsem_agent.workers.prompts.extraction import USER
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
@@ -96,7 +96,7 @@ def create_eval_dataset(
         # Store metadata for each chunk's prompt
         chunk_prompts = []
         for i, chunk in enumerate(chunk_set):
-            user_prompt = WORKER_USER.format(
+            user_prompt = USER.format(
                 question=question,
                 outcome_description=outcome_description,
                 indicators=indicators_text,
