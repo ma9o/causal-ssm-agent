@@ -1,6 +1,8 @@
 """Parametric identifiability diagnostics for state-space models.
 
 Pre-fit diagnostics (Stage 4b):
+- T-rule (counting condition): necessary condition checking that the number
+  of free parameters does not exceed available moment conditions.
 - Profile likelihood: per-parameter identifiability classification via
   constrained optimization (Raue et al. 2009). Uses only 1st-order AD.
 - Simulation-based calibration (SBC): posterior calibration validation
@@ -22,6 +24,7 @@ from jax import lax
 from jax.flatten_util import ravel_pytree
 
 from dsem_agent.models.ssm.discretization import discretize_system_batched
+from dsem_agent.models.ssm.model import NoiseFamily, SSMSpec
 from dsem_agent.models.ssm.utils import (
     _assemble_deterministics,
     _build_eval_fns,
@@ -31,6 +34,165 @@ from dsem_agent.models.ssm.utils import (
 if TYPE_CHECKING:
     from dsem_agent.models.ssm.inference import InferenceResult
     from dsem_agent.models.ssm.model import SSMModel
+
+
+# ---------------------------------------------------------------------------
+# T-rule (counting condition)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TRuleResult:
+    """Result of the t-rule (counting condition) check.
+
+    The t-rule is a necessary condition for identification: if the number
+    of free parameters exceeds the number of available moment conditions,
+    the model is provably non-identified.
+
+    For cross-sectional SEMs the constraint is n_params <= p(p+1)/2.
+    For time series (CT-SSMs), autocovariance at each lag provides p^2
+    additional moment conditions, so the constraint is much weaker.
+    """
+
+    n_free_params: int
+    n_manifest: int
+    n_timepoints: int | None
+    n_moments: int
+    satisfies: bool
+    param_counts: dict[str, int]
+
+    def print_report(self) -> None:
+        """Print a human-readable t-rule report."""
+        tag = "[ok]" if self.satisfies else "[FAIL]"
+        print("\n=== T-Rule (Counting Condition) ===")
+        print(f"  {tag} {self.n_free_params} free params vs {self.n_moments} moment conditions")
+        if self.n_timepoints is not None:
+            print(f"  Time points: {self.n_timepoints}")
+        print(f"  Manifest variables: {self.n_manifest}")
+        print("  Parameter breakdown:")
+        for name, count in sorted(self.param_counts.items()):
+            print(f"    {name}: {count}")
+
+
+def count_free_params(spec: SSMSpec) -> dict[str, int]:
+    """Count free parameters in an SSMSpec, matching the model's sampling logic.
+
+    Returns a dict mapping parameter group name to the number of scalar
+    free parameters in that group. Follows SSMModel._sample_* methods exactly.
+    """
+    n_l, n_m = spec.n_latent, spec.n_manifest
+    hier = spec.hierarchical and spec.n_subjects > 1
+    n_s = spec.n_subjects if hier else 1
+    counts: dict[str, int] = {}
+
+    # -- Drift --
+    if isinstance(spec.drift, str) and spec.drift == "free":
+        counts["drift_diag_pop"] = n_l
+        n_offdiag = n_l * n_l - n_l
+        if n_offdiag > 0:
+            counts["drift_offdiag_pop"] = n_offdiag
+        if hier and "drift_diag" in spec.indvarying:
+            counts["drift_diag_sd"] = n_l
+            counts["drift_diag_raw"] = n_s * n_l
+        if hier and "drift_offdiag" in spec.indvarying and n_offdiag > 0:
+            counts["drift_offdiag_sd"] = n_offdiag
+            counts["drift_offdiag_raw"] = n_s * n_offdiag
+
+    # -- Diffusion --
+    if isinstance(spec.diffusion, str):
+        counts["diffusion_diag_pop"] = n_l
+        if spec.diffusion == "free":
+            n_lower = n_l * (n_l - 1) // 2
+            if n_lower > 0:
+                counts["diffusion_lower"] = n_lower
+        if hier and "diffusion" in spec.indvarying:
+            counts["diffusion_diag_sd"] = n_l
+            counts["diffusion_diag_raw"] = n_s * n_l
+
+    # -- Continuous intercept --
+    if spec.cint is not None and isinstance(spec.cint, str) and spec.cint == "free":
+        counts["cint_pop"] = n_l
+        if hier and "cint" in spec.indvarying:
+            counts["cint_sd"] = n_l
+            counts["cint_raw"] = n_s * n_l
+
+    # -- Lambda (factor loadings) --
+    if isinstance(spec.lambda_mat, str) and spec.lambda_mat == "free":
+        n_free = max(0, n_m - n_l) * n_l
+        if n_free > 0:
+            counts["lambda_free"] = n_free
+
+    # -- Manifest means --
+    if isinstance(spec.manifest_means, str) and spec.manifest_means == "free":
+        counts["manifest_means"] = n_m
+
+    # -- Manifest variance (always diagonal in current impl) --
+    if isinstance(spec.manifest_var, str):
+        counts["manifest_var_diag"] = n_m
+
+    # -- Initial state means --
+    if isinstance(spec.t0_means, str) and spec.t0_means == "free":
+        counts["t0_means_pop"] = n_l
+        if hier and "t0_means" in spec.indvarying:
+            counts["t0_means_sd"] = n_l
+            counts["t0_means_raw"] = n_s * n_l
+
+    # -- Initial state variance (always diagonal in current impl) --
+    if isinstance(spec.t0_var, str):
+        counts["t0_var_diag"] = n_l
+
+    # -- Noise family hyperparameters --
+    if spec.manifest_dist == NoiseFamily.STUDENT_T:
+        counts["obs_df"] = 1
+    if spec.manifest_dist == NoiseFamily.GAMMA:
+        counts["obs_shape"] = 1
+    if spec.diffusion_dist == NoiseFamily.STUDENT_T:
+        counts["proc_df"] = 1
+
+    return counts
+
+
+def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
+    """Check the t-rule (necessary counting condition) for identification.
+
+    The t-rule states that the number of free parameters must not exceed
+    the number of independent moment conditions available from the data.
+
+    For a CT-SSM observed at T time points with p manifest variables:
+    - Contemporaneous covariance: p(p+1)/2 unique entries
+    - Mean structure: p equations
+    - Autocovariance at each lag: p^2 entries per lag, with T-1 lags
+
+    This is a necessary but NOT sufficient condition. Passing does not
+    guarantee identification; failing guarantees non-identification.
+
+    Args:
+        spec: SSMSpec instance
+        T: Number of time points (if known). When None, uses only
+           cross-sectional moments (conservative).
+
+    Returns:
+        TRuleResult with pass/fail and parameter breakdown
+    """
+    param_counts = count_free_params(spec)
+    n_free = sum(param_counts.values())
+    p = spec.n_manifest
+
+    # Available moment conditions
+    n_mean = p
+    n_cov = p * (p + 1) // 2
+    n_autocov = (T - 1) * p * p if T is not None and T > 1 else 0
+    n_moments = n_mean + n_cov + n_autocov
+
+    return TRuleResult(
+        n_free_params=n_free,
+        n_manifest=p,
+        n_timepoints=T,
+        n_moments=n_moments,
+        satisfies=n_free <= n_moments,
+        param_counts=param_counts,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Forward simulator

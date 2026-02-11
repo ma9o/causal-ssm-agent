@@ -1,6 +1,7 @@
 """Tests for parametric identifiability diagnostics.
 
 Tests:
+0. T-rule: counting condition for necessary identification
 1. Forward simulator shape and finiteness
 2. Profile likelihood: identified model has well-shaped profiles
 3. Profile likelihood: non-identified model flags issues
@@ -16,7 +17,7 @@ import jax.numpy as jnp
 import jax.random as random
 import pytest
 
-from dsem_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
+from dsem_agent.models.ssm.model import NoiseFamily, SSMModel, SSMPriors, SSMSpec
 
 
 def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
@@ -67,6 +68,196 @@ def _make_nonidentified_model():
         manifest_var_diag={"sigma": 0.5},
     )
     return SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+
+
+class TestTRule:
+    """Test t-rule (counting condition) for identification."""
+
+    def test_identified_model_passes(self):
+        """Well-identified 2L/2M model should pass t-rule with time series."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            drift="free",
+            diffusion="diag",
+            cint=None,
+            lambda_mat=jnp.eye(2),
+            manifest_means=None,
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        result = check_t_rule(spec, T=50)
+        assert result.satisfies
+        # p=2, T=50: moments = 2 + 3 + 49*4 = 201, plenty for ~12 params
+        assert result.n_moments > result.n_free_params
+
+    def test_overparameterized_model_fails_without_T(self):
+        """Model with many params fails cross-sectional t-rule (no T)."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        # 3 latent, 2 manifest: lots of drift params relative to cross-sectional moments
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=2,
+            drift="free",
+            diffusion="free",
+            cint="free",
+            lambda_mat=jnp.eye(2, 3),
+            manifest_means="free",
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        result = check_t_rule(spec, T=None)
+        # Cross-sectional only: p=2 -> 2 + 3 = 5 moments, way fewer than params
+        assert not result.satisfies
+
+    def test_overparameterized_rescued_by_time_series(self):
+        """Same model passes when T is large enough (autocovariance helps)."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=2,
+            drift="free",
+            diffusion="free",
+            cint="free",
+            lambda_mat=jnp.eye(2, 3),
+            manifest_means="free",
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        result = check_t_rule(spec, T=50)
+        # With T=50: moments = 2 + 3 + 49*4 = 201, should be enough
+        assert result.satisfies
+
+    def test_truly_overparameterized_fails_even_with_T(self):
+        """Extremely overparameterized hierarchical model fails even with T."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        spec = SSMSpec(
+            n_latent=5,
+            n_manifest=2,
+            drift="free",
+            diffusion="free",
+            cint="free",
+            lambda_mat="free",
+            manifest_means="free",
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            hierarchical=True,
+            n_subjects=50,
+            indvarying=["drift_diag", "drift_offdiag", "t0_means", "cint", "diffusion"],
+        )
+        # T=3 with 2 manifests: moments = 2 + 3 + 2*4 = 13
+        result = check_t_rule(spec, T=3)
+        # Hundreds of hierarchical params >> 13 moments
+        assert not result.satisfies
+        assert result.n_free_params > 100
+
+    def test_count_free_params_fixed_lambda(self):
+        """Fixed lambda should contribute 0 free params."""
+        from dsem_agent.utils.parametric_id import count_free_params
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=3,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(3, 2),  # fixed
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        counts = count_free_params(spec)
+        assert "lambda_free" not in counts
+
+    def test_count_free_params_free_lambda(self):
+        """Free lambda with n_m > n_l should have (n_m - n_l) * n_l free entries."""
+        from dsem_agent.utils.parametric_id import count_free_params
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=4,
+            drift="free",
+            diffusion="diag",
+            lambda_mat="free",
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        counts = count_free_params(spec)
+        # (4 - 2) * 2 = 4 free loadings
+        assert counts["lambda_free"] == 4
+
+    def test_count_free_params_drift_components(self):
+        """Drift should have n_l diagonal + n_l*(n_l-1) off-diagonal."""
+        from dsem_agent.utils.parametric_id import count_free_params
+
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=3,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(3),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        counts = count_free_params(spec)
+        assert counts["drift_diag_pop"] == 3
+        assert counts["drift_offdiag_pop"] == 6  # 3*3 - 3
+
+    def test_count_free_params_noise_hyperparams(self):
+        """Student-t manifest noise should add obs_df parameter."""
+        from dsem_agent.utils.parametric_id import count_free_params
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(1),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=NoiseFamily.STUDENT_T,
+        )
+        counts = count_free_params(spec)
+        assert counts.get("obs_df") == 1
+
+    def test_print_report(self, capsys):
+        """print_report should not crash."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(2),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+        )
+        result = check_t_rule(spec, T=50)
+        result.print_report()
+        captured = capsys.readouterr()
+        assert "T-Rule" in captured.out
+        assert "[ok]" in captured.out
+
+    def test_utils_init_exports(self):
+        """T-rule exports should be available from utils __init__."""
+        from dsem_agent.utils import TRuleResult, check_t_rule, count_free_params
+
+        assert callable(check_t_rule)
+        assert callable(count_free_params)
+        assert TRuleResult is not None
 
 
 class TestSimulateSSM:

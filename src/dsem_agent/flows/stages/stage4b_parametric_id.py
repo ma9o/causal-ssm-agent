@@ -69,6 +69,30 @@ def parametric_id_task(
         # Extract observations and times
         observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
         times = jnp.array(X["time"].values, dtype=jnp.float32)
+        T = int(times.shape[0])
+
+        # T-rule: fast necessary condition (hard gate)
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        t_rule = check_t_rule(ssm_model.spec, T=T)
+        t_rule.print_report()
+
+        if not t_rule.satisfies:
+            return {
+                "checked": True,
+                "t_rule": {
+                    "satisfies": False,
+                    "n_free_params": t_rule.n_free_params,
+                    "n_moments": t_rule.n_moments,
+                    "param_counts": t_rule.param_counts,
+                },
+                "summary": {},
+                "error": (
+                    f"T-rule violated: {t_rule.n_free_params} free params "
+                    f"> {t_rule.n_moments} moment conditions. "
+                    "Model is provably non-identified."
+                ),
+            }
 
         # Run profile likelihood check
         result = profile_likelihood(
@@ -84,6 +108,11 @@ def parametric_id_task(
 
         return {
             "checked": True,
+            "t_rule": {
+                "satisfies": True,
+                "n_free_params": t_rule.n_free_params,
+                "n_moments": t_rule.n_moments,
+            },
             "summary": summary,
             "n_parameters": len(result.parameter_names),
             "parameter_names": result.parameter_names,

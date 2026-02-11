@@ -73,6 +73,19 @@ class TestBenchmarkSpecIdentifiability:
             "Zero diffusion makes latent dynamics deterministic and unidentifiable."
         )
 
+    def test_t_rule(self, problem_name):
+        """T-rule: free params must not exceed available moment conditions."""
+        from dsem_agent.utils.parametric_id import check_t_rule
+
+        problem = ALL_PROBLEMS[problem_name]
+        # Use T=100 (same as profile likelihood benchmark)
+        result = check_t_rule(problem.spec, T=100)
+        assert result.satisfies, (
+            f"'{problem_name}': t-rule violated — {result.n_free_params} free params "
+            f"> {result.n_moments} moment conditions. "
+            f"Breakdown: {result.param_counts}"
+        )
+
 
 # -- Tier 2a: Profile likelihood diagnostic (informational) ---------------
 
