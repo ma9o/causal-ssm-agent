@@ -22,7 +22,6 @@ from dsem_agent.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
-    build_ssm_model,
 )
 
 __all__ = [
@@ -39,7 +38,6 @@ __all__ = [
     "SSMPriors",
     "SSMSpec",
     "NoiseFamily",
-    "build_ssm_model",
     # Inference
     "InferenceResult",
     "fit",

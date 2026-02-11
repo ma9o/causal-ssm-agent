@@ -3,20 +3,14 @@
 Validates proposed priors by sampling from the prior predictive distribution
 and checking for domain violations (NaN/Inf, wrong sign for constrained params).
 
-NOTE: Uses NumPyro SSM implementation for sampling.
-Currently provides stub validation that passes through.
+NOTE: Currently provides stub validation that passes through.
+Full implementation with SSMModelBuilder is pending.
 """
-
-from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
 from dsem_agent.orchestrator.schemas_model import ModelSpec
-
-if TYPE_CHECKING:
-    from arviz import InferenceData
-
 from dsem_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 
@@ -42,11 +36,8 @@ def validate_prior_predictive(
     Returns:
         Tuple of (is_valid, list of validation results)
 
-    NOTE: Full implementation with SSMModelBuilder pending.
-    Currently returns valid for all priors.
+    NOTE: Stub implementation. Returns valid for all priors.
     """
-    # TODO: Implement with SSMModelBuilder once merged
-    # For now, return valid to allow pipeline to proceed
 
     priors_dict = {}
     for name, prior in priors.items():
@@ -68,67 +59,6 @@ def validate_prior_predictive(
         )
 
     return True, results
-
-
-def _validate_parameter(
-    param_name: str,
-    prior_spec: dict,
-    idata: "InferenceData",
-) -> PriorValidationResult:
-    """Validate a single parameter's prior samples."""
-    if param_name not in idata.prior:
-        return PriorValidationResult(
-            parameter=param_name,
-            is_valid=True,
-            issue=None,
-            suggested_adjustment=None,
-        )
-
-    samples = idata.prior[param_name].values.flatten()
-
-    # Check for NaN/Inf
-    n_invalid = np.sum(~np.isfinite(samples))
-    if n_invalid > 0:
-        pct = 100 * n_invalid / len(samples)
-        return PriorValidationResult(
-            parameter=param_name,
-            is_valid=False,
-            issue=f"{pct:.1f}% of samples are NaN/Inf",
-            suggested_adjustment=None,
-        )
-
-    # Check domain violations based on distribution
-    dist_name = prior_spec.get("distribution", "Normal")
-    constraint = _get_constraint_from_distribution(dist_name)
-
-    if constraint == "positive":
-        n_negative = np.sum(samples < 0)
-        if n_negative > 0:
-            pct = 100 * n_negative / len(samples)
-            return PriorValidationResult(
-                parameter=param_name,
-                is_valid=False,
-                issue=f"{pct:.1f}% of samples are negative (should be positive)",
-                suggested_adjustment=None,
-            )
-
-    elif constraint == "unit_interval":
-        n_outside = np.sum((samples < 0) | (samples > 1))
-        if n_outside > 0:
-            pct = 100 * n_outside / len(samples)
-            return PriorValidationResult(
-                parameter=param_name,
-                is_valid=False,
-                issue=f"{pct:.1f}% of samples outside [0, 1]",
-                suggested_adjustment=None,
-            )
-
-    return PriorValidationResult(
-        parameter=param_name,
-        is_valid=True,
-        issue=None,
-        suggested_adjustment=None,
-    )
 
 
 def _validate_prior_predictive_samples(

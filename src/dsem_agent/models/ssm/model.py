@@ -641,39 +641,3 @@ class SSMModel:
         # Sum over all subjects
         subject_indices = jnp.arange(n_subjects)
         return jnp.sum(vmap(subject_ll)(subject_indices))
-
-
-def build_ssm_model(
-    n_latent: int,
-    n_manifest: int,
-    lambda_mat: jnp.ndarray | None = None,
-    hierarchical: bool = False,
-    n_subjects: int = 1,
-    indvarying: list[str] | None = None,
-    n_particles: int = 200,
-    pf_seed: int = 0,
-) -> SSMModel:
-    """Convenience function to build a state-space model.
-
-    Args:
-        n_latent: Number of latent processes
-        n_manifest: Number of manifest indicators
-        lambda_mat: Fixed factor loadings (optional)
-        hierarchical: Whether to use hierarchical structure
-        n_subjects: Number of subjects (for hierarchical)
-        indvarying: Which parameters vary across individuals
-        n_particles: Number of particles for bootstrap PF
-        pf_seed: Seed for fixed PF random key
-
-    Returns:
-        SSMModel instance
-    """
-    spec = SSMSpec(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        lambda_mat=lambda_mat if lambda_mat is not None else "free",
-        hierarchical=hierarchical,
-        n_subjects=n_subjects,
-        indvarying=indvarying or ["t0_means"],
-    )
-    return SSMModel(spec, n_particles=n_particles, pf_seed=pf_seed)
