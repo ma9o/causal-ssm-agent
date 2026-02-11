@@ -21,6 +21,7 @@ def parametric_id_task(
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
     n_draws: int = 5,
+    fisher_method: str = "hessian",
 ) -> dict:
     """Run parametric identifiability checks.
 
@@ -34,6 +35,7 @@ def parametric_id_task(
         priors: Prior proposals by parameter name
         raw_data: Raw timestamped data (indicator, value, timestamp)
         n_draws: Number of prior draws for Hessian analysis
+        fisher_method: "hessian", "opg", or "profile"
 
     Returns:
         Dict with parametric ID diagnostics
@@ -74,6 +76,7 @@ def parametric_id_task(
             observations=observations,
             times=times,
             n_draws=n_draws,
+            fisher_method=fisher_method,
         )
 
         result.print_report()

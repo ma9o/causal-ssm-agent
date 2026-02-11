@@ -99,6 +99,8 @@ dsem-agent/
 │   └── utils/         # Shared utilities (config, llm, data, parametric_id, etc.)
 ├── benchmarks/        # Inference method benchmarks (parameter recovery)
 │   ├── problems/      # Standardized test problems (ground truths)
+│   │   ├── four_latent.py          # 4-latent Gaussian LGSS (Stress→Fatigue→Focus→Perf)
+│   │   └── three_latent_robust.py  # 3-latent Student-t (Arousal→Valence→Engagement)
 │   ├── metrics.py     # Recovery metrics (RMSE, coverage, reporting)
 │   ├── modal_infra.py # Shared Modal GPU setup
 │   ├── run.py         # Unified CLI (--method pgas/tempered_smc/all)

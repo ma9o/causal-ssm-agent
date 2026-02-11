@@ -156,6 +156,7 @@ class ParametricIDResult:
     prior_variances: dict[str, float]
     parameter_names: list[str]
     n_draws: int
+    fisher_method: str = "hessian"
 
     def summary(self) -> dict:
         """Produce diagnostic flags from the analysis.
@@ -251,6 +252,74 @@ class PowerScalingResult:
 
 
 # ---------------------------------------------------------------------------
+# Fisher information estimators
+# ---------------------------------------------------------------------------
+
+
+def _fisher_hessian(z_i, log_lik_fn):
+    """Fisher via negative Hessian of log-likelihood (second-order AD)."""
+    H = jax.hessian(log_lik_fn)(z_i)
+    H = jnp.nan_to_num(H, nan=0.0, posinf=0.0, neginf=0.0)
+    return -H
+
+
+def _fisher_opg(
+    z_i, model, times, subject_ids, site_info, unravel_fn, simulate_fn, n_score_samples, rng_key
+):
+    """OPG Fisher: F = (1/K) sum_k s_k s_k^T where s_k = grad_z log p(y_k|z).
+
+    Simulates K independent datasets from z_i and computes the score
+    (gradient of log-likelihood) for each. The outer product of gradients
+    is mathematically always PSD (float32 may introduce small relative
+    negative eigenvalues which are harmless for downstream analysis).
+    Uses only first-order AD (jax.grad).
+    """
+    scores = []
+    for _k in range(n_score_samples):
+        rng_key, sim_key = random.split(rng_key)
+        y_k = simulate_fn(sim_key)
+
+        log_lik_k, _ = _build_eval_fns(model, y_k, times, subject_ids, site_info, unravel_fn)
+        s_k = jax.grad(log_lik_k)(z_i)
+        s_k = jnp.nan_to_num(s_k, nan=0.0, posinf=0.0, neginf=0.0)
+        scores.append(s_k)
+
+    if not scores:
+        D = z_i.shape[0]
+        return jnp.zeros((D, D))
+
+    S = jnp.stack(scores)  # (K, D)
+    # S^T S is mathematically PSD; float32 may introduce small relative
+    # negative eigenvalues which are harmless for downstream analysis.
+    return S.T @ S / len(scores)  # (D, D)
+
+
+def _fisher_profile(z_i, log_lik_fn, D, step=0.01):
+    """Diagonal Fisher via finite-difference curvature of log-likelihood.
+
+    Computes per-parameter curvature using central finite differences:
+        F_jj = -(LL(z+h*e_j) - 2*LL(z) + LL(z-h*e_j)) / h^2
+
+    This avoids second-order AD entirely (only scalar log-likelihood evals),
+    making it more numerically stable for recursive filter models.
+    Cost: 2*D + 1 log-likelihood evaluations.
+
+    Returns a diagonal Fisher matrix.
+    """
+    ll_center = log_lik_fn(z_i)
+    fisher_diag = jnp.zeros(D)
+
+    for j in range(D):
+        e_j = jnp.zeros(D).at[j].set(step)
+        ll_plus = log_lik_fn(z_i + e_j)
+        ll_minus = log_lik_fn(z_i - e_j)
+        curvature = (ll_plus - 2.0 * ll_center + ll_minus) / (step**2)
+        fisher_diag = fisher_diag.at[j].set(jnp.maximum(-curvature, 0.0))
+
+    return jnp.diag(fisher_diag)
+
+
+# ---------------------------------------------------------------------------
 # Pre-fit: check_parametric_id
 # ---------------------------------------------------------------------------
 
@@ -263,12 +332,15 @@ def check_parametric_id(
     n_draws: int = 5,
     estimand_sites: list[str] | None = None,
     seed: int = 42,
+    fisher_method: str = "hessian",
+    n_score_samples: int = 100,
+    profile_step: float = 0.01,
 ) -> ParametricIDResult:
     """Pre-fit parametric identifiability diagnostics.
 
     For each of n_draws prior draws:
     1. Draw z from prior, simulate synthetic data y
-    2. Compute Hessian of log-likelihood at z with data y
+    2. Compute Fisher information at z with data y
     3. Analyse eigenspectrum, estimand projection, expected contraction
 
     Args:
@@ -279,6 +351,10 @@ def check_parametric_id(
         n_draws: number of prior draws to evaluate
         estimand_sites: parameter sites to project onto (e.g. ["drift_offdiag_pop"])
         seed: random seed
+        fisher_method: "hessian" (2nd-order AD), "opg" (outer product of gradients),
+            or "profile" (finite-difference diagonal curvature)
+        n_score_samples: number of simulated datasets for OPG (default 100)
+        profile_step: finite-difference step for profile method (default 0.01)
 
     Returns:
         ParametricIDResult with diagnostic information
@@ -355,13 +431,50 @@ def check_parametric_id(
             model, y_i, times, subject_ids, site_info, unravel_fn
         )
 
-        # 5. Hessian of log-likelihood at z_i
-        H_i = jax.hessian(log_lik_fn)(z_i)
-        H_i = jnp.nan_to_num(H_i, nan=0.0, posinf=0.0, neginf=0.0)
+        # 5. Compute Fisher information matrix
+        if fisher_method == "opg":
+            # Build a simulate_fn closure that generates data from the same z_i
+            def _simulate_from_zi(sim_rng, _det=det):
+                return simulate_ssm(
+                    drift=_det.get("drift", jnp.zeros((model.spec.n_latent, model.spec.n_latent))),
+                    diffusion_chol=_det.get("diffusion", jnp.eye(model.spec.n_latent)),
+                    lambda_mat=_det.get(
+                        "lambda", jnp.eye(model.spec.n_manifest, model.spec.n_latent)
+                    ),
+                    manifest_chol=jnp.linalg.cholesky(
+                        _det.get("manifest_cov", jnp.eye(model.spec.n_manifest))
+                        + jnp.eye(model.spec.n_manifest) * 1e-8
+                    ),
+                    t0_means=_det.get("t0_means", jnp.zeros(model.spec.n_latent)),
+                    t0_chol=jnp.linalg.cholesky(
+                        _det.get("t0_cov", jnp.eye(model.spec.n_latent))
+                        + jnp.eye(model.spec.n_latent) * 1e-8
+                    ),
+                    times=times,
+                    rng_key=sim_rng,
+                    cint=_det.get("cint"),
+                    manifest_dist=model.spec.manifest_dist.value,
+                )
 
-        # Fisher information = -H (should be PSD for identified model)
+            rng_key, opg_key = random.split(rng_key)
+            fisher_i = _fisher_opg(
+                z_i,
+                model,
+                times,
+                subject_ids,
+                site_info,
+                unravel_fn,
+                _simulate_from_zi,
+                n_score_samples,
+                opg_key,
+            )
+        elif fisher_method == "profile":
+            fisher_i = _fisher_profile(z_i, log_lik_fn, D, profile_step)
+        else:
+            fisher_i = _fisher_hessian(z_i, log_lik_fn)
+
         # Eigenspectrum of Fisher info: near-zero eigenvalues → non-identifiability
-        fisher_eigvals_i = jnp.linalg.eigvalsh(-H_i)
+        fisher_eigvals_i = jnp.linalg.eigvalsh(fisher_i)
         all_eigenvalues.append(fisher_eigvals_i)
 
         # 6. Estimand projection
@@ -380,16 +493,15 @@ def check_parametric_id(
                     g = _make_g(site_name)
                     grad_g = jax.grad(g)(z_i)
                     grad_g = jnp.nan_to_num(grad_g, nan=0.0)
-                    # Projected Fisher information: grad_g^T H grad_g
-                    I_g = float(grad_g @ (-H_i) @ grad_g)
+                    # Projected Fisher information: grad_g^T F grad_g
+                    I_g = float(grad_g @ fisher_i @ grad_g)
                     estimand_info_storage[site_name].append(max(I_g, 0.0))
 
         # 7. Expected contraction: BvM approximation
-        # posterior_var ≈ diag((-H)^{-1}), contraction = 1 - post_var / prior_var
-        neg_H = -H_i
-        neg_H_reg = neg_H + jnp.eye(D) * 1e-6
+        # posterior_var ≈ diag(F^{-1}), contraction = 1 - post_var / prior_var
+        fisher_reg = fisher_i + jnp.eye(D) * 1e-6
         try:
-            H_inv_diag = jnp.diag(jnp.linalg.inv(neg_H_reg))
+            H_inv_diag = jnp.diag(jnp.linalg.inv(fisher_reg))
         except Exception:
             H_inv_diag = jnp.full(D, float("inf"))
 
@@ -424,6 +536,7 @@ def check_parametric_id(
         prior_variances=prior_variances,
         parameter_names=param_names,
         n_draws=n_draws,
+        fisher_method=fisher_method,
     )
 
 

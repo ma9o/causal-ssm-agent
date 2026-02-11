@@ -6,7 +6,7 @@ Ground truth: 4 latent processes with lower-triangular drift, diagonal diffusion
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jax
 import jax.numpy as jnp
@@ -33,6 +33,9 @@ class RecoveryProblem:
     dt: float
     spec: SSMSpec
     priors: SSMPriors
+    # Non-Gaussian observation noise
+    manifest_dist: str = "gaussian"
+    extra_true_params: dict = field(default_factory=dict)
 
     def simulate(self, T: int, seed: int = 42):
         """Discretize + forward simulate from ground truth.
@@ -42,7 +45,6 @@ class RecoveryProblem:
         diff_cov = jnp.diag(self.true_diff_diag) @ jnp.diag(self.true_diff_diag).T
         Ad, Qd, cd = discretize_system(self.true_drift, diff_cov, self.true_cint, self.dt)
         Qd_chol = jla.cholesky(Qd + jnp.eye(self.n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(jnp.diag(self.true_mvar_diag), lower=True)
 
         key = random.PRNGKey(seed)
         key, init_key = random.split(key)
@@ -58,11 +60,24 @@ class RecoveryProblem:
             )
         latent = jnp.stack(states)
 
+        mu = jax.vmap(lambda x: self.true_lambda @ x + self.true_manifest_means)(latent)
+
         key, ok = random.split(key)
-        obs = (
-            jax.vmap(lambda x: self.true_lambda @ x + self.true_manifest_means)(latent)
-            + random.normal(ok, (T, self.n_manifest)) @ R_chol.T
-        )
+        if self.manifest_dist == "student_t":
+            obs_df = self.extra_true_params["obs_df"]
+            scale = jnp.sqrt(self.true_mvar_diag)
+            # Student-t: normal / sqrt(chi2/df)
+            z = random.normal(ok, (T, self.n_manifest))
+            key, chi2_key = random.split(key)
+            chi2 = random.gamma(chi2_key, obs_df / 2.0, (T, self.n_manifest)) * 2.0
+            t_noise = z / jnp.sqrt(chi2 / obs_df)
+            obs = mu + t_noise * scale
+        elif self.manifest_dist == "poisson":
+            obs = random.poisson(ok, jax.nn.softplus(mu)).astype(jnp.float32)
+        else:
+            R_chol = jla.cholesky(jnp.diag(self.true_mvar_diag), lower=True)
+            obs = mu + random.normal(ok, (T, self.n_manifest)) @ R_chol.T
+
         times = jnp.arange(T, dtype=float) * self.dt
 
         return obs, times, latent
