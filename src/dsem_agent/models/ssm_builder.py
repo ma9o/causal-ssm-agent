@@ -108,7 +108,9 @@ class SSMModelBuilder:
 
         issues = validate_model_spec(model_spec)
         for issue in issues:
-            logger.warning("ModelSpec %s: %s — %s", issue["severity"], issue["name"], issue["issue"])
+            logger.warning(
+                "ModelSpec %s: %s — %s", issue["severity"], issue["name"], issue["issue"]
+            )
 
         # Extract dimensions from data
         manifest_cols = [lik.variable for lik in model_spec.likelihoods]

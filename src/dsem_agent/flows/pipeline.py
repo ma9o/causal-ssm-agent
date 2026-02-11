@@ -156,7 +156,9 @@ def causal_inference_pipeline(
     if aggregated_result:
         data_for_model = flatten_aggregated_data(aggregated_result)
         n_agg = len(data_for_model)
-        print(f"  Aggregated to {n_agg} observations across {list(aggregated_result.keys())} granularities")
+        print(
+            f"  Aggregated to {n_agg} observations across {list(aggregated_result.keys())} granularities"
+        )
     else:
         data_for_model = raw_data_result
         print("  No aggregation applied (using raw data)")

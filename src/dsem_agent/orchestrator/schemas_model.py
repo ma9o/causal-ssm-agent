@@ -188,7 +188,9 @@ def validate_model_spec(
 
     # 3. dtype <-> distribution compatibility (only when indicators provided)
     if indicators is not None:
-        indicator_dtype = {ind["name"]: ind.get("measurement_dtype", "continuous") for ind in indicators}
+        indicator_dtype = {
+            ind["name"]: ind.get("measurement_dtype", "continuous") for ind in indicators
+        }
         for lik in model_spec.likelihoods:
             dtype = indicator_dtype.get(lik.variable)
             if dtype is not None:
