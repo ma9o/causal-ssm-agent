@@ -36,7 +36,7 @@ class InferenceResult:
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal["nuts", "svi", "hessmc2", "pgas", "tempered_smc"]
+    method: Literal["nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"]
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -72,7 +72,7 @@ def fit(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    method: Literal["svi", "nuts", "hessmc2", "pgas", "tempered_smc"] = "svi",
+    method: Literal["svi", "nuts", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -104,10 +104,23 @@ def fit(
         from dsem_agent.models.ssm.tempered_smc import fit_tempered_smc
 
         return fit_tempered_smc(model, observations, times, subject_ids, **kwargs)
+    elif method == "laplace_em":
+        from dsem_agent.models.ssm.laplace_em import fit_laplace_em
+
+        return fit_laplace_em(model, observations, times, subject_ids, **kwargs)
+    elif method == "structured_vi":
+        from dsem_agent.models.ssm.structured_vi import fit_structured_vi
+
+        return fit_structured_vi(model, observations, times, subject_ids, **kwargs)
+    elif method == "dpf":
+        from dsem_agent.models.ssm.dpf import fit_dpf
+
+        return fit_dpf(model, observations, times, subject_ids, **kwargs)
     else:
         raise ValueError(
             f"Unknown inference method: {method!r}. "
-            "Use 'svi', 'nuts', 'hessmc2', 'pgas', or 'tempered_smc'."
+            "Use 'svi', 'nuts', 'hessmc2', 'pgas', 'tempered_smc', "
+            "'laplace_em', 'structured_vi', or 'dpf'."
         )
 
 

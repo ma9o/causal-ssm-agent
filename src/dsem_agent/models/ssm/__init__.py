@@ -3,7 +3,8 @@
 This module implements hierarchical Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Multiple inference backends: SVI (default), NUTS, Hess-MC², PGAS, Tempered SMC
+- Multiple inference backends: SVI (default), NUTS, Hess-MC², PGAS, Tempered SMC,
+  Laplace-EM, Structured VI, Differentiable PF
 """
 
 from dsem_agent.models.ssm.discretization import (

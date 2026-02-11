@@ -164,6 +164,82 @@ METHOD_CONFIGS = {
         "gpu_type": "B200",
         "timeout": 3600,
     },
+    "laplace_em": {
+        "local": {
+            "T": 80,
+            "n_outer": 60,
+            "n_csmc_particles": 30,
+            "n_mh_steps": 5,
+            "n_pf": 200,
+            "n_warmup": 30,
+            "param_step_size": 0.1,
+            "n_ieks_iters": 5,
+        },
+        "gpu": {
+            "T": 200,
+            "n_outer": 200,
+            "n_csmc_particles": 120,
+            "n_mh_steps": 15,
+            "n_pf": 500,
+            "n_warmup": 100,
+            "param_step_size": 0.1,
+            "n_ieks_iters": 5,
+        },
+        "gpu_type": "B200",
+        "timeout": 3600,
+    },
+    "structured_vi": {
+        "local": {
+            "T": 80,
+            "n_outer": 60,
+            "n_csmc_particles": 30,
+            "n_mh_steps": 5,
+            "n_pf": 200,
+            "n_warmup": 30,
+            "param_step_size": 0.1,
+        },
+        "gpu": {
+            "T": 200,
+            "n_outer": 200,
+            "n_csmc_particles": 120,
+            "n_mh_steps": 15,
+            "n_pf": 500,
+            "n_warmup": 100,
+            "param_step_size": 0.1,
+        },
+        "gpu_type": "B200",
+        "timeout": 3600,
+    },
+    "dpf": {
+        "local": {
+            "T": 80,
+            "n_outer": 60,
+            "n_csmc_particles": 30,
+            "n_mh_steps": 5,
+            "n_pf": 200,
+            "n_warmup": 30,
+            "param_step_size": 0.1,
+            "n_train_seqs": 10,
+            "n_train_steps": 50,
+            "n_particles_train": 16,
+            "n_pf_particles": 50,
+        },
+        "gpu": {
+            "T": 200,
+            "n_outer": 200,
+            "n_csmc_particles": 120,
+            "n_mh_steps": 15,
+            "n_pf": 500,
+            "n_warmup": 100,
+            "param_step_size": 0.1,
+            "n_train_seqs": 50,
+            "n_train_steps": 200,
+            "n_particles_train": 32,
+            "n_pf_particles": 100,
+        },
+        "gpu_type": "B200",
+        "timeout": 7200,
+    },
 }
 
 
@@ -383,6 +459,101 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         )
         elapsed = time.perf_counter() - t0
         print(f"Done in {elapsed:.1f}s")
+        print()
+
+    elif method == "laplace_em":
+        model = SSMModel(
+            problem.spec,
+            priors=problem.priors,
+            n_particles=cfg["n_pf"],
+            pf_seed=42,
+        )
+        t0 = time.perf_counter()
+        result = fit(
+            model,
+            observations=obs,
+            times=times,
+            method="laplace_em",
+            n_outer=cfg["n_outer"],
+            n_csmc_particles=cfg["n_csmc_particles"],
+            n_mh_steps=cfg["n_mh_steps"],
+            param_step_size=cfg["param_step_size"],
+            n_warmup=cfg["n_warmup"],
+            n_ieks_iters=cfg["n_ieks_iters"],
+            seed=0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"Done in {elapsed:.1f}s")
+        beta_schedule = result.diagnostics.get("beta_schedule", [])
+        if beta_schedule:
+            print(f"  Tempering levels: {len(beta_schedule)}, final beta={beta_schedule[-1]:.4f}")
+        rates = result.diagnostics.get("accept_rates", [])
+        if rates:
+            print(f"  Accept rate: mean={sum(rates) / len(rates):.2f}")
+        print()
+
+    elif method == "structured_vi":
+        model = SSMModel(
+            problem.spec,
+            priors=problem.priors,
+            n_particles=cfg["n_pf"],
+            pf_seed=42,
+        )
+        t0 = time.perf_counter()
+        result = fit(
+            model,
+            observations=obs,
+            times=times,
+            method="structured_vi",
+            n_outer=cfg["n_outer"],
+            n_csmc_particles=cfg["n_csmc_particles"],
+            n_mh_steps=cfg["n_mh_steps"],
+            param_step_size=cfg["param_step_size"],
+            n_warmup=cfg["n_warmup"],
+            seed=0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"Done in {elapsed:.1f}s")
+        beta_schedule = result.diagnostics.get("beta_schedule", [])
+        if beta_schedule:
+            print(f"  Tempering levels: {len(beta_schedule)}, final beta={beta_schedule[-1]:.4f}")
+        rates = result.diagnostics.get("accept_rates", [])
+        if rates:
+            print(f"  Accept rate: mean={sum(rates) / len(rates):.2f}")
+        print()
+
+    elif method == "dpf":
+        model = SSMModel(
+            problem.spec,
+            priors=problem.priors,
+            n_particles=cfg["n_pf"],
+            pf_seed=42,
+        )
+        t0 = time.perf_counter()
+        result = fit(
+            model,
+            observations=obs,
+            times=times,
+            method="dpf",
+            n_outer=cfg["n_outer"],
+            n_csmc_particles=cfg["n_csmc_particles"],
+            n_mh_steps=cfg["n_mh_steps"],
+            param_step_size=cfg["param_step_size"],
+            n_warmup=cfg["n_warmup"],
+            n_train_seqs=cfg["n_train_seqs"],
+            n_train_steps=cfg["n_train_steps"],
+            n_particles_train=cfg["n_particles_train"],
+            n_pf_particles=cfg["n_pf_particles"],
+            seed=0,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"Done in {elapsed:.1f}s")
+        beta_schedule = result.diagnostics.get("beta_schedule", [])
+        if beta_schedule:
+            print(f"  Tempering levels: {len(beta_schedule)}, final beta={beta_schedule[-1]:.4f}")
+        rates = result.diagnostics.get("accept_rates", [])
+        if rates:
+            print(f"  Accept rate: mean={sum(rates) / len(rates):.2f}")
         print()
 
     else:
