@@ -31,14 +31,9 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 
+from dsem_agent.models.likelihoods.emissions import get_emission_fn
 from dsem_agent.models.ssm.discretization import discretize_system_batched
-from dsem_agent.models.ssm.inference import InferenceResult
-from dsem_agent.models.ssm.laplace_em import _get_emission_fn
-from dsem_agent.models.ssm.utils import (
-    _assemble_deterministics,
-    _build_eval_fns,
-    _discover_sites,
-)
+from dsem_agent.models.ssm.tempered_core import run_tempered_smc
 
 if TYPE_CHECKING:
     from dsem_agent.models.likelihoods.base import (
@@ -46,6 +41,7 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
+    from dsem_agent.models.ssm.inference import InferenceResult
 
 # ---------------------------------------------------------------------------
 # Proposal network: MLP-parameterized Gaussian
@@ -426,7 +422,7 @@ def _train_proposal(
     rng_key, data_key = random.split(rng_key)
     data_keys = random.split(data_key, n_train_seqs)
 
-    emission_fn = _get_emission_fn(manifest_dist, extra_params)
+    emission_fn = get_emission_fn(manifest_dist, extra_params)
     init_mean = jnp.zeros(D_latent)
     init_cov = jnp.eye(D_latent)
 
@@ -559,7 +555,7 @@ class DPFLikelihood:
         if cd is None:
             cd = jnp.zeros((T, n))
 
-        emission_fn = _get_emission_fn(self.manifest_dist, extra_params)
+        emission_fn = get_emission_fn(self.manifest_dist, extra_params)
 
         if self.proposal_params is None:
             raise ValueError("Proposal not trained. Call _train_proposal first.")
@@ -619,62 +615,12 @@ def fit_dpf(
     Phase 1: Train a proposal network on prior-predictive simulations.
     Phase 2: Use the trained proposal in a particle filter for likelihood
              estimation, with tempered SMC for parameter inference.
-
-    Args:
-        model: SSMModel instance
-        observations: (T, n_manifest) observed data
-        times: (T,) observation times
-        subject_ids: optional subject indices
-        n_outer: max tempering levels
-        n_csmc_particles: parameter particles
-        n_mh_steps: HMC mutations per round
-        param_step_size: initial step size
-        n_warmup: levels to discard
-        target_accept: target acceptance
-        seed: random seed
-        n_leapfrog: leapfrog steps
-        adaptive_tempering: ESS-based tempering
-        target_ess_ratio: ESS target
-        waste_free: waste-free recycling
-        n_pf_particles: particles for inference-time PF
-        n_train_seqs: training sequences
-        n_train_steps: training gradient steps
-        n_particles_train: particles during training
-        T_train: training sequence length (default: min(T, 50))
-        proposal_lr: proposal learning rate
-
-    Returns:
-        InferenceResult with posterior samples and diagnostics
     """
-    from jax.flatten_util import ravel_pytree
-
-    from dsem_agent.models.ssm.mcmc_utils import (
-        compute_weighted_chol_mass,
-        find_next_beta,
-        hmc_step,
-    )
-
-    if target_accept is None:
-        target_accept = 0.65 if n_leapfrog > 1 else 0.44
-
     T_data = observations.shape[0]
     if T_train is None:
         T_train = min(T_data, 50)
 
     rng_key = random.PRNGKey(seed)
-    N = n_csmc_particles
-
-    if waste_free and N % n_mh_steps != 0:
-        raise ValueError(
-            f"waste_free requires N % n_mh_steps == 0, got N={N}, n_mh_steps={n_mh_steps}"
-        )
-
-    # 1. Discover model sites
-    rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, subject_ids, trace_key)
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
-    D = flat_example.shape[0]
 
     manifest_dist = (
         model.spec.manifest_dist.value
@@ -682,10 +628,9 @@ def fit_dpf(
         else str(model.spec.manifest_dist)
     )
 
-    # 2. Train proposal network
-    # Extract measurement model from a trace
+    # Phase 1: Train proposal network
+    # Extract measurement model from spec
     with jax.ensure_compile_time_eval():
-        # Get fixed measurement parameters for training
         spec = model.spec
         if isinstance(spec.lambda_mat, jnp.ndarray):
             H_train = spec.lambda_mat
@@ -721,241 +666,29 @@ def fit_dpf(
 
     print("DPF: Phase 2 - Parameter inference via tempered SMC...")
 
-    # 3. Build evaluators (using standard PF likelihood, not DPF, for the outer loop)
-    # The DPF proposal improves particle filter efficiency but the outer loop
-    # uses the same tempered SMC infrastructure
-    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, subject_ids, site_info, unravel_fn
-    )
-
-    def _safe_lik_val_and_grad(z):
-        val, grad = jax.value_and_grad(log_lik_fn)(z)
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
-
-    batch_lik_val_and_grad = jax.jit(jax.vmap(_safe_lik_val_and_grad))
-
-    def _tempered_val_and_grad(z, beta):
-        lik_val, lik_grad = jax.value_and_grad(log_lik_fn)(z)
-        prior_val, prior_grad = jax.value_and_grad(log_prior_unc_fn)(z)
-        val = prior_val + beta * lik_val
-        grad = prior_grad + beta * lik_grad
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
-
-    def _mutate_particle(rng_key, z, beta, eps, chol_mass):
-        keys = random.split(rng_key, n_mh_steps)
-
-        def scan_fn(carry, key):
-            z_curr, n_acc = carry
-
-            def tempered_vg(z_):
-                return _tempered_val_and_grad(z_, beta)
-
-            z_new, accepted, _ = hmc_step(key, z_curr, tempered_vg, eps, chol_mass, n_leapfrog)
-            return (z_new, n_acc + accepted.astype(jnp.int32)), None
-
-        (z_final, n_accept), _ = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
-        return z_final, n_accept
-
-    def _mutate_batch(rng_key, particles, beta, eps, chol_mass):
-        keys = random.split(rng_key, particles.shape[0])
-        return jax.vmap(lambda k, z: _mutate_particle(k, z, beta, eps, chol_mass))(keys, particles)
-
-    _mutate_batch_jit = jax.jit(_mutate_batch)
-
-    # Waste-free
-    def _mutate_particle_wastefree(rng_key, z, beta, eps, chol_mass):
-        keys = random.split(rng_key, n_mh_steps)
-
-        def scan_fn(carry, key):
-            z_curr, n_acc = carry
-
-            def tempered_vg(z_):
-                return _tempered_val_and_grad(z_, beta)
-
-            z_new, accepted, _ = hmc_step(key, z_curr, tempered_vg, eps, chol_mass, n_leapfrog)
-            return (z_new, n_acc + accepted.astype(jnp.int32)), z_new
-
-        (_, n_acc), all_z = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
-        return all_z, n_acc
-
-    def _mutate_batch_wastefree(rng_key, particles_M, beta, eps, chol_mass):
-        M = particles_M.shape[0]
-        keys = random.split(rng_key, M)
-        return jax.vmap(lambda k, z: _mutate_particle_wastefree(k, z, beta, eps, chol_mass))(
-            keys, particles_M
-        )
-
-    _mutate_batch_wastefree_jit = jax.jit(_mutate_batch_wastefree)
-
-    # 4. Initialize
-    eps = param_step_size
-    print(f"  N={N}, K={n_outer}, D={D}, n_mh={n_mh_steps}, eps={eps}")
-    print(f"  Initializing {N} particles from prior...")
-
-    parts = []
-    for name in sorted(site_info.keys()):
-        info = site_info[name]
-        rng_key, sample_key = random.split(rng_key)
-        prior_samples = info["distribution"].sample(sample_key, (N,))
-        unc_samples = info["transform"].inv(prior_samples)
-        parts.append(unc_samples.reshape(N, -1))
-
-    particles = jnp.concatenate(parts, axis=1)
-    chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
-
-    from blackjax.smc.resampling import systematic as _systematic_resample
-
-    # Pilot
-    print("  Pilot: adapting step size at prior...")
-    for pilot_step in range(30):
-        rng_key, mutate_key = random.split(rng_key)
-        particles_new, n_accepts = _mutate_batch_jit(mutate_key, particles, 0.0, eps, chol_mass)
-        avg_accept = float(jnp.mean(n_accepts) / n_mh_steps)
-        particles = particles_new
-
-        log_eps = jnp.log(jnp.array(eps))
-        log_eps = log_eps + 0.5 * (avg_accept - target_accept)
-        eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
-
-        if pilot_step >= 5 and abs(avg_accept - target_accept) < 0.1:
-            print(
-                f"    pilot converged at step {pilot_step + 1}: accept={avg_accept:.2f} eps={eps:.4f}"
-            )
-            break
-    else:
-        print(f"    pilot done: accept={avg_accept:.2f} eps={eps:.4f}")
-
-    log_liks, _ = batch_lik_val_and_grad(particles)
-    chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
-    logw = jnp.zeros(N)
-
-    accept_rates = []
-    ess_history = []
-    eps_history = []
-    beta_schedule = []
-    chain_samples = []
-
-    beta_prev = 0.0
-    level = 0
-    max_mutation_rounds = 5
-    M = N // n_mh_steps if waste_free else N
-
-    while beta_prev < 1.0 and level < n_outer:
-        if adaptive_tempering:
-            beta_k = find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N)
-        else:
-            beta_k = float(level + 1) / n_outer
-
-        beta_schedule.append(beta_k)
-        logw = logw + (beta_k - beta_prev) * log_liks
-
-        lse = jax.nn.logsumexp(logw)
-        log_wn = logw - lse
-        wn = jnp.exp(log_wn)
-        ess = float(1.0 / jnp.sum(wn**2))
-        ess_history.append(ess)
-
-        if ess > N / 4:
-            chol_mass = compute_weighted_chol_mass(particles, logw, D)
-
-        if waste_free:
-            rng_key, resample_key, mutate_key = random.split(rng_key, 3)
-            idx = _systematic_resample(resample_key, wn, M)
-            resampled = particles[idx]
-            all_trajs, n_accs = _mutate_batch_wastefree_jit(
-                mutate_key, resampled, beta_k, eps, chol_mass
-            )
-            particles = all_trajs.reshape(N, D)
-            logw = jnp.full(N, -jnp.log(float(N)))
-            avg_accept = float(jnp.mean(n_accs) / n_mh_steps)
-
-            log_eps = jnp.log(jnp.array(eps))
-            log_eps = log_eps + 0.1 * (avg_accept - target_accept)
-            eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
-        else:
-            if ess < N / 2:
-                rng_key, resample_key = random.split(rng_key)
-                idx = _systematic_resample(resample_key, wn, N)
-                particles = particles[idx]
-                log_liks = log_liks[idx]
-                logw = jnp.full(N, -jnp.log(float(N)))
-
-            total_accepts = 0
-            total_proposals = 0
-            for mutation_round in range(max_mutation_rounds):
-                rng_key, mutate_key = random.split(rng_key)
-                particles_new, n_accepts = _mutate_batch_jit(
-                    mutate_key, particles, beta_k, eps, chol_mass
-                )
-                round_accepts = float(jnp.sum(n_accepts))
-                total_accepts += round_accepts
-                total_proposals += N * n_mh_steps
-                particles = particles_new
-
-                round_accept_rate = round_accepts / (N * n_mh_steps)
-                log_eps = jnp.log(jnp.array(eps))
-                log_eps = log_eps + 0.1 * (round_accept_rate - target_accept)
-                eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
-
-                if mutation_round > 0 and round_accept_rate > 0.2:
-                    break
-
-            avg_accept = total_accepts / max(total_proposals, 1)
-
-        accept_rates.append(avg_accept)
-        eps_history.append(eps)
-        log_liks, _ = batch_lik_val_and_grad(particles)
-        chain_samples.append(particles[level % N])
-
-        print(
-            f"  step {level + 1}  beta={beta_k:.3f}  ESS={ess:.1f}/{N}"
-            f"  accept={avg_accept:.2f}  eps={eps:.4f}"
-        )
-
-        beta_prev = beta_k
-        level += 1
-
-    actual_levels = level
-    if n_warmup is None:
-        n_warmup = actual_levels // 2
-    n_warmup = min(n_warmup, max(actual_levels - 1, 0))
-
-    chain_particles = jnp.stack(chain_samples[n_warmup:], axis=0)
-
-    transforms = {name: info["transform"] for name, info in site_info.items()}
-    samples = {}
-    for name in transforms:
-
-        def _extract_one(z, _name=name):
-            unc = unravel_fn(z)
-            return transforms[_name](unc[_name])
-
-        samples[name] = jax.vmap(_extract_one)(chain_particles)
-
-    det_samples = _assemble_deterministics(samples, model.spec)
-    samples.update(det_samples)
-
-    return InferenceResult(
-        _samples=samples,
-        method="dpf",
-        diagnostics={
-            "accept_rates": accept_rates,
-            "ess_history": ess_history,
-            "eps_history": eps_history,
-            "beta_schedule": beta_schedule,
-            "n_levels": actual_levels,
+    # Phase 2: Parameter inference via shared tempered SMC loop
+    return run_tempered_smc(
+        model,
+        observations,
+        times,
+        subject_ids,
+        n_outer=n_outer,
+        n_csmc_particles=n_csmc_particles,
+        n_mh_steps=n_mh_steps,
+        param_step_size=param_step_size,
+        n_warmup=n_warmup,
+        target_accept=target_accept,
+        seed=seed,
+        adaptive_tempering=adaptive_tempering,
+        target_ess_ratio=target_ess_ratio,
+        waste_free=waste_free,
+        n_leapfrog=n_leapfrog,
+        method_name="dpf",
+        extra_diagnostics={
             "n_pf_particles": n_pf_particles,
             "n_train_seqs": n_train_seqs,
             "n_train_steps": n_train_steps,
             "proposal_params": proposal_params,
-            "n_outer": n_outer,
-            "n_csmc_particles": N,
-            "n_mh_steps": n_mh_steps,
-            "n_leapfrog": n_leapfrog,
-            "n_warmup": n_warmup,
         },
+        print_prefix="DPF",
     )

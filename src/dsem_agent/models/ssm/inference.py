@@ -36,7 +36,9 @@ class InferenceResult:
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal["nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"]
+    method: Literal[
+        "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"
+    ]
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -72,7 +74,9 @@ def fit(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
-    method: Literal["svi", "nuts", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"] = "svi",
+    method: Literal[
+        "svi", "nuts", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"
+    ] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.

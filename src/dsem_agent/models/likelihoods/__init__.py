@@ -14,6 +14,7 @@ from dsem_agent.models.likelihoods.base import (
     LikelihoodBackend,
     MeasurementParams,
 )
+from dsem_agent.models.likelihoods.emissions import get_emission_fn
 from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
 from dsem_agent.models.likelihoods.particle import ParticleLikelihood
 
@@ -24,4 +25,5 @@ __all__ = [
     "LikelihoodBackend",
     "KalmanLikelihood",
     "ParticleLikelihood",
+    "get_emission_fn",
 ]

@@ -22,6 +22,8 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
+from dsem_agent.models.likelihoods.emissions import get_emission_fn
+
 # =============================================================================
 # RBState — Kalman sufficient statistics carried per particle
 # =============================================================================
@@ -338,35 +340,9 @@ def _obs_weight_quadrature(
         sigma_wts = gh_wts
 
     # Evaluate observation log-likelihood at each sigma point
-    def _log_obs_single(x):
-        """Log p(y|x) for a single latent state x."""
-        eta = H @ x + d  # linear predictor
-
-        if manifest_dist == "poisson":
-            rate = jnp.exp(eta)
-            log_probs = jax.scipy.stats.poisson.logpmf(y, rate)
-        elif manifest_dist == "student_t":
-            manifest_cov = params.get("manifest_cov", jnp.eye(y.shape[0]) * 0.1)
-            scale = jnp.sqrt(jnp.diag(manifest_cov))
-            df = params.get("obs_df", 5.0)
-            log_probs = jax.scipy.stats.t.logpdf(y, df, loc=eta, scale=scale)
-        elif manifest_dist == "gamma":
-            mean = jnp.exp(eta)
-            shape = params.get("obs_shape", 1.0)
-            scale = mean / shape
-            log_probs = jax.scipy.stats.gamma.logpdf(y, shape, scale=scale)
-        else:
-            # Gaussian fallback
-            manifest_cov = params.get("manifest_cov", jnp.eye(y.shape[0]) * 0.1)
-            log_probs = jax.scipy.stats.norm.logpdf(
-                y, loc=eta, scale=jnp.sqrt(jnp.diag(manifest_cov))
-            )
-
-        # Mask missing observations
-        return jnp.sum(jnp.where(mask_float > 0.5, log_probs, 0.0))
-
-    # Vectorize over sigma points
-    log_obs_vals = jax.vmap(_log_obs_single)(sigma_pts)  # (K,)
+    R = params.get("manifest_cov", jnp.eye(y.shape[0]) * 0.1)
+    emission_fn = get_emission_fn(manifest_dist, params)
+    log_obs_vals = jax.vmap(lambda x: emission_fn(y, x, H, d, R, mask_float))(sigma_pts)
 
     # Log-sum-exp with weights: log(sum_i w_i * exp(log_obs_i))
     # = logsumexp(log_obs_i + log(w_i))

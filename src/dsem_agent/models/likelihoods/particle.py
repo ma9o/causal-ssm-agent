@@ -24,6 +24,7 @@ from dsem_agent.models.likelihoods.base import (
     InitialStateParams,
     MeasurementParams,
 )
+from dsem_agent.models.likelihoods.emissions import get_emission_fn
 from dsem_agent.models.ssm.discretization import discretize_system, discretize_system_batched
 
 # =============================================================================
@@ -125,86 +126,17 @@ class SSMAdapter:
     def observation_log_prob(
         self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
     ) -> float:
-        """Compute log p(y | x) under measurement model."""
-        if self.manifest_dist == "gaussian":
-            return self._obs_log_prob_gaussian(y, x, params, obs_mask)
-        elif self.manifest_dist == "poisson":
-            return self._obs_log_prob_poisson(y, x, params, obs_mask)
-        elif self.manifest_dist == "student_t":
-            return self._obs_log_prob_student_t(y, x, params, obs_mask)
-        elif self.manifest_dist == "gamma":
-            return self._obs_log_prob_gamma(y, x, params, obs_mask)
-        else:
-            raise ValueError(f"Unknown manifest_dist: {self.manifest_dist}")
+        """Compute log p(y | x) under measurement model.
 
-    def _obs_log_prob_gaussian(
-        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
-    ) -> float:
-        """Gaussian observation: y ~ N(Lx + mu, R)."""
-        lambda_mat = params["lambda_mat"]
-        manifest_means = params["manifest_means"]
-        manifest_cov = params["manifest_cov"]
-
-        y_pred = lambda_mat @ x + manifest_means
-        innovation = (y - y_pred) * obs_mask.astype(jnp.float32)
-
-        n_observed = jnp.sum(obs_mask.astype(jnp.float32))
-
-        large_var = 1e10
+        Delegates to canonical emission functions in emissions.py.
+        """
+        H = params["lambda_mat"]
+        d = params["manifest_means"]
+        R = params["manifest_cov"]
         mask_float = obs_mask.astype(jnp.float32)
-        R_adj = manifest_cov + jnp.diag((1.0 - mask_float) * large_var)
-        R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(self.n_manifest) * 1e-8
-
-        _, logdet = jnp.linalg.slogdet(R_adj)
-        n_missing = self.n_manifest - n_observed
-        logdet = logdet - n_missing * jnp.log(large_var)
-        mahal = innovation @ jla.solve(R_adj, innovation, assume_a="pos")
-        ll = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
-
-        return jnp.where(n_observed > 0, ll, 0.0)
-
-    def _obs_log_prob_poisson(
-        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
-    ) -> float:
-        """Poisson observation: y_i ~ Poisson(exp(eta_i)), eta = Lx + mu (log-link)."""
-        lambda_mat = params["lambda_mat"]
-        manifest_means = params["manifest_means"]
-
-        eta = lambda_mat @ x + manifest_means
-        rate = jnp.exp(eta)
-
-        log_probs = jax.scipy.stats.poisson.logpmf(y, rate)
-        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
-
-    def _obs_log_prob_student_t(
-        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
-    ) -> float:
-        """Student-t observation: y_i ~ StudentT(df, eta_i, scale_i)."""
-        lambda_mat = params["lambda_mat"]
-        manifest_means = params["manifest_means"]
-        manifest_cov = params["manifest_cov"]
-
-        eta = lambda_mat @ x + manifest_means
-        scale = jnp.sqrt(jnp.diag(manifest_cov))
-        df = params.get("obs_df", 5.0)
-
-        log_probs = jax.scipy.stats.t.logpdf(y, df, loc=eta, scale=scale)
-        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
-
-    def _obs_log_prob_gamma(
-        self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
-    ) -> float:
-        """Gamma observation: y_i ~ Gamma(shape, scale=exp(eta_i)/shape), log-link for mean."""
-        lambda_mat = params["lambda_mat"]
-        manifest_means = params["manifest_means"]
-
-        eta = lambda_mat @ x + manifest_means
-        mean = jnp.exp(eta)
-        shape = params.get("obs_shape", 1.0)
-        scale = mean / shape
-
-        log_probs = jax.scipy.stats.gamma.logpdf(y, shape, scale=scale)
-        return jnp.sum(jnp.where(obs_mask.astype(jnp.float32) > 0.5, log_probs, 0.0))
+        extra = {k: v for k, v in params.items() if k.startswith("obs_")}
+        emission_fn = get_emission_fn(self.manifest_dist, extra)
+        return emission_fn(y, x, H, d, R, mask_float)
 
 
 # =============================================================================

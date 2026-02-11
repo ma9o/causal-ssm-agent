@@ -249,7 +249,7 @@ class TestParticleMissingData:
         y = jnp.array([1.0, -2.0])
         obs_mask = jnp.array([True, False])
 
-        ll = adapter._obs_log_prob_gaussian(y, x, params, obs_mask)
+        ll = adapter.observation_log_prob(y, x, params, obs_mask)
 
         # Manual univariate logpdf for observed dimension
         sigma2 = 0.5

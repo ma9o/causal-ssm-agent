@@ -17,6 +17,7 @@ dependencies = [
     "jaxlib>=0.4.35",
     "networkx>=3.6",
     "numpyro>=0.16.0",
+    "optax>=0.2.0",
     "openai>=2.9.0",
     "polars>=1.35.2",
     "prefect>=3.6.5",
