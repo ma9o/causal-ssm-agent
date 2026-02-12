@@ -25,7 +25,7 @@ from .stages import (
     # Stage 3
     aggregate_measurements,
     # Stage 1b
-    build_dsem_model,
+    build_causal_spec,
     combine_worker_results,
     # Stage 5
     fit_model,
@@ -127,8 +127,8 @@ def causal_inference_pipeline(
                 print(f"  - {treatment} → {outcome}")
         print("These effects will be flagged in the final ranking.")
 
-    # Combine into full DSEM model with identifiability status
-    dsem_model = build_dsem_model(latent_model, measurement_model, identifiability_status)
+    # Combine into full causal spec with identifiability status
+    causal_spec = build_causal_spec(latent_model, measurement_model, identifiability_status)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 2: Parallel indicator population (worker chunk size)
@@ -140,7 +140,7 @@ def causal_inference_pipeline(
     worker_results = populate_indicators.map(
         worker_chunks,
         question=unmapped(question),
-        dsem_model=unmapped(dsem_model),
+        causal_spec=unmapped(causal_spec),
     )
 
     # Combine raw worker results
@@ -151,7 +151,7 @@ def causal_inference_pipeline(
     print(f"  Combined {n_observations} observations across {n_unique_indicators} indicators")
 
     # Aggregate to measurement_granularity
-    aggregated = aggregate_measurements(dsem_model, worker_results)
+    aggregated = aggregate_measurements(causal_spec, worker_results)
     aggregated_result = aggregated.result() if hasattr(aggregated, "result") else aggregated
     if aggregated_result:
         data_for_model = flatten_aggregated_data(aggregated_result)
@@ -167,7 +167,7 @@ def causal_inference_pipeline(
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 3: Extraction Validation ===")
-    validation_task = validate_extraction(dsem_model, worker_results)
+    validation_task = validate_extraction(causal_spec, worker_results)
     validation_report = (
         validation_task.result() if hasattr(validation_task, "result") else validation_task
     )
@@ -196,7 +196,7 @@ def causal_inference_pipeline(
 
     print("\n=== Stage 4: Model Specification ===")
     stage4_result = stage4_orchestrated_flow(
-        dsem_model=dsem_model,
+        causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,
         enable_literature=config.stage4_prior_elicitation.literature_search.enabled,
@@ -264,7 +264,7 @@ def causal_inference_pipeline(
         print(f"  Skipped: {ps_result.get('error', 'unknown')}")
 
     # Run interventions for all treatments
-    results = run_interventions(fitted, treatments, dsem_model)
+    results = run_interventions(fitted, treatments, causal_spec)
 
     # TODO: Rank by effect size
     print("\n=== Treatment Ranking by Effect Size ===")

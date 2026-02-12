@@ -1,6 +1,6 @@
 """Stage 4 Orchestrator: Model Specification Proposal.
 
-The orchestrator proposes a complete model specification based on the DSEMModel,
+The orchestrator proposes a complete model specification based on the CausalSpec,
 enumerating all parameters needing priors with search context for literature.
 """
 
@@ -16,14 +16,16 @@ from dsem_agent.orchestrator.prompts.model_proposal import (
     format_indicators,
 )
 from dsem_agent.orchestrator.schemas_model import (
-    ModelSpec,
     Stage4OrchestratorResult,
 )
-from dsem_agent.utils.llm import OrchestratorGenerateFn, parse_json_response
+from dsem_agent.utils.llm import (
+    OrchestratorGenerateFn,
+    make_validate_model_spec_tool,
+)
 
 
 async def propose_model_spec(
-    dsem_model: dict,
+    causal_spec: dict,
     data_summary: str,
     question: str,
     generate: OrchestratorGenerateFn,
@@ -31,7 +33,7 @@ async def propose_model_spec(
     """Orchestrator proposes complete model specification.
 
     Args:
-        dsem_model: The full DSEMModel dict (latent + measurement)
+        causal_spec: The full CausalSpec dict (latent + measurement)
         data_summary: Summary of the data (time points, subjects, etc.)
         question: The research question for context
         generate: Async generate function (messages, tools, follow_ups) -> str
@@ -40,9 +42,9 @@ async def propose_model_spec(
         Stage4OrchestratorResult with ModelSpec
     """
     # Format model components for the prompt
-    constructs_str = format_constructs(dsem_model)
-    edges_str = format_edges(dsem_model)
-    indicators_str = format_indicators(dsem_model)
+    constructs_str = format_constructs(causal_spec)
+    edges_str = format_edges(causal_spec)
+    indicators_str = format_indicators(causal_spec)
 
     # Build messages
     messages = [
@@ -59,14 +61,18 @@ async def propose_model_spec(
         },
     ]
 
-    # Generate model specification
-    completion = await generate(messages, None, None)
+    # Generate model specification with validation feedback loop.
+    # The tool captures the last valid ModelSpec so we don't need a REVIEW
+    # follow-up turn — we just read the captured spec after generate_loop.
+    tool, capture = make_validate_model_spec_tool(causal_spec)
+    completion = await generate(messages, [tool], None)
 
-    # Parse JSON response
-    model_data = parse_json_response(completion)
-
-    # Validate into ModelSpec
-    model_spec = ModelSpec.model_validate(model_data)
+    # Use the captured spec from the validation tool (avoids re-parsing LLM output)
+    model_spec = capture.get("spec")
+    if model_spec is None:
+        raise ValueError(
+            "Model spec validation never passed. Raw response:\n" + completion[:500]
+        )
 
     return Stage4OrchestratorResult(
         model_spec=model_spec,

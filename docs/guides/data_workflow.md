@@ -9,7 +9,7 @@ data/
 ├── raw/           # Raw input data (gitignored)
 ├── processed/     # Converted text files (gitignored)
 ├── queries/       # Test queries for pipeline
-└── eval/          # Reference models for evals (latent_model{N}.json, dsem_model{N}.json)
+└── eval/          # Reference models for evals (latent_model{N}.json, causal_spec{N}.json)
 ```
 
 ## Preprocessing

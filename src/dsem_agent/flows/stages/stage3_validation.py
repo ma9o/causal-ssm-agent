@@ -30,7 +30,7 @@ MIN_OBSERVATIONS = 10  # Reasonable minimum for CT-SEM
 
 @task(cache_policy=INPUTS)
 def validate_extraction(
-    dsem_model: dict,
+    causal_spec: dict,
     worker_results: list["WorkerResult"],
 ) -> dict:
     """Validate semantic properties of extracted data.
@@ -40,7 +40,7 @@ def validate_extraction(
     - Sample size (enough observations for temporal modeling)
 
     Args:
-        dsem_model: The full DSEM model with measurement model
+        causal_spec: The full causal spec with measurement model
         worker_results: List of WorkerResults from Stage 2
 
     Returns:
@@ -78,7 +78,7 @@ def validate_extraction(
             ],
         }
 
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
     indicator_names = {ind.get("name") for ind in indicators if ind.get("name")}
 
     issues: list[dict] = []
@@ -172,7 +172,7 @@ def combine_worker_results(
 
 @task(cache_policy=INPUTS)
 def aggregate_measurements(
-    dsem_model: dict,
+    causal_spec: dict,
     worker_results: list["WorkerResult"],
 ) -> dict[str, pl.DataFrame]:
     """Aggregate raw worker extractions to measurement_granularity.
@@ -182,7 +182,7 @@ def aggregate_measurements(
     function to reach measurement_granularity.
 
     Args:
-        dsem_model: The full DSEM model with measurement model
+        causal_spec: The full causal spec with measurement model
         worker_results: List of WorkerResults from Stage 2
 
     Returns:
@@ -190,4 +190,4 @@ def aggregate_measurements(
         Each value is a DataFrame with columns (indicator, value, time_bucket).
     """
     worker_dfs = [wr.dataframe for wr in worker_results]
-    return aggregate_worker_measurements(worker_dfs, dsem_model)
+    return aggregate_worker_measurements(worker_dfs, causal_spec)

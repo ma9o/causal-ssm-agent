@@ -29,8 +29,8 @@ class MockWorkerResult:
 
 
 @pytest.fixture
-def simple_dsem_model():
-    """Simple DSEM model with daily granularity constructs."""
+def simple_causal_spec():
+    """Simple CausalSpec with daily granularity constructs."""
     return {
         "latent": {
             "constructs": [
@@ -127,13 +127,13 @@ class TestCombineWorkerResults:
 class TestValidateExtraction:
     """Test validate_extraction semantic checks."""
 
-    def test_empty_results_returns_error(self, simple_dsem_model):
+    def test_empty_results_returns_error(self, simple_causal_spec):
         """Empty worker results returns error."""
-        result = validate_extraction.fn(simple_dsem_model, [])
+        result = validate_extraction.fn(simple_causal_spec, [])
         assert result["is_valid"] is False
         assert any(i["issue_type"] == "no_data" for i in result["issues"])
 
-    def test_valid_data_no_issues(self, simple_dsem_model):
+    def test_valid_data_no_issues(self, simple_causal_spec):
         """Valid data with sufficient variance and sample size passes."""
         records = []
         for i in range(20):
@@ -153,27 +153,27 @@ class TestValidateExtraction:
             )
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is True
         # May have warnings but no errors
         errors = [i for i in result["issues"] if i["severity"] == "error"]
         assert len(errors) == 0
 
-    def test_missing_indicator_is_warning(self, simple_dsem_model):
+    def test_missing_indicator_is_warning(self, simple_causal_spec):
         """Missing indicator generates warning."""
         records = [
             {"indicator": "stress_score", "value": "5.0", "timestamp": "2024-01-01 10:00"},
             # sleep_hours is missing
         ]
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # Should have warning for missing sleep_hours
         missing_issues = [i for i in result["issues"] if i["issue_type"] == "missing"]
         assert any(i["indicator"] == "sleep_hours" for i in missing_issues)
 
-    def test_zero_variance_is_error(self, simple_dsem_model):
+    def test_zero_variance_is_error(self, simple_causal_spec):
         """Constant values (zero variance) returns error."""
         records = []
         for i in range(20):
@@ -193,7 +193,7 @@ class TestValidateExtraction:
             )
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is False
 
@@ -202,7 +202,7 @@ class TestValidateExtraction:
         assert error_issues[0]["indicator"] == "stress_score"
         assert error_issues[0]["issue_type"] == "no_variance"
 
-    def test_low_sample_size_is_warning(self, simple_dsem_model):
+    def test_low_sample_size_is_warning(self, simple_causal_spec):
         """Low sample size generates warning."""
         records = [
             {"indicator": "stress_score", "value": "3.0", "timestamp": "2024-01-01 10:00"},
@@ -214,7 +214,7 @@ class TestValidateExtraction:
         ]
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # Should be valid (warnings only)
         assert result["is_valid"] is True
@@ -227,7 +227,7 @@ class TestValidateExtraction:
         """Verify MIN_OBSERVATIONS is set reasonably."""
         assert MIN_OBSERVATIONS >= 5  # At least a few observations needed
 
-    def test_non_numeric_values_are_errors(self, simple_dsem_model):
+    def test_non_numeric_values_are_errors(self, simple_causal_spec):
         """Non-numeric values that can't be cast generate error."""
         records = [
             {"indicator": "stress_score", "value": "high", "timestamp": "2024-01-01 10:00"},
@@ -236,13 +236,13 @@ class TestValidateExtraction:
         ]
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # stress_score should have no_numeric error
         stress_issues = [i for i in result["issues"] if i["indicator"] == "stress_score"]
         assert any(i["issue_type"] == "no_numeric" for i in stress_issues)
 
-    def test_combined_error_and_warning(self, simple_dsem_model):
+    def test_combined_error_and_warning(self, simple_causal_spec):
         """Indicator can have multiple issues."""
         records = [
             # stress_score: constant AND low N
@@ -256,7 +256,7 @@ class TestValidateExtraction:
         ]
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is False  # Has error
 
@@ -266,7 +266,7 @@ class TestValidateExtraction:
         assert "no_variance" in issue_types
         assert "low_n" in issue_types
 
-    def test_only_warnings_is_valid(self, simple_dsem_model):
+    def test_only_warnings_is_valid(self, simple_causal_spec):
         """is_valid=True when only warnings exist."""
         records = []
         # Only 5 observations but varying
@@ -287,7 +287,7 @@ class TestValidateExtraction:
             )
 
         worker_results = _create_worker_results(records)
-        result = validate_extraction.fn(simple_dsem_model, worker_results)
+        result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is True
         assert len(result["issues"]) > 0

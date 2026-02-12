@@ -4,7 +4,7 @@ from .stage1a_latent import (
     propose_latent_model,
 )
 from .stage1b_measurement import (
-    build_dsem_model,
+    build_causal_spec,
     load_orchestrator_chunks,
     propose_measurement_with_identifiability_fix,
 )
@@ -36,7 +36,7 @@ __all__ = [
     # Stage 1b
     "load_orchestrator_chunks",
     "propose_measurement_with_identifiability_fix",
-    "build_dsem_model",
+    "build_causal_spec",
     # Stage 2: Extract
     "load_worker_chunks",
     "populate_indicators",

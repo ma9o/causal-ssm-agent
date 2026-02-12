@@ -1,7 +1,7 @@
 """CLI interface for DSEM DAG diagnostics.
 
 Usage:
-    uv run python tools/dag_cli.py data/eval/dsem_model1.json
+    uv run python tools/dag_cli.py data/eval/causal_spec1.json
 
 The CLI emits machine-friendly JSON by default so agents can read the same
 diagnostics shown in the Streamlit UI. Use ``--format text`` for a human summary.

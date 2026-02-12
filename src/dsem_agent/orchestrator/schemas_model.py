@@ -121,7 +121,7 @@ class ParameterSpec(BaseModel):
 class ModelSpec(BaseModel):
     """Complete model specification from orchestrator.
 
-    This is what the orchestrator proposes based on the DSEMModel structure.
+    This is what the orchestrator proposes based on the CausalSpec structure.
     It enumerates all parameters needing priors and specifies the statistical model.
     """
 
@@ -209,6 +209,136 @@ def validate_model_spec(
                     )
 
     return issues
+
+
+def validate_model_spec_dict(
+    data: dict,
+    indicators: list[dict] | None = None,
+) -> tuple["ModelSpec | None", list[str]]:
+    """Validate a model spec dict, collecting ALL errors in one pass.
+
+    Matches the pattern of validate_latent_model() and validate_measurement_model()
+    from schemas.py: works on raw dicts, surfaces both schema errors (bad enum values)
+    and domain errors (wrong constraints, incompatible links) together.
+
+    Args:
+        data: Dictionary to validate as ModelSpec
+        indicators: Optional list of indicator dicts for dtype checking
+
+    Returns:
+        Tuple of (validated ModelSpec or None, list of error messages)
+    """
+    errors: list[str] = []
+
+    if not isinstance(data, dict):
+        return None, ["Input must be a dictionary"]
+
+    valid_roles = {e.value for e in ParameterRole}
+    valid_constraints = {e.value for e in ParameterConstraint}
+    valid_distributions = {e.value for e in DistributionFamily}
+    valid_links = {e.value for e in LinkFunction}
+
+    # --- Validate likelihoods ---
+    likelihoods = data.get("likelihoods", [])
+    if not isinstance(likelihoods, list):
+        errors.append("'likelihoods' must be a list")
+        likelihoods = []
+
+    indicator_dtype = {}
+    if indicators:
+        indicator_dtype = {
+            ind["name"]: ind.get("measurement_dtype", "continuous") for ind in indicators
+        }
+
+    for i, lik in enumerate(likelihoods):
+        if not isinstance(lik, dict):
+            errors.append(f"likelihoods[{i}]: must be a dictionary")
+            continue
+
+        var = lik.get("variable", "")
+        dist = lik.get("distribution", "")
+        link = lik.get("link", "")
+
+        # Enum validation
+        if dist and dist not in valid_distributions:
+            errors.append(
+                f"likelihoods[{i}] '{var}': distribution '{dist}' invalid; "
+                f"must be one of {sorted(valid_distributions)}"
+            )
+        if link and link not in valid_links:
+            errors.append(
+                f"likelihoods[{i}] '{var}': link '{link}' invalid; "
+                f"must be one of {sorted(valid_links)}"
+            )
+
+        # Domain: distribution <-> link compatibility
+        if dist in valid_distributions and link in valid_links:
+            dist_enum = DistributionFamily(dist)
+            link_enum = LinkFunction(link)
+            ok_links = VALID_LINKS_FOR_DISTRIBUTION.get(dist_enum)
+            if ok_links is not None and link_enum not in ok_links:
+                errors.append(
+                    f"likelihoods[{i}] '{var}': link '{link}' invalid for {dist}; "
+                    f"expected one of {{{', '.join(sorted(lf.value for lf in ok_links))}}}"
+                )
+
+        # Domain: dtype <-> distribution compatibility
+        if dist in valid_distributions and var in indicator_dtype:
+            dtype = indicator_dtype[var]
+            ok_dists = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype)
+            if ok_dists is not None and DistributionFamily(dist) not in ok_dists:
+                errors.append(
+                    f"likelihoods[{i}] '{var}': distribution '{dist}' invalid for dtype '{dtype}'; "
+                    f"expected one of {{{', '.join(sorted(d.value for d in ok_dists))}}}"
+                )
+
+    # --- Validate parameters ---
+    parameters = data.get("parameters", [])
+    if not isinstance(parameters, list):
+        errors.append("'parameters' must be a list")
+        parameters = []
+
+    for i, param in enumerate(parameters):
+        if not isinstance(param, dict):
+            errors.append(f"parameters[{i}]: must be a dictionary")
+            continue
+
+        name = param.get("name", f"[{i}]")
+        role = param.get("role", "")
+        constraint = param.get("constraint", "")
+
+        # Enum validation
+        if role and role not in valid_roles:
+            errors.append(
+                f"parameters[{i}] '{name}': role '{role}' invalid; "
+                f"must be one of {sorted(valid_roles)}"
+            )
+        if constraint and constraint not in valid_constraints:
+            errors.append(
+                f"parameters[{i}] '{name}': constraint '{constraint}' invalid; "
+                f"must be one of {sorted(valid_constraints)}"
+            )
+
+        # Domain: role <-> constraint compatibility
+        if role in valid_roles and constraint in valid_constraints:
+            role_enum = ParameterRole(role)
+            constraint_enum = ParameterConstraint(constraint)
+            expected = EXPECTED_CONSTRAINT_FOR_ROLE.get(role_enum)
+            if expected is not None and constraint_enum != expected:
+                errors.append(
+                    f"parameters[{i}] '{name}': constraint '{constraint}' unexpected "
+                    f"for role '{role}'; expected '{expected.value}'"
+                )
+
+    if not errors:
+        # All checks passed — build the Pydantic model
+        try:
+            spec = ModelSpec.model_validate(data)
+            return spec, []
+        except Exception as e:
+            return None, [f"Unexpected validation error: {e}"]
+
+    return None, errors
 
 
 # Result schemas for the orchestrator stage

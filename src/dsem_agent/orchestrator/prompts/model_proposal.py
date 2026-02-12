@@ -51,6 +51,26 @@ In Bayesian modeling, we specify our beliefs about the generative process that c
 
 5. **Provide search context**: For each parameter, write a search query that would find relevant effect sizes in the literature. This will be used to ground priors in empirical evidence.
 
+## Parameter Roles and Constraints
+
+Each parameter's `role` must be one of these exact values, with its required `constraint`:
+
+| role | constraint | When to use |
+|------|-----------|-------------|
+| `fixed_effect` | `none` | Beta coefficient for EVERY causal edge (cause→effect), including edges from time-invariant exogenous constructs |
+| `ar_coefficient` | `unit_interval` | AR(1) persistence for each time-varying endogenous construct |
+| `residual_sd` | `positive` | Residual/innovation SD for each construct or indicator |
+| `loading` | `positive` | Factor loading for multi-indicator constructs |
+| `random_intercept_sd` | `positive` | SD of random intercepts (subject-level variation) |
+| `random_slope_sd` | `positive` | SD of random slopes |
+| `correlation` | `correlation` | Correlation between random effects |
+
+**Only these 7 roles are valid.** Do NOT invent new roles. Use full construct names (not abbreviations) when naming parameters — e.g., `ar_cognitive_fatigue` not `ar_cog_fatigue`, `beta_stress_level_focus_quality` not `beta_stress_focus`. Specifically:
+- Indicator intercepts are implicit (handled by the link function) — do NOT create `intercept` parameters
+- Distribution-specific parameters (Beta concentration, NegBinomial overdispersion, OrderedLogistic cutpoints) are handled automatically — do NOT create parameters for them
+- Use `loading` (not `factor_loading`) for factor loadings
+- Use `residual_sd` (not `innovation_sd`) for residual/innovation standard deviations
+
 ## Output Format
 
 Return a JSON object with this structure:
@@ -75,8 +95,8 @@ Return a JSON object with this structure:
   "parameters": [
     {
       "name": "beta_stress_anxiety",
-      "role": "fixed_effect|ar_coefficient|residual_sd|random_intercept_sd|...",
-      "constraint": "none|positive|unit_interval|correlation",
+      "role": "fixed_effect",
+      "constraint": "none",
       "description": "Effect of stress on anxiety (standardized)",
       "search_context": "meta-analysis stress anxiety effect size standardized coefficient"
     }
@@ -93,6 +113,10 @@ Return a JSON object with this structure:
 - Consider the sample size when proposing complex hierarchical structures
 - Provide specific, searchable queries in `search_context` that would find meta-analyses or large-scale studies
 - Remember: AR coefficients should be in [0, 1] for stationarity (use weakly informative priors that encourage but don't enforce this)
+
+## Validation Tool
+
+You have access to `validate_model_spec` tool. Use it to validate your JSON. Keep validating until you get "VALID".
 """
 
 USER = """\
@@ -100,7 +124,7 @@ USER = """\
 
 {question}
 
-## Causal Model (DSEMModel)
+## Causal Model (CausalSpec)
 
 ### Constructs (Latent Variables)
 
@@ -134,10 +158,11 @@ Output your specification as JSON.
 """
 
 
-def format_constructs(dsem_model: dict) -> str:
+
+def format_constructs(causal_spec: dict) -> str:
     """Format constructs for the prompt."""
     lines = []
-    for construct in dsem_model.get("latent", {}).get("constructs", []):
+    for construct in causal_spec.get("latent", {}).get("constructs", []):
         name = construct.get("name", "?")
         role = construct.get("role", "?")
         temporal = construct.get("temporal_status", "?")
@@ -150,10 +175,10 @@ def format_constructs(dsem_model: dict) -> str:
     return "\n".join(lines)
 
 
-def format_edges(dsem_model: dict) -> str:
+def format_edges(causal_spec: dict) -> str:
     """Format causal edges for the prompt."""
     lines = []
-    for edge in dsem_model.get("latent", {}).get("edges", []):
+    for edge in causal_spec.get("latent", {}).get("edges", []):
         cause = edge.get("cause", "?")
         effect = edge.get("effect", "?")
         lagged = "lagged" if edge.get("lagged", True) else "contemporaneous"
@@ -164,10 +189,10 @@ def format_edges(dsem_model: dict) -> str:
     return "\n".join(lines)
 
 
-def format_indicators(dsem_model: dict) -> str:
+def format_indicators(causal_spec: dict) -> str:
     """Format indicators for the prompt."""
     lines = []
-    for indicator in dsem_model.get("measurement", {}).get("indicators", []):
+    for indicator in causal_spec.get("measurement", {}).get("indicators", []):
         name = indicator.get("name", "?")
         construct = indicator.get("construct") or indicator.get("construct_name", "?")
         dtype = indicator.get("measurement_dtype", "?")

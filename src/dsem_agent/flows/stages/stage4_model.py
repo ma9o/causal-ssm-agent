@@ -57,14 +57,14 @@ def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
 
 @task(retries=2, retry_delay_seconds=10, task_run_name="propose-model-spec")
 def propose_model_task(
-    dsem_model: dict,
+    causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
 ) -> dict:
     """Orchestrator proposes model specification.
 
     Args:
-        dsem_model: Full DSEM model dict
+        causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data (indicator, value, timestamp)
 
@@ -89,7 +89,7 @@ def propose_model_task(
         data_summary = build_raw_data_summary(raw_data)
 
         result = await propose_model_spec(
-            dsem_model=dsem_model,
+            causal_spec=causal_spec,
             data_summary=data_summary,
             question=question,
             generate=generate,
@@ -244,7 +244,7 @@ def build_model_task(
 
 @flow(name="stage4-orchestrated", log_prints=True)
 def stage4_orchestrated_flow(
-    dsem_model: dict,
+    causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
     enable_literature: bool = True,
@@ -257,7 +257,7 @@ def stage4_orchestrated_flow(
     4. Build CT-SEM model
 
     Args:
-        dsem_model: Full DSEM model dict
+        causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data (indicator, value, timestamp)
         enable_literature: Whether to search Exa for literature
@@ -276,7 +276,7 @@ def stage4_orchestrated_flow(
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
 
     # 1. Orchestrator proposes model specification
-    model_spec = propose_model_task(dsem_model, question, raw_data)
+    model_spec = propose_model_task(causal_spec, question, raw_data)
 
     # 2. Workers research priors in parallel
     parameter_specs = model_spec.get("parameters", [])

@@ -108,14 +108,14 @@ def _build_map_groups_fn(agg_name: str):
 
 def aggregate_worker_measurements(
     worker_dfs: list[pl.DataFrame | None],
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> dict[str, pl.DataFrame]:
     """Aggregate raw worker extractions to measurement_granularity.
 
     Args:
         worker_dfs: List of DataFrames with columns (indicator, value, timestamp),
                     each from a worker. None entries are skipped.
-        dsem_model: The full DSEM model dict with measurement.indicators.
+        causal_spec: The full CausalSpec dict with measurement.indicators.
 
     Returns:
         Dict keyed by granularity level (e.g. "daily", "hourly", "finest").
@@ -152,7 +152,7 @@ def aggregate_worker_measurements(
         return {}
 
     # 4. Build indicator -> (measurement_granularity, aggregation) lookup
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
     indicator_info: dict[str, dict[str, str]] = {}
     for ind in indicators:
         name = ind.get("name")

@@ -6,14 +6,14 @@ Two-stage approach following Anderson & Gerbing (1988):
 """
 
 from .agents import (
-    build_dsem_model,
+    build_causal_spec,
     propose_latent_model,
     propose_measurement_model,
 )
 from .schemas import (
     CausalEdge,
+    CausalSpec,
     Construct,
-    DSEMModel,
     Indicator,
     LatentModel,
     MeasurementModel,
@@ -23,7 +23,7 @@ __all__ = [
     # Agents
     "propose_latent_model",
     "propose_measurement_model",
-    "build_dsem_model",
+    "build_causal_spec",
     # Schemas - Latent
     "Construct",
     "CausalEdge",
@@ -32,5 +32,5 @@ __all__ = [
     "Indicator",
     "MeasurementModel",
     # Schemas - Combined
-    "DSEMModel",
+    "CausalSpec",
 ]

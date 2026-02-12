@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 from evals.common import (
     get_eval_questions,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
     load_eval_config,
 )
 from inspect_ai import Task, task
@@ -113,21 +113,21 @@ def load_questions() -> list[EvalQuestion]:
 
 
 def create_eval_dataset() -> MemoryDataset:
-    """Create evaluation dataset from existing DSEM models.
+    """Create evaluation dataset from existing CausalSpec files.
 
-    Each sample contains a full DSEMModel and its associated question,
+    Each sample contains a full CausalSpec and its associated question,
     which gets converted to a ModelSpec for prior elicitation.
     """
     questions = load_questions()
 
     samples = []
     for q in questions:
-        dsem_model = load_dsem_model_by_question_id(q.id)
+        causal_spec = load_causal_spec_by_question_id(q.id)
 
         # Pre-compute model_spec using rule-based specification
         model_spec = specify_model.fn(
-            latent_dict=dsem_model.get("latent", {}),
-            dsem_dict=dsem_model,
+            latent_dict=causal_spec.get("latent", {}),
+            dsem_dict=causal_spec,
         )
 
         samples.append(
@@ -136,7 +136,7 @@ def create_eval_dataset() -> MemoryDataset:
                 id=f"q{q.id}",
                 metadata={
                     "question": q.question,
-                    "dsem_model": dsem_model,
+                    "causal_spec": causal_spec,
                     "model_spec": model_spec,
                 },
             )

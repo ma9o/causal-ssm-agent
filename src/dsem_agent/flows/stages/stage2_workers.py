@@ -30,7 +30,7 @@ def load_worker_chunks(input_path: Path) -> list[str]:
     retries=2,
     retry_delay_seconds=10,
 )
-def populate_indicators(chunk: str, question: str, dsem_model: dict) -> WorkerResult:
+def populate_indicators(chunk: str, question: str, causal_spec: dict) -> WorkerResult:
     """Worker extracts indicator values from a chunk.
 
     Returns:
@@ -38,4 +38,4 @@ def populate_indicators(chunk: str, question: str, dsem_model: dict) -> WorkerRe
         - output: Validated WorkerOutput with extractions
         - dataframe: Polars DataFrame with columns (indicator, value, timestamp)
     """
-    return process_chunk(chunk, question, dsem_model)
+    return process_chunk(chunk, question, causal_spec)

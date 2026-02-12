@@ -82,7 +82,7 @@ def make_orchestrator_generate_fn(
     async def generate(messages: list, tools: list | None, follow_ups: list[str] | None) -> str:
         chat_messages = dict_messages_to_chat(messages)
 
-        if follow_ups:
+        if follow_ups or tools:
             return await multi_turn_generate(
                 messages=chat_messages,
                 model=model,
@@ -91,7 +91,7 @@ def make_orchestrator_generate_fn(
                 config=config,
             )
         else:
-            response = await model.generate(chat_messages, tools=tools or [], config=config)
+            response = await model.generate(chat_messages, config=config)
             return response.completion
 
     return generate
@@ -214,6 +214,56 @@ def make_validate_measurement_model_tool(latent_model: "LatentModel") -> Tool:
         return execute
 
     return validate_measurement_model_tool()
+
+
+def make_validate_model_spec_tool(causal_spec: dict) -> tuple[Tool, dict]:
+    """Create a validation tool for model spec, bound to a causal spec.
+
+    The tool captures the last valid ModelSpec so the caller can retrieve it
+    directly without needing the LLM to re-output the JSON.
+
+    Args:
+        causal_spec: The full CausalSpec dict (to extract indicators for dtype checking)
+
+    Returns:
+        Tuple of (tool, capture_dict). After generate_loop, check
+        capture["spec"] for the last validated ModelSpec (or None).
+    """
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
+    capture: dict = {}
+
+    @tool
+    def validate_model_spec_tool():
+        """Tool for validating model specification JSON (Stage 4)."""
+
+        async def execute(model_spec_json: str) -> str:
+            """
+            Validate a model specification and return all validation errors.
+
+            Args:
+                model_spec_json: The JSON string containing the model spec to validate.
+
+            Returns:
+                "VALID" if the spec passes validation, otherwise a list of all errors found.
+            """
+            from dsem_agent.orchestrator.schemas_model import validate_model_spec_dict
+
+            try:
+                data = json.loads(model_spec_json)
+            except json.JSONDecodeError as e:
+                return f"JSON parse error: {e}"
+
+            spec, errors = validate_model_spec_dict(data, indicators=indicators or None)
+
+            if not errors:
+                capture["spec"] = spec
+                return "VALID"
+
+            return "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
+
+        return execute
+
+    return validate_model_spec_tool(), capture
 
 
 def make_worker_tools(schema: dict) -> list[Tool]:

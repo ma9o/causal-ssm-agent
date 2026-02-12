@@ -8,7 +8,7 @@
   - `LatentModel` - Theoretical causal structure (Stage 1a output)
   - `Indicator` - An observed measurement of a construct
   - `MeasurementModel` - Operationalization of constructs (Stage 1b output)
-  - `DSEMModel` - Complete DSEM specification (latent + measurement)
+  - `CausalSpec` - Complete causal specification (latent + measurement)
 
 - **Worker schemas:** `src/dsem_agent/workers/schemas.py`
   - `WorkerOutput` - Extraction results from a single chunk
@@ -52,7 +52,7 @@ Following Anderson & Gerbing (1988), the schema separates:
 2. **Valid aggregation:** `aggregation` must be a key in the aggregation registry
 3. **Valid granularity:** `measurement_granularity` must be one of: hourly, daily, weekly, monthly, yearly
 
-### DSEMModel Validation (cross-model)
+### CausalSpec Validation (cross-model)
 
 1. **Measurement granularity constraint:** Indicator's `measurement_granularity` cannot be coarser than its construct's `causal_granularity`
 2. **Constructs may lack indicators:** A construct can exist without indicators. Whether the target causal effect is identifiable is checked by y0 (Pearl's ID algorithm), not the schema.

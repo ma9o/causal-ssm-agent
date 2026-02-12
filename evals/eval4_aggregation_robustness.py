@@ -6,7 +6,7 @@ raises an exception.
 
 This eval verifies that the aggregation pipeline can handle the diverse outputs
 produced by worker LLMs without breaking. Sets cycle through all 5 questions
-from config.yaml, testing each DSEMModel with its corresponding question.
+from config.yaml, testing each CausalSpec with its corresponding question.
 
 Uses the same core logic as production (via run_worker_extraction) for generating
 worker outputs, just with different model configurations.
@@ -42,7 +42,7 @@ from dsem_agent.workers.prompts.extraction import USER
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
 )
 
 
@@ -58,7 +58,7 @@ def create_eval_dataset(
     aggregated together. The eval tests whether aggregation succeeds or fails.
 
     Sets cycle through all available questions from config, ensuring each
-    DSEMModel is tested with its corresponding question.
+    CausalSpec is tested with its corresponding question.
 
     Args:
         n_sets: Number of chunk sets (each becomes one aggregation test)
@@ -83,10 +83,10 @@ def create_eval_dataset(
         q = questions[set_idx % n_questions]
         question_id = q["id"]
         question = q["question"]
-        dsem_model = load_dsem_model_by_question_id(question_id)
+        causal_spec = load_causal_spec_by_question_id(question_id)
 
-        indicators_text = _format_indicators(dsem_model)
-        outcome_description = _get_outcome_description(dsem_model)
+        indicators_text = _format_indicators(causal_spec)
+        outcome_description = _get_outcome_description(causal_spec)
 
         # Get chunks for this set
         start_idx = set_idx * chunks_per_set
@@ -125,7 +125,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ):
     """Generate worker output for a single chunk using core logic.
 
@@ -137,7 +137,7 @@ async def generate_worker_output(
     result = await run_worker_extraction(
         chunk=chunk,
         question=question,
-        dsem_model=dsem_model,
+        causal_spec=causal_spec,
         generate=generate,
     )
 
@@ -155,7 +155,7 @@ def aggregation_solver(worker_timeout: float = 300):
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
             question_id = state.metadata["question_id"]
-            dsem_model = load_dsem_model_by_question_id(question_id)
+            causal_spec = load_causal_spec_by_question_id(question_id)
             question = state.metadata["question"]
             chunks = state.metadata["chunks"]
 
@@ -168,7 +168,7 @@ def aggregation_solver(worker_timeout: float = 300):
                 """Generate with error handling, returns (chunk_idx, result, error)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question, dsem_model),
+                        generate_worker_output(model_id, chunk, question, causal_spec),
                         timeout=worker_timeout,
                     )
                     return chunk_idx, result, None
@@ -201,7 +201,7 @@ def aggregation_solver(worker_timeout: float = 300):
 
             if worker_outputs:
                 try:
-                    agg_result = aggregate_worker_measurements(worker_outputs, dsem_model)
+                    agg_result = aggregate_worker_measurements(worker_outputs, causal_spec)
                     state.metadata["agg_keys"] = list(agg_result.keys())
                     state.metadata["agg_shapes"] = {
                         k: (df.height, df.width) for k, df in agg_result.items()
@@ -309,7 +309,7 @@ def aggregation_robustness_eval(
     Generates N sets of M chunks, processes each set through workers, and tests
     whether aggregate_worker_measurements handles the outputs without crashing.
 
-    Sets cycle through all question-DSEMModel pairs from config (5 pairs), so with
+    Sets cycle through all question-CausalSpec pairs from config (5 pairs), so with
     n_sets=10, each model is tested twice with different data chunks.
 
     Args:
