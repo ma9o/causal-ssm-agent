@@ -121,7 +121,7 @@ class ParameterSpec(BaseModel):
 class ModelSpec(BaseModel):
     """Complete model specification from orchestrator.
 
-    This is what the orchestrator proposes based on the DSEMModel structure.
+    This is what the orchestrator proposes based on the CausalSpec structure.
     It enumerates all parameters needing priors and specifies the statistical model.
     """
 

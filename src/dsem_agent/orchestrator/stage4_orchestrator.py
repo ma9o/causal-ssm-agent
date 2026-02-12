@@ -1,6 +1,6 @@
 """Stage 4 Orchestrator: Model Specification Proposal.
 
-The orchestrator proposes a complete model specification based on the DSEMModel,
+The orchestrator proposes a complete model specification based on the CausalSpec,
 enumerating all parameters needing priors with search context for literature.
 """
 
@@ -23,7 +23,7 @@ from dsem_agent.utils.llm import OrchestratorGenerateFn, parse_json_response
 
 
 async def propose_model_spec(
-    dsem_model: dict,
+    causal_spec: dict,
     data_summary: str,
     question: str,
     generate: OrchestratorGenerateFn,
@@ -31,7 +31,7 @@ async def propose_model_spec(
     """Orchestrator proposes complete model specification.
 
     Args:
-        dsem_model: The full DSEMModel dict (latent + measurement)
+        causal_spec: The full CausalSpec dict (latent + measurement)
         data_summary: Summary of the data (time points, subjects, etc.)
         question: The research question for context
         generate: Async generate function (messages, tools, follow_ups) -> str
@@ -40,9 +40,9 @@ async def propose_model_spec(
         Stage4OrchestratorResult with ModelSpec
     """
     # Format model components for the prompt
-    constructs_str = format_constructs(dsem_model)
-    edges_str = format_edges(dsem_model)
-    indicators_str = format_indicators(dsem_model)
+    constructs_str = format_constructs(causal_spec)
+    edges_str = format_edges(causal_spec)
+    indicators_str = format_indicators(causal_spec)
 
     # Build messages
     messages = [

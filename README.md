@@ -69,7 +69,7 @@ dsem-agent/
 │   │   │   ├── latent_model.py      # Stage 1a prompts
 │   │   │   ├── measurement_model.py # Stage 1b prompts
 │   │   │   └── model_proposal.py    # Stage 4 model specification prompts
-│   │   ├── schemas.py        # Construct, Indicator, LatentModel, MeasurementModel, DSEMModel
+│   │   ├── schemas.py        # Construct, Indicator, LatentModel, MeasurementModel, CausalSpec
 │   │   └── schemas_model.py  # ModelSpec, ParameterSpec for Stage 4
 │   ├── workers/       # Indicator extraction + prior research LLMs
 │   │   ├── agents.py         # Stage 2 worker agents

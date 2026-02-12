@@ -20,7 +20,7 @@ import json
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
     load_eval_config,
 )
 from inspect_ai import Task, task
@@ -134,7 +134,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> str:
     """Generate worker output for the model.
 
@@ -142,8 +142,8 @@ async def generate_worker_output(
     """
     model = get_model(model_id)
 
-    indicators_text = _format_indicators(dsem_model)
-    outcome_description = _get_outcome_description(dsem_model)
+    indicators_text = _format_indicators(causal_spec)
+    outcome_description = _get_outcome_description(causal_spec)
 
     messages = [
         ChatMessageSystem(content=SYSTEM_WITH_PROPOSALS),
@@ -162,7 +162,7 @@ async def generate_worker_output(
     completion = await multi_turn_generate(
         messages=messages,
         model=model,
-        tools=make_worker_tools(dsem_model),
+        tools=make_worker_tools(causal_spec),
         config=config,
     )
 
@@ -195,9 +195,9 @@ def format_proposals_for_judge(proposals: list[dict]) -> str:
     return json.dumps(proposals, indent=2)
 
 
-def format_existing_indicators(dsem_model: dict) -> str:
-    """Format existing indicators from DSEMModel for judge context."""
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
+def format_existing_indicators(causal_spec: dict) -> str:
+    """Format existing indicators from CausalSpec for judge context."""
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
     lines = []
     for ind in indicators:
         name = ind.get("name", "unknown")
@@ -216,11 +216,11 @@ def create_eval_dataset(
     """Create evaluation dataset.
 
     Each sample contains:
-    - A question from the eval set with its corresponding DSEMModel
+    - A question from the eval set with its corresponding CausalSpec
     - A data chunk
     - Metadata with schema for judge evaluation
 
-    Cycles through question-DSEMModel pairs to ensure coverage.
+    Cycles through question-CausalSpec pairs to ensure coverage.
 
     Args:
         n_chunks: Number of chunks per question
@@ -241,11 +241,11 @@ def create_eval_dataset(
     chunk_idx = 0
 
     for q in questions:
-        # Load the DSEMModel for this specific question
-        dsem_model = load_dsem_model_by_question_id(q["id"])
-        indicators_text = _format_indicators(dsem_model)
-        outcome_description = _get_outcome_description(dsem_model)
-        existing_inds_text = format_existing_indicators(dsem_model)
+        # Load the CausalSpec for this specific question
+        causal_spec = load_causal_spec_by_question_id(q["id"])
+        indicators_text = _format_indicators(causal_spec)
+        outcome_description = _get_outcome_description(causal_spec)
+        existing_inds_text = format_existing_indicators(causal_spec)
 
         for i in range(n_chunks):
             if chunk_idx >= len(chunks):
@@ -263,7 +263,7 @@ def create_eval_dataset(
                         "question": q["question"],
                         "chunk": chunk,
                         "chunk_index": i,
-                        "dsem_model": dsem_model,
+                        "causal_spec": causal_spec,
                         "existing_indicators": existing_inds_text,
                         "outcome_description": outcome_description,
                     },
@@ -290,7 +290,7 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
-            dsem_model = state.metadata["dsem_model"]
+            causal_spec = state.metadata["causal_spec"]
             question = state.metadata["question"]
             chunk = state.metadata["chunk"]
             existing_inds = state.metadata["existing_indicators"]
@@ -299,7 +299,7 @@ def judge_solver(worker_model: str | None = None, worker_timeout: float | None =
             # Generate worker output
             try:
                 worker_output = await asyncio.wait_for(
-                    generate_worker_output(worker_model, chunk, question, dsem_model),
+                    generate_worker_output(worker_model, chunk, question, causal_spec),
                     timeout=worker_timeout,
                 )
             except TimeoutError:

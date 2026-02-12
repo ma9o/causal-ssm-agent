@@ -1,7 +1,7 @@
 """Inspect AI evaluation for functional specification quality.
 
-Evaluates the LLM's ability to propose a correct ModelSpec given a dsem_model.
-Tests Stage 4's propose_model_spec() against reference dsem_models, scoring
+Evaluates the LLM's ability to propose a correct ModelSpec given a CausalSpec.
+Tests Stage 4's propose_model_spec() against reference CausalSpecs, scoring
 across 5 dimensions: likelihoods, link functions, AR structure, model clock,
 and parameter constraints.
 
@@ -32,7 +32,7 @@ from dsem_agent.orchestrator.stage4_orchestrator import propose_model_spec
 from dsem_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
     get_eval_questions,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -40,14 +40,14 @@ from evals.common import (
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def build_synthetic_data_summary(dsem_model: dict) -> str:
-    """Build a synthetic data summary from dsem_model structure.
+def build_synthetic_data_summary(causal_spec: dict) -> str:
+    """Build a synthetic data summary from CausalSpec structure.
 
     Provides enough context for the LLM to propose a sensible model spec
     without needing real data.
     """
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
-    constructs = dsem_model.get("latent", {}).get("constructs", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
+    constructs = causal_spec.get("latent", {}).get("constructs", [])
 
     lines = ["Data Summary (synthetic from model structure):"]
     lines.append(f"  Total indicators: {len(indicators)}")
@@ -87,15 +87,15 @@ def build_synthetic_data_summary(dsem_model: dict) -> str:
 
 
 def create_eval_dataset() -> MemoryDataset:
-    """Create evaluation dataset from all 5 dsem_models."""
+    """Create evaluation dataset from all 5 CausalSpecs."""
     questions = get_eval_questions()
 
     samples = []
     for q in questions:
         question_id = q["id"]
         question = q["question"]
-        dsem_model = load_dsem_model_by_question_id(question_id)
-        data_summary = build_synthetic_data_summary(dsem_model)
+        causal_spec = load_causal_spec_by_question_id(question_id)
+        data_summary = build_synthetic_data_summary(causal_spec)
 
         samples.append(
             Sample(
@@ -104,7 +104,7 @@ def create_eval_dataset() -> MemoryDataset:
                 metadata={
                     "question_id": question_id,
                     "question": question,
-                    "dsem_model": dsem_model,
+                    "causal_spec": causal_spec,
                     "data_summary": data_summary,
                 },
             )
@@ -127,12 +127,12 @@ def functional_spec_solver():
             model = get_model()
             gen_fn = make_orchestrator_generate_fn(model)
 
-            dsem_model = state.metadata["dsem_model"]
+            causal_spec = state.metadata["causal_spec"]
             data_summary = state.metadata["data_summary"]
             question = state.metadata["question"]
 
             result = await propose_model_spec(
-                dsem_model=dsem_model,
+                causal_spec=causal_spec,
                 data_summary=data_summary,
                 question=question,
                 generate=gen_fn,
@@ -152,17 +152,17 @@ def functional_spec_solver():
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def _score_functional_spec(model_spec: dict, dsem_model: dict) -> dict:
-    """Score a ModelSpec against a reference dsem_model.
+def _score_functional_spec(model_spec: dict, causal_spec: dict) -> dict:
+    """Score a ModelSpec against a reference CausalSpec.
 
     Returns dict with:
         - total_points: raw points earned
         - max_points: maximum possible points
         - dimension_scores: per-dimension breakdown
     """
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
-    constructs = dsem_model.get("latent", {}).get("constructs", [])
-    edges = dsem_model.get("latent", {}).get("edges", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
+    constructs = causal_spec.get("latent", {}).get("constructs", [])
+    edges = causal_spec.get("latent", {}).get("edges", [])
 
     likelihoods = model_spec.get("likelihoods", [])
     parameters = model_spec.get("parameters", [])
@@ -389,7 +389,7 @@ def functional_spec_scorer():
 
     async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
         model_spec = state.metadata.get("model_spec")
-        dsem_model = state.metadata.get("dsem_model")
+        causal_spec = state.metadata.get("causal_spec")
 
         if model_spec is None:
             return Score(
@@ -398,7 +398,7 @@ def functional_spec_scorer():
                 explanation="No model_spec produced",
             )
 
-        result = _score_functional_spec(model_spec, dsem_model)
+        result = _score_functional_spec(model_spec, causal_spec)
         normalized = result["score"]
 
         # Build explanation from dimension scores
@@ -442,7 +442,7 @@ def functional_spec_scorer():
 def functional_spec_eval():
     """Evaluate LLM's functional specification quality.
 
-    Tests Stage 4's propose_model_spec() against 5 reference dsem_models,
+    Tests Stage 4's propose_model_spec() against 5 reference CausalSpecs,
     scoring on likelihoods, links, AR structure, model clock, and constraints.
     """
     return Task(

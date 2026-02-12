@@ -135,14 +135,14 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 def run_interventions(
     fitted_model: Any,  # noqa: ARG001
     treatments: list[str],
-    dsem_model: dict | None = None,
+    causal_spec: dict | None = None,
 ) -> list[dict]:
     """Run interventions and rank treatments by effect size.
 
     Args:
         fitted_model: The fitted model result from fit_model
         treatments: List of treatment construct names
-        dsem_model: Optional DSEM model with identifiability status
+        causal_spec: Optional CausalSpec with identifiability status
 
     Returns:
         List of intervention results, sorted by effect size (descending)
@@ -152,7 +152,7 @@ def run_interventions(
     results = []
 
     # Get identifiability status
-    id_status = dsem_model.get("identifiability") if dsem_model else None
+    id_status = causal_spec.get("identifiability") if causal_spec else None
     non_identifiable: set[str] = set()
     blocker_details: dict[str, list[str]] = {}
     if id_status:

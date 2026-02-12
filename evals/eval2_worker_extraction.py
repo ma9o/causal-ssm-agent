@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker data extraction.
 
 Evaluates smaller LLMs on their ability to extract indicator values from
-data chunks given a DSEMModel schema from the orchestrator.
+data chunks given a CausalSpec schema from the orchestrator.
 
 Uses the same core logic as production (via run_worker_extraction), just with
 a different model configuration.
@@ -32,7 +32,7 @@ from dsem_agent.workers.schemas import _get_indicator_info
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
 )
 
 # Worker models for parallel execution
@@ -52,9 +52,9 @@ MODELS = {
 DEFAULT_QUESTION_ID = 4
 
 
-def _get_indicator_dtypes(dsem_model: dict) -> dict[str, str]:
+def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
     """Get mapping of indicator names to their expected dtypes."""
-    indicator_info = _get_indicator_info(dsem_model)
+    indicator_info = _get_indicator_info(causal_spec)
     return {name: info["dtype"] for name, info in indicator_info.items()}
 
 
@@ -64,10 +64,10 @@ def create_eval_dataset(
     seed: int = 42,
     input_file: str | None = None,
 ) -> MemoryDataset:
-    """Create evaluation dataset with chunks and the DSEMModel schema.
+    """Create evaluation dataset with chunks and the CausalSpec schema.
 
     Args:
-        question_id: The question ID (1-5) to load DSEMModel for
+        question_id: The question ID (1-5) to load CausalSpec for
         n_chunks: Number of chunks to include (each becomes a sample)
         seed: Random seed for reproducible chunk sampling
         input_file: Specific input file name, or None for latest
@@ -75,9 +75,9 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with one sample per chunk
     """
-    # Load the DSEMModel schema
-    dsem_model = load_dsem_model_by_question_id(question_id)
-    indicator_dtypes = _get_indicator_dtypes(dsem_model)
+    # Load the CausalSpec schema
+    causal_spec = load_causal_spec_by_question_id(question_id)
+    indicator_dtypes = _get_indicator_dtypes(causal_spec)
 
     # Count indicators
     n_indicators = len(indicator_dtypes)
@@ -264,14 +264,14 @@ def worker_extraction_solver(question_id: int = DEFAULT_QUESTION_ID):
             question = state.metadata.get("question", "")
             chunk = state.metadata.get("chunk", "")
             question_id_local = state.metadata.get("question_id", question_id)
-            dsem_model = load_dsem_model_by_question_id(question_id_local)
+            causal_spec = load_causal_spec_by_question_id(question_id_local)
 
             # Run the SAME core logic as production
             try:
                 result = await run_worker_extraction(
                     chunk=chunk,
                     question=question,
-                    dsem_model=dsem_model,
+                    causal_spec=causal_spec,
                     generate=generate_fn,
                 )
 
@@ -301,7 +301,7 @@ def worker_eval(
     """Evaluate LLM ability to extract indicator values from chunks.
 
     Args:
-        question_id: The question ID (1-5) to load DSEMModel for
+        question_id: The question ID (1-5) to load CausalSpec for
         n_chunks: Number of chunks to include in evaluation
         seed: Random seed for chunk sampling (reproducibility)
         input_file: Specific preprocessed file name, or None for latest

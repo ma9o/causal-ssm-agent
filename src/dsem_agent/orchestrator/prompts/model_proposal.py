@@ -100,7 +100,7 @@ USER = """\
 
 {question}
 
-## Causal Model (DSEMModel)
+## Causal Model (CausalSpec)
 
 ### Constructs (Latent Variables)
 
@@ -134,10 +134,10 @@ Output your specification as JSON.
 """
 
 
-def format_constructs(dsem_model: dict) -> str:
+def format_constructs(causal_spec: dict) -> str:
     """Format constructs for the prompt."""
     lines = []
-    for construct in dsem_model.get("latent", {}).get("constructs", []):
+    for construct in causal_spec.get("latent", {}).get("constructs", []):
         name = construct.get("name", "?")
         role = construct.get("role", "?")
         temporal = construct.get("temporal_status", "?")
@@ -150,10 +150,10 @@ def format_constructs(dsem_model: dict) -> str:
     return "\n".join(lines)
 
 
-def format_edges(dsem_model: dict) -> str:
+def format_edges(causal_spec: dict) -> str:
     """Format causal edges for the prompt."""
     lines = []
-    for edge in dsem_model.get("latent", {}).get("edges", []):
+    for edge in causal_spec.get("latent", {}).get("edges", []):
         cause = edge.get("cause", "?")
         effect = edge.get("effect", "?")
         lagged = "lagged" if edge.get("lagged", True) else "contemporaneous"
@@ -164,10 +164,10 @@ def format_edges(dsem_model: dict) -> str:
     return "\n".join(lines)
 
 
-def format_indicators(dsem_model: dict) -> str:
+def format_indicators(causal_spec: dict) -> str:
     """Format indicators for the prompt."""
     lines = []
-    for indicator in dsem_model.get("measurement", {}).get("indicators", []):
+    for indicator in causal_spec.get("measurement", {}).get("indicators", []):
         name = indicator.get("name", "?")
         construct = indicator.get("construct") or indicator.get("construct_name", "?")
         dtype = indicator.get("measurement_dtype", "?")

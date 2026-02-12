@@ -1,9 +1,9 @@
-"""Tests for DSEM schema validation.
+"""Tests for causal spec schema validation.
 
 Two-stage schema:
 - LatentModel: theoretical constructs + causal edges
 - MeasurementModel: indicators that operationalize constructs
-- DSEMModel: composition of latent + measurement
+- CausalSpec: composition of latent + measurement
 """
 
 import pytest
@@ -11,8 +11,8 @@ import pytest
 from dsem_agent.orchestrator.schemas import (
     GRANULARITY_HOURS,
     CausalEdge,
+    CausalSpec,
     Construct,
-    DSEMModel,
     Indicator,
     LatentModel,
     MeasurementModel,
@@ -321,11 +321,11 @@ class TestMeasurementModel:
         assert all(i.construct_name == "mood" for i in mood_indicators)
 
 
-class TestDSEMModel:
-    """Tests for DSEMModel validation."""
+class TestCausalSpec:
+    """Tests for CausalSpec validation."""
 
-    def test_valid_dsem_model(self, construct_factory, indicator_factory):
-        """Valid DSEM model passes validation."""
+    def test_valid_causal_spec(self, construct_factory, indicator_factory):
+        """Valid CausalSpec passes validation."""
         latent = LatentModel(
             constructs=[
                 construct_factory("stress", "daily", Role.EXOGENOUS),
@@ -339,9 +339,9 @@ class TestDSEMModel:
                 indicator_factory("mood_rating", "mood"),
             ]
         )
-        dsem = DSEMModel(latent=latent, measurement=measurement)
-        assert len(dsem.latent.constructs) == 2
-        assert len(dsem.measurement.indicators) == 2
+        causal_spec = CausalSpec(latent=latent, measurement=measurement)
+        assert len(causal_spec.latent.constructs) == 2
+        assert len(causal_spec.measurement.indicators) == 2
 
     def test_invalid_indicator_references_unknown_construct(
         self, construct_factory, indicator_factory
@@ -360,7 +360,7 @@ class TestDSEMModel:
             ]
         )
         with pytest.raises(ValueError, match="references unknown construct 'unknown'"):
-            DSEMModel(latent=latent, measurement=measurement)
+            CausalSpec(latent=latent, measurement=measurement)
 
     def test_latent_construct_without_indicator_is_valid(
         self, construct_factory, indicator_factory
@@ -380,9 +380,9 @@ class TestDSEMModel:
             ]
         )
         # This should now be valid - y0 will check identification in Stage 3
-        dsem = DSEMModel(latent=latent, measurement=measurement)
-        assert len(dsem.latent.constructs) == 2
-        assert len(dsem.measurement.indicators) == 1
+        causal_spec = CausalSpec(latent=latent, measurement=measurement)
+        assert len(causal_spec.latent.constructs) == 2
+        assert len(causal_spec.measurement.indicators) == 1
 
     def test_invalid_measurement_granularity_coarser_than_causal(
         self, construct_factory, indicator_factory
@@ -402,10 +402,10 @@ class TestDSEMModel:
             ]
         )
         with pytest.raises(ValueError, match="coarser than construct"):
-            DSEMModel(latent=latent, measurement=measurement)
+            CausalSpec(latent=latent, measurement=measurement)
 
     def test_to_networkx_includes_loading_edges(self, construct_factory, indicator_factory):
-        """DSEMModel.to_networkx includes construct→indicator loading edges."""
+        """CausalSpec.to_networkx includes construct→indicator loading edges."""
         latent = LatentModel(
             constructs=[
                 construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
@@ -417,8 +417,8 @@ class TestDSEMModel:
                 indicator_factory("mood_rating", "mood"),
             ]
         )
-        dsem = DSEMModel(latent=latent, measurement=measurement)
-        G = dsem.to_networkx()
+        causal_spec = CausalSpec(latent=latent, measurement=measurement)
+        G = causal_spec.to_networkx()
 
         # Both construct and indicator nodes exist
         assert "mood" in G.nodes
@@ -429,7 +429,7 @@ class TestDSEMModel:
         assert G.edges["mood", "mood_rating"]["edge_type"] == "loading"
 
     def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
-        """DSEMModel.get_edge_lag_hours computes correct lag."""
+        """CausalSpec.get_edge_lag_hours computes correct lag."""
         latent = LatentModel(
             constructs=[
                 construct_factory("sleep", "daily", Role.EXOGENOUS),
@@ -447,8 +447,8 @@ class TestDSEMModel:
                 indicator_factory("mood_rating", "mood"),
             ]
         )
-        dsem = DSEMModel(latent=latent, measurement=measurement)
-        lag = dsem.get_edge_lag_hours(latent.edges[0])
+        causal_spec = CausalSpec(latent=latent, measurement=measurement)
+        lag = causal_spec.get_edge_lag_hours(latent.edges[0])
         assert lag == 24  # 1 day
 
 

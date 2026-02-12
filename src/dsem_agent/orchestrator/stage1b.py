@@ -34,7 +34,7 @@ class Stage1bResult:
 
     @property
     def identifiability_status(self) -> dict:
-        """Format for storing in DSEMModel."""
+        """Format for storing in CausalSpec."""
         return {
             "identifiable_treatments": self.final_identifiability["identifiable_treatments"],
             "non_identifiable_treatments": self.final_identifiability[
@@ -44,7 +44,7 @@ class Stage1bResult:
 
     @property
     def can_marginalize(self) -> set[str]:
-        """Unobserved constructs that can be ignored in DSEM specification."""
+        """Unobserved constructs that can be ignored in causal specification."""
         if self.marginalization_analysis:
             return self.marginalization_analysis.get("can_marginalize", set())
         return set()

@@ -9,7 +9,7 @@ from inspect_ai.model import get_model
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from dsem_agent.orchestrator.agents import build_dsem_model as build_dsem_model_agent
+from dsem_agent.orchestrator.agents import build_causal_spec as build_causal_spec_agent
 from dsem_agent.orchestrator.stage1b import run_stage1b
 from dsem_agent.utils.config import get_config
 from dsem_agent.utils.data import (
@@ -28,13 +28,13 @@ def load_orchestrator_chunks(input_path: Path) -> list[str]:
 
 
 @task(cache_policy=INPUTS)
-def build_dsem_model(
+def build_causal_spec(
     latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
 ) -> dict:
-    """Combine latent and measurement models into full DSEMModel with identifiability."""
-    dsem = build_dsem_model_agent(latent_model, measurement_model)
-    dsem["identifiability"] = identifiability_status
-    return dsem
+    """Combine latent and measurement models into full CausalSpec with identifiability."""
+    causal_spec = build_causal_spec_agent(latent_model, measurement_model)
+    causal_spec["identifiability"] = identifiability_status
+    return causal_spec
 
 
 @task(cache_policy=INPUTS)

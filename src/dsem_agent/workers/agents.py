@@ -21,7 +21,7 @@ load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 async def process_chunk_async(
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> WorkerResult:
     """
     Process a single data chunk against the DSEM model.
@@ -29,7 +29,7 @@ async def process_chunk_async(
     Args:
         chunk: The data chunk to process
         question: The causal research question
-        dsem_model: The DSEMModel dict
+        causal_spec: The CausalSpec dict
 
     Returns:
         WorkerResult with validated output and Polars dataframe
@@ -39,7 +39,7 @@ async def process_chunk_async(
     return await run_worker_extraction(
         chunk=chunk,
         question=question,
-        dsem_model=dsem_model,
+        causal_spec=causal_spec,
         generate=generate,
     )
 
@@ -47,7 +47,7 @@ async def process_chunk_async(
 def process_chunk(
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> WorkerResult:
     """
     Synchronous wrapper for process_chunk_async.
@@ -55,18 +55,18 @@ def process_chunk(
     Args:
         chunk: The data chunk to process
         question: The causal research question
-        dsem_model: The DSEMModel dict
+        causal_spec: The CausalSpec dict
 
     Returns:
         WorkerResult with validated output and Polars dataframe
     """
-    return asyncio.run(process_chunk_async(chunk, question, dsem_model))
+    return asyncio.run(process_chunk_async(chunk, question, causal_spec))
 
 
 async def process_chunks_async(
     chunks: list[str],
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> list[WorkerResult]:
     """
     Process multiple chunks in parallel.
@@ -74,14 +74,14 @@ async def process_chunks_async(
     Args:
         chunks: List of data chunks to process
         question: The causal research question
-        dsem_model: The DSEMModel dict
+        causal_spec: The CausalSpec dict
 
     Returns:
         List of WorkerResults
     """
     model = get_model(get_config().stage2_workers.model)
     generate = make_worker_generate_fn(model)
-    tasks = [run_worker_extraction(chunk, question, dsem_model, generate) for chunk in chunks]
+    tasks = [run_worker_extraction(chunk, question, causal_spec, generate) for chunk in chunks]
 
     return await asyncio.gather(*tasks)
 
@@ -89,7 +89,7 @@ async def process_chunks_async(
 def process_chunks(
     chunks: list[str],
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> list[WorkerResult]:
     """
     Synchronous wrapper for process_chunks_async.
@@ -97,9 +97,9 @@ def process_chunks(
     Args:
         chunks: List of data chunks to process
         question: The causal research question
-        dsem_model: The DSEMModel dict
+        causal_spec: The CausalSpec dict
 
     Returns:
         List of WorkerResults
     """
-    return asyncio.run(process_chunks_async(chunks, question, dsem_model))
+    return asyncio.run(process_chunks_async(chunks, question, causal_spec))

@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker measurement instruction adherence.
 
 Uses a judge model to evaluate how well competing worker models follow
-the measurement instructions from the DSEMModel schema. The judge
+the measurement instructions from the CausalSpec schema. The judge
 ranks outputs without knowing model names and returns the winner.
 
 Uses the same core logic as production (via run_worker_extraction) for generating
@@ -37,7 +37,7 @@ from dsem_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS, USER
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,
-    load_dsem_model_by_question_id,
+    load_causal_spec_by_question_id,
     load_eval_config,
 )
 
@@ -102,7 +102,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> str:
     """Generate worker output for a single model using core logic.
 
@@ -114,7 +114,7 @@ async def generate_worker_output(
     result = await run_worker_extraction(
         chunk=chunk,
         question=question,
-        dsem_model=dsem_model,
+        causal_spec=causal_spec,
         generate=generate,
     )
 
@@ -167,9 +167,9 @@ def create_eval_dataset(
         MemoryDataset with samples
     """
     # Use question 4 by default ("I want to sleep better")
-    dsem_model = load_dsem_model_by_question_id(4)
-    indicators_text = _format_indicators(dsem_model)
-    outcome_description = _get_outcome_description(dsem_model)
+    causal_spec = load_causal_spec_by_question_id(4)
+    indicators_text = _format_indicators(causal_spec)
+    outcome_description = _get_outcome_description(causal_spec)
 
     # Get chunks
     total_chunks = n_chunks * len(EVAL_QUESTIONS)
@@ -230,7 +230,7 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:
-            dsem_model = load_dsem_model_by_question_id(4)  # Use question 4 by default
+            causal_spec = load_causal_spec_by_question_id(4)  # Use question 4 by default
             question = state.metadata["question"]
             chunk = state.metadata["chunk"]
             worker_system_prompt = state.metadata["worker_system_prompt"]
@@ -241,7 +241,7 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
                 """Generate with error handling and timeout, returns (model_id, result)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question, dsem_model),
+                        generate_worker_output(model_id, chunk, question, causal_spec),
                         timeout=worker_timeout,
                     )
                     return model_id, result

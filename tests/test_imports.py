@@ -40,8 +40,8 @@ def test_preprocessing_script():
 def test_schema_to_networkx():
     from dsem_agent.orchestrator.schemas import (
         CausalEdge,
+        CausalSpec,
         Construct,
-        DSEMModel,
         Indicator,
         LatentModel,
         MeasurementModel,
@@ -91,8 +91,8 @@ def test_schema_to_networkx():
         ]
     )
 
-    dsem = DSEMModel(latent=latent, measurement=measurement)
-    G = dsem.to_networkx()
+    causal_spec = CausalSpec(latent=latent, measurement=measurement)
+    G = causal_spec.to_networkx()
 
     # Construct nodes exist
     assert "X" in G.nodes

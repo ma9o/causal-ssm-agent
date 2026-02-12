@@ -27,12 +27,12 @@ class WorkerResult:
     raw_completion: str
 
 
-def _format_indicators(dsem_model: dict) -> str:
+def _format_indicators(causal_spec: dict) -> str:
     """Format indicators for the worker prompt.
 
     Shows: name, dtype, how_to_measure
     """
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
     lines = []
     for ind in indicators:
         name = ind.get("name", "unknown")
@@ -43,9 +43,9 @@ def _format_indicators(dsem_model: dict) -> str:
     return "\n".join(lines)
 
 
-def _get_outcome_description(dsem_model: dict) -> str:
+def _get_outcome_description(causal_spec: dict) -> str:
     """Get the description of the outcome variable."""
-    constructs = dsem_model.get("latent", {}).get("constructs", [])
+    constructs = causal_spec.get("latent", {}).get("constructs", [])
     for c in constructs:
         if c.get("is_outcome"):
             return c.get("description", c.get("name", "outcome"))
@@ -57,13 +57,13 @@ class WorkerMessages:
     """Message builders for worker prompts."""
 
     question: str
-    dsem_model: dict
+    causal_spec: dict
     chunk: str
 
     def extraction_messages(self) -> list[dict]:
         """Build messages for worker extraction."""
-        indicators_text = _format_indicators(self.dsem_model)
-        outcome_description = _get_outcome_description(self.dsem_model)
+        indicators_text = _format_indicators(self.causal_spec)
+        outcome_description = _get_outcome_description(self.causal_spec)
 
         return [
             {"role": "system", "content": SYSTEM_WITHOUT_PROPOSALS},
@@ -82,7 +82,7 @@ class WorkerMessages:
 async def run_worker_extraction(
     chunk: str,
     question: str,
-    dsem_model: dict,
+    causal_spec: dict,
     generate: WorkerGenerateFn,
 ) -> WorkerResult:
     """
@@ -94,17 +94,17 @@ async def run_worker_extraction(
     Args:
         chunk: The data chunk to process
         question: The causal research question
-        dsem_model: The DSEMModel dict with latent and measurement
+        causal_spec: The CausalSpec dict with latent and measurement
         generate: Async function (messages, tools) -> completion
 
     Returns:
         WorkerResult with output, dataframe, and raw completion
     """
-    msgs = WorkerMessages(question, dsem_model, chunk)
+    msgs = WorkerMessages(question, causal_spec, chunk)
 
     # Build messages and tools
     extraction_msgs = msgs.extraction_messages()
-    tools = make_worker_tools(dsem_model)
+    tools = make_worker_tools(causal_spec)
 
     # Generate extraction
     completion = await generate(extraction_msgs, tools)

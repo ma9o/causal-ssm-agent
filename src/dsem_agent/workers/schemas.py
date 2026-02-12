@@ -91,16 +91,16 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
     return check(value)
 
 
-def _get_indicator_info(dsem_model: dict) -> dict[str, dict]:
-    """Extract indicator info from a DSEMModel dict.
+def _get_indicator_info(causal_spec: dict) -> dict[str, dict]:
+    """Extract indicator info from a CausalSpec dict.
 
     Args:
-        dsem_model: DSEMModel dict with latent.constructs and measurement.indicators
+        causal_spec: CausalSpec dict with latent.constructs and measurement.indicators
 
     Returns:
         Dict mapping indicator name to {dtype, construct_name}
     """
-    indicators = dsem_model.get("measurement", {}).get("indicators", [])
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
     return {
         ind.get("name"): {
             "dtype": ind.get("measurement_dtype"),
@@ -110,21 +110,21 @@ def _get_indicator_info(dsem_model: dict) -> dict[str, dict]:
     }
 
 
-def _get_all_construct_names(dsem_model: dict) -> set[str]:
-    """Get all construct names from a DSEMModel dict."""
-    constructs = dsem_model.get("latent", {}).get("constructs", [])
+def _get_all_construct_names(causal_spec: dict) -> set[str]:
+    """Get all construct names from a CausalSpec dict."""
+    constructs = causal_spec.get("latent", {}).get("constructs", [])
     return {c.get("name") for c in constructs}
 
 
 def validate_worker_output(
     data: dict,
-    dsem_model: dict,
+    causal_spec: dict,
 ) -> tuple[WorkerOutput | None, list[str]]:
     """Validate worker output dict, collecting ALL errors instead of failing on first.
 
     Args:
         data: Dictionary to validate as WorkerOutput
-        dsem_model: The DSEMModel dict to validate against
+        causal_spec: The CausalSpec dict to validate against
 
     Returns:
         Tuple of (validated output or None, list of error messages)
@@ -147,8 +147,8 @@ def validate_worker_output(
         proposed_indicators = None
 
     # Build set of valid indicator names and their dtypes
-    indicator_info = _get_indicator_info(dsem_model)
-    all_construct_names = _get_all_construct_names(dsem_model)
+    indicator_info = _get_indicator_info(causal_spec)
+    all_construct_names = _get_all_construct_names(causal_spec)
 
     # Validate each extraction
     valid_extractions = []

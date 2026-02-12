@@ -13,7 +13,7 @@ from inspect_ai.model import get_model
 from dsem_agent.utils.config import get_config
 from dsem_agent.utils.llm import make_orchestrator_generate_fn
 
-from .schemas import DSEMModel, LatentModel, MeasurementModel
+from .schemas import CausalSpec, LatentModel, MeasurementModel
 from .stage1a import run_stage1a
 from .stage1b import run_stage1b
 
@@ -130,23 +130,23 @@ def propose_measurement_model(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# COMBINED: FULL DSEM MODEL
+# COMBINED: FULL CAUSAL SPEC
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def build_dsem_model(latent_model: dict, measurement_model: dict) -> dict:
+def build_causal_spec(latent_model: dict, measurement_model: dict) -> dict:
     """
-    Combine latent and measurement models into a full DSEMModel.
+    Combine latent and measurement models into a full CausalSpec.
 
     Args:
         latent_model: The latent model dict from Stage 1a
         measurement_model: The measurement model dict from Stage 1b
 
     Returns:
-        DSEMModel as a dictionary
+        CausalSpec as a dictionary
     """
-    dsem = DSEMModel(
+    causal_spec = CausalSpec(
         latent=LatentModel.model_validate(latent_model),
         measurement=MeasurementModel.model_validate(measurement_model),
     )
-    return dsem.model_dump()
+    return causal_spec.model_dump()

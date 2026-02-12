@@ -304,7 +304,7 @@ class MeasurementModel(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FULL DSEM MODEL (composition of latent + measurement)
+# CAUSAL SPEC (composition of latent + measurement)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -376,8 +376,8 @@ class IdentifiabilityStatus(BaseModel):
     )
 
 
-class DSEMModel(BaseModel):
-    """Complete DSEM specification combining latent and measurement models.
+class CausalSpec(BaseModel):
+    """Complete causal specification combining latent and measurement models.
 
     This is the full model after both Stage 1a (latent) and Stage 1b (measurement).
     Includes identifiability status for target causal effects.
@@ -390,7 +390,7 @@ class DSEMModel(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_dsem_model(self):
+    def validate_causal_spec(self):
         """Validate that measurement model covers all constructs."""
         construct_names = {c.name for c in self.latent.constructs}
 
@@ -684,10 +684,10 @@ def validate_measurement_model(
     return None, errors
 
 
-def validate_dsem_model(
+def validate_causal_spec(
     latent_data: dict,
     measurement_data: dict,
-) -> tuple[DSEMModel | None, list[str]]:
+) -> tuple[CausalSpec | None, list[str]]:
     """Validate both latent and measurement models together.
 
     Args:
@@ -695,7 +695,7 @@ def validate_dsem_model(
         measurement_data: Dictionary to validate as MeasurementModel
 
     Returns:
-        Tuple of (validated DSEMModel or None, list of error messages)
+        Tuple of (validated CausalSpec or None, list of error messages)
     """
     latent, latent_errors = validate_latent_model(latent_data)
     if latent is None:
@@ -706,7 +706,7 @@ def validate_dsem_model(
         return None, ["Measurement model errors:", *measurement_errors]
 
     try:
-        model = DSEMModel(latent=latent, measurement=measurement)
+        model = CausalSpec(latent=latent, measurement=measurement)
         return model, []
     except Exception as e:
-        return None, [f"DSEMModel validation failed: {e}"]
+        return None, [f"CausalSpec validation failed: {e}"]
