@@ -57,6 +57,20 @@ METHOD_CONFIGS = {
         "gpu_type": "L4",
         "timeout": 3600,
     },
+    "nuts_da": {
+        "local": {
+            "T": 80,
+            "num_warmup": 200,
+            "num_samples": 200,
+        },
+        "gpu": {
+            "T": 200,
+            "num_warmup": 1000,
+            "num_samples": 1000,
+        },
+        "gpu_type": "L4",
+        "timeout": 7200,
+    },
     "pgas": {
         "local": {
             "T": 80,
@@ -335,6 +349,40 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         print(f"Done in {elapsed:.1f}s ({elapsed / total:.2f}s/step)")
         print()
         # NUTS has lambda in samples
+        report_args.update(
+            {
+                "true_lambda": problem.true_lambda,
+                "true_manifest_means": problem.true_manifest_means,
+                "n_manifest": problem.n_manifest,
+            }
+        )
+
+    elif method == "nuts_da":
+        model = SSMModel(problem.spec, priors=problem.priors)
+        t0 = time.perf_counter()
+        # Forward optional kwargs (centered, dense_mass, etc.)
+        da_kwargs = {}
+        for k in (
+            "centered", "dense_mass", "target_accept_prob", "max_tree_depth",
+            "svi_warmstart", "svi_num_steps", "svi_learning_rate",
+        ):
+            if k in cfg:
+                da_kwargs[k] = cfg[k]
+        result = fit(
+            model,
+            observations=obs,
+            times=times,
+            method="nuts_da",
+            num_warmup=cfg["num_warmup"],
+            num_samples=cfg["num_samples"],
+            num_chains=1,
+            seed=0,
+            **da_kwargs,
+        )
+        elapsed = time.perf_counter() - t0
+        total = cfg["num_warmup"] + cfg["num_samples"]
+        print(f"Done in {elapsed:.1f}s ({elapsed / total:.2f}s/step)")
+        print()
         report_args.update(
             {
                 "true_lambda": problem.true_lambda,
