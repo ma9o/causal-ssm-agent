@@ -93,7 +93,10 @@ dsem-agent/
 │   │   │   ├── kalman.py       # Kalman filter via cuthbert moments filter
 │   │   │   ├── particle.py     # Bootstrap PF via cuthbert (auto-upgrades to RBPF)
 │   │   │   ├── emissions.py    # Canonical emission log-prob functions
-│   │   │   └── rao_blackwell.py # Rao-Blackwell PF (Kalman + quadrature)
+│   │   │   ├── rao_blackwell.py # Rao-Blackwell PF (Kalman + quadrature)
+│   │   │   ├── block_rb.py     # Block RBPF for mixed Gaussian/non-Gaussian dynamics
+│   │   │   ├── graph_analysis.py # First-pass RB: graph analysis + RBPartition
+│   │   │   └── composed.py     # ComposedLikelihood: Kalman sub-LL + PF sub-LL
 │   │   ├── ssm_builder.py      # SSMModelBuilder for pipeline integration
 │   │   └── prior_predictive.py # Prior predictive validation
 │   ├── flows/         # Prefect pipeline + stages/
