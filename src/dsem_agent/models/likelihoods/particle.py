@@ -168,16 +168,49 @@ class ParticleLikelihood:
         n_particles: int = 200,
         rng_key: jax.Array | None = None,
         manifest_dist: str = "gaussian",
-        diffusion_dist: str = "gaussian",
+        diffusion_dist: str | list[str] = "gaussian",
         ess_threshold: float = 0.5,
+        block_rb: bool = True,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
         self.n_particles = n_particles
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
         self.manifest_dist = manifest_dist
-        self.diffusion_dist = diffusion_dist
         self.ess_threshold = ess_threshold
+
+        self._block_rb = block_rb
+
+        # Normalize diffusion_dist to per-variable list
+        if isinstance(diffusion_dist, str):
+            self.diffusion_dist = diffusion_dist
+            self._per_var_diffusion = [diffusion_dist] * n_latent
+        else:
+            self._per_var_diffusion = list(diffusion_dist)
+            # Determine dispatch mode
+            unique = set(self._per_var_diffusion)
+            if unique == {"gaussian"}:
+                self.diffusion_dist = "gaussian"
+            elif "gaussian" not in unique:
+                # All non-Gaussian — pick the first non-Gaussian type
+                self.diffusion_dist = self._per_var_diffusion[0]
+            else:
+                self.diffusion_dist = "mixed"
+
+        # When block_rb is disabled and mixed, collapse to first non-Gaussian
+        # type to skip block RBPF dispatch. Gaussian stays Gaussian — the
+        # dispatch in compute_log_likelihood checks _block_rb to skip RBPF.
+        if not block_rb and self.diffusion_dist == "mixed":
+            s_types = [d for d in self._per_var_diffusion if d != "gaussian"]
+            self.diffusion_dist = s_types[0] if s_types else "student_t"
+
+        # Pre-compute partition indices for mixed mode (static, not traced)
+        if self.diffusion_dist == "mixed":
+            from dsem_agent.models.likelihoods.block_rb import partition_indices
+
+            self._g_idx, self._s_idx = partition_indices(self._per_var_diffusion)
+            s_types = [self._per_var_diffusion[int(i)] for i in self._s_idx]
+            self._diffusion_dist_s = s_types[0] if s_types else "student_t"
 
     def compute_log_likelihood(
         self,
@@ -241,10 +274,11 @@ class ParticleLikelihood:
             params.update(extra_params)
 
         # Build Feynman-Kac model closures.
-        # When dynamics are Gaussian, use Rao-Blackwellized callbacks that
-        # run a Kalman filter inside each particle (strictly lower variance).
+        # When dynamics are Gaussian and block_rb is enabled, use
+        # Rao-Blackwellized callbacks (Kalman filter inside each particle).
+        # Mixed + block_rb: block RBPF marginalizes Gaussian subset, samples rest.
         # Otherwise fall back to bootstrap PF callbacks.
-        if self.diffusion_dist == "gaussian":
+        if self.diffusion_dist == "gaussian" and self._block_rb:
             from dsem_agent.models.likelihoods.rao_blackwell import make_rb_callbacks
 
             init_sample, propagate_sample, log_potential = make_rb_callbacks(
@@ -255,6 +289,23 @@ class ParticleLikelihood:
                 extra_params=extra_params or {},
                 m0=initial_state.mean,
                 P0=initial_state.cov,
+            )
+        elif self.diffusion_dist == "mixed":
+            from dsem_agent.models.likelihoods.block_rb import make_block_rb_callbacks
+
+            block_extra = dict(extra_params or {})
+            block_extra["diffusion_dist_s"] = self._diffusion_dist_s
+
+            init_sample, propagate_sample, log_potential = make_block_rb_callbacks(
+                n_latent=n,
+                n_manifest=self.n_manifest,
+                manifest_dist=self.manifest_dist,
+                params=params,
+                extra_params=block_extra,
+                m0=initial_state.mean,
+                P0=initial_state.cov,
+                g_idx=self._g_idx,
+                s_idx=self._s_idx,
             )
         else:
             adapter = SSMAdapter(

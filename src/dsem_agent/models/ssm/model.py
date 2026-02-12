@@ -67,6 +67,18 @@ class SSMSpec:
     diffusion_dist: NoiseFamily = NoiseFamily.GAUSSIAN
     manifest_dist: NoiseFamily = NoiseFamily.GAUSSIAN
 
+    # Per-variable diffusion noise (overrides scalar diffusion_dist if set)
+    diffusion_dists: list[NoiseFamily] | None = None
+
+    # Per-channel observation noise (overrides scalar manifest_dist if set)
+    manifest_dists: list[NoiseFamily] | None = None
+
+    # Toggle first-pass (unconditional, model-level) Rao-Blackwellization
+    first_pass_rb: bool = True
+
+    # Toggle second-pass (conditional, sampler-level) Rao-Blackwellization
+    second_pass_rb: bool = True
+
     # Hierarchical structure
     hierarchical: bool = False
     n_subjects: int = 1
@@ -454,6 +466,10 @@ class SSMModel:
         """Construct the default likelihood backend from model configuration.
 
         Uses self.likelihood to select between Kalman and Particle backends.
+        When first_pass_rb is enabled, analyzes the model structure to identify
+        decoupled linear-Gaussian sub-blocks that can be handled by exact Kalman
+        filtering, composing with a particle filter for the remainder.
+
         Callers that need a different backend (Laplace, Structured VI, DPF)
         construct it themselves instead of calling this.
         """
@@ -465,17 +481,81 @@ class SSMModel:
                 n_latent=spec.n_latent,
                 n_manifest=spec.n_manifest,
             )
-        else:
-            from dsem_agent.models.likelihoods.particle import ParticleLikelihood
 
-            return ParticleLikelihood(
-                n_latent=spec.n_latent,
-                n_manifest=spec.n_manifest,
-                n_particles=self.n_particles,
-                rng_key=self.pf_key,
-                manifest_dist=spec.manifest_dist.value,
-                diffusion_dist=spec.diffusion_dist.value,
+        # Resolve per-variable diffusion dist — passed as-is to ParticleLikelihood
+        # which handles its own list→scalar normalization internally.
+        from dsem_agent.models.likelihoods.graph_analysis import (
+            get_per_variable_diffusion,
+        )
+
+        per_var = get_per_variable_diffusion(spec)
+
+        # First-pass RB analysis: identify decoupled Gaussian sub-blocks
+        if spec.first_pass_rb:
+            from dsem_agent.models.likelihoods.graph_analysis import (
+                analyze_first_pass_rb,
             )
+
+            partition = analyze_first_pass_rb(spec)
+
+            if partition.has_kalman_block and not partition.has_particle_block:
+                # Everything is marginalizable — use pure Kalman
+                from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+
+                return KalmanLikelihood(
+                    n_latent=spec.n_latent,
+                    n_manifest=spec.n_manifest,
+                )
+
+            # Only create ComposedLikelihood when the Kalman block has
+            # exclusive observations — otherwise it can't contribute to LL.
+            if (
+                partition.has_kalman_block
+                and partition.has_particle_block
+                and len(partition.obs_kalman_idx) > 0
+            ):
+                from dsem_agent.models.likelihoods.composed import ComposedLikelihood
+                from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+                from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+
+                n_k = len(partition.kalman_idx)
+                n_obs_k = len(partition.obs_kalman_idx)
+                n_p = len(partition.particle_idx)
+                n_obs_p = len(partition.obs_particle_idx)
+
+                # Per-variable diffusion for the particle sub-block
+                particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
+
+                return ComposedLikelihood(
+                    partition=partition,
+                    kalman_backend=KalmanLikelihood(
+                        n_latent=n_k,
+                        n_manifest=n_obs_k,
+                    ),
+                    particle_backend=ParticleLikelihood(
+                        n_latent=n_p,
+                        n_manifest=n_obs_p,
+                        n_particles=self.n_particles,
+                        rng_key=self.pf_key,
+                        manifest_dist=spec.manifest_dist.value,
+                        diffusion_dist=particle_diffs,
+                        block_rb=spec.second_pass_rb,
+                    ),
+                )
+
+        # Fallthrough: full particle filter (ParticleLikelihood normalizes
+        # the per_var list internally — no need to collapse here)
+        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+
+        return ParticleLikelihood(
+            n_latent=spec.n_latent,
+            n_manifest=spec.n_manifest,
+            n_particles=self.n_particles,
+            rng_key=self.pf_key,
+            manifest_dist=spec.manifest_dist.value,
+            diffusion_dist=per_var,
+            block_rb=spec.second_pass_rb,
+        )
 
     def model(
         self,
