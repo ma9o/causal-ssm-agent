@@ -7,6 +7,8 @@ model; this module provides fit() to run inference with different backends:
   Tolerates PF gradient noise because SGD is designed for noisy gradients.
 - NUTS: HMC-based sampling. Works well with Kalman likelihood but struggles
   with PF resampling discontinuities.
+- NUTS-DA: Data augmentation MCMC — jointly samples parameters and latent
+  states with NUTS. No filter needed. Non-centered parameterization (default).
 - Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
 - PGAS: Particle Gibbs with ancestor sampling + gradient-informed proposals.
 - Tempered SMC: Adaptive tempering with preconditioned HMC/MALA mutations.
@@ -38,7 +40,15 @@ class InferenceResult:
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
     method: Literal[
-        "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"
+        "nuts",
+        "nuts_da",
+        "svi",
+        "hessmc2",
+        "pgas",
+        "tempered_smc",
+        "laplace_em",
+        "structured_vi",
+        "dpf",
     ]
     diagnostics: dict = field(default_factory=dict)
 
@@ -76,7 +86,15 @@ def fit(
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None = None,
     method: Literal[
-        "svi", "nuts", "hessmc2", "pgas", "tempered_smc", "laplace_em", "structured_vi", "dpf"
+        "svi",
+        "nuts",
+        "nuts_da",
+        "hessmc2",
+        "pgas",
+        "tempered_smc",
+        "laplace_em",
+        "structured_vi",
+        "dpf",
     ] = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
@@ -95,6 +113,10 @@ def fit(
     """
     if method == "nuts":
         return _fit_nuts(model, observations, times, subject_ids, **kwargs)
+    elif method == "nuts_da":
+        from dsem_agent.models.ssm.nuts_da import fit_nuts_da
+
+        return fit_nuts_da(model, observations, times, subject_ids, **kwargs)
     elif method == "svi":
         return _fit_svi(model, observations, times, subject_ids, **kwargs)
     elif method == "hessmc2":
@@ -124,7 +146,7 @@ def fit(
     else:
         raise ValueError(
             f"Unknown inference method: {method!r}. "
-            "Use 'svi', 'nuts', 'hessmc2', 'pgas', 'tempered_smc', "
+            "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
             "'laplace_em', 'structured_vi', or 'dpf'."
         )
 

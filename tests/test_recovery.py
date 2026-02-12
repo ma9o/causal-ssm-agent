@@ -13,6 +13,85 @@ from dsem_agent.models.ssm import InferenceResult, SSMModel, fit
 from tests.helpers import assert_recovery_ci
 
 # =============================================================================
+# NUTS Data Augmentation Recovery
+# =============================================================================
+
+
+class TestNutsDARecovery:
+    """NUTS-DA smoke and recovery tests on 1D LGSS."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(120)
+    def test_nuts_da_smoke(self, lgss_data):
+        """NUTS-DA pipeline check on 1D LGSS (D=3).
+
+        Verifies: instantiation, inference completes, correct output structure.
+        """
+        model = SSMModel(lgss_data["spec"])
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="nuts_da",
+            num_warmup=50,
+            num_samples=50,
+            num_chains=1,
+            seed=0,
+        )
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "nuts_da"
+        samples = result.get_samples()
+
+        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
+            assert site in samples, f"Missing sample site: {site}"
+
+        # innovations should be excluded from returned samples
+        assert "innovations" not in samples
+
+        # Should have 50 posterior samples
+        assert samples["drift_diag_pop"].shape == (50, 1)
+        assert samples["diffusion_diag_pop"].shape == (50, 1)
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_nuts_da_recovery(self, lgss_data):
+        """NUTS-DA recovers 1D LGSS params (D=3) within 90% CIs."""
+        model = SSMModel(lgss_data["spec"])
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="nuts_da",
+            num_warmup=500,
+            num_samples=500,
+            num_chains=1,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        assert_recovery_ci(
+            samples["drift_diag_pop"][:, 0],
+            lgss_data["true_drift_diag"],
+            "Drift",
+            transform=lambda s: -jnp.abs(s),
+        )
+        assert_recovery_ci(
+            samples["diffusion_diag_pop"][:, 0],
+            lgss_data["true_diff_diag"],
+            "Diffusion",
+        )
+        assert_recovery_ci(
+            samples["manifest_var_diag"][:, 0],
+            lgss_data["true_obs_sd"],
+            "Obs SD",
+        )
+
+
+# =============================================================================
 # Hess-MC2 Recovery
 # =============================================================================
 

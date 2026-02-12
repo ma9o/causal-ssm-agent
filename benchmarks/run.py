@@ -6,8 +6,9 @@ and tools/recovery_tempered_smc.py with a single script.
 Usage:
     uv run python benchmarks/run.py --method svi --local       # local smoke
     uv run python benchmarks/run.py --method all --local       # all local
-    modal run benchmarks/run.py --method pgas                   # GPU
-    modal run benchmarks/run.py --method all                    # comparison
+    modal run benchmarks/run.py --method pgas                   # GPU (uses config gpu_type)
+    modal run benchmarks/run.py --method pgas --gpu A100        # GPU (override)
+    modal run benchmarks/run.py --method all                    # comparison (B200)
 """
 
 from __future__ import annotations
@@ -19,6 +20,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from benchmarks.metrics import RecoveryResult
     from benchmarks.problems.four_latent import RecoveryProblem
+
+# Lazy-loaded problem registry (avoids JAX init at import time for Modal)
+_PROBLEMS: dict[str, RecoveryProblem] | None = None
+
+
+def _get_problems() -> dict[str, RecoveryProblem]:
+    global _PROBLEMS
+    if _PROBLEMS is None:
+        from benchmarks.problems import ALL_PROBLEMS
+
+        _PROBLEMS = ALL_PROBLEMS
+    return _PROBLEMS
 
 # ---------------------------------------------------------------------------
 # Method configs: {method: {local: {...}, gpu: {...}, gpu_type, timeout}}
@@ -56,6 +69,20 @@ METHOD_CONFIGS = {
         },
         "gpu_type": "L4",
         "timeout": 3600,
+    },
+    "nuts_da": {
+        "local": {
+            "T": 80,
+            "num_warmup": 200,
+            "num_samples": 200,
+        },
+        "gpu": {
+            "T": 200,
+            "num_warmup": 1000,
+            "num_samples": 1000,
+        },
+        "gpu_type": "L4",
+        "timeout": 7200,
     },
     "pgas": {
         "local": {
@@ -343,6 +370,45 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
             }
         )
 
+    elif method == "nuts_da":
+        model = SSMModel(problem.spec, priors=problem.priors)
+        t0 = time.perf_counter()
+        # Forward optional kwargs (centered, dense_mass, etc.)
+        da_kwargs = {}
+        for k in (
+            "centered",
+            "dense_mass",
+            "target_accept_prob",
+            "max_tree_depth",
+            "svi_warmstart",
+            "svi_num_steps",
+            "svi_learning_rate",
+        ):
+            if k in cfg:
+                da_kwargs[k] = cfg[k]
+        result = fit(
+            model,
+            observations=obs,
+            times=times,
+            method="nuts_da",
+            num_warmup=cfg["num_warmup"],
+            num_samples=cfg["num_samples"],
+            num_chains=1,
+            seed=0,
+            **da_kwargs,
+        )
+        elapsed = time.perf_counter() - t0
+        total = cfg["num_warmup"] + cfg["num_samples"]
+        print(f"Done in {elapsed:.1f}s ({elapsed / total:.2f}s/step)")
+        print()
+        report_args.update(
+            {
+                "true_lambda": problem.true_lambda,
+                "true_manifest_means": problem.true_manifest_means,
+                "n_manifest": problem.n_manifest,
+            }
+        )
+
     elif method in ("pgas", "pgas_baseline"):
         is_baseline = method.endswith("_baseline")
         model = SSMModel(
@@ -571,14 +637,18 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
     )
 
 
-def run(methods: list[str], local: bool):
+def run(methods: list[str], local: bool, problem_name: str = "four_latent"):
     """Run one or more methods and print comparison."""
     from benchmarks.metrics import header
-    from benchmarks.problems.four_latent import FOUR_LATENT
+
+    problems = _get_problems()
+    if problem_name not in problems:
+        raise ValueError(f"Unknown problem '{problem_name}'. Available: {list(problems.keys())}")
+    problem = problems[problem_name]
 
     summary = {}
     for method in methods:
-        res = run_method(method, FOUR_LATENT, local)
+        res = run_method(method, problem, local)
         summary[method] = res
 
     if len(summary) > 1:
@@ -593,11 +663,66 @@ def run(methods: list[str], local: bool):
 # Modal entrypoints
 # ---------------------------------------------------------------------------
 
+# GPU priority ranking (most powerful first)
+_GPU_PRIORITY = {"B200": 0, "A100": 1, "L4": 2}
+
+
+def _resolve_modal_gpu() -> str:
+    """Determine GPU type from CLI args at module import time.
+
+    Modal requires GPU type at function registration (import time), so we peek
+    at sys.argv before the local entrypoint is called.
+
+    Priority: --gpu flag > method config gpu_type > B200 fallback.
+    """
+    import sys
+
+    args = sys.argv
+
+    # Explicit --gpu override
+    for i, arg in enumerate(args):
+        if arg == "--gpu" and i + 1 < len(args):
+            return args[i + 1]
+
+    # Derive from --method config (pick the most powerful GPU needed)
+    for i, arg in enumerate(args):
+        if arg == "--method" and i + 1 < len(args):
+            method_str = args[i + 1]
+            if method_str == "all":
+                break  # fall through to B200 default
+            methods = [m.strip() for m in method_str.split(",")]
+            best = "L4"
+            for m in methods:
+                g = METHOD_CONFIGS.get(m, {}).get("gpu_type", "L4")
+                if _GPU_PRIORITY.get(g, 99) < _GPU_PRIORITY.get(best, 99):
+                    best = g
+            return best
+
+    return "B200"  # default for --method all or unrecognised
+
+
+def _resolve_modal_timeout() -> int:
+    """Max timeout across requested methods (default 7200)."""
+    import sys
+
+    args = sys.argv
+    for i, arg in enumerate(args):
+        if arg == "--method" and i + 1 < len(args):
+            method_str = args[i + 1]
+            if method_str == "all":
+                methods = list(METHOD_CONFIGS.keys())
+            else:
+                methods = [m.strip() for m in method_str.split(",")]
+            return max(METHOD_CONFIGS.get(m, {}).get("timeout", 3600) for m in methods)
+    return 7200
+
+
 try:
     from benchmarks.modal_infra import make_modal_app
 
-    # Use the heaviest GPU needed (B200) for the unified runner
-    app, GPU = make_modal_app("dsem-recovery", "B200")
+    _MODAL_GPU = _resolve_modal_gpu()
+    _MODAL_TIMEOUT = _resolve_modal_timeout()
+    app, GPU = make_modal_app("dsem-recovery", _MODAL_GPU)
     HAS_MODAL = True
 except Exception:
     HAS_MODAL = False
@@ -605,17 +730,18 @@ except Exception:
 
 if HAS_MODAL:
 
-    @app.function(gpu=GPU, timeout=7200)
-    def recovery_remote(methods: list[str]):
-        run(methods, local=False)
+    @app.function(gpu=GPU, timeout=_MODAL_TIMEOUT)
+    def recovery_remote(methods: list[str], problem: str = "four_latent"):
+        run(methods, local=False, problem_name=problem)
 
     @app.local_entrypoint()
-    def modal_main(method: str = "all"):
+    def modal_main(method: str = "all", gpu: str = "", problem: str = "four_latent"):  # noqa: ARG001 (gpu consumed at import time)
         if method == "all":
             methods = list(METHOD_CONFIGS.keys())
         else:
             methods = [m.strip() for m in method.split(",")]
-        recovery_remote.remote(methods)
+        print(f"GPU: {_MODAL_GPU}  timeout: {_MODAL_TIMEOUT}s  problem: {problem}")
+        recovery_remote.remote(methods, problem)
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +756,16 @@ if __name__ == "__main__":
         help="Method name or 'all' (comma-separated for multiple)",
     )
     parser.add_argument("--local", action="store_true", help="Use small local settings")
+    parser.add_argument(
+        "--gpu",
+        default="",
+        help="GPU type for Modal (L4, A100, B200). Ignored for --local runs.",
+    )
+    parser.add_argument(
+        "--problem",
+        default="four_latent",
+        help="Problem name (four_latent, three_latent_robust)",
+    )
     args = parser.parse_args()
 
     if args.method == "all":
@@ -641,4 +777,4 @@ if __name__ == "__main__":
         if m not in METHOD_CONFIGS:
             raise ValueError(f"Unknown method '{m}'. Available: {list(METHOD_CONFIGS.keys())}")
 
-    run(methods, local=args.local)
+    run(methods, local=args.local, problem_name=args.problem)
