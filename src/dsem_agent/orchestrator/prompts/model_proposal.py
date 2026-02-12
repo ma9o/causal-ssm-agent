@@ -116,9 +116,7 @@ Return a JSON object with this structure:
 
 ## Validation Tool
 
-You have access to `validate_model_spec` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
-
-IMPORTANT: After getting "VALID", your final message must contain ONLY the JSON structure - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
+You have access to `validate_model_spec` tool. Use it to validate your JSON. Keep validating until you get "VALID".
 """
 
 USER = """\
@@ -159,46 +157,6 @@ Think very hard about:
 Output your specification as JSON.
 """
 
-
-REVIEW = """\
-Review your proposed model specification for correctness.
-
-## Check for:
-
-1. **Likelihood coverage**: Every indicator in the measurement model MUST have a likelihood entry. Missing indicators mean missing data channels.
-2. **Distribution-dtype matching**: The distribution must match the indicator's measurement_dtype:
-   - continuous → Normal, Gamma, or Beta
-   - binary → Bernoulli
-   - count → Poisson or NegativeBinomial
-   - ordinal → OrderedLogistic
-   - categorical → Categorical or OrderedLogistic
-3. **Link function matching**: Each distribution has valid link functions:
-   - Normal → identity
-   - Gamma → log
-   - Bernoulli → logit or probit
-   - Poisson → log
-   - NegativeBinomial → log
-   - Beta → logit
-   - OrderedLogistic → cumulative_logit
-   - Categorical → softmax
-4. **AR structure**: Every time-varying endogenous construct MUST have an `ar_coefficient` parameter. Check the latent model — if a construct has role=endogenous and temporal_status=time_varying, it needs an AR parameter.
-5. **Valid parameter roles**: Every parameter `role` must be one of: `fixed_effect`, `ar_coefficient`, `residual_sd`, `random_intercept_sd`, `random_slope_sd`, `correlation`, `loading`. Any other value (e.g., "factor_loading", "innovation_sd", "indicator_intercept") will fail validation.
-6. **Constraint-role matching**: Each role has an expected constraint:
-   - fixed_effect → none
-   - ar_coefficient → unit_interval
-   - residual_sd → positive
-   - random_intercept_sd → positive
-   - random_slope_sd → positive
-   - correlation → correlation
-   - loading → positive
-7. **Edge coverage**: Every causal edge in the latent model should have a corresponding `fixed_effect` parameter whose name references both cause and effect constructs.
-
-## Output
-
-Validate your specification with the tool, then return ONLY the corrected JSON as your final message - no explanatory text, no markdown headers, no commentary. Just the raw JSON object.
-
-Think very hard.
-"""
 
 
 def format_constructs(causal_spec: dict) -> str:
