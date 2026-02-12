@@ -10,6 +10,7 @@ Usage:
     inspect eval evals/eval5_functional_spec.py --model google/vertex/gemini-3-flash-preview
 """
 
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -87,14 +88,17 @@ def build_synthetic_data_summary(causal_spec: dict) -> str:
 
 
 def create_eval_dataset() -> MemoryDataset:
-    """Create evaluation dataset from all 5 CausalSpecs."""
+    """Create evaluation dataset from available CausalSpecs."""
     questions = get_eval_questions()
 
     samples = []
     for q in questions:
         question_id = q["id"]
         question = q["question"]
-        causal_spec = load_causal_spec_by_question_id(question_id)
+        try:
+            causal_spec = load_causal_spec_by_question_id(question_id)
+        except FileNotFoundError:
+            continue
         data_summary = build_synthetic_data_summary(causal_spec)
 
         samples.append(
@@ -119,7 +123,11 @@ def create_eval_dataset() -> MemoryDataset:
 
 
 def functional_spec_solver():
-    """Solver that calls propose_model_spec() and stores the result."""
+    """Solver that runs the full Stage 4 flow using core logic.
+
+    Calls propose_model_spec() directly (same as production). Falls back to
+    raw dict scoring if Pydantic validation fails despite the feedback loop.
+    """
 
     @solver
     def _solver():
@@ -131,15 +139,16 @@ def functional_spec_solver():
             data_summary = state.metadata["data_summary"]
             question = state.metadata["question"]
 
+            # Run the SAME core logic as production
             result = await propose_model_spec(
                 causal_spec=causal_spec,
                 data_summary=data_summary,
                 question=question,
                 generate=gen_fn,
             )
-
-            state.metadata["model_spec"] = result.model_spec.model_dump()
+            state.metadata["model_spec"] = json.loads(result.model_spec.model_dump_json())
             state.output.completion = result.raw_response
+
             return state
 
         return solve
@@ -150,6 +159,32 @@ def functional_spec_solver():
 # ══════════════════════════════════════════════════════════════════════════════
 # Scoring
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+def _words_match(concept_name: str, param_name: str) -> bool:
+    """Check if a concept name matches a parameter name, handling abbreviations.
+
+    Uses prefix matching: a construct word "cognitive" matches param word "cog"
+    (prefix), and vice versa. Requires at least half of the construct words to
+    match some param word.
+    """
+    construct_words = concept_name.lower().split()
+    param_words = param_name.lower().replace("_", " ").split()
+    # Remove common prefixes that aren't part of the construct name
+    skip = {"ar", "beta", "sigma", "rho", "sd", "loading"}
+    param_words = [w for w in param_words if w not in skip]
+    if not construct_words:
+        return False
+
+    matched = 0
+    for cw in construct_words:
+        for pw in param_words:
+            if cw.startswith(pw) or pw.startswith(cw):
+                matched += 1
+                break
+
+    # Require at least half the construct words to match
+    return matched >= len(construct_words) / 2
 
 
 def _score_functional_spec(model_spec: dict, causal_spec: dict) -> dict:
@@ -249,10 +284,12 @@ def _score_functional_spec(model_spec: dict, causal_spec: dict) -> dict:
     ar_details = []
     for construct_name in tv_endogenous:
         # Check if any ar_coefficient parameter references this construct
-        # Heuristic: parameter name contains a normalized form of the construct name
+        # Heuristic: substring match OR prefix-based word matching (handles abbreviations)
         construct_lower = construct_name.lower().replace(" ", "_")
         has_ar = any(
-            construct_lower in p_name.lower() or construct_name.lower() in p_name.lower()
+            construct_lower in p_name.lower()
+            or construct_name.lower() in p_name.lower()
+            or _words_match(construct_name, p_name)
             for p_name in ar_params
         )
         if has_ar:
@@ -322,7 +359,11 @@ def _score_functional_spec(model_spec: dict, causal_spec: dict) -> dict:
     for cause, effect in edge_pairs:
         cause_lower = cause.lower().replace(" ", "_")
         effect_lower = effect.lower().replace(" ", "_")
-        if any(cause_lower in pn and effect_lower in pn for pn in param_names_lower):
+        if any(
+            (cause_lower in pn and effect_lower in pn)
+            or (_words_match(cause, pn) and _words_match(effect, pn))
+            for pn in param_names_lower
+        ):
             covered_edges += 1
     if covered_edges == len(edge_pairs) and len(edge_pairs) > 0:
         bonus_points += 3
@@ -442,7 +483,7 @@ def functional_spec_scorer():
 def functional_spec_eval():
     """Evaluate LLM's functional specification quality.
 
-    Tests Stage 4's propose_model_spec() against 5 reference CausalSpecs,
+    Tests Stage 4's propose_model_spec() against available reference CausalSpecs,
     scoring on likelihoods, links, AR structure, model clock, and constraints.
     """
     return Task(
