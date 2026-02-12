@@ -6,8 +6,9 @@ and tools/recovery_tempered_smc.py with a single script.
 Usage:
     uv run python benchmarks/run.py --method svi --local       # local smoke
     uv run python benchmarks/run.py --method all --local       # all local
-    modal run benchmarks/run.py --method pgas                   # GPU
-    modal run benchmarks/run.py --method all                    # comparison
+    modal run benchmarks/run.py --method pgas                   # GPU (uses config gpu_type)
+    modal run benchmarks/run.py --method pgas --gpu A100        # GPU (override)
+    modal run benchmarks/run.py --method all                    # comparison (B200)
 """
 
 from __future__ import annotations
@@ -363,8 +364,13 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         # Forward optional kwargs (centered, dense_mass, etc.)
         da_kwargs = {}
         for k in (
-            "centered", "dense_mass", "target_accept_prob", "max_tree_depth",
-            "svi_warmstart", "svi_num_steps", "svi_learning_rate",
+            "centered",
+            "dense_mass",
+            "target_accept_prob",
+            "max_tree_depth",
+            "svi_warmstart",
+            "svi_num_steps",
+            "svi_learning_rate",
         ):
             if k in cfg:
                 da_kwargs[k] = cfg[k]
@@ -641,11 +647,66 @@ def run(methods: list[str], local: bool):
 # Modal entrypoints
 # ---------------------------------------------------------------------------
 
+# GPU priority ranking (most powerful first)
+_GPU_PRIORITY = {"B200": 0, "A100": 1, "L4": 2}
+
+
+def _resolve_modal_gpu() -> str:
+    """Determine GPU type from CLI args at module import time.
+
+    Modal requires GPU type at function registration (import time), so we peek
+    at sys.argv before the local entrypoint is called.
+
+    Priority: --gpu flag > method config gpu_type > B200 fallback.
+    """
+    import sys
+
+    args = sys.argv
+
+    # Explicit --gpu override
+    for i, arg in enumerate(args):
+        if arg == "--gpu" and i + 1 < len(args):
+            return args[i + 1]
+
+    # Derive from --method config (pick the most powerful GPU needed)
+    for i, arg in enumerate(args):
+        if arg == "--method" and i + 1 < len(args):
+            method_str = args[i + 1]
+            if method_str == "all":
+                break  # fall through to B200 default
+            methods = [m.strip() for m in method_str.split(",")]
+            best = "L4"
+            for m in methods:
+                g = METHOD_CONFIGS.get(m, {}).get("gpu_type", "L4")
+                if _GPU_PRIORITY.get(g, 99) < _GPU_PRIORITY.get(best, 99):
+                    best = g
+            return best
+
+    return "B200"  # default for --method all or unrecognised
+
+
+def _resolve_modal_timeout() -> int:
+    """Max timeout across requested methods (default 7200)."""
+    import sys
+
+    args = sys.argv
+    for i, arg in enumerate(args):
+        if arg == "--method" and i + 1 < len(args):
+            method_str = args[i + 1]
+            if method_str == "all":
+                methods = list(METHOD_CONFIGS.keys())
+            else:
+                methods = [m.strip() for m in method_str.split(",")]
+            return max(METHOD_CONFIGS.get(m, {}).get("timeout", 3600) for m in methods)
+    return 7200
+
+
 try:
     from benchmarks.modal_infra import make_modal_app
 
-    # Use the heaviest GPU needed (B200) for the unified runner
-    app, GPU = make_modal_app("dsem-recovery", "B200")
+    _MODAL_GPU = _resolve_modal_gpu()
+    _MODAL_TIMEOUT = _resolve_modal_timeout()
+    app, GPU = make_modal_app("dsem-recovery", _MODAL_GPU)
     HAS_MODAL = True
 except Exception:
     HAS_MODAL = False
@@ -653,16 +714,17 @@ except Exception:
 
 if HAS_MODAL:
 
-    @app.function(gpu=GPU, timeout=7200)
+    @app.function(gpu=GPU, timeout=_MODAL_TIMEOUT)
     def recovery_remote(methods: list[str]):
         run(methods, local=False)
 
     @app.local_entrypoint()
-    def modal_main(method: str = "all"):
+    def modal_main(method: str = "all", gpu: str = ""):  # noqa: ARG001 (gpu consumed at import time)
         if method == "all":
             methods = list(METHOD_CONFIGS.keys())
         else:
             methods = [m.strip() for m in method.split(",")]
+        print(f"GPU: {_MODAL_GPU}  timeout: {_MODAL_TIMEOUT}s")
         recovery_remote.remote(methods)
 
 
@@ -678,6 +740,11 @@ if __name__ == "__main__":
         help="Method name or 'all' (comma-separated for multiple)",
     )
     parser.add_argument("--local", action="store_true", help="Use small local settings")
+    parser.add_argument(
+        "--gpu",
+        default="",
+        help="GPU type for Modal (L4, A100, B200). Ignored for --local runs.",
+    )
     args = parser.parse_args()
 
     if args.method == "all":
