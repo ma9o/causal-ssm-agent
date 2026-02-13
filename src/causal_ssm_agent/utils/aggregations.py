@@ -10,8 +10,12 @@ handles measurement_granularity -> continuous time.
       -> SSM discretization -> continuous time
 """
 
+import logging
+
 import numpy as np
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # Granularity -> Polars truncation interval
 _TRUNCATE_INTERVAL = {
@@ -106,6 +110,93 @@ def _build_map_groups_fn(agg_name: str):
     raise ValueError(f"Unknown map_groups aggregation: '{agg_name}'")
 
 
+_BINARY_TRUE = {"true", "yes", "1", "1.0", "t", "y"}
+_BINARY_FALSE = {"false", "no", "0", "0.0", "f", "n"}
+
+
+def _encode_non_continuous(
+    df: pl.DataFrame,
+    dtype_lookup: dict[str, str],
+) -> pl.DataFrame:
+    """Encode non-continuous indicator values to numeric before Float64 cast.
+
+    - binary: map true/false/yes/no/1/0 → 1.0/0.0
+    - ordinal/categorical: integer label-encode (sorted categories)
+    - continuous/count: no-op (already numeric)
+
+    Modifies the 'value' column in-place per indicator partition.
+    """
+    if not dtype_lookup:
+        return df
+
+    non_continuous = {
+        name: dtype
+        for name, dtype in dtype_lookup.items()
+        if dtype in ("binary", "ordinal", "categorical")
+    }
+    if not non_continuous:
+        return df
+
+    # Ensure value is Utf8 for string matching
+    if df.schema.get("value") != pl.Utf8:
+        df = df.with_columns(pl.col("value").cast(pl.Utf8, strict=False))
+
+    frames = []
+    remaining_mask = pl.lit(True)
+
+    for name, dtype in non_continuous.items():
+        indicator_mask = pl.col("indicator") == name
+        subset = df.filter(indicator_mask)
+        if subset.is_empty():
+            continue
+
+        remaining_mask = remaining_mask & ~indicator_mask
+
+        if dtype == "binary":
+            subset = subset.with_columns(
+                pl.col("value")
+                .str.to_lowercase()
+                .map_elements(
+                    lambda v: 1.0 if v in _BINARY_TRUE else (0.0 if v in _BINARY_FALSE else None),
+                    return_dtype=pl.Float64,
+                )
+                .alias("value")
+            )
+            n_null = subset["value"].null_count()
+            if n_null > 0:
+                logger.warning(
+                    "Binary indicator '%s': %d/%d values could not be encoded",
+                    name,
+                    n_null,
+                    len(subset),
+                )
+        else:
+            # ordinal/categorical: sorted label encoding
+            unique_vals = sorted(v for v in subset["value"].unique().to_list() if v is not None)
+            label_map = {v: float(i) for i, v in enumerate(unique_vals)}
+            subset = subset.with_columns(
+                pl.col("value")
+                .map_elements(lambda v, _lm=label_map: _lm.get(v), return_dtype=pl.Float64)
+                .alias("value")
+            )
+            logger.info(
+                "%s indicator '%s': label-encoded %d categories",
+                dtype.capitalize(),
+                name,
+                len(unique_vals),
+            )
+
+        # Cast value back to Utf8 for consistency with remaining data
+        subset = subset.with_columns(pl.col("value").cast(pl.Utf8, strict=False))
+        frames.append(subset)
+
+    if not frames:
+        return df
+
+    remaining = df.filter(remaining_mask)
+    return pl.concat([remaining, *frames], how="vertical")
+
+
 def aggregate_worker_measurements(
     worker_dfs: list[pl.DataFrame | None],
     causal_spec: dict,
@@ -130,12 +221,18 @@ def aggregate_worker_measurements(
     # 1. Concat all worker DataFrames
     combined = pl.concat(valid_dfs, how="vertical")
 
-    # 2. Cast value to Float64, parse timestamp to datetime
-    # Object dtype columns cannot be cast directly; materialize to Python list first
+    # 2. Materialize Object dtype columns to Utf8 for further processing
     for col_name in ("value", "timestamp"):
         if col_name in combined.columns and combined.schema[col_name] == pl.Object:
             py_vals = [str(v) if v is not None else None for v in combined[col_name].to_list()]
             combined = combined.with_columns(pl.Series(col_name, py_vals, dtype=pl.Utf8))
+
+    # 3. Dtype-aware encoding: encode binary/ordinal/categorical values before Float64 cast
+    indicators = causal_spec.get("measurement", {}).get("indicators", [])
+    dtype_lookup = {
+        ind.get("name"): ind.get("measurement_dtype", "continuous") for ind in indicators
+    }
+    combined = _encode_non_continuous(combined, dtype_lookup)
 
     combined = combined.with_columns(
         pl.col("value").cast(pl.Float64, strict=False).alias("value"),
@@ -145,13 +242,13 @@ def aggregate_worker_measurements(
         .alias("datetime"),
     )
 
-    # 3. Drop rows with null timestamp or null value
+    # 4. Drop rows with null timestamp or null value
     combined = combined.drop_nulls(subset=["datetime", "value"])
 
     if combined.is_empty():
         return {}
 
-    # 4. Build indicator -> (measurement_granularity, aggregation) lookup
+    # 5. Build indicator -> (measurement_granularity, aggregation) lookup
     indicators = causal_spec.get("measurement", {}).get("indicators", [])
     indicator_info: dict[str, dict[str, str]] = {}
     for ind in indicators:
@@ -162,14 +259,14 @@ def aggregate_worker_measurements(
                 "aggregation": ind.get("aggregation", "mean"),
             }
 
-    # 5. Filter to known indicators only
+    # 6. Filter to known indicators only
     known_names = set(indicator_info.keys())
     combined = combined.filter(pl.col("indicator").is_in(known_names))
 
     if combined.is_empty():
         return {}
 
-    # 6. Group indicators by their measurement_granularity
+    # 7. Group indicators by their measurement_granularity
     granularity_groups: dict[str, list[str]] = {}
     for name, info in indicator_info.items():
         gran = info["granularity"]

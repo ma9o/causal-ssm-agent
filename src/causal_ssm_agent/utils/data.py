@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import polars as pl
 from dotenv import load_dotenv
 
 from causal_ssm_agent.utils.config import get_config
@@ -194,3 +195,39 @@ def load_query(filename: str) -> str:
 def list_queries() -> list[str]:
     """List available query files in test-queries directory."""
     return [p.name for p in QUERIES_DIR.glob("*") if p.is_file() and p.name != ".gitkeep"]
+
+
+def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
+    """Pivot long-format raw data to wide-format Polars DataFrame.
+
+    Handles time column detection, Float64 casting, datetime-to-fractional-days
+    conversion, and column renaming.
+
+    Args:
+        raw_data: Polars DataFrame with columns: indicator, value, and either
+            timestamp (raw) or time_bucket (aggregated).
+
+    Returns:
+        Wide-format Polars DataFrame with 'time' column and one column per indicator.
+        Returns empty DataFrame if input is empty.
+    """
+    if raw_data.is_empty():
+        return pl.DataFrame()
+
+    time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
+    wide_data = (
+        raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
+        .pivot(on="indicator", index=time_col, values="value", aggregate_function="mean")
+        .sort(time_col)
+    )
+
+    if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
+        t0 = wide_data[time_col].min()
+        wide_data = wide_data.with_columns(
+            ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
+        )
+
+    if time_col in wide_data.columns:
+        wide_data = wide_data.rename({time_col: "time"})
+
+    return wide_data

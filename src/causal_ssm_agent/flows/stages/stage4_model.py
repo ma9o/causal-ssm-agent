@@ -354,7 +354,9 @@ def stage4_orchestrated_flow(
     initial_results = elicit_prior_task.map(
         parameter_specs,
         question=unmapped(question),
-        literature=[literature_by_name[ps.get("name", f"param_{i}")] for i, ps in enumerate(parameter_specs)],
+        literature=[
+            literature_by_name[ps.get("name", f"param_{i}")] for i, ps in enumerate(parameter_specs)
+        ],
         n_paraphrases=unmapped(n_paraphrases),
     )
 

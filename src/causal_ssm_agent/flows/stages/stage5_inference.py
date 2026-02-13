@@ -4,10 +4,15 @@ Fits the SSM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 """
 
+import logging
 from typing import Any
 
 import polars as pl
 from prefect import task
+
+from causal_ssm_agent.utils.data import pivot_to_wide
+
+logger = logging.getLogger(__name__)
 
 
 @task(persist_result=False)
@@ -43,23 +48,7 @@ def fit_model(
         if raw_data.is_empty():
             return {"fitted": False, "error": "No data available"}
 
-        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-        wide_data = (
-            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-            .pivot(on="indicator", index=time_col, values="value")
-            .sort(time_col)
-        )
-
-        # Convert datetime to fractional days for JAX compatibility
-        if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
-            t0 = wide_data[time_col].min()
-            wide_data = wide_data.with_columns(
-                ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
-            )
-
-        X = wide_data.to_pandas()
-        if time_col in X.columns:
-            X = X.rename(columns={time_col: "time"})
+        X = pivot_to_wide(raw_data)
 
         # Fit the model — returns InferenceResult (default: SVI)
         result = builder.fit(X)
@@ -110,26 +99,10 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
         ssm_model = builder._model
 
         # Convert data to wide format
-        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-        wide_data = (
-            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-            .pivot(on="indicator", index=time_col, values="value")
-            .sort(time_col)
-        )
+        X = pivot_to_wide(raw_data)
 
-        # Convert datetime to fractional days for JAX compatibility
-        if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
-            t0 = wide_data[time_col].min()
-            wide_data = wide_data.with_columns(
-                ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
-            )
-
-        X = wide_data.to_pandas()
-        if time_col in X.columns:
-            X = X.rename(columns={time_col: "time"})
-
-        observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
-        times = jnp.array(X["time"].values, dtype=jnp.float32)
+        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float64)
+        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float64)
 
         ps_result = power_scaling_sensitivity(
             model=ssm_model,
@@ -149,7 +122,7 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
         }
 
     except Exception as e:
-        print(f"Power-scaling check failed: {e}")
+        logger.exception("Power-scaling check failed")
         return {"checked": False, "error": str(e)}
 
 
@@ -180,41 +153,28 @@ def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
         spec = builder._spec
         samples = result.get_samples()
 
-        # Convert data to wide format (same pivot as run_power_scaling)
-        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-        wide_data = (
-            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-            .pivot(on="indicator", index=time_col, values="value")
-            .sort(time_col)
-        )
+        # Convert data to wide format
+        X = pivot_to_wide(raw_data)
 
-        if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
-            t0 = wide_data[time_col].min()
-            wide_data = wide_data.with_columns(
-                ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
-            )
+        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float64)
+        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float64)
 
-        X = wide_data.to_pandas()
-        if time_col in X.columns:
-            X = X.rename(columns={time_col: "time"})
-
-        observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
-        times = jnp.array(X["time"].values, dtype=jnp.float32)
-
-        manifest_names = spec.manifest_names or list(X.drop(columns=["time"]).columns)
+        manifest_names = spec.manifest_names or [c for c in X.columns if c != "time"]
 
         ppc_result = run_posterior_predictive_checks(
             samples=samples,
             observations=observations,
             times=times,
             manifest_names=manifest_names,
-            manifest_dist=spec.manifest_dist.value if hasattr(spec.manifest_dist, "value") else str(spec.manifest_dist),
+            manifest_dist=spec.manifest_dist.value
+            if hasattr(spec.manifest_dist, "value")
+            else str(spec.manifest_dist),
         )
 
         return ppc_result.to_dict()
 
     except Exception as e:
-        print(f"PPC check failed: {e}")
+        logger.exception("PPC check failed")
         return {"checked": False, "error": str(e)}
 
 
@@ -261,7 +221,12 @@ def run_interventions(
     # If model not fitted, return skeleton results
     if not fitted_model.get("fitted", False):
         return [
-            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            {
+                "treatment": t,
+                "effect_size": None,
+                "credible_interval": None,
+                "identifiable": t not in non_identifiable,
+            }
             for t in treatments
         ]
 
@@ -280,9 +245,14 @@ def run_interventions(
 
     outcome_idx = name_to_idx.get(outcome)
     if outcome_idx is None:
-        print(f"Warning: outcome '{outcome}' not found in latent names {latent_names}")
+        logger.warning("Outcome '%s' not found in latent names %s", outcome, latent_names)
         return [
-            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            {
+                "treatment": t,
+                "effect_size": None,
+                "credible_interval": None,
+                "identifiable": t not in non_identifiable,
+            }
             for t in treatments
         ]
 
@@ -291,9 +261,14 @@ def run_interventions(
     cint_draws = samples.get("cint")  # (n_draws, n) or None
 
     if drift_draws is None:
-        print("Warning: no 'drift' in posterior samples")
+        logger.warning("No 'drift' in posterior samples")
         return [
-            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            {
+                "treatment": t,
+                "effect_size": None,
+                "credible_interval": None,
+                "identifiable": t not in non_identifiable,
+            }
             for t in treatments
         ]
 

@@ -117,7 +117,7 @@ def causal_inference_pipeline(
     measurement_result = propose_measurement_with_identifiability_fix(
         question,
         latent_model,
-        orchestrator_chunks[:get_sample_chunks()],
+        orchestrator_chunks[: get_sample_chunks()],
     )
 
     measurement_model = measurement_result["measurement_model"]

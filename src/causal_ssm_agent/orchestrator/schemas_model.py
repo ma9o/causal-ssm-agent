@@ -154,6 +154,51 @@ def validate_model_spec(
     """
     issues: list[dict] = []
 
+    # 0a. Duplicate likelihood variables
+    lik_vars = [lik.variable for lik in model_spec.likelihoods]
+    seen_vars: set[str] = set()
+    for var in lik_vars:
+        if var in seen_vars:
+            issues.append(
+                {
+                    "field": "likelihoods",
+                    "name": var,
+                    "issue": f"duplicate likelihood for variable '{var}'",
+                    "severity": "error",
+                }
+            )
+        seen_vars.add(var)
+
+    # 0b. Unique parameter names
+    param_names = [p.name for p in model_spec.parameters]
+    seen_params: set[str] = set()
+    for name in param_names:
+        if name in seen_params:
+            issues.append(
+                {
+                    "field": "parameters",
+                    "name": name,
+                    "issue": f"duplicate parameter name '{name}'",
+                    "severity": "error",
+                }
+            )
+        seen_params.add(name)
+
+    # 0c. One likelihood per indicator (coverage check, when indicators provided)
+    if indicators is not None:
+        indicator_names = {ind["name"] for ind in indicators}
+        covered = set(lik_vars)
+        missing = indicator_names - covered
+        for var in sorted(missing):
+            issues.append(
+                {
+                    "field": "likelihoods",
+                    "name": var,
+                    "issue": f"indicator '{var}' has no likelihood specification",
+                    "severity": "warning",
+                }
+            )
+
     # 1. distribution <-> link compatibility
     for lik in model_spec.likelihoods:
         valid_links = VALID_LINKS_FOR_DISTRIBUTION.get(lik.distribution)
@@ -238,17 +283,41 @@ def validate_model_spec_dict(
     valid_distributions = {e.value for e in DistributionFamily}
     valid_links = {e.value for e in LinkFunction}
 
-    # --- Validate likelihoods ---
+    # --- Uniqueness and coverage checks ---
     likelihoods = data.get("likelihoods", [])
     if not isinstance(likelihoods, list):
         errors.append("'likelihoods' must be a list")
         likelihoods = []
 
+    # Duplicate likelihood variables
+    lik_vars = [lik.get("variable", "") for lik in likelihoods if isinstance(lik, dict)]
+    seen_lik_vars: set[str] = set()
+    for var in lik_vars:
+        if var and var in seen_lik_vars:
+            errors.append(f"duplicate likelihood for variable '{var}'")
+        if var:
+            seen_lik_vars.add(var)
+
+    # Duplicate parameter names
+    parameters_raw = data.get("parameters", [])
+    if isinstance(parameters_raw, list):
+        param_names = [p.get("name", "") for p in parameters_raw if isinstance(p, dict)]
+        seen_param_names: set[str] = set()
+        for name in param_names:
+            if name and name in seen_param_names:
+                errors.append(f"duplicate parameter name '{name}'")
+            if name:
+                seen_param_names.add(name)
+
+    # Coverage: one likelihood per indicator
     indicator_dtype = {}
     if indicators:
         indicator_dtype = {
             ind["name"]: ind.get("measurement_dtype", "continuous") for ind in indicators
         }
+        missing = set(indicator_dtype.keys()) - seen_lik_vars
+        for var in sorted(missing):
+            errors.append(f"indicator '{var}' has no likelihood specification")
 
     for i, lik in enumerate(likelihoods):
         if not isinstance(lik, dict):

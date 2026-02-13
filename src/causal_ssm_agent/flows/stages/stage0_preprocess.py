@@ -75,7 +75,7 @@ def _records_to_lines(records: list[dict]) -> list[str]:
     """Convert processed records to text lines."""
     lines = []
     for r in records:
-        ts = r["datetime"].strftime("%Y-%m-%d %H:%M")
+        ts = r["datetime"].isoformat()
         loc_str = f" @ {r['location']}" if r["location"] else ""
         lines.append(f"[{ts}]{loc_str} [{r['activity_type']}] {r['content']}")
     return lines
