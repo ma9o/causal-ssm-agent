@@ -44,6 +44,8 @@ dev = [
     "watchdog>=6.0.0",
     "dspy>=3.0.4",
     "modal>=1.3.2",
+    "marimo>=0.19.11",
+    "pyvis>=0.3.2",
 ]
 
 [tool.ruff]
@@ -81,6 +83,9 @@ ignore = [
 "tests/*" = [
     "ARG001",  # unused function arguments (pytest fixtures)
     "ARG002",  # unused method arguments (pytest fixtures)
+]
+"tools/model_inspector.py" = [
+    "B018",    # useless expressions (marimo uses bare expressions for cell output)
 ]
 
 [tool.ruff.lint.isort]

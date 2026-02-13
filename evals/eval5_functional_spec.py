@@ -34,6 +34,7 @@ from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
     get_eval_questions,
     load_causal_spec_by_question_id,
+    save_model_spec_by_question_id,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -146,8 +147,13 @@ def functional_spec_solver():
                 question=question,
                 generate=gen_fn,
             )
-            state.metadata["model_spec"] = json.loads(result.model_spec.model_dump_json())
+            model_spec_dict = json.loads(result.model_spec.model_dump_json())
+            state.metadata["model_spec"] = model_spec_dict
             state.output.completion = result.raw_response
+
+            # Persist for downstream evals
+            question_id = state.metadata["question_id"]
+            save_model_spec_by_question_id(question_id, model_spec_dict)
 
             return state
 

@@ -1,0 +1,823 @@
+{
+  "likelihoods": [
+    {
+      "variable": "late_night_browsing",
+      "distribution": "Bernoulli",
+      "link": "logit",
+      "reasoning": "Binary indicator (0/1) for late-night browsing; logit link standard for binary outcomes"
+    },
+    {
+      "variable": "morning_start_hour",
+      "distribution": "Normal",
+      "link": "identity",
+      "reasoning": "Continuous hour-of-day measure; approximately normally distributed around typical start times"
+    },
+    {
+      "variable": "technical_entry_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of technical browsing entries; likely overdispersed due to high variability in daily coding tasks"
+    },
+    {
+      "variable": "distinct_work_topics",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of distinct topics; overdispersed as some days are focused while others span many topics"
+    },
+    {
+      "variable": "topic_switch_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of context switches; overdispersed reflecting variable interruption patterns across days"
+    },
+    {
+      "variable": "work_gap_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of work activity gaps; overdispersed with high day-to-day variability"
+    },
+    {
+      "variable": "last_work_hour",
+      "distribution": "Normal",
+      "link": "identity",
+      "reasoning": "Continuous hour-of-day timestamp; normal distribution around typical end-of-work hours"
+    },
+    {
+      "variable": "first_work_hour",
+      "distribution": "Normal",
+      "link": "identity",
+      "reasoning": "Continuous hour-of-day timestamp; normal distribution around typical start-of-work hours"
+    },
+    {
+      "variable": "complex_debug_search_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of complex debugging searches; overdispersed with many zeros on non-debugging days"
+    },
+    {
+      "variable": "error_message_search_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of error message lookups; overdispersed with excess zeros when no errors occur"
+    },
+    {
+      "variable": "nonwork_entry_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of non-work browsing entries; overdispersed due to individual differences and fatigue variation"
+    },
+    {
+      "variable": "afternoon_work_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of afternoon work entries; overdispersed as afternoon productivity varies substantially with fatigue"
+    },
+    {
+      "variable": "stress_health_search_count",
+      "distribution": "Poisson",
+      "link": "log",
+      "reasoning": "Count of stress/health-related searches; rare events with low baseline rate suitable for Poisson"
+    },
+    {
+      "variable": "escape_behavior_count",
+      "distribution": "Poisson",
+      "link": "log",
+      "reasoning": "Count of escape/avoidance browsing; rare stress-coping events with low rates suitable for Poisson"
+    },
+    {
+      "variable": "work_clustering_rating",
+      "distribution": "OrderedLogistic",
+      "link": "cumulative_logit",
+      "reasoning": "Ordinal rating of work session clustering; ordered categories require cumulative logit model"
+    },
+    {
+      "variable": "max_consecutive_work_entries",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of max consecutive work entries; overdispersed as focus episodes vary widely across days"
+    },
+    {
+      "variable": "basic_lookup_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of basic code lookups; overdispersed depending on task novelty and code familiarity"
+    },
+    {
+      "variable": "documentation_visit_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of documentation visits; overdispersed with high variability depending on task type"
+    },
+    {
+      "variable": "external_help_count",
+      "distribution": "Poisson",
+      "link": "log",
+      "reasoning": "Count of external help-seeking events; typically low counts making Poisson appropriate"
+    },
+    {
+      "variable": "multi_site_same_query",
+      "distribution": "Bernoulli",
+      "link": "logit",
+      "reasoning": "Binary indicator of searching same query across multiple sites; logit link for binary outcome"
+    },
+    {
+      "variable": "debug_search_specificity",
+      "distribution": "OrderedLogistic",
+      "link": "cumulative_logit",
+      "reasoning": "Ordinal rating of search specificity level; ordered categories require cumulative logit"
+    },
+    {
+      "variable": "repeated_search_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of repeated searches for same issue; overdispersed with many zeros on productive days"
+    },
+    {
+      "variable": "search_progression_rating",
+      "distribution": "OrderedLogistic",
+      "link": "cumulative_logit",
+      "reasoning": "Ordinal rating of systematic search progression; ordered categories require cumulative logit"
+    },
+    {
+      "variable": "has_methodology_search",
+      "distribution": "Bernoulli",
+      "link": "logit",
+      "reasoning": "Binary indicator of debugging methodology search; logit link for binary outcome"
+    },
+    {
+      "variable": "debug_entry_count",
+      "distribution": "NegativeBinomial",
+      "link": "log",
+      "reasoning": "Count of debug-related entries; overdispersed as debugging effort varies substantially day to day"
+    },
+    {
+      "variable": "stuck_on_error",
+      "distribution": "Bernoulli",
+      "link": "logit",
+      "reasoning": "Binary indicator of being stuck on an error; logit link for binary outcome"
+    }
+  ],
+  "random_effects": [
+    {
+      "grouping": "subject",
+      "effect_type": "intercept",
+      "applies_to": [
+        "Sleep Quality",
+        "Workload Volume",
+        "Interruption Frequency",
+        "Deadline Pressure",
+        "Error Complexity",
+        "Cognitive Fatigue",
+        "Stress Level",
+        "Focus Quality",
+        "Code Familiarity",
+        "Team Support Availability",
+        "Debugging Confidence",
+        "Systematic Debugging Behavior",
+        "Error Resolution Speed"
+      ],
+      "reasoning": "Individual developers differ systematically in baseline levels of all measured constructs due to stable personal characteristics, work environments, team contexts, and habits. Random intercepts capture between-person heterogeneity. The 7 time-invariant exogenous constructs without indicators have their between-person effects partially absorbed into these random intercepts."
+    }
+  ],
+  "parameters": [
+    {
+      "name": "beta_developer_experience_level_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of developer experience on error resolution speed (lagged)",
+      "search_context": "developer experience debugging speed bug fix time software engineering expertise meta-analysis"
+    },
+    {
+      "name": "beta_developer_experience_level_debugging_confidence",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of developer experience on debugging self-efficacy (lagged)",
+      "search_context": "programming experience self-efficacy software developer confidence expertise meta-analysis"
+    },
+    {
+      "name": "beta_developer_experience_level_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of developer experience on use of systematic debugging strategies (lagged)",
+      "search_context": "developer expertise debugging strategy systematic approach novice expert differences software engineering"
+    },
+    {
+      "name": "beta_codebase_complexity_error_complexity",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of codebase complexity on error complexity (lagged)",
+      "search_context": "software complexity cyclomatic complexity defect severity bug difficulty coupling meta-analysis"
+    },
+    {
+      "name": "beta_codebase_complexity_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of codebase complexity on error resolution speed (lagged)",
+      "search_context": "code complexity bug fix time software maintenance effort technical debt resolution time meta-analysis"
+    },
+    {
+      "name": "beta_team_size_team_support_availability",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of team size on team support availability (lagged)",
+      "search_context": "software team size collaboration availability help seeking knowledge sharing meta-analysis"
+    },
+    {
+      "name": "beta_documentation_quality_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of documentation quality on error resolution speed (lagged)",
+      "search_context": "documentation quality software maintenance debugging time code comprehension effect size"
+    },
+    {
+      "name": "beta_documentation_quality_code_familiarity",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of documentation quality on code familiarity acquisition (lagged)",
+      "search_context": "documentation quality code comprehension program understanding learning software engineering"
+    },
+    {
+      "name": "beta_tooling_quality_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of debugging tool quality on error resolution speed (lagged)",
+      "search_context": "debugging tool IDE effectiveness bug resolution speed developer productivity tooling meta-analysis"
+    },
+    {
+      "name": "beta_tooling_quality_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of tool quality on systematic debugging approach (lagged)",
+      "search_context": "debugging tools systematic methodology IDE debugger stepping structured diagnosis approach"
+    },
+    {
+      "name": "beta_error_information_quality_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of error message quality on resolution speed (lagged)",
+      "search_context": "error message quality stack trace usefulness diagnostic information debugging time effect size"
+    },
+    {
+      "name": "beta_testing_infrastructure_quality_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Between-person effect of testing infrastructure on error resolution speed (lagged)",
+      "search_context": "test automation infrastructure bug fix time defect resolution continuous integration testing effect size"
+    },
+    {
+      "name": "beta_sleep_quality_cognitive_fatigue",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged effect of prior night sleep quality on next-day cognitive fatigue",
+      "search_context": "sleep quality next day cognitive fatigue mental exhaustion daily diary longitudinal meta-analysis"
+    },
+    {
+      "name": "beta_sleep_quality_focus_quality",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged effect of sleep quality on next-day attentional focus",
+      "search_context": "sleep deprivation sustained attention concentration working memory impairment meta-analysis effect size"
+    },
+    {
+      "name": "beta_workload_volume_cognitive_fatigue",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of daily workload volume on cognitive fatigue",
+      "search_context": "workload cognitive fatigue mental exhaustion daily experience sampling occupational burnout meta-analysis"
+    },
+    {
+      "name": "beta_workload_volume_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of workload volume on perceived stress",
+      "search_context": "workload perceived stress job demands occupational stress daily diary meta-analysis effect size"
+    },
+    {
+      "name": "beta_workload_volume_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of workload on error resolution speed (time pressure)",
+      "search_context": "workload task performance speed accuracy tradeoff time pressure multitasking productivity meta-analysis"
+    },
+    {
+      "name": "beta_interruption_frequency_focus_quality",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of interruptions on focus quality",
+      "search_context": "workplace interruptions focus concentration context switching cost attention fragmentation meta-analysis"
+    },
+    {
+      "name": "beta_interruption_frequency_cognitive_fatigue",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of interruptions on cognitive fatigue",
+      "search_context": "interruptions cognitive fatigue context switching mental depletion task switching cost meta-analysis"
+    },
+    {
+      "name": "beta_deadline_pressure_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of deadline pressure on stress level",
+      "search_context": "deadline pressure time pressure work stress psychological strain daily diary meta-analysis"
+    },
+    {
+      "name": "beta_deadline_pressure_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of deadline pressure on systematic vs. reactive debugging",
+      "search_context": "time pressure decision making quality systematic heuristic processing speed accuracy tradeoff meta-analysis"
+    },
+    {
+      "name": "beta_error_complexity_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of error complexity on resolution speed",
+      "search_context": "bug complexity severity defect fix time resolution duration software defect meta-analysis"
+    },
+    {
+      "name": "beta_error_complexity_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of error complexity on stress level",
+      "search_context": "task difficulty frustration stress complex problem solving anxiety programming challenge effect size"
+    },
+    {
+      "name": "beta_cognitive_fatigue_focus_quality",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of cognitive fatigue on sustained attention quality",
+      "search_context": "cognitive fatigue sustained attention vigilance decrement time on task attention meta-analysis"
+    },
+    {
+      "name": "beta_cognitive_fatigue_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of cognitive fatigue on debugging performance",
+      "search_context": "mental fatigue cognitive performance problem solving analytical reasoning impairment meta-analysis"
+    },
+    {
+      "name": "beta_cognitive_fatigue_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of cognitive fatigue on stress reactivity",
+      "search_context": "cognitive fatigue emotional regulation stress reactivity ego depletion self-control meta-analysis"
+    },
+    {
+      "name": "beta_stress_level_focus_quality",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of stress on attentional focus",
+      "search_context": "stress working memory attention impairment rumination concentration anxiety meta-analysis effect size"
+    },
+    {
+      "name": "beta_stress_level_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of stress on systematic debugging approach",
+      "search_context": "stress decision making strategy heuristic vs systematic processing anxiety problem solving meta-analysis"
+    },
+    {
+      "name": "beta_focus_quality_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of focus quality on error resolution speed",
+      "search_context": "sustained attention task performance knowledge work deep focus flow state productivity effect size"
+    },
+    {
+      "name": "beta_focus_quality_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of focus quality on systematic debugging",
+      "search_context": "attention quality systematic problem solving methodical approach cognitive control executive function meta-analysis"
+    },
+    {
+      "name": "beta_code_familiarity_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged effect of code familiarity on error resolution speed",
+      "search_context": "code familiarity program comprehension bug fix time software domain knowledge debugging speed effect size"
+    },
+    {
+      "name": "beta_code_familiarity_debugging_confidence",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged effect of code familiarity on debugging confidence",
+      "search_context": "task familiarity self-efficacy confidence competence prior knowledge domain expertise meta-analysis"
+    },
+    {
+      "name": "beta_team_support_availability_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of team support on error resolution speed",
+      "search_context": "pair programming code review collaborative debugging team support bug fix speed meta-analysis"
+    },
+    {
+      "name": "beta_team_support_availability_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of team support availability on stress (buffering)",
+      "search_context": "social support workplace stress buffering hypothesis occupational health daily diary meta-analysis"
+    },
+    {
+      "name": "beta_debugging_confidence_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of debugging self-efficacy on resolution speed",
+      "search_context": "self-efficacy task performance problem solving persistence speed Bandura meta-analysis effect size"
+    },
+    {
+      "name": "beta_debugging_confidence_systematic_debugging_behavior",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of debugging confidence on systematic strategy use",
+      "search_context": "self-efficacy strategy use systematic approach persistence metacognition meta-analysis"
+    },
+    {
+      "name": "beta_systematic_debugging_behavior_error_resolution_speed",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Contemporaneous effect of systematic debugging on resolution speed",
+      "search_context": "systematic debugging strategy hypothesis-driven troubleshooting effectiveness problem solving meta-analysis"
+    },
+    {
+      "name": "beta_error_resolution_speed_debugging_confidence",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged feedback effect of resolution speed on next-day debugging confidence",
+      "search_context": "performance feedback self-efficacy success experience mastery confidence Bandura meta-analysis"
+    },
+    {
+      "name": "beta_error_resolution_speed_stress_level",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged feedback effect of resolution speed on next-day stress",
+      "search_context": "task completion stress reduction backlog relief achievement anxiety next day spillover effect size"
+    },
+    {
+      "name": "beta_error_resolution_speed_code_familiarity",
+      "role": "fixed_effect",
+      "constraint": "none",
+      "description": "Lagged feedback effect of debugging on code familiarity growth",
+      "search_context": "debugging learning code comprehension incidental learning maintenance programming knowledge acquisition"
+    },
+    {
+      "name": "ar_error_complexity",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of error complexity (how much today's error difficulty carries over)",
+      "search_context": "daily autocorrelation task difficulty persistence software bugs temporal stability experience sampling"
+    },
+    {
+      "name": "ar_cognitive_fatigue",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of cognitive fatigue",
+      "search_context": "daily autocorrelation cognitive fatigue mental exhaustion temporal stability experience sampling inertia"
+    },
+    {
+      "name": "ar_stress_level",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of stress (stress inertia)",
+      "search_context": "daily stress inertia autocorrelation emotional inertia experience sampling affect dynamics meta-analysis"
+    },
+    {
+      "name": "ar_focus_quality",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of focus quality",
+      "search_context": "daily autocorrelation attention focus concentration temporal stability experience sampling cognitive"
+    },
+    {
+      "name": "ar_code_familiarity",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of code familiarity (expected high, weekly granularity construct)",
+      "search_context": "knowledge retention learning curve code comprehension temporal stability skill acquisition autocorrelation"
+    },
+    {
+      "name": "ar_team_support_availability",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of team support availability",
+      "search_context": "daily autocorrelation social support availability workplace temporal stability team collaboration"
+    },
+    {
+      "name": "ar_debugging_confidence",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of debugging self-efficacy",
+      "search_context": "daily autocorrelation self-efficacy stability temporal persistence experience sampling state confidence"
+    },
+    {
+      "name": "ar_systematic_debugging_behavior",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of systematic debugging behavior",
+      "search_context": "daily autocorrelation behavior consistency strategy use habit persistence temporal stability"
+    },
+    {
+      "name": "ar_error_resolution_speed",
+      "role": "ar_coefficient",
+      "constraint": "unit_interval",
+      "description": "Day-to-day persistence of error resolution speed (performance momentum)",
+      "search_context": "daily autocorrelation task performance productivity temporal stability worker output experience sampling"
+    },
+    {
+      "name": "residual_sd_morning_start_hour",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Measurement error SD for morning start hour indicator (Normal likelihood)",
+      "search_context": "work start time variability measurement error daily schedule variation standard deviation"
+    },
+    {
+      "name": "residual_sd_last_work_hour",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Measurement error SD for last work hour indicator (Normal likelihood)",
+      "search_context": "work end time variability measurement error daily schedule variation standard deviation"
+    },
+    {
+      "name": "residual_sd_first_work_hour",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Measurement error SD for first work hour indicator (Normal likelihood)",
+      "search_context": "work start time variability measurement error daily schedule variation standard deviation"
+    },
+    {
+      "name": "residual_sd_sleep_quality",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Within-person SD of sleep quality latent construct (exogenous time-varying)",
+      "search_context": "sleep quality within-person variability daily diary standard deviation experience sampling"
+    },
+    {
+      "name": "residual_sd_workload_volume",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Within-person SD of workload volume latent construct (exogenous time-varying)",
+      "search_context": "daily workload within-person variability standard deviation experience sampling occupational"
+    },
+    {
+      "name": "residual_sd_interruption_frequency",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Within-person SD of interruption frequency latent construct (exogenous time-varying)",
+      "search_context": "workplace interruptions within-person variability daily frequency standard deviation"
+    },
+    {
+      "name": "residual_sd_deadline_pressure",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Within-person SD of deadline pressure latent construct (exogenous time-varying)",
+      "search_context": "time pressure deadline daily variability within-person standard deviation experience sampling"
+    },
+    {
+      "name": "residual_sd_error_complexity",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for error complexity construct (unexplained daily variation)",
+      "search_context": "bug complexity daily variability software defect difficulty within-person variation"
+    },
+    {
+      "name": "residual_sd_cognitive_fatigue",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for cognitive fatigue construct",
+      "search_context": "cognitive fatigue daily variability within-person variation experience sampling standard deviation"
+    },
+    {
+      "name": "residual_sd_stress_level",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for stress level construct",
+      "search_context": "daily stress within-person variability innovation variance experience sampling standard deviation"
+    },
+    {
+      "name": "residual_sd_focus_quality",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for focus quality construct",
+      "search_context": "attention focus daily variability within-person variation standard deviation experience sampling"
+    },
+    {
+      "name": "residual_sd_code_familiarity",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for code familiarity construct (expected small, weekly granularity)",
+      "search_context": "learning knowledge acquisition daily innovation variance skill growth within-person variation"
+    },
+    {
+      "name": "residual_sd_team_support_availability",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for team support availability construct",
+      "search_context": "social support availability daily variability within-person workplace variation standard deviation"
+    },
+    {
+      "name": "residual_sd_debugging_confidence",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for debugging confidence construct",
+      "search_context": "self-efficacy daily variability within-person innovation variance state confidence experience sampling"
+    },
+    {
+      "name": "residual_sd_systematic_debugging_behavior",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for systematic debugging behavior construct",
+      "search_context": "strategy use daily variability within-person behavioral consistency innovation variance"
+    },
+    {
+      "name": "residual_sd_error_resolution_speed",
+      "role": "residual_sd",
+      "constraint": "positive",
+      "description": "Innovation SD for error resolution speed construct",
+      "search_context": "daily productivity task performance within-person variability innovation variance debugging"
+    },
+    {
+      "name": "loading_morning_start_hour",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of morning start hour on Sleep Quality (reference: late_night_browsing fixed to 1)",
+      "search_context": "sleep quality morning start time wake time relationship factor loading measurement model"
+    },
+    {
+      "name": "loading_distinct_work_topics",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of distinct work topics on Workload Volume (reference: technical_entry_count fixed to 1)",
+      "search_context": "workload breadth task count topic diversity factor loading measurement model"
+    },
+    {
+      "name": "loading_work_gap_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of work gap count on Interruption Frequency (reference: topic_switch_count fixed to 1)",
+      "search_context": "interruptions work gaps context switching measurement factor loading fragmentation"
+    },
+    {
+      "name": "loading_first_work_hour",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of first work hour on Deadline Pressure (reference: last_work_hour fixed to 1)",
+      "search_context": "deadline pressure work hours early start late finish schedule extension factor loading"
+    },
+    {
+      "name": "loading_error_message_search_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of error message search count on Error Complexity (reference: complex_debug_search_count fixed to 1)",
+      "search_context": "error complexity debugging search behavior error message lookup factor loading measurement"
+    },
+    {
+      "name": "loading_afternoon_work_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of afternoon work count on Cognitive Fatigue (reference: nonwork_entry_count fixed to 1)",
+      "search_context": "cognitive fatigue afternoon productivity work pattern measurement factor loading"
+    },
+    {
+      "name": "loading_escape_behavior_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of escape behavior count on Stress Level (reference: stress_health_search_count fixed to 1)",
+      "search_context": "stress avoidance escape behavior coping measurement factor loading occupational psychology"
+    },
+    {
+      "name": "loading_max_consecutive_work_entries",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of max consecutive work entries on Focus Quality (reference: work_clustering_rating fixed to 1)",
+      "search_context": "attention focus sustained work session consecutive duration measurement factor loading"
+    },
+    {
+      "name": "loading_documentation_visit_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of documentation visit count on Code Familiarity (reference: basic_lookup_count fixed to 1)",
+      "search_context": "code familiarity documentation lookup reference seeking measurement factor loading programming"
+    },
+    {
+      "name": "loading_multi_site_same_query",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of multi-site same query on Team Support Availability (reference: external_help_count fixed to 1)",
+      "search_context": "help seeking cross-referencing team support availability measurement factor loading"
+    },
+    {
+      "name": "loading_repeated_search_count",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of repeated search count on Debugging Confidence (reference: debug_search_specificity fixed to 1)",
+      "search_context": "debugging confidence search repetition self-efficacy uncertainty measurement factor loading"
+    },
+    {
+      "name": "loading_has_methodology_search",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of methodology search on Systematic Debugging Behavior (reference: search_progression_rating fixed to 1)",
+      "search_context": "systematic debugging methodology search behavior structured approach measurement factor loading"
+    },
+    {
+      "name": "loading_stuck_on_error",
+      "role": "loading",
+      "constraint": "positive",
+      "description": "Factor loading of stuck on error on Error Resolution Speed (reference: debug_entry_count fixed to 1)",
+      "search_context": "error resolution speed stuck indicator debugging effort duration measurement factor loading"
+    },
+    {
+      "name": "random_intercept_sd_sleep_quality",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Sleep Quality baseline",
+      "search_context": "sleep quality between-person variability individual differences ICC daily diary intraclass correlation"
+    },
+    {
+      "name": "random_intercept_sd_workload_volume",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Workload Volume baseline",
+      "search_context": "workload between-person variability individual differences ICC daily diary intraclass correlation"
+    },
+    {
+      "name": "random_intercept_sd_interruption_frequency",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Interruption Frequency baseline",
+      "search_context": "interruption frequency between-person variability individual differences ICC workplace daily"
+    },
+    {
+      "name": "random_intercept_sd_deadline_pressure",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Deadline Pressure baseline",
+      "search_context": "time pressure between-person variability individual differences ICC occupational daily diary"
+    },
+    {
+      "name": "random_intercept_sd_error_complexity",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Error Complexity baseline",
+      "search_context": "bug complexity between-person variability software developer project difficulty individual differences"
+    },
+    {
+      "name": "random_intercept_sd_cognitive_fatigue",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Cognitive Fatigue baseline",
+      "search_context": "cognitive fatigue between-person variability individual differences ICC daily diary intraclass correlation"
+    },
+    {
+      "name": "random_intercept_sd_stress_level",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Stress Level baseline",
+      "search_context": "daily stress between-person variability individual differences ICC experience sampling intraclass"
+    },
+    {
+      "name": "random_intercept_sd_focus_quality",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Focus Quality baseline",
+      "search_context": "attention focus between-person variability individual differences ICC sustained attention daily"
+    },
+    {
+      "name": "random_intercept_sd_code_familiarity",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Code Familiarity baseline",
+      "search_context": "code familiarity between-person variability programmer knowledge individual differences software"
+    },
+    {
+      "name": "random_intercept_sd_team_support_availability",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Team Support Availability baseline",
+      "search_context": "social support availability between-person variability individual differences workplace team ICC"
+    },
+    {
+      "name": "random_intercept_sd_debugging_confidence",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Debugging Confidence baseline",
+      "search_context": "self-efficacy between-person variability individual differences ICC programming confidence"
+    },
+    {
+      "name": "random_intercept_sd_systematic_debugging_behavior",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Systematic Debugging Behavior baseline",
+      "search_context": "debugging strategy between-person variability individual differences systematic approach consistency"
+    },
+    {
+      "name": "random_intercept_sd_error_resolution_speed",
+      "role": "random_intercept_sd",
+      "constraint": "positive",
+      "description": "Between-person SD for Error Resolution Speed baseline",
+      "search_context": "developer productivity between-person variability individual differences ICC bug fix rate daily"
+    }
+  ],
+  "model_clock": "daily",
+  "reasoning": "This is a dynamic structural equation model (DSEM) for daily software debugging performance. The model has three layers: (1) A measurement model linking 26 observed browser-based indicators to 13 latent constructs via factor models with 2 indicators each, where one loading is fixed to 1 for identification. (2) A within-person temporal structural model with AR(1) dynamics for the 9 endogenous time-varying constructs, capturing day-to-day persistence. (3) A between-person structural model where 7 unobserved time-invariant exogenous constructs (developer experience, codebase complexity, etc.) influence endogenous constructs through fixed effects absorbed into person-level variation. Distribution choices reflect data types: NegativeBinomial for overdispersed browsing counts, Poisson for rare event counts, Bernoulli for binary indicators, OrderedLogistic for ordinal ratings, and Normal for continuous timestamps. Random intercepts for subjects on all 13 measured constructs capture stable between-person differences. The model is intentionally kept with intercept-only random effects (no random slopes) to maintain identifiability given the complexity of the structural model (40 causal paths, 9 AR parameters). Code Familiarity is modeled at daily resolution despite weekly granularity, with the expectation that its AR coefficient will be near 1 reflecting slow knowledge accumulation."
+}
