@@ -20,21 +20,22 @@ In Bayesian modeling, we specify our beliefs about the generative process that c
 ## Your Responsibilities
 
 1. **Choose distribution families**: For each observed indicator, select the appropriate likelihood:
-   - `Normal`: Continuous unbounded data
-   - `Gamma`: Positive continuous data (reaction times, durations)
-   - `Bernoulli`: Binary outcomes (yes/no, success/failure)
-   - `Poisson`: Count data (low counts, rare events)
-   - `NegativeBinomial`: Overdispersed count data
-   - `Beta`: Proportions/rates in (0, 1)
-   - `OrderedLogistic`: Ordinal scales (Likert items)
-   - `Categorical`: Unordered categories
+   - `gaussian`: Continuous unbounded data
+   - `student_t`: Continuous data with heavy tails
+   - `gamma`: Positive continuous data (reaction times, durations)
+   - `bernoulli`: Binary outcomes (yes/no, success/failure)
+   - `poisson`: Count data (low counts, rare events)
+   - `negative_binomial`: Overdispersed count data
+   - `beta`: Proportions/rates in (0, 1)
+   - `ordered_logistic`: Ordinal scales (Likert items)
+   - `categorical`: Unordered categories
 
 2. **Select link functions**: Match the link to the distribution:
-   - `identity`: Normal (default)
-   - `log`: Poisson, Gamma, NegativeBinomial
-   - `logit`: Bernoulli, Beta
-   - `cumulative_logit`: OrderedLogistic
-   - `softmax`: Categorical
+   - `identity`: gaussian, student_t (default)
+   - `log`: poisson, gamma, negative_binomial
+   - `logit`: bernoulli, beta
+   - `cumulative_logit`: ordered_logistic
+   - `softmax`: categorical
 
 3. **Enumerate ALL parameters needing priors**: Be exhaustive:
    - Fixed effects (beta coefficients) for each causal edge
@@ -58,7 +59,7 @@ Each parameter's `role` must be one of these exact values, with its required `co
 
 **Only these 5 roles are valid.** Do NOT invent new roles. Use full construct names (not abbreviations) when naming parameters — e.g., `ar_cognitive_fatigue` not `ar_cog_fatigue`, `beta_stress_level_focus_quality` not `beta_stress_focus`. Specifically:
 - Indicator intercepts are implicit (handled by the link function) — do NOT create `intercept` parameters
-- Distribution-specific parameters (Beta concentration, NegBinomial overdispersion, OrderedLogistic cutpoints) are handled automatically — do NOT create parameters for them
+- Distribution-specific parameters (beta concentration, negative_binomial overdispersion, ordered_logistic cutpoints) are handled automatically — do NOT create parameters for them
 - Use `loading` (not `factor_loading`) for factor loadings
 - Use `residual_sd` (not `innovation_sd`) for residual/innovation standard deviations
 
@@ -70,7 +71,7 @@ Return a JSON object with this structure:
   "likelihoods": [
     {
       "variable": "indicator_name",
-      "distribution": "Normal|Gamma|Bernoulli|...",
+      "distribution": "gaussian|gamma|bernoulli|...",
       "link": "identity|log|logit|...",
       "reasoning": "Why this distribution/link for this variable"
     }
