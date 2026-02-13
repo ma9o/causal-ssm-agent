@@ -125,6 +125,7 @@ class SSMModelBuilder:
         ssm_spec: SSMSpec | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
+        causal_spec: dict | None = None,
     ):
         """Initialize the SSM model builder.
 
@@ -134,12 +135,16 @@ class SSMModelBuilder:
             ssm_spec: Direct SSMSpec (overrides model_spec conversion)
             model_config: Override model configuration (n_particles, pf_seed)
             sampler_config: Override sampler configuration
+            causal_spec: CausalSpec dict with latent model edges and measurement
+                model indicators. When provided, _convert_spec_to_ssm builds
+                drift_mask and lambda_mask from the DAG structure.
         """
         self._model_spec = model_spec
         self._priors = priors or {}
         self._ssm_spec = ssm_spec
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
+        self._causal_spec = causal_spec
 
         self._model: SSMModel | None = None
         self._result: InferenceResult | None = None
@@ -154,8 +159,8 @@ class SSMModelBuilder:
     def _convert_spec_to_ssm(self, model_spec: ModelSpec | dict, data: pl.DataFrame) -> SSMSpec:
         """Convert ModelSpec to SSMSpec.
 
-        This is a heuristic conversion that maps the ModelSpec
-        to continuous-time parameters.
+        When causal_spec is provided, builds drift_mask and lambda_mask from
+        the DAG structure instead of using a fully free drift and identity lambda.
 
         Args:
             model_spec: Model specification
@@ -214,8 +219,10 @@ class SSMModelBuilder:
         # Derive latent names from AR parameter names (e.g. rho_X → X)
         latent_names = [p.name.removeprefix("rho_") for p in ar_params] if ar_params else None
 
-        # Create default lambda matrix (identity mapping)
-        lambda_mat = jnp.eye(n_manifest, n_latent)
+        # Build masks from causal_spec if available
+        drift_mask, lambda_mat, lambda_mask = self._build_masks_from_causal_spec(
+            latent_names, manifest_cols, n_latent, n_manifest
+        )
 
         return SSMSpec(
             n_latent=n_latent,
@@ -234,10 +241,98 @@ class SSMModelBuilder:
             indvarying=["t0_means"],  # Allow individual variation in initial states
             latent_names=latent_names,
             manifest_names=manifest_cols,
+            drift_mask=drift_mask,
+            lambda_mask=lambda_mask,
         )
 
+    def _build_masks_from_causal_spec(
+        self,
+        latent_names: list[str] | None,
+        manifest_cols: list[str],
+        n_latent: int,
+        n_manifest: int,
+    ) -> tuple[np.ndarray | None, jnp.ndarray, np.ndarray | None]:
+        """Build drift_mask and lambda_mask from CausalSpec.
+
+        Args:
+            latent_names: Latent construct names (from AR params)
+            manifest_cols: Manifest column names (from likelihoods)
+            n_latent: Number of latent variables
+            n_manifest: Number of manifest variables
+
+        Returns:
+            (drift_mask, lambda_mat, lambda_mask) — masks are None when
+            causal_spec is not available (backward-compatible).
+        """
+        if self._causal_spec is None or latent_names is None:
+            return None, jnp.eye(n_manifest, n_latent), None
+
+        causal_spec = self._causal_spec
+        latent_data = causal_spec.get("latent", {})
+        measurement_data = causal_spec.get("measurement", {})
+        edges = latent_data.get("edges", [])
+        indicators = measurement_data.get("indicators", [])
+
+        # Build name-to-index maps
+        latent_idx = {name: i for i, name in enumerate(latent_names)}
+
+        # --- Drift mask ---
+        # Diagonal always True (AR effects); off-diagonal True only where
+        # a CausalEdge exists between two constructs.
+        drift_mask = np.eye(n_latent, dtype=bool)
+        for edge in edges:
+            cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
+            effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+            if cause in latent_idx and effect in latent_idx:
+                # drift[effect_idx, cause_idx] = True (effect row, cause col)
+                drift_mask[latent_idx[effect], latent_idx[cause]] = True
+
+        # --- Lambda mask ---
+        # Build from measurement model indicators → construct mapping.
+        # First indicator per construct: fixed at 1.0 (reference indicator).
+        # Additional indicators: free to sample (lambda_mask True).
+        manifest_idx = {name: i for i, name in enumerate(manifest_cols)}
+        lambda_mat_np = np.zeros((n_manifest, n_latent), dtype=np.float64)
+        lambda_mask = np.zeros((n_manifest, n_latent), dtype=bool)
+
+        # Track which constructs already have a reference indicator
+        reference_set: set[str] = set()
+
+        for indicator in indicators:
+            ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
+            construct = (
+                indicator.get("construct_name")
+                if isinstance(indicator, dict)
+                else indicator.construct_name
+            )
+
+            if ind_name not in manifest_idx or construct not in latent_idx:
+                continue
+
+            mi = manifest_idx[ind_name]
+            li = latent_idx[construct]
+
+            if construct not in reference_set:
+                # First indicator for this construct: fixed reference
+                lambda_mat_np[mi, li] = 1.0
+                reference_set.add(construct)
+            else:
+                # Additional indicator: free to sample
+                lambda_mask[mi, li] = True
+
+        lambda_mat = jnp.array(lambda_mat_np)
+
+        # If no measurement model indicators matched, fall back to identity
+        if not reference_set:
+            return drift_mask, jnp.eye(n_manifest, n_latent), None
+
+        return drift_mask, lambda_mat, lambda_mask
+
     def _convert_priors_to_ssm(
-        self, priors: dict[str, dict], model_spec: ModelSpec | dict | None
+        self,
+        priors: dict[str, dict],
+        model_spec: ModelSpec | dict | None,
+        ssm_spec: SSMSpec | None = None,
     ) -> SSMPriors:
         """Convert prior proposals to SSMPriors.
 
@@ -246,11 +341,15 @@ class SSMModelBuilder:
         (Beta alpha/beta, Uniform lower/upper) to the mu/sigma format
         that SSMPriors expects.
 
+        When ssm_spec has drift_mask or lambda_mask, builds per-element
+        prior arrays that align with mask positions in row-major order.
+
         Falls back to keyword matching when ModelSpec is not available.
 
         Args:
             priors: Prior proposals from workers
             model_spec: Model specification for context (optional)
+            ssm_spec: SSMSpec for per-element prior positioning (optional)
 
         Returns:
             SSMPriors for the model
@@ -271,12 +370,31 @@ class SSMModelBuilder:
                 for p in spec_obj.parameters:
                     role_by_name[p.name] = p.role
 
+        # Collect per-element entries for array-valued priors
+        # Maps SSMPriors field -> list of (array_index, normalized_dict)
+        per_element: dict[str, list[tuple[int, dict]]] = {}
+
+        # Build index maps from masks if available
+        offdiag_param_index, lambda_param_index = self._build_prior_index_maps(
+            ssm_spec, model_spec
+        )
+
         for param_name, prior_spec in priors.items():
             distribution = prior_spec.get("distribution", "Normal")
             params = prior_spec.get("params", {})
 
             # Normalize distribution params to mu/sigma
             normalized = _normalize_prior_params(distribution, params)
+
+            # Check if this parameter maps to a specific array position
+            if param_name in offdiag_param_index:
+                attr, idx = offdiag_param_index[param_name]
+                per_element.setdefault(attr, []).append((idx, normalized))
+                continue
+            if param_name in lambda_param_index:
+                attr, idx = lambda_param_index[param_name]
+                per_element.setdefault(attr, []).append((idx, normalized))
+                continue
 
             # Determine SSMPriors field via role (preferred) or keyword fallback
             role = role_by_name.get(param_name)
@@ -308,7 +426,122 @@ class SSMModelBuilder:
                         param_name,
                     )
 
+        # Build array-valued priors from per-element entries
+        for attr, entries in per_element.items():
+            current = getattr(ssm_priors, attr)
+            n_total = max(idx for idx, _ in entries) + 1
+
+            # Build arrays from defaults + positioned entries
+            mu_default = current.get("mu", 0.0)
+            sigma_default = current.get("sigma", 0.5)
+
+            mu_arr = [float(mu_default)] * n_total
+            sigma_arr = [float(sigma_default)] * n_total
+
+            for idx, normed in entries:
+                if "mu" in normed:
+                    mu_arr[idx] = float(normed["mu"])
+                if "sigma" in normed:
+                    sigma_arr[idx] = float(normed["sigma"])
+
+            result = {"mu": mu_arr, "sigma": sigma_arr}
+
+            # Propagate bounds if any entry has them
+            has_bounds = any("lower" in n for _, n in entries)
+            if has_bounds:
+                lower_arr = [float(normed.get("lower", -1e6)) for _, normed in entries]
+                upper_arr = [float(normed.get("upper", 1e6)) for _, normed in entries]
+                result["lower"] = lower_arr
+                result["upper"] = upper_arr
+
+            setattr(ssm_priors, attr, result)
+
         return ssm_priors
+
+    def _build_prior_index_maps(
+        self,
+        ssm_spec: SSMSpec | None,
+        model_spec: ModelSpec | dict | None,
+    ) -> tuple[dict[str, tuple[str, int]], dict[str, tuple[str, int]]]:
+        """Build parameter name → (SSMPriors field, array index) maps.
+
+        Uses drift_mask and lambda_mask to determine which array position
+        each causal parameter occupies, so per-element priors align with
+        the sampling order in _sample_drift/_sample_lambda.
+
+        Returns:
+            (offdiag_param_index, lambda_param_index) — both are
+            {param_name: (ssm_field, index)} dicts. Empty if no masks.
+        """
+        offdiag_index: dict[str, tuple[str, int]] = {}
+        lambda_index: dict[str, tuple[str, int]] = {}
+
+        if ssm_spec is None:
+            return offdiag_index, lambda_index
+
+        # Parse model_spec for parameter names + roles
+        if model_spec is None:
+            return offdiag_index, lambda_index
+        if isinstance(model_spec, dict):
+            spec_obj = ModelSpec.model_validate(model_spec)
+        elif isinstance(model_spec, ModelSpec):
+            spec_obj = model_spec
+        else:
+            return offdiag_index, lambda_index
+
+        latent_names = ssm_spec.latent_names or []
+        latent_idx_map = {name: i for i, name in enumerate(latent_names)}
+
+        # --- Drift off-diagonal index ---
+        if ssm_spec.drift_mask is not None:
+            n = ssm_spec.n_latent
+            # Build ordered list of (i, j) positions matching _sample_drift
+            positions = []
+            for i in range(n):
+                for j in range(n):
+                    if i != j and ssm_spec.drift_mask[i, j]:
+                        positions.append((i, j))
+
+            # Map FIXED_EFFECT parameters to positions via cause→effect naming
+            for p in spec_obj.parameters:
+                if p.role != ParameterRole.FIXED_EFFECT:
+                    continue
+                # Convention: parameter name "beta_X_Y" means X→Y causal edge
+                parts = p.name.removeprefix("beta_").split("_", 1)
+                if len(parts) != 2:
+                    continue
+                cause_name, effect_name = parts
+                if cause_name in latent_idx_map and effect_name in latent_idx_map:
+                    pos = (latent_idx_map[effect_name], latent_idx_map[cause_name])
+                    if pos in positions:
+                        offdiag_index[p.name] = ("drift_offdiag", positions.index(pos))
+
+        # --- Lambda free index ---
+        if ssm_spec.lambda_mask is not None:
+            manifest_names = ssm_spec.manifest_names or []
+            manifest_idx_map = {name: i for i, name in enumerate(manifest_names)}
+
+            # Build ordered list matching _sample_lambda
+            positions = []
+            for i in range(ssm_spec.n_manifest):
+                for j in range(ssm_spec.n_latent):
+                    if ssm_spec.lambda_mask[i, j]:
+                        positions.append((i, j))
+
+            for p in spec_obj.parameters:
+                if p.role != ParameterRole.LOADING:
+                    continue
+                # Convention: parameter name "lambda_indicator_construct"
+                parts = p.name.removeprefix("lambda_").split("_", 1)
+                if len(parts) != 2:
+                    continue
+                ind_name, construct_name = parts
+                if ind_name in manifest_idx_map and construct_name in latent_idx_map:
+                    pos = (manifest_idx_map[ind_name], latent_idx_map[construct_name])
+                    if pos in positions:
+                        lambda_index[p.name] = ("lambda_free", positions.index(pos))
+
+        return offdiag_index, lambda_index
 
     def build_model(
         self,
@@ -347,8 +580,8 @@ class SSMModelBuilder:
                 n_subjects=X[subject_col].n_unique() if subject_col in X.columns else 1,
             )
 
-        # Convert priors
-        priors = self._convert_priors_to_ssm(self._priors, self._model_spec or {})
+        # Convert priors (pass ssm_spec for per-element positioning)
+        priors = self._convert_priors_to_ssm(self._priors, self._model_spec or {}, ssm_spec=spec)
 
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
