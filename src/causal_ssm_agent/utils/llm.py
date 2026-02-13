@@ -409,6 +409,7 @@ async def multi_turn_generate(
     model: Model,
     follow_ups: list[str] | None = None,
     tools: list[Tool] | None = None,
+    follow_up_tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
 ) -> str:
     """
@@ -418,7 +419,11 @@ async def multi_turn_generate(
         messages: Initial messages (typically system + user prompt)
         model: The model to use for generation
         follow_ups: List of follow-up user prompts to send after each response (default: none)
-        tools: Optional list of tools the model can use (enables generate_loop)
+        tools: Optional list of tools the model can use on the first turn (enables generate_loop)
+        follow_up_tools: Optional list of tools for follow-up (self-review) turns.
+            Defaults to None, meaning follow-up turns use no tools (plain generation).
+            This prevents the LLM from re-invoking validation tools during self-review
+            and potentially overwriting a previously captured valid model.
         config: Optional generation config
 
     Returns:
@@ -436,15 +441,20 @@ async def multi_turn_generate(
         )
         messages = list(final_messages)
 
-        # Follow-up turns with tools
+        # Follow-up turns: use follow_up_tools if provided, otherwise no tools
         for prompt in follow_ups:
             messages.append(ChatMessageUser(content=prompt))
-            final_messages, output = await model.generate_loop(
-                messages,
-                tools=tools,
-                config=config,
-            )
-            messages = list(final_messages)
+            if follow_up_tools:
+                final_messages, output = await model.generate_loop(
+                    messages,
+                    tools=follow_up_tools,
+                    config=config,
+                )
+                messages = list(final_messages)
+            else:
+                response = await model.generate(messages, config=config)
+                messages.append(ChatMessageAssistant(content=response.completion))
+                output = response
 
         return output.completion
     else:

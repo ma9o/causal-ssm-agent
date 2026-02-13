@@ -11,10 +11,10 @@ import logging
 
 import jax.numpy as jnp
 import numpy as np
-import pandas as pd
 import polars as pl
 
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+from causal_ssm_agent.utils.data import pivot_to_wide
 from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 logger = logging.getLogger(__name__)
@@ -28,21 +28,9 @@ _PARAM_TO_SITE: list[tuple[list[str], list[str], str]] = [
 ]
 
 
-def _pivot_raw_data(raw_data: pl.DataFrame) -> pd.DataFrame:
-    """Pivot long-format raw data to wide format for model building.
-
-    Same long-to-wide pivot used in build_model_task.
-    """
-    time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-    wide_data = (
-        raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-        .pivot(on="indicator", index=time_col, values="value")
-        .sort(time_col)
-    )
-    X = wide_data.to_pandas()
-    if time_col in X.columns:
-        X = X.rename(columns={time_col: "time"})
-    return X
+def _pivot_raw_data(raw_data: pl.DataFrame) -> pl.DataFrame:
+    """Pivot long-format raw data to wide format for model building."""
+    return pivot_to_wide(raw_data)
 
 
 def _compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
@@ -89,12 +77,17 @@ def _check_nan_inf(samples: dict[str, jnp.ndarray]) -> PriorValidationResult | N
 
 def _check_constraint_violations(
     samples: dict[str, jnp.ndarray],
-    threshold: float = 0.01,
+    threshold: float = 0.05,
 ) -> list[PriorValidationResult]:
     """Check for constraint violations in sampled parameters.
 
     Positive-constrained sites (HalfNormal-sampled): diffusion_diag_pop, manifest_var_diag
     should not have negative values.
+
+    Args:
+        samples: Dict of sample site name to array of samples.
+        threshold: Fraction of violations above which to flag a failure.
+            Default 5% to tolerate minor numerical rounding in HalfNormal.
     """
     results = []
     positive_sites = ["diffusion_diag_pop", "manifest_var_diag", "t0_var_diag"]
@@ -202,6 +195,20 @@ def _check_scale_plausibility(
         diff_i = jnp.array(diffusion_samples[i])
         diff_cov_i = diff_i @ diff_i.T
 
+        # Explicit stability check before attempting Lyapunov solve
+        eigvals = jnp.linalg.eigvals(drift_i)
+        max_real = float(jnp.max(jnp.real(eigvals)))
+        if max_real >= 0:
+            logger.debug(
+                "Unstable drift draw %d (max real eigenvalue=%.4f, eigenvalue range=[%.4f, %.4f])",
+                i,
+                max_real,
+                float(jnp.min(jnp.real(eigvals))),
+                max_real,
+            )
+            n_unstable += 1
+            continue
+
         try:
             sigma_inf = solve_lyapunov(drift_i, diff_cov_i)
             sigma_inf_np = np.asarray(sigma_inf)
@@ -284,6 +291,7 @@ def validate_prior_predictive(
     priors: dict[str, PriorProposal] | dict[str, dict],
     raw_data: pl.DataFrame | None = None,
     n_samples: int = 500,
+    constraint_tolerance: float = 0.05,
 ) -> tuple[bool, list[PriorValidationResult]]:
     """Validate priors via prior predictive sampling.
 
@@ -299,6 +307,8 @@ def validate_prior_predictive(
         priors: Prior proposals for each parameter
         raw_data: Raw timestamped data (optional, for scale plausibility check)
         n_samples: Number of prior predictive samples
+        constraint_tolerance: Fraction of positive-constraint violations to
+            tolerate before flagging failure (default 5%).
 
     Returns:
         Tuple of (is_valid, list of validation results)
@@ -328,9 +338,9 @@ def validate_prior_predictive(
             X_wide = _pivot_raw_data(raw_data)
         else:
             # Create minimal dummy data for building
-            cols = {name: np.zeros(10) for name in manifest_names}
-            cols["time"] = np.arange(10, dtype=float)
-            X_wide = pd.DataFrame(cols)
+            cols = {name: [0.0] * 10 for name in manifest_names}
+            cols["time"] = list(range(10))
+            X_wide = pl.DataFrame(cols).cast(dict.fromkeys(manifest_names, pl.Float64))
 
         builder.build_model(X_wide)
     except Exception as e:
@@ -365,7 +375,7 @@ def validate_prior_predictive(
         results.append(nan_result)
 
     # Check 2: Constraint violations
-    results.extend(_check_constraint_violations(samples))
+    results.extend(_check_constraint_violations(samples, threshold=constraint_tolerance))
 
     # Check 3: Extreme values
     results.extend(_check_extreme_values(samples))

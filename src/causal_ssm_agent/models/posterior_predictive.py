@@ -13,6 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax, vmap
 
+from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.model import NoiseFamily
 
@@ -263,7 +264,7 @@ def simulate_posterior_predictive(
 
     # Compute dt array
     dt_array = jnp.diff(times, prepend=times[0])
-    dt_array = dt_array.at[0].set(1e-6)
+    dt_array = dt_array.at[0].set(MIN_DT)
 
     rng = jax.random.PRNGKey(rng_seed)
     draw_keys = jax.random.split(rng, n_use)
@@ -296,9 +297,9 @@ def simulate_posterior_predictive(
         manifest_chol_sub = vmap(
             lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0]))
         )(manifest_cov_sub)
-        t0_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0]))
-        )(t0_cov_sub)
+        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0])))(
+            t0_cov_sub
+        )
 
         def sim_one(i):
             ci = cint_sub[i] if cint_sub is not None else None
@@ -317,9 +318,9 @@ def simulate_posterior_predictive(
 
         y_sim = vmap(sim_one)(jnp.arange(n_use))
     else:
-        t0_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0]))
-        )(t0_cov_sub)
+        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0])))(
+            t0_cov_sub
+        )
 
         obs_df_val = samples.get("obs_df")
         obs_shape_val = samples.get("obs_shape")
@@ -379,7 +380,7 @@ def _simulate_hierarchical(
     T = times.shape[0]
 
     dt_array = jnp.diff(times, prepend=times[0])
-    dt_array = dt_array.at[0].set(1e-6)
+    dt_array = dt_array.at[0].set(MIN_DT)
 
     is_gaussian = manifest_dist in (NoiseFamily.GAUSSIAN, "gaussian")
 
@@ -391,8 +392,10 @@ def _simulate_hierarchical(
         for s in range(n_subjects):
             drift_s = drift_sub[i, s]
             diff_s = diffusion_sub[i, s] if diffusion_sub.ndim == 4 else diffusion_sub[i]
-            cint_s = cint_sub[i, s] if cint_sub is not None and cint_sub.ndim == 3 else (
-                cint_sub[i] if cint_sub is not None else None
+            cint_s = (
+                cint_sub[i, s]
+                if cint_sub is not None and cint_sub.ndim == 3
+                else (cint_sub[i] if cint_sub is not None else None)
             )
             t0_mean_s = t0_means_sub[i, s] if t0_means_sub.ndim == 3 else t0_means_sub[i]
             t0_cov_s = t0_cov_sub[i]
@@ -566,8 +569,10 @@ def _check_variance_ratio(
     warnings = []
     n_manifest = observations.shape[1]
 
-    # Posterior predictive std across draws and time
-    pp_std = jnp.std(y_sim, axis=(0, 1))  # (m,)
+    # Posterior predictive std: compute per-draw temporal std, then average across draws
+    # This separates posterior uncertainty from temporal variation
+    per_draw_std = jnp.std(y_sim, axis=1)  # (n_subsample, m) — temporal std per draw
+    pp_std = jnp.mean(per_draw_std, axis=0)  # (m,) — average across draws
 
     for j in range(n_manifest):
         obs_j = observations[:, j]

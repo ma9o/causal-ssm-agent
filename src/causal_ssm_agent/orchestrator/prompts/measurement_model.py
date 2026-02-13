@@ -106,7 +106,7 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
   "indicators": [
     {
       "name": "indicator_name",
-      "construct": "which_construct_this_measures",
+      "construct_name": "which_construct_this_measures",
       "how_to_measure": "worker instructions for extraction",
       "measurement_granularity": "finest" | "hourly" | "daily" | "weekly" | "monthly" | "yearly",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",

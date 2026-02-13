@@ -12,6 +12,7 @@ then handles measurement_granularity -> continuous time.
 See docs/reference/pipeline.md for full specification.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -23,6 +24,7 @@ from causal_ssm_agent.utils.aggregations import aggregate_worker_measurements
 if TYPE_CHECKING:
     from causal_ssm_agent.workers.agents import WorkerResult
 
+logger = logging.getLogger(__name__)
 
 # Minimum observations for temporal modeling
 MIN_OBSERVATIONS = 10  # Reasonable minimum for temporal modeling
@@ -138,8 +140,8 @@ def validate_extraction(
                         "message": f"Zero variance (constant value = {const_val})",
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Variance check failed for indicator: %s", e)
 
     errors = [i for i in issues if i["severity"] == "error"]
     is_valid = len(errors) == 0

@@ -36,6 +36,7 @@ from numpyro.infer.autoguide import AutoMultivariateNormal
 from numpyro.optim import ClippedAdam
 
 from causal_ssm_agent.models.likelihoods.particle import SSMAdapter
+from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
@@ -590,7 +591,7 @@ def fit_pgas(
 
     # Time intervals
     dt_array = jnp.diff(times, prepend=times[0])
-    dt_array = dt_array.at[0].set(1e-6)
+    dt_array = dt_array.at[0].set(MIN_DT)
 
     # Detect Gaussian observations for optimal proposal
     gaussian_obs = model.spec.manifest_dist.value == "gaussian"

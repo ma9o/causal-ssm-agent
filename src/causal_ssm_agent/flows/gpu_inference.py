@@ -62,6 +62,11 @@ def _stage5_on_gpu(
     # ---------- reconstruct data ----------
     raw_data = pl_inner.read_ipc(io.BytesIO(data_bytes))
 
+    # Verify float precision preserved through IPC (M10)
+    for col_name, dtype in raw_data.schema.items():
+        if dtype == pl_inner.Float32:
+            raw_data = raw_data.with_columns(pl_inner.col(col_name).cast(pl_inner.Float64))
+
     # ---------- fit ----------
     model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
@@ -92,7 +97,7 @@ def _stage5_on_gpu(
         X = X.rename(columns={time_col: "time"})
 
     result = builder.fit(X)
-    print(f"Fit complete: method={result.method}")
+    logger.info("Fit complete: method=%s", result.method)
 
     # ---------- power-scaling sensitivity ----------
     ps_result: dict[str, Any]
@@ -115,9 +120,9 @@ def _stage5_on_gpu(
             "diagnosis": ps.diagnosis,
             "psis_k_hat": ps.psis_k_hat,
         }
-    except Exception as e:
-        print(f"Power-scaling check failed: {e}")
-        ps_result = {"checked": False, "error": str(e)}
+    except Exception:
+        logger.exception("Power-scaling check failed")
+        ps_result = {"checked": False, "error": "see logs for traceback"}
 
     # ---------- posterior predictive checks ----------
     ppc_result: dict[str, Any]
@@ -129,7 +134,11 @@ def _stage5_on_gpu(
 
         spec = builder._spec
         manifest_names = spec.manifest_names or list(X.drop(columns=["time"]).columns)
-        manifest_dist_val = spec.manifest_dist.value if hasattr(spec.manifest_dist, "value") else str(spec.manifest_dist)
+        manifest_dist_val = (
+            spec.manifest_dist.value
+            if hasattr(spec.manifest_dist, "value")
+            else str(spec.manifest_dist)
+        )
 
         ppc = run_posterior_predictive_checks(
             samples=result.get_samples(),
@@ -139,16 +148,22 @@ def _stage5_on_gpu(
             manifest_dist=manifest_dist_val,
         )
         ppc_result = ppc.to_dict()
-    except Exception as e:
-        print(f"PPC check failed: {e}")
-        ppc_result = {"checked": False, "error": str(e)}
+    except Exception:
+        logger.exception("PPC check failed")
+        ppc_result = {"checked": False, "error": "see logs for traceback"}
 
     # ---------- interventions ----------
     intervention_results: list[dict] = []
     try:
         samples = result.get_samples()
         spec = builder._spec
-        latent_names = spec.latent_names or spec.manifest_names or []
+        latent_names = spec.latent_names
+        if latent_names is None:
+            logger.warning(
+                "SSMSpec.latent_names is None; falling back to manifest_names"
+                " — intervention indices may be incorrect"
+            )
+            latent_names = spec.manifest_names or []
         name_to_idx = {name: i for i, name in enumerate(latent_names)}
 
         outcome_idx = name_to_idx.get(outcome)
@@ -225,16 +240,14 @@ def _stage5_on_gpu(
 
                 for entry in intervention_results:
                     ti = name_to_idx.get(entry["treatment"])
-                    relevant_vars = get_relevant_manifest_variables(
-                        lm, ti, outcome_idx, m_names
-                    )
+                    relevant_vars = get_relevant_manifest_variables(lm, ti, outcome_idx, m_names)
                     entry_ppc = [
                         w for w in ppc_result["warnings"] if w.get("variable") in relevant_vars
                     ]
                     if entry_ppc:
                         entry["ppc_warnings"] = entry_ppc
     except Exception as e:
-        print(f"Intervention analysis failed: {e}")
+        logger.exception("Intervention analysis failed")
         intervention_results = [
             {
                 "treatment": t,

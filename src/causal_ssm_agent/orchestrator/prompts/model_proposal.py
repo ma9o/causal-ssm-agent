@@ -193,7 +193,7 @@ def format_indicators(causal_spec: dict) -> str:
     lines = []
     for indicator in causal_spec.get("measurement", {}).get("indicators", []):
         name = indicator.get("name", "?")
-        construct = indicator.get("construct") or indicator.get("construct_name", "?")
+        construct = indicator.get("construct_name", "?")
         dtype = indicator.get("measurement_dtype", "?")
         gran = indicator.get("measurement_granularity", "?")
         agg = indicator.get("aggregation", "?")

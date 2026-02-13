@@ -14,6 +14,7 @@ Post-fit diagnostics (Stage 5):
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -34,6 +35,8 @@ from causal_ssm_agent.models.ssm.utils import (
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.model import SSMModel
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +63,7 @@ class TRuleResult:
     n_moments: int
     satisfies: bool
     param_counts: dict[str, int]
+    hierarchical_warning: str | None = None
 
     def print_report(self) -> None:
         """Print a human-readable t-rule report."""
@@ -72,6 +76,8 @@ class TRuleResult:
         print("  Parameter breakdown:")
         for name, count in sorted(self.param_counts.items()):
             print(f"    {name}: {count}")
+        if self.hierarchical_warning:
+            print(f"  WARNING: {self.hierarchical_warning}")
 
 
 def count_free_params(spec: SSMSpec) -> dict[str, int]:
@@ -161,7 +167,7 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
     For an SSM observed at T time points with p manifest variables:
     - Contemporaneous covariance: p(p+1)/2 unique entries
     - Mean structure: p equations
-    - Autocovariance at each lag: p^2 entries per lag, with T-1 lags
+    - Autocovariance at each lag: p entries per lag (conservative), with T-1 lags
 
     This is a necessary but NOT sufficient condition. Passing does not
     guarantee identification; failing guarantees non-identification.
@@ -181,8 +187,22 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
     # Available moment conditions
     n_mean = p
     n_cov = p * (p + 1) // 2
-    n_autocov = (T - 1) * p * p if T is not None and T > 1 else 0
+    # Conservative bound: each lag contributes p distinct autocovariance
+    # conditions. The full p*p cross-autocovariance matrix at each lag is
+    # not fully independent due to symmetry constraints in the SSM structure,
+    # so we use p per lag as a conservative lower bound.
+    n_autocov = (T - 1) * p if T is not None and T > 1 else 0
     n_moments = n_mean + n_cov + n_autocov
+
+    # Check for hierarchical parameter expansion (M13)
+    hierarchical_warning = None
+    if spec.hierarchical and spec.n_subjects > 1:
+        hierarchical_warning = (
+            f"Hierarchical model with {spec.n_subjects} subjects: the T-rule "
+            f"parameter count ({n_free}) includes subject-level parameters from "
+            f"count_free_params, but the moment condition count does not account "
+            f"for the multi-subject data structure. Interpret with caution."
+        )
 
     return TRuleResult(
         n_free_params=n_free,
@@ -191,6 +211,7 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
         n_moments=n_moments,
         satisfies=n_free <= n_moments,
         param_counts=param_counts,
+        hierarchical_warning=hierarchical_warning,
     )
 
 
@@ -460,6 +481,8 @@ class SBCResult:
     n_sbc: int
     n_posterior_samples: int
     parameter_names: list[str]
+    n_failed: int = 0
+    n_attempted: int = 0
 
     def summary(self) -> dict[str, dict]:
         """Per-parameter uniformity test (chi-squared on binned ranks).
@@ -488,6 +511,11 @@ class SBCResult:
         """Print a human-readable SBC report."""
         summary = self.summary()
         print(f"\n=== SBC Calibration Report (n={self.n_sbc}) ===")
+        if self.n_failed > 0:
+            print(
+                f"  Replicates: {self.n_sbc} succeeded, {self.n_failed} failed "
+                f"out of {self.n_attempted} attempted"
+            )
         for name, info in summary.items():
             tag = "ok" if info["uniform"] else "FAIL"
             if name == "_likelihood":
@@ -762,6 +790,7 @@ def sbc_check(
     all_ranks: dict[str, list[int]] = {sn: [] for sn in scalar_names}
     ll_ranks: list[int] = []
     n_post = 0
+    n_failed = 0
 
     for _rep in range(n_sbc):
         # a. Draw true params from prior
@@ -780,9 +809,11 @@ def sbc_check(
         try:
             y_star = _simulate_from_params(true_con, model.spec, times, sim_key)
         except Exception:
+            n_failed += 1
             continue  # skip replicate on simulation failure
 
         if not jnp.all(jnp.isfinite(y_star)):
+            n_failed += 1
             continue
 
         # d. Fit model
@@ -792,6 +823,7 @@ def sbc_check(
                 model, y_star, times, method=method, seed=int(fit_key[0]), **fit_kwargs
             )
         except Exception:
+            n_failed += 1
             continue  # skip replicate on fit failure
 
         # e. Get posterior samples
@@ -847,6 +879,18 @@ def sbc_check(
             ll_rank = 0
         ll_ranks.append(ll_rank)
 
+    # Warn if failure rate exceeds 20%
+    n_attempted = n_sbc
+    failure_rate = n_failed / n_attempted if n_attempted > 0 else 0.0
+    if failure_rate > 0.2:
+        logger.warning(
+            "SBC: %d/%d replicates failed (%.0f%%). Results may be biased "
+            "toward stable parameter regimes.",
+            n_failed,
+            n_attempted,
+            failure_rate * 100,
+        )
+
     # Filter out empty rank lists
     ranks_dict = {sn: jnp.array(v) for sn, v in all_ranks.items() if v}
 
@@ -856,6 +900,8 @@ def sbc_check(
         n_sbc=len(ll_ranks),
         n_posterior_samples=n_post,
         parameter_names=list(ranks_dict.keys()),
+        n_failed=n_failed,
+        n_attempted=n_attempted,
     )
 
 

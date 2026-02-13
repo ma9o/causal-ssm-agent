@@ -15,9 +15,12 @@ However, our framework uses linear SEMs where IV identification is valid. We det
 structures separately and mark them as identifiable (with linearity assumption).
 """
 
+import logging
 from typing import Any
 
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
@@ -146,10 +149,13 @@ def check_identifiability(
                     non_identifiable_treatments[treatment] = {
                         "confounders": blockers,
                     }
-        except Exception:
+        except (ValueError, KeyError, nx.NetworkXError) as e:
+            logger.warning(
+                "Identifiability check for treatment '%s' failed: %s", treatment, e
+            )
             non_identifiable_treatments[treatment] = {
                 "confounders": ["unknown (graph error)"],
-                "notes": "graph projection failed",
+                "notes": f"graph projection failed: {e}",
             }
 
     return {
@@ -185,7 +191,7 @@ def get_observed_constructs(measurement_model: dict) -> set[str]:
     """Get set of constructs that have at least one measurement indicator."""
     observed = set()
     for indicator in measurement_model.get("indicators", []):
-        construct = indicator.get("construct") or indicator.get("construct_name")
+        construct = indicator.get("construct_name")
         if not construct:
             continue
         observed.add(construct)
