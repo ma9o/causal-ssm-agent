@@ -31,40 +31,38 @@ class WorkerOutput(BaseModel):
         """Convert extractions to a Polars DataFrame.
 
         Returns:
-            DataFrame with columns: indicator, value, timestamp.
-            Numeric values are cast to Float64; non-numeric kept as Utf8.
+            DataFrame with columns: indicator (Utf8), value (Utf8), timestamp (Utf8).
+            All values are stored as strings. Downstream _encode_non_continuous()
+            handles binary/ordinal/categorical encoding, then the final Float64
+            cast happens in aggregate_worker_measurements().
         """
         if not self.extractions:
             return pl.DataFrame(
-                schema={"indicator": pl.Utf8, "value": pl.Float64, "timestamp": pl.Utf8}
+                schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
             )
 
         rows = []
         for e in self.extractions:
-            # Convert value to float where possible, else store as string
             v = e.value
             if v is None:
-                float_val = None
-            elif isinstance(v, (int, float, bool)):
-                float_val = float(v)
+                str_val = None
+            elif isinstance(v, bool) or isinstance(v, (int, float)):
+                str_val = str(v)
             elif isinstance(v, str):
-                try:
-                    float_val = float(v)
-                except (ValueError, TypeError):
-                    float_val = None
+                str_val = v
             else:
-                float_val = None
+                str_val = None
             rows.append(
                 {
                     "indicator": e.indicator,
-                    "value": float_val,
+                    "value": str_val,
                     "timestamp": e.timestamp,
                 }
             )
 
         return pl.DataFrame(
             rows,
-            schema={"indicator": pl.Utf8, "value": pl.Float64, "timestamp": pl.Utf8},
+            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
         )
 
 

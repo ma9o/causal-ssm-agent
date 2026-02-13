@@ -17,7 +17,7 @@ from causal_ssm_agent.models.ssm.discretization import (
 )
 from causal_ssm_agent.models.ssm.inference import InferenceResult, fit
 from causal_ssm_agent.models.ssm.model import (
-    NoiseFamily,
+    DistributionFamily,
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -35,7 +35,7 @@ __all__ = [
     "SSMModel",
     "SSMPriors",
     "SSMSpec",
-    "NoiseFamily",
+    "DistributionFamily",
     # Inference
     "InferenceResult",
     "fit",

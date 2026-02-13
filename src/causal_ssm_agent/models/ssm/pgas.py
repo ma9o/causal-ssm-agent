@@ -590,7 +590,7 @@ def fit_pgas(
     dt_array = jnp.maximum(dt_array, MIN_DT)
 
     # Detect Gaussian observations for optimal proposal
-    gaussian_obs = model.spec.manifest_dist.value == "gaussian"
+    gaussian_obs = model.spec.manifest_dist == "gaussian"
 
     block_tag = "+block" if block_sampling else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""

@@ -43,7 +43,7 @@ from numpyro.optim import ClippedAdam
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import InferenceResult
-from causal_ssm_agent.models.ssm.model import NoiseFamily
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel
@@ -587,7 +587,7 @@ def fit_nuts_da(
     Returns:
         InferenceResult with posterior samples (latent states excluded)
     """
-    if model.spec.manifest_dist != NoiseFamily.GAUSSIAN:
+    if model.spec.manifest_dist != DistributionFamily.GAUSSIAN:
         raise ValueError(
             f"NUTS-DA only supports Gaussian observations, got {model.spec.manifest_dist}. "
             f"Data augmentation MCMC mixes poorly with non-Gaussian likelihoods due to "

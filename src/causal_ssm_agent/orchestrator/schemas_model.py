@@ -10,22 +10,48 @@ from pydantic import BaseModel, Field
 
 
 class DistributionFamily(StrEnum):
-    """Likelihood distribution families for observed variables."""
+    """Distribution families for observation and process noise.
 
-    NORMAL = "Normal"
-    GAMMA = "Gamma"
-    BERNOULLI = "Bernoulli"
-    POISSON = "Poisson"
-    NEGATIVE_BINOMIAL = "NegativeBinomial"
-    BETA = "Beta"
-    ORDERED_LOGISTIC = "OrderedLogistic"
-    CATEGORICAL = "Categorical"
+    Used throughout the SSM pipeline: from LLM-proposed likelihoods to
+    emission function dispatch.  Values are lowercase so they can be
+    passed directly as strings to likelihood backends.
+    """
+
+    GAUSSIAN = "gaussian"
+    STUDENT_T = "student_t"
+    POISSON = "poisson"
+    GAMMA = "gamma"
+    BERNOULLI = "bernoulli"
+    NEGATIVE_BINOMIAL = "negative_binomial"
+    BETA = "beta"
+    ORDERED_LOGISTIC = "ordered_logistic"
+    CATEGORICAL = "categorical"
+
+    @classmethod
+    def _missing_(cls, value: str) -> "DistributionFamily | None":
+        """Allow case-insensitive and legacy PascalCase construction.
+
+        The LLM may propose PascalCase names (e.g. "Normal", "NegativeBinomial")
+        and data files may still use them.  This maps them to the canonical
+        lowercase members.
+        """
+        _ALIASES: dict[str, str] = {
+            "normal": "gaussian",
+            "negativebinomial": "negative_binomial",
+            "orderedlogistic": "ordered_logistic",
+        }
+        normalized = value.lower().replace(" ", "_")
+        normalized = _ALIASES.get(normalized, normalized)
+        for member in cls:
+            if member.value == normalized:
+                return member
+        return None
 
 
 class LinkFunction(StrEnum):
     """Link functions mapping linear predictor to distribution mean."""
 
-    IDENTITY = "identity"  # Normal
+    IDENTITY = "identity"  # Gaussian
     LOG = "log"  # Poisson, Gamma, NegativeBinomial
     LOGIT = "logit"  # Bernoulli, Beta
     PROBIT = "probit"  # Bernoulli
@@ -55,7 +81,12 @@ class ParameterConstraint(StrEnum):
 VALID_LIKELIHOODS_FOR_DTYPE: dict[str, set[DistributionFamily]] = {
     "binary": {DistributionFamily.BERNOULLI},
     "count": {DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL},
-    "continuous": {DistributionFamily.NORMAL, DistributionFamily.GAMMA, DistributionFamily.BETA},
+    "continuous": {
+        DistributionFamily.GAUSSIAN,
+        DistributionFamily.STUDENT_T,
+        DistributionFamily.GAMMA,
+        DistributionFamily.BETA,
+    },
     "ordinal": {DistributionFamily.ORDERED_LOGISTIC},
     "categorical": {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC},
 }
@@ -64,7 +95,8 @@ VALID_LINKS_FOR_DISTRIBUTION: dict[DistributionFamily, set[LinkFunction]] = {
     DistributionFamily.BERNOULLI: {LinkFunction.LOGIT, LinkFunction.PROBIT},
     DistributionFamily.POISSON: {LinkFunction.LOG},
     DistributionFamily.NEGATIVE_BINOMIAL: {LinkFunction.LOG},
-    DistributionFamily.NORMAL: {LinkFunction.IDENTITY},
+    DistributionFamily.GAUSSIAN: {LinkFunction.IDENTITY},
+    DistributionFamily.STUDENT_T: {LinkFunction.IDENTITY},
     DistributionFamily.GAMMA: {LinkFunction.LOG},
     DistributionFamily.BETA: {LinkFunction.LOGIT},
     DistributionFamily.ORDERED_LOGISTIC: {LinkFunction.CUMULATIVE_LOGIT},

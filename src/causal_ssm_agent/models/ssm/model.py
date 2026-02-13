@@ -11,7 +11,6 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 import jax
@@ -24,15 +23,7 @@ if TYPE_CHECKING:
 
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.ssm.constants import MIN_DT
-
-
-class NoiseFamily(StrEnum):
-    """Supported noise distribution families for state-space models."""
-
-    GAUSSIAN = "gaussian"
-    STUDENT_T = "student_t"
-    POISSON = "poisson"
-    GAMMA = "gamma"
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 
 @dataclass
@@ -65,14 +56,14 @@ class SSMSpec:
     t0_var: jnp.ndarray | Literal["free", "diag"] = "free"
 
     # Distribution families for observation and process noise
-    diffusion_dist: NoiseFamily = NoiseFamily.GAUSSIAN
-    manifest_dist: NoiseFamily = NoiseFamily.GAUSSIAN
+    diffusion_dist: DistributionFamily = DistributionFamily.GAUSSIAN
+    manifest_dist: DistributionFamily = DistributionFamily.GAUSSIAN
 
     # Per-variable diffusion noise (overrides scalar diffusion_dist if set)
-    diffusion_dists: list[NoiseFamily] | None = None
+    diffusion_dists: list[DistributionFamily] | None = None
 
     # Per-channel observation noise (overrides scalar manifest_dist if set)
-    manifest_dists: list[NoiseFamily] | None = None
+    manifest_dists: list[DistributionFamily] | None = None
 
     # Toggle first-pass (unconditional, model-level) Rao-Blackwellization
     first_pass_rb: bool = True
@@ -89,6 +80,10 @@ class SSMSpec:
     drift_mask: np.ndarray | None = None
     # lambda_mask: (n_manifest, n_latent) bool — True where loading is free to sample
     lambda_mask: np.ndarray | None = None
+
+    # Time-invariant latent mask: (n_latent,) bool — True for quasi-constant latents.
+    # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
+    time_invariant_mask: np.ndarray | None = None
 
 
 @dataclass
@@ -244,9 +239,29 @@ class SSMModel:
             drift_offdiag_pop = jnp.array([])
 
         drift_diag = -jnp.abs(drift_diag_pop)
+
+        # Time-invariant latents: near-zero drift diagonal (quasi-constant)
+        if spec.time_invariant_mask is not None:
+            ti_mask = jnp.array(spec.time_invariant_mask)
+            drift_diag = jnp.where(ti_mask, -1e-6, drift_diag)
+
         drift = jnp.diag(drift_diag)
         for idx, (i, j) in enumerate(offdiag_positions):
             drift = drift.at[i, j].set(drift_offdiag_pop[idx])
+
+        # Stability guard: penalise drift matrices whose max real eigenvalue
+        # approaches zero (i.e. the system is near-unstable).  Only needed
+        # for multi-latent models with off-diagonal coupling.
+        if n > 1 and n_offdiag > 0:
+            eigvals_real = jnp.real(jnp.linalg.eigvals(drift))
+            max_eig = jnp.max(eigvals_real)
+            margin = 1e-2
+            penalty = jnp.where(
+                max_eig > -margin,
+                -1e4 * jnp.maximum(max_eig + margin, 0.0),
+                0.0,
+            )
+            numpyro.factor("drift_stability", penalty)
 
         numpyro.deterministic("drift", drift)
         return drift
@@ -286,6 +301,13 @@ class SSMModel:
                 for j in range(i):
                     diffusion = diffusion.at[i, j].set(diff_lower[lower_idx])
                     lower_idx += 1
+
+        # Time-invariant latents: near-zero diffusion (quasi-constant)
+        if spec.time_invariant_mask is not None:
+            ti_mask = jnp.array(spec.time_invariant_mask)
+            diag_vals = jnp.diag(diffusion)
+            new_diag = jnp.where(ti_mask, 1e-6, diag_vals)
+            diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
 
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
@@ -444,10 +466,12 @@ class SSMModel:
         # Resolve per-variable diffusion dist — passed as-is to ParticleLikelihood
         # which handles its own list→scalar normalization internally.
         from causal_ssm_agent.models.likelihoods.graph_analysis import (
+            get_per_channel_manifest,
             get_per_variable_diffusion,
         )
 
         per_var = get_per_variable_diffusion(spec)
+        per_obs = get_per_channel_manifest(spec)
 
         # First-pass RB analysis: identify decoupled Gaussian sub-blocks
         if spec.first_pass_rb:
@@ -485,6 +509,14 @@ class SSMModel:
                 # Per-variable diffusion for the particle sub-block
                 particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
 
+                # Determine manifest_dist for PF channels from per-channel info
+                pf_obs_dists = [per_obs[int(k)] for k in partition.obs_particle_idx]
+                pf_manifest_dist = spec.manifest_dist.value
+                for d in pf_obs_dists:
+                    if d != "gaussian":
+                        pf_manifest_dist = d
+                        break
+
                 return ComposedLikelihood(
                     partition=partition,
                     kalman_backend=KalmanLikelihood(
@@ -496,7 +528,7 @@ class SSMModel:
                         n_manifest=n_obs_p,
                         n_particles=self.n_particles,
                         rng_key=self.pf_key,
-                        manifest_dist=spec.manifest_dist.value,
+                        manifest_dist=pf_manifest_dist,
                         diffusion_dist=particle_diffs,
                         block_rb=spec.second_pass_rb,
                     ),
@@ -554,11 +586,17 @@ class SSMModel:
 
         # Sample noise family hyperparameters
         extra_params = {}
-        if spec.manifest_dist == NoiseFamily.STUDENT_T:
+        if spec.manifest_dist == DistributionFamily.STUDENT_T:
             extra_params["obs_df"] = numpyro.sample("obs_df", dist.Gamma(5.0, 1.0))
-        if spec.manifest_dist == NoiseFamily.GAMMA:
+        if spec.manifest_dist == DistributionFamily.GAMMA:
             extra_params["obs_shape"] = numpyro.sample("obs_shape", dist.Gamma(2.0, 1.0))
-        if spec.diffusion_dist == NoiseFamily.STUDENT_T:
+        if spec.manifest_dist == DistributionFamily.NEGATIVE_BINOMIAL:
+            extra_params["obs_r"] = numpyro.sample("obs_r", dist.Gamma(2.0, 0.5))
+        if spec.manifest_dist == DistributionFamily.BETA:
+            extra_params["obs_concentration"] = numpyro.sample(
+                "obs_concentration", dist.Gamma(5.0, 0.5)
+            )
+        if spec.diffusion_dist == DistributionFamily.STUDENT_T:
             extra_params["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
 
         ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint)
