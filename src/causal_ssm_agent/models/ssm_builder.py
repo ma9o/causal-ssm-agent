@@ -13,7 +13,6 @@ import polars as pl
 
 from causal_ssm_agent.models.ssm import (
     InferenceResult,
-    NoiseFamily,
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -29,16 +28,15 @@ from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
 
-# Mapping from user-facing DistributionFamily to internal NoiseFamily
-_DIST_TO_NOISE: dict[DistributionFamily, NoiseFamily] = {
-    DistributionFamily.NORMAL: NoiseFamily.GAUSSIAN,
-    DistributionFamily.POISSON: NoiseFamily.POISSON,
-    DistributionFamily.GAMMA: NoiseFamily.GAMMA,
-    DistributionFamily.NEGATIVE_BINOMIAL: NoiseFamily.POISSON,  # count data → particle
-    DistributionFamily.BERNOULLI: NoiseFamily.POISSON,  # discrete → particle
-    DistributionFamily.BETA: NoiseFamily.GAUSSIAN,  # fallback
-    DistributionFamily.ORDERED_LOGISTIC: NoiseFamily.GAUSSIAN,  # fallback
-    DistributionFamily.CATEGORICAL: NoiseFamily.GAUSSIAN,  # fallback
+# Distributions that have native emission functions in emissions.py.
+_SUPPORTED_EMISSIONS: set[DistributionFamily] = {
+    DistributionFamily.GAUSSIAN,
+    DistributionFamily.STUDENT_T,
+    DistributionFamily.POISSON,
+    DistributionFamily.GAMMA,
+    DistributionFamily.BERNOULLI,
+    DistributionFamily.NEGATIVE_BINOMIAL,
+    DistributionFamily.BETA,
 }
 
 
@@ -103,6 +101,34 @@ def _normalize_prior_params(distribution: str, params: dict) -> dict:
 
     # Fallback: try to extract mu/sigma directly
     return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
+
+
+def _split_compound_name(
+    compound: str,
+    valid_first: set[str],
+    valid_second: set[str],
+) -> tuple[str, str] | None:
+    """Split a compound name into two known names.
+
+    Tries all possible split positions and returns the first pair where both
+    parts are in the valid sets.  Handles multi-word construct names like
+    ``stress_level_focus_quality`` → ``("stress_level", "focus_quality")``.
+
+    Args:
+        compound: The underscore-joined string (prefix already removed).
+        valid_first: Valid names for the first part.
+        valid_second: Valid names for the second part.
+
+    Returns:
+        ``(first, second)`` or ``None`` if no valid split exists.
+    """
+    parts = compound.split("_")
+    for i in range(1, len(parts)):
+        first = "_".join(parts[:i])
+        second = "_".join(parts[i:])
+        if first in valid_first and second in valid_second:
+            return first, second
+    return None
 
 
 class SSMModelBuilder:
@@ -198,16 +224,50 @@ class SSMModelBuilder:
                 n_latent,
             )
 
-        # Determine manifest noise family from likelihoods
-        manifest_dist = NoiseFamily.GAUSSIAN
+        # Determine per-indicator noise families from likelihoods.
+        # Distributions are passed through directly — no approximation.
+        manifest_dists: list[DistributionFamily] = []
         for lik in model_spec.likelihoods:
-            noise = _DIST_TO_NOISE.get(lik.distribution, NoiseFamily.GAUSSIAN)
-            if noise != NoiseFamily.GAUSSIAN:
-                manifest_dist = noise
-                break  # Any non-Gaussian triggers particle filter
+            if lik.distribution not in _SUPPORTED_EMISSIONS:
+                raise ValueError(
+                    f"Indicator '{lik.variable}': distribution '{lik.distribution}' "
+                    f"has no native emission function. Supported: "
+                    f"{sorted(d.value for d in _SUPPORTED_EMISSIONS)}."
+                )
+            manifest_dists.append(lik.distribution)
+
+        # Scalar fallback: first non-Gaussian type (for PF dispatch)
+        manifest_dist = DistributionFamily.GAUSSIAN
+        for nd in manifest_dists:
+            if nd != DistributionFamily.GAUSSIAN:
+                manifest_dist = nd
+                break
 
         # Derive latent names from AR parameter names (e.g. rho_X → X)
         latent_names = [p.name.removeprefix("rho_") for p in ar_params] if ar_params else None
+
+        # Include time-invariant constructs from causal_spec as additional latents.
+        # They get near-zero drift/diffusion (quasi-constant, determined by initial state).
+        time_invariant_mask = None
+        if latent_names is not None and self._causal_spec is not None:
+            latent_data = self._causal_spec.get("latent", {})
+            constructs = latent_data.get("constructs", [])
+            tv_set = set(latent_names)
+            ti_names = []
+            for c in constructs:
+                name = c.get("name") if isinstance(c, dict) else c.name
+                temporal = c.get("temporal_status") if isinstance(c, dict) else c.temporal_status
+                if temporal == "time_invariant" and name not in tv_set:
+                    ti_names.append(name)
+            if ti_names:
+                logger.info(
+                    "Including %d time-invariant constructs as quasi-constant latents: %s",
+                    len(ti_names),
+                    ti_names,
+                )
+                time_invariant_mask = np.array([False] * len(latent_names) + [True] * len(ti_names))
+                latent_names = latent_names + ti_names
+                n_latent = len(latent_names)
 
         # Build masks from causal_spec if available
         drift_mask, lambda_mat, lambda_mask = self._build_masks_from_causal_spec(
@@ -224,12 +284,14 @@ class SSMModelBuilder:
             manifest_means=None,  # Will be zeros
             manifest_var="diag",
             manifest_dist=manifest_dist,
+            manifest_dists=manifest_dists,
             t0_means="free",
             t0_var="diag",
             latent_names=latent_names,
             manifest_names=manifest_cols,
             drift_mask=drift_mask,
             lambda_mask=lambda_mask,
+            time_invariant_mask=time_invariant_mask,
         )
 
     def _build_masks_from_causal_spec(
@@ -488,18 +550,25 @@ class SSMModelBuilder:
                         positions.append((i, j))
 
             # Map FIXED_EFFECT parameters to positions via cause→effect naming
+            latent_name_set = set(latent_idx_map.keys())
             for p in spec_obj.parameters:
                 if p.role != ParameterRole.FIXED_EFFECT:
                     continue
-                # Convention: parameter name "beta_X_Y" means X→Y causal edge
-                parts = p.name.removeprefix("beta_").split("_", 1)
-                if len(parts) != 2:
+                # Convention: parameter name "beta_<cause>_<effect>"
+                compound = p.name.removeprefix("beta_")
+                result = _split_compound_name(compound, latent_name_set, latent_name_set)
+                if result is None:
+                    logger.warning(
+                        "Could not parse FIXED_EFFECT parameter '%s' into "
+                        "(cause, effect) from known latents %s",
+                        p.name,
+                        sorted(latent_name_set),
+                    )
                     continue
-                cause_name, effect_name = parts
-                if cause_name in latent_idx_map and effect_name in latent_idx_map:
-                    pos = (latent_idx_map[effect_name], latent_idx_map[cause_name])
-                    if pos in positions:
-                        offdiag_index[p.name] = ("drift_offdiag", positions.index(pos))
+                cause_name, effect_name = result
+                pos = (latent_idx_map[effect_name], latent_idx_map[cause_name])
+                if pos in positions:
+                    offdiag_index[p.name] = ("drift_offdiag", positions.index(pos))
 
         # --- Lambda free index ---
         if ssm_spec.lambda_mask is not None:
@@ -513,18 +582,26 @@ class SSMModelBuilder:
                     if ssm_spec.lambda_mask[i, j]:
                         positions.append((i, j))
 
+            manifest_name_set = set(manifest_idx_map.keys())
             for p in spec_obj.parameters:
                 if p.role != ParameterRole.LOADING:
                     continue
-                # Convention: parameter name "lambda_indicator_construct"
-                parts = p.name.removeprefix("lambda_").split("_", 1)
-                if len(parts) != 2:
+                # Convention: parameter name "lambda_<indicator>_<construct>"
+                compound = p.name.removeprefix("lambda_")
+                result = _split_compound_name(compound, manifest_name_set, latent_name_set)
+                if result is None:
+                    logger.warning(
+                        "Could not parse LOADING parameter '%s' into "
+                        "(indicator, construct) from known manifests %s / latents %s",
+                        p.name,
+                        sorted(manifest_name_set),
+                        sorted(latent_name_set),
+                    )
                     continue
-                ind_name, construct_name = parts
-                if ind_name in manifest_idx_map and construct_name in latent_idx_map:
-                    pos = (manifest_idx_map[ind_name], latent_idx_map[construct_name])
-                    if pos in positions:
-                        lambda_index[p.name] = ("lambda_free", positions.index(pos))
+                ind_name, construct_name = result
+                pos = (manifest_idx_map[ind_name], latent_idx_map[construct_name])
+                if pos in positions:
+                    lambda_index[p.name] = ("lambda_free", positions.index(pos))
 
         return offdiag_index, lambda_index
 
