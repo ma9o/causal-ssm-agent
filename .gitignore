@@ -33,5 +33,8 @@ repomix-output.xml
 # Streamlit component artifacts
 lib/
 
+# Marimo session artifacts
+__marimo__/
+
 # Always track gitkeeps (must be last to override above patterns)
 !**/.gitkeep
