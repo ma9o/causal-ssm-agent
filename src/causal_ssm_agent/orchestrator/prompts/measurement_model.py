@@ -53,7 +53,7 @@ Must be finer than or equal to the construct's causal_granularity.
 | Type | Description | Example |
 |------|-------------|---------|
 | **binary** | Exactly two categories (0/1) | took_medication, is_weekend |
-| **ordinal** | Ordered categories (3+ levels) | stress_level (1-5) |
+| **ordinal** | Ordered categories (3+ levels). **Must** include `ordinal_levels` (low→high). | stress_level (1-5) |
 | **count** | Non-negative integers | num_emails, steps |
 | **categorical** | Unordered categories | activity_type |
 | **continuous** | Real-valued | temperature, mood_rating |
@@ -110,7 +110,8 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
       "how_to_measure": "worker instructions for extraction",
       "measurement_granularity": "finest" | "hourly" | "daily" | "weekly" | "monthly" | "yearly",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
-      "aggregation": "<aggregation_function>"
+      "aggregation": "<aggregation_function>",
+      "ordinal_levels": ["low", "medium", "high"]  // required when measurement_dtype is "ordinal", ordered low→high
     }
   ]
 }

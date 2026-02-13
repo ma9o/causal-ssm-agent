@@ -117,17 +117,21 @@ _BINARY_FALSE = {"false", "no", "0", "0.0", "f", "n"}
 def _encode_non_continuous(
     df: pl.DataFrame,
     dtype_lookup: dict[str, str],
+    ordinal_levels_lookup: dict[str, list[str]] | None = None,
 ) -> pl.DataFrame:
     """Encode non-continuous indicator values to numeric before Float64 cast.
 
     - binary: map true/false/yes/no/1/0 → 1.0/0.0
-    - ordinal/categorical: integer label-encode (sorted categories)
+    - ordinal: integer label-encode using ordinal_levels order (or sorted fallback)
+    - categorical: integer label-encode (sorted categories)
     - continuous/count: no-op (already numeric)
 
     Modifies the 'value' column in-place per indicator partition.
     """
     if not dtype_lookup:
         return df
+
+    ordinal_levels_lookup = ordinal_levels_lookup or {}
 
     non_continuous = {
         name: dtype
@@ -171,8 +175,15 @@ def _encode_non_continuous(
                     len(subset),
                 )
         else:
-            # ordinal/categorical: sorted label encoding
-            unique_vals = sorted(v for v in subset["value"].unique().to_list() if v is not None)
+            # ordinal/categorical: label encoding
+            # Use explicit ordinal_levels if provided, otherwise fall back to sorted
+            explicit_levels = ordinal_levels_lookup.get(name)
+            if explicit_levels and dtype == "ordinal":
+                unique_vals = explicit_levels
+            else:
+                unique_vals = sorted(
+                    v for v in subset["value"].unique().to_list() if v is not None
+                )
             label_map = {v: float(i) for i, v in enumerate(unique_vals)}
             subset = subset.with_columns(
                 pl.col("value")
@@ -232,7 +243,12 @@ def aggregate_worker_measurements(
     dtype_lookup = {
         ind.get("name"): ind.get("measurement_dtype", "continuous") for ind in indicators
     }
-    combined = _encode_non_continuous(combined, dtype_lookup)
+    ordinal_levels_lookup = {
+        ind.get("name"): ind["ordinal_levels"]
+        for ind in indicators
+        if ind.get("ordinal_levels")
+    }
+    combined = _encode_non_continuous(combined, dtype_lookup, ordinal_levels_lookup)
 
     combined = combined.with_columns(
         pl.col("value").cast(pl.Float64, strict=False).alias("value"),

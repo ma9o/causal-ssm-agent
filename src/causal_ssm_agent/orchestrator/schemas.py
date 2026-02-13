@@ -251,6 +251,14 @@ class Indicator(BaseModel):
     aggregation: str = Field(
         description=f"Aggregation function applied when bucketing raw extractions to measurement_granularity. Available: {', '.join(sorted(VALID_AGGREGATIONS))}",
     )
+    ordinal_levels: list[str] | None = Field(
+        default=None,
+        description=(
+            "Ordered list of level labels from lowest to highest for ordinal indicators "
+            "(e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' "
+            "to ensure correct numeric encoding."
+        ),
+    )
 
     @field_validator("aggregation")
     @classmethod
