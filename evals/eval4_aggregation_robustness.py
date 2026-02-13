@@ -31,14 +31,14 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, accuracy, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
-from dsem_agent.utils.aggregations import aggregate_worker_measurements
-from dsem_agent.utils.llm import make_worker_generate_fn
-from dsem_agent.workers.core import (
+from causal_ssm_agent.utils.aggregations import aggregate_worker_measurements
+from causal_ssm_agent.utils.llm import make_worker_generate_fn
+from causal_ssm_agent.workers.core import (
     _format_indicators,
     _get_outcome_description,
     run_worker_extraction,
 )
-from dsem_agent.workers.prompts.extraction import USER
+from causal_ssm_agent.workers.prompts.extraction import USER
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,

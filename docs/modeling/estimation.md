@@ -30,7 +30,7 @@ where:
 - `R` is the `n_manifest x n_manifest` **measurement error covariance** (Cholesky-parameterized internally).
 - `F` is the observation noise family -- Gaussian by default, but also Poisson (log-link), Student-t, or Gamma (log-link).
 
-These parameter types are codified in `src/dsem_agent/models/likelihoods/base.py:CTParams` and `src/dsem_agent/models/likelihoods/base.py:MeasurementParams`.
+These parameter types are codified in `src/causal_ssm_agent/models/likelihoods/base.py:CTParams` and `src/causal_ssm_agent/models/likelihoods/base.py:MeasurementParams`.
 
 ## 2. Discretization (CT to DT)
 
@@ -59,11 +59,11 @@ For a time series with T observations and potentially irregular intervals, `disc
 
 This is a key optimization: the `O(n^3)` matrix exponential and Lyapunov solve are identical across particles and only need to be computed once per timestep, not once per particle.
 
-All discretization logic lives in `src/dsem_agent/models/ssm/discretization.py`.
+All discretization logic lives in `src/causal_ssm_agent/models/ssm/discretization.py`.
 
 ## 3. SSMSpec and SSMModel
 
-### SSMSpec (`src/dsem_agent/models/ssm/model.py:SSMSpec`)
+### SSMSpec (`src/causal_ssm_agent/models/ssm/model.py:SSMSpec`)
 
 A dataclass specifying the model structure. Each matrix parameter can be:
 
@@ -92,7 +92,7 @@ Key fields:
 | `n_subjects` | `int` | Number of subjects |
 | `indvarying` | `list[str]` | Parameters that vary across individuals |
 
-### SSMModel (`src/dsem_agent/models/ssm/model.py:SSMModel`)
+### SSMModel (`src/causal_ssm_agent/models/ssm/model.py:SSMModel`)
 
 Wraps an `SSMSpec` and implements the NumPyro model function. Constructor arguments:
 
@@ -115,7 +115,7 @@ For hierarchical models, step 6 uses `_hierarchical_likelihood()` which `vmap`s 
 
 ## 4. SSMPriors
 
-`SSMPriors` (`src/dsem_agent/models/ssm/model.py:SSMPriors`) is a dataclass of dicts, each specifying distribution hyperparameters:
+`SSMPriors` (`src/causal_ssm_agent/models/ssm/model.py:SSMPriors`) is a dataclass of dicts, each specifying distribution hyperparameters:
 
 | Prior | Distribution | Default | Notes |
 |---|---|---|---|
@@ -137,9 +137,9 @@ Hierarchical parameters use a non-centered parameterization: `theta_i = theta_po
 
 ## 5. Likelihood Computation
 
-Both backends implement the `LikelihoodBackend` protocol (`src/dsem_agent/models/likelihoods/base.py:LikelihoodBackend`) and share a common signature: `compute_log_likelihood(ct_params, measurement_params, initial_state, observations, time_intervals, ...)`.
+Both backends implement the `LikelihoodBackend` protocol (`src/causal_ssm_agent/models/likelihoods/base.py:LikelihoodBackend`) and share a common signature: `compute_log_likelihood(ct_params, measurement_params, initial_state, observations, time_intervals, ...)`.
 
-### Kalman backend (`src/dsem_agent/models/likelihoods/kalman.py:KalmanLikelihood`)
+### Kalman backend (`src/causal_ssm_agent/models/likelihoods/kalman.py:KalmanLikelihood`)
 
 For linear Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition.
 
@@ -155,13 +155,13 @@ The non-associative moments filter (`associative=False`) is used because cuthber
 
 Missing data is handled by inflating the measurement variance to `1e10` for unobserved channels (`preprocess_missing_data` in `base.py`), so the filter effectively ignores them.
 
-### Particle filter backend (`src/dsem_agent/models/likelihoods/particle.py:ParticleLikelihood`)
+### Particle filter backend (`src/causal_ssm_agent/models/likelihoods/particle.py:ParticleLikelihood`)
 
 Universal backend for arbitrary noise families and nonlinear dynamics.
 
 1. Pre-discretizes all timesteps and pre-computes `chol(Q_d)` for each timestep.
 2. Selects callback strategy:
-   - **Gaussian dynamics** (`diffusion_dist == "gaussian"`): Uses Rao-Blackwellized callbacks (`src/dsem_agent/models/likelihoods/rao_blackwell.py:make_rb_callbacks`). Each particle carries Kalman sufficient statistics (`RBState`) instead of point samples. The Kalman predict step is deterministic (no noise sampling), and observation weights are computed via sigma-point quadrature for non-Gaussian observations or analytically for Gaussian observations. This gives strictly lower variance than bootstrap PF.
+   - **Gaussian dynamics** (`diffusion_dist == "gaussian"`): Uses Rao-Blackwellized callbacks (`src/causal_ssm_agent/models/likelihoods/rao_blackwell.py:make_rb_callbacks`). Each particle carries Kalman sufficient statistics (`RBState`) instead of point samples. The Kalman predict step is deterministic (no noise sampling), and observation weights are computed via sigma-point quadrature for non-Gaussian observations or analytically for Gaussian observations. This gives strictly lower variance than bootstrap PF.
    - **Non-Gaussian dynamics** (e.g., Student-t process noise): Uses bootstrap PF callbacks via `SSMAdapter`. Particles are point samples propagated through `mean + chol_Qd @ noise` with the appropriate noise family.
 3. Packs pre-discretized arrays into `model_inputs` with leading temporal dimension `T`.
 4. Calls `cuthbert.smc.particle_filter.build_filter()` with the selected callbacks and a pure-JAX systematic resampling function (`_systematic_resampling`).
@@ -181,7 +181,7 @@ This adds the log-likelihood scalar directly to the model's log-joint density. N
 
 ## 6. SSMModelBuilder
 
-`SSMModelBuilder` (`src/dsem_agent/models/ssm_builder.py:SSMModelBuilder`) bridges the high-level DSEM pipeline (`ModelSpec` / `PriorProposal`) to the low-level SSM estimation stack.
+`SSMModelBuilder` (`src/causal_ssm_agent/models/ssm_builder.py:SSMModelBuilder`) bridges the high-level pipeline (`ModelSpec` / `PriorProposal`) to the low-level SSM estimation stack.
 
 ### Conversion heuristic: `_convert_spec_to_ssm()`
 
@@ -286,18 +286,18 @@ InferenceResult (posterior samples + diagnostics)
 
 ## References
 
-- `src/dsem_agent/models/ssm/model.py` -- SSMSpec, SSMPriors, SSMModel
-- `src/dsem_agent/models/ssm/discretization.py` -- CT-to-DT conversion
-- `src/dsem_agent/models/ssm/inference.py` -- fit(), SVI, NUTS backends
-- `src/dsem_agent/models/ssm/utils.py` -- shared SMC utilities
-- `src/dsem_agent/models/ssm/mcmc_utils.py` -- shared MCMC building blocks (HMC, tempering)
-- `src/dsem_agent/models/ssm/tempered_core.py` -- core SMC loop shared by tempered/laplace/svi/dpf
-- `src/dsem_agent/models/ssm/laplace_em.py` -- IEKS + Laplace approximation
-- `src/dsem_agent/models/ssm/structured_vi.py` -- backward-factored structured VI
-- `src/dsem_agent/models/ssm/dpf.py` -- differentiable PF with learned proposal
-- `src/dsem_agent/models/likelihoods/base.py` -- CTParams, MeasurementParams, LikelihoodBackend protocol
-- `src/dsem_agent/models/likelihoods/kalman.py` -- KalmanLikelihood
-- `src/dsem_agent/models/likelihoods/particle.py` -- ParticleLikelihood, SSMAdapter
-- `src/dsem_agent/models/likelihoods/emissions.py` -- canonical emission log-probs
-- `src/dsem_agent/models/likelihoods/rao_blackwell.py` -- Rao-Blackwell callbacks, RBState
-- `src/dsem_agent/models/ssm_builder.py` -- SSMModelBuilder
+- `src/causal_ssm_agent/models/ssm/model.py` -- SSMSpec, SSMPriors, SSMModel
+- `src/causal_ssm_agent/models/ssm/discretization.py` -- CT-to-DT conversion
+- `src/causal_ssm_agent/models/ssm/inference.py` -- fit(), SVI, NUTS backends
+- `src/causal_ssm_agent/models/ssm/utils.py` -- shared SMC utilities
+- `src/causal_ssm_agent/models/ssm/mcmc_utils.py` -- shared MCMC building blocks (HMC, tempering)
+- `src/causal_ssm_agent/models/ssm/tempered_core.py` -- core SMC loop shared by tempered/laplace/svi/dpf
+- `src/causal_ssm_agent/models/ssm/laplace_em.py` -- IEKS + Laplace approximation
+- `src/causal_ssm_agent/models/ssm/structured_vi.py` -- backward-factored structured VI
+- `src/causal_ssm_agent/models/ssm/dpf.py` -- differentiable PF with learned proposal
+- `src/causal_ssm_agent/models/likelihoods/base.py` -- CTParams, MeasurementParams, LikelihoodBackend protocol
+- `src/causal_ssm_agent/models/likelihoods/kalman.py` -- KalmanLikelihood
+- `src/causal_ssm_agent/models/likelihoods/particle.py` -- ParticleLikelihood, SSMAdapter
+- `src/causal_ssm_agent/models/likelihoods/emissions.py` -- canonical emission log-probs
+- `src/causal_ssm_agent/models/likelihoods/rao_blackwell.py` -- Rao-Blackwell callbacks, RBState
+- `src/causal_ssm_agent/models/ssm_builder.py` -- SSMModelBuilder

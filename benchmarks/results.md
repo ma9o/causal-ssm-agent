@@ -1,6 +1,6 @@
 # Inference Method Results
 
-Empirical recovery benchmarks for each inference backend on a standardized 4-latent CT-SEM.
+Empirical recovery benchmarks for each inference backend on a standardized 4-latent SSM.
 
 ## Test Problem
 

@@ -29,11 +29,11 @@ image = (
     .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
     .add_local_file(ROOT / "pyproject.toml", remote_path="/root/pyproject.toml")
     # Mount source code and tests last (fast re-mount, no rebuild)
-    .add_local_dir(ROOT / "src" / "dsem_agent", remote_path="/root/src/dsem_agent")
+    .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
     .add_local_dir(ROOT / "tests", remote_path="/root/tests")
 )
 
-app = modal.App("dsem-gpu-tests", image=image)
+app = modal.App("causal-ssm-gpu-tests", image=image)
 
 
 @app.function(gpu="A100", timeout=1800)

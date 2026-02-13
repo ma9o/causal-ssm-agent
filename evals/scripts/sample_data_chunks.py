@@ -10,8 +10,8 @@ Usage:
 
 import argparse
 
-from dsem_agent.orchestrator.prompts import latent_model
-from dsem_agent.utils.data import (
+from causal_ssm_agent.orchestrator.prompts import latent_model
+from causal_ssm_agent.utils.data import (
     CHUNK_SIZE,
     PROCESSED_DIR,
     SAMPLE_CHUNKS,

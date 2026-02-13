@@ -27,7 +27,7 @@ uv run inspect eval evals/eval1_orchestrator_structure.py \
 uv run inspect view
 ```
 
-Logs are saved to `logs/` directory. The eval scores models on cumulative points for valid DSEM structures.
+Logs are saved to `logs/` directory. The eval scores models on cumulative points for valid causal model structures.
 
 ## Reading Eval Logs
 

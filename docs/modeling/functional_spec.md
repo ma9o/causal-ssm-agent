@@ -207,7 +207,7 @@ Stage 4b computes the Fisher information matrix at prior draws and checks:
 - **Boundary identifiability:** Intermittent rank deficiency across draws
 - **Weak contraction:** Parameters with low expected prior-to-posterior contraction
 
-See `src/dsem_agent/flows/stages/stage4b_parametric_id.py` and `src/dsem_agent/utils/parametric_id.py` for implementation.
+See `src/causal_ssm_agent/flows/stages/stage4b_parametric_id.py` and `src/causal_ssm_agent/utils/parametric_id.py` for implementation.
 
 ---
 

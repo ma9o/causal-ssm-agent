@@ -2,7 +2,7 @@
 
 ## Source Files
 
-- **Orchestrator schemas:** `src/dsem_agent/orchestrator/schemas.py`
+- **Orchestrator schemas:** `src/causal_ssm_agent/orchestrator/schemas.py`
   - `Construct` - A theoretical entity in the causal model
   - `CausalEdge` - A directed causal edge between constructs
   - `LatentModel` - Theoretical causal structure (Stage 1a output)
@@ -10,7 +10,7 @@
   - `MeasurementModel` - Operationalization of constructs (Stage 1b output)
   - `CausalSpec` - Complete causal specification (latent + measurement)
 
-- **Worker schemas:** `src/dsem_agent/workers/schemas.py`
+- **Worker schemas:** `src/causal_ssm_agent/workers/schemas.py`
   - `WorkerOutput` - Extraction results from a single chunk
   - `Extraction` - Single indicator value extracted from data
   - `ProposedIndicator` - Worker-proposed new indicator

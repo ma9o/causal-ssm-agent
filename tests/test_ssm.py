@@ -17,7 +17,7 @@ class TestCoreUtilities:
 
     def test_solve_lyapunov_simple(self):
         """Test Lyapunov solver with simple 2x2 case."""
-        from dsem_agent.models.ssm.discretization import solve_lyapunov
+        from causal_ssm_agent.models.ssm.discretization import solve_lyapunov
 
         # Simple stable drift matrix
         A = jnp.array([[-1.0, 0.0], [0.0, -2.0]])
@@ -31,7 +31,7 @@ class TestCoreUtilities:
 
     def test_solve_lyapunov_coupled(self):
         """Test Lyapunov solver with coupled system."""
-        from dsem_agent.models.ssm.discretization import solve_lyapunov
+        from causal_ssm_agent.models.ssm.discretization import solve_lyapunov
 
         # Coupled drift
         A = jnp.array([[-1.0, 0.5], [0.3, -2.0]])
@@ -48,7 +48,7 @@ class TestCoreUtilities:
 
     def test_discretize_system_identity(self):
         """Test that dt=0 gives identity transformation."""
-        from dsem_agent.models.ssm.discretization import discretize_system
+        from causal_ssm_agent.models.ssm.discretization import discretize_system
 
         A = jnp.array([[-1.0, 0.0], [0.0, -2.0]])
         Q = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -64,7 +64,7 @@ class TestCoreUtilities:
         """Test discretization at dt=1."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm.discretization import discretize_system
+        from causal_ssm_agent.models.ssm.discretization import discretize_system
 
         A = jnp.array([[-1.0, 0.0], [0.0, -2.0]])
         Q = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -82,7 +82,7 @@ class TestCoreUtilities:
 
     def test_compute_asymptotic_diffusion(self):
         """Test asymptotic diffusion computation."""
-        from dsem_agent.models.ssm.discretization import compute_asymptotic_diffusion
+        from causal_ssm_agent.models.ssm.discretization import compute_asymptotic_diffusion
 
         A = jnp.array([[-1.0, 0.0], [0.0, -1.0]])
         G = jnp.array([[1.0, 0.0], [0.0, 1.0]])
@@ -101,12 +101,12 @@ class TestParticleLikelihoodBackend:
 
     def test_pf_log_likelihood_finite(self):
         """Test that PF log-likelihood is finite for reasonable data."""
-        from dsem_agent.models.likelihoods.base import (
+        from causal_ssm_agent.models.likelihoods.base import (
             CTParams,
             InitialStateParams,
             MeasurementParams,
         )
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
         T, n_latent, n_manifest = 10, 2, 2
 
@@ -142,7 +142,7 @@ class TestSSMModel:
 
     def test_model_compiles(self):
         """Test that model compiles without errors."""
-        from dsem_agent.models.ssm import SSMModel, SSMSpec
+        from causal_ssm_agent.models.ssm import SSMModel, SSMSpec
 
         spec = SSMSpec(n_latent=2, n_manifest=2)
         model = SSMModel(spec, n_particles=50)
@@ -164,8 +164,8 @@ class TestSSMModel:
 
     def test_prior_predictive(self):
         """Test prior predictive sampling (should skip PF via handlers.block)."""
-        from dsem_agent.models.ssm import SSMModel, SSMSpec
-        from dsem_agent.models.ssm.inference import prior_predictive
+        from causal_ssm_agent.models.ssm import SSMModel, SSMSpec
+        from causal_ssm_agent.models.ssm.inference import prior_predictive
 
         spec = SSMSpec(n_latent=2, n_manifest=2)
         model = SSMModel(spec, n_particles=50)
@@ -180,7 +180,7 @@ class TestSSMModel:
     @pytest.mark.slow
     def test_fit_runs(self):
         """Test that fitting runs without errors (minimal samples)."""
-        from dsem_agent.models.ssm import SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=2,
@@ -211,8 +211,8 @@ class TestSSMModelBuilder:
         """Test building SSM from SSMSpec directly."""
         import pandas as pd
 
-        from dsem_agent.models.ssm import SSMSpec
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm import SSMSpec
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         # Create a SSMSpec directly
         spec = SSMSpec(
@@ -243,7 +243,7 @@ class TestSSMModelBuilder:
         """Test auto-detection of manifest columns."""
         import pandas as pd
 
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         T = 15
         X = pd.DataFrame(
@@ -265,7 +265,7 @@ class TestSSMModelBuilder:
         """Test fitting via builder interface."""
         import pandas as pd
 
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         T = 20
         X = pd.DataFrame(
@@ -295,7 +295,7 @@ class TestNoiseFamily:
 
     def test_noise_family_values(self):
         """NoiseFamily should have expected values."""
-        from dsem_agent.models.ssm.model import NoiseFamily
+        from causal_ssm_agent.models.ssm.model import NoiseFamily
 
         assert NoiseFamily.GAUSSIAN == "gaussian"
         assert NoiseFamily.STUDENT_T == "student_t"
@@ -304,7 +304,7 @@ class TestNoiseFamily:
 
     def test_noise_family_in_spec(self):
         """SSMSpec should accept NoiseFamily enum values."""
-        from dsem_agent.models.ssm import NoiseFamily, SSMSpec
+        from causal_ssm_agent.models.ssm import NoiseFamily, SSMSpec
 
         spec = SSMSpec(
             n_latent=2,

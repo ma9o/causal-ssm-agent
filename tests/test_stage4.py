@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dsem_agent.models.prior_predictive import (
+from causal_ssm_agent.models.prior_predictive import (
     format_validation_report,
 )
-from dsem_agent.orchestrator.schemas_model import (
+from causal_ssm_agent.orchestrator.schemas_model import (
     EXPECTED_CONSTRAINT_FOR_ROLE,
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
@@ -19,12 +19,12 @@ from dsem_agent.orchestrator.schemas_model import (
     ParameterSpec,
     validate_model_spec,
 )
-from dsem_agent.workers.prior_research import (
+from causal_ssm_agent.workers.prior_research import (
     aggregate_prior_samples,
     get_default_prior,
 )
-from dsem_agent.workers.prompts.prior_research import generate_paraphrased_prompts
-from dsem_agent.workers.schemas_prior import (
+from causal_ssm_agent.workers.prompts.prior_research import generate_paraphrased_prompts
+from causal_ssm_agent.workers.schemas_prior import (
     PriorProposal,
     PriorSource,
     PriorValidationResult,
@@ -182,7 +182,7 @@ class TestSSMModelBuilder:
 
     def test_builder_init(self, simple_model_spec, simple_priors):
         """Builder initializes with spec and priors."""
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
             model_spec=simple_model_spec,
@@ -192,8 +192,8 @@ class TestSSMModelBuilder:
         assert builder.version == "0.1.0"
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
-        """Builder creates a CT-SEM model."""
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
+        """Builder creates an SSMModel."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
             model_spec=simple_model_spec,

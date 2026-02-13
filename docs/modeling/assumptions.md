@@ -1,6 +1,6 @@
 # Modeling Assumptions
 
-This document enumerates the core modeling assumptions underlying the dsem-agent framework. Each assumption constrains what can be modeled and has implications for interpretation.
+This document enumerates the core modeling assumptions underlying the causal-ssm-agent framework. Each assumption constrains what can be modeled and has implications for interpretation.
 
 ---
 
@@ -149,13 +149,13 @@ Iₜ = λ · Cₜ + εₜ
 - Residual autocorrelation in indicators suggests model misspecification
 - Possible causes: construct granularity too coarse, missing cross-loadings, systematic measurement dynamics
 
-**Justification:** Separating construct dynamics from indicator dynamics requires strong identification constraints. By attributing all temporal structure to the construct, we maintain a clean separation between "what's happening" (construct dynamics) and "how we see it" (measurement model). This is the default in DSEM implementations.
+**Justification:** Separating construct dynamics from indicator dynamics requires strong identification constraints. By attributing all temporal structure to the construct, we maintain a clean separation between "what's happening" (construct dynamics) and "how we see it" (measurement model). This is the default in dynamic SSM implementations.
 
-As Asparouhov, Hamaker & Muthén (2018) note in the foundational DSEM paper:
+As Asparouhov, Hamaker & Muthén (2018) note:
 
 > "The measurement errors are assumed to be uncorrelated across time... If the residuals are correlated across time, this would indicate that the latent variable does not fully account for the dynamics in the observed variables."
 
-**Relaxation (not currently supported):** AR in indicator residuals is possible but introduces identification challenges. Mplus DSEM allows this via the `RESIDUAL` option. Future versions may support this with appropriate constraints.
+**Relaxation (not currently supported):** AR in indicator residuals is possible but introduces identification challenges. Mplus allows this via the `RESIDUAL` option. Future versions may support this with appropriate constraints.
 
 **Reference:** Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic structural equation models. *Structural Equation Modeling: A Multidisciplinary Journal*, 25(3), 359-388.
 
@@ -203,7 +203,7 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 The following are explicitly NOT assumed and may be added in future versions:
 
 - **Non-linear relationships:** Currently all structural effects are linear in parameters
-- **Non-Gaussian distributions:** Poisson, Student-t, and Gamma are supported in the observation model (see `NoiseFamily` in `src/dsem_agent/models/ssm/model.py` and the Rao-Blackwell particle filter). Additional families may be added.
+- **Non-Gaussian distributions:** Poisson, Student-t, and Gamma are supported in the observation model (see `NoiseFamily` in `src/causal_ssm_agent/models/ssm/model.py` and the Rao-Blackwell particle filter). Additional families may be added.
 - **Time-varying parameters:** Currently all causal coefficients are time-invariant
 - **Random slopes:** Currently only random intercepts, not person-specific effect sizes
 - **Cross-level interactions:** Currently between-person variables do not moderate within-person effects

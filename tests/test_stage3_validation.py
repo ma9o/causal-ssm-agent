@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import polars as pl
 import pytest
 
-from dsem_agent.flows.stages.stage3_validation import (
+from causal_ssm_agent.flows.stages.stage3_validation import (
     MIN_OBSERVATIONS,
     combine_worker_results,
     validate_extraction,

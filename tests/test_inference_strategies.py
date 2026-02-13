@@ -24,13 +24,13 @@ import jax.random as random
 import numpy as np
 import pytest
 
-from dsem_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from dsem_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
-from dsem_agent.models.ssm import InferenceResult, NoiseFamily, SSMModel, SSMSpec, fit
+from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
+from causal_ssm_agent.models.ssm import InferenceResult, NoiseFamily, SSMModel, SSMSpec, fit
 
 # =============================================================================
 # ParticleLikelihood: Core Functionality
@@ -266,7 +266,7 @@ class TestStudentTProcessNoise:
     @pytest.mark.slow
     def test_student_t_process_noise_variance_matches_qd(self):
         """Student-t noise should match Qd variance (df > 2)."""
-        from dsem_agent.models.ssm.discretization import discretize_system
+        from causal_ssm_agent.models.ssm.discretization import discretize_system
 
         n_latent, n_manifest = 1, 1
         df = 5.0
@@ -616,7 +616,7 @@ class TestHighDimNonlinear:
         """PF+NUTS should produce finite results on 6D Poisson model."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm.discretization import discretize_system
+        from causal_ssm_agent.models.ssm.discretization import discretize_system
 
         n_latent, n_manifest = 6, 6
         T = 30
@@ -1109,8 +1109,8 @@ class TestBuilderNoiseFamilyWiring:
 
     def test_convert_spec_sets_poisson_noise_family(self):
         """ModelSpec with Poisson likelihood -> SSMSpec has POISSON manifest_dist."""
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
-        from dsem_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.orchestrator.schemas_model import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1153,8 +1153,8 @@ class TestBuilderNoiseFamilyWiring:
 
     def test_convert_spec_sets_gaussian_for_normal(self):
         """ModelSpec with Normal likelihood -> SSMSpec has GAUSSIAN manifest_dist."""
-        from dsem_agent.models.ssm_builder import SSMModelBuilder
-        from dsem_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.orchestrator.schemas_model import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1223,7 +1223,7 @@ class TestHessMC2Proposals:
 
     def test_rw_proposal_is_x_plus_eps_z(self, particle_state):
         """RW: x_new = x + eps * z (Eq 28)."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_rw
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_rw
 
         s = particle_state
         x_new, v, v_half, chol_M, _ss = _propose_rw(
@@ -1237,7 +1237,7 @@ class TestHessMC2Proposals:
 
     def test_fo_proposal_uses_gradient(self, particle_state):
         """FO/MALA: v_half = 0.5*eps*grad + z, x_new = x + eps*v_half (Eq 30-33)."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_fo
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo
 
         s = particle_state
         x_new, v, v_half, _chol_M, _ss = _propose_fo(
@@ -1251,7 +1251,7 @@ class TestHessMC2Proposals:
 
     def test_fo_reduces_to_rw_when_grad_is_zero(self, particle_state):
         """With zero gradient, FO should behave like RW."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_fo, _propose_rw
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _propose_rw
 
         s = particle_state
         zero_grad = jnp.zeros(s["D"])
@@ -1265,7 +1265,7 @@ class TestHessMC2Proposals:
 
     def test_so_proposal_uses_hessian_when_psd(self, particle_state):
         """SO: with negative definite Hessian, uses full mass matrix M = -H."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_so
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_so
 
         s = particle_state
         x_new, _v, _v_half, chol_M, ss = _propose_so(
@@ -1284,7 +1284,7 @@ class TestHessMC2Proposals:
 
     def test_so_falls_back_to_fo_when_not_psd(self, particle_state):
         """SO: with non-negative-definite Hessian, falls back to FO."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_fo, _propose_so
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _propose_so
 
         s = particle_state
         # Hessian with positive eigenvalue -> -H not PSD
@@ -1315,7 +1315,7 @@ class TestHessMC2ReverseMomentum:
 
     def test_rw_reverse_is_identity(self, reverse_state):
         """RW reverse: v_new = v_half (symmetric)."""
-        from dsem_agent.models.ssm.hessmc2 import _reverse_rw
+        from causal_ssm_agent.models.ssm.hessmc2 import _reverse_rw
 
         s = reverse_state
         v_new, _chol_M, _ss = _reverse_rw(
@@ -1325,7 +1325,7 @@ class TestHessMC2ReverseMomentum:
 
     def test_fo_reverse_applies_gradient_kick(self, reverse_state):
         """FO reverse: v_new = 0.5*eps*grad_new + v_half (Eq 34)."""
-        from dsem_agent.models.ssm.hessmc2 import _reverse_fo
+        from causal_ssm_agent.models.ssm.hessmc2 import _reverse_fo
 
         s = reverse_state
         v_new, _chol_M, _ss = _reverse_fo(
@@ -1336,7 +1336,7 @@ class TestHessMC2ReverseMomentum:
 
     def test_fo_forward_reverse_symmetry(self):
         """FO proposal + reverse with same gradient should recover original v."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_fo, _reverse_fo
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _reverse_fo
 
         x = jnp.array([1.0, 2.0])
         grad = jnp.array([0.5, -0.3])
@@ -1358,7 +1358,7 @@ class TestHessMC2Weights:
 
     def test_cov_density_is_finite(self):
         """CoV log-density should be finite for reasonable inputs."""
-        from dsem_agent.models.ssm.hessmc2 import _log_cov_density
+        from causal_ssm_agent.models.ssm.hessmc2 import _log_cov_density
 
         v = jnp.array([0.5, -0.3])
         chol_M = jnp.eye(2)
@@ -1369,7 +1369,7 @@ class TestHessMC2Weights:
 
     def test_cov_density_higher_for_smaller_v(self):
         """Closer to mode (v=0) should give higher density."""
-        from dsem_agent.models.ssm.hessmc2 import _log_cov_density
+        from causal_ssm_agent.models.ssm.hessmc2 import _log_cov_density
 
         chol_M = jnp.eye(3)
         eps = 0.1
@@ -1380,7 +1380,7 @@ class TestHessMC2Weights:
 
     def test_weight_update_no_change_gives_zero_correction(self):
         """If proposal doesn't move and forward == reverse, weight unchanged."""
-        from dsem_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
 
         D = 2
         logw_old = jnp.array(-1.0)
@@ -1396,7 +1396,7 @@ class TestHessMC2Weights:
 
     def test_weight_increases_when_posterior_improves(self):
         """Moving to higher posterior should increase the weight."""
-        from dsem_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
 
         D = 2
         logw_old = jnp.array(0.0)
@@ -1414,7 +1414,7 @@ class TestHessMC2Weights:
 
     def test_weight_neginf_for_invalid_posterior(self):
         """Non-finite posterior should give -inf weight."""
-        from dsem_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
 
         D = 2
         lw = _compute_weight(
@@ -1481,7 +1481,7 @@ class TestHessMC2VmapBatching:
 
     def test_propose_fo_batch(self):
         """Vmapped FO proposal should give same result as sequential."""
-        from dsem_agent.models.ssm.hessmc2 import _propose_fo
+        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo
 
         N, D = 4, 3
         key = random.PRNGKey(0)
@@ -1500,7 +1500,7 @@ class TestHessMC2VmapBatching:
 
     def test_weight_batch(self):
         """Vmapped weight computation should match sequential."""
-        from dsem_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
 
         N, D = 4, 3
         key = random.PRNGKey(42)
@@ -1612,7 +1612,7 @@ class TestMCMCUtils:
 
     def test_hmc_step_n_leapfrog_1_is_mala(self):
         """hmc_step with n_leapfrog=1 should behave as MALA."""
-        from dsem_agent.models.ssm.mcmc_utils import hmc_step
+        from causal_ssm_agent.models.ssm.mcmc_utils import hmc_step
 
         D = 3
         key = random.PRNGKey(42)
@@ -1633,7 +1633,7 @@ class TestMCMCUtils:
 
     def test_hmc_step_n_leapfrog_5(self):
         """hmc_step with n_leapfrog=5 should produce valid results."""
-        from dsem_agent.models.ssm.mcmc_utils import hmc_step
+        from causal_ssm_agent.models.ssm.mcmc_utils import hmc_step
 
         D = 3
         key = random.PRNGKey(42)
@@ -1652,7 +1652,7 @@ class TestMCMCUtils:
 
     def test_find_next_beta_basic(self):
         """find_next_beta should return a value between beta_prev and 1.0."""
-        from dsem_agent.models.ssm.mcmc_utils import find_next_beta
+        from causal_ssm_agent.models.ssm.mcmc_utils import find_next_beta
 
         N = 100
         logw = jnp.zeros(N)
@@ -1664,7 +1664,7 @@ class TestMCMCUtils:
 
     def test_find_next_beta_reaches_one(self):
         """find_next_beta should reach 1.0 when likelihoods are uniform."""
-        from dsem_agent.models.ssm.mcmc_utils import find_next_beta
+        from causal_ssm_agent.models.ssm.mcmc_utils import find_next_beta
 
         N = 100
         logw = jnp.zeros(N)
@@ -1675,7 +1675,10 @@ class TestMCMCUtils:
 
     def test_dual_averaging_converges(self):
         """Dual averaging should converge step size toward target acceptance."""
-        from dsem_agent.models.ssm.mcmc_utils import dual_averaging_init, dual_averaging_update
+        from causal_ssm_agent.models.ssm.mcmc_utils import (
+            dual_averaging_init,
+            dual_averaging_update,
+        )
 
         state = dual_averaging_init(1.0)
         # Simulate low acceptance (step too large) -> should shrink
@@ -1692,7 +1695,7 @@ class TestMCMCUtils:
 
     def test_compute_weighted_chol_mass_shape(self):
         """compute_weighted_chol_mass should return (D, D) lower-triangular."""
-        from dsem_agent.models.ssm.mcmc_utils import compute_weighted_chol_mass
+        from causal_ssm_agent.models.ssm.mcmc_utils import compute_weighted_chol_mass
 
         D = 4
         N = 50
@@ -1719,7 +1722,7 @@ class TestTemperedSMCAdaptive:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -1759,7 +1762,7 @@ class TestTemperedSMCAdaptive:
     @pytest.mark.timeout(60)
     def test_adaptive_tempering_reaches_beta_one(self, lgss_data):
         """Adaptive tempering should reach beta=1.0."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(
@@ -1790,7 +1793,7 @@ class TestTemperedSMCWasteFree:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -1830,7 +1833,7 @@ class TestTemperedSMCWasteFree:
     @pytest.mark.timeout(60)
     def test_waste_free_runs(self, lgss_data):
         """Waste-free mode should complete without error."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(
@@ -1851,7 +1854,7 @@ class TestTemperedSMCWasteFree:
 
     def test_waste_free_rejects_bad_n(self):
         """Waste-free should reject N % n_mh_steps != 0."""
-        from dsem_agent.models.ssm import SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=1,
@@ -1887,7 +1890,7 @@ class TestTemperedSMCMultiStepHMC:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -1927,7 +1930,7 @@ class TestTemperedSMCMultiStepHMC:
     @pytest.mark.timeout(60)
     def test_multi_step_hmc_runs(self, lgss_data):
         """n_leapfrog=5 should complete without error."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(
@@ -1961,7 +1964,7 @@ class TestPGASPreconditioned:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -2001,7 +2004,7 @@ class TestPGASPreconditioned:
     @pytest.mark.timeout(60)
     def test_pgas_preconditioned_runs(self, lgss_data):
         """PGAS with preconditioned HMC should complete without error."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(
@@ -2031,7 +2034,7 @@ class TestPGASOptimalProposal:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -2071,7 +2074,7 @@ class TestPGASOptimalProposal:
     @pytest.mark.timeout(60)
     def test_pgas_optimal_proposal_gaussian(self, lgss_data):
         """PGAS with optimal proposal should complete for Gaussian obs."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(
@@ -2094,7 +2097,7 @@ class TestPGASOptimalProposal:
     @pytest.mark.timeout(60)
     def test_pgas_fallback_for_poisson(self):
         """PGAS should fall back to gradient proposal for non-Gaussian obs."""
-        from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=1,
@@ -2136,7 +2139,7 @@ class TestPGASBlockSampling:
         """1D Linear Gaussian SSM data."""
         import jax.scipy.linalg as jla
 
-        from dsem_agent.models.ssm import SSMSpec, discretize_system
+        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 
         n_latent, n_manifest = 1, 1
         T, dt = 50, 1.0
@@ -2176,7 +2179,7 @@ class TestPGASBlockSampling:
     @pytest.mark.timeout(60)
     def test_pgas_block_sampling_runs(self, lgss_data):
         """PGAS with block sampling should complete and have per-block diagnostics."""
-        from dsem_agent.models.ssm import SSMModel, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
         result = fit(

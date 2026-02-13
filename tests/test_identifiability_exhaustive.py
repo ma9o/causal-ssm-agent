@@ -26,7 +26,7 @@ References:
 
 import pytest
 
-from dsem_agent.utils.identifiability import (
+from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
     dag_to_admg,
@@ -531,7 +531,7 @@ class TestInstrumentalVariables:
 
         Z is an instrument: affects Y only through X, not confounded with Y.
 
-        Under linearity (which DSEM assumes), IV identification works.
+        Under linearity (which our framework assumes), IV identification works.
         The estimand notes that linearity is required.
         """
         latent_model = make_latent_model(
@@ -991,7 +991,7 @@ class TestComplexConfounding:
 
         This test directly checks find_blocking_confounders, not full identification.
         """
-        from dsem_agent.utils.identifiability import find_blocking_confounders
+        from causal_ssm_agent.utils.identifiability import find_blocking_confounders
 
         latent_model = make_latent_model(
             constructs=[

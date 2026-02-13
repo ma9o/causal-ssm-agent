@@ -2,27 +2,27 @@
 
 
 def test_import_pipeline():
-    from dsem_agent.flows.pipeline import causal_inference_pipeline
+    from causal_ssm_agent.flows.pipeline import causal_inference_pipeline
 
     assert callable(causal_inference_pipeline)
 
 
 def test_import_orchestrator():
-    from dsem_agent.orchestrator.agents import propose_latent_model, propose_measurement_model
+    from causal_ssm_agent.orchestrator.agents import propose_latent_model, propose_measurement_model
 
     assert callable(propose_latent_model)
     assert callable(propose_measurement_model)
 
 
 def test_import_workers():
-    from dsem_agent.workers import process_chunk, process_chunks
+    from causal_ssm_agent.workers import process_chunk, process_chunks
 
     assert callable(process_chunk)
     assert callable(process_chunks)
 
 
 def test_import_utils():
-    from dsem_agent.utils.data import (
+    from causal_ssm_agent.utils.data import (
         load_text_chunks,
     )
 
@@ -38,7 +38,7 @@ def test_preprocessing_script():
 
 
 def test_schema_to_networkx():
-    from dsem_agent.orchestrator.schemas import (
+    from causal_ssm_agent.orchestrator.schemas import (
         CausalEdge,
         CausalSpec,
         Construct,

@@ -16,12 +16,12 @@ import jax.random as random
 import numpy as np
 import pytest
 
-from dsem_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from dsem_agent.models.likelihoods.rao_blackwell import (
+from causal_ssm_agent.models.likelihoods.rao_blackwell import (
     _gauss_hermite_1d,
     _kalman_predict,
     _kalman_update_gaussian,
@@ -89,7 +89,7 @@ def _run_rbpf(
     extra_params=None,
 ):
     """Run RBPF and return log-likelihood."""
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -124,7 +124,7 @@ def _run_bootstrap_pf(
     extra_params=None,
 ):
     """Run bootstrap PF (Student-t dynamics forces bootstrap) and return log-likelihood."""
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -436,7 +436,7 @@ class TestRBPFSmoke:
 
     def test_gaussian_obs_matches_kalman(self):
         """RBPF with Gaussian obs should approximate exact Kalman filter."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
 
         ct, meas, init = _make_standard_params()
         T = 15
@@ -710,7 +710,7 @@ class TestParameterRecovery:
     @pytest.mark.slow
     def test_drift_recovery_poisson(self):
         """1D AR(1) + Poisson: recover drift parameter via RBPF + NUTS."""
-        from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=1,
@@ -744,7 +744,7 @@ class TestParameterRecovery:
     @pytest.mark.slow
     def test_drift_recovery_student_t(self):
         """1D AR(1) + Student-t: recover drift via RBPF + NUTS."""
-        from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=1,
@@ -776,7 +776,7 @@ class TestParameterRecovery:
     @pytest.mark.slow
     def test_drift_recovery_gamma(self):
         """1D AR(1) + Gamma: recover drift via RBPF + NUTS."""
-        from dsem_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import NoiseFamily, SSMModel, SSMSpec, fit
 
         spec = SSMSpec(
             n_latent=1,
@@ -820,7 +820,7 @@ class TestRBPFKalmanConsistency:
     """
 
     def _kalman_ll(self, ct, meas, init, obs, dt):
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
 
         kf = KalmanLikelihood(n_latent=init.mean.shape[0], n_manifest=meas.lambda_mat.shape[0])
         return float(kf.compute_log_likelihood(ct, meas, init, obs, dt))

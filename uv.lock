@@ -551,6 +551,81 @@ wheels = [
 ]
 
 [[package]]
+name = "causal-ssm-agent"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "arviz" },
+    { name = "blackjax" },
+    { name = "cuthbert" },
+    { name = "equinox" },
+    { name = "exa-py" },
+    { name = "google-genai" },
+    { name = "inspect-ai" },
+    { name = "jax" },
+    { name = "jaxlib" },
+    { name = "networkx" },
+    { name = "numpyro" },
+    { name = "openai" },
+    { name = "optax" },
+    { name = "polars" },
+    { name = "prefect" },
+    { name = "python-dotenv" },
+    { name = "y0" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "dspy" },
+    { name = "ipykernel" },
+    { name = "modal" },
+    { name = "pytest" },
+    { name = "pytest-instafail" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "streamlit" },
+    { name = "streamlit-agraph" },
+    { name = "watchdog" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arviz", specifier = ">=0.19.0" },
+    { name = "blackjax", specifier = ">=1.2.0" },
+    { name = "cuthbert", specifier = ">=0.0.3" },
+    { name = "equinox", specifier = ">=0.11.0" },
+    { name = "exa-py", specifier = ">=1.0.0" },
+    { name = "google-genai", specifier = ">=1.56.0" },
+    { name = "inspect-ai", specifier = ">=0.3.162" },
+    { name = "jax", specifier = ">=0.4.35" },
+    { name = "jaxlib", specifier = ">=0.4.35" },
+    { name = "networkx", specifier = ">=3.6" },
+    { name = "numpyro", specifier = ">=0.16.0" },
+    { name = "openai", specifier = ">=2.9.0" },
+    { name = "optax", specifier = ">=0.2.0" },
+    { name = "polars", specifier = ">=1.35.2" },
+    { name = "prefect", specifier = ">=3.6.5" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "y0", git = "https://github.com/y0-causal-inference/y0.git" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "dspy", specifier = ">=3.0.4" },
+    { name = "ipykernel", specifier = ">=7.1.0" },
+    { name = "modal", specifier = ">=1.3.2" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-instafail", specifier = ">=0.5.0" },
+    { name = "pytest-timeout", specifier = ">=2.3.1" },
+    { name = "pytest-xdist", specifier = ">=3.6.1" },
+    { name = "ruff", specifier = ">=0.9.0" },
+    { name = "streamlit", specifier = ">=1.52.2" },
+    { name = "streamlit-agraph", specifier = ">=0.0.45" },
+    { name = "watchdog", specifier = ">=6.0.0" },
+]
+
+[[package]]
 name = "cbor2"
 version = "5.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1009,81 +1084,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
-]
-
-[[package]]
-name = "dsem-agent"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "arviz" },
-    { name = "blackjax" },
-    { name = "cuthbert" },
-    { name = "equinox" },
-    { name = "exa-py" },
-    { name = "google-genai" },
-    { name = "inspect-ai" },
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "networkx" },
-    { name = "numpyro" },
-    { name = "openai" },
-    { name = "optax" },
-    { name = "polars" },
-    { name = "prefect" },
-    { name = "python-dotenv" },
-    { name = "y0" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "dspy" },
-    { name = "ipykernel" },
-    { name = "modal" },
-    { name = "pytest" },
-    { name = "pytest-instafail" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "streamlit" },
-    { name = "streamlit-agraph" },
-    { name = "watchdog" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "arviz", specifier = ">=0.19.0" },
-    { name = "blackjax", specifier = ">=1.2.0" },
-    { name = "cuthbert", specifier = ">=0.0.3" },
-    { name = "equinox", specifier = ">=0.11.0" },
-    { name = "exa-py", specifier = ">=1.0.0" },
-    { name = "google-genai", specifier = ">=1.56.0" },
-    { name = "inspect-ai", specifier = ">=0.3.162" },
-    { name = "jax", specifier = ">=0.4.35" },
-    { name = "jaxlib", specifier = ">=0.4.35" },
-    { name = "networkx", specifier = ">=3.6" },
-    { name = "numpyro", specifier = ">=0.16.0" },
-    { name = "openai", specifier = ">=2.9.0" },
-    { name = "optax", specifier = ">=0.2.0" },
-    { name = "polars", specifier = ">=1.35.2" },
-    { name = "prefect", specifier = ">=3.6.5" },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "y0", git = "https://github.com/y0-causal-inference/y0.git" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "dspy", specifier = ">=3.0.4" },
-    { name = "ipykernel", specifier = ">=7.1.0" },
-    { name = "modal", specifier = ">=1.3.2" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest-instafail", specifier = ">=0.5.0" },
-    { name = "pytest-timeout", specifier = ">=2.3.1" },
-    { name = "pytest-xdist", specifier = ">=3.6.1" },
-    { name = "ruff", specifier = ">=0.9.0" },
-    { name = "streamlit", specifier = ">=1.52.2" },
-    { name = "streamlit-agraph", specifier = ">=0.0.45" },
-    { name = "watchdog", specifier = ">=6.0.0" },
 ]
 
 [[package]]

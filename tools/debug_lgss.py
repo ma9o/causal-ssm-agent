@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 
-from dsem_agent.models.ssm import SSMModel, SSMSpec, discretize_system, fit
+from causal_ssm_agent.models.ssm import SSMModel, SSMSpec, discretize_system, fit
 
 # -- Ground truth (1D Gaussian SSM) --
 n_latent, n_manifest = 1, 1

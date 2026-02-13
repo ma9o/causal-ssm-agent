@@ -1,4 +1,4 @@
-"""CLI interface for DSEM DAG diagnostics.
+"""CLI interface for DAG diagnostics.
 
 Usage:
     uv run python tools/dag_cli.py data/eval/causal_spec1.json
@@ -14,15 +14,15 @@ import json
 import sys
 from pathlib import Path
 
-from dag_diagnostics import load_dsem_file, run_diagnostics
+from dag_diagnostics import load_model_file, run_diagnostics
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Inspect DSEM DAG diagnostics.")
+    parser = argparse.ArgumentParser(description="Inspect DAG diagnostics.")
     parser.add_argument(
         "path",
         type=Path,
-        help="Path to a DSEM JSON file (latent + measurement).",
+        help="Path to a causal model JSON file (latent + measurement).",
     )
     parser.add_argument(
         "--format",
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        data = load_dsem_file(args.path)
+        data = load_model_file(args.path)
     except FileNotFoundError:
         print(f"File not found: {args.path}", file=sys.stderr)
         return 1

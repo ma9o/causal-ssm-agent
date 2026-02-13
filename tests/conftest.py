@@ -1,4 +1,4 @@
-"""Shared fixtures for DSEM tests.
+"""Shared fixtures for causal SSM tests.
 
 This module provides reusable fixtures to reduce duplication across test files:
 - Factory fixtures for creating schema objects (constructs, indicators)
@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import jax.random as random
 import pytest
 
-from dsem_agent.models.ssm import SSMSpec
-from dsem_agent.orchestrator.schemas import (
+from causal_ssm_agent.models.ssm import SSMSpec
+from causal_ssm_agent.orchestrator.schemas import (
     Construct,
     Indicator,
     Role,
@@ -301,7 +301,7 @@ def lgss_data():
     """
     import jax.scipy.linalg as jla
 
-    from dsem_agent.models.ssm import discretize_system
+    from causal_ssm_agent.models.ssm import discretize_system
 
     n_latent, n_manifest = 1, 1
     T, dt = 100, 1.0

@@ -83,7 +83,7 @@ async function copyGraph() {
 
 
 def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
-    """Parse DAG JSON - accepts both latent-only and full DSEM formats.
+    """Parse DAG JSON - accepts both latent-only and full causal model formats.
 
     Latent-only format:
     {
@@ -93,7 +93,7 @@ def parse_dag_json(json_str: str) -> tuple[dict | None, str | None]:
         }
     }
 
-    Full DSEM format:
+    Full format:
     {
         "latent": {
             "constructs": [...],

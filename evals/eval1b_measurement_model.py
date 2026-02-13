@@ -28,11 +28,11 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from dsem_agent.orchestrator.prompts import measurement_model
-from dsem_agent.orchestrator.schemas import LatentModel, MeasurementModel
-from dsem_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
-from dsem_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
-from dsem_agent.utils.llm import make_orchestrator_generate_fn
+from causal_ssm_agent.orchestrator.prompts import measurement_model
+from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
+from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
+from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
+from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_orchestrator,

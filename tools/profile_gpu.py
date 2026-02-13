@@ -17,10 +17,10 @@ image = (
     .uv_sync(uv_project_dir=str(ROOT), groups=["dev"], frozen=True)
     .uv_pip_install("jax[cuda12]", gpu="B200")
     .env({"PYTHONPATH": "/root/src"})
-    .add_local_dir(ROOT / "src" / "dsem_agent", remote_path="/root/src/dsem_agent")
+    .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
 )
 
-app = modal.App("dsem-gpu-profile", image=image)
+app = modal.App("causal-ssm-gpu-profile", image=image)
 
 
 @app.function(gpu="B200", timeout=600)
@@ -34,9 +34,13 @@ def profile():
     import jax.random as random
     import numpyro
 
-    from dsem_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
-    from dsem_agent.models.ssm import SSMModel, SSMSpec
+    from causal_ssm_agent.models.likelihoods.base import (
+        CTParams,
+        InitialStateParams,
+        MeasurementParams,
+    )
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.ssm import SSMModel, SSMSpec
 
     # ── GPU monitor: polls nvidia-smi every 100ms in background ─────────
     # NOTE: nvidia-smi "utilization.gpu" = % of time any kernel was active.

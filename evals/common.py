@@ -9,7 +9,7 @@ from inspect_ai.model import get_model
 from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
-from dsem_agent.utils.data import (
+from causal_ssm_agent.utils.data import (
     DATA_DIR,
     PROCESSED_DIR,
     get_latest_preprocessed_file,
@@ -17,7 +17,7 @@ from dsem_agent.utils.data import (
     get_worker_chunk_size,
     sample_chunks,
 )
-from dsem_agent.utils.llm import get_generate_config, multi_turn_generate
+from causal_ssm_agent.utils.llm import get_generate_config, multi_turn_generate
 
 
 def load_eval_config() -> dict:
@@ -169,7 +169,7 @@ def load_causal_spec_by_question_id(question_id: int) -> dict:
     if question is None:
         raise ValueError(f"Question ID {question_id} not found in config")
 
-    causal_spec_path = DATA_DIR / question.get("dsem", f"eval/causal_spec{question_id}.json")
+    causal_spec_path = DATA_DIR / question.get("causal_spec", f"eval/causal_spec{question_id}.json")
     with open(causal_spec_path) as f:
         return json.load(f)
 

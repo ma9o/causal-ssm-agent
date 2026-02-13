@@ -228,9 +228,9 @@ As noted in **"Demystifying Proximal Causal Inference" (2024)**:
 
 ---
 
-## 4. Bayesian Unification of GLM, SEM, and DSEM
+## 4. Bayesian Unification of GLM, SEM, and Dynamic Models
 
-**Principle:** GLM/GLMM from biostatistics, SEM from psychometrics, and DSEM for intensive longitudinal data are all special cases of Bayesian hierarchical models. The key insight crystallized in Skrondal & Rabe-Hesketh's 2004 GLLAMM framework: **random effects ARE latent variables**—both are unobserved quantities drawn from population distributions and estimated through identical computational machinery.
+**Principle:** GLM/GLMM from biostatistics, SEM from psychometrics, and dynamic models for intensive longitudinal data are all special cases of Bayesian hierarchical models. The key insight crystallized in Skrondal & Rabe-Hesketh's 2004 GLLAMM framework: **random effects ARE latent variables**—both are unobserved quantities drawn from population distributions and estimated through identical computational machinery.
 
 ### The Generative Modeling Perspective
 
@@ -266,11 +266,11 @@ Muthén & Asparouhov (2012) proposed "replacing parameter specifications of exac
 
 ### Non-Centered Parameterization
 
-For hierarchical models with varying effects, non-centered parameterization is critical. Instead of sampling θ ~ Normal(μ_θ, σ_θ) directly (which creates funnel geometries that challenge MCMC), sample θ_raw ~ Normal(0, 1) and transform: θ = μ_θ + σ_θ × θ_raw. This dramatically improves sampling efficiency and is essential for DSEM models with many person-specific random effects.
+For hierarchical models with varying effects, non-centered parameterization is critical. Instead of sampling θ ~ Normal(μ_θ, σ_θ) directly (which creates funnel geometries that challenge MCMC), sample θ_raw ~ Normal(0, 1) and transform: θ = μ_θ + σ_θ × θ_raw. This dramatically improves sampling efficiency and is essential for dynamic SSM models with many person-specific random effects.
 
-### DSEM-Specific Prior Recommendations
+### Prior Recommendations for Temporal SSMs
 
-For temporal parameters in DSEM, the methodological literature suggests:
+For temporal parameters in dynamic SSMs, the methodological literature suggests:
 
 | Parameter | Recommended Prior | Rationale |
 |-----------|-------------------|-----------|
@@ -283,13 +283,13 @@ Stan documentation advises against hard stationarity constraints: "If the data a
 
 ### Sample Size Requirements
 
-From the methodological literature on Bayesian DSEM:
+From the methodological literature on Bayesian dynamic models:
 
 - **N > 100 persons, T > 50 timepoints:** Excellent convergence and unbiased parameter recovery
 - **N = 50-100, T = 30-50:** Works with slight variance bias
 - **N < 50:** Requires informative priors for stable estimation
 
-Bayesian DSEM's key advantage over frequentist alternatives: MCMC handles many random effects where maximum likelihood becomes intractable.
+Key advantage of Bayesian dynamic models over frequentist alternatives: MCMC handles many random effects where maximum likelihood becomes intractable.
 
 ### Connection to This Framework
 

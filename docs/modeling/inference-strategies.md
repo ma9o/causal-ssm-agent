@@ -1,6 +1,6 @@
 # Inference Strategies for State-Space Models
 
-This document covers dsem-agent's likelihood backends and inference methods for continuous-time state-space models.
+This document covers causal-ssm-agent's likelihood backends and inference methods for continuous-time state-space models.
 
 ## The Marginalization Challenge
 
@@ -12,9 +12,9 @@ p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 
 The latent states must be integrated out. For SSMs with T timesteps and n latent dimensions, this integral is over an (n x T)-dimensional space. The key to tractable inference is choosing the right marginalization strategy based on model structure.
 
-### The CT-SEM Formulation
+### The Continuous-Time Formulation
 
-dsem-agent models continuous-time dynamics as a linear SDE:
+causal-ssm-agent models continuous-time dynamics as a linear SDE:
 
 ```
 d eta = (A eta + c) dt + G dW
@@ -26,11 +26,11 @@ where A is the drift matrix, c is the continuous intercept, and G is the diffusi
 eta_t = Ad eta_{t-1} + cd + epsilon_t,    epsilon_t ~ N(0, Qd)
 ```
 
-where Ad = exp(A dt), Qd is derived from the Lyapunov equation, and cd = A^{-1}(exp(A dt) - I)c. The discretization is computed by `dsem_agent.models.ssm.discretization` and is shared across all likelihood backends.
+where Ad = exp(A dt), Qd is derived from the Lyapunov equation, and cd = A^{-1}(exp(A dt) - I)c. The discretization is computed by `causal_ssm_agent.models.ssm.discretization` and is shared across all likelihood backends.
 
 ## Likelihood Backends
 
-Likelihood backends live in `src/dsem_agent/models/likelihoods/` and compute log p(y | theta) given the SSM parameters. They are plugged into the NumPyro model via `numpyro.factor()`.
+Likelihood backends live in `src/causal_ssm_agent/models/likelihoods/` and compute log p(y | theta) given the SSM parameters. They are plugged into the NumPyro model via `numpyro.factor()`.
 
 ### Kalman Filter (`kalman.py`)
 
@@ -82,7 +82,7 @@ When dynamics are linear-Gaussian but observations are non-Gaussian, the Kalman 
 
 ## Inference Methods
 
-The `fit()` dispatcher in `src/dsem_agent/models/ssm/inference.py` routes to eight methods:
+The `fit()` dispatcher in `src/causal_ssm_agent/models/ssm/inference.py` routes to eight methods:
 
 | Method | Key | Type | Likelihood | Best For |
 |--------|-----|------|------------|----------|
@@ -141,7 +141,7 @@ SMC sampler with gradient-based change-of-variables L-kernels (Murphy et al. 202
 
 **Key design choices:**
 - **No tempering:** Unlike standard SMC, targets the full posterior from iteration 1. Gradient/Hessian-informed proposals provide sufficient exploration.
-- **Full Hessian:** Uses the complete D x D Hessian, not a diagonal approximation. For typical DSEM dimensions (D=5-30), the O(D^3) cost is negligible compared to PF likelihood evaluation.
+- **Full Hessian:** Uses the complete D x D Hessian, not a diagonal approximation. For typical SSM dimensions (D=5-30), the O(D^3) cost is negligible compared to PF likelihood evaluation.
 - **Optional warmup:** `warmup_iters` initial iterations use RW proposals with tempered reweighting to prevent particle collapse from diffuse priors.
 - **Particle recycling:** All post-warmup particles and weights are stored and pooled for the final resampling step (Eq 26).
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from dsem_agent.utils.identifiability import (
+from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
     dag_to_admg,

@@ -1,5 +1,5 @@
 [project]
-name = "dsem-agent"
+name = "causal-ssm-agent"
 version = "0.1.0"
 description = "LLM-orchestrated causal inference over long-context, multi-source data"
 readme = "README.md"
@@ -84,7 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["dsem_agent"]
+known-first-party = ["causal_ssm_agent"]
 
 [tool.ruff.format]
 quote-style = "double"

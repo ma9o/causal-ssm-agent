@@ -25,10 +25,10 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from dsem_agent.utils.llm import make_worker_generate_fn
-from dsem_agent.workers.core import WorkerResult, run_worker_extraction
-from dsem_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS
-from dsem_agent.workers.schemas import _get_indicator_info
+from causal_ssm_agent.utils.llm import make_worker_generate_fn
+from causal_ssm_agent.workers.core import WorkerResult, run_worker_extraction
+from causal_ssm_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS
+from causal_ssm_agent.workers.schemas import _get_indicator_info
 from evals.common import (
     get_eval_questions,
     get_sample_chunks_worker,

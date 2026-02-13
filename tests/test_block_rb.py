@@ -18,12 +18,12 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
-from dsem_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from dsem_agent.models.likelihoods.block_rb import (
+from causal_ssm_agent.models.likelihoods.block_rb import (
     extract_obs_subblocks,
     extract_subblocks,
     partition_indices,
@@ -98,7 +98,7 @@ def _simulate_data_exact(key, ct_params, meas_params, init, T=30):
     Unlike _simulate_data (Euler), this matches the filter's matrix-exponential
     discretization for unbiased parameter recovery.
     """
-    from dsem_agent.models.ssm.discretization import discretize_system
+    from causal_ssm_agent.models.ssm.discretization import discretize_system
 
     n = init.mean.shape[0]
     n_manifest = meas_params.lambda_mat.shape[0]
@@ -129,7 +129,7 @@ def _simulate_data_exact(key, ct_params, meas_params, init, T=30):
 
 def _simulate_poisson_data(key, ct_params, meas_params, init, T=30):
     """Simulate Poisson count observations using exact CT->DT discretization."""
-    from dsem_agent.models.ssm.discretization import discretize_system
+    from causal_ssm_agent.models.ssm.discretization import discretize_system
 
     n = init.mean.shape[0]
     dt = 1.0
@@ -169,7 +169,7 @@ def _run_block_rbpf(
     extra_params=None,
 ):
     """Run block RBPF with per-variable diffusion dists."""
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -203,7 +203,7 @@ def _run_full_rbpf(
     rng_key=None,
 ):
     """Run full RBPF (all Gaussian)."""
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -238,7 +238,7 @@ def _run_bootstrap_pf(
     extra_params=None,
 ):
     """Run bootstrap PF (all sampled)."""
-    from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -774,7 +774,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -844,7 +844,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -915,7 +915,7 @@ class TestParameterRecovery:
             drift = drift.at[1, 0].set(drift_offdiag[1])
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -985,7 +985,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
             # 1G + 2S: variable 0 is Gaussian, variables 1,2 are sampled
             backend = ParticleLikelihood(

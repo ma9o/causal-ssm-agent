@@ -2,12 +2,12 @@
 
 import json
 
-from dsem_agent.orchestrator.schemas import (
+from causal_ssm_agent.orchestrator.schemas import (
     CausalEdge,
     LatentModel,
     Role,
 )
-from dsem_agent.orchestrator.scoring import (
+from causal_ssm_agent.orchestrator.scoring import (
     _count_rule_points,
     score_latent_model,
     score_latent_model_normalized,

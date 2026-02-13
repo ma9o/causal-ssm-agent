@@ -1,5 +1,5 @@
 """
-DSEM DAG Explorer - Streamlit UI for DAG visualization.
+DAG Explorer - Streamlit UI for DAG visualization.
 
 Run with: uv run streamlit run tools/dag_explorer.py
 """
@@ -11,13 +11,13 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_agraph import Config, Edge, Node, agraph
 
-# Add src to path for dsem_agent imports
+# Add src to path for causal_ssm_agent imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from commons import COPY_GRAPH_HTML, parse_dag_json
 from dag_diagnostics import DagDiagnostics, run_diagnostics
 
-st.set_page_config(page_title="DSEM DAG Explorer", layout="wide")
+st.set_page_config(page_title="DAG Explorer", layout="wide")
 
 # Dark theme CSS
 st.markdown(
@@ -352,7 +352,7 @@ def get_indicators_for_construct(indicators: list[dict], construct_name: str) ->
 # Main UI
 # =============================================================================
 
-st.title("DSEM DAG Explorer")
+st.title("DAG Explorer")
 
 col_input, col_graph, col_info = st.columns([1, 2, 1])
 
@@ -500,7 +500,7 @@ with col_graph:
                     f'<div class="info-box">'
                     f'<div class="info-title" style="color: #3fb950;">✓ Can Marginalize ({len(can_marg)})</div>'
                     f'<div style="color: #8b949e; font-size: 11px; margin-bottom: 8px;">'
-                    f'These can be omitted from DSEM spec - effects absorbed into error terms</div>',
+                    f'These can be omitted from model spec - effects absorbed into error terms</div>',
                     unsafe_allow_html=True,
                 )
                 for u in sorted(can_marg):

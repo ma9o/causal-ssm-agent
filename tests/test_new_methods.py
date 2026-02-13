@@ -9,7 +9,7 @@ All tests share the lgss_data fixture from conftest.py.
 import jax.numpy as jnp
 import pytest
 
-from dsem_agent.models.ssm import InferenceResult, SSMModel, fit
+from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
 from tests.helpers import assert_recovery_ci
 
 # =============================================================================

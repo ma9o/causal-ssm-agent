@@ -7,7 +7,7 @@ This index helps coding agents navigate the documentation structure.
 ```
 docs/
 ├── index.md           # This file
-├── modeling/          # Theoretical foundations (DSEM, assumptions, scope)
+├── modeling/          # Theoretical foundations (overview, assumptions, scope)
 ├── reference/         # Technical specs (schemas, pipeline)
 └── guides/            # Practical usage (quickstart, data, evals)
 ```
@@ -16,7 +16,7 @@ docs/
 
 **Understanding the modeling approach:**
 - Start with `modeling/scope.md` for construct taxonomy, ontology, and what's in/out of scope
-- Read `modeling/dsem_overview.md` for temporal granularity and cross-timescale rules
+- Read `modeling/overview.md` for temporal granularity and cross-timescale rules
 - Check `modeling/assumptions.md` for specific technical assumptions (A1-A9)
 - See `modeling/theory.md` for theoretical foundations (identification locality, correlated errors, SEM/Pearl bridge, Bayesian unification)
 - See `modeling/estimation.md` for the estimation pipeline (CT-SDE, discretization, SVI/NUTS/Hess-MC2/PGAS/Tempered-SMC inference, cuthbert integration)
@@ -24,7 +24,7 @@ docs/
 **Implementing or modifying:**
 - `reference/schema.md` for Pydantic models and validation
 - `reference/pipeline.md` for stage-by-stage breakdown
-- `reference/dsem-parity.md` for feature comparison with Asparouhov et al. (2017) Mplus DSEM
+- `reference/mplus-parity.md` for feature comparison with Asparouhov et al. (2017)
 
 **Running the system:**
 - `guides/quickstart.md` for installation and first run

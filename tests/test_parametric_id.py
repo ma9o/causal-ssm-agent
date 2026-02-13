@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jax.random as random
 import pytest
 
-from dsem_agent.models.ssm.model import NoiseFamily, SSMModel, SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import NoiseFamily, SSMModel, SSMPriors, SSMSpec
 
 
 def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
@@ -75,7 +75,7 @@ class TestTRule:
 
     def test_identified_model_passes(self):
         """Well-identified 2L/2M model should pass t-rule with time series."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         spec = SSMSpec(
             n_latent=2,
@@ -96,7 +96,7 @@ class TestTRule:
 
     def test_overparameterized_model_fails_without_T(self):
         """Model with many params fails cross-sectional t-rule (no T)."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         # 3 latent, 2 manifest: lots of drift params relative to cross-sectional moments
         spec = SSMSpec(
@@ -117,7 +117,7 @@ class TestTRule:
 
     def test_overparameterized_rescued_by_time_series(self):
         """Same model passes when T is large enough (autocovariance helps)."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         spec = SSMSpec(
             n_latent=3,
@@ -137,7 +137,7 @@ class TestTRule:
 
     def test_truly_overparameterized_fails_even_with_T(self):
         """Extremely overparameterized hierarchical model fails even with T."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         spec = SSMSpec(
             n_latent=5,
@@ -162,7 +162,7 @@ class TestTRule:
 
     def test_count_free_params_fixed_lambda(self):
         """Fixed lambda should contribute 0 free params."""
-        from dsem_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.utils.parametric_id import count_free_params
 
         spec = SSMSpec(
             n_latent=2,
@@ -179,7 +179,7 @@ class TestTRule:
 
     def test_count_free_params_free_lambda(self):
         """Free lambda with n_m > n_l should have (n_m - n_l) * n_l free entries."""
-        from dsem_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.utils.parametric_id import count_free_params
 
         spec = SSMSpec(
             n_latent=2,
@@ -197,7 +197,7 @@ class TestTRule:
 
     def test_count_free_params_drift_components(self):
         """Drift should have n_l diagonal + n_l*(n_l-1) off-diagonal."""
-        from dsem_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.utils.parametric_id import count_free_params
 
         spec = SSMSpec(
             n_latent=3,
@@ -215,7 +215,7 @@ class TestTRule:
 
     def test_count_free_params_noise_hyperparams(self):
         """Student-t manifest noise should add obs_df parameter."""
-        from dsem_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.utils.parametric_id import count_free_params
 
         spec = SSMSpec(
             n_latent=1,
@@ -233,7 +233,7 @@ class TestTRule:
 
     def test_print_report(self, capsys):
         """print_report should not crash."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         spec = SSMSpec(
             n_latent=2,
@@ -253,7 +253,7 @@ class TestTRule:
 
     def test_utils_init_exports(self):
         """T-rule exports should be available from utils __init__."""
-        from dsem_agent.utils import TRuleResult, check_t_rule, count_free_params
+        from causal_ssm_agent.utils import TRuleResult, check_t_rule, count_free_params
 
         assert callable(check_t_rule)
         assert callable(count_free_params)
@@ -265,7 +265,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_shape_and_finite(self):
         """Forward sim produces correct shape, finite values."""
-        from dsem_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import simulate_ssm
 
         n_latent, n_manifest, T = 2, 2, 20
         drift = jnp.array([[-0.5, 0.1], [0.05, -0.8]])
@@ -292,7 +292,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_with_cint(self):
         """Forward sim works with continuous intercept."""
-        from dsem_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import simulate_ssm
 
         n_latent, n_manifest, T = 2, 2, 15
         y = simulate_ssm(
@@ -312,7 +312,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_poisson(self):
         """Forward sim produces non-negative integers for Poisson noise."""
-        from dsem_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import simulate_ssm
 
         n_latent, n_manifest, T = 1, 1, 10
         y = simulate_ssm(
@@ -338,14 +338,14 @@ class TestProfileLikelihood:
     @pytest.mark.slow
     def test_identified_model(self):
         """Well-identified model: all params should be classified as identified."""
-        from dsem_agent.utils.parametric_id import profile_likelihood
+        from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
         model = _make_identified_model()
         T = 50
         times = jnp.linspace(0, 25, T)
 
         # Simulate real data from known params
-        from dsem_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import simulate_ssm
 
         obs = simulate_ssm(
             drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
@@ -378,7 +378,7 @@ class TestProfileLikelihood:
     @pytest.mark.slow
     def test_non_identified_model(self):
         """Non-identified model (2 latent, 1 manifest) should flag issues."""
-        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         model = _make_nonidentified_model()
         T = 50
@@ -418,7 +418,7 @@ class TestProfileLikelihoodResult:
 
     def test_summary_keys(self):
         """Summary should return per-parameter classification strings."""
-        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
 
         result = ProfileLikelihoodResult(
             parameter_profiles={
@@ -445,7 +445,7 @@ class TestProfileLikelihoodResult:
 
     def test_identified_classification(self):
         """Parabolic profile (strong curvature) should be classified as identified."""
-        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 20)
         # Strong parabola: -2*x^2, drops by >1.92 within grid
@@ -470,7 +470,7 @@ class TestProfileLikelihoodResult:
 
     def test_flat_profile_detection(self):
         """Flat profile should be classified as structurally_unidentifiable."""
-        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 20)
         profile = jnp.zeros(20) - 10.0  # flat
@@ -494,7 +494,7 @@ class TestProfileLikelihoodResult:
 
     def test_print_report(self, capsys):
         """print_report should not crash."""
-        from dsem_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 10)
         result = ProfileLikelihoodResult(
@@ -523,7 +523,7 @@ class TestSBCCheck:
     @pytest.mark.slow
     def test_sbc_basic_structure(self):
         """SBC result should have correct shapes and fields."""
-        from dsem_agent.utils.parametric_id import sbc_check
+        from causal_ssm_agent.utils.parametric_id import sbc_check
 
         # Minimal 1D LGSS for fast SBC
         # Use NUTS (not SVI) — SBC requires raw parameter samples
@@ -569,7 +569,7 @@ class TestSBCCheck:
     @pytest.mark.timeout(300)
     def test_sbc_identified_model_uniform_ranks(self):
         """Well-identified 1D LGSS with enough replicates should have uniform ranks."""
-        from dsem_agent.utils.parametric_id import sbc_check
+        from causal_ssm_agent.utils.parametric_id import sbc_check
 
         spec = SSMSpec(
             n_latent=1,
@@ -617,7 +617,7 @@ class TestPowerScalingResult:
 
     def test_print_report(self, capsys):
         """print_report should not crash."""
-        from dsem_agent.utils.parametric_id import PowerScalingResult
+        from causal_ssm_agent.utils.parametric_id import PowerScalingResult
 
         result = PowerScalingResult(
             prior_sensitivity={"drift_diag_pop": 0.02, "diffusion_diag_pop": 0.08},
@@ -642,8 +642,8 @@ class TestPowerScalingSensitivity:
     @pytest.mark.slow
     def test_power_scaling_basic(self):
         """After fitting with simple data, power scaling should produce valid output."""
-        from dsem_agent.models.ssm.inference import InferenceResult
-        from dsem_agent.utils.parametric_id import power_scaling_sensitivity
+        from causal_ssm_agent.models.ssm.inference import InferenceResult
+        from causal_ssm_agent.utils.parametric_id import power_scaling_sensitivity
 
         model = _make_identified_model()
         T = 20
@@ -695,7 +695,7 @@ class TestStage4bFlow:
 
     def test_parametric_id_task_import(self):
         """Stage 4b task and flow should be importable."""
-        from dsem_agent.flows.stages.stage4b_parametric_id import (
+        from causal_ssm_agent.flows.stages.stage4b_parametric_id import (
             parametric_id_task,
             stage4b_parametric_id_flow,
         )
@@ -705,13 +705,13 @@ class TestStage4bFlow:
 
     def test_run_power_scaling_import(self):
         """Power-scaling task should be importable from stage5."""
-        from dsem_agent.flows.stages.stage5_inference import run_power_scaling
+        from causal_ssm_agent.flows.stages.stage5_inference import run_power_scaling
 
         assert callable(run_power_scaling)
 
     def test_stages_init_exports(self):
         """New exports should be available from stages __init__."""
-        from dsem_agent.flows.stages import (
+        from causal_ssm_agent.flows.stages import (
             parametric_id_task,
             run_power_scaling,
             stage4b_parametric_id_flow,
@@ -723,7 +723,7 @@ class TestStage4bFlow:
 
     def test_utils_init_exports(self):
         """New exports should be available from utils __init__."""
-        from dsem_agent.utils import (
+        from causal_ssm_agent.utils import (
             PowerScalingResult,
             ProfileLikelihoodResult,
             SBCResult,
@@ -757,7 +757,7 @@ class TestSimulateSSMRecovery:
     @pytest.fixture
     def lgss_ground_truth(self):
         """1D Linear Gaussian SSM ground truth + simulated data via simulate_ssm."""
-        from dsem_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import simulate_ssm
 
         n_latent, n_manifest = 1, 1
         T = 100
@@ -812,7 +812,7 @@ class TestSimulateSSMRecovery:
         Validates that simulate_ssm produces data consistent with the model's
         generative process: fit with NUTS+Kalman, check 90% CI coverage.
         """
-        from dsem_agent.models.ssm.inference import fit
+        from causal_ssm_agent.models.ssm.inference import fit
 
         data = lgss_ground_truth
         model = SSMModel(data["spec"], n_particles=50, likelihood="kalman")
@@ -862,7 +862,7 @@ class TestProfileLikelihoodRecovery:
     @pytest.mark.timeout(300)
     def test_identified_model_classified_correctly(self):
         """Well-identified 1D LGSS: all params should be classified as identified."""
-        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         spec = SSMSpec(
             n_latent=1,
@@ -914,7 +914,7 @@ class TestProfileLikelihoodRecovery:
     @pytest.mark.timeout(300)
     def test_nonidentified_model_flags_issues(self):
         """Non-identified model (2 latent, 1 manifest) should flag issues."""
-        from dsem_agent.utils.parametric_id import profile_likelihood, simulate_ssm
+        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
 
         model = _make_nonidentified_model()
         T = 100

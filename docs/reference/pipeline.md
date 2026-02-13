@@ -6,7 +6,7 @@
 
 **[1b] Measurement Model with Identifiability (Orchestrator):** Given the latent structure and a data sample, the Orchestrator operationalizes each latent construct into observed indicators. For each latent, it proposes: `how_to_measure` instructions, `measurement_dtype`, `measurement_granularity`, and `aggregation`. One latent may map to multiple indicators (1:N reflective measurement model).
 
-After proposing measurements, identifiability is checked using y0's ID algorithm (Pearl's do-calculus). If effects are non-identifiable due to unobserved confounders, the Orchestrator is prompted to propose proxy indicators for the blocking confounders. Identifiability is re-checked after adding proxies. Effects that remain non-identifiable are flagged in the model for downstream handling. Output: full DSEMStructure with identifiability status.
+After proposing measurements, identifiability is checked using y0's ID algorithm (Pearl's do-calculus). If effects are non-identifiable due to unobserved confounders, the Orchestrator is prompted to propose proxy indicators for the blocking confounders. Identifiability is re-checked after adding proxies. Effects that remain non-identifiable are flagged in the model for downstream handling. Output: full CausalSpec with identifiability status.
 
 **[2] Extract (Workers):** Worker LLMs process the full dataset in parallel chunks, extracting raw indicator values as (indicator, value, timestamp) tuples. This is the "E" in ETL. Workers do one thing: extract values from text. (Future: workers may also critique the global graph based on local evidence, suggesting new confounders found only in specific chunks. The Orchestrator would then reconcile these structural suggestions into a unified model. Currently disabled—measurement extraction is the priority.)
 
@@ -30,7 +30,7 @@ Semantic checks that Polars schema can't enforce. Structural validation (column 
 
 **[4] Model Specification (NumPyro/JAX):** The orchestrator specifies the Bayesian hierarchical state-space model and queries the workers for priors. The output is consumed by `SSMModelBuilder` to produce an `SSMSpec`/`SSMModel`. (see: Zhu et al. 2024).
 
-**[4b] Parametric Identifiability:** Pre-fit diagnostics that check whether model parameters are constrained by the data before running expensive inference. Detects structural non-identifiability (rank-deficient Fisher information), boundary identifiability, and weak parameters. See `src/dsem_agent/flows/stages/stage4b_parametric_id.py`.
+**[4b] Parametric Identifiability:** Pre-fit diagnostics that check whether model parameters are constrained by the data before running expensive inference. Detects structural non-identifiability (rank-deficient Fisher information), boundary identifiability, and weak parameters. See `src/causal_ssm_agent/flows/stages/stage4b_parametric_id.py`.
 
 **[5] Inference:** Fit the model with NumPyro/JAX (SVI, NUTS, Hess-MC2, PGAS, Tempered SMC, Laplace-EM, Structured VI, or DPF), run proposed interventions, return results to user ranked by effect size.
 
@@ -38,7 +38,7 @@ Semantic checks that Polars schema can't enforce. Structural validation (column 
 
 ## Stage Files
 
-Stages are in `src/dsem_agent/flows/stages/` with naming convention `stage{N}_{name}.py`.
+Stages are in `src/causal_ssm_agent/flows/stages/` with naming convention `stage{N}_{name}.py`.
 
 ---
 

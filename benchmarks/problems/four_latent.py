@@ -14,7 +14,7 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from dsem_agent.models.ssm import SSMPriors, SSMSpec, discretize_system
+from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec, discretize_system
 
 
 @dataclass

@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from dsem_agent.orchestrator.stage1b import (
+from causal_ssm_agent.orchestrator.stage1b import (
     Stage1bMessages,
     Stage1bResult,
     _get_confounders_to_fix,

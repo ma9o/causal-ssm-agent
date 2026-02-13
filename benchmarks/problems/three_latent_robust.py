@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from dsem_agent.models.ssm import SSMPriors, SSMSpec
-from dsem_agent.models.ssm.model import NoiseFamily
+from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import NoiseFamily
 
 from .four_latent import RecoveryProblem
 

@@ -8,7 +8,7 @@ function.
 import polars as pl
 import pytest
 
-from dsem_agent.utils.aggregations import (
+from causal_ssm_agent.utils.aggregations import (
     _build_agg_expr,
     aggregate_worker_measurements,
 )

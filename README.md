@@ -1,10 +1,10 @@
-# dsem-agent
+# causal-ssm-agent
 
-This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and NumPyro for full Bayesian Continuous-Time SEM (CT-SEM) estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
+This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and NumPyro for full Bayesian state-space model estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
 
 **Key Innovation: Continuous-Time Modeling**
 
-Unlike traditional discrete-time approaches that require upfront aggregation, this framework uses Continuous-Time Structural Equation Modeling (CT-SEM) which:
+Unlike traditional discrete-time approaches that require upfront aggregation, this framework uses continuous-time state-space modeling which:
 - Handles irregularly-spaced observations natively via Kalman/particle filtering
 - Avoids information loss from pre-aggregation
 - Models dynamics via stochastic differential equations
@@ -29,7 +29,7 @@ The orchestrator LLM translates these informal queries into formal causal struct
 - DSPy for prompt optimization
 - NetworkX for causal DAG representation
 - y0 for identifiability checks (Pearl's ID algorithm)
-- JAX/NumPyro for Bayesian CT-SEM estimation
+- JAX/NumPyro for Bayesian SSM estimation
 - cuthbert for differentiable Kalman filtering and particle filtering
 - Multiple inference backends: SVI, NUTS, Hess-MC², PGAS, Tempered SMC, Laplace-EM, Structured VI, DPF
 
@@ -37,28 +37,28 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the full documentation structure.
 
-- **[Modeling](docs/modeling/)** - Theoretical foundations: scope, DSEM overview, assumptions, theory
+- **[Modeling](docs/modeling/)** - Theoretical foundations: scope, overview, assumptions, theory
 - **[Reference](docs/reference/)** - Technical specifications: schemas, pipeline stages
 - **[Guides](docs/guides/)** - Practical usage: quickstart, data workflow, running evals
-- **[DSEM Parity](docs/reference/dsem-parity.md)** - Feature comparison with Asparouhov et al. (2017)
+- **[Mplus Parity](docs/reference/mplus-parity.md)** - Feature comparison with Asparouhov et al. (2017)
 
 ## Structure
 
 ```
-dsem-agent/
+causal-ssm-agent/
 ├── data/
 │   ├── raw/           # Raw input data (gitignored)
 │   ├── processed/     # Converted text chunks (gitignored)
 │   ├── queries/       # Test queries for pipeline
 │   └── eval/          # Example DAGs for evals
 ├── docs/
-│   ├── modeling/      # Theoretical foundations (scope, DSEM, assumptions, theory)
-│   ├── reference/     # Technical specs (schemas, pipeline, dsem-parity)
+│   ├── modeling/      # Theoretical foundations (scope, overview, assumptions, theory)
+│   ├── reference/     # Technical specs (schemas, pipeline, mplus-parity)
 │   ├── guides/        # Practical usage (quickstart, data, evals)
 │   └── papers/        # Reference papers (Asparouhov 2017, etc.)
 ├── evals/             # Inspect AI evals (eval{N}_{name}.py) + scripts/
 │   └── deprecated/    # Deprecated evals
-├── src/dsem_agent/
+├── src/causal_ssm_agent/
 │   ├── orchestrator/  # Two-stage model specification (latent + measurement)
 │   │   ├── agents.py  # Stage 1a: latent model, Stage 1b: measurement model
 │   │   ├── stage1a.py          # Stage 1a orchestration logic

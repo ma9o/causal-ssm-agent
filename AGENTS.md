@@ -99,8 +99,8 @@ Theory: [docs/modeling/assumptions.md](docs/modeling/assumptions.md) (A3a for te
 ## Identification Pattern
 
 ```python
-from dsem_agent.utils.identifiability import check_identifiability
+from causal_ssm_agent.utils.identifiability import check_identifiability
 
 result = check_identifiability(latent_model, measurement_model)
-# See src/dsem_agent/utils/identifiability.py for implementation
+# See src/causal_ssm_agent/utils/identifiability.py for implementation
 ```

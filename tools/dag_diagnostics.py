@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from commons import parse_dag_json
-from dsem_agent.utils.effects import get_outcome_from_latent_model
-from dsem_agent.utils.identifiability import (
+
+from causal_ssm_agent.utils.effects import get_outcome_from_latent_model
+from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
     format_identifiability_report,
@@ -42,8 +43,8 @@ class DagDiagnostics:
         }
 
 
-def load_dsem_file(path: str | Path) -> dict[str, Any]:
-    """Load a DSEM JSON file and normalize it for diagnostics."""
+def load_model_file(path: str | Path) -> dict[str, Any]:
+    """Load a causal model JSON file and normalize it for diagnostics."""
     with open(path) as f:
         raw = json.load(f)
     normalized, error = parse_dag_json(json.dumps(raw))

@@ -13,7 +13,7 @@ controlling for age and genetic predisposition?
 Then run:
 ```bash
 uv run python -c "
-from dsem_agent.flows.pipeline import causal_inference_pipeline
+from causal_ssm_agent.flows.pipeline import causal_inference_pipeline
 
 # Uses latest preprocessed file automatically
 causal_inference_pipeline(
@@ -36,7 +36,7 @@ causal_inference_pipeline(
 uv run prefect server start
 
 # Terminal 2: Serve the flow
-uv run python -m dsem_agent.flows.pipeline
+uv run python -m causal_ssm_agent.flows.pipeline
 ```
 
 Then open http://localhost:4200 to trigger runs with custom parameters.

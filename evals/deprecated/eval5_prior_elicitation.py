@@ -38,10 +38,10 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from dsem_agent.flows.stages.stage4_model import DEFAULT_PRIORS, specify_model
-from dsem_agent.orchestrator.prompts import PRIOR_ELICITATION_SYSTEM
-from dsem_agent.orchestrator.stage4 import Stage4Result, run_stage4
-from dsem_agent.utils.llm import make_orchestrator_generate_fn
+from causal_ssm_agent.flows.stages.stage4_model import DEFAULT_PRIORS, specify_model
+from causal_ssm_agent.orchestrator.prompts import PRIOR_ELICITATION_SYSTEM
+from causal_ssm_agent.orchestrator.stage4 import Stage4Result, run_stage4
+from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 
 # Load config
 _CONFIG = load_eval_config()
@@ -127,7 +127,7 @@ def create_eval_dataset() -> MemoryDataset:
         # Pre-compute model_spec using rule-based specification
         model_spec = specify_model.fn(
             latent_dict=causal_spec.get("latent", {}),
-            dsem_dict=causal_spec,
+            causal_spec_dict=causal_spec,
         )
 
         samples.append(

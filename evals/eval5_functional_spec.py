@@ -24,13 +24,13 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, accuracy, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
-from dsem_agent.orchestrator.schemas_model import (
+from causal_ssm_agent.orchestrator.schemas_model import (
     EXPECTED_CONSTRAINT_FOR_ROLE,
     VALID_LIKELIHOODS_FOR_DTYPE,
     VALID_LINKS_FOR_DISTRIBUTION,
 )
-from dsem_agent.orchestrator.stage4_orchestrator import propose_model_spec
-from dsem_agent.utils.llm import make_orchestrator_generate_fn
+from causal_ssm_agent.orchestrator.stage4_orchestrator import propose_model_spec
+from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
     get_eval_questions,
     load_causal_spec_by_question_id,

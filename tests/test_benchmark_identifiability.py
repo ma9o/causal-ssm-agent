@@ -75,7 +75,7 @@ class TestBenchmarkSpecIdentifiability:
 
     def test_t_rule(self, problem_name):
         """T-rule: free params must not exceed available moment conditions."""
-        from dsem_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         problem = ALL_PROBLEMS[problem_name]
         # Use T=100 (same as profile likelihood benchmark)
@@ -99,8 +99,8 @@ def test_benchmark_profile_likelihood(problem_name):
     Profiles estimand parameters (drift off-diagonals) and prints report.
     Asserts: no drift off-diagonal is structurally unidentifiable.
     """
-    from dsem_agent.models.ssm import SSMModel
-    from dsem_agent.utils.parametric_id import profile_likelihood
+    from causal_ssm_agent.models.ssm import SSMModel
+    from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
     problem = ALL_PROBLEMS[problem_name]
     model = SSMModel(problem.spec, priors=problem.priors, n_particles=50, likelihood="kalman")
@@ -139,8 +139,8 @@ def test_benchmark_sbc(problem_name):
     Runs SBC with n_sbc=10 replicates and laplace_em fitting.
     Asserts: chi-squared p-value > 0.01 for all params.
     """
-    from dsem_agent.models.ssm import SSMModel
-    from dsem_agent.utils.parametric_id import sbc_check
+    from causal_ssm_agent.models.ssm import SSMModel
+    from causal_ssm_agent.utils.parametric_id import sbc_check
 
     problem = ALL_PROBLEMS[problem_name]
     model = SSMModel(problem.spec, priors=problem.priors, n_particles=50, likelihood="kalman")

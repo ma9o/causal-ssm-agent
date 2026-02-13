@@ -276,7 +276,7 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
     import numpy as np
 
     from benchmarks.metrics import RecoveryResult, header, report_recovery
-    from dsem_agent.models.ssm import SSMModel, fit
+    from causal_ssm_agent.models.ssm import SSMModel, fit
 
     cfg = METHOD_CONFIGS[method]["local" if local else "gpu"]
     T = cfg["T"]
@@ -722,7 +722,7 @@ try:
 
     _MODAL_GPU = _resolve_modal_gpu()
     _MODAL_TIMEOUT = _resolve_modal_timeout()
-    app, GPU = make_modal_app("dsem-recovery", _MODAL_GPU)
+    app, GPU = make_modal_app("causal-ssm-recovery", _MODAL_GPU)
     HAS_MODAL = True
 except Exception:
     HAS_MODAL = False

@@ -1,6 +1,6 @@
 """Tests for literature search module."""
 
-from dsem_agent.utils.literature_search import (
+from causal_ssm_agent.utils.literature_search import (
     LiteratureContext,
     LiteratureEvidence,
     format_literature_for_prompt,

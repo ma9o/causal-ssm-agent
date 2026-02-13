@@ -8,7 +8,7 @@ Two-stage schema:
 
 import pytest
 
-from dsem_agent.orchestrator.schemas import (
+from causal_ssm_agent.orchestrator.schemas import (
     GRANULARITY_HOURS,
     CausalEdge,
     CausalSpec,

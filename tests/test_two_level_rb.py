@@ -18,19 +18,19 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
-from dsem_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.likelihoods.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from dsem_agent.models.likelihoods.graph_analysis import (
+from causal_ssm_agent.models.likelihoods.graph_analysis import (
     analyze_first_pass_rb,
     compute_drift_sparsity,
     compute_obs_dependency,
     get_per_channel_manifest,
     get_per_variable_diffusion,
 )
-from dsem_agent.models.ssm.model import NoiseFamily, SSMSpec
+from causal_ssm_agent.models.ssm.model import NoiseFamily, SSMSpec
 
 # =============================================================================
 # Helpers
@@ -113,7 +113,7 @@ def _make_separable_params(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1):
 
 def _simulate_separable_data(key, ct_params, meas_params, init, T=30):
     """Simulate data using exact CT->DT discretization."""
-    from dsem_agent.models.ssm.discretization import discretize_system
+    from causal_ssm_agent.models.ssm.discretization import discretize_system
 
     n = init.mean.shape[0]
     n_manifest = meas_params.lambda_mat.shape[0]
@@ -144,7 +144,7 @@ def _simulate_separable_data(key, ct_params, meas_params, init, T=30):
 
 def _run_composed(spec, ct, meas, init, obs, dt, n_particles=200, extra_params=None):
     """Build backend via make_likelihood_backend() and compute LL."""
-    from dsem_agent.models.ssm.model import SSMModel
+    from causal_ssm_agent.models.ssm.model import SSMModel
 
     model = SSMModel(spec=spec, n_particles=n_particles)
     backend = model.make_likelihood_backend()
@@ -412,7 +412,7 @@ class TestDegenerateEquivalence:
 
     def test_all_gaussian_matches_kalman(self):
         """All Gaussian -> ComposedLikelihood (all Kalman) == KalmanLikelihood."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
 
         ct, meas, init = _make_separable_params(n_g=2, n_s=0, n_obs_g=2, n_obs_s=0)
         obs, dt = _simulate_separable_data(random.PRNGKey(42), ct, meas, init, T=20)
@@ -443,7 +443,7 @@ class TestDegenerateEquivalence:
 
     def test_all_nongaussian_matches_particle(self):
         """All Student-t -> fallthrough to ParticleLikelihood (no composed wrapper)."""
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
         ct, meas, init = _make_separable_params(n_g=0, n_s=2, n_obs_g=0, n_obs_s=2)
         obs, dt = _simulate_separable_data(random.PRNGKey(42), ct, meas, init, T=20)
@@ -497,10 +497,10 @@ class TestDegenerateEquivalence:
 
     def test_trivial_partition_returns_simple_backend(self):
         """No composed wrapper when partition is trivial."""
-        from dsem_agent.models.likelihoods.composed import ComposedLikelihood
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         # All Gaussian -> should get KalmanLikelihood, not ComposedLikelihood
         spec_g = SSMSpec(
@@ -538,8 +538,8 @@ class TestAdditiveLLDecomposition:
 
     def test_independent_2g_1s_additive(self):
         """LL(composed) ≈ LL(kalman on G-block) + LL(PF on S-block)."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
         ct, meas, init = _make_separable_params(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         obs, dt = _simulate_separable_data(random.PRNGKey(123), ct, meas, init, T=25)
@@ -606,8 +606,8 @@ class TestAdditiveLLDecomposition:
 
     def test_independent_1g_2s_additive(self):
         """Different dimensionality: 1G + 2S."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
         ct, meas, init = _make_separable_params(n_g=1, n_s=2, n_obs_g=1, n_obs_s=2)
         obs, dt = _simulate_separable_data(random.PRNGKey(456), ct, meas, init, T=25)
@@ -682,8 +682,8 @@ class TestMakeLikelihoodBackend:
 
     def test_creates_composed_for_mixed_separable(self):
         """Mixed separable spec -> ComposedLikelihood."""
-        from dsem_agent.models.likelihoods.composed import ComposedLikelihood
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         model = SSMModel(spec=spec)
@@ -692,9 +692,9 @@ class TestMakeLikelihoodBackend:
 
     def test_first_pass_rb_false_skips_analysis(self):
         """first_pass_rb=False -> no ComposedLikelihood, just ParticleLikelihood."""
-        from dsem_agent.models.likelihoods.composed import ComposedLikelihood
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         # Override first_pass_rb
@@ -720,7 +720,7 @@ class TestMakeLikelihoodBackend:
 
     def test_second_pass_rb_false_forces_bootstrap(self):
         """second_pass_rb=False -> ParticleLikelihood with block_rb=False."""
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         spec = SSMSpec(
@@ -742,7 +742,7 @@ class TestMakeLikelihoodBackend:
         backend = model.make_likelihood_backend()
         # Should still create composed (first pass is on) but particle sub-backend
         # has block_rb=False
-        from dsem_agent.models.likelihoods.composed import ComposedLikelihood
+        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
 
         assert isinstance(backend, ComposedLikelihood)
         # The particle sub-backend should not use block RBPF
@@ -750,8 +750,8 @@ class TestMakeLikelihoodBackend:
 
     def test_both_toggles_off_pure_bootstrap(self):
         """Both toggles off -> pure bootstrap PF."""
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         spec = SSMSpec(
@@ -779,8 +779,8 @@ class TestMakeLikelihoodBackend:
 
     def test_kalman_override_bypasses_analysis(self):
         """likelihood="kalman" bypasses first-pass analysis entirely."""
-        from dsem_agent.models.likelihoods.kalman import KalmanLikelihood
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         model = SSMModel(spec=spec, likelihood="kalman")
@@ -807,7 +807,7 @@ class TestVarianceReduction:
         n_particles = 100
 
         # Two-level composed
-        from dsem_agent.models.ssm.model import SSMModel
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
         composed_lls = []
         for i in range(n_runs):
@@ -824,7 +824,7 @@ class TestVarianceReduction:
             composed_lls.append(float(ll))
 
         # Pure bootstrap PF (no RB at all)
-        from dsem_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
 
         boot_lls = []
         for i in range(n_runs):
@@ -955,7 +955,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from dsem_agent.models.ssm.model import SSMModel
+            from causal_ssm_agent.models.ssm.model import SSMModel
 
             ssm_model = SSMModel(spec=spec, n_particles=100)
             backend = ssm_model.make_likelihood_backend()
