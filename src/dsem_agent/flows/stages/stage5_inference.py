@@ -133,23 +133,29 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 
 @task
 def run_interventions(
-    fitted_model: Any,  # noqa: ARG001
+    fitted_model: Any,
     treatments: list[str],
+    outcome: str,
     causal_spec: dict | None = None,
 ) -> list[dict]:
-    """Run interventions and rank treatments by effect size.
+    """Run do-operator interventions and rank treatments by effect size.
+
+    For each treatment, applies do(treatment = baseline + 1) and measures
+    the change in the outcome variable at steady state.
 
     Args:
         fitted_model: The fitted model result from fit_model
         treatments: List of treatment construct names
+        outcome: Name of the outcome variable
         causal_spec: Optional CausalSpec with identifiability status
 
     Returns:
-        List of intervention results, sorted by effect size (descending)
-
-    TODO: Implement intervention analysis and ranking.
+        List of intervention results, sorted by |effect_size| descending
     """
-    results = []
+    import jax.numpy as jnp
+    from jax import vmap
+
+    from dsem_agent.models.ssm.counterfactual import treatment_effect
 
     # Get identifiability status
     id_status = causal_spec.get("identifiability") if causal_spec else None
@@ -164,24 +170,91 @@ def run_interventions(
             if isinstance(details, dict)
         }
 
-    for treatment in treatments:
-        result = {
-            "treatment": treatment,
-            "effect_size": None,  # TODO: compute from fitted model
-            "credible_interval": None,
-            "identifiable": treatment not in non_identifiable,
+    # If model not fitted, return skeleton results
+    if not fitted_model.get("fitted", False):
+        return [
+            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            for t in treatments
+        ]
+
+    builder = fitted_model["builder"]
+    result = fitted_model["result"]
+    samples = result.get_samples()
+
+    # Resolve latent names → drift indices
+    spec = builder._spec
+    latent_names = spec.latent_names
+    if latent_names is None:
+        # Fallback: use manifest names (identity lambda)
+        latent_names = spec.manifest_names or []
+
+    name_to_idx = {name: i for i, name in enumerate(latent_names)}
+
+    outcome_idx = name_to_idx.get(outcome)
+    if outcome_idx is None:
+        print(f"Warning: outcome '{outcome}' not found in latent names {latent_names}")
+        return [
+            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            for t in treatments
+        ]
+
+    # Extract posterior drift and cint draws
+    drift_draws = samples.get("drift")  # (n_draws, n, n)
+    cint_draws = samples.get("cint")  # (n_draws, n) or None
+
+    if drift_draws is None:
+        print("Warning: no 'drift' in posterior samples")
+        return [
+            {"treatment": t, "effect_size": None, "credible_interval": None, "identifiable": True}
+            for t in treatments
+        ]
+
+    # Default cint to zeros if not present
+    n_latent = drift_draws.shape[-1]
+    if cint_draws is None:
+        cint_draws = jnp.zeros((drift_draws.shape[0], n_latent))
+
+    results = []
+    for treatment_name in treatments:
+        treat_idx = name_to_idx.get(treatment_name)
+        if treat_idx is None:
+            results.append({
+                "treatment": treatment_name,
+                "effect_size": None,
+                "credible_interval": None,
+                "identifiable": treatment_name not in non_identifiable,
+                "warning": f"'{treatment_name}' not in latent model",
+            })
+            continue
+
+        # Vmap treatment_effect over posterior draws
+        effects = vmap(
+            lambda d, c, ti=treat_idx, oi=outcome_idx: treatment_effect(d, c, ti, oi)
+        )(drift_draws, cint_draws)
+
+        mean_effect = float(jnp.mean(effects))
+        q025 = float(jnp.percentile(effects, 2.5))
+        q975 = float(jnp.percentile(effects, 97.5))
+        prob_positive = float(jnp.mean(effects > 0))
+
+        entry = {
+            "treatment": treatment_name,
+            "effect_size": mean_effect,
+            "credible_interval": (q025, q975),
+            "prob_positive": prob_positive,
+            "identifiable": treatment_name not in non_identifiable,
         }
 
-        if treatment in non_identifiable:
-            blockers = blocker_details.get(treatment, [])
+        if treatment_name in non_identifiable:
+            blockers = blocker_details.get(treatment_name, [])
             if blockers:
-                result["warning"] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
+                entry["warning"] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
             else:
-                result["warning"] = "Effect not identifiable (missing proxies)"
+                entry["warning"] = "Effect not identifiable (missing proxies)"
 
-        results.append(result)
+        results.append(entry)
 
-    # TODO: Sort by effect size once computed
-    # results.sort(key=lambda x: x['effect_size'] or 0, reverse=True)
+    # Sort by |effect_size| descending
+    results.sort(key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0, reverse=True)
 
     return results

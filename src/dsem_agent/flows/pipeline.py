@@ -264,13 +264,30 @@ def causal_inference_pipeline(
         print(f"  Skipped: {ps_result.get('error', 'unknown')}")
 
     # Run interventions for all treatments
-    results = run_interventions(fitted, treatments, causal_spec)
+    results = run_interventions(fitted, treatments, outcome, causal_spec)
 
-    # TODO: Rank by effect size
-    print("\n=== Treatment Ranking by Effect Size ===")
-    print("(To be implemented: ranking of all treatments by their effect on the outcome)")
+    # Print ranked results table
+    print(f"\n=== Treatment Ranking by Effect on {outcome} ===")
+    intervention_results = results.result() if hasattr(results, "result") else results
+    if intervention_results:
+        print(f"{'Rank':<5} {'Treatment':<30} {'Effect':>10} {'95% CI':>22} {'P(>0)':>8} {'ID':>4}")
+        print("-" * 81)
+        for rank, entry in enumerate(intervention_results, 1):
+            name = entry["treatment"]
+            effect = entry.get("effect_size")
+            ci = entry.get("credible_interval")
+            prob = entry.get("prob_positive")
+            ident = "yes" if entry.get("identifiable", True) else "NO"
 
-    return results
+            if effect is not None:
+                ci_str = f"[{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else ""
+                prob_str = f"{prob:.2f}" if prob is not None else ""
+                print(f"{rank:<5} {name:<30} {effect:>+10.4f} {ci_str:>22} {prob_str:>8} {ident:>4}")
+            else:
+                warning = entry.get("warning", "no estimate")
+                print(f"{rank:<5} {name:<30} {'—':>10} {'':>22} {'':>8} {ident:>4}  ({warning})")
+
+    return intervention_results
 
 
 if __name__ == "__main__":
