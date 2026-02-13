@@ -129,6 +129,22 @@ class SSMPriors:
     pop_sd: dict = field(default_factory=lambda: {"sigma": 1.0})
 
 
+def _make_prior_dist(prior: dict) -> dist.Distribution:
+    """Build the appropriate numpyro distribution from a prior dict.
+
+    If `lower`/`upper` bounds are present, uses TruncatedNormal to respect
+    hard parameter bounds. Otherwise uses Normal (or HalfNormal if only sigma).
+    """
+    if "lower" in prior and "upper" in prior:
+        return dist.TruncatedNormal(
+            loc=prior["mu"], scale=prior["sigma"],
+            low=prior["lower"], high=prior["upper"],
+        )
+    if "mu" in prior:
+        return dist.Normal(prior["mu"], prior["sigma"])
+    return dist.HalfNormal(prior["sigma"])
+
+
 class SSMModel:
     """NumPyro state-space model definition.
 
@@ -188,7 +204,7 @@ class SSMModel:
         # Population-level diagonal (auto-effects)
         drift_diag_pop = numpyro.sample(
             "drift_diag_pop",
-            dist.Normal(self.priors.drift_diag["mu"], self.priors.drift_diag["sigma"]).expand([n]),
+            _make_prior_dist(self.priors.drift_diag).expand([n]),
         )
 
         # Population-level off-diagonal (cross-effects)
@@ -196,9 +212,7 @@ class SSMModel:
         if n_offdiag > 0:
             drift_offdiag_pop = numpyro.sample(
                 "drift_offdiag_pop",
-                dist.Normal(
-                    self.priors.drift_offdiag["mu"], self.priors.drift_offdiag["sigma"]
-                ).expand([n_offdiag]),
+                _make_prior_dist(self.priors.drift_offdiag).expand([n_offdiag]),
             )
         else:
             drift_offdiag_pop = jnp.array([])
@@ -335,7 +349,7 @@ class SSMModel:
 
         cint_pop = numpyro.sample(
             "cint_pop",
-            dist.Normal(self.priors.cint["mu"], self.priors.cint["sigma"]).expand([n]),
+            _make_prior_dist(self.priors.cint).expand([n]),
         )
 
         if hierarchical and n_subjects > 1 and "cint" in spec.indvarying:
@@ -371,9 +385,7 @@ class SSMModel:
             n_free = (n_m - n_l) * n_l
             free_loadings = numpyro.sample(
                 "lambda_free",
-                dist.Normal(self.priors.lambda_free["mu"], self.priors.lambda_free["sigma"]).expand(
-                    [n_free]
-                ),
+                _make_prior_dist(self.priors.lambda_free).expand([n_free]),
             )
 
             idx = 0
@@ -397,9 +409,7 @@ class SSMModel:
         else:
             manifest_means = numpyro.sample(
                 "manifest_means",
-                dist.Normal(
-                    self.priors.manifest_means["mu"], self.priors.manifest_means["sigma"]
-                ).expand([n_m]),
+                _make_prior_dist(self.priors.manifest_means).expand([n_m]),
             )
 
         # Variance (Cholesky)
@@ -429,9 +439,7 @@ class SSMModel:
         else:
             t0_means_pop = numpyro.sample(
                 "t0_means_pop",
-                dist.Normal(self.priors.t0_means["mu"], self.priors.t0_means["sigma"]).expand(
-                    [n_l]
-                ),
+                _make_prior_dist(self.priors.t0_means).expand([n_l]),
             )
 
             if hierarchical and n_subjects > 1 and "t0_means" in spec.indvarying:
