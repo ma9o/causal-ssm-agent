@@ -292,6 +292,7 @@ def validate_prior_predictive(
     raw_data: pl.DataFrame | None = None,
     n_samples: int = 500,
     constraint_tolerance: float = 0.05,
+    causal_spec: dict | None = None,
 ) -> tuple[bool, list[PriorValidationResult]]:
     """Validate priors via prior predictive sampling.
 
@@ -309,6 +310,7 @@ def validate_prior_predictive(
         n_samples: Number of prior predictive samples
         constraint_tolerance: Fraction of positive-constraint violations to
             tolerate before flagging failure (default 5%).
+        causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
         Tuple of (is_valid, list of validation results)
@@ -332,7 +334,9 @@ def validate_prior_predictive(
 
     # 1. Build model
     try:
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors_dict)
+        builder = SSMModelBuilder(
+            model_spec=model_spec, priors=priors_dict, causal_spec=causal_spec
+        )
 
         if raw_data is not None and not raw_data.is_empty():
             X_wide = _pivot_raw_data(raw_data)

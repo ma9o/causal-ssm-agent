@@ -85,6 +85,9 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
 
     Returns a dict mapping parameter group name to the number of scalar
     free parameters in that group. Follows SSMModel._sample_* methods exactly.
+
+    When drift_mask or lambda_mask is set, counts only the masked
+    positions instead of assuming fully free matrices.
     """
     n_l, n_m = spec.n_latent, spec.n_manifest
     hier = spec.hierarchical and spec.n_subjects > 1
@@ -94,7 +97,18 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
     # -- Drift --
     if isinstance(spec.drift, str) and spec.drift == "free":
         counts["drift_diag_pop"] = n_l
-        n_offdiag = n_l * n_l - n_l
+
+        # Count off-diagonal entries from mask or assume all free
+        if spec.drift_mask is not None:
+            import numpy as np
+
+            mask = np.asarray(spec.drift_mask)
+            # Off-diagonal = mask True AND not on diagonal
+            diag_mask = np.eye(n_l, dtype=bool)
+            n_offdiag = int(np.sum(mask & ~diag_mask))
+        else:
+            n_offdiag = n_l * n_l - n_l
+
         if n_offdiag > 0:
             counts["drift_offdiag_pop"] = n_offdiag
         if hier and "drift_diag" in spec.indvarying:
@@ -125,6 +139,12 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
     # -- Lambda (factor loadings) --
     if isinstance(spec.lambda_mat, str) and spec.lambda_mat == "free":
         n_free = max(0, n_m - n_l) * n_l
+        if n_free > 0:
+            counts["lambda_free"] = n_free
+    elif spec.lambda_mask is not None:
+        import numpy as np
+
+        n_free = int(np.sum(spec.lambda_mask))
         if n_free > 0:
             counts["lambda_free"] = n_free
 

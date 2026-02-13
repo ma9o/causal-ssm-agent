@@ -14,13 +14,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from jax import lax, vmap
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.ssm.constants import MIN_DT
@@ -92,6 +95,12 @@ class SSMSpec:
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
 
+    # DAG-constrained masks (None = fully free, backward compat)
+    # drift_mask: (n_latent, n_latent) bool — True where drift entry is free
+    drift_mask: np.ndarray | None = None
+    # lambda_mask: (n_manifest, n_latent) bool — True where loading is free to sample
+    lambda_mask: np.ndarray | None = None
+
 
 @dataclass
 class SSMPriors:
@@ -134,15 +143,35 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
 
     If `lower`/`upper` bounds are present, uses TruncatedNormal to respect
     hard parameter bounds. Otherwise uses Normal (or HalfNormal if only sigma).
+
+    Supports array-valued mu/sigma for per-element priors.
     """
     if "lower" in prior and "upper" in prior:
         return dist.TruncatedNormal(
-            loc=prior["mu"], scale=prior["sigma"],
-            low=prior["lower"], high=prior["upper"],
+            loc=jnp.asarray(prior["mu"]),
+            scale=jnp.asarray(prior["sigma"]),
+            low=jnp.asarray(prior["lower"]),
+            high=jnp.asarray(prior["upper"]),
         )
     if "mu" in prior:
-        return dist.Normal(prior["mu"], prior["sigma"])
-    return dist.HalfNormal(prior["sigma"])
+        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
+    return dist.HalfNormal(jnp.asarray(prior["sigma"]))
+
+
+def _make_prior_batch(prior: dict, n: int) -> dist.Distribution:
+    """Build a batched prior distribution with shape (n,).
+
+    If prior already has array-valued params with length n, use directly.
+    If scalar, expand to batch shape [n].
+    """
+    d = _make_prior_dist(prior)
+    if d.batch_shape == (n,):
+        return d
+    if d.batch_shape == ():
+        return d.expand([n])
+    raise ValueError(
+        f"Prior batch shape {d.batch_shape} does not match expected ({n},)"
+    )
 
 
 class SSMModel:
@@ -186,6 +215,11 @@ class SSMModel:
     ) -> jnp.ndarray:
         """Sample drift matrix with stability constraints.
 
+        When spec.drift_mask is set, only off-diagonal entries where the mask
+        is True are sampled; the rest stay zero. This enforces DAG-constrained
+        sparsity. When drift_mask is None, all off-diagonal entries are free
+        (backward-compatible).
+
         Args:
             spec: Model specification
             n_subjects: Number of subjects (for hierarchical)
@@ -201,18 +235,33 @@ class SSMModel:
                 return jnp.broadcast_to(spec.drift, (n_subjects, n, n))
             return spec.drift
 
+        # Build off-diagonal positions list from mask (static, unrolled by XLA)
+        offdiag_positions: list[tuple[int, int]] = []
+        if spec.drift_mask is not None:
+            for i in range(n):
+                for j in range(n):
+                    if i != j and spec.drift_mask[i, j]:
+                        offdiag_positions.append((i, j))
+        else:
+            # No mask: all off-diagonal entries are free
+            for i in range(n):
+                for j in range(n):
+                    if i != j:
+                        offdiag_positions.append((i, j))
+
+        n_offdiag = len(offdiag_positions)
+
         # Population-level diagonal (auto-effects)
         drift_diag_pop = numpyro.sample(
             "drift_diag_pop",
-            _make_prior_dist(self.priors.drift_diag).expand([n]),
+            _make_prior_batch(self.priors.drift_diag, n),
         )
 
         # Population-level off-diagonal (cross-effects)
-        n_offdiag = n * n - n
         if n_offdiag > 0:
             drift_offdiag_pop = numpyro.sample(
                 "drift_offdiag_pop",
-                _make_prior_dist(self.priors.drift_offdiag).expand([n_offdiag]),
+                _make_prior_batch(self.priors.drift_offdiag, n_offdiag),
             )
         else:
             drift_offdiag_pop = jnp.array([])
@@ -247,15 +296,10 @@ class SSMModel:
 
             # Assemble drift matrices for each subject
             def assemble_drift(diag, offdiag):
-                # Constrain diagonal to be negative for stability
                 diag_neg = -jnp.abs(diag)
                 drift = jnp.diag(diag_neg)
-                offdiag_idx = 0
-                for i in range(n):
-                    for j in range(n):
-                        if i != j:
-                            drift = drift.at[i, j].set(offdiag[offdiag_idx])
-                            offdiag_idx += 1
+                for idx, (i, j) in enumerate(offdiag_positions):
+                    drift = drift.at[i, j].set(offdiag[idx])
                 return drift
 
             drift = vmap(assemble_drift)(drift_diag, drift_offdiag)
@@ -263,12 +307,8 @@ class SSMModel:
             # Single drift matrix
             drift_diag = -jnp.abs(drift_diag_pop)
             drift = jnp.diag(drift_diag)
-            offdiag_idx = 0
-            for i in range(n):
-                for j in range(n):
-                    if i != j:
-                        drift = drift.at[i, j].set(drift_offdiag_pop[offdiag_idx])
-                        offdiag_idx += 1
+            for idx, (i, j) in enumerate(offdiag_positions):
+                drift = drift.at[i, j].set(drift_offdiag_pop[idx])
 
         numpyro.deterministic("drift", drift)
         return drift
@@ -371,7 +411,38 @@ class SSMModel:
         return cint
 
     def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
-        """Sample factor loading matrix (shared across subjects)."""
+        """Sample factor loading matrix (shared across subjects).
+
+        Three modes:
+        1. lambda_mat is array AND lambda_mask is not None: template+mask mode.
+           Start from the fixed template (with 1.0 for reference indicators),
+           sample free loadings at positions where lambda_mask is True.
+        2. lambda_mat is array, lambda_mask is None: fully fixed (return as-is).
+        3. lambda_mat is "free": legacy identity + extra rows mode.
+        """
+        if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is not None:
+            # Template+mask mode: sample free positions from mask
+            lambda_mat = jnp.array(spec.lambda_mat)
+
+            # Build free positions list from mask (static for XLA)
+            free_positions: list[tuple[int, int]] = []
+            for i in range(spec.n_manifest):
+                for j in range(spec.n_latent):
+                    if spec.lambda_mask[i, j]:
+                        free_positions.append((i, j))
+
+            n_free = len(free_positions)
+            if n_free > 0:
+                free_loadings = numpyro.sample(
+                    "lambda_free",
+                    _make_prior_batch(self.priors.lambda_free, n_free),
+                )
+                for idx, (i, j) in enumerate(free_positions):
+                    lambda_mat = lambda_mat.at[i, j].set(free_loadings[idx])
+
+            numpyro.deterministic("lambda", lambda_mat)
+            return lambda_mat
+
         if isinstance(spec.lambda_mat, jnp.ndarray):
             return spec.lambda_mat
 

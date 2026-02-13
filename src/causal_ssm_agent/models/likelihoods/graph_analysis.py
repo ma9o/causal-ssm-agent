@@ -73,9 +73,12 @@ def get_per_channel_manifest(spec: SSMSpec) -> list[str]:
 def compute_drift_sparsity(spec: SSMSpec) -> np.ndarray:
     """Compute (n, n) boolean mask of potential nonzero drift entries.
 
-    - drift="free" -> all True (any entry could be nonzero)
+    - drift_mask set -> use it directly (DAG-constrained)
+    - drift="free", no mask -> all True (any entry could be nonzero)
     - fixed array -> True where abs(value) > 0
     """
+    if spec.drift_mask is not None:
+        return np.asarray(spec.drift_mask)
     n = spec.n_latent
     if isinstance(spec.drift, str):
         # "free" — all entries could be nonzero
@@ -87,15 +90,22 @@ def compute_drift_sparsity(spec: SSMSpec) -> np.ndarray:
 def compute_obs_dependency(spec: SSMSpec) -> np.ndarray:
     """Compute (m, n) boolean mask of observation-to-latent dependencies.
 
+    When lambda_mask is set, combines fixed nonzeros from lambda_mat
+    with free positions from the mask.
+
     - lambda_mat="free" -> all True (any obs could depend on any latent)
-    - fixed array -> True where abs(value) > 0
+    - fixed array + lambda_mask -> fixed nonzero | mask
+    - fixed array, no mask -> True where abs(value) > 0
     """
     m, n = spec.n_manifest, spec.n_latent
     if isinstance(spec.lambda_mat, str):
         # "free" — all entries could be nonzero
         return np.ones((m, n), dtype=bool)
     arr = np.array(spec.lambda_mat)
-    return np.abs(arr) > 0
+    fixed_nonzero = np.abs(arr) > 0
+    if spec.lambda_mask is not None:
+        return fixed_nonzero | np.asarray(spec.lambda_mask)
+    return fixed_nonzero
 
 
 def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:

@@ -38,10 +38,14 @@ def fit_model(
 
     model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
+    causal_spec = stage4_result.get("causal_spec")
 
     try:
         builder = SSMModelBuilder(
-            model_spec=model_spec, priors=priors, sampler_config=sampler_config
+            model_spec=model_spec,
+            priors=priors,
+            sampler_config=sampler_config,
+            causal_spec=causal_spec,
         )
 
         # Convert data to wide format

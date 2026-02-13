@@ -69,8 +69,11 @@ def _stage5_on_gpu(
     # ---------- fit ----------
     model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
+    cs = stage4_result.get("causal_spec")
 
-    builder = SSMModelBuilder(model_spec=model_spec, priors=priors, sampler_config=sampler_config)
+    builder = SSMModelBuilder(
+        model_spec=model_spec, priors=priors, sampler_config=sampler_config, causal_spec=cs
+    )
 
     if raw_data.is_empty():
         return {

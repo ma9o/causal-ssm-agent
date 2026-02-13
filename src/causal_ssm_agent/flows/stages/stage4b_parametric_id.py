@@ -27,6 +27,7 @@ def parametric_id_task(
     raw_data: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
+    causal_spec: dict | None = None,
 ) -> dict:
     """Run parametric identifiability checks via profile likelihood.
 
@@ -41,6 +42,7 @@ def parametric_id_task(
         raw_data: Raw timestamped data (indicator, value, timestamp)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
+        causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
         Dict with parametric ID diagnostics
@@ -51,7 +53,9 @@ def parametric_id_task(
     from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
     try:
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
+        builder = SSMModelBuilder(
+            model_spec=model_spec, priors=priors, causal_spec=causal_spec
+        )
 
         if raw_data.is_empty():
             return {"checked": False, "error": "No data available"}
@@ -141,8 +145,11 @@ def stage4b_parametric_id_flow(
     """
     model_spec = stage4_result["model_spec"]
     priors = stage4_result["priors"]
+    causal_spec = stage4_result.get("causal_spec")
 
-    id_result = parametric_id_task(model_spec, priors, raw_data)
+    id_result = parametric_id_task(
+        model_spec, priors, raw_data, causal_spec=causal_spec
+    )
 
     return {
         **stage4_result,

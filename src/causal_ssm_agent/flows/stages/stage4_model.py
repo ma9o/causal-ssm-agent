@@ -192,6 +192,7 @@ def validate_priors_task(
     model_spec: dict,
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
+    causal_spec: dict | None = None,
 ) -> dict:
     """Validate priors via prior predictive sampling.
 
@@ -199,6 +200,7 @@ def validate_priors_task(
         model_spec: Model specification dict
         priors: Prior proposals by parameter name
         raw_data: Raw timestamped data
+        causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
         Validation result dict with is_valid and issues
@@ -206,7 +208,9 @@ def validate_priors_task(
     try:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
 
-        is_valid, results = validate_prior_predictive(model_spec, priors, raw_data)
+        is_valid, results = validate_prior_predictive(
+            model_spec, priors, raw_data, causal_spec=causal_spec
+        )
         return {
             "is_valid": is_valid,
             "results": [r.model_dump() for r in results],
@@ -225,6 +229,7 @@ def build_model_task(
     model_spec: dict,
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
+    causal_spec: dict | None = None,
 ) -> dict:
     """Build SSMModelBuilder from spec and priors.
 
@@ -232,6 +237,7 @@ def build_model_task(
         model_spec: Model specification
         priors: Prior proposals
         raw_data: Raw timestamped data (indicator, value, timestamp)
+        causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
         Dict with model_built status and builder info
@@ -239,7 +245,9 @@ def build_model_task(
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
     try:
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
+        builder = SSMModelBuilder(
+            model_spec=model_spec, priors=priors, causal_spec=causal_spec
+        )
 
         # Convert raw data to wide format for model building
         if raw_data.is_empty():
@@ -358,7 +366,7 @@ def stage4_orchestrated_flow(
     # 4. Validation loop
     validation_result = None
     for attempt in range(max_prior_retries + 1):
-        validation = validate_priors_task(model_spec, priors, raw_data)
+        validation = validate_priors_task(model_spec, priors, raw_data, causal_spec=causal_spec)
         validation_result = validation.result() if hasattr(validation, "result") else validation
 
         if validation_result.get("is_valid", False):
@@ -426,7 +434,7 @@ def stage4_orchestrated_flow(
             priors[name] = result.result() if hasattr(result, "result") else result
 
     # 5. Build SSMModel (only after validation loop)
-    model_info = build_model_task(model_spec, priors, raw_data)
+    model_info = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
     model_result = model_info.result() if hasattr(model_info, "result") else model_info
 
     return {
@@ -435,4 +443,5 @@ def stage4_orchestrated_flow(
         "validation": validation_result,
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False) if validation_result else False,
+        "causal_spec": causal_spec,
     }
