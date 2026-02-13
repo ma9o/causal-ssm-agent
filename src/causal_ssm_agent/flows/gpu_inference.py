@@ -53,9 +53,8 @@ def _stage5_on_gpu(
 
     import jax.numpy as jnp
     import polars as pl_inner
-    from jax import vmap
 
-    from causal_ssm_agent.models.ssm.counterfactual import treatment_effect
+    from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
     from causal_ssm_agent.utils.parametric_id import power_scaling_sensitivity
 
@@ -128,7 +127,6 @@ def _stage5_on_gpu(
     ppc_result: dict[str, Any]
     try:
         from causal_ssm_agent.models.posterior_predictive import (
-            get_relevant_manifest_variables,
             run_posterior_predictive_checks,
         )
 
@@ -153,7 +151,6 @@ def _stage5_on_gpu(
         ppc_result = {"checked": False, "error": "see logs for traceback"}
 
     # ---------- interventions ----------
-    intervention_results: list[dict] = []
     try:
         samples = result.get_samples()
         spec = builder._spec
@@ -164,88 +161,16 @@ def _stage5_on_gpu(
                 " — intervention indices may be incorrect"
             )
             latent_names = spec.manifest_names or []
-        name_to_idx = {name: i for i, name in enumerate(latent_names)}
 
-        outcome_idx = name_to_idx.get(outcome)
-        drift_draws = samples.get("drift")
-        cint_draws = samples.get("cint")
-
-        if outcome_idx is not None and drift_draws is not None:
-            n_latent = drift_draws.shape[-1]
-            if cint_draws is None:
-                cint_draws = jnp.zeros((drift_draws.shape[0], n_latent))
-
-            id_status = causal_spec.get("identifiability") if causal_spec else None
-            non_identifiable: set[str] = set()
-            blocker_details: dict[str, list[str]] = {}
-            if id_status:
-                ni_map = id_status.get("non_identifiable_treatments", {})
-                non_identifiable = set(ni_map.keys())
-                blocker_details = {
-                    t: d.get("confounders", []) for t, d in ni_map.items() if isinstance(d, dict)
-                }
-
-            for treatment_name in treatments:
-                treat_idx = name_to_idx.get(treatment_name)
-                if treat_idx is None:
-                    intervention_results.append(
-                        {
-                            "treatment": treatment_name,
-                            "effect_size": None,
-                            "credible_interval": None,
-                            "identifiable": treatment_name not in non_identifiable,
-                            "warning": f"'{treatment_name}' not in latent model",
-                        }
-                    )
-                    continue
-
-                effects = vmap(
-                    lambda d, c, ti=treat_idx, oi=outcome_idx: treatment_effect(d, c, ti, oi)
-                )(drift_draws, cint_draws)
-
-                mean_effect = float(jnp.mean(effects))
-                q025 = float(jnp.percentile(effects, 2.5))
-                q975 = float(jnp.percentile(effects, 97.5))
-                prob_positive = float(jnp.mean(effects > 0))
-
-                entry: dict[str, Any] = {
-                    "treatment": treatment_name,
-                    "effect_size": mean_effect,
-                    "credible_interval": (q025, q975),
-                    "prob_positive": prob_positive,
-                    "identifiable": treatment_name not in non_identifiable,
-                }
-                if treatment_name in non_identifiable:
-                    blockers = blocker_details.get(treatment_name, [])
-                    if blockers:
-                        entry["warning"] = (
-                            f"Effect not identifiable (blocked by: {', '.join(blockers)})"
-                        )
-                    else:
-                        entry["warning"] = "Effect not identifiable (missing proxies)"
-                intervention_results.append(entry)
-
-            intervention_results.sort(
-                key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0,
-                reverse=True,
-            )
-
-            # Attach PPC warnings to each treatment entry
-            if ppc_result.get("checked", False) and ppc_result.get("warnings"):
-                lambda_mat_draws = samples.get("lambda")
-                lm = lambda_mat_draws
-                if lm is not None and lm.ndim == 3:
-                    lm = jnp.mean(lm, axis=0)
-                m_names = spec.manifest_names or []
-
-                for entry in intervention_results:
-                    ti = name_to_idx.get(entry["treatment"])
-                    relevant_vars = get_relevant_manifest_variables(lm, ti, outcome_idx, m_names)
-                    entry_ppc = [
-                        w for w in ppc_result["warnings"] if w.get("variable") in relevant_vars
-                    ]
-                    if entry_ppc:
-                        entry["ppc_warnings"] = entry_ppc
+        intervention_results = compute_interventions(
+            samples=samples,
+            treatments=treatments,
+            outcome=outcome,
+            latent_names=latent_names,
+            causal_spec=causal_spec,
+            ppc_result=ppc_result,
+            manifest_names=spec.manifest_names or [],
+        )
     except Exception as e:
         logger.exception("Intervention analysis failed")
         intervention_results = [
