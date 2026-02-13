@@ -312,7 +312,7 @@ def _eval_model(
     times: jnp.ndarray,
     subject_ids: jnp.ndarray | None,
 ) -> tuple[float, float]:
-    """Evaluate model with substituted params. Returns (log_joint,).
+    """Evaluate model with substituted params. Returns (log_likelihood, log_prior).
 
     Uses numpyro.handlers to substitute parameter values and trace the model,
     computing log_prior + log_likelihood without any code duplication.
