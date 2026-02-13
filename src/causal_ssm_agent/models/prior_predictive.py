@@ -526,6 +526,11 @@ def get_failed_parameters(
     if any(r.parameter in global_failures for r in failed_results):
         return list(parameter_names)
 
+    # Nuisance sites: SSM parameters with fixed default priors that are not
+    # in ModelSpec and cannot be re-elicited. Skip these when mapping failures
+    # back to ModelSpec parameters (otherwise they trigger blanket re-elicitation).
+    _NUISANCE_SITES = {"cint_pop", "cint", "t0_means_pop", "t0_means", "t0_var_diag", "t0_cov"}
+
     # Map SSM site names back to parameter names using keyword matching
     # Same keyword patterns as _PRIOR_RULES in ssm_builder.py
     _SITE_TO_KEYWORDS: dict[str, list[str]] = {
@@ -538,6 +543,15 @@ def get_failed_parameters(
     failed_params = set()
     for r in failed_results:
         result_param = r.parameter.lower()
+
+        # Skip nuisance sites — they can't be re-elicited
+        if result_param in _NUISANCE_SITES:
+            logger.info(
+                "Skipping nuisance site '%s' in failed parameter mapping "
+                "(not in ModelSpec, uses fixed default prior)",
+                r.parameter,
+            )
+            continue
 
         # Direct match
         for param_name in parameter_names:
