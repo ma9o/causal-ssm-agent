@@ -42,11 +42,71 @@ _DIST_TO_NOISE: dict[DistributionFamily, NoiseFamily] = {
 }
 
 
-_PRIOR_RULES: list[tuple[list[str], str, dict]] = [
+# Map ParameterRole to SSMPriors field and default mu/sigma params.
+# This replaces the old keyword-matching _PRIOR_RULES.
+_ROLE_TO_SSM: dict[ParameterRole, tuple[str, dict]] = {
+    ParameterRole.AR_COEFFICIENT: ("drift_diag", {"mu": -0.5, "sigma": 1.0}),
+    ParameterRole.FIXED_EFFECT: ("drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
+    ParameterRole.RESIDUAL_SD: ("diffusion_diag", {"sigma": 1.0}),
+    ParameterRole.LOADING: ("lambda_free", {"mu": 0.5, "sigma": 0.5}),
+    ParameterRole.RANDOM_INTERCEPT_SD: ("pop_sd", {"sigma": 1.0}),
+    ParameterRole.RANDOM_SLOPE_SD: ("pop_sd", {"sigma": 1.0}),
+    ParameterRole.CORRELATION: ("drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
+}
+
+# Fallback keyword matching for parameters without a role in the ModelSpec
+# (e.g. when priors are provided as a flat dict without ParameterSpec context)
+_KEYWORD_RULES: list[tuple[list[str], str, dict]] = [
     (["rho", "ar"], "drift_diag", {"mu": -0.5, "sigma": 1.0}),
     (["beta"], "drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
     (["sigma", "sd"], "diffusion_diag", {"sigma": 1.0}),
+    (["lambda", "loading"], "lambda_free", {"mu": 0.5, "sigma": 0.5}),
+    (["tau"], "pop_sd", {"sigma": 1.0}),
+    (["cor"], "drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
 ]
+
+
+def _normalize_prior_params(distribution: str, params: dict) -> dict:
+    """Convert distribution-specific params to mu/sigma for SSMPriors.
+
+    SSMPriors always uses mu/sigma dicts. This converts from other
+    distribution parameterizations (Beta alpha/beta, Uniform lower/upper, etc.).
+
+    Args:
+        distribution: Distribution name (Normal, Beta, HalfNormal, etc.)
+        params: Original distribution parameters
+
+    Returns:
+        Dict with mu and/or sigma keys
+    """
+    dist_lower = distribution.lower()
+
+    if dist_lower == "normal" or dist_lower == "truncatednormal":
+        return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
+
+    if dist_lower == "halfnormal":
+        return {"sigma": params.get("sigma", 1.0)}
+
+    if dist_lower == "beta":
+        alpha = params.get("alpha", 2.0)
+        beta = params.get("beta", 2.0)
+        # Convert Beta(alpha, beta) to approximate Normal(mu, sigma)
+        # E[X] = alpha / (alpha + beta), Var[X] = alpha*beta / ((a+b)^2*(a+b+1))
+        mu = alpha / (alpha + beta)
+        var = (alpha * beta) / ((alpha + beta) ** 2 * (alpha + beta + 1))
+        return {"mu": mu, "sigma": var**0.5}
+
+    if dist_lower == "uniform":
+        lower = params.get("lower", -1.0)
+        upper = params.get("upper", 1.0)
+        # Convert Uniform(lower, upper) to Normal(midpoint, range/4)
+        # range/4 ~ 95% interval
+        mu = (lower + upper) / 2
+        sigma = (upper - lower) / 4
+        return {"mu": mu, "sigma": sigma}
+
+    # Fallback: try to extract mu/sigma directly
+    return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
 
 
 class SSMModelBuilder:
@@ -172,7 +232,12 @@ class SSMModelBuilder:
     ) -> SSMPriors:
         """Convert prior proposals to SSMPriors.
 
-        Maps the ModelSpec parameter priors to the SSM parameterization.
+        Uses ParameterRole from ModelSpec to determine which SSMPriors field
+        each prior maps to, then normalizes distribution-specific params
+        (Beta alpha/beta, Uniform lower/upper) to the mu/sigma format
+        that SSMPriors expects.
+
+        Falls back to keyword matching when ModelSpec is not available.
 
         Args:
             priors: Prior proposals from workers
@@ -183,19 +248,42 @@ class SSMModelBuilder:
         """
         ssm_priors = SSMPriors()
 
-        # Skip ModelSpec validation if empty or None - just use priors directly
-        if model_spec and isinstance(model_spec, dict) and model_spec.get("likelihoods"):
-            from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+        # Build role lookup from ModelSpec if available
+        role_by_name: dict[str, ParameterRole] = {}
+        if model_spec:
+            if isinstance(model_spec, dict) and model_spec.get("parameters"):
+                spec_obj = ModelSpec.model_validate(model_spec)
+            elif isinstance(model_spec, ModelSpec):
+                spec_obj = model_spec
+            else:
+                spec_obj = None
 
-            model_spec = ModelSpec.model_validate(model_spec)
+            if spec_obj:
+                for p in spec_obj.parameters:
+                    role_by_name[p.name] = p.role
 
         for param_name, prior_spec in priors.items():
-            name_lower = param_name.lower()
-            for keywords, attr, defaults in _PRIOR_RULES:
-                if any(kw in name_lower for kw in keywords):
-                    params = prior_spec.get("params", {})
-                    setattr(ssm_priors, attr, {k: params.get(k, v) for k, v in defaults.items()})
-                    break
+            distribution = prior_spec.get("distribution", "Normal")
+            params = prior_spec.get("params", {})
+
+            # Normalize distribution params to mu/sigma
+            normalized = _normalize_prior_params(distribution, params)
+
+            # Determine SSMPriors field via role (preferred) or keyword fallback
+            role = role_by_name.get(param_name)
+            if role and role in _ROLE_TO_SSM:
+                attr, defaults = _ROLE_TO_SSM[role]
+                # Merge normalized params with defaults (normalized takes priority)
+                merged = {k: normalized.get(k, v) for k, v in defaults.items()}
+                setattr(ssm_priors, attr, merged)
+            else:
+                # Keyword fallback for when no ModelSpec role is available
+                name_lower = param_name.lower()
+                for keywords, attr, defaults in _KEYWORD_RULES:
+                    if any(kw in name_lower for kw in keywords):
+                        merged = {k: normalized.get(k, v) for k, v in defaults.items()}
+                        setattr(ssm_priors, attr, merged)
+                        break
 
         return ssm_priors
 

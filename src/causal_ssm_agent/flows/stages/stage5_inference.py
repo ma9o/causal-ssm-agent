@@ -218,19 +218,21 @@ def run_interventions(
     for treatment_name in treatments:
         treat_idx = name_to_idx.get(treatment_name)
         if treat_idx is None:
-            results.append({
-                "treatment": treatment_name,
-                "effect_size": None,
-                "credible_interval": None,
-                "identifiable": treatment_name not in non_identifiable,
-                "warning": f"'{treatment_name}' not in latent model",
-            })
+            results.append(
+                {
+                    "treatment": treatment_name,
+                    "effect_size": None,
+                    "credible_interval": None,
+                    "identifiable": treatment_name not in non_identifiable,
+                    "warning": f"'{treatment_name}' not in latent model",
+                }
+            )
             continue
 
         # Vmap treatment_effect over posterior draws
-        effects = vmap(
-            lambda d, c, ti=treat_idx, oi=outcome_idx: treatment_effect(d, c, ti, oi)
-        )(drift_draws, cint_draws)
+        effects = vmap(lambda d, c, ti=treat_idx, oi=outcome_idx: treatment_effect(d, c, ti, oi))(
+            drift_draws, cint_draws
+        )
 
         mean_effect = float(jnp.mean(effects))
         q025 = float(jnp.percentile(effects, 2.5))
@@ -255,6 +257,8 @@ def run_interventions(
         results.append(entry)
 
     # Sort by |effect_size| descending
-    results.sort(key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0, reverse=True)
+    results.sort(
+        key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0, reverse=True
+    )
 
     return results

@@ -282,7 +282,9 @@ def causal_inference_pipeline(
             if effect is not None:
                 ci_str = f"[{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else ""
                 prob_str = f"{prob:.2f}" if prob is not None else ""
-                print(f"{rank:<5} {name:<30} {effect:>+10.4f} {ci_str:>22} {prob_str:>8} {ident:>4}")
+                print(
+                    f"{rank:<5} {name:<30} {effect:>+10.4f} {ci_str:>22} {prob_str:>8} {ident:>4}"
+                )
             else:
                 warning = entry.get("warning", "no estimate")
                 print(f"{rank:<5} {name:<30} {'—':>10} {'':>22} {'':>8} {ident:>4}  ({warning})")

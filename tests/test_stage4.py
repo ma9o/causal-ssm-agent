@@ -12,7 +12,9 @@ from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
     _check_nan_inf,
+    format_parameter_feedback,
     format_validation_report,
+    get_failed_parameters,
     validate_prior_predictive,
 )
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -651,3 +653,207 @@ class TestPriorPredictiveValidation:
         assert "is_valid" in result
         assert "results" in result
         assert "issues" in result
+
+
+# --- Validation Feedback Tests ---
+
+
+class TestValidationFeedback:
+    """Test per-parameter validation feedback formatting."""
+
+    def test_format_parameter_feedback_with_issues(self):
+        """Feedback includes issue and suggestion for failed parameter."""
+        results = [
+            PriorValidationResult(
+                parameter="scale_mood",
+                is_valid=False,
+                issue="Scale mismatch for mood: implied std (450.2) vs data std (1.3), ratio=346",
+                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+            ),
+        ]
+        prior = {"distribution": "Normal", "params": {"mu": 5.0, "sigma": 10.0}}
+
+        # scale_mood is a global failure that maps to all params
+        feedback = format_parameter_feedback("sigma_mood_score", results, prior=prior)
+
+        assert "Normal(mu=5.0, sigma=10.0)" in feedback
+        assert "Scale mismatch" in feedback
+        assert "Adjust diffusion" in feedback
+
+    def test_format_parameter_feedback_with_data_stats(self):
+        """Feedback includes data scale reference."""
+        results = [
+            PriorValidationResult(
+                parameter="dynamics_stability",
+                is_valid=False,
+                issue="Unstable dynamics: 8/10 prior draws have unstable drift",
+                suggested_adjustment="Tighten drift_diag prior",
+            ),
+        ]
+        data_stats = {"mood": {"mean": 5.0, "std": 1.3, "min": 1.0, "max": 9.0}}
+
+        # dynamics_stability is a global failure
+        feedback = format_parameter_feedback("rho_mood", results, data_stats=data_stats)
+
+        assert "mood" in feedback
+        assert "std=1.3" in feedback
+
+    def test_format_parameter_feedback_empty_for_passing(self):
+        """No feedback for parameters that passed."""
+        results = [
+            PriorValidationResult(
+                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
+            ),
+        ]
+        feedback = format_parameter_feedback("x", results)
+        assert feedback == ""
+
+
+class TestFailedParameters:
+    """Test failed parameter identification."""
+
+    def test_global_failure_returns_all(self):
+        """Model build failure affects all parameters."""
+        results = [
+            PriorValidationResult(
+                parameter="model_build",
+                is_valid=False,
+                issue="Build failed",
+                suggested_adjustment=None,
+            ),
+        ]
+        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood", "beta_stress"])
+        assert set(failed) == {"rho_mood", "sigma_mood", "beta_stress"}
+
+    def test_scale_mismatch_returns_all(self):
+        """Scale mismatch affects all parameters."""
+        results = [
+            PriorValidationResult(
+                parameter="scale_mood",
+                is_valid=False,
+                issue="Scale mismatch",
+                suggested_adjustment=None,
+            ),
+        ]
+        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood"])
+        assert set(failed) == {"rho_mood", "sigma_mood"}
+
+    def test_drift_diag_failure_maps_to_ar(self):
+        """drift_diag failure maps to AR coefficient parameters."""
+        results = [
+            PriorValidationResult(
+                parameter="drift_diag_pop",
+                is_valid=False,
+                issue="Extreme values",
+                suggested_adjustment=None,
+            ),
+        ]
+        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood", "beta_stress"])
+        assert "rho_mood" in failed
+        assert "beta_stress" not in failed
+
+    def test_no_failures_returns_empty(self):
+        """All passing -> empty list."""
+        results = [
+            PriorValidationResult(
+                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
+            ),
+        ]
+        assert get_failed_parameters(results, ["x", "y"]) == []
+
+
+# --- SSM Prior Conversion Tests ---
+
+
+class TestSSMPriorConversion:
+    """Test that priors with non-Normal distributions convert correctly."""
+
+    def test_beta_prior_converts_to_mu_sigma(self, simple_model_spec):
+        """Beta(2,2) prior for AR coefficient converts to valid mu/sigma."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        priors = {
+            "rho_mood": {
+                "parameter": "rho_mood",
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "confidence": 0.5,
+                "reasoning": "test",
+            },
+        }
+        builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
+        ssm_priors = builder._convert_priors_to_ssm(priors, simple_model_spec)
+
+        # Beta(2,2): E[X] = 0.5, Var[X] = 1/20 -> sigma ~ 0.224
+        assert abs(ssm_priors.drift_diag["mu"] - 0.5) < 0.01
+        assert abs(ssm_priors.drift_diag["sigma"] - 0.2236) < 0.01
+
+    def test_halfnormal_prior_preserves_sigma(self, simple_model_spec):
+        """HalfNormal(0.5) prior preserves sigma."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        priors = {
+            "sigma_mood_score": {
+                "parameter": "sigma_mood_score",
+                "distribution": "HalfNormal",
+                "params": {"sigma": 0.5},
+                "sources": [],
+                "confidence": 0.5,
+                "reasoning": "test",
+            },
+        }
+        builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
+        ssm_priors = builder._convert_priors_to_ssm(priors, simple_model_spec)
+        assert ssm_priors.diffusion_diag["sigma"] == 0.5
+
+    def test_uniform_prior_converts(self):
+        """Uniform(-1, 1) converts to Normal(0, 0.5)."""
+        from causal_ssm_agent.models.ssm_builder import _normalize_prior_params
+
+        result = _normalize_prior_params("Uniform", {"lower": -1.0, "upper": 1.0})
+        assert result["mu"] == 0.0
+        assert result["sigma"] == 0.5
+
+    def test_role_based_mapping_covers_loading(self, simple_model_spec):
+        """LOADING role maps to lambda_free SSMPriors field."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        spec = dict(simple_model_spec)
+        spec["parameters"] = [
+            {
+                "name": "lambda_mood",
+                "role": "loading",
+                "constraint": "positive",
+                "description": "Factor loading",
+                "search_context": "test",
+            },
+        ]
+        priors = {
+            "lambda_mood": {
+                "parameter": "lambda_mood",
+                "distribution": "HalfNormal",
+                "params": {"sigma": 0.8},
+                "sources": [],
+                "confidence": 0.5,
+                "reasoning": "test",
+            },
+        }
+        builder = SSMModelBuilder(model_spec=spec, priors=priors)
+        ssm_priors = builder._convert_priors_to_ssm(priors, spec)
+        assert ssm_priors.lambda_free["sigma"] == 0.8
+
+    def test_keyword_fallback_without_model_spec(self):
+        """Without ModelSpec, keywords still map priors."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        priors = {
+            "rho_x": {
+                "distribution": "Normal",
+                "params": {"mu": -0.3, "sigma": 0.5},
+            },
+        }
+        builder = SSMModelBuilder(priors=priors)
+        ssm_priors = builder._convert_priors_to_ssm(priors, None)
+        assert ssm_priors.drift_diag["mu"] == -0.3
+        assert ssm_priors.drift_diag["sigma"] == 0.5

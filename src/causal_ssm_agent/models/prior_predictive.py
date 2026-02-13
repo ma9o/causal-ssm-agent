@@ -412,3 +412,134 @@ def format_validation_report(
             lines.append(f"- {r.parameter}: {r.issue}")
 
     return "\n".join(lines)
+
+
+def format_parameter_feedback(
+    parameter_name: str,
+    results: list[PriorValidationResult],
+    prior: dict | None = None,
+    data_stats: dict[str, dict] | None = None,
+) -> str:
+    """Format per-parameter validation feedback for LLM re-elicitation.
+
+    Creates a structured message that tells the LLM what went wrong with
+    a specific parameter's prior and provides context for revision.
+
+    Args:
+        parameter_name: Name of the parameter to generate feedback for
+        results: All validation results from the prior predictive check
+        prior: The previous prior proposal dict (for showing what was tried)
+        data_stats: Per-indicator data statistics (for scale context)
+
+    Returns:
+        Formatted feedback string for inclusion in re-elicitation prompt
+    """
+    # Find results relevant to this parameter
+    # Global failures (affect all parameters) are always included
+    _GLOBAL_FAILURES = {"prior_predictive", "dynamics_stability", "model_build", "prior_sampling"}
+    param_lower = parameter_name.lower()
+    relevant = [
+        r
+        for r in results
+        if not r.is_valid
+        and (
+            r.parameter == parameter_name
+            or param_lower in r.parameter.lower()
+            or r.parameter.lower().startswith("scale_")  # scale mismatch affects all
+            or r.parameter in _GLOBAL_FAILURES
+        )
+    ]
+
+    if not relevant:
+        return ""
+
+    lines = []
+
+    # Show what was previously proposed
+    if prior:
+        dist = prior.get("distribution", "Unknown")
+        params = prior.get("params", {})
+        params_str = ", ".join(f"{k}={v}" for k, v in params.items())
+        lines.append(f"Your previous prior for {parameter_name} was {dist}({params_str}).")
+
+    lines.append("Prior predictive validation FAILED:")
+    for r in relevant:
+        lines.append(f"- {r.issue}")
+        if r.suggested_adjustment:
+            lines.append(f"  Suggested: {r.suggested_adjustment}")
+
+    # Add data scale context if available
+    if data_stats:
+        scale_lines = []
+        for indicator, stats in data_stats.items():
+            std = stats.get("std")
+            mean = stats.get("mean")
+            if std is not None and mean is not None:
+                scale_lines.append(f"  {indicator}: mean={mean:.2g}, std={std:.2g}")
+        if scale_lines:
+            lines.append("")
+            lines.append("Data scale reference:")
+            lines.extend(scale_lines)
+
+    lines.append("")
+    lines.append("Please revise your prior to be consistent with the data scale.")
+
+    return "\n".join(lines)
+
+
+def get_failed_parameters(
+    results: list[PriorValidationResult],
+    parameter_names: list[str],
+) -> list[str]:
+    """Extract parameter names that contributed to validation failure.
+
+    Maps validation result parameter names (which may be SSM site names like
+    'drift_diag_pop' or 'scale_mood') back to ModelSpec parameter names.
+
+    Args:
+        results: Validation results from prior predictive check
+        parameter_names: All ModelSpec parameter names
+
+    Returns:
+        List of ModelSpec parameter names that need re-elicitation
+    """
+    failed_results = [r for r in results if not r.is_valid]
+    if not failed_results:
+        return []
+
+    # Check for global failures that affect all parameters
+    global_failures = {"prior_predictive", "model_build", "prior_sampling"}
+    if any(r.parameter in global_failures for r in failed_results):
+        return list(parameter_names)
+
+    # Map SSM site names back to parameter names using keyword matching
+    # Same keyword patterns as _PRIOR_RULES in ssm_builder.py
+    _SITE_TO_KEYWORDS: dict[str, list[str]] = {
+        "drift_diag": ["rho", "ar"],
+        "drift_offdiag": ["beta"],
+        "diffusion_diag": ["sigma", "sd"],
+        "dynamics_stability": ["rho", "ar", "sigma", "sd"],  # drift + diffusion
+    }
+
+    failed_params = set()
+    for r in failed_results:
+        result_param = r.parameter.lower()
+
+        # Direct match
+        for param_name in parameter_names:
+            if param_name.lower() in result_param or result_param in param_name.lower():
+                failed_params.add(param_name)
+                continue
+
+        # Keyword-based match via SSM site names
+        for site_prefix, keywords in _SITE_TO_KEYWORDS.items():
+            if site_prefix in result_param:
+                for param_name in parameter_names:
+                    if any(kw in param_name.lower() for kw in keywords):
+                        failed_params.add(param_name)
+
+        # Scale mismatch (scale_<indicator>) -> all parameters affect scale
+        if result_param.startswith("scale_"):
+            failed_params.update(parameter_names)
+
+    return list(failed_params) if failed_params else list(parameter_names)
