@@ -10,8 +10,14 @@ Detects:
 - Well-identified parameters (profile crosses threshold on both sides)
 """
 
+import logging
+
 import polars as pl
 from prefect import flow, task
+
+from causal_ssm_agent.utils.data import pivot_to_wide
+
+logger = logging.getLogger(__name__)
 
 
 @task(task_run_name="parametric-id-check")
@@ -50,32 +56,15 @@ def parametric_id_task(
         if raw_data.is_empty():
             return {"checked": False, "error": "No data available"}
 
-        # Pivot data to wide format
-        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-        wide_data = (
-            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-            .pivot(on="indicator", index=time_col, values="value")
-            .sort(time_col)
-        )
-
-        # Convert datetime to fractional days for JAX compatibility
-        if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
-            t0 = wide_data[time_col].min()
-            wide_data = wide_data.with_columns(
-                ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
-            )
-
-        X = wide_data.to_pandas()
-        if time_col in X.columns:
-            X = X.rename(columns={time_col: "time"})
+        X = pivot_to_wide(raw_data)
 
         # Build the model
         builder.build_model(X)
         ssm_model = builder._model
 
         # Extract observations and times
-        observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
-        times = jnp.array(X["time"].values, dtype=jnp.float32)
+        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float64)
+        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float64)
         T = int(times.shape[0])
 
         # T-rule: fast necessary condition (hard gate)
@@ -126,7 +115,7 @@ def parametric_id_task(
         }
 
     except Exception as e:
-        print(f"Parametric ID check failed: {e}")
+        logger.exception("Parametric ID check failed")
         return {
             "checked": False,
             "error": str(e),
@@ -136,6 +125,7 @@ def parametric_id_task(
 @flow(name="stage4b-parametric-id", log_prints=True, persist_result=True, result_serializer="json")
 def stage4b_parametric_id_flow(
     stage4_result: dict,
+    raw_data: pl.DataFrame,
 ) -> dict:
     """Stage 4b: Parametric identifiability check.
 
@@ -144,13 +134,13 @@ def stage4b_parametric_id_flow(
 
     Args:
         stage4_result: Output from stage4_orchestrated_flow
+        raw_data: Raw timestamped data (indicator, value, timestamp)
 
     Returns:
         stage4_result augmented with 'parametric_id' key
     """
     model_spec = stage4_result["model_spec"]
     priors = stage4_result["priors"]
-    raw_data = stage4_result["raw_data"]
 
     id_result = parametric_id_task(model_spec, priors, raw_data)
 

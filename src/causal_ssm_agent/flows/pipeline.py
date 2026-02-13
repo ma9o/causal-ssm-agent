@@ -14,7 +14,7 @@ from prefect.artifacts import create_markdown_artifact, create_table_artifact
 from prefect.utilities.annotations import unmapped
 
 from causal_ssm_agent.utils.aggregations import flatten_aggregated_data
-from causal_ssm_agent.utils.data import SAMPLE_CHUNKS, load_query
+from causal_ssm_agent.utils.data import get_sample_chunks, load_query
 from causal_ssm_agent.utils.effects import (
     get_all_treatments,
     get_outcome_from_latent_model,
@@ -117,7 +117,7 @@ def causal_inference_pipeline(
     measurement_result = propose_measurement_with_identifiability_fix(
         question,
         latent_model,
-        orchestrator_chunks[:SAMPLE_CHUNKS],
+        orchestrator_chunks[:get_sample_chunks()],
     )
 
     measurement_model = measurement_result["measurement_model"]
@@ -227,6 +227,15 @@ def causal_inference_pipeline(
             description="Stage 3 extraction validation issues",
         )
 
+    # Hard gate: abort if no usable data
+    if validation_report and not validation_report.get("is_valid", True):
+        n_data = len(data_for_model) if hasattr(data_for_model, "__len__") else 0
+        if n_data == 0:
+            raise RuntimeError(
+                "Stage 3 validation failed and no usable data remains. "
+                "Cannot proceed to model specification."
+            )
+
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4: Model Specification (Orchestrator-Worker Architecture)
     # ══════════════════════════════════════════════════════════════════════════
@@ -257,7 +266,10 @@ def causal_inference_pipeline(
         issues = validation.get("issues", [])
         print(f"⚠️  Stage 4 prior validation failed ({len(issues)} issues):")
         for issue in issues:
-            print(f"    - {issue.get('parameter')}: {issue.get('issue')}")
+            if isinstance(issue, dict):
+                print(f"    - {issue.get('parameter')}: {issue.get('issue')}")
+            else:
+                print(f"    - {issue}")
 
     model_info = stage4_result.get("model_info", {})
     if not model_info.get("model_built", True):
@@ -276,7 +288,7 @@ def causal_inference_pipeline(
     # Stage 4b: Parametric Identifiability Diagnostics
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 4b: Parametric Identifiability ===")
-    stage4_result = stage4b_parametric_id_flow(stage4_result)
+    stage4_result = stage4b_parametric_id_flow(stage4_result, raw_data=data_for_model)
 
     param_id = stage4_result.get("parametric_id", {})
     if param_id.get("checked", False):

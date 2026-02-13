@@ -18,6 +18,8 @@ import logging
 import polars as pl
 from prefect import flow, task
 
+from causal_ssm_agent.utils.data import pivot_to_wide
+
 logger = logging.getLogger(__name__)
 
 
@@ -255,27 +257,13 @@ def build_model_task(
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
 
         # Convert raw data to wide format for model building
-        # SSM expects: time column + indicator columns
         if raw_data.is_empty():
             return {
                 "model_built": False,
                 "error": "No data available",
             }
 
-        # Pivot data: rows=time points, columns=indicators
-        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-        wide_data = (
-            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-            .pivot(on="indicator", index=time_col, values="value")
-            .sort(time_col)
-        )
-
-        X = wide_data.to_pandas()
-
-        # Rename time column to "time" for SSM
-        if time_col in X.columns:
-            X = X.rename(columns={time_col: "time"})
-
+        X = pivot_to_wide(raw_data)
         builder.build_model(X)
 
         return {
@@ -353,25 +341,26 @@ def stage4_orchestrated_flow(
     if enable_literature:
         literature_results = search_literature_task.map(parameter_specs)
         literature_by_name = {}
-        for ps, lit in zip(parameter_specs, literature_results):
-            name = ps.get("name", "unknown")
+        for i, (ps, lit) in enumerate(zip(parameter_specs, literature_results)):
+            name = ps.get("name", f"param_{i}")
             literature_by_name[name] = lit.result() if hasattr(lit, "result") else lit
     else:
         literature_by_name = {
-            ps.get("name", "unknown"): {"sources": [], "formatted": ""} for ps in parameter_specs
+            ps.get("name", f"param_{i}"): {"sources": [], "formatted": ""}
+            for i, ps in enumerate(parameter_specs)
         }
 
     # 3. Initial LLM elicitation (all parameters in parallel)
     initial_results = elicit_prior_task.map(
         parameter_specs,
         question=unmapped(question),
-        literature=[literature_by_name[ps.get("name", "unknown")] for ps in parameter_specs],
+        literature=[literature_by_name[ps.get("name", f"param_{i}")] for i, ps in enumerate(parameter_specs)],
         n_paraphrases=unmapped(n_paraphrases),
     )
 
     priors = {}
-    for ps, result in zip(parameter_specs, initial_results):
-        name = ps.get("name", "unknown")
+    for i, (ps, result) in enumerate(zip(parameter_specs, initial_results)):
+        name = ps.get("name", f"param_{i}")
         priors[name] = result.result() if hasattr(result, "result") else result
 
     # Compute data stats once for feedback messages
@@ -402,8 +391,16 @@ def stage4_orchestrated_flow(
         ]
         failed_param_names = get_failed_parameters(vr_objects, list(priors.keys()))
 
+        # If validation failed but no specific parameters identified (e.g., validator
+        # exception returned empty results), treat as global failure: re-elicit all.
         if not failed_param_names:
-            break
+            if not validation_result.get("is_valid", False):
+                logger.warning(
+                    "Validation failed with no per-parameter results; re-eliciting all parameters"
+                )
+                failed_param_names = list(priors.keys())
+            else:
+                break
 
         logger.info(
             "Attempt %d: re-eliciting %d failed parameters: %s",
@@ -451,5 +448,4 @@ def stage4_orchestrated_flow(
         "validation": validation_result,
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False) if validation_result else False,
-        "raw_data": raw_data,  # Pass through for Stage 5
     }
