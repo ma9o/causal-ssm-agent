@@ -9,10 +9,13 @@ Tests that:
 6. Pipeline threading passes causal_spec through
 """
 
+from datetime import datetime
+
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import numpyro.handlers as handlers
+import polars as pl
 import pytest
 
 from causal_ssm_agent.models.ssm.model import (
@@ -679,3 +682,70 @@ class TestTraceVerification:
 
         # Deterministic lambda should be 4x3
         assert trace["lambda"]["value"].shape == (4, 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# model_clock time scaling
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestModelClockTimeScaling:
+    """Verify _prepare_data uses model_clock to set the time unit."""
+
+    def _make_builder(self, clock: str | None):
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+        )
+        model_spec = {"model_clock": clock} if clock else None
+        builder = SSMModelBuilder(model_spec=model_spec, ssm_spec=spec)
+        # Set _spec directly so _prepare_data can resolve manifest columns.
+        builder._spec = spec
+        return builder
+
+    def test_daily_divides_by_86400(self):
+        builder = self._make_builder("daily")
+        X = pl.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1), datetime(2024, 1, 2)],
+                "x": [1.0, 2.0],
+            }
+        )
+        _, times = builder._prepare_data(X)
+        np.testing.assert_allclose(float(times[1]), 1.0, atol=1e-5)
+
+    def test_hourly_divides_by_3600(self):
+        builder = self._make_builder("hourly")
+        X = pl.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1, 0), datetime(2024, 1, 1, 1)],
+                "x": [1.0, 2.0],
+            }
+        )
+        _, times = builder._prepare_data(X)
+        np.testing.assert_allclose(float(times[1]), 1.0, atol=1e-5)
+
+    def test_weekly_divides_by_604800(self):
+        builder = self._make_builder("weekly")
+        X = pl.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1), datetime(2024, 1, 8)],
+                "x": [1.0, 2.0],
+            }
+        )
+        _, times = builder._prepare_data(X)
+        np.testing.assert_allclose(float(times[1]), 1.0, atol=1e-5)
+
+    def test_no_clock_defaults_to_daily(self):
+        builder = self._make_builder(None)
+        X = pl.DataFrame(
+            {
+                "time": [datetime(2024, 1, 1), datetime(2024, 1, 2)],
+                "x": [1.0, 2.0],
+            }
+        )
+        _, times = builder._prepare_data(X)
+        np.testing.assert_allclose(float(times[1]), 1.0, atol=1e-5)

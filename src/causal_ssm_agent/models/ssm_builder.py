@@ -5,7 +5,7 @@ while using the NumPyro SSM implementation underneath.
 """
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 import jax.numpy as jnp
 import numpy as np
@@ -610,6 +610,13 @@ class SSMModelBuilder:
         self._result = result
         return result
 
+    # Seconds per unit for each model_clock value.
+    _CLOCK_DIVISORS: ClassVar[dict[str, float]] = {
+        "hourly": 3600.0,
+        "daily": 86400.0,
+        "weekly": 604800.0,
+    }
+
     def _prepare_data(self, X: pl.DataFrame) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Prepare data for SSM fitting.
 
@@ -630,15 +637,22 @@ class SSMModelBuilder:
         # Extract observations
         observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float32)
 
+        # Resolve time unit from model_clock
+        clock = None
+        if isinstance(self._model_spec, dict):
+            clock = self._model_spec.get("model_clock")
+        elif self._model_spec is not None:
+            clock = getattr(self._model_spec, "model_clock", None)
+        divisor = self._CLOCK_DIVISORS.get(clock, 86400.0) if clock else 86400.0
+
         # Extract times
         time_col = "time" if "time" in X.columns else "time_bucket"
         if time_col in X.columns:
             dtype = X.schema[time_col]
             if dtype in (pl.Datetime, pl.Date):
-                # Convert datetime to fractional days since first observation.
                 t0 = X[time_col].min()
                 times = jnp.array(
-                    ((X[time_col] - t0).dt.total_seconds() / 86400.0).to_numpy(),
+                    ((X[time_col] - t0).dt.total_seconds() / divisor).to_numpy(),
                     dtype=jnp.float32,
                 )
             else:
