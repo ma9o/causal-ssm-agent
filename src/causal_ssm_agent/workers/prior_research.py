@@ -1,8 +1,8 @@
 """Stage 4 Worker: Per-Parameter Prior Research.
 
 Each worker researches a single parameter using:
-1. Targeted Exa literature search based on search_context
-2. LLM prior elicitation based on evidence
+1. Targeted Exa literature search based on search_context (cacheable, run once)
+2. LLM prior elicitation based on evidence (can be retried with feedback)
 3. Optional AutoElicit-style paraphrased prompting for robust aggregation
 """
 
@@ -32,15 +32,20 @@ from causal_ssm_agent.workers.schemas_prior import (
 )
 
 
-async def _search_parameter_literature(
+async def search_parameter_literature(
     parameter: ParameterSpec,
-    timeout_ms: int = 60000,
+    model: str | None = None,
+    timeout_ms: int | None = None,
 ) -> list[dict]:
     """Search Exa for literature relevant to this specific parameter.
 
+    This is separated from elicitation so results can be cached and reused
+    across retry loops without re-hitting the Exa API.
+
     Args:
         parameter: The parameter spec with search_context
-        timeout_ms: Timeout for Exa research
+        model: Exa model to use (reads from config if None)
+        timeout_ms: Timeout for Exa research (reads from config if None)
 
     Returns:
         List of source dicts with title, url, snippet, effect_size
@@ -48,6 +53,17 @@ async def _search_parameter_literature(
     api_key = os.getenv("EXA_API_KEY")
     if not api_key:
         return []
+
+    # Read from config if not provided
+    if model is None or timeout_ms is None:
+        from causal_ssm_agent.utils.config import get_config
+
+        config = get_config()
+        lit_config = config.stage4_prior_elicitation.literature_search
+        if model is None:
+            model = lit_config.model
+        if timeout_ms is None:
+            timeout_ms = lit_config.timeout_ms
 
     try:
         from exa_py import AsyncExa
@@ -86,11 +102,10 @@ Report specific numerical values when available.
             },
         }
 
-        # Use faster model for per-parameter search
         research = await exa.research.create(
             instructions=instructions,
             output_schema=output_schema,
-            model="exa-research-fast",
+            model=model,
         )
 
         result = await exa.research.poll_until_finished(
@@ -250,6 +265,57 @@ def _aggregate_gmm(
     )
 
 
+async def elicit_prior(
+    parameter: ParameterSpec,
+    question: str,
+    generate: WorkerGenerateFn,
+    literature_context: str,
+    literature_sources: list[dict] | None = None,
+    feedback: str | None = None,
+    n_paraphrases: int = 1,
+) -> PriorResearchResult:
+    """Elicit a prior for a parameter using LLM (no Exa search).
+
+    This is the core elicitation function, separated from literature search
+    so it can be called in a retry loop with validation feedback without
+    re-hitting the Exa API.
+
+    Args:
+        parameter: The parameter spec from ModelSpec
+        question: The research question for context
+        generate: Async generate function (messages, tools) -> str
+        literature_context: Pre-formatted literature evidence string
+        literature_sources: Raw source dicts (for metadata)
+        feedback: Optional validation feedback from a previous failed attempt
+        n_paraphrases: Number of paraphrased prompts (1 = original single-shot)
+
+    Returns:
+        PriorResearchResult with proposed prior
+    """
+    if literature_sources is None:
+        literature_sources = []
+
+    if n_paraphrases <= 1:
+        return await _research_single_prior_single_shot(
+            parameter=parameter,
+            question=question,
+            generate=generate,
+            literature_context=literature_context,
+            literature_sources=literature_sources,
+            feedback=feedback,
+        )
+    else:
+        return await _research_single_prior_paraphrased(
+            parameter=parameter,
+            question=question,
+            generate=generate,
+            literature_context=literature_context,
+            literature_sources=literature_sources,
+            n_paraphrases=n_paraphrases,
+            feedback=feedback,
+        )
+
+
 async def research_single_prior(
     parameter: ParameterSpec,
     question: str,
@@ -258,6 +324,9 @@ async def research_single_prior(
     n_paraphrases: int = 1,
 ) -> PriorResearchResult:
     """Research and propose a prior for a single parameter.
+
+    Convenience wrapper that runs both Exa search and LLM elicitation.
+    For retry loops, use search_parameter_literature() + elicit_prior() separately.
 
     Args:
         parameter: The parameter spec from ModelSpec
@@ -272,31 +341,19 @@ async def research_single_prior(
     # Search literature if enabled
     literature_sources: list[dict] = []
     if enable_literature:
-        literature_sources = await _search_parameter_literature(parameter)
+        literature_sources = await search_parameter_literature(parameter)
 
     # Format literature for prompt
     literature_context = format_literature_for_parameter(literature_sources)
 
-    # Branch based on paraphrasing
-    if n_paraphrases <= 1:
-        # Original single-shot path
-        return await _research_single_prior_single_shot(
-            parameter=parameter,
-            question=question,
-            generate=generate,
-            literature_context=literature_context,
-            literature_sources=literature_sources,
-        )
-    else:
-        # AutoElicit-style paraphrased path
-        return await _research_single_prior_paraphrased(
-            parameter=parameter,
-            question=question,
-            generate=generate,
-            literature_context=literature_context,
-            literature_sources=literature_sources,
-            n_paraphrases=n_paraphrases,
-        )
+    return await elicit_prior(
+        parameter=parameter,
+        question=question,
+        generate=generate,
+        literature_context=literature_context,
+        literature_sources=literature_sources,
+        n_paraphrases=n_paraphrases,
+    )
 
 
 async def _research_single_prior_single_shot(
@@ -305,22 +362,25 @@ async def _research_single_prior_single_shot(
     generate: WorkerGenerateFn,
     literature_context: str,
     literature_sources: list[dict],
+    feedback: str | None = None,
 ) -> PriorResearchResult:
     """Original single-shot prior elicitation."""
     # Build messages
+    user_content = PRIOR_RESEARCH_USER.format(
+        parameter_name=parameter.name,
+        parameter_role=parameter.role.value,
+        parameter_constraint=parameter.constraint.value,
+        parameter_description=parameter.description,
+        question=question,
+        literature_context=literature_context,
+    )
+
+    if feedback:
+        user_content += f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
+
     messages = [
         {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
-        {
-            "role": "user",
-            "content": PRIOR_RESEARCH_USER.format(
-                parameter_name=parameter.name,
-                parameter_role=parameter.role.value,
-                parameter_constraint=parameter.constraint.value,
-                parameter_description=parameter.description,
-                question=question,
-                literature_context=literature_context,
-            ),
-        },
+        {"role": "user", "content": user_content},
     ]
 
     # Generate prior proposal
@@ -366,6 +426,7 @@ async def _research_single_prior_paraphrased(
     literature_context: str,
     literature_sources: list[dict],
     n_paraphrases: int,
+    feedback: str | None = None,
 ) -> PriorResearchResult:
     """AutoElicit-style paraphrased prior elicitation with GMM aggregation."""
     # Generate paraphrased prompts
@@ -378,6 +439,11 @@ async def _research_single_prior_paraphrased(
         literature_context=literature_context,
         n_paraphrases=n_paraphrases,
     )
+
+    # Append validation feedback to each prompt if provided
+    if feedback:
+        feedback_section = f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
+        prompts = [p + feedback_section for p in prompts]
 
     # Elicit priors in parallel
     tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
@@ -394,6 +460,7 @@ async def _research_single_prior_paraphrased(
             generate=generate,
             literature_context=literature_context,
             literature_sources=literature_sources,
+            feedback=feedback,
         )
 
     # Aggregate samples using GMM
