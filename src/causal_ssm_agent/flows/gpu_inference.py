@@ -129,12 +129,20 @@ def _stage5_on_gpu(
             else str(spec.manifest_dist)
         )
 
+        # Per-channel distributions override scalar fallback
+        manifest_dists_list = None
+        if spec.manifest_dists:
+            manifest_dists_list = [
+                d.value if hasattr(d, "value") else str(d) for d in spec.manifest_dists
+            ]
+
         ppc = run_posterior_predictive_checks(
             samples=result.get_samples(),
             observations=observations,
             times=times,
             manifest_names=manifest_names,
             manifest_dist=manifest_dist_val,
+            manifest_dists=manifest_dists_list,
         )
         ppc_result = ppc.to_dict()
     except Exception:
@@ -161,6 +169,7 @@ def _stage5_on_gpu(
             causal_spec=causal_spec,
             ppc_result=ppc_result,
             manifest_names=spec.manifest_names or [],
+            ps_result=ps_result,
         )
     except Exception as e:
         logger.exception("Intervention analysis failed")

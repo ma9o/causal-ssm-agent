@@ -165,6 +165,13 @@ def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 
         manifest_names = spec.manifest_names or [c for c in X.columns if c != "time"]
 
+        # Per-channel distributions override scalar fallback
+        manifest_dists_list = None
+        if spec.manifest_dists:
+            manifest_dists_list = [
+                d.value if hasattr(d, "value") else str(d) for d in spec.manifest_dists
+            ]
+
         ppc_result = run_posterior_predictive_checks(
             samples=samples,
             observations=observations,
@@ -173,6 +180,7 @@ def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
             manifest_dist=spec.manifest_dist.value
             if hasattr(spec.manifest_dist, "value")
             else str(spec.manifest_dist),
+            manifest_dists=manifest_dists_list,
         )
 
         return ppc_result.to_dict()
@@ -189,6 +197,7 @@ def run_interventions(
     outcome: str,
     causal_spec: dict | None = None,
     ppc_result: dict | None = None,
+    ps_result: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size.
 
@@ -242,4 +251,5 @@ def run_interventions(
         causal_spec=causal_spec,
         ppc_result=ppc_result,
         manifest_names=manifest_names,
+        ps_result=ps_result,
     )

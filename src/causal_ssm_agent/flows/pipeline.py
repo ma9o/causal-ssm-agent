@@ -56,7 +56,7 @@ RESULT_STORAGE = Path("results")
     result_storage=RESULT_STORAGE,
     result_serializer="pickle",
 )
-def causal_inference_pipeline(
+async def causal_inference_pipeline(
     query_file: str,
     user_id: str = "test_user",
     inference_method: str | None = None,
@@ -88,7 +88,7 @@ def causal_inference_pipeline(
     # Stage 1a: Propose latent model (theory only, no data)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 1a: Latent Model ===")
-    latent_model = propose_latent_model(question)
+    latent_model = await propose_latent_model(question)
     n_constructs = len(latent_model["constructs"])
     n_edges = len(latent_model["edges"])
     print(f"Proposed {n_constructs} constructs with {n_edges} causal edges")
@@ -114,7 +114,7 @@ def causal_inference_pipeline(
     print(f"Loaded {len(orchestrator_chunks)} orchestrator chunks")
 
     # Propose measurements and check identifiability
-    measurement_result = propose_measurement_with_identifiability_fix(
+    measurement_result = await propose_measurement_with_identifiability_fix(
         question,
         latent_model,
         orchestrator_chunks[: get_sample_chunks()],
@@ -249,7 +249,7 @@ def causal_inference_pipeline(
     )
 
     print("\n=== Stage 4: Model Specification ===")
-    stage4_result = stage4_orchestrated_flow(
+    stage4_result = await stage4_orchestrated_flow(
         causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,
@@ -343,8 +343,10 @@ def causal_inference_pipeline(
         ppc_task = run_ppc(fitted, data_for_model)
         ppc_result = ppc_task.result() if hasattr(ppc_task, "result") else ppc_task
 
-        # Run interventions for all treatments (with PPC warnings)
-        results = run_interventions(fitted, treatments, outcome, causal_spec, ppc_result)
+        # Run interventions for all treatments (with PPC + power-scaling warnings)
+        results = run_interventions(
+            fitted, treatments, outcome, causal_spec, ppc_result, ps_result=ps_result
+        )
         intervention_results = results.result() if hasattr(results, "result") else results
 
     # Print power-scaling results (shared by both paths)
@@ -390,12 +392,22 @@ def causal_inference_pipeline(
             if effect is not None:
                 ci_str = f"[{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else ""
                 prob_str = f"{prob:.2f}" if prob is not None else ""
-                print(
+                line = (
                     f"{rank:<5} {name:<30} {effect:>+10.4f} {ci_str:>22} {prob_str:>8} {ident:>4}"
                 )
+                if entry.get("prior_sensitivity_warning"):
+                    line += "  *"
+                print(line)
             else:
                 warning = entry.get("warning", "no estimate")
                 print(f"{rank:<5} {name:<30} {'—':>10} {'':>22} {'':>8} {ident:>4}  ({warning})")
+
+        # Print prior-sensitivity footnotes
+        ps_entries = [e for e in intervention_results if e.get("prior_sensitivity_warning")]
+        if ps_entries:
+            print("\n  * Prior-dominated effects:")
+            for e in ps_entries:
+                print(f"    {e['treatment']}: {e['prior_sensitivity_warning']}")
 
     if intervention_results:
         create_table_artifact(

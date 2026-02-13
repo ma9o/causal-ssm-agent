@@ -108,6 +108,7 @@ def compute_interventions(
     causal_spec: dict | None = None,
     ppc_result: dict | None = None,
     manifest_names: list[str] | None = None,
+    ps_result: dict | None = None,
 ) -> list[dict[str, Any]]:
     """Compute intervention effects for all treatments from posterior samples.
 
@@ -122,6 +123,7 @@ def compute_interventions(
         causal_spec: Optional CausalSpec dict with identifiability status.
         ppc_result: Optional PPC result dict for attaching per-treatment warnings.
         manifest_names: Manifest variable names (needed if ppc_result provided).
+        ps_result: Optional power-scaling result dict for flagging prior-dominated effects.
 
     Returns:
         List of intervention result dicts, sorted by |effect_size| descending.
@@ -231,5 +233,30 @@ def compute_interventions(
             # Attach all PPC warnings to every treatment.
             for entry in results:
                 entry["ppc_warnings"] = ppc_result["warnings"]
+
+    # Attach power-scaling sensitivity warnings to intervention entries.
+    # Flag treatments whose drift parameters are prior-dominated.
+    if ps_result and ps_result.get("checked", False):
+        diagnosis = ps_result.get("diagnosis", {})
+        prior_dominated = {k for k, v in diagnosis.items() if v == "prior_dominated"}
+        if prior_dominated:
+            for entry in results:
+                t_name = entry["treatment"]
+                t_idx = name_to_idx.get(t_name)
+                if t_idx is None:
+                    continue
+                # Check drift parameters involving this treatment
+                relevant = []
+                for param_name in prior_dominated:
+                    if param_name.startswith("drift_offdiag") or (
+                        (param_name.startswith("drift_diag") or param_name.startswith("beta_"))
+                        and t_name in param_name
+                    ):
+                        relevant.append(param_name)
+                if relevant:
+                    entry["prior_sensitivity_warning"] = (
+                        f"Effect may be prior-driven: parameters {relevant} "
+                        f"are prior-dominated per power-scaling diagnostic"
+                    )
 
     return results
