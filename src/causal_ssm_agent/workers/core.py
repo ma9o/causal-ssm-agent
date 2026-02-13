@@ -14,7 +14,7 @@ from causal_ssm_agent.utils.llm import (
     parse_json_response,
 )
 
-from .prompts.extraction import SYSTEM_WITHOUT_PROPOSALS, USER
+from .prompts.extraction import SYSTEM, USER
 from .schemas import WorkerOutput
 
 
@@ -66,7 +66,7 @@ class WorkerMessages:
         outcome_description = _get_outcome_description(self.causal_spec)
 
         return [
-            {"role": "system", "content": SYSTEM_WITHOUT_PROPOSALS},
+            {"role": "system", "content": SYSTEM},
             {
                 "role": "user",
                 "content": USER.format(

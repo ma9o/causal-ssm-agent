@@ -19,28 +19,12 @@ class Extraction(BaseModel):
     )
 
 
-class ProposedIndicator(BaseModel):
-    """A suggested new indicator found in local data."""
-
-    name: str = Field(description="Variable name")
-    description: str = Field(description="What this variable represents")
-    evidence: str = Field(description="What was seen in this chunk")
-    relevant_because: str = Field(description="How it connects to the causal question")
-    not_already_in_indicators_because: str = Field(
-        description="Why it needs to be added and why existing indicators don't capture it"
-    )
-
-
 class WorkerOutput(BaseModel):
     """Complete output from a worker processing a single chunk."""
 
     extractions: list[Extraction] = Field(
         default_factory=list,
         description="Extracted observations for indicators",
-    )
-    proposed_indicators: list[ProposedIndicator] | None = Field(
-        default=None,
-        description="Suggested new indicators if something important is missing",
     )
 
     def to_dataframe(self) -> pl.DataFrame:
@@ -104,16 +88,10 @@ def _get_indicator_info(causal_spec: dict) -> dict[str, dict]:
     return {
         ind.get("name"): {
             "dtype": ind.get("measurement_dtype"),
-            "construct_name": ind.get("construct") or ind.get("construct_name"),
+            "construct_name": ind.get("construct_name"),
         }
         for ind in indicators
     }
-
-
-def _get_all_construct_names(causal_spec: dict) -> set[str]:
-    """Get all construct names from a CausalSpec dict."""
-    constructs = causal_spec.get("latent", {}).get("constructs", [])
-    return {c.get("name") for c in constructs}
 
 
 def validate_worker_output(
@@ -136,19 +114,13 @@ def validate_worker_output(
         return None, ["Input must be a dictionary"]
 
     extractions = data.get("extractions", [])
-    proposed_indicators = data.get("proposed_indicators")
 
     if not isinstance(extractions, list):
         errors.append("'extractions' must be a list")
         extractions = []
 
-    if proposed_indicators is not None and not isinstance(proposed_indicators, list):
-        errors.append("'proposed_indicators' must be a list or null")
-        proposed_indicators = None
-
     # Build set of valid indicator names and their dtypes
     indicator_info = _get_indicator_info(causal_spec)
-    all_construct_names = _get_all_construct_names(causal_spec)
 
     # Validate each extraction
     valid_extractions = []
@@ -192,46 +164,10 @@ def validate_worker_output(
         except Exception as e:
             errors.append(f"extractions[{i}] ({ind_name}): {e}")
 
-    # Validate proposed indicators if present
-    valid_proposed = None
-    if proposed_indicators is not None:
-        valid_proposed = []
-        for i, prop_data in enumerate(proposed_indicators):
-            if not isinstance(prop_data, dict):
-                errors.append(f"proposed_indicators[{i}]: must be a dictionary")
-                continue
-
-            name = prop_data.get("name", "<missing>")
-
-            # Check not already in schema (check both indicators and constructs)
-            all_names = set(indicator_info.keys()) | all_construct_names
-            if name in all_names:
-                errors.append(f"proposed_indicators[{i}]: '{name}' already exists in schema")
-                continue
-
-            normalized_prop = {
-                "name": name,
-                "description": prop_data.get("description", ""),
-                "evidence": prop_data.get("evidence", ""),
-                "relevant_because": prop_data.get("relevant_because", ""),
-                "not_already_in_indicators_because": prop_data.get(
-                    "not_already_in_indicators_because", ""
-                ),
-            }
-
-            try:
-                prop = ProposedIndicator.model_validate(normalized_prop)
-                valid_proposed.append(prop)
-            except Exception as e:
-                errors.append(f"proposed_indicators[{i}] ({name}): {e}")
-
     # If no errors, build and return the output
     if not errors:
         try:
-            output = WorkerOutput(
-                extractions=valid_extractions,
-                proposed_indicators=valid_proposed if valid_proposed else None,
-            )
+            output = WorkerOutput(extractions=valid_extractions)
             return output, []
         except Exception as e:
             errors.append(f"Final validation failed: {e}")

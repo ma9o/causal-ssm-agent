@@ -232,12 +232,9 @@ class Indicator(BaseModel):
     construct to indicator: the latent construct causes the observed values.
     """
 
-    model_config = {"populate_by_name": True}
-
     name: str = Field(description="Indicator name (e.g., 'hrv', 'self_reported_stress')")
     construct_name: str = Field(
         description="Which construct this indicator measures",
-        alias="construct",
     )
     how_to_measure: str = Field(
         description="Instructions for workers on how to extract this from data"
@@ -410,8 +407,18 @@ class CausalSpec(BaseModel):
                 meas_gran = indicator.measurement_granularity
                 # measurement_granularity must be finer than or equal to causal_granularity
                 if meas_gran != "finest" and causal_gran is not None:
-                    meas_hours = GRANULARITY_HOURS.get(meas_gran, 0)
-                    causal_hours = GRANULARITY_HOURS.get(causal_gran, 0)
+                    if meas_gran not in GRANULARITY_HOURS:
+                        raise ValueError(
+                            f"Unknown measurement granularity '{meas_gran}'. "
+                            f"Valid options: {sorted(GRANULARITY_HOURS.keys())}"
+                        )
+                    if causal_gran not in GRANULARITY_HOURS:
+                        raise ValueError(
+                            f"Unknown causal granularity '{causal_gran}'. "
+                            f"Valid options: {sorted(GRANULARITY_HOURS.keys())}"
+                        )
+                    meas_hours = GRANULARITY_HOURS[meas_gran]
+                    causal_hours = GRANULARITY_HOURS[causal_gran]
                     if meas_hours > causal_hours:
                         raise ValueError(
                             f"Indicator '{indicator.name}' has measurement_granularity '{meas_gran}' "
@@ -663,8 +670,20 @@ def validate_measurement_model(
             causal_gran = construct.causal_granularity
             meas_gran = indicator.measurement_granularity
             if meas_gran != "finest" and causal_gran is not None:
-                meas_hours = GRANULARITY_HOURS.get(meas_gran, 0)
-                causal_hours = GRANULARITY_HOURS.get(causal_gran, 0)
+                if meas_gran not in GRANULARITY_HOURS:
+                    errors.append(
+                        f"indicators[{i}] ({name}): unknown measurement granularity '{meas_gran}'. "
+                        f"Valid options: {sorted(GRANULARITY_HOURS.keys())}"
+                    )
+                    continue
+                if causal_gran not in GRANULARITY_HOURS:
+                    errors.append(
+                        f"indicators[{i}] ({name}): unknown causal granularity '{causal_gran}'. "
+                        f"Valid options: {sorted(GRANULARITY_HOURS.keys())}"
+                    )
+                    continue
+                meas_hours = GRANULARITY_HOURS[meas_gran]
+                causal_hours = GRANULARITY_HOURS[causal_gran]
                 if meas_hours > causal_hours:
                     errors.append(
                         f"indicators[{i}] ({name}): measurement_granularity '{meas_gran}' "
