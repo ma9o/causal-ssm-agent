@@ -2,15 +2,25 @@
 
 Orchestrator-Worker architecture with SSM grounding:
 1. Orchestrator proposes ModelSpec
-2. Workers research priors in parallel (one per parameter via Exa + LLM)
-3. SSMModel is built as grounding step (validates priors compile)
-4. Prior predictive checks validate reasonableness
+2. Exa literature search per parameter (run once, cached)
+3. Workers elicit priors in parallel (one per parameter)
+4. Prior predictive validation loop:
+   - Validate priors
+   - On failure, re-elicit only failed parameters with feedback
+   - Max N retries, reusing cached Exa results
+5. Build SSMModel (only if validation passes or retries exhausted)
 
 See docs/modeling/functional_spec.md for design rationale.
 """
 
+import logging
+
 import polars as pl
 from prefect import flow, task
+
+logger = logging.getLogger(__name__)
+
+MAX_PRIOR_RETRIES = 3
 
 
 def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
@@ -100,6 +110,98 @@ def propose_model_task(
     return asyncio.run(run())
 
 
+@task(retries=2, retry_delay_seconds=5, task_run_name="search-literature-{parameter_spec[name]}")
+def search_literature_task(
+    parameter_spec: dict,
+) -> dict:
+    """Search Exa for literature relevant to a parameter.
+
+    Run once per parameter; results are cached for reuse across retry loops.
+
+    Args:
+        parameter_spec: ParameterSpec as dict
+
+    Returns:
+        Dict with 'sources' (raw Exa results) and 'formatted' (prompt string)
+    """
+    import asyncio
+
+    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+    from causal_ssm_agent.workers.prior_research import search_parameter_literature
+    from causal_ssm_agent.workers.prompts.prior_research import (
+        format_literature_for_parameter,
+    )
+
+    async def run():
+        param = ParameterSpec.model_validate(parameter_spec)
+        sources = await search_parameter_literature(param)
+        formatted = format_literature_for_parameter(sources)
+        return {"sources": sources, "formatted": formatted}
+
+    return asyncio.run(run())
+
+
+@task(retries=2, retry_delay_seconds=5, task_run_name="elicit-prior-{parameter_spec[name]}")
+def elicit_prior_task(
+    parameter_spec: dict,
+    question: str,
+    literature: dict,
+    n_paraphrases: int = 1,
+    feedback: str | None = None,
+) -> dict:
+    """Elicit a prior for a single parameter using LLM.
+
+    Uses pre-fetched literature context (no Exa call). Accepts optional
+    feedback from a previous failed validation for re-elicitation.
+
+    Args:
+        parameter_spec: ParameterSpec as dict
+        question: Research question
+        literature: Cached literature dict from search_literature_task
+        n_paraphrases: Number of paraphrased prompts
+        feedback: Validation feedback from previous attempt
+
+    Returns:
+        PriorProposal as dict
+    """
+    import asyncio
+
+    from inspect_ai.model import get_model
+
+    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+    from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.utils.llm import make_worker_generate_fn
+    from causal_ssm_agent.workers.prior_research import (
+        elicit_prior,
+        get_default_prior,
+    )
+
+    async def run():
+        config = get_config()
+        worker_model = config.stage4_prior_elicitation.worker_model or config.stage2_workers.model
+        model = get_model(worker_model)
+        generate = make_worker_generate_fn(model)
+
+        param = ParameterSpec.model_validate(parameter_spec)
+
+        try:
+            result = await elicit_prior(
+                parameter=param,
+                question=question,
+                generate=generate,
+                literature_context=literature.get("formatted", ""),
+                literature_sources=literature.get("sources", []),
+                feedback=feedback,
+                n_paraphrases=n_paraphrases,
+            )
+            return result.proposal.model_dump()
+        except Exception as e:
+            logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
+            return get_default_prior(param).model_dump()
+
+    return asyncio.run(run())
+
+
 @task(retries=2, retry_delay_seconds=5)
 def research_prior_task(
     parameter_spec: dict,
@@ -107,7 +209,10 @@ def research_prior_task(
     enable_literature: bool = True,
     n_paraphrases: int = 1,
 ) -> dict:
-    """Worker researches prior for a single parameter.
+    """Worker researches prior for a single parameter (legacy convenience task).
+
+    For the validation loop flow, use search_literature_task + elicit_prior_task
+    instead. This task is kept for backward compatibility with direct calls.
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -148,7 +253,7 @@ def research_prior_task(
             )
             return result.proposal.model_dump()
         except Exception as e:
-            print(f"Prior research failed for {param.name}: {e}. Using default prior.")
+            logger.warning("Prior research failed for %s: %s. Using default.", param.name, e)
             return get_default_prior(param).model_dump()
 
     return asyncio.run(run())
@@ -256,58 +361,144 @@ def stage4_orchestrated_flow(
     question: str,
     raw_data: pl.DataFrame,
     enable_literature: bool = True,
+    max_prior_retries: int = MAX_PRIOR_RETRIES,
 ) -> dict:
-    """Stage 4 orchestrated flow with parallel worker prior research.
+    """Stage 4 orchestrated flow with validation-driven prior elicitation.
 
-    1. Orchestrator proposes model specification
-    2. Workers research priors in parallel (one per parameter)
-    3. Validate via prior predictive checks
-    4. Build SSMModel
+    1. Orchestrator proposes model specification (with syntax validation loop)
+    2. Exa literature search per parameter (run once, cached)
+    3. LLM elicits priors in parallel
+    4. Prior predictive validation loop:
+       - Validate all priors
+       - On failure, re-elicit only failed parameters in parallel
+       - Feed validation issues + data scale back to LLM
+       - Max N retries, reusing cached Exa results
+    5. Build SSMModel (only when validation passes or retries exhausted)
 
     Args:
         causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data (indicator, value, timestamp)
         enable_literature: Whether to search Exa for literature
+        max_prior_retries: Maximum validation retry attempts
 
     Returns:
         Stage 4 result dict with model_spec, priors, validation
     """
     from prefect.utilities.annotations import unmapped
 
+    from causal_ssm_agent.models.prior_predictive import (
+        _compute_data_stats,
+        format_parameter_feedback,
+        get_failed_parameters,
+    )
     from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
     config = get_config()
     paraphrasing = config.stage4_prior_elicitation.paraphrasing
-
-    # Determine paraphrasing settings
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
 
     # 1. Orchestrator proposes model specification
     model_spec = propose_model_task(causal_spec, question, raw_data)
-
-    # 2. Workers research priors in parallel
     parameter_specs = model_spec.get("parameters", [])
-    prior_results = research_prior_task.map(
+
+    # Build a lookup from parameter name -> spec dict
+    param_spec_by_name = {ps.get("name", f"param_{i}"): ps for i, ps in enumerate(parameter_specs)}
+
+    # 2. Exa literature search per parameter (run once, cached for retries)
+    if enable_literature:
+        literature_results = search_literature_task.map(parameter_specs)
+        literature_by_name = {}
+        for ps, lit in zip(parameter_specs, literature_results):
+            name = ps.get("name", "unknown")
+            literature_by_name[name] = lit.result() if hasattr(lit, "result") else lit
+    else:
+        literature_by_name = {
+            ps.get("name", "unknown"): {"sources": [], "formatted": ""} for ps in parameter_specs
+        }
+
+    # 3. Initial LLM elicitation (all parameters in parallel)
+    initial_results = elicit_prior_task.map(
         parameter_specs,
         question=unmapped(question),
-        enable_literature=unmapped(enable_literature),
+        literature=[literature_by_name[ps.get("name", "unknown")] for ps in parameter_specs],
         n_paraphrases=unmapped(n_paraphrases),
     )
 
-    # Collect results into dict
     priors = {}
-    for param_spec, prior_result in zip(parameter_specs, prior_results):
-        param_name = param_spec.get("name", "unknown")
-        priors[param_name] = (
-            prior_result.result() if hasattr(prior_result, "result") else prior_result
+    for ps, result in zip(parameter_specs, initial_results):
+        name = ps.get("name", "unknown")
+        priors[name] = result.result() if hasattr(result, "result") else result
+
+    # Compute data stats once for feedback messages
+    data_stats = (
+        _compute_data_stats(raw_data) if raw_data is not None and not raw_data.is_empty() else {}
+    )
+
+    # 4. Validation loop
+    validation_result = None
+    for attempt in range(max_prior_retries + 1):
+        validation = validate_priors_task(model_spec, priors, raw_data)
+        validation_result = validation.result() if hasattr(validation, "result") else validation
+
+        if validation_result.get("is_valid", False):
+            logger.info("Prior validation passed on attempt %d", attempt + 1)
+            break
+
+        if attempt >= max_prior_retries:
+            logger.warning(
+                "Prior validation failed after %d attempts. Proceeding with best priors.",
+                max_prior_retries + 1,
+            )
+            break
+
+        # Identify which parameters need re-elicitation
+        vr_objects = [
+            PriorValidationResult.model_validate(r) for r in validation_result.get("results", [])
+        ]
+        failed_param_names = get_failed_parameters(vr_objects, list(priors.keys()))
+
+        if not failed_param_names:
+            break
+
+        logger.info(
+            "Attempt %d: re-eliciting %d failed parameters: %s",
+            attempt + 1,
+            len(failed_param_names),
+            failed_param_names,
         )
 
-    # 3. Validate priors
-    validation = validate_priors_task(model_spec, priors, raw_data)
-    validation_result = validation.result() if hasattr(validation, "result") else validation
+        # Build per-parameter feedback
+        feedbacks = {}
+        for param_name in failed_param_names:
+            feedbacks[param_name] = format_parameter_feedback(
+                parameter_name=param_name,
+                results=vr_objects,
+                prior=priors.get(param_name),
+                data_stats=data_stats,
+            )
 
-    # 4. Build SSMModel
+        # Re-elicit only failed parameters in parallel
+        failed_specs = [param_spec_by_name[n] for n in failed_param_names]
+        failed_literature = [
+            literature_by_name.get(n, {"sources": [], "formatted": ""}) for n in failed_param_names
+        ]
+        failed_feedbacks = [feedbacks[n] for n in failed_param_names]
+
+        re_results = elicit_prior_task.map(
+            failed_specs,
+            question=unmapped(question),
+            literature=failed_literature,
+            n_paraphrases=unmapped(n_paraphrases),
+            feedback=failed_feedbacks,
+        )
+
+        # Merge re-elicited priors back
+        for name, result in zip(failed_param_names, re_results):
+            priors[name] = result.result() if hasattr(result, "result") else result
+
+    # 5. Build SSMModel (only after validation loop)
     model_info = build_model_task(model_spec, priors, raw_data)
     model_result = model_info.result() if hasattr(model_info, "result") else model_info
 
@@ -316,6 +507,6 @@ def stage4_orchestrated_flow(
         "priors": priors,
         "validation": validation_result,
         "model_info": model_result,
-        "is_valid": validation_result.get("is_valid", False),
+        "is_valid": validation_result.get("is_valid", False) if validation_result else False,
         "raw_data": raw_data,  # Pass through for Stage 5
     }
