@@ -84,6 +84,9 @@ ignore = [
     "ARG001",  # unused function arguments (pytest fixtures)
     "ARG002",  # unused method arguments (pytest fixtures)
 ]
+"tools/model_inspector.py" = [
+    "B018",    # useless expressions (marimo uses bare expressions for cell output)
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["dsem_agent"]

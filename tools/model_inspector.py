@@ -8,6 +8,11 @@ app = marimo.App(width="full")
 def _():
     import marimo as mo
 
+    return (mo,)
+
+
+@app.cell
+def _(mo):
     mo.md(
         """
         # Model Inspector
@@ -16,24 +21,30 @@ def _():
         **Causal DAG** → **Identifiability** → **Functional Specification (LaTeX)**
         """
     )
-    return (mo,)
+    return
 
 
 @app.cell
-def _(mo):
+def _():
     import json
     import sys
     from pathlib import Path
 
     import yaml
 
-    # Add project paths
-    _project_root = Path(__file__).parent.parent
-    sys.path.insert(0, str(_project_root / "src"))
-    sys.path.insert(0, str(Path(__file__).parent))
+    # Add project paths — use absolute paths to avoid __file__ issues
+    _project_root = Path(__file__).resolve().parent.parent
+    if str(_project_root / "src") not in sys.path:
+        sys.path.insert(0, str(_project_root / "src"))
+    if str(_project_root / "tools") not in sys.path:
+        sys.path.insert(0, str(_project_root / "tools"))
 
-    # Load eval config
-    _config_path = _project_root / "evals" / "config.yaml"
+    return Path, json, yaml
+
+
+@app.cell
+def _(Path, mo, yaml):
+    _config_path = Path(__file__).resolve().parent.parent / "evals" / "config.yaml"
     with _config_path.open() as _f:
         _config = yaml.safe_load(_f)
 
@@ -45,13 +56,13 @@ def _(mo):
         value=str(_questions[0]["id"]),
         label="Evaluation model",
     )
-    return Path, json, question_selector, sys, yaml
+    question_selector
+    return (question_selector,)
 
 
 @app.cell
 def _(Path, json, question_selector, yaml):
-    # Load data files for selected question
-    _project_root = Path(__file__).parent.parent
+    _project_root = Path(__file__).resolve().parent.parent
     _data_dir = _project_root / "data"
 
     _config_path = _project_root / "evals" / "config.yaml"
@@ -60,12 +71,10 @@ def _(Path, json, question_selector, yaml):
 
     _q = next(q for q in _config["questions"] if str(q["id"]) == question_selector.value)
 
-    # Load causal spec
     _cs_path = _data_dir / _q["dsem"]
     with _cs_path.open() as _f:
         causal_spec = json.load(_f)
 
-    # Load model spec (may not exist yet)
     _ms_path = _data_dir / _q.get("model_spec", f"eval/model_spec{_q['id']}.json")
     try:
         with _ms_path.open() as _f:
@@ -80,12 +89,10 @@ def _(Path, json, question_selector, yaml):
 
 @app.cell
 def _(mo, question_id, question_text):
-    mo.md(
-        f"""
-        ---
-        ## Q{question_id}: *"{question_text}"*
-        """
-    )
+    mo.md(f"""
+    ---
+    ## Q{question_id}: *"{question_text}"*
+    """)
     return
 
 
@@ -97,22 +104,21 @@ def _(mo):
 
 @app.cell
 def _(causal_spec, mo):
-    from pyvis.network import Network
+    from pyvis.network import Network as _Network
 
-    def _build_dag_html(spec: dict) -> str:
-        constructs = spec.get("latent", {}).get("constructs", [])
-        edges = spec.get("latent", {}).get("edges", [])
-        indicators = spec.get("measurement", {}).get("indicators", [])
+    def _build_dag_html(_spec: dict) -> str:
+        _constructs = _spec.get("latent", {}).get("constructs", [])
+        _edges = _spec.get("latent", {}).get("edges", [])
+        _indicators = _spec.get("measurement", {}).get("indicators", [])
 
-        measured = {
-            ind.get("construct") or ind.get("construct_name") for ind in indicators
+        _measured = {
+            _ind.get("construct") or _ind.get("construct_name") for _ind in _indicators
         }
 
-        # Detect feedback pairs for curving
-        edge_set = {(e["cause"], e["effect"]) for e in edges}
-        feedback = {p for p in edge_set if (p[1], p[0]) in edge_set}
+        _edge_set = {(_e["cause"], _e["effect"]) for _e in _edges}
+        _feedback = {_p for _p in _edge_set if (_p[1], _p[0]) in _edge_set}
 
-        net = Network(
+        _net = _Network(
             directed=True,
             cdn_resources="remote",
             height="550px",
@@ -120,7 +126,7 @@ def _(causal_spec, mo):
             bgcolor="#0d1117",
             font_color="#c9d1d9",
         )
-        net.set_options("""
+        _net.set_options("""
         {
             "physics": {
                 "hierarchicalRepulsion": {
@@ -151,7 +157,7 @@ def _(causal_spec, mo):
         }
         """)
 
-        COLORS = {
+        _COLORS = {
             "endogenous": "#58a6ff",
             "exogenous": "#f78166",
             "outcome": "#a371f7",
@@ -159,59 +165,63 @@ def _(causal_spec, mo):
             "feedback": "#f0883e",
         }
 
-        for c in constructs:
-            name = c["name"]
-            if c.get("is_outcome"):
-                color = COLORS["outcome"]
-            elif c.get("role") == "exogenous":
-                color = COLORS["exogenous"]
+        for _c in _constructs:
+            _name = _c["name"]
+            if _c.get("is_outcome"):
+                _color = _COLORS["outcome"]
+            elif _c.get("role") == "exogenous":
+                _color = _COLORS["exogenous"]
             else:
-                color = COLORS["endogenous"]
+                _color = _COLORS["endogenous"]
 
-            is_unmeasured = name not in measured
-            label = name
-            if c.get("causal_granularity"):
-                label += f"\n({c['causal_granularity']})"
+            _is_unmeasured = _name not in _measured
+            _label = _name
+            if _c.get("causal_granularity"):
+                _label += f"\n({_c['causal_granularity']})"
 
-            shape = "ellipse" if is_unmeasured else "box"
+            _shape = "ellipse" if _is_unmeasured else "box"
 
-            net.add_node(
-                name,
-                label=label,
-                color={"background": color if not is_unmeasured else color + "33", "border": color},
-                shape=shape,
-                borderWidth=2 if is_unmeasured else 1,
-                title=c.get("description", ""),
+            _net.add_node(
+                _name,
+                label=_label,
+                color={"background": _color if not _is_unmeasured else _color + "33", "border": _color},
+                shape=_shape,
+                borderWidth=2 if _is_unmeasured else 1,
+                title=_c.get("description", ""),
                 font={"color": "#ffffff", "size": 12},
             )
 
-        for e in edges:
-            pair = (e["cause"], e["effect"])
-            is_feedback = pair in feedback
-            net.add_edge(
-                e["cause"],
-                e["effect"],
-                color=COLORS["feedback"] if is_feedback else COLORS["edge"],
-                dashes=e.get("lagged", False),
+        for _e in _edges:
+            _pair = (_e["cause"], _e["effect"])
+            _is_fb = _pair in _feedback
+            _net.add_edge(
+                _e["cause"],
+                _e["effect"],
+                color=_COLORS["feedback"] if _is_fb else _COLORS["edge"],
+                dashes=_e.get("lagged", False),
                 width=1.5,
-                smooth={"type": "curvedCW", "roundness": 0.2} if is_feedback else False,
-                title=e.get("description", ""),
+                smooth={"type": "curvedCW", "roundness": 0.2} if _is_fb else False,
+                title=_e.get("description", ""),
             )
 
-        return net.generate_html()
+        return _net.generate_html()
 
-    dag_html = _build_dag_html(causal_spec)
-    mo.Html(f'<iframe srcdoc="{dag_html.replace(chr(34), "&quot;")}" '
-            f'width="100%" height="580" frameborder="0"></iframe>')
+    _dag_html = _build_dag_html(causal_spec)
+    # Escape for srcdoc embedding
+    _escaped = _dag_html.replace("&", "&amp;").replace('"', "&quot;")
+    mo.Html(
+        f'<iframe srcdoc="{_escaped}" '
+        f'width="100%" height="580" style="border:none;"></iframe>'
+    )
     return
 
 
 @app.cell
 def _(causal_spec, mo):
-    # Summary table of constructs
     _constructs = causal_spec.get("latent", {}).get("constructs", [])
     _indicators = causal_spec.get("measurement", {}).get("indicators", [])
-    _measured = {ind.get("construct") or ind.get("construct_name") for ind in _indicators}
+    _measured = {_ind.get("construct") or _ind.get("construct_name") for _ind in _indicators}
+    _edges = causal_spec.get("latent", {}).get("edges", [])
 
     _rows = []
     for _c in _constructs:
@@ -219,15 +229,15 @@ def _(causal_spec, mo):
             "Name": _c["name"],
             "Role": _c.get("role", "?"),
             "Temporal": _c.get("temporal_status", "?"),
-            "Granularity": _c.get("causal_granularity") or "—",
+            "Granularity": _c.get("causal_granularity") or "\u2014",
             "Measured": "yes" if _c["name"] in _measured else "no",
             "Outcome": "yes" if _c.get("is_outcome") else "",
         })
 
-    mo.md(f"""
-    **{len(_constructs)} constructs**, **{len(causal_spec.get('latent', {}).get('edges', []))} edges**, **{len(_indicators)} indicators**
-    """)
-    mo.ui.table(_rows, label="Constructs")
+    mo.vstack([
+        mo.md(f"**{len(_constructs)} constructs**, **{len(_edges)} edges**, **{len(_indicators)} indicators**"),
+        mo.ui.table(_rows, label="Constructs"),
+    ])
     return
 
 
@@ -239,56 +249,56 @@ def _(mo):
 
 @app.cell
 def _(causal_spec, mo):
-    from dsem_agent.utils.effects import get_outcome_from_latent_model
+    from dsem_agent.utils.effects import get_outcome_from_latent_model as _get_outcome
     from dsem_agent.utils.identifiability import (
-        analyze_unobserved_constructs,
-        check_identifiability,
-        format_identifiability_report,
-        format_marginalization_report,
+        analyze_unobserved_constructs as _analyze,
+    )
+    from dsem_agent.utils.identifiability import (
+        check_identifiability as _check_id,
+    )
+    from dsem_agent.utils.identifiability import (
+        format_identifiability_report as _fmt_id,
+    )
+    from dsem_agent.utils.identifiability import (
+        format_marginalization_report as _fmt_marg,
     )
 
     _latent = {"constructs": causal_spec["latent"]["constructs"], "edges": causal_spec["latent"]["edges"]}
     _measurement = {"indicators": causal_spec.get("measurement", {}).get("indicators", [])}
 
-    id_result = check_identifiability(_latent, _measurement)
-    marg_result = analyze_unobserved_constructs(_latent, _measurement, id_result)
-    _outcome = get_outcome_from_latent_model(_latent) or "unknown"
+    _id_result = _check_id(_latent, _measurement)
+    _marg_result = _analyze(_latent, _measurement, _id_result)
+    _outcome = _get_outcome(_latent) or "unknown"
 
-    id_report = format_identifiability_report(id_result, _outcome)
-    marg_report = format_marginalization_report(marg_result)
+    _id_report = _fmt_id(_id_result, _outcome)
+    _marg_report = _fmt_marg(_marg_result)
 
-    mo.md(f"""
-    ```
-    {id_report}
-    ```
-
-    ```
-    {marg_report}
-    ```
-    """)
-    return id_result, id_report, marg_report, marg_result
+    mo.vstack([
+        mo.md(f"```\n{_id_report}\n```"),
+        mo.md(f"```\n{_marg_report}\n```"),
+    ])
+    return
 
 
 @app.cell
 def _(mo, model_spec):
-    mo.md("## 3. Functional Specification" if model_spec else "## 3. Functional Specification\n\n*No model spec found for this question. Run eval5 to generate one.*")
+    if model_spec:
+        mo.md("## 3. Functional Specification")
+    else:
+        mo.md("## 3. Functional Specification\n\n*No model spec found for this question. Run eval5 to generate one.*")
     return
 
 
 @app.cell
 def _(causal_spec, mo, model_spec):
-    from utils.latex_renderer import model_spec_to_latex
+    from utils.latex_renderer import model_spec_to_latex as _to_latex
 
     if model_spec is None:
-        mo.md("*No model spec available.*")
         latex_sections = None
+        mo.md("*No model spec available.*")
     else:
-        latex_sections = model_spec_to_latex(model_spec, causal_spec)
-
-        # Measurement model
-        _meas_lines = []
-        for _eq in latex_sections["measurement"]:
-            _meas_lines.append(f"$${_eq}$$\n")
+        latex_sections = _to_latex(model_spec, causal_spec)
+        _meas_lines = [f"$${_eq}$$\n" for _eq in latex_sections["measurement"]]
         mo.md("### Measurement Model\n\n" + "\n".join(_meas_lines))
     return (latex_sections,)
 
@@ -296,27 +306,22 @@ def _(causal_spec, mo, model_spec):
 @app.cell
 def _(latex_sections, mo):
     if latex_sections and latex_sections.get("structural"):
-        _struct_lines = []
-        for _eq in latex_sections["structural"]:
-            _struct_lines.append(f"$${_eq}$$\n")
-        mo.md("### Structural Model (Latent Dynamics)\n\n" + "\n".join(_struct_lines))
+        _lines = [f"$${_eq}$$\n" for _eq in latex_sections["structural"]]
+        mo.md("### Structural Model (Latent Dynamics)\n\n" + "\n".join(_lines))
     return
 
 
 @app.cell
 def _(latex_sections, mo):
     if latex_sections and latex_sections.get("random_effects"):
-        _re_lines = []
-        for _eq in latex_sections["random_effects"]:
-            _re_lines.append(f"$${_eq}$$\n")
-        mo.md("### Random Effects\n\n" + "\n".join(_re_lines))
+        _lines = [f"$${_eq}$$\n" for _eq in latex_sections["random_effects"]]
+        mo.md("### Random Effects\n\n" + "\n".join(_lines))
     return
 
 
 @app.cell
 def _(latex_sections, mo):
     if latex_sections and latex_sections.get("priors"):
-        _sections = []
         _role_labels = {
             "fixed_effect": "Fixed Effects",
             "ar_coefficient": "AR Coefficients",
@@ -326,11 +331,11 @@ def _(latex_sections, mo):
             "random_slope_sd": "Random Slope SDs",
             "correlation": "Correlations",
         }
-        for role, eqs in latex_sections["priors"].items():
-            label = _role_labels.get(role, role)
-            _lines = [f"#### {label} ({len(eqs)})\n"]
-            for _eq in eqs:
-                _lines.append(f"$${_eq}$$\n")
+        _sections = []
+        for _role, _eqs in latex_sections["priors"].items():
+            _label = _role_labels.get(_role, _role)
+            _lines = [f"#### {_label} ({len(_eqs)})\n"]
+            _lines.extend(f"$${_eq}$$\n" for _eq in _eqs)
             _sections.append("\n".join(_lines))
 
         mo.md("### Priors\n\n" + "\n\n".join(_sections))
@@ -340,30 +345,29 @@ def _(latex_sections, mo):
 @app.cell
 def _(mo, model_spec):
     if model_spec:
-        from collections import Counter
+        from collections import Counter as _Counter
 
         _params = model_spec.get("parameters", [])
         _liks = model_spec.get("likelihoods", [])
-        _role_counts = Counter(p["role"] for p in _params)
-        _dist_counts = Counter(lik["distribution"] for lik in _liks)
+        _role_counts = _Counter(_p["role"] for _p in _params)
+        _dist_counts = _Counter(_lik["distribution"] for _lik in _liks)
 
-        _summary = f"""
-        ### Model Summary
+        mo.md(f"""
+### Model Summary
 
-        | Property | Value |
-        |----------|-------|
-        | Model clock | `{model_spec.get('model_clock', '?')}` |
-        | Likelihoods | {len(_liks)} |
-        | Parameters | {len(_params)} |
-        | Random effects | {len(model_spec.get('random_effects', []))} |
+| Property | Value |
+|----------|-------|
+| Model clock | `{model_spec.get('model_clock', '?')}` |
+| Likelihoods | {len(_liks)} |
+| Parameters | {len(_params)} |
+| Random effects | {len(model_spec.get('random_effects', []))} |
 
-        **Distributions**: {', '.join(f'{d} ({n})' for d, n in _dist_counts.most_common())}
+**Distributions**: {', '.join(f'{_d} ({_n})' for _d, _n in _dist_counts.most_common())}
 
-        **Parameters by role**: {', '.join(f'{r} ({n})' for r, n in _role_counts.most_common())}
+**Parameters by role**: {', '.join(f'{_r} ({_n})' for _r, _n in _role_counts.most_common())}
 
-        **Reasoning**: {model_spec.get('reasoning', '—')}
-        """
-        mo.md(_summary)
+**Reasoning**: {model_spec.get('reasoning', '\u2014')}
+        """)
     return
 
 
