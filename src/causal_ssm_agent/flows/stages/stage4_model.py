@@ -296,7 +296,7 @@ def build_model_task(
         }
 
 
-@flow(name="stage4-orchestrated", log_prints=True)
+@flow(name="stage4-orchestrated", log_prints=True, persist_result=True, result_serializer="json")
 def stage4_orchestrated_flow(
     causal_spec: dict,
     question: str,

@@ -10,7 +10,7 @@ import polars as pl
 from prefect import task
 
 
-@task
+@task(persist_result=False)
 def fit_model(
     stage4_result: dict,
     raw_data: pl.DataFrame,
@@ -83,7 +83,7 @@ def fit_model(
         }
 
 
-@task(task_run_name="power-scaling-sensitivity")
+@task(task_run_name="power-scaling-sensitivity", result_serializer="json")
 def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
     """Post-fit power-scaling sensitivity diagnostic.
 
@@ -153,12 +153,78 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
         return {"checked": False, "error": str(e)}
 
 
-@task
+@task(task_run_name="posterior-predictive-checks", result_serializer="json")
+def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
+    """Run posterior predictive checks on the fitted model.
+
+    Forward-simulates from posterior draws and compares to observed data,
+    producing per-variable warnings for calibration, autocorrelation, and variance.
+
+    Args:
+        fitted_result: Output from fit_model task
+        raw_data: Raw timestamped data (indicator, value, timestamp)
+
+    Returns:
+        Dict with PPC diagnostics (PPCResult.to_dict())
+    """
+    import jax.numpy as jnp
+
+    from causal_ssm_agent.models.posterior_predictive import run_posterior_predictive_checks
+
+    if not fitted_result.get("fitted", False):
+        return {"checked": False, "error": "Model not fitted"}
+
+    try:
+        result = fitted_result["result"]
+        builder = fitted_result["builder"]
+        spec = builder._spec
+        samples = result.get_samples()
+
+        # Convert data to wide format (same pivot as run_power_scaling)
+        time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
+        wide_data = (
+            raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
+            .pivot(on="indicator", index=time_col, values="value")
+            .sort(time_col)
+        )
+
+        if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
+            t0 = wide_data[time_col].min()
+            wide_data = wide_data.with_columns(
+                ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
+            )
+
+        X = wide_data.to_pandas()
+        if time_col in X.columns:
+            X = X.rename(columns={time_col: "time"})
+
+        observations = jnp.array(X.drop(columns=["time"]).values, dtype=jnp.float32)
+        times = jnp.array(X["time"].values, dtype=jnp.float32)
+
+        manifest_names = spec.manifest_names or list(X.drop(columns=["time"]).columns)
+
+        ppc_result = run_posterior_predictive_checks(
+            samples=samples,
+            observations=observations,
+            times=times,
+            manifest_names=manifest_names,
+            manifest_dist=spec.manifest_dist.value if hasattr(spec.manifest_dist, "value") else str(spec.manifest_dist),
+        )
+
+        return ppc_result.to_dict()
+
+    except Exception as e:
+        print(f"PPC check failed: {e}")
+        return {"checked": False, "error": str(e)}
+
+
+@task(result_serializer="json")
 def run_interventions(
     fitted_model: Any,
     treatments: list[str],
     outcome: str,
     causal_spec: dict | None = None,
+    ppc_result: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size.
 
@@ -282,5 +348,27 @@ def run_interventions(
     results.sort(
         key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0, reverse=True
     )
+
+    # Attach PPC warnings to each treatment entry
+    if ppc_result and ppc_result.get("checked", False) and ppc_result.get("warnings"):
+        from causal_ssm_agent.models.posterior_predictive import get_relevant_manifest_variables
+
+        lambda_mat = samples.get("lambda")
+        # Use mean lambda if per-draw
+        if lambda_mat is not None and lambda_mat.ndim == 3:
+            lambda_mat = jnp.mean(lambda_mat, axis=0)
+
+        manifest_names = spec.manifest_names or []
+
+        for entry in results:
+            treat_idx = name_to_idx.get(entry["treatment"])
+            relevant_vars = get_relevant_manifest_variables(
+                lambda_mat, treat_idx, outcome_idx, manifest_names
+            )
+            entry_warnings = [
+                w for w in ppc_result["warnings"] if w.get("variable") in relevant_vars
+            ]
+            if entry_warnings:
+                entry["ppc_warnings"] = entry_warnings
 
     return results

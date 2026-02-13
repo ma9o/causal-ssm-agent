@@ -12,7 +12,7 @@ from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 
 
-@task(retries=2, retry_delay_seconds=30, cache_policy=INPUTS)
+@task(retries=2, retry_delay_seconds=30, cache_policy=INPUTS, result_serializer="json")
 def propose_latent_model(question: str) -> dict:
     """Orchestrator proposes theoretical constructs and causal edges (latent model).
 

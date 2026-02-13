@@ -133,7 +133,7 @@ def parametric_id_task(
         }
 
 
-@flow(name="stage4b-parametric-id", log_prints=True)
+@flow(name="stage4b-parametric-id", log_prints=True, persist_result=True, result_serializer="json")
 def stage4b_parametric_id_flow(
     stage4_result: dict,
 ) -> dict:

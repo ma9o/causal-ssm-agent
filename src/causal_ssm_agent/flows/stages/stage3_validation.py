@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 MIN_OBSERVATIONS = 10  # Reasonable minimum for temporal modeling
 
 
-@task(cache_policy=INPUTS)
+@task(cache_policy=INPUTS, result_serializer="json")
 def validate_extraction(
     causal_spec: dict,
     worker_results: list["WorkerResult"],

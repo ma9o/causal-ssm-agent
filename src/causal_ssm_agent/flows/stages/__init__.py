@@ -1,5 +1,8 @@
 """Pipeline stages."""
 
+from .stage0_preprocess import (
+    preprocess_raw_input,
+)
 from .stage1a_latent import (
     propose_latent_model,
 )
@@ -27,10 +30,13 @@ from .stage4b_parametric_id import (
 from .stage5_inference import (
     fit_model,
     run_interventions,
+    run_ppc,
     run_power_scaling,
 )
 
 __all__ = [
+    # Stage 0
+    "preprocess_raw_input",
     # Stage 1a
     "propose_latent_model",
     # Stage 1b
@@ -52,5 +58,6 @@ __all__ = [
     # Stage 5
     "fit_model",
     "run_interventions",
+    "run_ppc",
     "run_power_scaling",
 ]
