@@ -20,7 +20,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
-from dataclasses import dataclass
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
@@ -34,8 +33,9 @@ from causal_ssm_agent.orchestrator.scoring import _count_rule_points
 from causal_ssm_agent.orchestrator.stage1a import Stage1aResult, run_stage1a
 from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
-    get_eval_questions,
+    discover_questions,
     load_eval_config,
+    select_questions,
 )
 
 # Load config for models
@@ -45,38 +45,27 @@ _CONFIG = load_eval_config()
 MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
-@dataclass
-class EvalQuestion:
-    """An evaluation question with metadata."""
-
-    id: int
-    question: str
-
-
-def load_questions() -> list[EvalQuestion]:
-    """Load evaluation questions from config."""
-    return [
-        EvalQuestion(id=q["id"], question=q["question"])
-        for q in get_eval_questions()
-    ]
-
-
-def create_eval_dataset() -> MemoryDataset:
+def create_eval_dataset(questions: str | None = None) -> MemoryDataset:
     """Create evaluation dataset from questions.
 
     Note: Stage 1a uses questions ONLY - no data samples.
 
+    Args:
+        questions: Optional comma-separated selectors to filter questions.
+
     Returns:
         MemoryDataset with samples for each question
     """
-    questions = load_questions()
+    all_questions = discover_questions()
+    if questions:
+        all_questions = select_questions(all_questions, questions)
 
     samples = []
-    for q in questions:
+    for q in all_questions:
         samples.append(
             Sample(
                 input=q.question,  # Just the question, stage1a builds the full prompt
-                id=f"q{q.id}",
+                id=f"q_{q.slug}",
                 metadata={
                     "question": q.question,
                 },
@@ -98,7 +87,7 @@ def latent_model_scorer():
           - Bonus for cross-timescale edges (complexity)
     """
 
-    async def score(state: TaskState, target: Target) -> Score:
+    async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
         # Get the Stage1aResult from metadata (set by solver)
         result: Stage1aResult | None = state.metadata.get("stage1a_result")
 
@@ -140,7 +129,7 @@ def latent_model_solver():
 
     @solver
     def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
             generate_fn = make_orchestrator_generate_fn(model)
 
@@ -165,7 +154,7 @@ def latent_model_solver():
 
 
 @task
-def latent_model_eval():
+def latent_model_eval(questions: str | None = None):
     """Evaluate LLM ability to propose theoretical causal structures (latent models).
 
     Stage 1a evaluation:
@@ -175,9 +164,12 @@ def latent_model_eval():
     Uses the production two-stage pipeline:
     1. Initial proposal from question
     2. Self-review focusing on theoretical coherence
+
+    Args:
+        questions: Optional comma-separated question selectors (e.g. "1,3,5")
     """
     return Task(
-        dataset=create_eval_dataset(),
+        dataset=create_eval_dataset(questions=questions),
         solver=[
             system_message(latent_model.SYSTEM),
             latent_model_solver(),

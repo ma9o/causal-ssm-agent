@@ -13,6 +13,10 @@ Usage:
     # Common options
     uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
     uv run python evals/scripts/run_parallel_evals.py --max-tasks 8
+
+    # Filter to specific questions
+    uv run python evals/scripts/run_parallel_evals.py --eval worker -q 1
+    uv run python evals/scripts/run_parallel_evals.py -q 1,4
 """
 
 import argparse
@@ -33,9 +37,9 @@ CONFIG = load_eval_config()
 # Eval configurations
 EVAL_CONFIGS = {
     "orchestrator": {
-        "file": "evals/eval1_orchestrator_structure.py",
+        "file": "evals/eval1a_latent_model.py",
         "models": {m["id"]: m["alias"] for m in CONFIG["orchestrator_models"]},
-        "task_params": ["n_chunks", "seed", "input_file"],
+        "task_params": ["n_chunks", "seed", "input_file", "questions"],
     },
     "worker": {
         "file": "evals/eval2_worker_extraction.py",
@@ -119,7 +123,11 @@ def main():
     parser.add_argument("-n", "--n-chunks", type=int, default=5, help="Chunks per sample")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("-i", "--input-file", help="Specific input file name")
-    parser.add_argument("-q", "--question", help="Causal question (worker eval only)")
+    parser.add_argument(
+        "-q", "--question",
+        help="Question selector (prefix ID or slug). For worker eval: single question. "
+             "For orchestrator eval: comma-separated list.",
+    )
     parser.add_argument("--max-tasks", type=int, help="Max parallel tasks (default: max(4, num_models))")
     parser.add_argument("--retry-attempts", type=int, default=3, help="Max retry attempts (default: 3)")
     parser.add_argument("--log-dir", help="Log directory (default: logs/<eval>-<timestamp>)")
@@ -147,8 +155,11 @@ def main():
     task_params["seed"] = args.seed
     if args.input_file:
         task_params["input_file"] = args.input_file
-    if args.eval == "worker" and args.question:
-        task_params["question"] = args.question
+    if args.question:
+        if args.eval == "worker":
+            task_params["question"] = args.question
+        else:
+            task_params["questions"] = args.question
 
     # Set log directory
     if args.log_dir:

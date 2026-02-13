@@ -8,6 +8,7 @@ and parameter constraints.
 Usage:
     inspect eval evals/eval5_functional_spec.py --model anthropic/claude-sonnet-4-5-20250929
     inspect eval evals/eval5_functional_spec.py --model google/vertex/gemini-3-flash-preview
+    inspect eval evals/eval5_functional_spec.py -T questions=1
 """
 
 import json
@@ -32,9 +33,9 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 from causal_ssm_agent.orchestrator.stage4_orchestrator import propose_model_spec
 from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
-    get_eval_questions,
-    load_causal_spec_by_question_id,
-    save_model_spec_by_question_id,
+    get_questions_with_causal_spec,
+    select_question,
+    select_questions,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -88,27 +89,28 @@ def build_synthetic_data_summary(causal_spec: dict) -> str:
     return "\n".join(lines)
 
 
-def create_eval_dataset() -> MemoryDataset:
-    """Create evaluation dataset from available CausalSpecs."""
-    questions = get_eval_questions()
+def create_eval_dataset(questions: str | None = None) -> MemoryDataset:
+    """Create evaluation dataset from available CausalSpecs.
+
+    Args:
+        questions: Optional comma-separated question selectors to filter.
+    """
+    available = get_questions_with_causal_spec()
+    if questions:
+        available = select_questions(available, questions)
 
     samples = []
-    for q in questions:
-        question_id = q["id"]
-        question = q["question"]
-        try:
-            causal_spec = load_causal_spec_by_question_id(question_id)
-        except FileNotFoundError:
-            continue
+    for q in available:
+        causal_spec = q.load_causal_spec()
         data_summary = build_synthetic_data_summary(causal_spec)
 
         samples.append(
             Sample(
-                input=f"Propose a model specification for: {question}",
-                id=f"q{question_id}",
+                input=f"Propose a model specification for: {q.question}",
+                id=f"q_{q.slug}",
                 metadata={
-                    "question_id": question_id,
-                    "question": question,
+                    "question_slug": q.slug,
+                    "question": q.question,
                     "causal_spec": causal_spec,
                     "data_summary": data_summary,
                 },
@@ -152,8 +154,10 @@ def functional_spec_solver():
             state.output.completion = result.raw_response
 
             # Persist for downstream evals
-            question_id = state.metadata["question_id"]
-            save_model_spec_by_question_id(question_id, model_spec_dict)
+            question_slug = state.metadata["question_slug"]
+            available = get_questions_with_causal_spec()
+            q = select_question(available, question_slug)
+            q.save_model_spec(model_spec_dict)
 
             return state
 
@@ -486,14 +490,17 @@ def functional_spec_scorer():
 
 
 @task
-def functional_spec_eval():
+def functional_spec_eval(questions: str | None = None):
     """Evaluate LLM's functional specification quality.
 
     Tests Stage 4's propose_model_spec() against available reference CausalSpecs,
     scoring on likelihoods, links, AR structure, model clock, and constraints.
+
+    Args:
+        questions: Optional comma-separated question selectors (e.g. "1,3")
     """
     return Task(
-        dataset=create_eval_dataset(),
+        dataset=create_eval_dataset(questions=questions),
         solver=[functional_spec_solver()],
         scorer=functional_spec_scorer(),
     )

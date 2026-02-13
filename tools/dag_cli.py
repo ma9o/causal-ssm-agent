@@ -1,7 +1,7 @@
 """CLI interface for DAG diagnostics.
 
 Usage:
-    uv run python tools/dag_cli.py data/eval/causal_spec1.json
+    uv run python tools/dag_cli.py data/eval/questions/1_resolve-errors-faster/causal_spec.json
 
 The CLI emits machine-friendly JSON by default so agents can read the same
 diagnostics shown in the Streamlit UI. Use ``--format text`` for a human summary.

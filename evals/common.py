@@ -2,6 +2,7 @@
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -19,18 +20,130 @@ from causal_ssm_agent.utils.data import (
 )
 from causal_ssm_agent.utils.llm import get_generate_config, multi_turn_generate
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Eval config (non-question settings)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def load_eval_config() -> dict:
     """Load the eval config.yaml file."""
     config_path = Path(__file__).parent / "config.yaml"
-    with open(config_path) as f:
+    with config_path.open() as f:
         return yaml.safe_load(f)
 
 
-def get_eval_questions() -> list[dict]:
-    """Get evaluation questions from config."""
-    return load_eval_config()["questions"]
+# ══════════════════════════════════════════════════════════════════════════════
+# Filesystem-driven question discovery
+# ══════════════════════════════════════════════════════════════════════════════
 
+EVAL_QUESTIONS_DIR = DATA_DIR / "eval" / "questions"
+
+
+@dataclass
+class EvalQuestion:
+    """An evaluation question discovered from the filesystem.
+
+    Each question lives in ``data/eval/questions/<slug>/`` where slug is
+    ``<id>_<short-name>`` (e.g. ``1_resolve-errors-faster``).
+    """
+
+    slug: str
+    question: str
+    dir: Path
+
+    @property
+    def id_prefix(self) -> str:
+        """Numeric prefix, e.g. '1' from '1_resolve-errors-faster'."""
+        return self.slug.split("_", 1)[0]
+
+    # ── artifact checks ──
+
+    @property
+    def has_latent_model(self) -> bool:
+        return (self.dir / "latent_model.json").exists()
+
+    @property
+    def has_causal_spec(self) -> bool:
+        return (self.dir / "causal_spec.json").exists()
+
+    @property
+    def has_model_spec(self) -> bool:
+        return (self.dir / "model_spec.json").exists()
+
+    # ── loaders ──
+
+    def load_latent_model(self) -> dict:
+        with (self.dir / "latent_model.json").open() as f:
+            return json.load(f)
+
+    def load_causal_spec(self) -> dict:
+        with (self.dir / "causal_spec.json").open() as f:
+            return json.load(f)
+
+    def load_model_spec(self) -> dict:
+        with (self.dir / "model_spec.json").open() as f:
+            return json.load(f)
+
+    def save_model_spec(self, spec: dict) -> Path:
+        path = self.dir / "model_spec.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as f:
+            json.dump(spec, f, indent=2)
+        return path
+
+
+def discover_questions() -> list[EvalQuestion]:
+    """Discover all eval questions from the filesystem.
+
+    Globs ``data/eval/questions/*/question.yaml``, sorted by slug
+    (numeric prefix gives natural order).
+    """
+    questions = []
+    for qfile in sorted(EVAL_QUESTIONS_DIR.glob("*/question.yaml")):
+        qdir = qfile.parent
+        with qfile.open() as f:
+            data = yaml.safe_load(f)
+        questions.append(
+            EvalQuestion(
+                slug=qdir.name,
+                question=data["question"],
+                dir=qdir,
+            )
+        )
+    return questions
+
+
+def get_questions_with_latent_model() -> list[EvalQuestion]:
+    """Return questions that have a latent_model.json artifact."""
+    return [q for q in discover_questions() if q.has_latent_model]
+
+
+def get_questions_with_causal_spec() -> list[EvalQuestion]:
+    """Return questions that have a causal_spec.json artifact."""
+    return [q for q in discover_questions() if q.has_causal_spec]
+
+
+def get_questions_with_model_spec() -> list[EvalQuestion]:
+    """Return questions that have a model_spec.json artifact."""
+    return [q for q in discover_questions() if q.has_model_spec]
+
+
+def select_question(questions: list[EvalQuestion], selector: str) -> EvalQuestion:
+    """Select a question by numeric prefix or full slug."""
+    for q in questions:
+        if q.slug == selector or q.slug.startswith(f"{selector}_"):
+            return q
+    raise ValueError(f"No question matching '{selector}'. Available: {[q.slug for q in questions]}")
+
+
+def select_questions(questions: list[EvalQuestion], selectors: str) -> list[EvalQuestion]:
+    """Select multiple questions from a comma-separated selector string."""
+    parts = [s.strip() for s in selectors.split(",")]
+    return [select_question(questions, s) for s in parts]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Solvers & utilities
+# ══════════════════════════════════════════════════════════════════════════════
 
 def tool_assisted_generate(
     tools: list[Tool],
@@ -48,7 +161,7 @@ def tool_assisted_generate(
 
     @solver
     def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
             config = get_generate_config()
 
@@ -132,88 +245,3 @@ def extract_json_from_response(text: str) -> str | None:
             continue
 
     return None
-
-
-def load_latent_model_by_question_id(question_id: int) -> dict:
-    """Load a reference latent model by question ID.
-
-    Args:
-        question_id: The question ID (1-5) matching the latent model
-
-    Returns:
-        The latent model dict (constructs + edges)
-    """
-    config = load_eval_config()
-    questions = config["questions"]
-    question = next((q for q in questions if q["id"] == question_id), None)
-    if question is None:
-        raise ValueError(f"Question ID {question_id} not found in config")
-
-    latent_path = DATA_DIR / question.get("latent", f"eval/latent_model{question_id}.json")
-    with open(latent_path) as f:
-        return json.load(f)
-
-
-def load_causal_spec_by_question_id(question_id: int) -> dict:
-    """Load a complete CausalSpec (latent + measurement) by question ID.
-
-    Args:
-        question_id: The question ID (1-5)
-
-    Returns:
-        The CausalSpec dict with 'latent' and 'measurement' keys
-    """
-    config = load_eval_config()
-    questions = config["questions"]
-    question = next((q for q in questions if q["id"] == question_id), None)
-    if question is None:
-        raise ValueError(f"Question ID {question_id} not found in config")
-
-    causal_spec_path = DATA_DIR / question.get("causal_spec", f"eval/causal_spec{question_id}.json")
-    with open(causal_spec_path) as f:
-        return json.load(f)
-
-
-def load_model_spec_by_question_id(question_id: int) -> dict:
-    """Load a ModelSpec by question ID.
-
-    Args:
-        question_id: The question ID (1-5)
-
-    Returns:
-        The ModelSpec dict (likelihoods, parameters, model_clock, etc.)
-    """
-    config = load_eval_config()
-    questions = config["questions"]
-    question = next((q for q in questions if q["id"] == question_id), None)
-    if question is None:
-        raise ValueError(f"Question ID {question_id} not found in config")
-
-    model_spec_path = DATA_DIR / question.get("model_spec", f"eval/model_spec{question_id}.json")
-    with open(model_spec_path) as f:
-        return json.load(f)
-
-
-def save_model_spec_by_question_id(question_id: int, model_spec: dict) -> Path:
-    """Persist a ModelSpec to disk for downstream evals.
-
-    Args:
-        question_id: The question ID (1-5)
-        model_spec: The ModelSpec dict to save
-
-    Returns:
-        Path to the written file
-    """
-    config = load_eval_config()
-    questions = config["questions"]
-    question = next((q for q in questions if q["id"] == question_id), None)
-    if question is None:
-        raise ValueError(f"Question ID {question_id} not found in config")
-
-    model_spec_path = DATA_DIR / question.get("model_spec", f"eval/model_spec{question_id}.json")
-    model_spec_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(model_spec_path, "w") as f:
-        json.dump(model_spec, f, indent=2)
-    return model_spec_path
-
-

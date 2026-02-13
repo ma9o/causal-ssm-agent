@@ -9,6 +9,7 @@ worker outputs, just with different model configurations.
 
 Usage:
     inspect eval evals/eval3_worker_measurement_adherence.py --model openrouter/anthropic/claude-sonnet-4
+    inspect eval evals/eval3_worker_measurement_adherence.py -T question=1
 """
 
 import sys
@@ -39,10 +40,11 @@ from causal_ssm_agent.workers.core import (
 )
 from causal_ssm_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS, USER
 from evals.common import (
-    get_eval_questions,
+    discover_questions,
+    get_questions_with_causal_spec,
     get_sample_chunks_worker,
-    load_causal_spec_by_question_id,
     load_eval_config,
+    select_question,
 )
 
 # Load config
@@ -50,9 +52,6 @@ _CONFIG = load_eval_config()
 
 # Worker models to compete
 WORKER_MODELS = {m["id"]: m["alias"] for m in _CONFIG["worker_models"]}
-
-# Questions from config
-EVAL_QUESTIONS = get_eval_questions()
 
 
 JUDGE_SYSTEM = """\
@@ -151,6 +150,7 @@ def format_candidates_for_judge(outputs: dict[str, str], label_map: dict[str, st
 
 
 def create_eval_dataset(
+    question: str | None = None,
     n_chunks: int = 5,
     seed: int = 42,
     input_file: str | None = None,
@@ -163,6 +163,7 @@ def create_eval_dataset(
     - Metadata with the full worker prompts for judge evaluation
 
     Args:
+        question: Question selector for the CausalSpec to use. Defaults to first with causal_spec.
         n_chunks: Number of chunks per question
         seed: Random seed for reproducibility
         input_file: Specific input file name, or None for latest
@@ -170,19 +171,28 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with samples
     """
-    # Use question 4 by default ("I want to sleep better")
-    causal_spec = load_causal_spec_by_question_id(4)
+    # Resolve which CausalSpec to use for worker prompts
+    available_cs = get_questions_with_causal_spec()
+    if question:
+        cs_question = select_question(available_cs, question)
+    else:
+        cs_question = available_cs[0]
+
+    causal_spec = cs_question.load_causal_spec()
     indicators_text = _format_indicators(causal_spec)
     outcome_description = _get_outcome_description(causal_spec)
 
+    # Iterate over all discovered questions for diverse prompts
+    all_questions = discover_questions()
+
     # Get chunks
-    total_chunks = n_chunks * len(EVAL_QUESTIONS)
+    total_chunks = n_chunks * len(all_questions)
     chunks = get_sample_chunks_worker(total_chunks, seed, input_file)
 
     samples = []
     chunk_idx = 0
 
-    for q in EVAL_QUESTIONS:
+    for q in all_questions:
         for i in range(n_chunks):
             if chunk_idx >= len(chunks):
                 break
@@ -192,7 +202,7 @@ def create_eval_dataset(
 
             # Build the full worker prompts that will be shown to the judge
             worker_user_prompt = USER.format(
-                question=q["question"],
+                question=q.question,
                 outcome_description=outcome_description,
                 indicators=indicators_text,
                 chunk=chunk,
@@ -201,13 +211,14 @@ def create_eval_dataset(
             # The input is the judge prompt template - actual content filled in by solver
             samples.append(
                 Sample(
-                    input=f"Question: {q['question']}\nChunk index: {i}",
-                    id=f"q{q['id']}_chunk{i}",
+                    input=f"Question: {q.question}\nChunk index: {i}",
+                    id=f"q_{q.slug}_chunk{i}",
                     metadata={
-                        "question_id": q["id"],
-                        "question": q["question"],
+                        "question_slug": q.slug,
+                        "question": q.question,
                         "chunk": chunk,
                         "chunk_index": i,
+                        "causal_spec_slug": cs_question.slug,
                         "worker_system_prompt": SYSTEM_WITHOUT_PROPOSALS,
                         "worker_user_prompt": worker_user_prompt,
                     },
@@ -217,10 +228,15 @@ def create_eval_dataset(
     return MemoryDataset(samples)
 
 
-def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | None = None):
+def judge_solver(
+    question: str | None = None,
+    model_ids: list[str] | None = None,
+    worker_timeout: float | None = None,
+):
     """Solver that generates worker outputs and asks judge to rank them.
 
     Args:
+        question: Question selector for CausalSpec. Defaults to first with causal_spec.
         model_ids: List of model IDs to compete. If None, uses all worker models.
         worker_timeout: Timeout in seconds for each worker. If None, uses config default.
     """
@@ -233,9 +249,14 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
 
     @solver
     def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
-            causal_spec = load_causal_spec_by_question_id(4)  # Use question 4 by default
-            question = state.metadata["question"]
+        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
+            # Resolve the CausalSpec
+            available_cs = get_questions_with_causal_spec()
+            cs_slug = state.metadata.get("causal_spec_slug", question or "")
+            cs_question = select_question(available_cs, cs_slug) if cs_slug else available_cs[0]
+            causal_spec = cs_question.load_causal_spec()
+
+            question_text = state.metadata["question"]
             chunk = state.metadata["chunk"]
             worker_system_prompt = state.metadata["worker_system_prompt"]
             worker_user_prompt = state.metadata["worker_user_prompt"]
@@ -245,7 +266,7 @@ def judge_solver(model_ids: list[str] | None = None, worker_timeout: float | Non
                 """Generate with error handling and timeout, returns (model_id, result)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question, causal_spec),
+                        generate_worker_output(model_id, chunk, question_text, causal_spec),
                         timeout=worker_timeout,
                     )
                     return model_id, result
@@ -305,7 +326,7 @@ def measurement_adherence_scorer():
         - Score value is 1.0 if parsing succeeded, 0.0 otherwise
     """
 
-    async def score(state: TaskState, target: Target) -> Score:
+    async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
         completion = state.output.completion
         reverse_label_map = state.metadata.get("reverse_label_map", {})
 
@@ -322,7 +343,6 @@ def measurement_adherence_scorer():
                 )
 
             judge_data = json.loads(json_match.group())
-            winner_label = judge_data.get("winner", "")
             ranking = judge_data.get("ranking", [])
             rationale = judge_data.get("rationale", {})
 
@@ -368,6 +388,7 @@ def measurement_adherence_scorer():
 
 @task
 def worker_measurement_adherence_eval(
+    question: str | None = None,
     n_chunks: int = 2,
     seed: int = 42,
     input_file: str | None = None,
@@ -380,7 +401,8 @@ def worker_measurement_adherence_eval(
     Returns the full ranking (e.g., "gemini > kimi > haiku") as the score answer.
 
     Args:
-        n_chunks: Number of chunks per question (total samples = n_chunks * 5 questions)
+        question: Question selector for CausalSpec (prefix ID or slug). Defaults to first with causal_spec.
+        n_chunks: Number of chunks per question (total samples = n_chunks * N questions)
         seed: Random seed for chunk sampling
         input_file: Specific preprocessed file name, or None for latest
         models: Comma-separated model IDs to compete, or None for all
@@ -392,9 +414,14 @@ def worker_measurement_adherence_eval(
         model_ids = [m.strip() for m in models.split(",")]
 
     return Task(
-        dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file),
+        dataset=create_eval_dataset(
+            question=question,
+            n_chunks=n_chunks,
+            seed=seed,
+            input_file=input_file,
+        ),
         solver=[
-            judge_solver(model_ids=model_ids, worker_timeout=worker_timeout),
+            judge_solver(question=question, model_ids=model_ids, worker_timeout=worker_timeout),
         ],
         scorer=measurement_adherence_scorer(),
     )

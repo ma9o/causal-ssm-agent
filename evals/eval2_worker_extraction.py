@@ -9,6 +9,7 @@ a different model configuration.
 Usage:
     inspect eval evals/eval2_worker_extraction.py --model google/vertex/gemini-3-flash-preview
     inspect eval evals/eval2_worker_extraction.py --model openrouter/anthropic/claude-haiku-4.5
+    inspect eval evals/eval2_worker_extraction.py -T question=4
 """
 
 import sys
@@ -30,9 +31,9 @@ from causal_ssm_agent.workers.core import WorkerResult, run_worker_extraction
 from causal_ssm_agent.workers.prompts.extraction import SYSTEM_WITHOUT_PROPOSALS
 from causal_ssm_agent.workers.schemas import _get_indicator_info
 from evals.common import (
-    get_eval_questions,
+    get_questions_with_causal_spec,
     get_sample_chunks_worker,
-    load_causal_spec_by_question_id,
+    select_question,
 )
 
 # Worker models for parallel execution
@@ -48,9 +49,6 @@ MODELS = {
     "openrouter/openai/gpt-oss-120b": "gpt-oss",
 }
 
-# Default question ID for worker eval (uses question 4: "I want to sleep better")
-DEFAULT_QUESTION_ID = 4
-
 
 def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
     """Get mapping of indicator names to their expected dtypes."""
@@ -59,7 +57,7 @@ def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
 
 
 def create_eval_dataset(
-    question_id: int = DEFAULT_QUESTION_ID,
+    question: str | None = None,
     n_chunks: int = 10,
     seed: int = 42,
     input_file: str | None = None,
@@ -67,7 +65,7 @@ def create_eval_dataset(
     """Create evaluation dataset with chunks and the CausalSpec schema.
 
     Args:
-        question_id: The question ID (1-5) to load CausalSpec for
+        question: Question selector (prefix ID or full slug). Defaults to first available.
         n_chunks: Number of chunks to include (each becomes a sample)
         seed: Random seed for reproducible chunk sampling
         input_file: Specific input file name, or None for latest
@@ -75,16 +73,16 @@ def create_eval_dataset(
     Returns:
         MemoryDataset with one sample per chunk
     """
+    available = get_questions_with_causal_spec()
+    if question:
+        q = select_question(available, question)
+    else:
+        q = available[0]
+
     # Load the CausalSpec schema
-    causal_spec = load_causal_spec_by_question_id(question_id)
+    causal_spec = q.load_causal_spec()
     indicator_dtypes = _get_indicator_dtypes(causal_spec)
-
-    # Count indicators
     n_indicators = len(indicator_dtypes)
-
-    # Get the question text from config
-    questions = get_eval_questions()
-    question = next((q["question"] for q in questions if q["id"] == question_id), "")
 
     # Get chunks (using worker chunk size from config)
     chunks = get_sample_chunks_worker(n_chunks, seed, input_file)
@@ -98,8 +96,8 @@ def create_eval_dataset(
                 metadata={
                     "chunk_index": i,
                     "chunk": chunk,
-                    "question_id": question_id,
-                    "question": question,
+                    "question_slug": q.slug,
+                    "question": q.question,
                     "n_indicators": n_indicators,
                     "indicator_dtypes": indicator_dtypes,
                 },
@@ -211,7 +209,7 @@ def worker_extraction_scorer():
         - 10 + number of valid extraction rows (dtype-checked)
     """
 
-    async def score(state: TaskState, target: Target) -> Score:
+    async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
         # Get the WorkerResult from metadata (set by solver)
         result: WorkerResult | None = state.metadata.get("worker_result")
         indicator_dtypes = state.metadata.get("indicator_dtypes", {})
@@ -251,26 +249,29 @@ def worker_extraction_scorer():
     return score
 
 
-def worker_extraction_solver(question_id: int = DEFAULT_QUESTION_ID):
+def worker_extraction_solver(question: str | None = None):
     """Solver that runs the full worker extraction flow using core logic."""
 
     @solver
     def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
             generate_fn = make_worker_generate_fn(model)
 
             # Get metadata
-            question = state.metadata.get("question", "")
+            question_text = state.metadata.get("question", "")
             chunk = state.metadata.get("chunk", "")
-            question_id_local = state.metadata.get("question_id", question_id)
-            causal_spec = load_causal_spec_by_question_id(question_id_local)
+            question_slug = state.metadata.get("question_slug", question or "")
+
+            available = get_questions_with_causal_spec()
+            q = select_question(available, question_slug)
+            causal_spec = q.load_causal_spec()
 
             # Run the SAME core logic as production
             try:
                 result = await run_worker_extraction(
                     chunk=chunk,
-                    question=question,
+                    question=question_text,
                     causal_spec=causal_spec,
                     generate=generate_fn,
                 )
@@ -293,7 +294,7 @@ def worker_extraction_solver(question_id: int = DEFAULT_QUESTION_ID):
 
 @task
 def worker_eval(
-    question_id: int = DEFAULT_QUESTION_ID,
+    question: str | None = None,
     n_chunks: int = 10,
     seed: int = 42,
     input_file: str | None = None,
@@ -301,21 +302,21 @@ def worker_eval(
     """Evaluate LLM ability to extract indicator values from chunks.
 
     Args:
-        question_id: The question ID (1-5) to load CausalSpec for
+        question: Question selector (prefix ID or full slug). Defaults to first with causal_spec.
         n_chunks: Number of chunks to include in evaluation
         seed: Random seed for chunk sampling (reproducibility)
         input_file: Specific preprocessed file name, or None for latest
     """
     return Task(
         dataset=create_eval_dataset(
-            question_id=question_id,
+            question=question,
             n_chunks=n_chunks,
             seed=seed,
             input_file=input_file,
         ),
         solver=[
             system_message(SYSTEM_WITHOUT_PROPOSALS),
-            worker_extraction_solver(question_id=question_id),
+            worker_extraction_solver(question=question),
         ],
         scorer=worker_extraction_scorer(),
     )

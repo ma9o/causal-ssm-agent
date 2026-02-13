@@ -41,14 +41,16 @@ def _():
 
 @app.cell
 def _(Path, mo, yaml):
-    _config_path = Path(__file__).resolve().parent.parent / "evals" / "config.yaml"
-    with _config_path.open() as _f:
-        _config = yaml.safe_load(_f)
+    _questions_dir = Path(__file__).resolve().parent.parent / "data" / "eval" / "questions"
+    _questions = []
+    for _qfile in sorted(_questions_dir.glob("*/question.yaml")):
+        with _qfile.open() as _f:
+            _data = yaml.safe_load(_f)
+        _questions.append({"slug": _qfile.parent.name, "question": _data["question"], "dir": _qfile.parent})
 
-    _questions = _config["questions"]
     # marimo dropdown: {display_label: returned_value}
-    _options = {f"Q{q['id']}: {q['question']}": str(q["id"]) for q in _questions}
-    _first_label = f"Q{_questions[0]['id']}: {_questions[0]['question']}"
+    _options = {f"Q{q['slug'].split('_', 1)[0]}: {q['question']}": q["slug"] for q in _questions}
+    _first_label = f"Q{_questions[0]['slug'].split('_', 1)[0]}: {_questions[0]['question']}"
 
     question_selector = mo.ui.dropdown(
         options=_options,
@@ -61,21 +63,25 @@ def _(Path, mo, yaml):
 
 @app.cell
 def _(Path, json, question_selector, yaml):
-    _project_root = Path(__file__).resolve().parent.parent
-    _data_dir = _project_root / "data"
+    _questions_dir = Path(__file__).resolve().parent.parent / "data" / "eval" / "questions"
+    _questions = []
+    for _qfile in sorted(_questions_dir.glob("*/question.yaml")):
+        with _qfile.open() as _f:
+            _data = yaml.safe_load(_f)
+        _questions.append({"slug": _qfile.parent.name, "question": _data["question"], "dir": _qfile.parent})
 
-    _config_path = _project_root / "evals" / "config.yaml"
-    with _config_path.open() as _f:
-        _config = yaml.safe_load(_f)
+    _selected = question_selector.value or _questions[0]["slug"]
+    _q = next(q for q in _questions if q["slug"] == _selected)
+    _qdir = _q["dir"]
 
-    _selected = question_selector.value or str(_config["questions"][0]["id"])
-    _q = next(q for q in _config["questions"] if str(q["id"]) == _selected)
+    _cs_path = _qdir / "causal_spec.json"
+    try:
+        with _cs_path.open() as _f:
+            causal_spec = json.load(_f)
+    except FileNotFoundError:
+        causal_spec = {"latent": {"constructs": [], "edges": []}, "measurement": {"indicators": []}}
 
-    _cs_path = _data_dir / _q["dsem"]
-    with _cs_path.open() as _f:
-        causal_spec = json.load(_f)
-
-    _ms_path = _data_dir / _q.get("model_spec", f"eval/model_spec{_q['id']}.json")
+    _ms_path = _qdir / "model_spec.json"
     try:
         with _ms_path.open() as _f:
             model_spec = json.load(_f)
@@ -83,7 +89,7 @@ def _(Path, json, question_selector, yaml):
         model_spec = None
 
     question_text = _q["question"]
-    question_id = _q["id"]
+    question_id = _q["slug"].split("_", 1)[0]
     return causal_spec, model_spec, question_id, question_text
 
 

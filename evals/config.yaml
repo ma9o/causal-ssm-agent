@@ -1,35 +1,9 @@
 # Evaluation Configuration
 # Shared settings for all evals
-
-# Evaluation questions and their reference models
-# Each question maps to latent and causal_spec model files for staged evaluation.
-questions:
-  - id: 1
-    question: "I want to resolve errors faster"
-    latent: eval/latent_model1.json
-    causal_spec: eval/causal_spec1.json
-    model_spec: eval/model_spec1.json
-    # Target effects are now auto-derived from latent model (all paths to outcome)
-  - id: 2
-    question: "I want to stop working weekends"
-    latent: eval/latent_model2.json
-    causal_spec: eval/causal_spec2.json
-    model_spec: eval/model_spec2.json
-  - id: 3
-    question: "I want to stop context-switching compulsively"
-    latent: eval/latent_model3.json
-    causal_spec: eval/causal_spec3.json
-    model_spec: eval/model_spec3.json
-  - id: 4
-    question: "I want to sleep better"
-    latent: eval/latent_model4.json
-    causal_spec: eval/causal_spec4.json
-    model_spec: eval/model_spec4.json
-  - id: 5
-    question: "I want to feel like a competent engineer"
-    latent: eval/latent_model5.json
-    causal_spec: eval/causal_spec5.json
-    model_spec: eval/model_spec5.json
+#
+# Questions are discovered from the filesystem:
+#   data/eval/questions/<id>_<slug>/question.yaml
+# See evals/common.py discover_questions() for details.
 
 # Models for orchestrator structure eval (top-tier with max reasoning)
 orchestrator_models:

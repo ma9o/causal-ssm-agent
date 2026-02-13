@@ -20,7 +20,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
-from dataclasses import dataclass
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
@@ -34,10 +33,10 @@ from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
 from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
 from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 from evals.common import (
-    get_eval_questions,
+    get_questions_with_latent_model,
     get_sample_chunks_orchestrator,
     load_eval_config,
-    load_latent_model_by_question_id,
+    select_questions,
 )
 
 # Load config for models
@@ -45,40 +44,36 @@ _CONFIG = load_eval_config()
 MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
-@dataclass
-class EvalQuestion:
-    """An evaluation question with metadata."""
-    id: int
-    question: str
-
-
-def load_questions() -> list[EvalQuestion]:
-    """Load evaluation questions from config."""
-    return [
-        EvalQuestion(id=q["id"], question=q["question"])
-        for q in get_eval_questions()
-    ]
-
-
 def create_eval_dataset(
     n_chunks: int = 5,
     seed: int = 42,
     input_file: str | None = None,
+    questions: str | None = None,
 ) -> MemoryDataset:
-    """Create evaluation dataset."""
-    questions = load_questions()
+    """Create evaluation dataset.
+
+    Args:
+        n_chunks: Number of data chunks to include.
+        seed: Random seed for sampling.
+        input_file: Specific input file name, or None for latest.
+        questions: Optional comma-separated selectors to filter questions.
+    """
+    all_questions = get_questions_with_latent_model()
+    if questions:
+        all_questions = select_questions(all_questions, questions)
+
     chunks = get_sample_chunks_orchestrator(n_chunks, seed, input_file)
 
     samples = []
-    for q in questions:
-        latent_model = load_latent_model_by_question_id(q.id)
+    for q in all_questions:
+        latent_model = q.load_latent_model()
         outcome = get_outcome_from_latent_model(latent_model)
         treatments = get_all_treatments(latent_model)
 
         samples.append(
             Sample(
                 input=q.question,  # Just the question, stage1b builds the full prompt
-                id=f"q{q.id}",
+                id=f"q_{q.slug}",
                 metadata={
                     "question": q.question,
                     "latent_model": latent_model,
@@ -200,7 +195,7 @@ def _score_stage1b_result(
 def measurement_model_scorer():
     """Score Stage 1b results."""
 
-    async def score(state: TaskState, target: Target) -> Score:
+    async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
         # Get the Stage1bResult from metadata (set by solver)
         result: Stage1bResult | None = state.metadata.get("stage1b_result")
 
@@ -250,7 +245,7 @@ def measurement_model_solver():
 
     @solver
     def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
+        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
             generate_fn = make_orchestrator_generate_fn(model)
 
@@ -283,6 +278,7 @@ def measurement_model_eval(
     n_chunks: int = 5,
     seed: int = 42,
     input_file: str | None = None,
+    questions: str | None = None,
 ):
     """Evaluate Stage 1b using the production logic.
 
@@ -294,9 +290,15 @@ def measurement_model_eval(
     - +10: All identifiable from start
     - +15: All identifiable after proxy fix
     - +5: Partial improvement from proxies
+
+    Args:
+        n_chunks: Number of data chunks to include.
+        seed: Random seed for sampling.
+        input_file: Specific preprocessed file name, or None for latest.
+        questions: Optional comma-separated question selectors (e.g. "1,3")
     """
     return Task(
-        dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file),
+        dataset=create_eval_dataset(n_chunks=n_chunks, seed=seed, input_file=input_file, questions=questions),
         solver=[
             system_message(measurement_model.SYSTEM),
             measurement_model_solver(),
