@@ -174,3 +174,46 @@ def load_causal_spec_by_question_id(question_id: int) -> dict:
         return json.load(f)
 
 
+def load_model_spec_by_question_id(question_id: int) -> dict:
+    """Load a ModelSpec by question ID.
+
+    Args:
+        question_id: The question ID (1-5)
+
+    Returns:
+        The ModelSpec dict (likelihoods, parameters, model_clock, etc.)
+    """
+    config = load_eval_config()
+    questions = config["questions"]
+    question = next((q for q in questions if q["id"] == question_id), None)
+    if question is None:
+        raise ValueError(f"Question ID {question_id} not found in config")
+
+    model_spec_path = DATA_DIR / question.get("model_spec", f"eval/model_spec{question_id}.json")
+    with open(model_spec_path) as f:
+        return json.load(f)
+
+
+def save_model_spec_by_question_id(question_id: int, model_spec: dict) -> Path:
+    """Persist a ModelSpec to disk for downstream evals.
+
+    Args:
+        question_id: The question ID (1-5)
+        model_spec: The ModelSpec dict to save
+
+    Returns:
+        Path to the written file
+    """
+    config = load_eval_config()
+    questions = config["questions"]
+    question = next((q for q in questions if q["id"] == question_id), None)
+    if question is None:
+        raise ValueError(f"Question ID {question_id} not found in config")
+
+    model_spec_path = DATA_DIR / question.get("model_spec", f"eval/model_spec{question_id}.json")
+    model_spec_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(model_spec_path, "w") as f:
+        json.dump(model_spec, f, indent=2)
+    return model_spec_path
+
+
