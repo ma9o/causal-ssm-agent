@@ -99,11 +99,10 @@ def _normalize_prior_params(distribution: str, params: dict) -> dict:
     if dist_lower == "uniform":
         lower = params.get("lower", -1.0)
         upper = params.get("upper", 1.0)
-        # Convert Uniform(lower, upper) to Normal(midpoint, range/4)
-        # range/4 ~ 95% interval
+        # Convert Uniform to TruncatedNormal to preserve hard bounds
         mu = (lower + upper) / 2
         sigma = (upper - lower) / 4
-        return {"mu": mu, "sigma": sigma}
+        return {"mu": mu, "sigma": sigma, "lower": lower, "upper": upper}
 
     # Fallback: try to extract mu/sigma directly
     return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
@@ -428,17 +427,16 @@ class SSMModelBuilder:
             dtype = X.schema[time_col]
             if dtype in (pl.Datetime, pl.Date):
                 # Convert datetime to fractional days since first observation.
-                # Use float64 to preserve sub-day precision over long time spans.
                 t0 = X[time_col].min()
                 times = jnp.array(
                     ((X[time_col] - t0).dt.total_seconds() / 86400.0).to_numpy(),
-                    dtype=jnp.float64,
+                    dtype=jnp.float32,
                 )
             else:
-                times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float64)
+                times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float32)
         else:
             # Default: integer sequence
-            times = jnp.arange(X.height, dtype=jnp.float64)
+            times = jnp.arange(X.height, dtype=jnp.float32)
 
         # Extract subject IDs
         subject_col = "subject_id" if "subject_id" in X.columns else "subject"

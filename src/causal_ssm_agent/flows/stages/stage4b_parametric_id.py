@@ -63,8 +63,8 @@ def parametric_id_task(
         ssm_model = builder._model
 
         # Extract observations and times
-        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float64)
-        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float64)
+        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
+        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
         T = int(times.shape[0])
 
         # T-rule: fast necessary condition (hard gate)
