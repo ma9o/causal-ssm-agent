@@ -38,8 +38,8 @@ from .stages import (
     propose_latent_model,
     propose_measurement_with_identifiability_fix,
     run_interventions,
-    run_ppc,
     run_power_scaling,
+    run_ppc,
     # Stage 4
     stage4_orchestrated_flow,
     # Stage 4b

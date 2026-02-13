@@ -119,6 +119,30 @@ def _stage5_on_gpu(
         print(f"Power-scaling check failed: {e}")
         ps_result = {"checked": False, "error": str(e)}
 
+    # ---------- posterior predictive checks ----------
+    ppc_result: dict[str, Any]
+    try:
+        from causal_ssm_agent.models.posterior_predictive import (
+            get_relevant_manifest_variables,
+            run_posterior_predictive_checks,
+        )
+
+        spec = builder._spec
+        manifest_names = spec.manifest_names or list(X.drop(columns=["time"]).columns)
+        manifest_dist_val = spec.manifest_dist.value if hasattr(spec.manifest_dist, "value") else str(spec.manifest_dist)
+
+        ppc = run_posterior_predictive_checks(
+            samples=result.get_samples(),
+            observations=observations,
+            times=times,
+            manifest_names=manifest_names,
+            manifest_dist=manifest_dist_val,
+        )
+        ppc_result = ppc.to_dict()
+    except Exception as e:
+        print(f"PPC check failed: {e}")
+        ppc_result = {"checked": False, "error": str(e)}
+
     # ---------- interventions ----------
     intervention_results: list[dict] = []
     try:
@@ -190,6 +214,25 @@ def _stage5_on_gpu(
                 key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0,
                 reverse=True,
             )
+
+            # Attach PPC warnings to each treatment entry
+            if ppc_result.get("checked", False) and ppc_result.get("warnings"):
+                lambda_mat_draws = samples.get("lambda")
+                lm = lambda_mat_draws
+                if lm is not None and lm.ndim == 3:
+                    lm = jnp.mean(lm, axis=0)
+                m_names = spec.manifest_names or []
+
+                for entry in intervention_results:
+                    ti = name_to_idx.get(entry["treatment"])
+                    relevant_vars = get_relevant_manifest_variables(
+                        lm, ti, outcome_idx, m_names
+                    )
+                    entry_ppc = [
+                        w for w in ppc_result["warnings"] if w.get("variable") in relevant_vars
+                    ]
+                    if entry_ppc:
+                        entry["ppc_warnings"] = entry_ppc
     except Exception as e:
         print(f"Intervention analysis failed: {e}")
         intervention_results = [
@@ -205,6 +248,7 @@ def _stage5_on_gpu(
 
     return {
         "ps_result": ps_result,
+        "ppc_result": ppc_result,
         "intervention_results": intervention_results,
     }
 
@@ -233,7 +277,7 @@ def run_stage5_gpu(
         gpu: GPU type string (e.g. "A100", "L4", "B200")
 
     Returns:
-        Dict with keys "ps_result" and "intervention_results"
+        Dict with keys "ps_result", "ppc_result", and "intervention_results"
     """
     import io
 

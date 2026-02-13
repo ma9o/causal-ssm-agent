@@ -30,8 +30,8 @@ from .stage4b_parametric_id import (
 from .stage5_inference import (
     fit_model,
     run_interventions,
-    run_ppc,
     run_power_scaling,
+    run_ppc,
 )
 
 __all__ = [

@@ -16,7 +16,6 @@ from jax import lax, vmap
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.model import NoiseFamily
 
-
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -363,7 +362,7 @@ def _simulate_hierarchical(
     t0_means_sub: jnp.ndarray,
     t0_cov_sub: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray,
+    subject_ids: jnp.ndarray,  # noqa: ARG001
     manifest_dist: str,
     obs_df: float | None,
     obs_shape: float | None,
@@ -638,9 +637,8 @@ def get_relevant_manifest_variables(
         if idx is None:
             continue
         for j in range(n_manifest):
-            if abs(float(lambda_mat[j, idx])) >= threshold:
-                if j < len(manifest_names):
-                    relevant.add(manifest_names[j])
+            if abs(float(lambda_mat[j, idx])) >= threshold and j < len(manifest_names):
+                relevant.add(manifest_names[j])
 
     return relevant
 
