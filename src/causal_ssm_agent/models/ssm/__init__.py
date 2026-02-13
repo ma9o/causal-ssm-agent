@@ -1,6 +1,6 @@
 """State-Space Models (SSM) in NumPyro.
 
-This module implements hierarchical Bayesian state-space models with:
+This module implements Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
 - Multiple inference backends: SVI (default), NUTS, NUTS-DA, Hess-MC², PGAS,

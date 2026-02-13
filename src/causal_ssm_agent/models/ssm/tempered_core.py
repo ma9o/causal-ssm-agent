@@ -35,7 +35,6 @@ def run_tempered_smc(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     *,
     n_outer: int = 100,
     n_csmc_particles: int = 20,
@@ -63,7 +62,6 @@ def run_tempered_smc(
         model: SSMModel instance
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: optional subject indices for hierarchical models
         n_outer: max tempering levels (safety bound for adaptive, exact for linear)
         n_csmc_particles: N -- number of parameter particles
         n_mh_steps: number of HMC mutation steps per round
@@ -102,9 +100,7 @@ def run_tempered_smc(
 
     # 1. Discover model sites
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(
-        model, observations, times, subject_ids, trace_key, likelihood_backend
-    )
+    site_info = _discover_sites(model, observations, times, trace_key, likelihood_backend)
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
@@ -114,7 +110,6 @@ def run_tempered_smc(
         model,
         observations,
         times,
-        subject_ids,
         site_info,
         unravel_fn,
         likelihood_backend=likelihood_backend,

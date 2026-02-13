@@ -53,7 +53,6 @@ def _da_model(
     ssm_model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,  # noqa: ARG001
     centered: bool = True,
 ) -> None:
     """NumPyro model for data-augmentation MCMC.
@@ -257,7 +256,6 @@ def _kalman_warmstart(
     ssm_model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None,
     centered: bool = True,
     num_steps: int = 2000,
     learning_rate: float = 0.01,
@@ -286,7 +284,6 @@ def _kalman_warmstart(
         ssm_model,
         observations,
         times,
-        subject_ids,
         backend_type="kalman",
         num_steps=num_steps,
         learning_rate=learning_rate,
@@ -299,7 +296,6 @@ def _kalman_warmstart(
             ssm_model,
             observations,
             times,
-            subject_ids,
             backend_type="particle",
             num_steps=num_steps,
             learning_rate=learning_rate * 0.5,
@@ -381,7 +377,6 @@ def _try_svi(
     ssm_model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None,
     backend_type: str = "kalman",
     num_steps: int = 2000,
     learning_rate: float = 0.01,
@@ -405,9 +400,7 @@ def _try_svi(
         svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
 
         rng_key = random.PRNGKey(seed)
-        svi_result = svi.run(
-            rng_key, num_steps, observations, times, subject_ids, progress_bar=False
-        )
+        svi_result = svi.run(rng_key, num_steps, observations, times, progress_bar=False)
 
         losses = svi_result.losses
         loss_0 = float(losses[0])
@@ -433,7 +426,7 @@ def _try_svi(
 
         # Get deterministic values from Predictive (model conditioned on guide params)
         predictive = Predictive(model_fn, guide=guide, params=svi_result.params, num_samples=1)
-        sample = predictive(random.PRNGKey(seed + 1), observations, times, subject_ids)
+        sample = predictive(random.PRNGKey(seed + 1), observations, times)
 
         det_sites = {"drift", "diffusion", "cint", "lambda", "manifest_cov", "t0_means", "t0_cov"}
         det_values = {}
@@ -511,13 +504,13 @@ def _try_smoother(
         return None
 
 
-def _check_init_log_density(model_fn, init_values, observations, times, subject_ids, seed):
+def _check_init_log_density(model_fn, init_values, observations, times, seed):
     """Diagnostic: check if init values produce finite log-density in the DA model."""
     import numpyro.handlers as handlers
 
     try:
         sub_model = handlers.seed(handlers.substitute(model_fn, data=init_values), rng_seed=seed)
-        tr = handlers.trace(sub_model).get_trace(observations, times, subject_ids)
+        tr = handlers.trace(sub_model).get_trace(observations, times)
 
         total_lp = 0.0
         for name, site in tr.items():
@@ -545,7 +538,6 @@ def fit_nuts_da(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     num_warmup: int = 1000,
     num_samples: int = 1000,
     num_chains: int = 4,
@@ -578,7 +570,6 @@ def fit_nuts_da(
         model: SSMModel instance defining the model specification and priors
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: (T,) subject indices (not yet supported, reserved)
         num_warmup: Number of warmup (adaptation) samples
         num_samples: Number of posterior samples
         num_chains: Number of MCMC chains
@@ -614,7 +605,6 @@ def fit_nuts_da(
             model,
             observations,
             times,
-            subject_ids,
             centered=centered,
             num_steps=svi_num_steps,
             learning_rate=svi_learning_rate,
@@ -623,7 +613,7 @@ def fit_nuts_da(
 
     # Diagnostic: check log-density at init values before NUTS
     if init_values is not None:
-        _check_init_log_density(model_fn, init_values, observations, times, subject_ids, seed)
+        _check_init_log_density(model_fn, init_values, observations, times, seed)
 
     # Try initialization strategies with fallback chain
     rng_key = random.PRNGKey(seed)
@@ -656,7 +646,7 @@ def fit_nuts_da(
                 num_chains=num_chains,
                 **kwargs,
             )
-            mcmc.run(rng_key, observations, times, subject_ids)
+            mcmc.run(rng_key, observations, times)
             print(f"  NUTS initialized with: {strategy_name}")
             break
         except RuntimeError as e:

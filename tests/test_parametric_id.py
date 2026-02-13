@@ -135,31 +135,6 @@ class TestTRule:
         # With T=50: moments = 2 + 3 + 49*2 = 103, should be enough
         assert result.satisfies
 
-    def test_truly_overparameterized_fails_even_with_T(self):
-        """Extremely overparameterized hierarchical model fails even with T."""
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
-
-        spec = SSMSpec(
-            n_latent=5,
-            n_manifest=2,
-            drift="free",
-            diffusion="free",
-            cint="free",
-            lambda_mat="free",
-            manifest_means="free",
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
-            hierarchical=True,
-            n_subjects=50,
-            indvarying=["drift_diag", "drift_offdiag", "t0_means", "cint", "diffusion"],
-        )
-        # T=3 with 2 manifests: moments = 2 + 3 + 2*2 = 7
-        result = check_t_rule(spec, T=3)
-        # Hundreds of hierarchical params >> 13 moments
-        assert not result.satisfies
-        assert result.n_free_params > 100
-
     def test_count_free_params_fixed_lambda(self):
         """Fixed lambda should contribute 0 free params."""
         from causal_ssm_agent.utils.parametric_id import count_free_params

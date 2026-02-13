@@ -28,11 +28,11 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _discover_sites(model, observations, times, subject_ids, rng_key, likelihood_backend):
+def _discover_sites(model, observations, times, rng_key, likelihood_backend):
     """Trace model once to discover sample sites (names, shapes, transforms)."""
     model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
     with handlers.seed(rng_seed=int(rng_key[0])):
-        trace = handlers.trace(model_fn).get_trace(observations, times, subject_ids)
+        trace = handlers.trace(model_fn).get_trace(observations, times)
 
     site_info = {}
     for name, site in trace.items():
@@ -159,9 +159,7 @@ def _assemble_deterministics(
 # ---------------------------------------------------------------------------
 
 
-def _build_eval_fns(
-    model, observations, times, subject_ids, site_info, unravel_fn, likelihood_backend
-):
+def _build_eval_fns(model, observations, times, site_info, unravel_fn, likelihood_backend):
     """Build differentiable functions for log-likelihood and log-prior.
 
     Args:
@@ -183,7 +181,7 @@ def _build_eval_fns(
     def _log_lik_fn(z):
         """Log-likelihood p(y|theta) via PF or Kalman."""
         con, _ = _constrain(z)
-        log_lik, _ = _eval_model(model_fn, con, observations, times, subject_ids)
+        log_lik, _ = _eval_model(model_fn, con, observations, times)
         return log_lik
 
     # Checkpoint: recompute PF intermediates during backward pass instead of

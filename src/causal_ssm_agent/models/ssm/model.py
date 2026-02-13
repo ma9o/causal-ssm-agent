@@ -1,12 +1,10 @@
 """NumPyro State-Space Model.
 
-Hierarchical Bayesian State-Space Model definition using NumPyro.
+Bayesian State-Space Model definition using NumPyro.
 This module defines the probabilistic model only — inference is in inference.py.
 
 Supports:
 - Single-subject time series
-- Multi-subject panel data with shared parameters
-- Hierarchical models with individual variation in parameters
 - Any noise family (Gaussian, Poisson, Student-t, Gamma)
 """
 
@@ -20,7 +18,6 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-from jax import lax, vmap
 
 if TYPE_CHECKING:
     import numpy as np
@@ -83,14 +80,6 @@ class SSMSpec:
     # Toggle second-pass (conditional, sampler-level) Rao-Blackwellization
     second_pass_rb: bool = True
 
-    # Hierarchical structure
-    hierarchical: bool = False
-    n_subjects: int = 1
-
-    # Which parameters vary across individuals (only used if hierarchical=True)
-    # Options: "drift_diag", "drift_offdiag", "diffusion", "cint", "t0_means"
-    indvarying: list[str] = field(default_factory=lambda: ["t0_means"])
-
     # Parameter names for interpretability
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
@@ -134,9 +123,6 @@ class SSMPriors:
     t0_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
     t0_var_diag: dict = field(default_factory=lambda: {"sigma": 2.0})
 
-    # Hierarchical (population-level SD for random effects)
-    pop_sd: dict = field(default_factory=lambda: {"sigma": 1.0})
-
 
 def _make_prior_dist(prior: dict) -> dist.Distribution:
     """Build the appropriate numpyro distribution from a prior dict.
@@ -169,21 +155,18 @@ def _make_prior_batch(prior: dict, n: int) -> dist.Distribution:
         return d
     if d.batch_shape == ():
         return d.expand([n])
-    raise ValueError(
-        f"Prior batch shape {d.batch_shape} does not match expected ({n},)"
-    )
+    raise ValueError(f"Prior batch shape {d.batch_shape} does not match expected ({n},)")
 
 
 class SSMModel:
     """NumPyro state-space model definition.
 
-    Defines the probabilistic model for hierarchical Bayesian state-space models.
+    Defines the probabilistic model for Bayesian state-space models.
     Inference is handled externally by ssm.inference.fit().
 
     Features:
     - Continuous-time dynamics via stochastic differential equations
     - Multiple likelihood backends (Kalman, particle filter)
-    - Optional hierarchical structure for multiple subjects
     """
 
     def __init__(
@@ -210,9 +193,7 @@ class SSMModel:
         self.pf_key = jax.random.PRNGKey(pf_seed)
         self.likelihood = likelihood
 
-    def _sample_drift(
-        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
-    ) -> jnp.ndarray:
+    def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample drift matrix with stability constraints.
 
         When spec.drift_mask is set, only off-diagonal entries where the mask
@@ -222,17 +203,13 @@ class SSMModel:
 
         Args:
             spec: Model specification
-            n_subjects: Number of subjects (for hierarchical)
-            hierarchical: Whether to use hierarchical sampling
 
         Returns:
-            drift: (n_latent, n_latent) or (n_subjects, n_latent, n_latent)
+            drift: (n_latent, n_latent)
         """
         n = spec.n_latent
 
         if isinstance(spec.drift, jnp.ndarray):
-            if hierarchical and n_subjects > 1:
-                return jnp.broadcast_to(spec.drift, (n_subjects, n, n))
             return spec.drift
 
         # Build off-diagonal positions list from mask (static, unrolled by XLA)
@@ -251,13 +228,13 @@ class SSMModel:
 
         n_offdiag = len(offdiag_positions)
 
-        # Population-level diagonal (auto-effects)
+        # Diagonal (auto-effects)
         drift_diag_pop = numpyro.sample(
             "drift_diag_pop",
             _make_prior_batch(self.priors.drift_diag, n),
         )
 
-        # Population-level off-diagonal (cross-effects)
+        # Off-diagonal (cross-effects)
         if n_offdiag > 0:
             drift_offdiag_pop = numpyro.sample(
                 "drift_offdiag_pop",
@@ -266,88 +243,31 @@ class SSMModel:
         else:
             drift_offdiag_pop = jnp.array([])
 
-        if hierarchical and n_subjects > 1:
-            # Individual variation in drift
-            if "drift_diag" in spec.indvarying:
-                drift_diag_sd = numpyro.sample(
-                    "drift_diag_sd",
-                    dist.HalfNormal(self.priors.pop_sd["sigma"]).expand([n]),
-                )
-                drift_diag_raw = numpyro.sample(
-                    "drift_diag_raw",
-                    dist.Normal(0, 1).expand([n_subjects, n]),
-                )
-                drift_diag = drift_diag_pop + drift_diag_sd * drift_diag_raw
-            else:
-                drift_diag = jnp.broadcast_to(drift_diag_pop, (n_subjects, n))
-
-            if "drift_offdiag" in spec.indvarying and n_offdiag > 0:
-                drift_offdiag_sd = numpyro.sample(
-                    "drift_offdiag_sd",
-                    dist.HalfNormal(self.priors.pop_sd["sigma"]).expand([n_offdiag]),
-                )
-                drift_offdiag_raw = numpyro.sample(
-                    "drift_offdiag_raw",
-                    dist.Normal(0, 1).expand([n_subjects, n_offdiag]),
-                )
-                drift_offdiag = drift_offdiag_pop + drift_offdiag_sd * drift_offdiag_raw
-            else:
-                drift_offdiag = jnp.broadcast_to(drift_offdiag_pop, (n_subjects, n_offdiag))
-
-            # Assemble drift matrices for each subject
-            def assemble_drift(diag, offdiag):
-                diag_neg = -jnp.abs(diag)
-                drift = jnp.diag(diag_neg)
-                for idx, (i, j) in enumerate(offdiag_positions):
-                    drift = drift.at[i, j].set(offdiag[idx])
-                return drift
-
-            drift = vmap(assemble_drift)(drift_diag, drift_offdiag)
-        else:
-            # Single drift matrix
-            drift_diag = -jnp.abs(drift_diag_pop)
-            drift = jnp.diag(drift_diag)
-            for idx, (i, j) in enumerate(offdiag_positions):
-                drift = drift.at[i, j].set(drift_offdiag_pop[idx])
+        drift_diag = -jnp.abs(drift_diag_pop)
+        drift = jnp.diag(drift_diag)
+        for idx, (i, j) in enumerate(offdiag_positions):
+            drift = drift.at[i, j].set(drift_offdiag_pop[idx])
 
         numpyro.deterministic("drift", drift)
         return drift
 
-    def _sample_diffusion(
-        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
-    ) -> jnp.ndarray:
+    def _sample_diffusion(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample diffusion matrix (lower Cholesky)."""
         n = spec.n_latent
 
         if isinstance(spec.diffusion, jnp.ndarray):
-            if hierarchical and n_subjects > 1:
-                return jnp.broadcast_to(spec.diffusion, (n_subjects, n, n))
             return spec.diffusion
 
-        # Population-level diagonal
+        # Diagonal
         diff_diag_pop = numpyro.sample(
             "diffusion_diag_pop",
             dist.HalfNormal(self.priors.diffusion_diag["sigma"]).expand([n]),
         )
 
         if spec.diffusion == "diag":
-            if hierarchical and n_subjects > 1 and "diffusion" in spec.indvarying:
-                diff_diag_sd = numpyro.sample(
-                    "diffusion_diag_sd",
-                    dist.HalfNormal(self.priors.pop_sd["sigma"]).expand([n]),
-                )
-                diff_diag_raw = numpyro.sample(
-                    "diffusion_diag_raw",
-                    dist.Normal(0, 1).expand([n_subjects, n]),
-                )
-                diff_diag = jnp.abs(diff_diag_pop + diff_diag_sd * diff_diag_raw)
-                diffusion = vmap(jnp.diag)(diff_diag)
-            elif hierarchical and n_subjects > 1:
-                diffusion = jnp.broadcast_to(jnp.diag(diff_diag_pop), (n_subjects, n, n))
-            else:
-                diffusion = jnp.diag(diff_diag_pop)
+            diffusion = jnp.diag(diff_diag_pop)
         else:
-            # Full lower triangular (non-hierarchical for simplicity)
+            # Full lower triangular
             n_lower = n * (n - 1) // 2
             if n_lower > 0:
                 diff_lower = numpyro.sample(
@@ -367,15 +287,10 @@ class SSMModel:
                     diffusion = diffusion.at[i, j].set(diff_lower[lower_idx])
                     lower_idx += 1
 
-            if hierarchical and n_subjects > 1:
-                diffusion = jnp.broadcast_to(diffusion, (n_subjects, n, n))
-
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
 
-    def _sample_cint(
-        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
-    ) -> jnp.ndarray | None:
+    def _sample_cint(self, spec: SSMSpec) -> jnp.ndarray | None:
         """Sample continuous intercept."""
         if spec.cint is None:
             return None
@@ -383,29 +298,12 @@ class SSMModel:
         n = spec.n_latent
 
         if isinstance(spec.cint, jnp.ndarray):
-            if hierarchical and n_subjects > 1:
-                return jnp.broadcast_to(spec.cint, (n_subjects, n))
             return spec.cint
 
-        cint_pop = numpyro.sample(
+        cint = numpyro.sample(
             "cint_pop",
             _make_prior_dist(self.priors.cint).expand([n]),
         )
-
-        if hierarchical and n_subjects > 1 and "cint" in spec.indvarying:
-            cint_sd = numpyro.sample(
-                "cint_sd",
-                dist.HalfNormal(self.priors.pop_sd["sigma"]).expand([n]),
-            )
-            cint_raw = numpyro.sample(
-                "cint_raw",
-                dist.Normal(0, 1).expand([n_subjects, n]),
-            )
-            cint = cint_pop + cint_sd * cint_raw
-        elif hierarchical and n_subjects > 1:
-            cint = jnp.broadcast_to(cint_pop, (n_subjects, n))
-        else:
-            cint = cint_pop
 
         numpyro.deterministic("cint", cint)
         return cint
@@ -496,39 +394,20 @@ class SSMModel:
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
         return manifest_means, manifest_chol
 
-    def _sample_t0_params(
-        self, spec: SSMSpec, n_subjects: int = 1, hierarchical: bool = False
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _sample_t0_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
         n_l = spec.n_latent
 
-        # Means (can vary by subject)
+        # Means
         if isinstance(spec.t0_means, jnp.ndarray):
             t0_means = spec.t0_means
-            if hierarchical and n_subjects > 1:
-                t0_means = jnp.broadcast_to(t0_means, (n_subjects, n_l))
         else:
-            t0_means_pop = numpyro.sample(
+            t0_means = numpyro.sample(
                 "t0_means_pop",
                 _make_prior_dist(self.priors.t0_means).expand([n_l]),
             )
 
-            if hierarchical and n_subjects > 1 and "t0_means" in spec.indvarying:
-                t0_means_sd = numpyro.sample(
-                    "t0_means_sd",
-                    dist.HalfNormal(self.priors.pop_sd["sigma"]).expand([n_l]),
-                )
-                t0_means_raw = numpyro.sample(
-                    "t0_means_raw",
-                    dist.Normal(0, 1).expand([n_subjects, n_l]),
-                )
-                t0_means = t0_means_pop + t0_means_sd * t0_means_raw
-            elif hierarchical and n_subjects > 1:
-                t0_means = jnp.broadcast_to(t0_means_pop, (n_subjects, n_l))
-            else:
-                t0_means = t0_means_pop
-
-        # Variance (Cholesky) - shared across subjects
+        # Variance (Cholesky)
         if isinstance(spec.t0_var, jnp.ndarray):
             t0_chol = spec.t0_var
         else:
@@ -641,7 +520,6 @@ class SSMModel:
         self,
         observations: jnp.ndarray,
         times: jnp.ndarray,
-        subject_ids: jnp.ndarray | None = None,
         likelihood_backend=None,
     ) -> None:
         """NumPyro model function.
@@ -649,7 +527,6 @@ class SSMModel:
         Args:
             observations: (N, n_manifest) observed data
             times: (N,) observation times
-            subject_ids: (N,) subject indices (0-indexed, for hierarchical models)
             likelihood_backend: Likelihood backend instance (e.g. ParticleLikelihood,
                 KalmanLikelihood, LaplaceLikelihood). Required — use
                 model.make_likelihood_backend() for the default.
@@ -661,26 +538,17 @@ class SSMModel:
             )
 
         spec = self.spec
-        hierarchical = spec.hierarchical and subject_ids is not None
-
-        if hierarchical:
-            n_subjects = int(jnp.max(subject_ids)) + 1
-        else:
-            n_subjects = 1
 
         # Sample parameters
-        drift = self._sample_drift(spec, n_subjects, hierarchical)
-        diffusion_chol = self._sample_diffusion(spec, n_subjects, hierarchical)
-        cint = self._sample_cint(spec, n_subjects, hierarchical)
+        drift = self._sample_drift(spec)
+        diffusion_chol = self._sample_diffusion(spec)
+        cint = self._sample_cint(spec)
         lambda_mat = self._sample_lambda(spec)
         manifest_means, manifest_chol = self._sample_manifest_params(spec)
-        t0_means, t0_chol = self._sample_t0_params(spec, n_subjects, hierarchical)
+        t0_means, t0_chol = self._sample_t0_params(spec)
 
         # Convert to covariances
-        if hierarchical and n_subjects > 1:
-            diffusion_cov = vmap(lambda x: x @ x.T)(diffusion_chol)
-        else:
-            diffusion_cov = diffusion_chol @ diffusion_chol.T
+        diffusion_cov = diffusion_chol @ diffusion_chol.T
         manifest_cov = manifest_chol @ manifest_chol.T
         t0_cov = t0_chol @ t0_chol.T
 
@@ -693,8 +561,6 @@ class SSMModel:
         if spec.diffusion_dist == NoiseFamily.STUDENT_T:
             extra_params["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
 
-        backend = likelihood_backend
-
         ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint)
         meas_params = MeasurementParams(
             lambda_mat=lambda_mat,
@@ -702,102 +568,17 @@ class SSMModel:
             manifest_cov=manifest_cov,
         )
 
-        if not hierarchical or n_subjects == 1:
-            # Single subject
-            time_intervals = jnp.diff(times, prepend=times[0])
-            time_intervals = jnp.maximum(time_intervals, MIN_DT)
+        time_intervals = jnp.diff(times, prepend=times[0])
+        time_intervals = time_intervals.at[0].set(MIN_DT)
 
-            init = InitialStateParams(mean=t0_means, cov=t0_cov)
-            ll = backend.compute_log_likelihood(
-                ct_params,
-                meas_params,
-                init,
-                observations,
-                time_intervals,
-                extra_params=extra_params if extra_params else None,
-            )
-        else:
-            # Multiple subjects with hierarchical structure
-            ll = self._hierarchical_likelihood(
-                backend,
-                ct_params,
-                meas_params,
-                observations,
-                times,
-                subject_ids,
-                n_subjects,
-                t0_means,
-                t0_cov,
-                extra_params=extra_params if extra_params else None,
-            )
+        init = InitialStateParams(mean=t0_means, cov=t0_cov)
+        ll = likelihood_backend.compute_log_likelihood(
+            ct_params,
+            meas_params,
+            init,
+            observations,
+            time_intervals,
+            extra_params=extra_params if extra_params else None,
+        )
 
         numpyro.factor("log_likelihood", ll)
-
-    def _hierarchical_likelihood(
-        self,
-        backend,
-        ct_params: CTParams,
-        meas_params: MeasurementParams,
-        observations: jnp.ndarray,
-        times: jnp.ndarray,
-        subject_ids: jnp.ndarray,
-        n_subjects: int,
-        t0_means: jnp.ndarray,
-        t0_cov: jnp.ndarray,
-        extra_params: dict | None = None,
-    ) -> float:
-        """Compute log-likelihood for hierarchical model with subject-varying params."""
-
-        def subject_ll(subj_idx):
-            # Get subject-specific CT params
-            subj_drift = ct_params.drift[subj_idx] if ct_params.drift.ndim == 3 else ct_params.drift
-            subj_diff_cov = (
-                ct_params.diffusion_cov[subj_idx]
-                if ct_params.diffusion_cov.ndim == 3
-                else ct_params.diffusion_cov
-            )
-            subj_cint = (
-                ct_params.cint[subj_idx]
-                if ct_params.cint is not None and ct_params.cint.ndim == 2
-                else ct_params.cint
-            )
-            subj_t0_mean = t0_means[subj_idx] if t0_means.ndim == 2 else t0_means
-
-            subj_ct = CTParams(drift=subj_drift, diffusion_cov=subj_diff_cov, cint=subj_cint)
-            subj_init = InitialStateParams(mean=subj_t0_mean, cov=t0_cov)
-
-            # Build subject-specific observation mask
-            mask = subject_ids == subj_idx
-            obs_mask = mask[:, None] & ~jnp.isnan(observations)
-
-            # Count valid observations
-            n_valid = jnp.sum(mask)
-
-            # Compute subject-specific time intervals without inf padding
-            def scan_fn(carry, inputs):
-                last_time, seen = carry
-                t, is_obs = inputs
-                dt = jnp.where(is_obs, jnp.where(seen, t - last_time, 1e-6), 0.0)
-                new_last = jnp.where(is_obs, t, last_time)
-                new_seen = seen | is_obs
-                return (new_last, new_seen), dt
-
-            (_, _), time_intervals = lax.scan(scan_fn, (0.0, False), (times, mask))
-
-            # Compute likelihood via backend (masked)
-            ll = backend.compute_log_likelihood(
-                subj_ct,
-                meas_params,
-                subj_init,
-                observations,
-                time_intervals,
-                obs_mask=obs_mask,
-                extra_params=extra_params,
-            )
-
-            # Only count if subject has observations
-            return jnp.where(n_valid > 0, ll, 0.0)
-
-        # Sum over all subjects
-        subject_indices = jnp.arange(n_subjects)
-        return jnp.sum(vmap(subject_ll)(subject_indices))

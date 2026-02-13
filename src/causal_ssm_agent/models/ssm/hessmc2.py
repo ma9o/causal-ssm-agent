@@ -174,7 +174,6 @@ def fit_hessmc2(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     n_smc_particles: int = 64,
     n_iterations: int = 20,
     proposal: Literal["rw", "mala", "hessian"] = "hessian",
@@ -196,7 +195,6 @@ def fit_hessmc2(
         model: SSMModel instance
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: optional subject indices for hierarchical models
         n_smc_particles: N -- number of parameter particles
         n_iterations: K -- number of SMC iterations
         proposal: "rw", "mala", or "hessian"
@@ -219,14 +217,14 @@ def fit_hessmc2(
     # 1. Discover model sites
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, subject_ids, trace_key, backend)
+    site_info = _discover_sites(model, observations, times, trace_key, backend)
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
 
     # 2. Build differentiable functions
     log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, subject_ids, site_info, unravel_fn, backend
+        model, observations, times, site_info, unravel_fn, backend
     )
 
     # Gradient and Hessian target the log-POSTERIOR (paper Eq 9, 11)

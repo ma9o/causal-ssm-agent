@@ -54,11 +54,13 @@ class WorkerOutput(BaseModel):
                     float_val = None
             else:
                 float_val = None
-            rows.append({
-                "indicator": e.indicator,
-                "value": float_val,
-                "timestamp": e.timestamp,
-            })
+            rows.append(
+                {
+                    "indicator": e.indicator,
+                    "value": float_val,
+                    "timestamp": e.timestamp,
+                }
+            )
 
         return pl.DataFrame(
             rows,

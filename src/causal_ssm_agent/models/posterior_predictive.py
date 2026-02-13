@@ -193,7 +193,6 @@ def simulate_posterior_predictive(
     manifest_dist: str = "gaussian",
     n_subsample: int = 50,
     rng_seed: int = 42,
-    subject_ids: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Forward-simulate observations from posterior draws.
 
@@ -206,11 +205,9 @@ def simulate_posterior_predictive(
         manifest_dist: Noise family string (e.g. "gaussian", "student_t").
         n_subsample: Number of posterior draws to use.
         rng_seed: Random seed for simulation.
-        subject_ids: (T,) subject indices for hierarchical models.
 
     Returns:
         y_sim: (n_subsample, T, n_manifest) simulated observations.
-            For hierarchical models: (n_subsample, n_subjects, T_max, n_manifest).
     """
     drift_draws = samples["drift"]  # (n_draws, n, n) or (n_draws, n_subj, n, n)
     diffusion_draws = samples["diffusion"]  # (n_draws, n, n) or cholesky
@@ -268,27 +265,6 @@ def simulate_posterior_predictive(
 
     rng = jax.random.PRNGKey(rng_seed)
     draw_keys = jax.random.split(rng, n_use)
-
-    # Check if hierarchical (drift has subject dimension)
-    is_hierarchical = drift_sub.ndim == 4  # (n_use, n_subj, n, n)
-
-    if is_hierarchical and subject_ids is not None:
-        return _simulate_hierarchical(
-            drift_sub=drift_sub,
-            diffusion_sub=diffusion_sub,
-            cint_sub=cint_sub,
-            lambda_sub=lambda_sub,
-            manifest_means_sub=manifest_means_sub,
-            manifest_cov_sub=manifest_cov_sub,
-            t0_means_sub=t0_means_sub,
-            t0_cov_sub=t0_cov_sub,
-            times=times,
-            subject_ids=subject_ids,
-            manifest_dist=manifest_dist,
-            obs_df=samples.get("obs_df"),
-            obs_shape=samples.get("obs_shape"),
-            draw_keys=draw_keys,
-        )
 
     is_gaussian = manifest_dist in (NoiseFamily.GAUSSIAN, "gaussian")
 
@@ -351,90 +327,6 @@ def simulate_posterior_predictive(
         y_sim = vmap(sim_one)(jnp.arange(n_use))
 
     return y_sim  # (n_subsample, T, n_manifest)
-
-
-def _simulate_hierarchical(
-    drift_sub: jnp.ndarray,
-    diffusion_sub: jnp.ndarray,
-    cint_sub: jnp.ndarray | None,
-    lambda_sub: jnp.ndarray,
-    manifest_means_sub: jnp.ndarray,
-    manifest_cov_sub: jnp.ndarray,
-    t0_means_sub: jnp.ndarray,
-    t0_cov_sub: jnp.ndarray,
-    times: jnp.ndarray,
-    subject_ids: jnp.ndarray,  # noqa: ARG001
-    manifest_dist: str,
-    obs_df: float | None,
-    obs_shape: float | None,
-    draw_keys: jnp.ndarray,
-) -> jnp.ndarray:
-    """Simulate posterior predictive for hierarchical models.
-
-    Returns:
-        y_sim: (n_subsample, n_subjects, T_max, n_manifest)
-    """
-    n_use = drift_sub.shape[0]
-    n_subjects = drift_sub.shape[1]
-    n_manifest = lambda_sub.shape[1]
-    T = times.shape[0]
-
-    dt_array = jnp.diff(times, prepend=times[0])
-    dt_array = jnp.maximum(dt_array, MIN_DT)
-
-    is_gaussian = manifest_dist in (NoiseFamily.GAUSSIAN, "gaussian")
-
-    results = jnp.zeros((n_use, n_subjects, T, n_manifest))
-
-    # For each draw, simulate each subject
-    for i in range(n_use):
-        subj_keys = jax.random.split(draw_keys[i], n_subjects)
-        for s in range(n_subjects):
-            drift_s = drift_sub[i, s]
-            diff_s = diffusion_sub[i, s] if diffusion_sub.ndim == 4 else diffusion_sub[i]
-            cint_s = (
-                cint_sub[i, s]
-                if cint_sub is not None and cint_sub.ndim == 3
-                else (cint_sub[i] if cint_sub is not None else None)
-            )
-            t0_mean_s = t0_means_sub[i, s] if t0_means_sub.ndim == 3 else t0_means_sub[i]
-            t0_cov_s = t0_cov_sub[i]
-            t0_chol_s = jnp.linalg.cholesky(t0_cov_s + 1e-8 * jnp.eye(t0_cov_s.shape[0]))
-
-            if is_gaussian:
-                mc = manifest_cov_sub[i]
-                m_chol = jnp.linalg.cholesky(mc + 1e-8 * jnp.eye(mc.shape[0]))
-                y_s = _simulate_one_draw_gaussian(
-                    drift=drift_s,
-                    diffusion_chol=diff_s,
-                    cint=cint_s,
-                    lambda_mat=lambda_sub[i],
-                    manifest_means=manifest_means_sub[i],
-                    manifest_chol=m_chol,
-                    t0_mean=t0_mean_s,
-                    t0_chol=t0_chol_s,
-                    dt_array=dt_array,
-                    rng_key=subj_keys[s],
-                )
-            else:
-                y_s = _simulate_one_draw_nongaussian(
-                    drift=drift_s,
-                    diffusion_chol=diff_s,
-                    cint=cint_s,
-                    lambda_mat=lambda_sub[i],
-                    manifest_means=manifest_means_sub[i],
-                    manifest_cov=manifest_cov_sub[i],
-                    t0_mean=t0_mean_s,
-                    t0_chol=t0_chol_s,
-                    dt_array=dt_array,
-                    rng_key=subj_keys[s],
-                    manifest_dist=manifest_dist,
-                    obs_df=obs_df,
-                    obs_shape=obs_shape,
-                )
-            results = results.at[i, s].set(y_s)
-
-    return results  # (n_subsample, n_subjects, T, n_manifest)
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +553,6 @@ def run_posterior_predictive_checks(
     manifest_dist: str = "gaussian",
     n_subsample: int = 50,
     rng_seed: int = 42,
-    subject_ids: jnp.ndarray | None = None,
 ) -> PPCResult:
     """Run posterior predictive checks.
 
@@ -673,7 +564,6 @@ def run_posterior_predictive_checks(
         manifest_dist: observation noise family
         n_subsample: number of posterior draws to forward-simulate
         rng_seed: random seed
-        subject_ids: (T,) subject indices for hierarchical models
 
     Returns:
         PPCResult with diagnostics
@@ -684,15 +574,9 @@ def run_posterior_predictive_checks(
         manifest_dist=manifest_dist,
         n_subsample=n_subsample,
         rng_seed=rng_seed,
-        subject_ids=subject_ids,
     )
 
-    # For hierarchical: flatten subjects for aggregate diagnostics
-    if y_sim.ndim == 4:
-        # (n_sub, n_subjects, T, m) — average across subjects for diagnostics
-        y_sim_flat = jnp.mean(y_sim, axis=1)  # (n_sub, T, m)
-    else:
-        y_sim_flat = y_sim
+    y_sim_flat = y_sim
 
     warnings: list[PPCWarning] = []
     warnings.extend(_check_calibration(y_sim_flat, observations, manifest_names))

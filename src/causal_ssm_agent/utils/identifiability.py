@@ -150,9 +150,7 @@ def check_identifiability(
                         "confounders": blockers,
                     }
         except (ValueError, KeyError, nx.NetworkXError) as e:
-            logger.warning(
-                "Identifiability check for treatment '%s' failed: %s", treatment, e
-            )
+            logger.warning("Identifiability check for treatment '%s' failed: %s", treatment, e)
             non_identifiable_treatments[treatment] = {
                 "confounders": ["unknown (graph error)"],
                 "notes": f"graph projection failed: {e}",

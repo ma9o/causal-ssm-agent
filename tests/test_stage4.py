@@ -56,7 +56,6 @@ def simple_model_spec() -> dict:
                 "reasoning": "Continuous Likert-type scale",
             }
         ],
-        "random_effects": [],
         "parameters": [
             {
                 "name": "intercept_mood_score",

@@ -307,70 +307,6 @@ class TestStudentTProcessNoise:
 
 
 # =============================================================================
-# Hierarchical Likelihood Robustness
-# =============================================================================
-
-
-class TestHierarchicalLikelihood:
-    """Robustness tests for hierarchical likelihood masking."""
-
-    def test_subject_without_observations_is_finite(self):
-        """Subjects with no observations should not introduce NaNs/Infs."""
-        n_latent, n_manifest = 2, 2
-        T = 6
-        times = jnp.arange(T, dtype=float) * 0.5
-        observations = random.normal(random.PRNGKey(0), (T, n_manifest))
-
-        # All observations belong to subject 0; subject 1 has none
-        subject_ids = jnp.zeros(T, dtype=int)
-        n_subjects = 2
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            hierarchical=True,
-            n_subjects=n_subjects,
-        )
-        model = SSMModel(spec, n_particles=100)
-
-        drift = jnp.stack(
-            [
-                jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-                jnp.array([[-0.6, 0.0], [0.0, -0.6]]),
-            ]
-        )
-        diffusion_cov = jnp.stack([jnp.eye(n_latent) * 0.1, jnp.eye(n_latent) * 0.1])
-
-        ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=None)
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=jnp.eye(n_manifest) * 0.1,
-        )
-        t0_means = jnp.zeros((n_subjects, n_latent))
-        t0_cov = jnp.eye(n_latent)
-
-        backend = ParticleLikelihood(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            n_particles=100,
-        )
-        ll = model._hierarchical_likelihood(
-            backend,
-            ct_params,
-            meas_params,
-            observations,
-            times,
-            subject_ids,
-            n_subjects,
-            t0_means,
-            t0_cov,
-        )
-        assert jnp.isfinite(ll), f"Non-finite hierarchical LL: {ll}"
-
-
-# =============================================================================
 # Parameter Recovery Tests (PF + NUTS)
 # =============================================================================
 
@@ -1142,12 +1078,8 @@ class TestBuilderNoiseFamilyWiring:
             reasoning="test",
         )
 
-        import pandas as pd
-
-        data = pd.DataFrame({"count_var": [1, 2, 3], "time": [0, 1, 2]})
-
         builder = SSMModelBuilder(model_spec=model_spec)
-        ssm_spec = builder._convert_spec_to_ssm(model_spec, data)
+        ssm_spec = builder._convert_spec_to_ssm(model_spec)
 
         assert ssm_spec.manifest_dist == NoiseFamily.POISSON
 
@@ -1186,12 +1118,8 @@ class TestBuilderNoiseFamilyWiring:
             reasoning="test",
         )
 
-        import pandas as pd
-
-        data = pd.DataFrame({"continuous_var": [1.0, 2.0, 3.0], "time": [0, 1, 2]})
-
         builder = SSMModelBuilder(model_spec=model_spec)
-        ssm_spec = builder._convert_spec_to_ssm(model_spec, data)
+        ssm_spec = builder._convert_spec_to_ssm(model_spec)
 
         assert ssm_spec.manifest_dist == NoiseFamily.GAUSSIAN
 

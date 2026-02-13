@@ -263,33 +263,6 @@ def render_priors(model_spec: dict) -> dict[str, list[str]]:
     return grouped
 
 
-def render_random_effects(model_spec: dict) -> list[str]:
-    """Render random effect decomposition equations."""
-    equations: list[str] = []
-    for re in model_spec.get("random_effects", []):
-        grouping = re["grouping"]
-        effect_type = re["effect_type"]
-        for construct in re.get("applies_to", []):
-            c_tex = _tex(construct)
-            if effect_type == "intercept":
-                equations.append(
-                    rf"\eta_{{\text{{{c_tex}}},j}} = "
-                    rf"\mu_{{\text{{{c_tex}}}}} + u_{{\text{{{c_tex}}},j}}, \quad "
-                    rf"u_{{\text{{{c_tex}}},j}} \sim \mathcal{{N}}"
-                    rf"(0,\,\tau^2_{{\text{{{c_tex}}}}})"
-                    rf" \quad [\text{{{grouping}}}]"
-                )
-            else:
-                equations.append(
-                    rf"\beta_{{\text{{{c_tex}}},j}} = "
-                    rf"\bar{{\beta}}_{{\text{{{c_tex}}}}} + v_{{\text{{{c_tex}}},j}}, \quad "
-                    rf"v_{{\text{{{c_tex}}},j}} \sim \mathcal{{N}}"
-                    rf"(0,\,\tau^{{s,2}}_{{\text{{{c_tex}}}}})"
-                    rf" \quad [\text{{{grouping}}}]"
-                )
-    return equations
-
-
 def model_spec_to_latex(
     model_spec: dict,
     causal_spec: dict | None = None,
@@ -301,13 +274,11 @@ def model_spec_to_latex(
             "measurement": list[str],      # one equation per indicator
             "structural": list[str],       # one equation per endogenous construct (requires causal_spec)
             "priors": dict[str, list[str]], # role → list of prior equations
-            "random_effects": list[str],   # one equation per random effect term
         }
     """
     result: dict[str, list[str] | dict[str, list[str]]] = {
         "measurement": render_measurement(model_spec, causal_spec),
         "structural": render_structural(model_spec, causal_spec) if causal_spec else [],
         "priors": render_priors(model_spec),
-        "random_effects": render_random_effects(model_spec),
     }
     return result

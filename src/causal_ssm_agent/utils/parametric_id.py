@@ -63,7 +63,6 @@ class TRuleResult:
     n_moments: int
     satisfies: bool
     param_counts: dict[str, int]
-    hierarchical_warning: str | None = None
 
     def print_report(self) -> None:
         """Print a human-readable t-rule report."""
@@ -76,8 +75,6 @@ class TRuleResult:
         print("  Parameter breakdown:")
         for name, count in sorted(self.param_counts.items()):
             print(f"    {name}: {count}")
-        if self.hierarchical_warning:
-            print(f"  WARNING: {self.hierarchical_warning}")
 
 
 def count_free_params(spec: SSMSpec) -> dict[str, int]:
@@ -90,8 +87,6 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
     positions instead of assuming fully free matrices.
     """
     n_l, n_m = spec.n_latent, spec.n_manifest
-    hier = spec.hierarchical and spec.n_subjects > 1
-    n_s = spec.n_subjects if hier else 1
     counts: dict[str, int] = {}
 
     # -- Drift --
@@ -111,12 +106,6 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
 
         if n_offdiag > 0:
             counts["drift_offdiag_pop"] = n_offdiag
-        if hier and "drift_diag" in spec.indvarying:
-            counts["drift_diag_sd"] = n_l
-            counts["drift_diag_raw"] = n_s * n_l
-        if hier and "drift_offdiag" in spec.indvarying and n_offdiag > 0:
-            counts["drift_offdiag_sd"] = n_offdiag
-            counts["drift_offdiag_raw"] = n_s * n_offdiag
 
     # -- Diffusion --
     if isinstance(spec.diffusion, str):
@@ -125,16 +114,10 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
             n_lower = n_l * (n_l - 1) // 2
             if n_lower > 0:
                 counts["diffusion_lower"] = n_lower
-        if hier and "diffusion" in spec.indvarying:
-            counts["diffusion_diag_sd"] = n_l
-            counts["diffusion_diag_raw"] = n_s * n_l
 
     # -- Continuous intercept --
     if spec.cint is not None and isinstance(spec.cint, str) and spec.cint == "free":
         counts["cint_pop"] = n_l
-        if hier and "cint" in spec.indvarying:
-            counts["cint_sd"] = n_l
-            counts["cint_raw"] = n_s * n_l
 
     # -- Lambda (factor loadings) --
     if isinstance(spec.lambda_mat, str) and spec.lambda_mat == "free":
@@ -159,9 +142,6 @@ def count_free_params(spec: SSMSpec) -> dict[str, int]:
     # -- Initial state means --
     if isinstance(spec.t0_means, str) and spec.t0_means == "free":
         counts["t0_means_pop"] = n_l
-        if hier and "t0_means" in spec.indvarying:
-            counts["t0_means_sd"] = n_l
-            counts["t0_means_raw"] = n_s * n_l
 
     # -- Initial state variance (always diagonal in current impl) --
     if isinstance(spec.t0_var, str):
@@ -214,16 +194,6 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
     n_autocov = (T - 1) * p if T is not None and T > 1 else 0
     n_moments = n_mean + n_cov + n_autocov
 
-    # Check for hierarchical parameter expansion (M13)
-    hierarchical_warning = None
-    if spec.hierarchical and spec.n_subjects > 1:
-        hierarchical_warning = (
-            f"Hierarchical model with {spec.n_subjects} subjects: the T-rule "
-            f"parameter count ({n_free}) includes subject-level parameters from "
-            f"count_free_params, but the moment condition count does not account "
-            f"for the multi-subject data structure. Interpret with caution."
-        )
-
     return TRuleResult(
         n_free_params=n_free,
         n_manifest=p,
@@ -231,7 +201,6 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
         n_moments=n_moments,
         satisfies=n_free <= n_moments,
         param_counts=param_counts,
-        hierarchical_warning=hierarchical_warning,
     )
 
 
@@ -579,7 +548,6 @@ def profile_likelihood(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     profile_params: list[str] | None = None,
     n_grid: int = 20,
     confidence: float = 0.95,
@@ -596,7 +564,6 @@ def profile_likelihood(
         model: SSMModel instance
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: optional subject indices
         profile_params: parameter group names to profile (None = all)
         n_grid: number of grid points per parameter
         confidence: confidence level for threshold (0.95 or 0.99)
@@ -610,7 +577,7 @@ def profile_likelihood(
     # 1. Discover sites
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, subject_ids, trace_key, backend)
+    site_info = _discover_sites(model, observations, times, trace_key, backend)
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
@@ -618,7 +585,7 @@ def profile_likelihood(
 
     # 2. Build eval fns
     log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, subject_ids, site_info, unravel_fn, backend
+        model, observations, times, site_info, unravel_fn, backend
     )
 
     def neg_log_post(z):
@@ -935,7 +902,6 @@ def power_scaling_sensitivity(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     result: InferenceResult,
-    subject_ids: jnp.ndarray | None = None,
     seed: int = 0,
     alpha_delta: float = 0.01,
 ) -> PowerScalingResult:
@@ -950,7 +916,6 @@ def power_scaling_sensitivity(
         observations: (T, n_manifest) real observed data
         times: (T,) observation times
         result: InferenceResult from fitting
-        subject_ids: optional subject indices
         seed: random seed
         alpha_delta: perturbation size for power scaling (default 0.01)
 
@@ -962,12 +927,12 @@ def power_scaling_sensitivity(
     # 1. Discover sites and build eval functions
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, subject_ids, trace_key, backend)
+    site_info = _discover_sites(model, observations, times, trace_key, backend)
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     _, unravel_fn = ravel_pytree(example_unc)
 
     log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, subject_ids, site_info, unravel_fn, backend
+        model, observations, times, site_info, unravel_fn, backend
     )
 
     param_names = sorted(site_info.keys())

@@ -245,9 +245,7 @@ def build_model_task(
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
     try:
-        builder = SSMModelBuilder(
-            model_spec=model_spec, priors=priors, causal_spec=causal_spec
-        )
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
 
         # Convert raw data to wide format for model building
         if raw_data.is_empty():

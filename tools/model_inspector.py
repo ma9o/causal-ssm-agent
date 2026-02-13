@@ -323,14 +323,6 @@ def _(latex_sections, mo):
 
 @app.cell
 def _(latex_sections, mo):
-    if latex_sections and latex_sections.get("random_effects"):
-        _lines = [f"$${_eq}$$\n" for _eq in latex_sections["random_effects"]]
-        mo.md("### Random Effects\n\n" + "\n".join(_lines))
-    return
-
-
-@app.cell
-def _(latex_sections, mo):
     if latex_sections and latex_sections.get("priors"):
         _role_labels = {
             "fixed_effect": "Fixed Effects",
@@ -370,7 +362,6 @@ def _(mo, model_spec):
     | Model clock | `{model_spec.get('model_clock', '?')}` |
     | Likelihoods | {len(_liks)} |
     | Parameters | {len(_params)} |
-    | Random effects | {len(model_spec.get('random_effects', []))} |
 
     **Distributions**: {', '.join(f'{_d} ({_n})' for _d, _n in _dist_counts.most_common())}
 

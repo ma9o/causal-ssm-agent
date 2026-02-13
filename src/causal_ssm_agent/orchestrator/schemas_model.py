@@ -39,9 +39,7 @@ class ParameterRole(StrEnum):
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
     AR_COEFFICIENT = "ar_coefficient"  # Rho for autoregressive terms
     RESIDUAL_SD = "residual_sd"  # Sigma for residual variance
-    RANDOM_INTERCEPT_SD = "random_intercept_sd"  # SD of random intercepts
-    RANDOM_SLOPE_SD = "random_slope_sd"  # SD of random slopes
-    CORRELATION = "correlation"  # Correlation between random effects
+    CORRELATION = "correlation"  # Correlation between constructs
     LOADING = "loading"  # Factor loading for multi-indicator constructs
 
 
@@ -78,8 +76,6 @@ EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
     ParameterRole.RESIDUAL_SD: ParameterConstraint.POSITIVE,
     ParameterRole.FIXED_EFFECT: ParameterConstraint.NONE,
     ParameterRole.LOADING: ParameterConstraint.POSITIVE,
-    ParameterRole.RANDOM_INTERCEPT_SD: ParameterConstraint.POSITIVE,
-    ParameterRole.RANDOM_SLOPE_SD: ParameterConstraint.POSITIVE,
     ParameterRole.CORRELATION: ParameterConstraint.CORRELATION,
 }
 
@@ -91,17 +87,6 @@ class LikelihoodSpec(BaseModel):
     distribution: DistributionFamily = Field(description="Distribution family for this variable")
     link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
     reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
-
-
-class RandomEffectSpec(BaseModel):
-    """Specification for a random effect (hierarchical structure)."""
-
-    grouping: str = Field(description="Grouping variable (e.g., 'subject', 'item', 'day')")
-    effect_type: str = Field(description="Type of effect: 'intercept' or 'slope'")
-    applies_to: list[str] = Field(
-        description="Which constructs/coefficients have this random effect"
-    )
-    reasoning: str = Field(description="Why this random effect structure is appropriate")
 
 
 class ParameterSpec(BaseModel):
@@ -127,9 +112,6 @@ class ModelSpec(BaseModel):
 
     likelihoods: list[LikelihoodSpec] = Field(
         description="Likelihood specifications for each observed indicator"
-    )
-    random_effects: list[RandomEffectSpec] = Field(
-        default_factory=list, description="Random effect specifications for hierarchical structure"
     )
     parameters: list[ParameterSpec] = Field(description="All parameters requiring priors")
     model_clock: str = Field(

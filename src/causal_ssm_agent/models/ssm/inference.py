@@ -84,7 +84,6 @@ def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     method: Literal[
         "svi",
         "nuts",
@@ -104,7 +103,6 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        subject_ids: (N,) subject indices (0-indexed, for hierarchical)
         method: Inference method - "svi" (default), "nuts", "hessmc2", "pgas", "tempered_smc"
         **kwargs: Method-specific arguments
 
@@ -112,37 +110,37 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     if method == "nuts":
-        return _fit_nuts(model, observations, times, subject_ids, **kwargs)
+        return _fit_nuts(model, observations, times, **kwargs)
     elif method == "nuts_da":
         from causal_ssm_agent.models.ssm.nuts_da import fit_nuts_da
 
-        return fit_nuts_da(model, observations, times, subject_ids, **kwargs)
+        return fit_nuts_da(model, observations, times, **kwargs)
     elif method == "svi":
-        return _fit_svi(model, observations, times, subject_ids, **kwargs)
+        return _fit_svi(model, observations, times, **kwargs)
     elif method == "hessmc2":
         from causal_ssm_agent.models.ssm.hessmc2 import fit_hessmc2
 
-        return fit_hessmc2(model, observations, times, subject_ids, **kwargs)
+        return fit_hessmc2(model, observations, times, **kwargs)
     elif method == "pgas":
         from causal_ssm_agent.models.ssm.pgas import fit_pgas
 
-        return fit_pgas(model, observations, times, subject_ids, **kwargs)
+        return fit_pgas(model, observations, times, **kwargs)
     elif method == "tempered_smc":
         from causal_ssm_agent.models.ssm.tempered_smc import fit_tempered_smc
 
-        return fit_tempered_smc(model, observations, times, subject_ids, **kwargs)
+        return fit_tempered_smc(model, observations, times, **kwargs)
     elif method == "laplace_em":
         from causal_ssm_agent.models.ssm.laplace_em import fit_laplace_em
 
-        return fit_laplace_em(model, observations, times, subject_ids, **kwargs)
+        return fit_laplace_em(model, observations, times, **kwargs)
     elif method == "structured_vi":
         from causal_ssm_agent.models.ssm.structured_vi import fit_structured_vi
 
-        return fit_structured_vi(model, observations, times, subject_ids, **kwargs)
+        return fit_structured_vi(model, observations, times, **kwargs)
     elif method == "dpf":
         from causal_ssm_agent.models.ssm.dpf import fit_dpf
 
-        return fit_dpf(model, observations, times, subject_ids, **kwargs)
+        return fit_dpf(model, observations, times, **kwargs)
     else:
         raise ValueError(
             f"Unknown inference method: {method!r}. "
@@ -183,7 +181,6 @@ def _fit_nuts(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     num_warmup: int = 1000,
     num_samples: int = 1000,
     num_chains: int = 4,
@@ -199,7 +196,6 @@ def _fit_nuts(
         model: SSMModel instance
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        subject_ids: (N,) subject indices
         num_warmup: Number of warmup samples
         num_samples: Number of posterior samples
         num_chains: Number of MCMC chains
@@ -230,7 +226,7 @@ def _fit_nuts(
     )
 
     rng_key = random.PRNGKey(seed)
-    mcmc.run(rng_key, observations, times, subject_ids)
+    mcmc.run(rng_key, observations, times)
 
     return InferenceResult(
         _samples=mcmc.get_samples(),
@@ -243,7 +239,6 @@ def _fit_svi(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     guide_type: str = "mvn",
     num_steps: int = 5000,
     num_samples: int = 1000,
@@ -260,7 +255,6 @@ def _fit_svi(
         model: SSMModel instance
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        subject_ids: (N,) subject indices
         guide_type: Guide family - "normal", "mvn", or "delta"
         num_steps: Number of SVI optimization steps
         num_samples: Number of posterior samples to draw after fitting
@@ -283,7 +277,7 @@ def _fit_svi(
     svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
 
     rng_key = random.PRNGKey(seed)
-    svi_result = svi.run(rng_key, num_steps, observations, times, subject_ids)
+    svi_result = svi.run(rng_key, num_steps, observations, times)
 
     # Draw posterior samples from the fitted guide
     sample_key = random.PRNGKey(seed + 1)
@@ -293,7 +287,7 @@ def _fit_svi(
         params=svi_result.params,
         num_samples=num_samples,
     )
-    raw_samples = predictive(sample_key, observations, times, subject_ids)
+    raw_samples = predictive(sample_key, observations, times)
 
     # Filter out the log_likelihood factor site (observed)
     samples = {name: values for name, values in raw_samples.items() if name != "log_likelihood"}
@@ -310,7 +304,6 @@ def _eval_model(
     params_dict: dict[str, jnp.ndarray],
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None,
 ) -> tuple[float, float]:
     """Evaluate model with substituted params. Returns (log_likelihood, log_prior).
 
@@ -322,13 +315,12 @@ def _eval_model(
         params_dict: Parameter values to substitute
         observations: Observed data
         times: Time points
-        subject_ids: Subject indices
 
     Returns:
         Tuple of (log_likelihood, log_prior)
     """
     with handlers.seed(rng_seed=0), handlers.substitute(data=params_dict):
-        trace = handlers.trace(model_fn).get_trace(observations, times, subject_ids)
+        trace = handlers.trace(model_fn).get_trace(observations, times)
 
     log_lik = 0.0
     log_prior = 0.0

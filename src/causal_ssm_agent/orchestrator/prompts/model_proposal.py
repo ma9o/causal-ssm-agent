@@ -2,7 +2,6 @@
 
 The orchestrator proposes the complete model structure including:
 - Distribution families and link functions for each indicator
-- Random effects structure
 - All parameters requiring priors with search context for literature
 
 NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
@@ -16,7 +15,7 @@ Your task is to translate a causal DAG with measurement model into a complete mo
 
 ## Background
 
-In Bayesian modeling, we specify our beliefs about the generative process that created the data. This unified framework subsumes what were traditionally called "GLMMs", "SEMs", and "DSEMs"—these are all Bayesian hierarchical models with specific features (random effects, latent variables, temporal dynamics).
+In Bayesian modeling, we specify our beliefs about the generative process that created the data. This framework subsumes what were traditionally called "SEMs" and "DSEMs"—Bayesian models with latent variables and temporal dynamics.
 
 ## Your Responsibilities
 
@@ -37,19 +36,13 @@ In Bayesian modeling, we specify our beliefs about the generative process that c
    - `cumulative_logit`: OrderedLogistic
    - `softmax`: Categorical
 
-3. **Specify random effects**: Account for hierarchical structure:
-   - Random intercepts for subjects (individual differences)
-   - Random slopes if effects vary by subject
-   - Consider temporal groupings (e.g., by day) if appropriate
-
-4. **Enumerate ALL parameters needing priors**: Be exhaustive:
+3. **Enumerate ALL parameters needing priors**: Be exhaustive:
    - Fixed effects (beta coefficients) for each causal edge
    - AR(1) coefficients for time-varying endogenous constructs
    - Residual standard deviations
-   - Random effect standard deviations
    - Factor loadings (if multi-indicator constructs)
 
-5. **Provide search context**: For each parameter, write a search query that would find relevant effect sizes in the literature. This will be used to ground priors in empirical evidence.
+4. **Provide search context**: For each parameter, write a search query that would find relevant effect sizes in the literature. This will be used to ground priors in empirical evidence.
 
 ## Parameter Roles and Constraints
 
@@ -61,11 +54,9 @@ Each parameter's `role` must be one of these exact values, with its required `co
 | `ar_coefficient` | `unit_interval` | AR(1) persistence for each time-varying endogenous construct |
 | `residual_sd` | `positive` | Residual/innovation SD for each construct or indicator |
 | `loading` | `positive` | Factor loading for multi-indicator constructs |
-| `random_intercept_sd` | `positive` | SD of random intercepts (subject-level variation) |
-| `random_slope_sd` | `positive` | SD of random slopes |
-| `correlation` | `correlation` | Correlation between random effects |
+| `correlation` | `correlation` | Correlation between constructs |
 
-**Only these 7 roles are valid.** Do NOT invent new roles. Use full construct names (not abbreviations) when naming parameters — e.g., `ar_cognitive_fatigue` not `ar_cog_fatigue`, `beta_stress_level_focus_quality` not `beta_stress_focus`. Specifically:
+**Only these 5 roles are valid.** Do NOT invent new roles. Use full construct names (not abbreviations) when naming parameters — e.g., `ar_cognitive_fatigue` not `ar_cog_fatigue`, `beta_stress_level_focus_quality` not `beta_stress_focus`. Specifically:
 - Indicator intercepts are implicit (handled by the link function) — do NOT create `intercept` parameters
 - Distribution-specific parameters (Beta concentration, NegBinomial overdispersion, OrderedLogistic cutpoints) are handled automatically — do NOT create parameters for them
 - Use `loading` (not `factor_loading`) for factor loadings
@@ -84,14 +75,6 @@ Return a JSON object with this structure:
       "reasoning": "Why this distribution/link for this variable"
     }
   ],
-  "random_effects": [
-    {
-      "grouping": "subject|item|day",
-      "effect_type": "intercept|slope",
-      "applies_to": ["construct1", "construct2"],
-      "reasoning": "Why this random effect structure"
-    }
-  ],
   "parameters": [
     {
       "name": "beta_stress_anxiety",
@@ -108,9 +91,7 @@ Return a JSON object with this structure:
 
 ## Guidelines
 
-- Be conservative with random effects—only include what the data can support
 - Prefer simpler models when uncertainty is high
-- Consider the sample size when proposing complex hierarchical structures
 - Provide specific, searchable queries in `search_context` that would find meta-analyses or large-scale studies
 - Remember: AR coefficients should be in [0, 1] for stationarity (use weakly informative priors that encourage but don't enforce this)
 
@@ -150,9 +131,8 @@ For each parameter, provide a search_context that would help find relevant effec
 
 Think very hard about:
 1. What distribution family best matches each indicator's data type?
-2. What random effects structure accounts for the hierarchical nature of the data?
-3. What are ALL the parameters that need priors?
-4. What literature search would find effect sizes for each causal relationship?
+2. What are ALL the parameters that need priors?
+3. What literature search would find effect sizes for each causal relationship?
 
 Output your specification as JSON.
 """

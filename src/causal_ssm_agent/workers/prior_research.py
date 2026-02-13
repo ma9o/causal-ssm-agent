@@ -534,12 +534,6 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     elif parameter.role == ParameterRole.RESIDUAL_SD:
         distribution = "HalfNormal"
         params = {"sigma": 1.0}
-    elif parameter.role == ParameterRole.RANDOM_INTERCEPT_SD:
-        distribution = "HalfNormal"
-        params = {"sigma": 0.5}
-    elif parameter.role == ParameterRole.RANDOM_SLOPE_SD:
-        distribution = "HalfNormal"
-        params = {"sigma": 0.25}
 
     return PriorProposal(
         parameter=parameter.name,

@@ -56,7 +56,6 @@ def _svi_warmstart(
     model_fn,
     observations,
     times,
-    subject_ids,
     D,
     blocks=None,
     num_steps=500,
@@ -72,7 +71,6 @@ def _svi_warmstart(
         model_fn: NumPyro model function (with likelihood_backend already bound)
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: optional subject indices
         D: total number of unconstrained parameters
         blocks: optional list of block dicts (for per-block mass initialization)
         num_steps: SVI optimization steps
@@ -90,7 +88,7 @@ def _svi_warmstart(
     svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
 
     rng_key = random.PRNGKey(seed)
-    svi_result = svi.run(rng_key, num_steps, observations, times, subject_ids, progress_bar=False)
+    svi_result = svi.run(rng_key, num_steps, observations, times, progress_bar=False)
 
     # Extract guide parameters
     init_theta = svi_result.params["auto_loc"]  # (D,) posterior mean
@@ -534,7 +532,6 @@ def fit_pgas(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    subject_ids: jnp.ndarray | None = None,
     n_outer: int = 50,
     n_csmc_particles: int = 30,
     n_mh_steps: int = 5,
@@ -558,7 +555,6 @@ def fit_pgas(
         model: SSMModel instance
         observations: (T, n_manifest) observed data
         times: (T,) observation times
-        subject_ids: optional subject indices
         n_outer: number of Gibbs iterations
         n_csmc_particles: N for CSMC (including reference particle).
             For good mixing, use N >= T/2 (Lindsten et al. 2014).
@@ -608,7 +604,7 @@ def fit_pgas(
     # 1. Discover model sites
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, clean_obs, times, subject_ids, trace_key, backend)
+    site_info = _discover_sites(model, clean_obs, times, trace_key, backend)
     transforms = {name: info["transform"] for name, info in site_info.items()}
     distributions = {name: info["distribution"] for name, info in site_info.items()}
 
@@ -742,7 +738,6 @@ def fit_pgas(
             model_fn,
             observations,
             times,
-            subject_ids,
             D,
             blocks=blocks if block_sampling else None,
             num_steps=svi_num_steps,

@@ -14,7 +14,6 @@ from utils.latex_renderer import (
     model_spec_to_latex,
     render_measurement,
     render_priors,
-    render_random_effects,
     render_structural,
 )
 
@@ -124,28 +123,14 @@ class TestRenderPriors:
             assert r"\text{HalfNormal}" in eq
 
 
-class TestRenderRandomEffects:
-    def test_returns_equations(self, model_spec1):
-        eqs = render_random_effects(model_spec1)
-        # 1 random effect with 13 constructs
-        assert len(eqs) == 13
-
-    def test_has_grouping(self, model_spec1):
-        eqs = render_random_effects(model_spec1)
-        for eq in eqs:
-            assert r"\text{subject}" in eq
-
-
 class TestFullRoundtrip:
     def test_model_spec_to_latex(self, model_spec1, causal_spec1):
         result = model_spec_to_latex(model_spec1, causal_spec1)
         assert "measurement" in result
         assert "structural" in result
         assert "priors" in result
-        assert "random_effects" in result
         assert len(result["measurement"]) == 26
         assert len(result["structural"]) == 9
-        assert len(result["random_effects"]) == 13
 
     def test_without_causal_spec(self, model_spec1):
         result = model_spec_to_latex(model_spec1)

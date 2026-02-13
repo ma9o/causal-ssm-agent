@@ -24,8 +24,6 @@ def _make_samples(
     diff_sd: float = 0.3,
     obs_sd: float = 0.5,
     with_cint: bool = False,
-    hierarchical: bool = False,
-    n_subjects: int = 1,
 ) -> dict[str, jnp.ndarray]:
     """Build synthetic posterior samples for testing."""
     key = random.PRNGKey(seed)
@@ -41,18 +39,9 @@ def _make_samples(
         -jnp.abs(drift_draws[:, diag_idx, diag_idx])
     )
 
-    if hierarchical and n_subjects > 1:
-        drift_draws = jnp.broadcast_to(
-            drift_draws[:, None, :, :], (n_draws, n_subjects, n_latent, n_latent)
-        )
-
     # Diffusion: cholesky factor (diagonal)
     diff_chol = jnp.eye(n_latent) * diff_sd
     diffusion_draws = jnp.broadcast_to(diff_chol, (n_draws, n_latent, n_latent))
-    if hierarchical and n_subjects > 1:
-        diffusion_draws = jnp.broadcast_to(
-            diffusion_draws[:, None, :, :], (n_draws, n_subjects, n_latent, n_latent)
-        )
 
     # Lambda: identity-like with extra rows
     lambda_mat = jnp.zeros((n_manifest, n_latent))
@@ -67,8 +56,6 @@ def _make_samples(
 
     # t0
     t0_means = jnp.zeros((n_draws, n_latent))
-    if hierarchical and n_subjects > 1:
-        t0_means = jnp.zeros((n_draws, n_subjects, n_latent))
     t0_cov = jnp.eye(n_latent) * 1.0
 
     samples = {
@@ -82,8 +69,6 @@ def _make_samples(
 
     if with_cint:
         cint_draws = jnp.zeros((n_draws, n_latent))
-        if hierarchical and n_subjects > 1:
-            cint_draws = jnp.zeros((n_draws, n_subjects, n_latent))
         samples["cint"] = cint_draws
 
     return samples
@@ -150,32 +135,6 @@ class TestForwardSimulation:
 
         assert y_sim.shape == (10, 15, 2)
         assert jnp.all(y_sim > 0)
-
-    def test_hierarchical_shape(self):
-        """Hierarchical model produces per-subject simulations."""
-        n_subjects = 3
-        T = 20
-        samples = _make_samples(
-            n_draws=8,
-            n_latent=2,
-            n_manifest=2,
-            hierarchical=True,
-            n_subjects=n_subjects,
-            with_cint=True,
-        )
-        times = jnp.arange(T, dtype=float)
-        subject_ids = jnp.array([0] * 7 + [1] * 7 + [2] * 6)
-
-        y_sim = simulate_posterior_predictive(
-            samples=samples,
-            times=times,
-            n_subsample=8,
-            subject_ids=subject_ids,
-        )
-
-        # (n_subsample, n_subjects, T, n_manifest)
-        assert y_sim.shape == (8, n_subjects, T, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
 
 
 class TestDiagnosticChecks:

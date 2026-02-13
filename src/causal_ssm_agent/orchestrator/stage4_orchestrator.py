@@ -95,12 +95,12 @@ def build_data_summary(measurements_data: dict) -> str:
             lines.append(f"- **Time-invariant**: {n_indicators} indicators")
         else:
             n_rows = df.height
-            n_indicators = len([c for c in df.columns if c not in ("time_bucket", "subject_id")])
+            n_indicators = len([c for c in df.columns if c != "time_bucket"])
             lines.append(f"- **{granularity}**: {n_rows} time points × {n_indicators} indicators")
 
             # Add basic stats for numeric columns
             if n_rows > 0:
-                sample_cols = [c for c in df.columns if c not in ("time_bucket", "subject_id")][:3]
+                sample_cols = [c for c in df.columns if c != "time_bucket"][:3]
                 for col in sample_cols:
                     try:
                         mean = df[col].mean()

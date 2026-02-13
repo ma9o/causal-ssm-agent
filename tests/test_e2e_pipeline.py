@@ -285,7 +285,6 @@ def model_spec():
             }
             for name in INDICATOR_NAMES
         ],
-        "random_effects": [],
         "parameters": [
             # AR coefficients
             {

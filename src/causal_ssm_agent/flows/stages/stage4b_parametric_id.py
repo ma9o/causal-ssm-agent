@@ -53,9 +53,7 @@ def parametric_id_task(
     from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
     try:
-        builder = SSMModelBuilder(
-            model_spec=model_spec, priors=priors, causal_spec=causal_spec
-        )
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
 
         if raw_data.is_empty():
             return {"checked": False, "error": "No data available"}
@@ -147,9 +145,7 @@ def stage4b_parametric_id_flow(
     priors = stage4_result["priors"]
     causal_spec = stage4_result.get("causal_spec")
 
-    id_result = parametric_id_task(
-        model_spec, priors, raw_data, causal_spec=causal_spec
-    )
+    id_result = parametric_id_task(model_spec, priors, raw_data, causal_spec=causal_spec)
 
     return {
         **stage4_result,
