@@ -46,7 +46,7 @@ class WorkerOutput(BaseModel):
             v = e.value
             if v is None:
                 str_val = None
-            elif isinstance(v, bool) or isinstance(v, (int, float)):
+            elif isinstance(v, (bool, int, float)):
                 str_val = str(v)
             elif isinstance(v, str):
                 str_val = v
