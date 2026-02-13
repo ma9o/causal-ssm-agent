@@ -215,6 +215,14 @@ def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
         return pl.DataFrame()
 
     time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
+
+    # Parse string timestamps to datetime before pivoting so the
+    # datetime→fractional-days conversion below always triggers.
+    if raw_data.schema.get(time_col) == pl.Utf8:
+        raw_data = raw_data.with_columns(
+            pl.col(time_col).str.to_datetime(strict=False).alias(time_col)
+        )
+
     wide_data = (
         raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
         .pivot(on="indicator", index=time_col, values="value", aggregate_function="mean")
