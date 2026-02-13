@@ -139,14 +139,22 @@ def _merge_proxies(measurement: dict, proxy_response: dict | None) -> dict:
                     ind["how_to_measure"] = (
                         f"Proxy for {proxy['construct']}: {ind['how_to_measure']}"
                     )
+                # Fill in defaults for any missing required fields
+                ind.setdefault("measurement_granularity", "finest")
+                ind.setdefault("measurement_dtype", "continuous")
+                ind.setdefault("aggregation", "mean")
                 result["indicators"].append(ind)
             else:
-                # Model returned just indicator name (string) - build minimal indicator
+                # Model returned just indicator name (string) - build complete indicator
+                # with safe defaults for required fields
                 result["indicators"].append(
                     {
                         "name": indicator,
                         "construct_name": proxy["construct"],
                         "how_to_measure": f"Proxy for {proxy['construct']}: {proxy.get('justification', '')}",
+                        "measurement_granularity": "finest",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
                     }
                 )
 
@@ -247,6 +255,8 @@ async def run_stage1b(
 
             if proxy_response and proxy_response.get("new_proxies"):
                 measurement = _merge_proxies(measurement, proxy_response)
+                # Re-validate after merge to catch schema violations
+                MeasurementModel.model_validate(measurement)
 
     # Step 4: Final identifiability check
     final_id = check_identifiability(latent_model, measurement)
