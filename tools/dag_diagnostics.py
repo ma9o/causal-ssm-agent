@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from commons import parse_dag_json
+
 from dsem_agent.utils.effects import get_outcome_from_latent_model
 from dsem_agent.utils.identifiability import (
     analyze_unobserved_constructs,

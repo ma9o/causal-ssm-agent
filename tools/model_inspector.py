@@ -13,14 +13,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # Model Inspector
+    mo.md("""
+    # Model Inspector
 
-        Select an evaluation model by index to inspect its full pipeline:
-        **Causal DAG** → **Identifiability** → **Functional Specification (LaTeX)**
-        """
-    )
+    Select an evaluation model by index to inspect its full pipeline:
+    **Causal DAG** → **Identifiability** → **Functional Specification (LaTeX)**
+    """)
     return
 
 
@@ -38,7 +36,6 @@ def _():
         sys.path.insert(0, str(_project_root / "src"))
     if str(_project_root / "tools") not in sys.path:
         sys.path.insert(0, str(_project_root / "tools"))
-
     return Path, json, yaml
 
 
@@ -49,11 +46,13 @@ def _(Path, mo, yaml):
         _config = yaml.safe_load(_f)
 
     _questions = _config["questions"]
-    _options = {str(q["id"]): f"Q{q['id']}: {q['question']}" for q in _questions}
+    # marimo dropdown: {display_label: returned_value}
+    _options = {f"Q{q['id']}: {q['question']}": str(q["id"]) for q in _questions}
+    _first_label = f"Q{_questions[0]['id']}: {_questions[0]['question']}"
 
     question_selector = mo.ui.dropdown(
         options=_options,
-        value=str(_questions[0]["id"]),
+        value=_first_label,
         label="Evaluation model",
     )
     question_selector
@@ -69,7 +68,8 @@ def _(Path, json, question_selector, yaml):
     with _config_path.open() as _f:
         _config = yaml.safe_load(_f)
 
-    _q = next(q for q in _config["questions"] if str(q["id"]) == question_selector.value)
+    _selected = question_selector.value or str(_config["questions"][0]["id"])
+    _q = next(q for q in _config["questions"] if str(q["id"]) == _selected)
 
     _cs_path = _data_dir / _q["dsem"]
     with _cs_path.open() as _f:
@@ -98,7 +98,9 @@ def _(mo, question_id, question_text):
 
 @app.cell
 def _(mo):
-    mo.md("## 1. Causal DAG")
+    mo.md("""
+    ## 1. Causal DAG
+    """)
     return
 
 
@@ -243,7 +245,9 @@ def _(causal_spec, mo):
 
 @app.cell
 def _(mo):
-    mo.md("## 2. Identifiability Analysis")
+    mo.md("""
+    ## 2. Identifiability Analysis
+    """)
     return
 
 
@@ -353,20 +357,20 @@ def _(mo, model_spec):
         _dist_counts = _Counter(_lik["distribution"] for _lik in _liks)
 
         mo.md(f"""
-### Model Summary
+    ### Model Summary
 
-| Property | Value |
-|----------|-------|
-| Model clock | `{model_spec.get('model_clock', '?')}` |
-| Likelihoods | {len(_liks)} |
-| Parameters | {len(_params)} |
-| Random effects | {len(model_spec.get('random_effects', []))} |
+    | Property | Value |
+    |----------|-------|
+    | Model clock | `{model_spec.get('model_clock', '?')}` |
+    | Likelihoods | {len(_liks)} |
+    | Parameters | {len(_params)} |
+    | Random effects | {len(model_spec.get('random_effects', []))} |
 
-**Distributions**: {', '.join(f'{_d} ({_n})' for _d, _n in _dist_counts.most_common())}
+    **Distributions**: {', '.join(f'{_d} ({_n})' for _d, _n in _dist_counts.most_common())}
 
-**Parameters by role**: {', '.join(f'{_r} ({_n})' for _r, _n in _role_counts.most_common())}
+    **Parameters by role**: {', '.join(f'{_r} ({_n})' for _r, _n in _role_counts.most_common())}
 
-**Reasoning**: {model_spec.get('reasoning', '\u2014')}
+    **Reasoning**: {model_spec.get('reasoning', '\u2014')}
         """)
     return
 
