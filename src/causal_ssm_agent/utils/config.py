@@ -81,6 +81,7 @@ class InferenceConfig:
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
+    gpu: str | None = None
     svi: SVIConfig = SVIConfig()
     nuts: NUTSConfig = NUTSConfig()
 

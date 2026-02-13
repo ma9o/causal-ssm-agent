@@ -258,12 +258,37 @@ def causal_inference_pipeline(
         if inference_method
         else None
     )
-    fitted = fit_model(stage4_result, data_for_model, sampler_config=sampler_config)
 
-    # Post-fit power-scaling sensitivity diagnostic
+    if config.inference.gpu:
+        # ── GPU path: dispatch all stage 5 tasks to Modal ──
+        from causal_ssm_agent.flows.gpu_inference import run_stage5_gpu
+
+        print(f"Dispatching to Modal ({config.inference.gpu} GPU)...")
+        gpu_result = run_stage5_gpu(
+            stage4_result=stage4_result,
+            raw_data=data_for_model,
+            sampler_config=sampler_config,
+            treatments=treatments,
+            outcome=outcome,
+            causal_spec=causal_spec,
+            gpu=config.inference.gpu,
+        )
+        ps_result = gpu_result["ps_result"]
+        intervention_results = gpu_result["intervention_results"]
+    else:
+        # ── Local path: run stage 5 tasks via Prefect ──
+        fitted = fit_model(stage4_result, data_for_model, sampler_config=sampler_config)
+
+        # Post-fit power-scaling sensitivity diagnostic
+        power_scaling = run_power_scaling(fitted, data_for_model)
+        ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling
+
+        # Run interventions for all treatments
+        results = run_interventions(fitted, treatments, outcome, causal_spec)
+        intervention_results = results.result() if hasattr(results, "result") else results
+
+    # Print power-scaling results (shared by both paths)
     print("\n--- Power-Scaling Sensitivity ---")
-    power_scaling = run_power_scaling(fitted, data_for_model)
-    ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling
     if ps_result.get("checked", False):
         diagnosis = ps_result.get("diagnosis", {})
         prior_dominated = [k for k, v in diagnosis.items() if v == "prior_dominated"]
@@ -277,12 +302,8 @@ def causal_inference_pipeline(
     else:
         print(f"  Skipped: {ps_result.get('error', 'unknown')}")
 
-    # Run interventions for all treatments
-    results = run_interventions(fitted, treatments, outcome, causal_spec)
-
     # Print ranked results table
     print(f"\n=== Treatment Ranking by Effect on {outcome} ===")
-    intervention_results = results.result() if hasattr(results, "result") else results
     if intervention_results:
         print(f"{'Rank':<5} {'Treatment':<30} {'Effect':>10} {'95% CI':>22} {'P(>0)':>8} {'ID':>4}")
         print("-" * 81)
