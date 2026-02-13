@@ -126,10 +126,10 @@ async def causal_inference_pipeline(
     n_indicators = len(measurement_model["indicators"])
     print(f"Final model has {n_indicators} indicators")
 
-    # Report non-identifiable treatments
+    # Hard gate: filter out non-identifiable treatments
     non_identifiable = identifiability_status.get("non_identifiable_treatments", {})
     if non_identifiable:
-        print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS:")
+        print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
         for treatment in sorted(non_identifiable.keys()):
             details = non_identifiable[treatment]
             blockers = details.get("confounders", []) if isinstance(details, dict) else []
@@ -140,7 +140,13 @@ async def causal_inference_pipeline(
                 print(f"  - {treatment} → {outcome} ({notes})")
             else:
                 print(f"  - {treatment} → {outcome}")
-        print("These effects will be flagged in the final ranking.")
+        treatments = [t for t in treatments if t not in non_identifiable]
+        print(f"Continuing with {len(treatments)} identifiable treatments")
+        if not treatments:
+            raise RuntimeError(
+                "No identifiable treatment effects remain after filtering. "
+                "All treatments are blocked by unobserved confounders."
+            )
 
     create_markdown_artifact(
         key="causal-spec",
@@ -290,6 +296,13 @@ async def causal_inference_pipeline(
 
     param_id = stage4_result.get("parametric_id", {})
     if param_id.get("checked", False):
+        t_rule = param_id.get("t_rule", {})
+        if not t_rule.get("satisfies", True):
+            raise RuntimeError(
+                f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
+                f"> {t_rule.get('n_moments')} moment conditions. "
+                "Model is provably non-identified. Halting pipeline."
+            )
         summary = param_id.get("summary", {})
         if summary.get("structural_issues"):
             print("⚠️  STRUCTURAL non-identifiability detected — some parameters unconstrained")
