@@ -134,19 +134,29 @@ def propose_measurement_model(
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def build_causal_spec(latent_model: dict, measurement_model: dict) -> dict:
+def build_causal_spec(
+    latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
+) -> dict:
     """
-    Combine latent and measurement models into a full CausalSpec.
+    Combine latent and measurement models into a full CausalSpec with identifiability.
 
     Args:
         latent_model: The latent model dict from Stage 1a
         measurement_model: The measurement model dict from Stage 1b
+        identifiability_status: Identifiability status dict from Stage 1b
 
     Returns:
-        CausalSpec as a dictionary
+        CausalSpec as a dictionary (includes identifiability key)
     """
+    from .schemas import IdentifiabilityStatus
+
     causal_spec = CausalSpec(
         latent=LatentModel.model_validate(latent_model),
         measurement=MeasurementModel.model_validate(measurement_model),
+        identifiability=(
+            IdentifiabilityStatus.model_validate(identifiability_status)
+            if identifiability_status
+            else None
+        ),
     )
     return causal_spec.model_dump()

@@ -7,7 +7,7 @@ from inspect_ai.model import get_model
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.orchestrator.agents import build_causal_spec as build_causal_spec_agent
+from causal_ssm_agent.orchestrator.agents import build_causal_spec as _build_causal_spec_core
 from causal_ssm_agent.orchestrator.stage1b import run_stage1b
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import chunk_lines, get_orchestrator_chunk_size
@@ -25,9 +25,7 @@ def build_causal_spec(
     latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
 ) -> dict:
     """Combine latent and measurement models into full CausalSpec with identifiability."""
-    causal_spec = build_causal_spec_agent(latent_model, measurement_model)
-    causal_spec["identifiability"] = identifiability_status
-    return causal_spec
+    return _build_causal_spec_core(latent_model, measurement_model, identifiability_status)
 
 
 @task(cache_policy=INPUTS, result_serializer="json")

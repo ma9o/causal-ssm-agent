@@ -9,7 +9,7 @@ from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from causal_ssm_agent.models.ssm import (
     InferenceResult,
@@ -152,7 +152,7 @@ class SSMModelBuilder:
 
         return get_config().inference.to_sampler_config()
 
-    def _convert_spec_to_ssm(self, model_spec: ModelSpec | dict, data: pd.DataFrame) -> SSMSpec:
+    def _convert_spec_to_ssm(self, model_spec: ModelSpec | dict, data: pl.DataFrame) -> SSMSpec:
         """Convert ModelSpec to SSMSpec.
 
         This is a heuristic conversion that maps the ModelSpec
@@ -185,11 +185,24 @@ class SSMModelBuilder:
         ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
         n_latent = max(len(ar_params), 1)
 
+        if not ar_params:
+            logger.warning(
+                "No AR_COEFFICIENT parameters found in ModelSpec; falling back to n_latent=1. "
+                "Set AR coefficients explicitly for multi-latent models."
+            )
+
+        if n_manifest < n_latent:
+            logger.warning(
+                "n_manifest (%d) < n_latent (%d): lambda matrix may be rank-deficient",
+                n_manifest,
+                n_latent,
+            )
+
         # Check for hierarchical structure
         hierarchical = len(model_spec.random_effects) > 0
         n_subjects = 1
         if hierarchical and "subject_id" in data.columns:
-            n_subjects = data["subject_id"].nunique()
+            n_subjects = data["subject_id"].n_unique()
 
         # Determine manifest noise family from likelihoods
         manifest_dist = NoiseFamily.GAUSSIAN
@@ -276,24 +289,38 @@ class SSMModelBuilder:
             else:
                 # Keyword fallback for when no ModelSpec role is available
                 name_lower = param_name.lower()
+                matched = False
                 for keywords, attr, defaults in _KEYWORD_RULES:
-                    if any(kw in name_lower for kw in keywords):
+                    matching_kw = [kw for kw in keywords if kw in name_lower]
+                    if matching_kw:
+                        logger.debug(
+                            "Prior '%s': keyword fallback matched '%s' -> %s",
+                            param_name,
+                            matching_kw[0],
+                            attr,
+                        )
                         merged = {k: normalized.get(k, v) for k, v in defaults.items()}
                         setattr(ssm_priors, attr, merged)
+                        matched = True
                         break
+                if not matched:
+                    logger.debug(
+                        "Prior '%s': no role or keyword match found, skipping",
+                        param_name,
+                    )
 
         return ssm_priors
 
     def build_model(
         self,
-        X: pd.DataFrame,
-        y: pd.Series | np.ndarray | None = None,  # noqa: ARG002
+        X: pl.DataFrame,
+        y: np.ndarray | None = None,  # noqa: ARG002
         **kwargs: Any,  # noqa: ARG002
     ) -> SSMModel:
         """Build the NumPyro SSM model.
 
         Args:
-            X: Data with indicator columns, time, and optional subject_id
+            X: Polars DataFrame with indicator columns, time, and optional subject_id
             y: Optional target (if not in X)
 
         Returns:
@@ -312,12 +339,13 @@ class SSMModelBuilder:
                 if c not in ["time", "time_bucket", "subject_id", "subject"]
                 and not c.endswith("_lag1")
             ]
+            subject_col = "subject_id" if "subject_id" in X.columns else "subject"
             spec = SSMSpec(
                 n_latent=len(manifest_cols),
                 n_manifest=len(manifest_cols),
                 lambda_mat=jnp.eye(len(manifest_cols)),
-                hierarchical="subject_id" in X.columns or "subject" in X.columns,
-                n_subjects=X.get("subject_id", X.get("subject", pd.Series([0]))).nunique(),
+                hierarchical=subject_col in X.columns,
+                n_subjects=X[subject_col].n_unique() if subject_col in X.columns else 1,
             )
 
         # Convert priors
@@ -333,14 +361,14 @@ class SSMModelBuilder:
 
     def fit(
         self,
-        X: pd.DataFrame,
-        y: pd.Series | np.ndarray | None = None,
+        X: pl.DataFrame,
+        y: np.ndarray | None = None,
         **kwargs: Any,
     ) -> InferenceResult:
         """Fit the SSM model to data.
 
         Args:
-            X: Data with indicator columns, time, and optional subject_id
+            X: Polars DataFrame with indicator columns, time, and optional subject_id
             y: Optional target (if not in X)
             **kwargs: Additional arguments passed to inference
 
@@ -371,11 +399,11 @@ class SSMModelBuilder:
         self._result = result
         return result
 
-    def _prepare_data(self, X: pd.DataFrame) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    def _prepare_data(self, X: pl.DataFrame) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
         """Prepare data for SSM fitting.
 
         Args:
-            X: DataFrame with observations
+            X: Polars DataFrame with observations
 
         Returns:
             Tuple of (observations, times, subject_ids)
@@ -392,32 +420,34 @@ class SSMModelBuilder:
             ]
 
         # Extract observations
-        observations = jnp.array(X[manifest_cols].values, dtype=jnp.float32)
+        observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float32)
 
         # Extract times
         time_col = "time" if "time" in X.columns else "time_bucket"
         if time_col in X.columns:
-            time_values = X[time_col]
-            if pd.api.types.is_datetime64_any_dtype(time_values):
+            dtype = X.schema[time_col]
+            if dtype in (pl.Datetime, pl.Date):
                 # Convert datetime to fractional days since first observation.
-                # Raw datetime→int gives ns/us timestamps that break expm(A*dt).
-                t0 = time_values.iloc[0]
-                delta = time_values - t0
+                # Use float64 to preserve sub-day precision over long time spans.
+                t0 = X[time_col].min()
                 times = jnp.array(
-                    delta.dt.total_seconds().values / 86400.0,
-                    dtype=jnp.float32,
+                    ((X[time_col] - t0).dt.total_seconds() / 86400.0).to_numpy(),
+                    dtype=jnp.float64,
                 )
             else:
-                times = jnp.array(time_values.values, dtype=jnp.float32)
+                times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float64)
         else:
             # Default: integer sequence
-            times = jnp.arange(len(X), dtype=jnp.float32)
+            times = jnp.arange(X.height, dtype=jnp.float64)
 
         # Extract subject IDs
         subject_col = "subject_id" if "subject_id" in X.columns else "subject"
         if subject_col in X.columns:
-            # Convert to 0-indexed integers
-            subject_ids = jnp.array(pd.factorize(X[subject_col])[0], dtype=jnp.int32)
+            # Convert to 0-indexed integers via rank("dense") - 1
+            subject_ids = jnp.array(
+                (X[subject_col].rank("dense") - 1).cast(pl.Int32).to_numpy(),
+                dtype=jnp.int32,
+            )
         else:
             subject_ids = None
 
@@ -452,11 +482,11 @@ class SSMModelBuilder:
             return self._result.get_samples()
         raise ValueError("Model must be fit before getting samples")
 
-    def summary(self) -> pd.DataFrame:
+    def summary(self) -> pl.DataFrame:
         """Get summary statistics for posterior.
 
         Returns:
-            DataFrame with summary statistics
+            Polars DataFrame with summary statistics
         """
         if self._result is None:
             raise ValueError("Model must be fit before getting summary")
@@ -477,4 +507,4 @@ class SSMModelBuilder:
                         "95%": float(jnp.percentile(values, 95)),
                     }
                 )
-        return pd.DataFrame(summary_data)
+        return pl.DataFrame(summary_data)
