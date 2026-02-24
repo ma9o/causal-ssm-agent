@@ -262,7 +262,7 @@ export function InfoTable<TData>({
                         ? "text-right"
                         : meta?.align === "center"
                           ? "text-center"
-                          : undefined;
+                          : "text-left";
                     const sev = meta?.severity?.(cell.getValue(), cell.row.original);
 
                     return (

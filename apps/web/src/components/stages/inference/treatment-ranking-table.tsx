@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
-import { formatNumber, formatPercent } from "@/lib/utils/format";
+import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram } from "@/lib/utils/histogram";
 import type { TreatmentEffect } from "@causal-ssm/api-types";
 import {
@@ -25,13 +25,21 @@ function effectSeverity(row: TreatmentEffect): "fail" | "warn" | undefined {
   return undefined;
 }
 
+function quantile(sorted: number[], q: number): number {
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
 function PosteriorHistogram({ draws, mean }: { draws: number[]; mean: number | null }) {
   if (draws.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
 
   const bins = buildHistogram(draws, Math.min(25, Math.ceil(Math.sqrt(draws.length))));
 
   return (
-    <div className="mx-auto h-16 w-44">
+    <div className="ml-auto h-16 w-44">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={bins} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
           <XAxis
@@ -89,6 +97,28 @@ const columns = [
     },
   }),
   col.display({
+    id: "ci_95",
+    header: () => (
+      <HeaderWithTooltip
+        label="95% CI"
+        tooltip="95% credible interval computed from the posterior draws (2.5th–97.5th percentile)."
+      />
+    ),
+    cell: ({ row }) => {
+      const draws = row.original.posterior_draws;
+      if (!draws || draws.length === 0) return "—";
+      const sorted = [...draws].sort((a, b) => a - b);
+      const lo = quantile(sorted, 0.025);
+      const hi = quantile(sorted, 0.975);
+      return `[${formatNumber(lo)}, ${formatNumber(hi)}]`;
+    },
+    meta: {
+      align: "right",
+      mono: true,
+      severity: (_v: unknown, row: TreatmentEffect) => effectSeverity(row),
+    },
+  }),
+  col.display({
     id: "posterior",
     header: () => (
       <HeaderWithTooltip
@@ -102,22 +132,8 @@ const columns = [
         <PosteriorHistogram draws={draws} mean={row.original.effect_size} />
       ) : "—";
     },
-  }),
-  col.accessor("prob_positive", {
-    header: () => (
-      <HeaderWithTooltip
-        label={`P(\u03C4>0)`}
-        tooltip="Posterior probability that the treatment effect is positive. Values near 1 or 0 indicate strong directional evidence."
-      />
-    ),
-    cell: (info) => {
-      const p = info.getValue();
-      return p == null ? "—" : formatPercent(p);
-    },
     meta: {
       align: "right",
-      mono: true,
-      severity: (_v: number | null, row: TreatmentEffect) => effectSeverity(row),
     },
   }),
 ];
