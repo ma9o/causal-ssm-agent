@@ -8,7 +8,6 @@ import { STAGES } from "@causal-ssm/api-types";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ActiveStageIndicator } from "./active-stage-indicator";
-import { CompletionSummary } from "./completion-summary";
 import { NewStagesNotification } from "./new-stages-notification";
 import { PipelineProgressBar } from "./progress-bar";
 import { StageSectionRouter } from "./stage-section-router";
@@ -67,7 +66,6 @@ export function AnalysisFeed({
           />
         ))}
         {!progress.isComplete && <div className="max-w-6xl mx-auto"><ActiveStageIndicator stageId={progress.currentStage} /></div>}
-        {progress.isComplete && <div className="max-w-6xl mx-auto"><CompletionSummary runId={runId} /></div>}
       </div>
       <NewStagesNotification progress={progress} />
       <BackToTop />
