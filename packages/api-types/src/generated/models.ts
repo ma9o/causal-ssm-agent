@@ -753,7 +753,7 @@ export interface Stage6Contract {
 export interface TreatmentEffectContract {
   treatment: string;
   effect_size: number | null;
-  credible_interval: [any, any] | null;
+  posterior_draws?: number[] | null;
   prob_positive?: number | null;
   identifiable: boolean;
   warning?: string | null;

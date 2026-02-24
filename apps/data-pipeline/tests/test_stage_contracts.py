@@ -218,7 +218,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                 {
                     "treatment": "Stress",
                     "effect_size": 0.12,
-                    "credible_interval": [0.01, 0.23],
+                    "posterior_draws": [0.08, 0.11, 0.14, 0.09, 0.15, 0.12, 0.10, 0.13],
                     "prob_positive": 0.97,
                     "identifiable": True,
                 }
@@ -253,9 +253,9 @@ def test_persist_web_result_rejects_missing_required_fields(valid_stage_payloads
         persist_web_result.fn("stage-2", bad)
 
 
-def test_stage6_rejects_malformed_credible_interval(valid_stage_payloads: dict[str, dict]):
-    """Credible intervals must have exactly two numeric bounds."""
+def test_stage6_rejects_extra_fields(valid_stage_payloads: dict[str, dict]):
+    """Extra fields on intervention results should be rejected (extra=forbid)."""
     bad = deepcopy(valid_stage_payloads["stage-6"])
-    bad["intervention_results"][0]["credible_interval"] = [0.1]
+    bad["intervention_results"][0]["unknown_field"] = 42
     with pytest.raises(ValidationError):
         validate_stage_payload("stage-6", bad)

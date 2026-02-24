@@ -224,7 +224,7 @@ class TreatmentEffect(BaseModel):
 
     treatment: str
     effect_size: float | None = None
-    credible_interval: tuple[float, float] | None = None
+    posterior_draws: list[float] | None = None
     prob_positive: float | None = None
     identifiable: bool = True
     warning: str | None = None

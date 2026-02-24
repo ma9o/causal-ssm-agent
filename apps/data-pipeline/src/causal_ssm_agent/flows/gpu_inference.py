@@ -201,7 +201,6 @@ def _stage5_on_gpu(
             {
                 "treatment": t,
                 "effect_size": None,
-                "credible_interval": None,
                 "identifiable": True,
                 "warning": str(e),
             }

@@ -2686,26 +2686,20 @@
           ],
           "title": "Effect Size"
         },
-        "credible_interval": {
+        "posterior_draws": {
           "anyOf": [
             {
-              "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                }
-              ],
+              "items": {
+                "type": "number"
+              },
               "type": "array"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Credible Interval"
+          "default": null,
+          "title": "Posterior Draws"
         },
         "prob_positive": {
           "anyOf": [
@@ -2790,7 +2784,6 @@
         }
       },
       "required": [
-        "credible_interval",
         "effect_size",
         "identifiable",
         "treatment"

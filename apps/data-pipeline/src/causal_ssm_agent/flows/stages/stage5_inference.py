@@ -259,7 +259,6 @@ def run_interventions(
             {
                 "treatment": t,
                 "effect_size": None,
-                "credible_interval": None,
                 "identifiable": t not in non_identifiable,
             }
             for t in treatments

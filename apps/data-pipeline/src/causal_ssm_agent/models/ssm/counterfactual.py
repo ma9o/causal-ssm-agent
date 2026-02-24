@@ -245,7 +245,6 @@ def compute_interventions(
         return {
             "treatment": treatment_name,
             "effect_size": None,
-            "credible_interval": None,
             "identifiable": treatment_name not in non_identifiable,
         }
 
@@ -294,14 +293,12 @@ def compute_interventions(
         )
 
         mean_effect = float(jnp.mean(effects))
-        q025 = float(jnp.percentile(effects, 2.5))
-        q975 = float(jnp.percentile(effects, 97.5))
         prob_positive = float(jnp.mean(effects > 0))
 
         entry: dict[str, Any] = {
             "treatment": treatment_name,
             "effect_size": mean_effect,
-            "credible_interval": (q025, q975),
+            "posterior_draws": effects.tolist(),
             "prob_positive": prob_positive,
             "identifiable": treatment_name not in non_identifiable,
         }

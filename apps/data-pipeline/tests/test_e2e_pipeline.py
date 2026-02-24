@@ -591,8 +591,9 @@ class TestE2EPipeline:
         # All identifiable
         assert all(r["identifiable"] for r in results)
 
-        # All have non-None effect sizes and CIs (pipeline produces values)
+        # All have non-None effect sizes and draws (pipeline produces values)
         for r in results:
             assert r["effect_size"] is not None
-            assert r["credible_interval"] is not None
+            assert r["posterior_draws"] is not None
+            assert len(r["posterior_draws"]) > 0
             assert np.isfinite(r["effect_size"]), f"{r['treatment']} effect is not finite"

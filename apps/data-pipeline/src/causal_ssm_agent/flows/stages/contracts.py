@@ -191,7 +191,7 @@ class TreatmentEffectContract(BaseModel):
 
     treatment: str
     effect_size: float | None
-    credible_interval: tuple[float, float] | None
+    posterior_draws: list[float] | None = None
     prob_positive: float | None = None
     identifiable: bool
     warning: str | None = None

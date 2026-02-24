@@ -597,27 +597,23 @@ async def causal_inference_pipeline(
     # Print ranked results table
     print(f"\n=== Treatment Ranking by Effect on {outcome} ===")
     if intervention_results:
-        print(f"{'Rank':<5} {'Treatment':<30} {'Effect':>10} {'95% CI':>22} {'P(>0)':>8} {'ID':>4}")
-        print("-" * 81)
+        print(f"{'Rank':<5} {'Treatment':<30} {'Effect':>10} {'P(>0)':>8} {'ID':>4}")
+        print("-" * 59)
         for rank, entry in enumerate(intervention_results, 1):
             name = entry["treatment"]
             effect = entry.get("effect_size")
-            ci = entry.get("credible_interval")
             prob = entry.get("prob_positive")
             ident = "yes" if entry.get("identifiable", True) else "NO"
 
             if effect is not None:
-                ci_str = f"[{ci[0]:+.3f}, {ci[1]:+.3f}]" if ci else ""
                 prob_str = f"{prob:.2f}" if prob is not None else ""
-                line = (
-                    f"{rank:<5} {name:<30} {effect:>+10.4f} {ci_str:>22} {prob_str:>8} {ident:>4}"
-                )
+                line = f"{rank:<5} {name:<30} {effect:>+10.4f} {prob_str:>8} {ident:>4}"
                 if entry.get("prior_sensitivity_warning"):
                     line += "  *"
                 print(line)
             else:
                 warning = entry.get("warning", "no estimate")
-                print(f"{rank:<5} {name:<30} {'—':>10} {'':>22} {'':>8} {ident:>4}  ({warning})")
+                print(f"{rank:<5} {name:<30} {'—':>10} {'':>8} {ident:>4}  ({warning})")
 
         # Print prior-sensitivity footnotes
         ps_entries = [e for e in intervention_results if e.get("prior_sensitivity_warning")]
@@ -635,11 +631,6 @@ async def causal_inference_pipeline(
                     "treatment": r["treatment"],
                     "effect": (
                         f"{r['effect_size']:+.4f}" if r.get("effect_size") is not None else "—"
-                    ),
-                    "95% CI": (
-                        f"[{r['credible_interval'][0]:+.3f}, {r['credible_interval'][1]:+.3f}]"
-                        if r.get("credible_interval")
-                        else ""
                     ),
                     "P(>0)": (
                         f"{r['prob_positive']:.2f}" if r.get("prob_positive") is not None else ""
