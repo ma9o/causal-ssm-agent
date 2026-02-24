@@ -16,6 +16,10 @@ Use when:
 - This gives the exact marginal likelihood, ideal for SVI and NUTS
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
@@ -26,6 +30,13 @@ from causal_ssm_agent.models.likelihoods.base import (
     preprocess_missing_data,
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+
+if TYPE_CHECKING:
+    from cuthbert.gaussian.types import LinearizedKalmanFilterState
+    from cuthbertlib.linearize.moments import MeanAndCholCovFunc
+    from cuthbertlib.types import ArrayTreeLike
+    from jax import Array
+    from jax.typing import ArrayLike
 
 
 class KalmanLikelihood:
@@ -120,28 +131,32 @@ class KalmanLikelihood:
         # GetObservationMoments returns (mean_and_chol_cov_func, lin_point, y).
         # For linear obs: g(x) = H@x + d, with Cholesky noise chol_R.
 
-        def get_init_params(inputs):
-            return inputs["m0"], inputs["chol_P0"]
+        def get_init_params(model_inputs: ArrayTreeLike) -> tuple[Array, Array]:
+            return model_inputs["m0"], model_inputs["chol_P0"]
 
-        def get_dynamics_params(state, inputs):
-            F_t = inputs["F"]
-            c_t = inputs["c"]
-            chol_Q_t = inputs["chol_Q"]
+        def get_dynamics_params(
+            state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+        ) -> tuple[MeanAndCholCovFunc, Array]:
+            F_t = model_inputs["F"]
+            c_t = model_inputs["c"]
+            chol_Q_t = model_inputs["chol_Q"]
 
-            def dynamics_fn(x):
+            def dynamics_fn(x: ArrayLike) -> tuple[Array, Array]:
                 return F_t @ x + c_t, chol_Q_t
 
             # Linearization point: previous filter mean (from state).
             # For linear models the linearization is exact regardless.
             return dynamics_fn, state.mean
 
-        def get_observation_params(state, inputs):
-            H_t = inputs["H"]
-            d_t = inputs["d"]
-            chol_R_t = inputs["chol_R"]
-            y_t = inputs["y"]
+        def get_observation_params(
+            state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+        ) -> tuple[MeanAndCholCovFunc, Array, Array]:
+            H_t = model_inputs["H"]
+            d_t = model_inputs["d"]
+            chol_R_t = model_inputs["chol_R"]
+            y_t = model_inputs["y"]
 
-            def obs_fn(x):
+            def obs_fn(x: ArrayLike) -> tuple[Array, Array]:
                 return H_t @ x + d_t, chol_R_t
 
             return obs_fn, state.mean, y_t

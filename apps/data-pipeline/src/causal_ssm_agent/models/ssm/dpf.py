@@ -71,6 +71,7 @@ class ProposalNetwork(eqx.Module):
         self.mu_head = eqx.nn.Linear(hidden_dim, D_latent, key=k3)
         # Initialize log_sigma bias to -1.0 for small initial variance
         log_sigma_linear = eqx.nn.Linear(hidden_dim, D_latent, key=k4)
+        assert log_sigma_linear.bias is not None
         self.log_sigma_head = eqx.tree_at(
             lambda layer: layer.bias, log_sigma_linear, log_sigma_linear.bias - 1.0
         )

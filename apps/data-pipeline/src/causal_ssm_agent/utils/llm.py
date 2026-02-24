@@ -5,7 +5,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from inspect_ai.model import (
     ChatMessageAssistant,
@@ -185,12 +185,12 @@ def _persist_partial_trace(
 
     try:
         trace_path.parent.mkdir(parents=True, exist_ok=True)
-        partial = PartialStageResult(
+        partial = PartialStageResult(  # ty: ignore[missing-argument]
             llm_trace=LLMTrace(
                 messages=[_chat_message_to_trace(m) for m in messages],
                 total_time_seconds=round(elapsed, 1),
             ),
-            live=LiveMetadata(
+            live=LiveMetadata(  # ty: ignore[unknown-argument]
                 status="running",
                 label=label,
                 turn=turn,
@@ -224,7 +224,7 @@ def get_generate_config() -> GenerateConfig:
     return GenerateConfig(
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
-        reasoning_effort=llm.reasoning_effort,
+        reasoning_effort=cast("Literal['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] | None", llm.reasoning_effort),
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
     )
 
@@ -469,7 +469,6 @@ def make_validate_model_spec_tool(
     from causal_ssm_agent.utils.causal_spec import get_indicators
 
     indicators = get_indicators(causal_spec)
-    use_decisions_mode = resolved_likelihoods is not None and parameters is not None
     capture: dict = {}
 
     @tool
@@ -486,7 +485,7 @@ def make_validate_model_spec_tool(
             Returns:
                 "VALID" if the spec passes validation, otherwise a list of all errors found.
             """
-            if use_decisions_mode:
+            if resolved_likelihoods is not None and parameters is not None:
                 from causal_ssm_agent.orchestrator.schemas_model import (
                     validate_model_spec_decisions_dict,
                 )
@@ -495,9 +494,9 @@ def make_validate_model_spec_tool(
                     model_spec_json,
                     lambda data: validate_model_spec_decisions_dict(
                         data,
-                        resolved_likelihoods=resolved_likelihoods,  # type: ignore[arg-type]
+                        resolved_likelihoods=resolved_likelihoods,
                         ambiguous_indicators=ambiguous_indicators or [],
-                        parameters=parameters,  # type: ignore[arg-type]
+                        parameters=parameters,
                     ),
                     capture=capture,
                     capture_key="spec",
@@ -691,6 +690,7 @@ async def _run_tool_loop(
     - RuntimeError when turn count exceeds max_turns
     - Optional partial trace written to disk after each turn
     """
+    _config = config or GenerateConfig()
     t0 = time.monotonic()
     turn = 0
 
@@ -715,7 +715,7 @@ async def _run_tool_loop(
             )
 
         t_turn = time.monotonic()
-        output = await model.generate(input=messages, tools=tools, config=config)
+        output = await model.generate(input=messages, tools=tools, config=_config)
         messages.append(output.message)
         elapsed_turn = time.monotonic() - t_turn
 
@@ -730,7 +730,7 @@ async def _run_tool_loop(
             tool_messages, tool_output = await execute_tools(
                 messages,
                 tools,
-                config.max_tool_output if config else None,
+                _config.max_tool_output,
             )
             messages.extend(tool_messages)
             if tool_output is not None:
@@ -787,6 +787,7 @@ async def multi_turn_generate(
     t0 = time.monotonic()
     messages = list(messages)  # Don't mutate original
     follow_ups = follow_ups or []
+    _config = config or GenerateConfig()
 
     logger.info(
         "multi_turn_generate starting (tools=%d, follow_ups=%d)",
@@ -822,7 +823,7 @@ async def multi_turn_generate(
                 )
             else:
                 t_fu = time.monotonic()
-                response = await model.generate(messages, config=config)
+                response = await model.generate(messages, config=_config)
                 messages.append(ChatMessageAssistant(content=response.completion))
                 output = response
                 elapsed_fu = time.monotonic() - t_fu
@@ -851,7 +852,7 @@ async def multi_turn_generate(
     else:
         # Simple generation without tools
         t_gen = time.monotonic()
-        response = await model.generate(messages, config=config)
+        response = await model.generate(messages, config=_config)
         messages.append(ChatMessageAssistant(content=response.completion))
         elapsed_gen = time.monotonic() - t_gen
         logger.info("single-turn | %s", _summarize_output(response, elapsed_gen))
@@ -861,7 +862,7 @@ async def multi_turn_generate(
             logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
             messages.append(ChatMessageUser(content=prompt))
             t_fu = time.monotonic()
-            response = await model.generate(messages, config=config)
+            response = await model.generate(messages, config=_config)
             messages.append(ChatMessageAssistant(content=response.completion))
             elapsed_fu = time.monotonic() - t_fu
             logger.info(

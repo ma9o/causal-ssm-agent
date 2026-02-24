@@ -127,10 +127,11 @@ def check_semantic_collisions(
     warnings = []
     text_lower = how_to_measure.lower()
     for pattern, conflict_aggs, explanation in _SEMANTIC_COLLISIONS:
-        if aggregation in conflict_aggs and re.search(pattern, text_lower):
+        match = re.search(pattern, text_lower)
+        if aggregation in conflict_aggs and match:
             warnings.append(
                 f"Semantic collision: {explanation}. "
-                f"how_to_measure contains '{re.search(pattern, text_lower).group()}' "
+                f"how_to_measure contains '{match.group()}' "
                 f"but aggregation='{aggregation}'."
             )
     return warnings

@@ -70,6 +70,7 @@ def fit_model(
         # LOO diagnostics (needs model function and data)
         import functools
 
+        assert builder._model is not None
         model_fn = functools.partial(
             builder._model.model,
             likelihood_backend=builder._model.make_likelihood_backend(),
@@ -133,6 +134,7 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
     try:
         result = fitted_result["result"]
         builder = fitted_result["builder"]
+        assert builder._model is not None
         ssm_model = builder._model
 
         # Convert data to wide format

@@ -462,7 +462,6 @@ class TestBuilderMasks:
                     search_context="causal effect",
                 ),
             ],
-            random_effects=[],
             reasoning="Test model",
         )
 
@@ -487,6 +486,7 @@ class TestBuilderMasks:
 
         builder.build_model(X)
         spec = builder._spec
+        assert spec is not None
 
         # Verify masks were built
         assert spec.drift_mask is not None

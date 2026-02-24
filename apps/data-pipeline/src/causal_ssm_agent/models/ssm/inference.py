@@ -30,6 +30,19 @@ from numpyro.optim import ClippedAdam
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel
 
+InferenceMethod = Literal[
+    "nuts",
+    "nuts_da",
+    "svi",
+    "hessmc2",
+    "pgas",
+    "tempered_smc",
+    "laplace_em",
+    "structured_vi",
+    "dpf",
+    "pmmh",
+]
+
 
 @dataclass
 class InferenceResult:
@@ -39,17 +52,7 @@ class InferenceResult:
     """
 
     _samples: dict[str, jnp.ndarray]  # name -> (n_draws, *shape)
-    method: Literal[
-        "nuts",
-        "nuts_da",
-        "svi",
-        "hessmc2",
-        "pgas",
-        "tempered_smc",
-        "laplace_em",
-        "structured_vi",
-        "dpf",
-    ]
+    method: InferenceMethod
     diagnostics: dict = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
@@ -257,7 +260,7 @@ class InferenceResult:
                     if hasattr(pit_vals, "values"):
                         result["loo_pit"] = [float(v) for v in pit_vals.values.flat]
                     else:
-                        result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flat]
+                        result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flatten()]
                 except Exception:
                     pass
 
@@ -586,17 +589,7 @@ def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    method: Literal[
-        "svi",
-        "nuts",
-        "nuts_da",
-        "hessmc2",
-        "pgas",
-        "tempered_smc",
-        "laplace_em",
-        "structured_vi",
-        "dpf",
-    ] = "svi",
+    method: InferenceMethod = "svi",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -647,7 +640,7 @@ def fit(
         raise ValueError(
             f"Unknown inference method: {method!r}. "
             "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
-            "'laplace_em', 'structured_vi', or 'dpf'."
+            "'laplace_em', 'structured_vi', 'dpf', or 'pmmh'."
         )
 
 
@@ -811,7 +804,7 @@ def _eval_model(
     params_dict: dict[str, jnp.ndarray],
     observations: jnp.ndarray,
     times: jnp.ndarray,
-) -> tuple[float, float]:
+) -> tuple[Any, Any]:
     """Evaluate model with substituted params. Returns (log_likelihood, log_prior).
 
     Uses numpyro.handlers to substitute parameter values and trace the model,

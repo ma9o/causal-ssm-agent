@@ -252,14 +252,14 @@ async def causal_inference_pipeline(
     ]
 
     # Combine raw worker results
-    raw_data = combine_worker_results(resolved_worker_results)
+    raw_data = combine_worker_results(resolved_worker_results)  # ty: ignore[no-matching-overload]
     raw_data_result = raw_data.result() if hasattr(raw_data, "result") else raw_data
     n_observations = len(raw_data_result)
     n_unique_indicators = raw_data_result["indicator"].n_unique() if n_observations > 0 else 0
     print(f"  Combined {n_observations} observations across {n_unique_indicators} indicators")
 
     # Aggregate to pipeline-level aggregation window
-    aggregated = aggregate_measurements(causal_spec, resolved_worker_results)
+    aggregated = aggregate_measurements(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
     aggregated_result = aggregated.result() if hasattr(aggregated, "result") else aggregated
     if aggregated_result:
         data_for_model = flatten_aggregated_data(aggregated_result)
@@ -326,7 +326,7 @@ async def causal_inference_pipeline(
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 3: Extraction Validation ===")
-    validation_task = validate_extraction(causal_spec, resolved_worker_results)
+    validation_task = validate_extraction(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
     validation_report = (
         validation_task.result() if hasattr(validation_task, "result") else validation_task
     )
@@ -554,17 +554,17 @@ async def causal_inference_pipeline(
 
         # Post-fit power-scaling sensitivity diagnostic
         power_scaling = run_power_scaling(fitted, data_for_model)
-        ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling
+        ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling  # ty: ignore[call-non-callable]
 
         # Posterior predictive checks
         ppc_task = run_ppc(fitted, data_for_model)
-        ppc_result = ppc_task.result() if hasattr(ppc_task, "result") else ppc_task
+        ppc_result = ppc_task.result() if hasattr(ppc_task, "result") else ppc_task  # ty: ignore[call-non-callable]
 
         # Run interventions for all treatments (with PPC + power-scaling warnings)
         results = run_interventions(
             fitted, treatments, outcome, causal_spec, ppc_result, ps_result=ps_result
         )
-        intervention_results = results.result() if hasattr(results, "result") else results
+        intervention_results = results.result() if hasattr(results, "result") else results  # ty: ignore[call-non-callable]
 
     # Print power-scaling results (shared by both paths)
     print("\n--- Power-Scaling Sensitivity ---")

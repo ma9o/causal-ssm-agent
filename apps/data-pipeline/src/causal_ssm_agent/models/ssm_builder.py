@@ -174,6 +174,7 @@ class SSMModelBuilder:
         self._causal_spec = causal_spec
 
         self._model: SSMModel | None = None
+        self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
         self._edge_lag_days: dict[tuple[int, int], float] = {}
 
@@ -367,8 +368,8 @@ class SSMModelBuilder:
         constructs = get_constructs(causal_spec)
         construct_map: dict[str, dict | Any] = {}
         for c in constructs:
-            name = c.get("name") if isinstance(c, dict) else c.name
-            construct_map[name] = c
+            cname: str = c["name"] if isinstance(c, dict) else c.name
+            construct_map[cname] = c
 
         # --- Drift mask ---
         # Diagonal always True (AR effects); off-diagonal True only where
@@ -1102,7 +1103,12 @@ class SSMModelBuilder:
             )
 
         # Convert priors (pass ssm_spec for per-element positioning)
-        priors = self._convert_priors_to_ssm(self._priors, self._model_spec or {}, ssm_spec=spec)
+        # Normalize PriorProposal instances to plain dicts before passing
+        raw_priors: dict[str, dict] = {
+            k: v.model_dump() if isinstance(v, PriorProposal) else v
+            for k, v in self._priors.items()
+        }
+        priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
 
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
@@ -1130,6 +1136,8 @@ class SSMModelBuilder:
         """
         if self._model is None:
             self.build_model(X, y)
+
+        assert self._model is not None
 
         # Prepare data
         observations, times = self._prepare_data(X)
@@ -1165,7 +1173,7 @@ class SSMModelBuilder:
             Tuple of (observations, times)
         """
         # Get manifest columns
-        if hasattr(self, "_spec") and self._spec.manifest_names:
+        if self._spec is not None and self._spec.manifest_names:
             manifest_cols = self._spec.manifest_names
         else:
             manifest_cols = [

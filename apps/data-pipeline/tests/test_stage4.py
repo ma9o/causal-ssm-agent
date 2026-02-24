@@ -331,6 +331,8 @@ class TestAutoElicit:
         # Should detect K >= 2 mixture (BIC may select 2 or 3)
         assert result.method == "gmm"
         assert result.mixture_weights is not None
+        assert result.mixture_means is not None
+        assert result.mixture_stds is not None
         assert len(result.mixture_weights) >= 2
         assert len(result.mixture_means) >= 2
         assert len(result.mixture_stds) >= 2
@@ -583,6 +585,7 @@ class TestPriorPredictiveValidation:
         result = _check_nan_inf(samples)
         assert result is not None
         assert result.is_valid is False
+        assert result.issue is not None
         assert "NaN" in result.issue
         assert "drift_diag_pop" in result.issue
 
@@ -595,6 +598,7 @@ class TestPriorPredictiveValidation:
         results = _check_extreme_values(samples)
         assert len(results) == 1
         assert results[0].is_valid is False
+        assert results[0].issue is not None
         assert "Extreme" in results[0].issue
 
     def test_constraint_violations_detection(self):
@@ -605,6 +609,7 @@ class TestPriorPredictiveValidation:
         results = _check_constraint_violations(samples)
         assert len(results) == 1
         assert results[0].is_valid is False
+        assert results[0].issue is not None
         assert "negative" in results[0].issue
 
     def test_no_data_still_validates(self, simple_model_spec, simple_priors):

@@ -7,7 +7,10 @@ calibration, autocorrelation, and variance issues.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
@@ -236,7 +239,7 @@ def _simulate_one_draw_nongaussian(
             mu = jnp.exp(loc)
             r_val = obs_r if obs_r is not None else 5.0
             probs = mu / (mu + r_val)
-            y_t = npdist.NegativeBinomialProbs(total_count=r_val, probs=probs).sample(okey)
+            y_t = npdist.NegativeBinomialProbs(total_count=int(r_val), probs=probs).sample(okey)
         elif manifest_dist == DistributionFamily.BETA:
             if manifest_link == LinkFunction.PROBIT:
                 mean = jax.scipy.stats.norm.cdf(loc)
@@ -551,6 +554,7 @@ def simulate_posterior_predictive(
 
         # Build combined (dist, link) indices
         if effective_links is not None:
+            assert effective_dists is not None
             dist_indices = jnp.array(
                 [
                     _DIST_LINK_IDX.get((d, lk), _DIST_IDX.get(d, 0))
@@ -558,6 +562,7 @@ def simulate_posterior_predictive(
                 ]
             )
         else:
+            assert effective_dists is not None
             dist_indices = jnp.array([_DIST_IDX.get(d, 0) for d in effective_dists])
 
         def _scalar(arr):
@@ -915,7 +920,8 @@ def _compute_test_stats(
     test_stats = []
     n_manifest = observations.shape[1]
 
-    stat_fns = {
+    _StatName = Literal["mean", "sd", "min", "max"]
+    stat_fns: dict[_StatName, Callable[..., jnp.ndarray]] = {
         "mean": jnp.nanmean,
         "sd": lambda x, **kw: jnp.nanstd(x, **kw),
         "min": jnp.nanmin,

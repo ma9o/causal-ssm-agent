@@ -30,6 +30,10 @@ from causal_ssm_agent.models.likelihoods.kernels import (
 from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
 
 if TYPE_CHECKING:
+    from cuthbertlib.types import ArrayTree, ArrayTreeLike, KeyArray, ScalarArray
+    from jax import Array
+    from jax.typing import ArrayLike
+
     from causal_ssm_agent.models.likelihoods.base import (
         CTParams,
         InitialStateParams,
@@ -47,7 +51,7 @@ if TYPE_CHECKING:
 # (resampling indices are integers → zero gradient, which is correct).
 
 
-def _systematic_resampling(key: jax.Array, logits: jnp.ndarray, n: int) -> jnp.ndarray:  # noqa: ARG001
+def _systematic_resampling(key: KeyArray, logits: ArrayLike, n: int) -> Array:  # noqa: ARG001
     """Systematic resampling using pure JAX ops (no pure_callback).
 
     cuthbert's built-in systematic resampling uses jax.pure_callback + numba
@@ -63,8 +67,9 @@ def _systematic_resampling(key: jax.Array, logits: jnp.ndarray, n: int) -> jnp.n
     Returns:
         Integer index array of shape (n,).
     """
-    N = logits.shape[0]  # use static shape, not the traced `n` arg
-    weights = jnp.exp(logits - jax.nn.logsumexp(logits))
+    logits_ = jnp.asarray(logits)
+    N = logits_.shape[0]  # use static shape, not the traced `n` arg
+    weights = jnp.exp(logits_ - jax.nn.logsumexp(logits_))
     cumsum = jnp.cumsum(weights)
     us = (random.uniform(key, ()) + jnp.arange(N)) / N
     idx = jnp.searchsorted(cumsum, us)
@@ -337,17 +342,21 @@ class ParticleLikelihood:
             d_meas = measurement_params.manifest_means
             R = measurement_params.manifest_cov
 
-            def init_sample(key, _model_inputs):
+            def init_sample(key: KeyArray, model_inputs: ArrayTreeLike) -> ArrayTree:  # noqa: ARG001
                 return adapter.initial_sample(key, params)
 
-            def propagate_sample(key, state, model_inputs):
+            def propagate_sample(
+                key: KeyArray, state: ArrayTreeLike, model_inputs: ArrayTreeLike
+            ) -> ArrayTree:
                 Ad_t = model_inputs["Ad"]
                 cd_t = model_inputs["cd"]
                 chol_Qd_t = model_inputs["chol_Qd"]
                 mean = Ad_t @ state + cd_t
                 return mean + trans_kernel.sample_noise_fn(key, chol_Qd_t)
 
-            def log_potential(_state_prev, state, model_inputs):
+            def log_potential(
+                state_prev: ArrayTreeLike, state: ArrayTreeLike, model_inputs: ArrayTreeLike  # noqa: ARG001
+            ) -> ScalarArray:
                 obs = model_inputs["observation"]
                 mask = model_inputs["obs_mask"]
                 mask_float = mask.astype(jnp.float32)

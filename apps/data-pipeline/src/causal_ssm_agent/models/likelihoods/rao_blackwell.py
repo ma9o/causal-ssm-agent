@@ -296,7 +296,7 @@ def _obs_weight_quadrature(
     obs_kernel: ObservationKernel,
     quadrature: str = "unscented",
     n_quadrature: int = 5,
-) -> float:
+) -> jnp.ndarray:
     """Compute log int p(y|x) N(x|pred_mean, pred_cov) dx via sigma-point quadrature.
 
     Transforms sigma points from latent space to observation space, evaluates
@@ -356,7 +356,7 @@ def make_rb_callbacks(
     d = params["manifest_means"]  # (n_manifest,)
     R = params["manifest_cov"]  # (n_manifest, n_manifest)
 
-    def init_sample(_key, _model_inputs):
+    def init_sample(_key, model_inputs):  # noqa: ARG001
         """Initialize particle as Kalman sufficient statistics (no sampling)."""
         return RBState(
             mean=m0,
@@ -392,7 +392,7 @@ def make_rb_callbacks(
             pred_cov=P_pred,
         )
 
-    def log_potential(_state_prev, state, model_inputs):
+    def log_potential(state_prev, state, model_inputs):  # noqa: ARG001
         """Compute log observation weight via analytical/quadrature integration.
 
         Uses the PREDICTED (prior) moments to compute:

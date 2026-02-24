@@ -313,7 +313,7 @@ class TestSSMModelBuilder:
 
     def test_builder_with_ssm_spec(self):
         """Test building SSM from SSMSpec directly."""
-        import pandas as pd
+        import polars as pl
 
         from causal_ssm_agent.models.ssm import SSMSpec
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
@@ -328,7 +328,7 @@ class TestSSMModelBuilder:
 
         # Create sample data
         T = 20
-        X = pd.DataFrame(
+        X = pl.DataFrame(
             {
                 "mood": np.random.randn(T),
                 "stress": np.random.randn(T),
@@ -340,17 +340,18 @@ class TestSSMModelBuilder:
         model = builder.build_model(X)
 
         assert model is not None
+        assert builder._spec is not None
         assert builder._spec.n_manifest == 2
         assert builder._spec.n_latent == 2
 
     def test_builder_auto_detect(self):
         """Test auto-detection of manifest columns."""
-        import pandas as pd
+        import polars as pl
 
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         T = 15
-        X = pd.DataFrame(
+        X = pl.DataFrame(
             {
                 "x": np.random.randn(T),
                 "y": np.random.randn(T),
@@ -362,17 +363,18 @@ class TestSSMModelBuilder:
         model = builder.build_model(X)
 
         assert model is not None
+        assert builder._spec is not None
         assert builder._spec.n_manifest == 2
 
     @pytest.mark.slow
     def test_builder_fit(self):
         """Test fitting via builder interface."""
-        import pandas as pd
+        import polars as pl
 
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         T = 20
-        X = pd.DataFrame(
+        X = pl.DataFrame(
             {
                 "x": np.random.randn(T) * 0.5,
                 "y": np.random.randn(T) * 0.5,

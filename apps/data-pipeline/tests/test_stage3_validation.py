@@ -6,6 +6,8 @@ This module tests:
 3. New validation checks - timestamps, dtype, coverage, gaps, hallucination, correlations
 """
 
+from typing import Any
+
 import polars as pl
 import pytest
 
@@ -45,7 +47,7 @@ def simple_causal_spec():
     }
 
 
-def _create_worker_results(records: list[dict]) -> list[MockWorkerResult]:
+def _create_worker_results(records: list[dict]) -> list[Any]:
     """Create mock worker results from records."""
     df = pl.DataFrame(
         records,
@@ -127,7 +129,7 @@ class TestCombineWorkerResults:
             }
         )
 
-        results = [MockWorkerResult(dataframe=df1), MockWorkerResult(dataframe=df2)]
+        results: list[Any] = [MockWorkerResult(dataframe=df1), MockWorkerResult(dataframe=df2)]
         combined = combine_worker_results.fn(results)
 
         assert len(combined) == 2
@@ -147,7 +149,7 @@ class TestCombineWorkerResults:
                 "timestamp": ["2024-01-01 10:00"],
             }
         )
-        results = [
+        results: list[Any] = [
             MockWorkerResult(dataframe=df),
             MockWorkerResult(dataframe=None),
         ]

@@ -160,7 +160,7 @@ def get_secret(name: str) -> str | None:
         from prefect.blocks.system import Secret
 
         block = Secret.load(name.lower().replace("_", "-"))
-        return block.get()
+        return block.get()  # ty: ignore[unresolved-attribute]
     except Exception:
         pass
 

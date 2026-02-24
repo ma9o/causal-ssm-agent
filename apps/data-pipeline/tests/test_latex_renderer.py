@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 
-from utils.latex_renderer import (
+from utils.latex_renderer import (  # ty: ignore[unresolved-import]
     model_spec_to_latex,
     render_measurement,
     render_priors,

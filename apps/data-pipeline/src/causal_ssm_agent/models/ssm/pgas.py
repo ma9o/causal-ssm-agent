@@ -305,6 +305,9 @@ def _csmc_sweep(
         if gaussian_obs:
             # Locally optimal proposal for Gaussian observations
             # R_adj varies per timestep for missing data
+            assert R_adj is not None
+            assert lambda_mat is not None
+            assert manifest_means is not None
             R_adj_t = R_adj[0]  # base R_adj (missing data handled via mask inflation)
             # Adjust R_inv for this timestep's mask
             mask_inf = (1.0 - mask_t) * 1e10

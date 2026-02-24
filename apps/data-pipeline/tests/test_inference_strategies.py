@@ -31,6 +31,7 @@ from causal_ssm_agent.models.likelihoods.base import (
 )
 from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
+from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 # =============================================================================
 # ParticleLikelihood: Core Functionality
@@ -241,9 +242,9 @@ class TestParticleMissingData:
         adapter = SSMAdapter(
             n_latent,
             n_manifest,
-            manifest_dist="gaussian",
-            diffusion_dist="gaussian",
-            manifest_link="identity",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            diffusion_dist=DistributionFamily.GAUSSIAN,
+            manifest_link=LinkFunction.IDENTITY,
         )
 
         params = {
@@ -285,9 +286,9 @@ class TestStudentTProcessNoise:
         adapter = SSMAdapter(
             n_latent,
             n_manifest,
-            manifest_dist="gaussian",
-            diffusion_dist="student_t",
-            manifest_link="identity",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            diffusion_dist=DistributionFamily.STUDENT_T,
+            manifest_link=LinkFunction.IDENTITY,
         )
 
         params = {

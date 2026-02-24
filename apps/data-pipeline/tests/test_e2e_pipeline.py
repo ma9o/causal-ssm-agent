@@ -527,6 +527,7 @@ class TestE2EPipeline:
 
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
         builder.build_model(daily_data.to_pandas())
+        assert builder._spec is not None
         t_rule = check_t_rule(builder._spec, T=T)
         assert t_rule.satisfies is True
         assert t_rule.n_free_params < t_rule.n_moments

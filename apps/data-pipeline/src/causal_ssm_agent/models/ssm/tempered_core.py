@@ -18,7 +18,7 @@ import jax.random as random
 from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.models.ssm.inference import InferenceResult
+from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
     compute_weighted_chol_mass,
     find_next_beta,
@@ -47,7 +47,7 @@ def run_tempered_smc(
     target_ess_ratio: float = 0.5,
     waste_free: bool = False,
     n_leapfrog: int = 5,
-    method_name: str = "tempered_smc",
+    method_name: InferenceMethod = "tempered_smc",
     likelihood_backend=None,
     extra_diagnostics: dict[str, Any] | None = None,
     print_prefix: str = "Tempered SMC",

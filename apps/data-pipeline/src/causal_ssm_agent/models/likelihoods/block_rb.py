@@ -27,6 +27,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
+import numpy as np
 
 from causal_ssm_agent.models.likelihoods.rao_blackwell import (
     _kalman_predict,
@@ -67,7 +68,7 @@ class BlockRBState(NamedTuple):
 
 def partition_indices(
     diffusion_dists: list[str],
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Partition latent variable indices into Gaussian and sampled blocks.
 
     Args:
@@ -78,18 +79,16 @@ def partition_indices(
         g_idx: Integer array of Gaussian variable indices.
         s_idx: Integer array of sampled (non-Gaussian) variable indices.
     """
-    import numpy as np
-
-    g_idx = []
-    s_idx = []
+    g_list: list[int] = []
+    s_list: list[int] = []
     for i, d in enumerate(diffusion_dists):
         if d == "gaussian":
-            g_idx.append(i)
+            g_list.append(i)
         else:
-            s_idx.append(i)
+            s_list.append(i)
     # Return as numpy arrays to avoid JIT tracing issues when called at
     # construction time inside a traced function.
-    return np.array(g_idx, dtype=np.int32), np.array(s_idx, dtype=np.int32)
+    return np.array(g_list, dtype=np.int32), np.array(s_list, dtype=np.int32)
 
 
 def extract_subblocks(
@@ -128,8 +127,8 @@ def extract_subblocks(
 
 def extract_obs_subblocks(
     H: jnp.ndarray,
-    g_idx: jnp.ndarray,
-    s_idx: jnp.ndarray,
+    g_idx: jnp.ndarray | np.ndarray,
+    s_idx: jnp.ndarray | np.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Extract observation matrix columns for each block.
 
@@ -155,8 +154,8 @@ def make_block_rb_callbacks(
     params: dict,
     m0: jnp.ndarray,
     P0: jnp.ndarray,
-    g_idx: jnp.ndarray,
-    s_idx: jnp.ndarray,
+    g_idx: jnp.ndarray | np.ndarray,
+    s_idx: jnp.ndarray | np.ndarray,
     obs_kernel: ObservationKernel,
     trans_kernel: TransitionKernel,
     quadrature: str = "unscented",
@@ -199,7 +198,7 @@ def make_block_rb_callbacks(
     P0_gg = P0[jnp.ix_(g_idx, g_idx)]
     P0_ss = P0[jnp.ix_(s_idx, s_idx)]
 
-    def init_sample(key, _model_inputs):
+    def init_sample(key, model_inputs):  # noqa: ARG001
         """Initialize: Kalman stats for G-block, sample for S-block."""
         chol_P0_ss = jla.cholesky(P0_ss + jnp.eye(n_s) * 1e-6, lower=True)
         s_sample = m0_s + chol_P0_ss @ random.normal(key, (n_s,))
@@ -268,7 +267,7 @@ def make_block_rb_callbacks(
             s_sample=x_s_new,
         )
 
-    def log_potential(_state_prev, state, model_inputs):
+    def log_potential(state_prev, state, model_inputs):  # noqa: ARG001
         """Compute log observation weight.
 
         Integrates p(y | x_g, x_s) over x_g via quadrature, fixing x_s at

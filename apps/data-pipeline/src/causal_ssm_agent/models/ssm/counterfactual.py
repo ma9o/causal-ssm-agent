@@ -42,7 +42,7 @@ def do(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
     do_idx: int,
-    do_value: float,
+    do_value: float | jnp.ndarray,
 ) -> jnp.ndarray:
     """CT steady state under do(η_j = v).
 
@@ -82,7 +82,7 @@ def treatment_effect(
     treat_idx: int,
     outcome_idx: int,
     shift_size: float = 1.0,
-) -> float:
+) -> jnp.ndarray:
     """Effect of intervention: do(treat = baseline + shift_size) vs baseline.
 
     Args:

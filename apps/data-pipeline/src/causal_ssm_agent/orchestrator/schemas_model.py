@@ -28,13 +28,15 @@ class DistributionFamily(StrEnum):
     CATEGORICAL = "categorical"
 
     @classmethod
-    def _missing_(cls, value: str) -> "DistributionFamily | None":
+    def _missing_(cls, value: object) -> "DistributionFamily | None":
         """Allow case-insensitive and legacy PascalCase construction.
 
         The LLM may propose PascalCase names (e.g. "Normal", "NegativeBinomial")
         and data files may still use them.  This maps them to the canonical
         lowercase members.
         """
+        if not isinstance(value, str):
+            return None
         _ALIASES: dict[str, str] = {
             "normal": "gaussian",
             "negativebinomial": "negative_binomial",

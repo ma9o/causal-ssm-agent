@@ -46,6 +46,12 @@ from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
+    from cuthbert.gaussian.types import LinearizedKalmanFilterState
+    from cuthbertlib.linearize.moments import MeanAndCholCovFunc
+    from cuthbertlib.types import ArrayTreeLike
+    from jax import Array
+    from jax.typing import ArrayLike
+
     from causal_ssm_agent.models.ssm.model import SSMModel
 
 
@@ -103,7 +109,7 @@ def _da_model(
         eta_0 = numpyro.sample("eta_0", dist.MultivariateNormal(t0_means, scale_tril=t0_chol))
     else:
         # NCP: sample standardized innovation, transform deterministically
-        eps_0 = numpyro.sample("eps_0", dist.Normal(0, 1).expand([n_l]).to_event(1))
+        eps_0 = numpyro.sample("eps_0", dist.Normal(0, 1).expand((n_l,)).to_event(1))
         eta_0 = t0_means + t0_chol @ eps_0
 
     # Score first observation
@@ -141,7 +147,7 @@ def _da_model(
 
         def transition(eta_prev, inputs):
             Ad, Qd_chol, cd, obs_t = inputs
-            eps = numpyro.sample("eps", dist.Normal(0, 1).expand([n_l]).to_event(1))
+            eps = numpyro.sample("eps", dist.Normal(0, 1).expand((n_l,)).to_event(1))
             eta_t = Ad @ eta_prev + cd + Qd_chol @ eps
             pred_t = lambda_mat @ eta_t + manifest_means
             numpyro.sample(
@@ -214,21 +220,25 @@ def _kalman_smooth_states(
     }
 
     # Callbacks matching KalmanLikelihood pattern
-    def get_init_params(inputs):
-        return inputs["m0"], inputs["chol_P0"]
+    def get_init_params(model_inputs: ArrayTreeLike) -> tuple[Array, Array]:
+        return model_inputs["m0"], model_inputs["chol_P0"]
 
-    def get_dynamics_params(state, inputs):
-        F_t, c_t, chol_Q_t = inputs["F"], inputs["c"], inputs["chol_Q"]
+    def get_dynamics_params(
+        state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+    ) -> tuple[MeanAndCholCovFunc, Array]:
+        F_t, c_t, chol_Q_t = model_inputs["F"], model_inputs["c"], model_inputs["chol_Q"]
 
-        def dynamics_fn(x):
+        def dynamics_fn(x: ArrayLike) -> tuple[Array, Array]:
             return F_t @ x + c_t, chol_Q_t
 
         return dynamics_fn, state.mean
 
-    def get_observation_params(state, inputs):
-        H_t, d_t, chol_R_t, y_t = inputs["H"], inputs["d"], inputs["chol_R"], inputs["y"]
+    def get_observation_params(
+        state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+    ) -> tuple[MeanAndCholCovFunc, Array, Array]:
+        H_t, d_t, chol_R_t, y_t = model_inputs["H"], model_inputs["d"], model_inputs["chol_R"], model_inputs["y"]
 
-        def obs_fn(x):
+        def obs_fn(x: ArrayLike) -> tuple[Array, Array]:
             return H_t @ x + d_t, chol_R_t
 
         return obs_fn, state.mean, y_t
@@ -241,7 +251,9 @@ def _kalman_smooth_states(
     )
     filter_states = cuthbert_filter(filter_obj, model_inputs)
 
-    smoother_obj = build_smoother(get_dynamics_params=get_dynamics_params)
+    smoother_obj = build_smoother(
+        get_dynamics_params=get_dynamics_params,
+    )
     smoothed_states = cuthbert_smoother(smoother_obj, filter_states)
 
     return smoothed_states.mean
@@ -656,6 +668,7 @@ def fit_nuts_da(
             raise
 
     # Get samples, excluding the large per-timestep state arrays
+    assert mcmc is not None
     all_samples = mcmc.get_samples()
     # Exclude latent state sites (both CP and NCP variants)
     state_sites = {"eta_0", "eta", "eps_0", "eps"}

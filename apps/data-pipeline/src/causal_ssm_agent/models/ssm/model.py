@@ -155,7 +155,7 @@ def _make_prior_batch(prior: dict, n: int) -> dist.Distribution:
     if d.batch_shape == (n,):
         return d
     if d.batch_shape == ():
-        return d.expand([n])
+        return d.expand((n,))
     raise ValueError(f"Prior batch shape {d.batch_shape} does not match expected ({n},)")
 
 
@@ -237,10 +237,10 @@ class SSMModel:
 
         # Off-diagonal (cross-effects)
         if n_offdiag > 0:
-            drift_offdiag_pop = numpyro.sample(
+            drift_offdiag_pop = jnp.asarray(numpyro.sample(
                 "drift_offdiag_pop",
                 _make_prior_batch(self.priors.drift_offdiag, n_offdiag),
-            )
+            ))
         else:
             drift_offdiag_pop = jnp.array([])
 
@@ -282,7 +282,7 @@ class SSMModel:
         # Diagonal
         diff_diag_pop = numpyro.sample(
             "diffusion_diag_pop",
-            dist.HalfNormal(self.priors.diffusion_diag["sigma"]).expand([n]),
+            dist.HalfNormal(self.priors.diffusion_diag["sigma"]).expand((n,)),
         )
 
         if spec.diffusion == "diag":
@@ -291,10 +291,10 @@ class SSMModel:
             # Full lower triangular
             n_lower = n * (n - 1) // 2
             if n_lower > 0:
-                diff_lower = numpyro.sample(
+                diff_lower = jnp.asarray(numpyro.sample(
                     "diffusion_lower",
                     _make_prior_batch(self.priors.diffusion_offdiag, n_lower),
-                )
+                ))
             else:
                 diff_lower = jnp.array([])
 
@@ -327,11 +327,11 @@ class SSMModel:
 
         cint = numpyro.sample(
             "cint_pop",
-            _make_prior_dist(self.priors.cint).expand([n]),
+            _make_prior_dist(self.priors.cint).expand((n,)),
         )
 
         numpyro.deterministic("cint", cint)
-        return cint
+        return jnp.asarray(cint)
 
     def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix (shared across subjects).
@@ -356,10 +356,10 @@ class SSMModel:
 
             n_free = len(free_positions)
             if n_free > 0:
-                free_loadings = numpyro.sample(
+                free_loadings = jnp.asarray(numpyro.sample(
                     "lambda_free",
                     _make_prior_batch(self.priors.lambda_free, n_free),
-                )
+                ))
                 for idx, (i, j) in enumerate(free_positions):
                     lambda_mat = lambda_mat.at[i, j].set(free_loadings[idx])
 
@@ -377,10 +377,10 @@ class SSMModel:
         # Sample additional loadings if needed
         if n_m > n_l:
             n_free = (n_m - n_l) * n_l
-            free_loadings = numpyro.sample(
+            free_loadings = jnp.asarray(numpyro.sample(
                 "lambda_free",
-                _make_prior_dist(self.priors.lambda_free).expand([n_free]),
-            )
+                _make_prior_dist(self.priors.lambda_free).expand((n_free,)),
+            ))
 
             idx = 0
             for i in range(n_l, n_m):
@@ -403,7 +403,7 @@ class SSMModel:
         else:
             manifest_means = numpyro.sample(
                 "manifest_means",
-                _make_prior_dist(self.priors.manifest_means).expand([n_m]),
+                _make_prior_dist(self.priors.manifest_means).expand((n_m,)),
             )
 
         # Variance (Cholesky)
@@ -412,12 +412,12 @@ class SSMModel:
         else:
             var_diag = numpyro.sample(
                 "manifest_var_diag",
-                dist.HalfNormal(self.priors.manifest_var_diag["sigma"]).expand([n_m]),
+                dist.HalfNormal(self.priors.manifest_var_diag["sigma"]).expand((n_m,)),
             )
             manifest_chol = jnp.diag(var_diag)
 
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
-        return manifest_means, manifest_chol
+        return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)
 
     def _sample_t0_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
@@ -429,7 +429,7 @@ class SSMModel:
         else:
             t0_means = numpyro.sample(
                 "t0_means_pop",
-                _make_prior_dist(self.priors.t0_means).expand([n_l]),
+                _make_prior_dist(self.priors.t0_means).expand((n_l,)),
             )
 
         # Variance (Cholesky)
@@ -438,13 +438,13 @@ class SSMModel:
         else:
             var_diag = numpyro.sample(
                 "t0_var_diag",
-                dist.HalfNormal(self.priors.t0_var_diag["sigma"]).expand([n_l]),
+                dist.HalfNormal(self.priors.t0_var_diag["sigma"]).expand((n_l,)),
             )
             t0_chol = jnp.diag(var_diag)
 
         numpyro.deterministic("t0_means", t0_means)
         numpyro.deterministic("t0_cov", t0_chol @ t0_chol.T)
-        return t0_means, t0_chol
+        return jnp.asarray(t0_means), jnp.asarray(t0_chol)
 
     def make_likelihood_backend(self):
         """Construct the default likelihood backend from model configuration.

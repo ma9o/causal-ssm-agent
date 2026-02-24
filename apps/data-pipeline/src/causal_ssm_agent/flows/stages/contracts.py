@@ -6,7 +6,7 @@ These schemas are the single runtime source of truth for stage JSON written by
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -295,5 +295,7 @@ def validate_stage_payload(stage_id: str, data: dict[str, Any]) -> dict[str, Any
     if stage_id not in STAGE_CONTRACTS:
         known = ", ".join(sorted(STAGE_CONTRACTS.keys()))
         raise ValueError(f"Unknown stage_id '{stage_id}'. Expected one of: {known}")
-    model = STAGE_CONTRACTS[stage_id].model_validate(data)
+    # After the membership check, stage_id is guaranteed to be a valid StageId
+    sid = cast("StageId", stage_id)
+    model = STAGE_CONTRACTS[sid].model_validate(data)
     return model.model_dump(mode="json")

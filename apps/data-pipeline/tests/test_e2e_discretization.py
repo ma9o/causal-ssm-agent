@@ -285,7 +285,9 @@ class TestE2ESpecToDiscretization:
         # mood_rating loads on mood (fixed=1.0), stress_self_report loads on stress (fixed=1.0)
         # stress_cortisol loads on stress (free)
         manifest_names = spec.manifest_names
+        assert manifest_names is not None
         stress_cortisol_idx = manifest_names.index("stress_cortisol")
+        assert spec.latent_names is not None
         stress_latent_idx = spec.latent_names.index("stress")
         assert spec.lambda_mask[stress_cortisol_idx, stress_latent_idx]
 
@@ -574,6 +576,7 @@ class TestE2ESpecToDiscretization:
         # No NaN/Inf
         assert jnp.all(jnp.isfinite(F)), "F contains NaN/Inf"
         assert jnp.all(jnp.isfinite(Q)), "Q contains NaN/Inf"
+        assert c is not None, "c should not be None when cint is provided"
         assert jnp.all(jnp.isfinite(c)), "c contains NaN/Inf"
 
     def test_prior_predictive_produces_finite_samples(

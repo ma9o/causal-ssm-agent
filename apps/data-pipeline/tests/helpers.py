@@ -18,7 +18,7 @@ class MockWorkerResult:
     by combine_worker_results / aggregate_measurements).
     """
 
-    dataframe: pl.DataFrame
+    dataframe: pl.DataFrame | None
 
 
 @dataclass

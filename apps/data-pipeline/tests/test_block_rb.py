@@ -796,7 +796,7 @@ class TestParameterRecovery:
         def model(observations, time_intervals):
             drift_diag = numpyro.sample(
                 "drift_diag",
-                dist.Normal(-0.5, 0.5).expand([n]),
+                dist.Normal(-0.5, 0.5).expand((n,)),
             )
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
@@ -866,7 +866,7 @@ class TestParameterRecovery:
         def model(observations, time_intervals):
             drift_diag = numpyro.sample(
                 "drift_diag",
-                dist.Normal(-0.5, 0.5).expand([n]),
+                dist.Normal(-0.5, 0.5).expand((n,)),
             )
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
@@ -933,8 +933,8 @@ class TestParameterRecovery:
         obs, dt = _simulate_data_exact(key, ct_true, meas, init, T=50)
 
         def model(observations, time_intervals):
-            drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand([n]))
-            drift_offdiag = numpyro.sample("drift_offdiag", dist.Normal(0.0, 0.3).expand([n]))
+            drift_diag = jnp.asarray(numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand((n,))))
+            drift_offdiag = jnp.asarray(numpyro.sample("drift_offdiag", dist.Normal(0.0, 0.3).expand((n,))))
             drift = jnp.zeros((n, n))
             drift = drift.at[0, 0].set(-jnp.abs(drift_diag[0]))
             drift = drift.at[1, 1].set(-jnp.abs(drift_diag[1]))
@@ -1008,7 +1008,7 @@ class TestParameterRecovery:
         obs, dt = _simulate_data_exact(key, ct_true, meas, init, T=50)
 
         def model(observations, time_intervals):
-            drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand([n]))
+            drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand((n,)))
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 

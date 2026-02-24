@@ -15,7 +15,7 @@ from causal_ssm_agent.models.ssm.discretization import (
     discretize_system_batched,
     solve_lyapunov,
 )
-from causal_ssm_agent.models.ssm.inference import InferenceResult, fit
+from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult, fit
 from causal_ssm_agent.models.ssm.model import (
     DistributionFamily,
     SSMModel,
@@ -37,6 +37,7 @@ __all__ = [
     "SSMSpec",
     "DistributionFamily",
     # Inference
+    "InferenceMethod",
     "InferenceResult",
     "fit",
 ]

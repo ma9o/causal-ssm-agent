@@ -19,6 +19,7 @@ See docs/reference/pipeline.md for full specification.
 
 import logging
 import math
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -142,8 +143,11 @@ def _check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[li
     elif dtype == "continuous":
         n = len(values)
         if n >= MIN_OBSERVATIONS:
-            q1 = values.quantile(0.25)
-            q3 = values.quantile(0.75)
+            q1_raw = values.quantile(0.25)
+            q3_raw = values.quantile(0.75)
+            assert isinstance(q1_raw, (int, float)) and isinstance(q3_raw, (int, float))
+            q1 = float(q1_raw)
+            q3 = float(q3_raw)
             iqr = q3 - q1
             if iqr > 0:
                 lower = q1 - OUTLIER_IQR_MULTIPLIER * iqr
@@ -187,7 +191,10 @@ def _check_time_coverage(
     if len(parsed_ts) < 2:
         return issues, None
 
-    time_span = parsed_ts.max() - parsed_ts.min()
+    ts_max = parsed_ts.max()
+    ts_min = parsed_ts.min()
+    assert isinstance(ts_max, datetime) and isinstance(ts_min, datetime)
+    time_span = ts_max - ts_min
     time_span_hours = time_span.total_seconds() / 3600
     min_hours = MIN_COVERAGE_PERIODS * gran_hours
     coverage_ratio = min(time_span_hours / min_hours, 1.0) if min_hours > 0 else None
@@ -232,8 +239,9 @@ def _check_timestamp_gaps(
 
     sorted_ts = parsed_ts.sort()
     diffs = sorted_ts.diff().drop_nulls()
-    max_gap = diffs.max()
-    max_gap_hours = max_gap.total_seconds() / 3600
+    max_gap_raw = diffs.max()
+    assert isinstance(max_gap_raw, timedelta)
+    max_gap_hours = max_gap_raw.total_seconds() / 3600
     threshold = MAX_GAP_MULTIPLIER * gran_hours
     max_gap_ratio = max_gap_hours / threshold if threshold > 0 else None
 
@@ -271,12 +279,16 @@ def _check_hallucination_signals(
 
     # Compute duplicate percentage for all types
     vc = values.value_counts()
-    max_count = vc["count"].max()
+    max_count_raw = vc["count"].max()
+    assert isinstance(max_count_raw, (int, float))
+    max_count = int(max_count_raw)
     duplicate_pct = max_count / n if n > 0 else 0.0
 
     # Excessive duplicates (only for continuous/ordinal data with variance > 0)
     if dtype not in ("binary", "count"):
-        variance = values.var()
+        var_raw = values.var()
+        assert isinstance(var_raw, (int, float))
+        variance = float(var_raw)
         if (
             variance is not None
             and variance > 0
@@ -459,7 +471,7 @@ def validate_extraction(
     from causal_ssm_agent.utils.causal_spec import get_constructs, get_indicators
 
     indicators = get_indicators(causal_spec)
-    indicator_names = {ind.get("name") for ind in indicators if ind.get("name")}
+    indicator_names: set[str] = {ind["name"] for ind in indicators if ind.get("name")}
     indicator_lookup = {ind["name"]: ind for ind in indicators if ind.get("name")}
 
     constructs = get_constructs(causal_spec)
@@ -513,7 +525,8 @@ def validate_extraction(
         # Check variance
         variance: float | None = None
         try:
-            variance = values["value"].var()
+            _var = values["value"].var()
+            variance = float(_var) if _var is not None else None
             if variance is not None and variance == 0:
                 const_val = values["value"].first()
                 issues.append(

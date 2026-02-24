@@ -490,7 +490,7 @@ async def stage4_orchestrated_flow(
 
     # 5. Build SSMModel (only after validation loop)
     model_info = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-    model_result = model_info.result() if hasattr(model_info, "result") else model_info
+    model_result = model_info.result() if hasattr(model_info, "result") else model_info  # ty: ignore[call-non-callable]
 
     result = {
         "model_spec": model_spec,
@@ -499,7 +499,7 @@ async def stage4_orchestrated_flow(
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False) if validation_result else False,
         "causal_spec": causal_spec,
-        "prior_predictive_samples": validation_result.get("prior_predictive_samples", {}),
+        "prior_predictive_samples": (validation_result or {}).get("prior_predictive_samples", {}),
     }
     if llm_trace is not None:
         result["llm_trace"] = llm_trace

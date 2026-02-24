@@ -964,7 +964,7 @@ class TestParameterRecovery:
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
 
         def model(observations, time_intervals):
-            drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand([n]))
+            drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand((n,)))
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 

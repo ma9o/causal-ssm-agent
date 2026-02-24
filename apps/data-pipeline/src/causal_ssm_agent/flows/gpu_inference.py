@@ -100,6 +100,7 @@ def _stage5_on_gpu(
     # LOO diagnostics
     import functools
 
+    assert builder._model is not None
     model_fn = functools.partial(
         builder._model.model,
         likelihood_backend=builder._model.make_likelihood_backend(),
@@ -117,6 +118,7 @@ def _stage5_on_gpu(
     # ---------- power-scaling sensitivity ----------
     ps_result: dict[str, Any]
     try:
+        assert builder._model is not None
         ssm_model = builder._model
 
         ps = power_scaling_sensitivity(
@@ -144,7 +146,9 @@ def _stage5_on_gpu(
             run_posterior_predictive_checks,
         )
 
+        assert builder._model is not None
         spec = builder._spec
+        assert spec is not None
         manifest_names = spec.manifest_names or manifest_cols
         manifest_dist_val = (
             spec.manifest_dist.value
@@ -176,6 +180,7 @@ def _stage5_on_gpu(
     try:
         samples = result.get_samples()
         spec = builder._spec
+        assert spec is not None
         latent_names = spec.latent_names
         if latent_names is None:
             logger.warning(

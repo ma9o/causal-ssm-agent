@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import jax.scipy.optimize
 from jax import lax
 from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
@@ -739,7 +740,10 @@ def sbc_check(
     T: int = 100,
     dt: float = 0.5,
     n_sbc: int = 50,
-    method: str = "laplace_em",
+    method: Literal[
+        "svi", "nuts", "nuts_da", "hessmc2", "pgas",
+        "tempered_smc", "laplace_em", "structured_vi", "dpf",
+    ] = "laplace_em",
     seed: int = 42,
     **fit_kwargs,
 ) -> SBCResult:
@@ -775,7 +779,7 @@ def sbc_check(
     backend = model.make_likelihood_backend()
     dummy_obs = jnp.zeros((T, model.spec.n_manifest))
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, dummy_obs, times, None, trace_key, backend)
+    site_info = _discover_sites(model, dummy_obs, times, trace_key, backend)
     param_names = sorted(site_info.keys())
 
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
@@ -847,7 +851,7 @@ def sbc_check(
         if available:
             # Can build unconstrained vectors from raw param samples
             log_lik_fn, _ = _build_eval_fns(
-                model, y_star, times, None, site_info, unravel_fn, backend
+                model, y_star, times, site_info, unravel_fn, backend
             )
             true_ll = float(log_lik_fn(true_z))
 

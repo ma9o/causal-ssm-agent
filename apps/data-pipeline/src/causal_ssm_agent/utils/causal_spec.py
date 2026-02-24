@@ -27,7 +27,7 @@ def get_indicator_info(causal_spec: dict) -> dict[str, dict]:
         Dict mapping indicator name to {dtype, construct_name}
     """
     return {
-        ind.get("name"): {
+        ind["name"]: {
             "dtype": ind.get("measurement_dtype"),
             "construct_name": ind.get("construct_name"),
         }
@@ -42,7 +42,7 @@ def get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
         Dict mapping indicator name to dtype string (e.g. "continuous", "binary")
     """
     return {
-        ind.get("name"): ind.get("measurement_dtype", "continuous")
+        ind["name"]: ind.get("measurement_dtype", "continuous")
         for ind in get_indicators(causal_spec)
     }
 

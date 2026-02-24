@@ -106,13 +106,13 @@ Report specific numerical values when available.
             },
         }
 
-        research = await exa.research.create(
+        research = await exa.research.create(  # ty: ignore[no-matching-overload]
             instructions=instructions,
             output_schema=output_schema,
             model=model,
         )
 
-        result = await exa.research.poll_until_finished(
+        result = await exa.research.poll_until_finished(  # ty: ignore[invalid-await]
             research.id,
             timeout_ms=timeout_ms,
         )
@@ -240,7 +240,10 @@ def _aggregate_gmm(
         # Fall back to simple if GMM fails or selects K=1
         return _aggregate_simple(mus, sigmas, samples)
 
-    # Extract GMM parameters
+    # Extract GMM parameters (always populated after fit)
+    assert best_gmm.weights_ is not None
+    assert best_gmm.means_ is not None
+    assert best_gmm.covariances_ is not None
     weights = best_gmm.weights_.tolist()
     means = best_gmm.means_.flatten().tolist()
     stds = np.sqrt(best_gmm.covariances_.flatten()).tolist()

@@ -256,8 +256,8 @@ def aggregate_worker_measurements(
     from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
 
     dtype_lookup = get_indicator_dtypes(causal_spec)
-    ordinal_levels_lookup = {
-        ind.get("name"): ind["ordinal_levels"]
+    ordinal_levels_lookup: dict[str, list[str]] = {
+        ind["name"]: ind["ordinal_levels"]
         for ind in get_indicators(causal_spec)
         if ind.get("ordinal_levels")
     }
