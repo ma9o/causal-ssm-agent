@@ -1,0 +1,17 @@
+{
+  "name": "causal-ssm-agent",
+  "private": true,
+  "packageManager": "bun@1.2.23",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "format": "turbo format",
+    "type-check": "turbo type-check"
+  },
+  "devDependencies": {
+    "turbo": "^2"
+  }
+}

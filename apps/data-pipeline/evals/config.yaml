@@ -1,0 +1,42 @@
+# Evaluation Configuration
+# Shared settings for all evals
+#
+# Questions are discovered from the filesystem:
+#   data/eval/questions/<id>_<slug>/question.yaml
+# See evals/common.py discover_questions() for details.
+
+# Models for orchestrator structure eval (top-tier with max reasoning)
+orchestrator_models:
+  - id: openrouter/anthropic/claude-opus-4.6
+    alias: claude
+  - id: google/vertex/gemini-3-pro-preview
+    alias: gemini
+  - id: openrouter/openai/gpt-5.1
+    alias: gpt
+  - id: openrouter/deepseek/deepseek-v3.2
+    alias: deepseek
+  - id: openrouter/moonshotai/kimi-k2
+    alias: kimi
+
+# Models for worker extraction eval (fast reasoning models)
+worker_models:
+  - id: openrouter/moonshotai/kimi-k2-thinking
+    alias: kimi
+  - id: openrouter/deepseek/deepseek-v3.2-exp
+    alias: deepseek
+  - id: google/vertex/gemini-3-flash-preview
+    alias: gemini
+  - id: openrouter/x-ai/grok-4.1-fast
+    alias: grok
+  - id: openrouter/anthropic/claude-haiku-4.5
+    alias: haiku
+  - id: openrouter/minimax/minimax-m2
+    alias: minimax
+  - id: openrouter/openai/gpt-oss-120b
+    alias: gpt-oss
+
+# Judge model for measurement adherence eval
+judge_model: openrouter/anthropic/claude-opus-4.6
+
+# Worker timeout in seconds (for measurement adherence eval)
+worker_timeout_seconds: 1200

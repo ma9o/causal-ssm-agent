@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+.DS_Store
+
+# Data files (raw and processed are gitignored, training and queries are tracked)
+apps/data-pipeline/data/raw/**
+apps/data-pipeline/data/processed/**
+
+# Inspect AI eval logs
+apps/data-pipeline/logs/
+
+# Prefect result persistence
+apps/data-pipeline/results/
+
+# Local scratchpad
+scratchpad/**
+
+repomix-output.xml
+
+# Streamlit component artifacts
+/lib/
+
+# Marimo session artifacts
+__marimo__/
+
+# Node / Turborepo
+node_modules/
+.next/
+.turbo/
+
+# Always track gitkeeps (must be last to override above patterns)
+!**/.gitkeep

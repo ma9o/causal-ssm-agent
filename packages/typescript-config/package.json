@@ -1,0 +1,5 @@
+{
+  "name": "@causal-ssm/typescript-config",
+  "private": true,
+  "files": ["base.json", "nextjs.json"]
+}

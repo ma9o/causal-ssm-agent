@@ -1,0 +1,276 @@
+{
+  "causal_spec": {
+    "latent": {
+      "constructs": [
+        {
+          "name": "procrastination",
+          "description": "Task avoidance behavior",
+          "role": "endogenous",
+          "is_outcome": true,
+          "temporal_status": "time_varying",
+          "temporal_scale": "daily"
+        },
+        {
+          "name": "stress",
+          "description": "Perceived stress",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "daily"
+        },
+        {
+          "name": "sleep_quality",
+          "description": "Sleep quality",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "daily"
+        },
+        {
+          "name": "digital_distraction",
+          "description": "Non-productive media time",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "daily"
+        },
+        {
+          "name": "self_efficacy",
+          "description": "Self-belief in task ability",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "weekly"
+        },
+        {
+          "name": "workload",
+          "description": "External task demands",
+          "role": "exogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "daily"
+        }
+      ],
+      "edges": [
+        {
+          "cause": "stress",
+          "effect": "procrastination",
+          "description": "Stress triggers avoidance",
+          "lagged": false
+        },
+        {
+          "cause": "sleep_quality",
+          "effect": "stress",
+          "description": "Poor sleep increases stress",
+          "lagged": true
+        },
+        {
+          "cause": "digital_distraction",
+          "effect": "procrastination",
+          "description": "Media displaces work",
+          "lagged": false
+        },
+        {
+          "cause": "self_efficacy",
+          "effect": "procrastination",
+          "description": "Low efficacy leads to avoidance",
+          "lagged": true
+        },
+        {
+          "cause": "workload",
+          "effect": "stress",
+          "description": "Workload increases stress",
+          "lagged": false
+        },
+        {
+          "cause": "procrastination",
+          "effect": "stress",
+          "description": "Procrastination accumulates stress",
+          "lagged": true
+        },
+        {
+          "cause": "stress",
+          "effect": "sleep_quality",
+          "description": "Stress impairs sleep",
+          "lagged": true
+        },
+        {
+          "cause": "procrastination",
+          "effect": "self_efficacy",
+          "description": "Procrastination erodes efficacy",
+          "lagged": true
+        }
+      ]
+    },
+    "measurement": {
+      "indicators": [
+        {
+          "name": "youtube_watch_time",
+          "construct_name": "digital_distraction",
+          "how_to_measure": "Total YouTube watch duration in minutes per day",
+          "measurement_dtype": "continuous",
+          "aggregation": "sum",
+          "ordinal_levels": null
+        },
+        {
+          "name": "search_count",
+          "construct_name": "digital_distraction",
+          "how_to_measure": "Number of non-work-related searches per day",
+          "measurement_dtype": "count",
+          "aggregation": "count",
+          "ordinal_levels": null
+        },
+        {
+          "name": "late_night_activity",
+          "construct_name": "sleep_quality",
+          "how_to_measure": "Any digital activity between 11PM-6AM (binary)",
+          "measurement_dtype": "binary",
+          "aggregation": "max",
+          "ordinal_levels": null
+        },
+        {
+          "name": "task_completion_rate",
+          "construct_name": "procrastination",
+          "how_to_measure": "Proportion of planned tasks completed (0-1)",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "deadline_proximity_searches",
+          "construct_name": "stress",
+          "how_to_measure": "Count of deadline/urgent-related searches",
+          "measurement_dtype": "count",
+          "aggregation": "sum",
+          "ordinal_levels": null
+        },
+        {
+          "name": "productive_hours",
+          "construct_name": "self_efficacy",
+          "how_to_measure": "Hours spent on work-related activities per week",
+          "measurement_dtype": "continuous",
+          "aggregation": "sum",
+          "ordinal_levels": null
+        },
+        {
+          "name": "workload_events",
+          "construct_name": "workload",
+          "how_to_measure": "Number of calendar events and deadlines per day",
+          "measurement_dtype": "count",
+          "aggregation": "count",
+          "ordinal_levels": null
+        }
+      ]
+    },
+    "identifiability": {
+      "identifiable_treatments": {
+        "stress": {
+          "method": "do_calculus",
+          "estimand": "P(procrastination | do(stress))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "digital_distraction": {
+          "method": "do_calculus",
+          "estimand": "P(procrastination | do(digital_distraction))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "workload": {
+          "method": "do_calculus",
+          "estimand": "P(procrastination | do(workload))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "self_efficacy": {
+          "method": "do_calculus",
+          "estimand": "P(procrastination | do(self_efficacy))",
+          "marginalized_confounders": [],
+          "instruments": []
+        }
+      },
+      "non_identifiable_treatments": {
+        "sleep_quality": {
+          "confounders": [
+            "unobserved_chronotype"
+          ],
+          "notes": null
+        }
+      }
+    }
+  },
+  "filtered_treatments": [
+    "stress",
+    "digital_distraction",
+    "sleep_quality",
+    "workload",
+    "self_efficacy"
+  ],
+  "llm_trace": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are an expert in psychometrics and measurement theory...",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "user",
+        "content": "Given the latent model with constructs [procrastination, stress, sleep_quality, digital_distraction, self_efficacy, workload], propose observable indicators from the user's digital activity data.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "I'll propose indicators that can be measured from digital activity traces. Let me validate the measurement model.",
+        "reasoning": "For each latent construct, I need at least one reflective indicator measurable from browser/device data. YouTube watch time maps to digital_distraction, late_night_activity to sleep_quality, task_completion_rate to procrastination, etc.",
+        "tool_calls": [
+          {
+            "name": "validate_measurement_model",
+            "arguments": {
+              "measurement_json": "{\"indicators\": [...]}"
+            }
+          }
+        ],
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "tool",
+        "content": "VALID",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": "validate_measurement_model",
+        "tool_result": "VALID",
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "The measurement model maps 7 indicators to 6 latent constructs. Each indicator uses an appropriate measurement dtype (continuous, count, or binary) with suitable aggregation functions.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      }
+    ],
+    "model": "claude-sonnet-4-20250514",
+    "total_time_seconds": 18.7,
+    "usage": {
+      "input_tokens": 3200,
+      "output_tokens": 2890,
+      "reasoning_tokens": 520
+    }
+  },
+  "context": "Stage 1b proposes indicators and checks nonparametric identification via do-calculus (Pearl/Shpitser-Pearl ID algorithm). Assumption A7 (reflective measurement model) enables causal identification by linking latent constructs to observable data.",
+  "gate_overridden": {
+    "reason": "Nonparametric identification check failed: P(procrastination | do(stress)) is not identifiable via the ID algorithm. User chose to continue."
+  }
+}

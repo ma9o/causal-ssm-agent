@@ -1,0 +1,2945 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CausalSSMContracts",
+  "description": "Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.",
+  "type": "object",
+  "properties": {
+    "stage-0": {
+      "$ref": "#/$defs/Stage0Contract"
+    },
+    "stage-1a": {
+      "$ref": "#/$defs/Stage1aContract"
+    },
+    "stage-1b": {
+      "$ref": "#/$defs/Stage1bContract"
+    },
+    "stage-2": {
+      "$ref": "#/$defs/Stage2Contract"
+    },
+    "stage-3": {
+      "$ref": "#/$defs/Stage3Contract"
+    },
+    "stage-4": {
+      "$ref": "#/$defs/Stage4Contract"
+    },
+    "stage-4b": {
+      "$ref": "#/$defs/Stage4bContract"
+    },
+    "stage-5": {
+      "$ref": "#/$defs/Stage5Contract"
+    },
+    "stage-6": {
+      "$ref": "#/$defs/Stage6Contract"
+    },
+    "_partial": {
+      "$ref": "#/$defs/PartialStageResult"
+    }
+  },
+  "$defs": {
+    "CausalEdge": {
+      "description": "A directed causal relationship between constructs.",
+      "properties": {
+        "cause": {
+          "description": "Name of cause construct",
+          "title": "Cause",
+          "type": "string"
+        },
+        "effect": {
+          "description": "Name of effect construct",
+          "title": "Effect",
+          "type": "string"
+        },
+        "description": {
+          "description": "Theoretical justification for this causal link",
+          "title": "Description",
+          "type": "string"
+        },
+        "lagged": {
+          "default": true,
+          "description": "If True, effect at t is caused by cause at t-1. If False (contemporaneous), effect at t is caused by cause at t. Cross-timescale edges are always lagged.",
+          "title": "Lagged",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cause",
+        "description",
+        "effect",
+        "lagged"
+      ],
+      "title": "CausalEdge",
+      "type": "object"
+    },
+    "CausalSpec": {
+      "description": "Complete causal specification combining latent and measurement models.\n\nThis is the full model after both Stage 1a (latent) and Stage 1b (measurement).\nIncludes identifiability status for target causal effects.",
+      "properties": {
+        "latent": {
+          "$ref": "#/$defs/LatentModel",
+          "description": "Theoretical causal structure (topological)"
+        },
+        "measurement": {
+          "$ref": "#/$defs/MeasurementModel",
+          "description": "Operationalization into indicators"
+        },
+        "identifiability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentifiabilityStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifiability status of target causal effects"
+        }
+      },
+      "required": [
+        "latent",
+        "measurement"
+      ],
+      "title": "CausalSpec",
+      "type": "object"
+    },
+    "Construct": {
+      "description": "A theoretical entity in the causal model.\n\nConstructs are conceptually 'latent' - they represent theoretical entities\nthat may be measured by one or more observed indicators.",
+      "properties": {
+        "name": {
+          "description": "Construct name (e.g., 'stress', 'sleep_quality')",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What this theoretical construct represents",
+          "title": "Description",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "'endogenous' (modeled) or 'exogenous' (given)"
+        },
+        "is_outcome": {
+          "default": false,
+          "description": "True if this is the primary outcome variable Y implied by the question",
+          "title": "Is Outcome",
+          "type": "boolean"
+        },
+        "temporal_status": {
+          "$ref": "#/$defs/TemporalStatus",
+          "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
+        },
+        "temporal_scale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for time-varying constructs. The timescale at which causal dynamics operate.",
+          "title": "Temporal Scale"
+        }
+      },
+      "required": [
+        "description",
+        "is_outcome",
+        "name",
+        "role",
+        "temporal_status"
+      ],
+      "title": "Construct",
+      "type": "object"
+    },
+    "DateRangeContract": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "title": "DateRangeContract",
+      "type": "object"
+    },
+    "DistributionFamily": {
+      "description": "Distribution families for observation and process noise.\n\nUsed throughout the SSM pipeline: from LLM-proposed likelihoods to\nemission function dispatch.  Values are lowercase so they can be\npassed directly as strings to likelihood backends.",
+      "enum": [
+        "gaussian",
+        "student_t",
+        "poisson",
+        "gamma",
+        "bernoulli",
+        "negative_binomial",
+        "beta",
+        "ordered_logistic",
+        "categorical"
+      ],
+      "title": "DistributionFamily",
+      "type": "string"
+    },
+    "EnergyDiagnostics": {
+      "description": "NUTS energy diagnostics (Betancourt 2017).",
+      "properties": {
+        "energy_hist": {
+          "$ref": "#/$defs/EnergyHistogram"
+        },
+        "energy_transition_hist": {
+          "$ref": "#/$defs/EnergyHistogram"
+        },
+        "bfmi": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Bfmi",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bfmi",
+        "energy_hist",
+        "energy_transition_hist"
+      ],
+      "title": "EnergyDiagnostics",
+      "type": "object"
+    },
+    "EnergyHistogram": {
+      "description": "Histogram of energy values (bin centers + density).",
+      "properties": {
+        "bin_centers": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Bin Centers",
+          "type": "array"
+        },
+        "density": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Density",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bin_centers",
+        "density"
+      ],
+      "title": "EnergyHistogram",
+      "type": "object"
+    },
+    "ExtractionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "indicator": {
+          "title": "Indicator",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timestamp"
+        }
+      },
+      "required": [
+        "indicator",
+        "timestamp",
+        "value"
+      ],
+      "title": "ExtractionContract",
+      "type": "object"
+    },
+    "GateOverrideContract": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "GateOverrideContract",
+      "type": "object"
+    },
+    "IdentifiabilityStatus": {
+      "description": "Status of causal effect identifiability.",
+      "properties": {
+        "identifiable_treatments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/IdentifiedTreatmentStatus"
+          },
+          "description": "Treatments with identifiable effects and how to estimate them",
+          "title": "Identifiable Treatments",
+          "type": "object"
+        },
+        "non_identifiable_treatments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NonIdentifiableTreatmentStatus"
+          },
+          "description": "Treatments whose effects are currently not identifiable",
+          "title": "Non Identifiable Treatments",
+          "type": "object"
+        }
+      },
+      "title": "IdentifiabilityStatus",
+      "type": "object",
+      "required": [
+        "identifiable_treatments",
+        "non_identifiable_treatments"
+      ]
+    },
+    "IdentifiedTreatmentStatus": {
+      "description": "Details on how a treatment effect is identified.",
+      "properties": {
+        "method": {
+          "description": "Identification strategy (e.g., do_calculus, instrumental_variable)",
+          "title": "Method",
+          "type": "string"
+        },
+        "estimand": {
+          "description": "Closed-form estimand or IV placeholder",
+          "title": "Estimand",
+          "type": "string"
+        },
+        "marginalized_confounders": {
+          "description": "Unobserved confounders the estimand integrates out",
+          "items": {
+            "type": "string"
+          },
+          "title": "Marginalized Confounders",
+          "type": "array"
+        },
+        "instruments": {
+          "description": "Instrumental variables used (if method=instrumental_variable)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Instruments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "estimand",
+        "instruments",
+        "marginalized_confounders",
+        "method"
+      ],
+      "title": "IdentifiedTreatmentStatus",
+      "type": "object"
+    },
+    "Indicator": {
+      "description": "An observed variable that reflects a construct.\n\nFollowing the reflective measurement model (A1), causality flows from\nconstruct to indicator: the latent construct causes the observed values.",
+      "properties": {
+        "name": {
+          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+          "title": "Name",
+          "type": "string"
+        },
+        "construct_name": {
+          "description": "Which construct this indicator measures",
+          "title": "Construct Name",
+          "type": "string"
+        },
+        "how_to_measure": {
+          "description": "Instructions for workers on how to extract this from data",
+          "title": "How To Measure",
+          "type": "string"
+        },
+        "measurement_dtype": {
+          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'",
+          "title": "Measurement Dtype",
+          "type": "string"
+        },
+        "aggregation": {
+          "description": "Aggregation function applied when bucketing raw extractions within aggregation window. Available: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
+          "title": "Aggregation",
+          "type": "string"
+        },
+        "ordinal_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+          "title": "Ordinal Levels"
+        }
+      },
+      "required": [
+        "aggregation",
+        "construct_name",
+        "how_to_measure",
+        "measurement_dtype",
+        "name"
+      ],
+      "title": "Indicator",
+      "type": "object"
+    },
+    "IndicatorHealthContract": {
+      "additionalProperties": false,
+      "properties": {
+        "indicator": {
+          "title": "Indicator",
+          "type": "string"
+        },
+        "n_obs": {
+          "title": "N Obs",
+          "type": "integer"
+        },
+        "variance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Variance"
+        },
+        "time_coverage_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Time Coverage Ratio"
+        },
+        "max_gap_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Gap Ratio"
+        },
+        "dtype_violations": {
+          "title": "Dtype Violations",
+          "type": "integer"
+        },
+        "duplicate_pct": {
+          "title": "Duplicate Pct",
+          "type": "number"
+        },
+        "arithmetic_sequence_detected": {
+          "title": "Arithmetic Sequence Detected",
+          "type": "boolean"
+        },
+        "cell_statuses": {
+          "additionalProperties": {
+            "enum": [
+              "ok",
+              "warning",
+              "error"
+            ],
+            "type": "string"
+          },
+          "title": "Cell Statuses",
+          "type": "object"
+        }
+      },
+      "required": [
+        "arithmetic_sequence_detected",
+        "cell_statuses",
+        "dtype_violations",
+        "duplicate_pct",
+        "indicator",
+        "max_gap_ratio",
+        "n_obs",
+        "time_coverage_ratio",
+        "variance"
+      ],
+      "title": "IndicatorHealthContract",
+      "type": "object"
+    },
+    "InferenceMetadataContract": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "n_samples": {
+          "title": "N Samples",
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "title": "Duration Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "duration_seconds",
+        "method",
+        "n_samples"
+      ],
+      "title": "InferenceMetadataContract",
+      "type": "object"
+    },
+    "LLMTrace": {
+      "description": "Full trace of an LLM multi-turn conversation.",
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/TraceMessage"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "total_time_seconds": {
+          "default": 0.0,
+          "title": "Total Time Seconds",
+          "type": "number"
+        },
+        "usage": {
+          "$ref": "#/$defs/TraceUsage"
+        }
+      },
+      "title": "LLMTrace",
+      "type": "object",
+      "required": [
+        "messages",
+        "model",
+        "total_time_seconds",
+        "usage"
+      ]
+    },
+    "LOODiagnostics": {
+      "description": "Leave-one-out cross-validation diagnostics (ArviZ).\n\nUses one-step-ahead predictive log-likelihoods from the filter's\ninnovation decomposition. Each LOO \"observation\" is one complete\ntimestep (all manifest variables at time t), not individual cells.",
+      "properties": {
+        "elpd_loo": {
+          "title": "Elpd Loo",
+          "type": "number"
+        },
+        "p_loo": {
+          "title": "P Loo",
+          "type": "number"
+        },
+        "se": {
+          "title": "Se",
+          "type": "number"
+        },
+        "n_data_points": {
+          "title": "N Data Points",
+          "type": "integer"
+        },
+        "observation_unit": {
+          "default": "timestep",
+          "title": "Observation Unit",
+          "type": "string"
+        },
+        "pareto_k": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pareto K"
+        },
+        "n_bad_k": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Bad K"
+        },
+        "loo_pit": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loo Pit"
+        }
+      },
+      "required": [
+        "elpd_loo",
+        "n_data_points",
+        "observation_unit",
+        "p_loo",
+        "se"
+      ],
+      "title": "LOODiagnostics",
+      "type": "object"
+    },
+    "LatentModel": {
+      "description": "Theoretical causal structure over constructs (the latent model).\n\nThis is the output of Stage 1a - proposed based on domain knowledge alone,\nwithout seeing data. Defines the topological structure among latent constructs.",
+      "properties": {
+        "constructs": {
+          "description": "Theoretical constructs in the model",
+          "items": {
+            "$ref": "#/$defs/Construct"
+          },
+          "title": "Constructs",
+          "type": "array"
+        },
+        "edges": {
+          "description": "Causal edges between constructs",
+          "items": {
+            "$ref": "#/$defs/CausalEdge"
+          },
+          "title": "Edges",
+          "type": "array"
+        }
+      },
+      "required": [
+        "constructs",
+        "edges"
+      ],
+      "title": "LatentModel",
+      "type": "object"
+    },
+    "LikelihoodSpec": {
+      "description": "Specification for a likelihood (observed variable distribution).",
+      "properties": {
+        "variable": {
+          "description": "Name of the observed indicator variable",
+          "title": "Variable",
+          "type": "string"
+        },
+        "distribution": {
+          "$ref": "#/$defs/DistributionFamily",
+          "description": "Distribution family for this variable"
+        },
+        "link": {
+          "$ref": "#/$defs/LinkFunction",
+          "description": "Link function mapping linear predictor to mean"
+        },
+        "reasoning": {
+          "description": "Why this distribution/link was chosen for this variable",
+          "title": "Reasoning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "distribution",
+        "link",
+        "reasoning",
+        "variable"
+      ],
+      "title": "LikelihoodSpec",
+      "type": "object"
+    },
+    "LinkFunction": {
+      "description": "Link functions mapping linear predictor to distribution mean.",
+      "enum": [
+        "identity",
+        "log",
+        "inverse",
+        "logit",
+        "probit",
+        "cumulative_logit",
+        "softmax"
+      ],
+      "title": "LinkFunction",
+      "type": "string"
+    },
+    "LiveMetadata": {
+      "additionalProperties": false,
+      "description": "Metadata attached to partial stage results while an LLM stage is running.",
+      "properties": {
+        "status": {
+          "const": "running",
+          "title": "Status",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "turn": {
+          "title": "Turn",
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "title": "Elapsed Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "elapsed_seconds",
+        "label",
+        "status",
+        "turn"
+      ],
+      "title": "LiveMetadata",
+      "type": "object"
+    },
+    "MCMCDiagnostics": {
+      "description": "Top-level MCMC diagnostics container.",
+      "properties": {
+        "per_parameter": {
+          "items": {
+            "$ref": "#/$defs/MCMCParamDiagnostic"
+          },
+          "title": "Per Parameter",
+          "type": "array"
+        },
+        "num_divergences": {
+          "default": 0,
+          "title": "Num Divergences",
+          "type": "integer"
+        },
+        "divergence_rate": {
+          "default": 0.0,
+          "title": "Divergence Rate",
+          "type": "number"
+        },
+        "tree_depth_mean": {
+          "default": 0.0,
+          "title": "Tree Depth Mean",
+          "type": "number"
+        },
+        "tree_depth_max": {
+          "default": 0,
+          "title": "Tree Depth Max",
+          "type": "integer"
+        },
+        "accept_prob_mean": {
+          "default": 0.0,
+          "title": "Accept Prob Mean",
+          "type": "number"
+        },
+        "num_chains": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Num Chains"
+        },
+        "num_samples": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Num Samples"
+        },
+        "trace_data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TraceData"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Data"
+        },
+        "rank_histograms": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/RankHistogram"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rank Histograms"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnergyDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "accept_prob_mean",
+        "divergence_rate",
+        "num_divergences",
+        "per_parameter",
+        "tree_depth_max",
+        "tree_depth_mean"
+      ],
+      "title": "MCMCDiagnostics",
+      "type": "object"
+    },
+    "MCMCParamDiagnostic": {
+      "description": "Per-parameter MCMC convergence diagnostics.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "r_hat": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "R Hat"
+        },
+        "ess_bulk": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Ess Bulk"
+        },
+        "ess_tail": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ess Tail"
+        },
+        "mcse_mean": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mcse Mean"
+        }
+      },
+      "required": [
+        "ess_bulk",
+        "parameter",
+        "r_hat"
+      ],
+      "title": "MCMCParamDiagnostic",
+      "type": "object"
+    },
+    "MeasurementModel": {
+      "description": "Operationalization of constructs into observed indicators.\n\nThis is the output of Stage 1b - proposed after seeing data sample,\ngiven the latent model from Stage 1a.\n\nEach construct from the latent model must have at least one indicator.",
+      "properties": {
+        "indicators": {
+          "description": "Observed indicators, each measuring a construct",
+          "items": {
+            "$ref": "#/$defs/Indicator"
+          },
+          "title": "Indicators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "indicators"
+      ],
+      "title": "MeasurementModel",
+      "type": "object"
+    },
+    "ModelSpec": {
+      "description": "Complete model specification from orchestrator.\n\nThis is what the orchestrator proposes based on the CausalSpec structure.\nIt enumerates all parameters needing priors and specifies the statistical model.",
+      "properties": {
+        "likelihoods": {
+          "description": "Likelihood specifications for each observed indicator",
+          "items": {
+            "$ref": "#/$defs/LikelihoodSpec"
+          },
+          "title": "Likelihoods",
+          "type": "array"
+        },
+        "parameters": {
+          "description": "All parameters requiring priors",
+          "items": {
+            "$ref": "#/$defs/ParameterSpec"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "reasoning": {
+          "description": "Overall reasoning for the model specification choices",
+          "title": "Reasoning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "likelihoods",
+        "parameters",
+        "reasoning"
+      ],
+      "title": "ModelSpec",
+      "type": "object"
+    },
+    "NonIdentifiableTreatmentStatus": {
+      "description": "Context on why a treatment effect is not identifiable.",
+      "properties": {
+        "confounders": {
+          "description": "Unobserved constructs blocking identification",
+          "items": {
+            "type": "string"
+          },
+          "title": "Confounders",
+          "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional explanation if confounders cannot be enumerated",
+          "title": "Notes"
+        }
+      },
+      "title": "NonIdentifiableTreatmentStatus",
+      "type": "object",
+      "required": [
+        "confounders"
+      ]
+    },
+    "PPCOverlay": {
+      "description": "Per-variable quantile bands for PPC ribbon/density overlay plots.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
+      "properties": {
+        "variable": {
+          "title": "Variable",
+          "type": "string"
+        },
+        "observed": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Observed",
+          "type": "array"
+        },
+        "q025": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Q025",
+          "type": "array"
+        },
+        "q25": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Q25",
+          "type": "array"
+        },
+        "median": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Median",
+          "type": "array"
+        },
+        "q75": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Q75",
+          "type": "array"
+        },
+        "q975": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Q975",
+          "type": "array"
+        },
+        "spaghetti_draws": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Spaghetti Draws",
+          "type": "array"
+        }
+      },
+      "required": [
+        "median",
+        "observed",
+        "q025",
+        "q25",
+        "q75",
+        "q975",
+        "spaghetti_draws",
+        "variable"
+      ],
+      "title": "PPCOverlay",
+      "type": "object"
+    },
+    "PPCResultContract": {
+      "additionalProperties": false,
+      "properties": {
+        "per_variable_warnings": {
+          "items": {
+            "$ref": "#/$defs/PPCWarning"
+          },
+          "title": "Per Variable Warnings",
+          "type": "array"
+        },
+        "checked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked"
+        },
+        "n_subsample": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Subsample"
+        },
+        "overlays": {
+          "items": {
+            "$ref": "#/$defs/PPCOverlay"
+          },
+          "title": "Overlays",
+          "type": "array"
+        },
+        "test_stats": {
+          "items": {
+            "$ref": "#/$defs/PPCTestStat"
+          },
+          "title": "Test Stats",
+          "type": "array"
+        }
+      },
+      "required": [
+        "overlays",
+        "per_variable_warnings",
+        "test_stats"
+      ],
+      "title": "PPCResultContract",
+      "type": "object"
+    },
+    "PPCTestStat": {
+      "description": "Distribution of a test statistic across y_rep draws vs observed.\n\nProvides the data for Gabry's ppc_stat plots: histogram of T(y_rep)\nwith a vertical line at T(y_observed).",
+      "properties": {
+        "variable": {
+          "title": "Variable",
+          "type": "string"
+        },
+        "stat_name": {
+          "enum": [
+            "mean",
+            "sd",
+            "min",
+            "max"
+          ],
+          "title": "Stat Name",
+          "type": "string"
+        },
+        "observed_value": {
+          "title": "Observed Value",
+          "type": "number"
+        },
+        "rep_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Rep Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observed_value",
+        "rep_values",
+        "stat_name",
+        "variable"
+      ],
+      "title": "PPCTestStat",
+      "type": "object"
+    },
+    "PPCWarning": {
+      "description": "A single diagnostic warning for one manifest variable.",
+      "properties": {
+        "variable": {
+          "title": "Variable",
+          "type": "string"
+        },
+        "check_type": {
+          "enum": [
+            "calibration",
+            "autocorrelation",
+            "variance"
+          ],
+          "title": "Check Type",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "passed": {
+          "default": true,
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "check_type",
+        "message",
+        "passed",
+        "value",
+        "variable"
+      ],
+      "title": "PPCWarning",
+      "type": "object"
+    },
+    "ParameterConstraint": {
+      "description": "Constraints on parameter values.",
+      "enum": [
+        "none",
+        "positive",
+        "unit_interval",
+        "correlation"
+      ],
+      "title": "ParameterConstraint",
+      "type": "string"
+    },
+    "ParameterIdentification": {
+      "description": "Per-parameter identifiability classification.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "classification": {
+          "enum": [
+            "identified",
+            "practically_unidentifiable",
+            "structurally_unidentifiable"
+          ],
+          "title": "Classification",
+          "type": "string"
+        },
+        "contraction_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contraction Ratio"
+        },
+        "profile_x": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Profile X"
+        },
+        "profile_ll": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Profile Ll"
+        }
+      },
+      "required": [
+        "classification",
+        "name"
+      ],
+      "title": "ParameterIdentification",
+      "type": "object"
+    },
+    "ParameterRole": {
+      "description": "Role of a parameter in the model.",
+      "enum": [
+        "fixed_effect",
+        "ar_coefficient",
+        "residual_sd",
+        "random_intercept_sd",
+        "correlation",
+        "loading"
+      ],
+      "title": "ParameterRole",
+      "type": "string"
+    },
+    "ParameterSpec": {
+      "description": "Specification for a parameter requiring a prior.",
+      "properties": {
+        "name": {
+          "description": "Parameter name (e.g., 'beta_stress_anxiety', 'rho_mood')",
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/ParameterRole",
+          "description": "Role of this parameter in the model"
+        },
+        "constraint": {
+          "$ref": "#/$defs/ParameterConstraint",
+          "description": "Constraint on parameter values"
+        },
+        "description": {
+          "description": "Human-readable description of what this parameter represents",
+          "title": "Description",
+          "type": "string"
+        },
+        "search_context": {
+          "description": "Context for Exa literature search to find relevant effect sizes",
+          "title": "Search Context",
+          "type": "string"
+        }
+      },
+      "required": [
+        "constraint",
+        "description",
+        "name",
+        "role",
+        "search_context"
+      ],
+      "title": "ParameterSpec",
+      "type": "object"
+    },
+    "ParametricIdResult": {
+      "description": "Full parametric identifiability result (Stage 4b payload).",
+      "properties": {
+        "checked": {
+          "default": false,
+          "title": "Checked",
+          "type": "boolean"
+        },
+        "t_rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TRuleResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParametricIdSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "per_param_classification": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ParameterIdentification"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Param Classification"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "title": "ParametricIdResult",
+      "type": "object",
+      "required": [
+        "checked"
+      ]
+    },
+    "ParametricIdSummary": {
+      "description": "Summary of parametric identifiability issues.",
+      "properties": {
+        "structural_issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Structural Issues",
+          "type": "array"
+        },
+        "boundary_issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Boundary Issues",
+          "type": "array"
+        },
+        "weak_params": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Weak Params",
+          "type": "array"
+        }
+      },
+      "title": "ParametricIdSummary",
+      "type": "object",
+      "required": [
+        "boundary_issues",
+        "structural_issues",
+        "weak_params"
+      ]
+    },
+    "PartialStageResult": {
+      "additionalProperties": false,
+      "description": "Partial stage result written to disk during LLM generation.\n\nA subset of the full stage contract: only the ``llm_trace`` field (the part\navailable mid-run) plus ``_live`` metadata so the frontend can distinguish\nin-progress from completed results.  Overwritten by ``persist_web_result``\nwhen the stage completes.",
+      "properties": {
+        "llm_trace": {
+          "$ref": "#/$defs/LLMTrace"
+        },
+        "_live": {
+          "$ref": "#/$defs/LiveMetadata"
+        }
+      },
+      "required": [
+        "_live",
+        "llm_trace"
+      ],
+      "title": "PartialStageResult",
+      "type": "object"
+    },
+    "PosteriorMarginal": {
+      "description": "Marginal posterior density for a single scalar parameter.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "x_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "X Values",
+          "type": "array"
+        },
+        "density": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Density",
+          "type": "array"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "sd": {
+          "title": "Sd",
+          "type": "number"
+        },
+        "hdi_3": {
+          "title": "Hdi 3",
+          "type": "number"
+        },
+        "hdi_97": {
+          "title": "Hdi 97",
+          "type": "number"
+        }
+      },
+      "required": [
+        "density",
+        "hdi_3",
+        "hdi_97",
+        "mean",
+        "parameter",
+        "sd",
+        "x_values"
+      ],
+      "title": "PosteriorMarginal",
+      "type": "object"
+    },
+    "PosteriorPair": {
+      "description": "Pairwise posterior scatter data for joint visualization.",
+      "properties": {
+        "param_x": {
+          "title": "Param X",
+          "type": "string"
+        },
+        "param_y": {
+          "title": "Param Y",
+          "type": "string"
+        },
+        "x_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "X Values",
+          "type": "array"
+        },
+        "y_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Y Values",
+          "type": "array"
+        },
+        "divergent": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Divergent"
+        }
+      },
+      "required": [
+        "param_x",
+        "param_y",
+        "x_values",
+        "y_values"
+      ],
+      "title": "PosteriorPair",
+      "type": "object"
+    },
+    "PowerScalingResultContract": {
+      "additionalProperties": false,
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "diagnosis": {
+          "enum": [
+            "prior_dominated",
+            "well_identified",
+            "prior_data_conflict"
+          ],
+          "title": "Diagnosis",
+          "type": "string"
+        },
+        "prior_sensitivity": {
+          "title": "Prior Sensitivity",
+          "type": "number"
+        },
+        "likelihood_sensitivity": {
+          "title": "Likelihood Sensitivity",
+          "type": "number"
+        },
+        "psis_k_hat": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Psis K Hat"
+        }
+      },
+      "required": [
+        "diagnosis",
+        "likelihood_sensitivity",
+        "parameter",
+        "prior_sensitivity"
+      ],
+      "title": "PowerScalingResultContract",
+      "type": "object"
+    },
+    "PriorProposal": {
+      "description": "A proposed prior distribution for a parameter.",
+      "properties": {
+        "parameter": {
+          "description": "Name of the parameter this prior is for",
+          "title": "Parameter",
+          "type": "string"
+        },
+        "distribution": {
+          "description": "Distribution name (e.g., 'Normal', 'HalfNormal', 'Beta', 'Uniform')",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})",
+          "title": "Params",
+          "type": "object"
+        },
+        "sources": {
+          "description": "Literature sources supporting this prior",
+          "items": {
+            "$ref": "#/$defs/PriorSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "reasoning": {
+          "description": "Justification for the chosen prior distribution and parameters",
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "reference_interval_days": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion: drift = beta / reference_interval_days.",
+          "title": "Reference Interval Days"
+        },
+        "density_points": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pre-computed density curve points [{x, y}, ...] for frontend visualization. Computed by the pipeline before persistence so the frontend doesn't need to approximate the PDF client-side.",
+          "title": "Density Points"
+        }
+      },
+      "required": [
+        "distribution",
+        "parameter",
+        "params",
+        "reasoning",
+        "sources"
+      ],
+      "title": "PriorProposal",
+      "type": "object"
+    },
+    "PriorSource": {
+      "description": "A source of evidence for a prior distribution.",
+      "properties": {
+        "title": {
+          "description": "Title of the source (paper, meta-analysis, etc.)",
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL of the source if available",
+          "title": "Url"
+        },
+        "snippet": {
+          "description": "Relevant excerpt from the source",
+          "title": "Snippet",
+          "type": "string"
+        },
+        "effect_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reported effect size if available (e.g., 'r=0.3', '\u03b2=0.2')",
+          "title": "Effect Size"
+        },
+        "study_interval_days": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)",
+          "title": "Study Interval Days"
+        }
+      },
+      "required": [
+        "snippet",
+        "title"
+      ],
+      "title": "PriorSource",
+      "type": "object"
+    },
+    "RBPartitionResult": {
+      "description": "First-pass Rao-Blackwellization partition for frontend display.",
+      "properties": {
+        "latent_variables": {
+          "items": {
+            "$ref": "#/$defs/RBVariable"
+          },
+          "title": "Latent Variables",
+          "type": "array"
+        },
+        "obs_variables": {
+          "items": {
+            "$ref": "#/$defs/RBVariable"
+          },
+          "title": "Obs Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "latent_variables",
+        "obs_variables"
+      ],
+      "title": "RBPartitionResult",
+      "type": "object"
+    },
+    "RBVariable": {
+      "description": "A single variable's Rao-Blackwellization assignment.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "kalman",
+            "particle"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "name"
+      ],
+      "title": "RBVariable",
+      "type": "object"
+    },
+    "RankHistogram": {
+      "description": "Per-parameter rank histogram for chain mixing assessment.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "n_bins": {
+          "title": "N Bins",
+          "type": "integer"
+        },
+        "expected_per_bin": {
+          "title": "Expected Per Bin",
+          "type": "number"
+        },
+        "chains": {
+          "items": {
+            "$ref": "#/$defs/RankHistogramChain"
+          },
+          "title": "Chains",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chains",
+        "expected_per_bin",
+        "n_bins",
+        "parameter"
+      ],
+      "title": "RankHistogram",
+      "type": "object"
+    },
+    "RankHistogramChain": {
+      "description": "Rank histogram bin counts for a single chain.",
+      "properties": {
+        "chain": {
+          "title": "Chain",
+          "type": "integer"
+        },
+        "counts": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chain",
+        "counts"
+      ],
+      "title": "RankHistogramChain",
+      "type": "object"
+    },
+    "Role": {
+      "description": "Whether a variable is modeled (endogenous) or given (exogenous).",
+      "enum": [
+        "endogenous",
+        "exogenous"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "SVIDiagnostics": {
+      "description": "SVI (variational inference) diagnostics.",
+      "properties": {
+        "elbo_losses": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Elbo Losses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "elbo_losses"
+      ],
+      "title": "SVIDiagnostics",
+      "type": "object"
+    },
+    "Stage0Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        },
+        "source_label": {
+          "title": "Source Label",
+          "type": "string"
+        },
+        "n_records": {
+          "title": "N Records",
+          "type": "integer"
+        },
+        "date_range": {
+          "$ref": "#/$defs/DateRangeContract"
+        },
+        "sample": {
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Sample",
+          "type": "array"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "date_range",
+        "n_records",
+        "sample",
+        "source_label",
+        "source_type"
+      ],
+      "title": "Stage0Contract",
+      "type": "object"
+    },
+    "Stage1aContract": {
+      "additionalProperties": false,
+      "properties": {
+        "latent_model": {
+          "$ref": "#/$defs/LatentModel"
+        },
+        "outcome_name": {
+          "title": "Outcome Name",
+          "type": "string"
+        },
+        "treatments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Treatments",
+          "type": "array"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "latent_model",
+        "outcome_name",
+        "treatments"
+      ],
+      "title": "Stage1aContract",
+      "type": "object"
+    },
+    "Stage1bContract": {
+      "additionalProperties": false,
+      "properties": {
+        "causal_spec": {
+          "$ref": "#/$defs/CausalSpec"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gate_failed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate Failed"
+        },
+        "gate_overridden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GateOverrideContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "causal_spec"
+      ],
+      "title": "Stage1bContract",
+      "type": "object"
+    },
+    "Stage2Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "items": {
+            "$ref": "#/$defs/WorkerStatusContract"
+          },
+          "title": "Workers",
+          "type": "array"
+        },
+        "combined_extractions_sample": {
+          "items": {
+            "$ref": "#/$defs/ExtractionContract"
+          },
+          "title": "Combined Extractions Sample",
+          "type": "array"
+        },
+        "per_indicator_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Per Indicator Counts",
+          "type": "object"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "combined_extractions_sample",
+        "per_indicator_counts",
+        "workers"
+      ],
+      "title": "Stage2Contract",
+      "type": "object"
+    },
+    "Stage3Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "validation_report": {
+          "$ref": "#/$defs/ValidationReportContract"
+        },
+        "gate_failed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate Failed"
+        },
+        "gate_overridden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GateOverrideContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "validation_report"
+      ],
+      "title": "Stage3Contract",
+      "type": "object"
+    },
+    "Stage4Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "model_spec": {
+          "$ref": "#/$defs/ModelSpec"
+        },
+        "priors": {
+          "items": {
+            "$ref": "#/$defs/PriorProposal"
+          },
+          "title": "Priors",
+          "type": "array"
+        },
+        "validation_retries": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ValidationRetryContract"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validation Retries"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "prior_predictive_samples": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prior Predictive Samples"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "model_spec",
+        "priors"
+      ],
+      "title": "Stage4Contract",
+      "type": "object"
+    },
+    "Stage4bContract": {
+      "additionalProperties": false,
+      "properties": {
+        "parametric_id": {
+          "$ref": "#/$defs/ParametricIdResult"
+        },
+        "rb_partition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RBPartitionResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gate_failed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate Failed"
+        },
+        "gate_overridden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GateOverrideContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "parametric_id"
+      ],
+      "title": "Stage4bContract",
+      "type": "object"
+    },
+    "Stage5Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "power_scaling": {
+          "items": {
+            "$ref": "#/$defs/PowerScalingResultContract"
+          },
+          "title": "Power Scaling",
+          "type": "array"
+        },
+        "ppc": {
+          "$ref": "#/$defs/PPCResultContract"
+        },
+        "inference_metadata": {
+          "$ref": "#/$defs/InferenceMetadataContract"
+        },
+        "mcmc_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MCMCDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "svi_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SVIDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "loo_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LOODiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "posterior_marginals": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorMarginal"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Marginals"
+        },
+        "posterior_pairs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorPair"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Pairs"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "inference_metadata",
+        "power_scaling",
+        "ppc"
+      ],
+      "title": "Stage5Contract",
+      "type": "object"
+    },
+    "Stage6Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "intervention_results": {
+          "items": {
+            "$ref": "#/$defs/TreatmentEffectContract"
+          },
+          "title": "Intervention Results",
+          "type": "array"
+        },
+        "inference_metadata": {
+          "$ref": "#/$defs/InferenceMetadataContract"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "inference_metadata",
+        "intervention_results"
+      ],
+      "title": "Stage6Contract",
+      "type": "object"
+    },
+    "TRuleResult": {
+      "description": "Result of the t-rule (counting condition) check.\n\nThe t-rule is a necessary condition for identification: if the number\nof free parameters exceeds the number of available moment conditions,\nthe model is provably non-identified.\n\nFor cross-sectional SEMs the constraint is n_params <= p(p+1)/2.\nFor time series (SSMs), autocovariance at each lag provides p^2\nadditional moment conditions, so the constraint is much weaker.",
+      "properties": {
+        "n_free_params": {
+          "title": "N Free Params",
+          "type": "integer"
+        },
+        "n_manifest": {
+          "title": "N Manifest",
+          "type": "integer"
+        },
+        "n_timepoints": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Timepoints"
+        },
+        "n_moments": {
+          "title": "N Moments",
+          "type": "integer"
+        },
+        "satisfies": {
+          "title": "Satisfies",
+          "type": "boolean"
+        },
+        "param_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Param Counts",
+          "type": "object"
+        }
+      },
+      "required": [
+        "n_free_params",
+        "n_manifest",
+        "n_moments",
+        "n_timepoints",
+        "param_counts",
+        "satisfies"
+      ],
+      "title": "TRuleResult",
+      "type": "object"
+    },
+    "TemporalEffect": {
+      "description": "Temporal decomposition of a treatment effect.",
+      "properties": {
+        "effect_1d": {
+          "title": "Effect 1D",
+          "type": "number"
+        },
+        "effect_7d": {
+          "title": "Effect 7D",
+          "type": "number"
+        },
+        "effect_30d": {
+          "title": "Effect 30D",
+          "type": "number"
+        },
+        "peak_effect": {
+          "title": "Peak Effect",
+          "type": "number"
+        },
+        "time_to_peak_days": {
+          "title": "Time To Peak Days",
+          "type": "number"
+        }
+      },
+      "required": [
+        "effect_1d",
+        "effect_30d",
+        "effect_7d",
+        "peak_effect",
+        "time_to_peak_days"
+      ],
+      "title": "TemporalEffect",
+      "type": "object"
+    },
+    "TemporalStatus": {
+      "description": "Whether a variable changes over time.",
+      "enum": [
+        "time_varying",
+        "time_invariant"
+      ],
+      "title": "TemporalStatus",
+      "type": "string"
+    },
+    "TraceChain": {
+      "description": "Thinned trace values for a single chain.",
+      "properties": {
+        "chain": {
+          "title": "Chain",
+          "type": "integer"
+        },
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chain",
+        "values"
+      ],
+      "title": "TraceChain",
+      "type": "object"
+    },
+    "TraceData": {
+      "description": "Per-parameter trace data across chains.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "chains": {
+          "items": {
+            "$ref": "#/$defs/TraceChain"
+          },
+          "title": "Chains",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chains",
+        "parameter"
+      ],
+      "title": "TraceData",
+      "type": "object"
+    },
+    "TraceMessage": {
+      "description": "A single message in an LLM trace.",
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "tool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Name"
+        },
+        "tool_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Result"
+        },
+        "tool_is_error": {
+          "default": false,
+          "title": "Tool Is Error",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "content",
+        "role",
+        "tool_is_error"
+      ],
+      "title": "TraceMessage",
+      "type": "object"
+    },
+    "TraceUsage": {
+      "description": "Token usage for an LLM trace.",
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "default": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "reasoning_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Tokens"
+        }
+      },
+      "title": "TraceUsage",
+      "type": "object",
+      "required": [
+        "input_tokens",
+        "output_tokens"
+      ]
+    },
+    "TreatmentEffectContract": {
+      "additionalProperties": false,
+      "properties": {
+        "treatment": {
+          "title": "Treatment",
+          "type": "string"
+        },
+        "effect_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effect Size"
+        },
+        "posterior_draws": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Draws"
+        },
+        "prob_positive": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prob Positive"
+        },
+        "identifiable": {
+          "title": "Identifiable",
+          "type": "boolean"
+        },
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        },
+        "ppc_warnings": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ppc Warnings"
+        },
+        "prior_sensitivity_warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prior Sensitivity Warning"
+        },
+        "temporal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporalEffect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "manifest_effects": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Effects"
+        }
+      },
+      "required": [
+        "effect_size",
+        "identifiable",
+        "treatment"
+      ],
+      "title": "TreatmentEffectContract",
+      "type": "object"
+    },
+    "ValidationIssueContract": {
+      "additionalProperties": false,
+      "properties": {
+        "indicator": {
+          "title": "Indicator",
+          "type": "string"
+        },
+        "issue_type": {
+          "title": "Issue Type",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "indicator",
+        "issue_type",
+        "message",
+        "severity"
+      ],
+      "title": "ValidationIssueContract",
+      "type": "object"
+    },
+    "ValidationReportContract": {
+      "additionalProperties": false,
+      "properties": {
+        "is_valid": {
+          "title": "Is Valid",
+          "type": "boolean"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssueContract"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "per_indicator_health": {
+          "items": {
+            "$ref": "#/$defs/IndicatorHealthContract"
+          },
+          "title": "Per Indicator Health",
+          "type": "array"
+        }
+      },
+      "required": [
+        "is_valid",
+        "issues",
+        "per_indicator_health"
+      ],
+      "title": "ValidationReportContract",
+      "type": "object"
+    },
+    "ValidationRetryContract": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "failed_params": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failed Params",
+          "type": "array"
+        },
+        "feedback": {
+          "title": "Feedback",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "failed_params",
+        "feedback"
+      ],
+      "title": "ValidationRetryContract",
+      "type": "object"
+    },
+    "WorkerStatusContract": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "title": "Worker Id",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "completed",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "n_extractions": {
+          "title": "N Extractions",
+          "type": "integer"
+        },
+        "chunk_size": {
+          "title": "Chunk Size",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "chunk_size",
+        "n_extractions",
+        "status",
+        "worker_id"
+      ],
+      "title": "WorkerStatusContract",
+      "type": "object"
+    }
+  },
+  "required": [
+    "_partial",
+    "stage-0",
+    "stage-1a",
+    "stage-1b",
+    "stage-2",
+    "stage-3",
+    "stage-4",
+    "stage-4b",
+    "stage-5",
+    "stage-6"
+  ]
+}

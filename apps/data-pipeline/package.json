@@ -1,0 +1,11 @@
+{
+  "name": "@causal-ssm/data-pipeline",
+  "private": true,
+  "scripts": {
+    "dev": "uv run uvicorn api:app --reload",
+    "test": "uv run pytest tests/",
+    "lint": "uv run ruff check src/ tests/",
+    "format": "uv run ruff format src/ tests/",
+    "type-check": "echo 'skipped (Python)'"
+  }
+}

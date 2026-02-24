@@ -1,0 +1,29 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [".env", ".env.local"],
+  "tasks": {
+    "dev": {
+      "persistent": true,
+      "cache": false
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"],
+      "env": ["NEXT_PUBLIC_*"]
+    },
+    "lint": {},
+    "format": {
+      "cache": false
+    },
+    "test": {
+      "cache": false,
+      "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
+    },
+    "type-check": {
+      "dependsOn": ["^build"]
+    },
+    "codegen:check": {
+      "cache": false
+    }
+  }
+}

@@ -1,0 +1,4 @@
+apps/data-pipeline/notebooks/
+apps/data-pipeline/tests/
+apps/data-pipeline/data/
+apps/web

@@ -1,0 +1,620 @@
+{
+  "latent": {
+    "constructs": [
+      {
+        "name": "Developer Experience Level",
+        "description": "Baseline skill, years of professional experience, and accumulated problem-solving patterns in software development",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Codebase Complexity",
+        "description": "Overall architectural complexity, technical debt, and coupling of the system being worked on",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Team Size",
+        "description": "Number of available team members who can provide debugging support and guidance",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Documentation Quality",
+        "description": "Quality and availability of code documentation, architecture diagrams, and knowledge base resources",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Tooling Quality",
+        "description": "Quality of debugging tools, IDEs, logging infrastructure, and development environment",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Error Information Quality",
+        "description": "Quality of error messages, stack traces, and diagnostic logs that aid in root cause analysis",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Testing Infrastructure Quality",
+        "description": "Ability to reproduce errors, run tests, and verify fixes quickly through automated testing",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "causal_granularity": null
+      },
+      {
+        "name": "Sleep Quality",
+        "description": "Quality and duration of rest from prior night affecting next-day cognitive performance",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Workload Volume",
+        "description": "Amount of tasks, tickets, meetings, and responsibilities assigned on a given day",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Interruption Frequency",
+        "description": "How often deep work is broken by meetings, Slack messages, or other disruptions",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Deadline Pressure",
+        "description": "External time pressure from approaching deadlines, production incidents, or stakeholder demands",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Error Complexity",
+        "description": "Difficulty and intricacy of the specific errors being worked on including race conditions, edge cases, and integration issues",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Cognitive Fatigue",
+        "description": "Mental tiredness and depletion of cognitive resources affecting problem-solving and analytical ability",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Stress Level",
+        "description": "Psychological pressure, anxiety, and frustration related to work demands",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Focus Quality",
+        "description": "Ability to maintain sustained deep attention and concentration on debugging tasks",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Code Familiarity",
+        "description": "Developer's evolving knowledge and understanding of the specific code areas being debugged",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "weekly"
+      },
+      {
+        "name": "Team Support Availability",
+        "description": "Access to timely help and collaboration from team members for debugging assistance",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Debugging Confidence",
+        "description": "Self-efficacy and belief in ability to diagnose and resolve errors successfully",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Systematic Debugging Behavior",
+        "description": "Use of structured approaches like binary search, hypothesis testing, and incremental isolation versus random trial and error",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      },
+      {
+        "name": "Error Resolution Speed",
+        "description": "How quickly errors and bugs are identified, diagnosed, and successfully fixed",
+        "role": "endogenous",
+        "is_outcome": true,
+        "temporal_status": "time_varying",
+        "causal_granularity": "daily"
+      }
+    ],
+    "edges": [
+      {
+        "cause": "Developer Experience Level",
+        "effect": "Error Resolution Speed",
+        "description": "Experienced developers have better mental models and debugging heuristics built from years of pattern recognition",
+        "lagged": true
+      },
+      {
+        "cause": "Developer Experience Level",
+        "effect": "Debugging Confidence",
+        "description": "Experience builds stable self-efficacy in debugging abilities",
+        "lagged": true
+      },
+      {
+        "cause": "Developer Experience Level",
+        "effect": "Systematic Debugging Behavior",
+        "description": "Experienced developers have internalized systematic debugging methodologies",
+        "lagged": true
+      },
+      {
+        "cause": "Codebase Complexity",
+        "effect": "Error Complexity",
+        "description": "Complex, tightly-coupled systems produce harder-to-diagnose emergent errors",
+        "lagged": true
+      },
+      {
+        "cause": "Codebase Complexity",
+        "effect": "Error Resolution Speed",
+        "description": "Complex codebases make errors harder to trace through layers of abstraction",
+        "lagged": true
+      },
+      {
+        "cause": "Team Size",
+        "effect": "Team Support Availability",
+        "description": "Larger teams provide more potential sources of domain knowledge and debugging assistance",
+        "lagged": true
+      },
+      {
+        "cause": "Documentation Quality",
+        "effect": "Error Resolution Speed",
+        "description": "Good documentation helps understand expected behavior, system design, and known issues",
+        "lagged": true
+      },
+      {
+        "cause": "Documentation Quality",
+        "effect": "Code Familiarity",
+        "description": "Quality documentation accelerates learning about unfamiliar code areas",
+        "lagged": true
+      },
+      {
+        "cause": "Tooling Quality",
+        "effect": "Error Resolution Speed",
+        "description": "Better debuggers, IDE features, and profilers speed up error identification and root cause analysis",
+        "lagged": true
+      },
+      {
+        "cause": "Tooling Quality",
+        "effect": "Systematic Debugging Behavior",
+        "description": "Good tools enable and encourage systematic debugging approaches like stepping through code",
+        "lagged": true
+      },
+      {
+        "cause": "Error Information Quality",
+        "effect": "Error Resolution Speed",
+        "description": "Clear error messages and detailed stack traces dramatically reduce diagnosis time",
+        "lagged": true
+      },
+      {
+        "cause": "Testing Infrastructure Quality",
+        "effect": "Error Resolution Speed",
+        "description": "Ability to quickly write tests, reproduce errors, and verify fixes speeds the debug-fix-verify cycle",
+        "lagged": true
+      },
+      {
+        "cause": "Sleep Quality",
+        "effect": "Cognitive Fatigue",
+        "description": "Poor sleep leads to higher baseline fatigue affecting next-day cognitive resources",
+        "lagged": true
+      },
+      {
+        "cause": "Sleep Quality",
+        "effect": "Focus Quality",
+        "description": "Sleep deprivation directly impairs attention, working memory, and concentration",
+        "lagged": true
+      },
+      {
+        "cause": "Workload Volume",
+        "effect": "Cognitive Fatigue",
+        "description": "Heavy workloads deplete cognitive resources faster through the day",
+        "lagged": false
+      },
+      {
+        "cause": "Workload Volume",
+        "effect": "Stress Level",
+        "description": "High workload creates pressure and increases perceived stress",
+        "lagged": false
+      },
+      {
+        "cause": "Workload Volume",
+        "effect": "Error Resolution Speed",
+        "description": "High workload forces time-boxing on debugging, reducing thoroughness",
+        "lagged": false
+      },
+      {
+        "cause": "Interruption Frequency",
+        "effect": "Focus Quality",
+        "description": "Frequent interruptions break flow state and require costly context switching back to debugging",
+        "lagged": false
+      },
+      {
+        "cause": "Interruption Frequency",
+        "effect": "Cognitive Fatigue",
+        "description": "Context switching from interruptions is cognitively exhausting",
+        "lagged": false
+      },
+      {
+        "cause": "Deadline Pressure",
+        "effect": "Stress Level",
+        "description": "Approaching deadlines amplify psychological pressure and anxiety",
+        "lagged": false
+      },
+      {
+        "cause": "Deadline Pressure",
+        "effect": "Systematic Debugging Behavior",
+        "description": "High pressure can cause abandonment of systematic approaches for desperate trial-and-error",
+        "lagged": false
+      },
+      {
+        "cause": "Error Complexity",
+        "effect": "Error Resolution Speed",
+        "description": "Complex errors like race conditions or subtle memory issues require more time to diagnose and fix",
+        "lagged": false
+      },
+      {
+        "cause": "Error Complexity",
+        "effect": "Stress Level",
+        "description": "Difficult errors increase frustration and pressure, especially under time constraints",
+        "lagged": false
+      },
+      {
+        "cause": "Cognitive Fatigue",
+        "effect": "Focus Quality",
+        "description": "Mental fatigue makes it progressively harder to maintain concentration",
+        "lagged": false
+      },
+      {
+        "cause": "Cognitive Fatigue",
+        "effect": "Error Resolution Speed",
+        "description": "Fatigue impairs analytical reasoning and pattern recognition critical for debugging",
+        "lagged": false
+      },
+      {
+        "cause": "Cognitive Fatigue",
+        "effect": "Stress Level",
+        "description": "Mental exhaustion reduces emotional regulation capacity increasing stress reactivity",
+        "lagged": false
+      },
+      {
+        "cause": "Stress Level",
+        "effect": "Focus Quality",
+        "description": "High stress impairs working memory and sustained attention through rumination",
+        "lagged": false
+      },
+      {
+        "cause": "Stress Level",
+        "effect": "Systematic Debugging Behavior",
+        "description": "Stress triggers reactive rather than deliberate debugging approaches",
+        "lagged": false
+      },
+      {
+        "cause": "Focus Quality",
+        "effect": "Error Resolution Speed",
+        "description": "Sustained deep attention is critical for systematic debugging and holding complex state in working memory",
+        "lagged": false
+      },
+      {
+        "cause": "Focus Quality",
+        "effect": "Systematic Debugging Behavior",
+        "description": "Good focus enables methodical step-by-step debugging rather than scattered attempts",
+        "lagged": false
+      },
+      {
+        "cause": "Code Familiarity",
+        "effect": "Error Resolution Speed",
+        "description": "Knowing the code helps quickly locate and understand the source of errors",
+        "lagged": true
+      },
+      {
+        "cause": "Code Familiarity",
+        "effect": "Debugging Confidence",
+        "description": "Familiarity with code increases confidence in ability to navigate and fix issues",
+        "lagged": true
+      },
+      {
+        "cause": "Team Support Availability",
+        "effect": "Error Resolution Speed",
+        "description": "Available teammates provide domain knowledge, pair debugging, and fresh perspectives",
+        "lagged": false
+      },
+      {
+        "cause": "Team Support Availability",
+        "effect": "Stress Level",
+        "description": "Knowing help is available reduces isolation and anxiety when stuck on hard bugs",
+        "lagged": false
+      },
+      {
+        "cause": "Debugging Confidence",
+        "effect": "Error Resolution Speed",
+        "description": "Confidence enables persistent, systematic approaches rather than giving up or escalating prematurely",
+        "lagged": false
+      },
+      {
+        "cause": "Debugging Confidence",
+        "effect": "Systematic Debugging Behavior",
+        "description": "Confident developers trust systematic methods rather than flailing",
+        "lagged": false
+      },
+      {
+        "cause": "Systematic Debugging Behavior",
+        "effect": "Error Resolution Speed",
+        "description": "Methodical approaches like binary search and hypothesis testing resolve errors faster than random attempts",
+        "lagged": false
+      },
+      {
+        "cause": "Error Resolution Speed",
+        "effect": "Debugging Confidence",
+        "description": "Successfully resolving errors builds confidence and positive momentum for future debugging",
+        "lagged": true
+      },
+      {
+        "cause": "Error Resolution Speed",
+        "effect": "Stress Level",
+        "description": "Faster resolution reduces backlog pressure and frees mental bandwidth",
+        "lagged": true
+      },
+      {
+        "cause": "Error Resolution Speed",
+        "effect": "Code Familiarity",
+        "description": "Debugging teaches deep understanding of code behavior and edge cases",
+        "lagged": true
+      }
+    ]
+  },
+  "measurement": {
+    "indicators": [
+      {
+        "name": "late_night_browsing",
+        "construct": "Sleep Quality",
+        "how_to_measure": "Binary: 1 if any browsing activity occurs between 00:00-05:00, 0 otherwise",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "max"
+      },
+      {
+        "name": "morning_start_hour",
+        "construct": "Sleep Quality",
+        "how_to_measure": "Record the hour (0-23) of the first browsing activity. Example: 9:35 AM returns 9. No activity = missing.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "continuous",
+        "aggregation": "first"
+      },
+      {
+        "name": "technical_entry_count",
+        "construct": "Workload Volume",
+        "how_to_measure": "Count entries related to programming, debugging, or technical work. Include: programming languages, code, debug, error, github, stackoverflow, technical documentation, IDE, API.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "distinct_work_topics",
+        "construct": "Workload Volume",
+        "how_to_measure": "Count distinct technical topic areas addressed (e.g., 'Haskell monads' = 1 topic, 'Ruby debugging' = 1 topic, 'API authentication' = 1 topic). Group similar/related searches as one topic.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "topic_switch_count",
+        "construct": "Interruption Frequency",
+        "how_to_measure": "Count transitions where consecutive entries cover clearly different topic domains (e.g., programming to food, technical to entertainment). Only count major domain changes.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "work_gap_count",
+        "construct": "Interruption Frequency",
+        "how_to_measure": "Count gaps greater than 15 minutes between consecutive work-related entries, suggesting interruption or distraction periods.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "last_work_hour",
+        "construct": "Deadline Pressure",
+        "how_to_measure": "Record the hour (0-23) of the last technical/work-related entry of the day. No work entries = missing.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "continuous",
+        "aggregation": "last"
+      },
+      {
+        "name": "first_work_hour",
+        "construct": "Deadline Pressure",
+        "how_to_measure": "Record the hour (0-23) of the first technical/work-related entry of the day. No work entries = missing.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "continuous",
+        "aggregation": "first"
+      },
+      {
+        "name": "complex_debug_search_count",
+        "construct": "Error Complexity",
+        "how_to_measure": "Count searches containing advanced debugging keywords: stacktrace, exception, race condition, deadlock, memory leak, segfault, concurrency, async error, thread safety, mutex, profiler",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "error_message_search_count",
+        "construct": "Error Complexity",
+        "how_to_measure": "Count searches containing specific error messages, error codes, or exception class names (identifiable by quoted error text, numeric codes, or CamelCase exception patterns)",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "nonwork_entry_count",
+        "construct": "Cognitive Fatigue",
+        "how_to_measure": "Count entries that are non-work related: entertainment, social media, news, personal interests, travel, food, shopping, music, games",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "afternoon_work_count",
+        "construct": "Cognitive Fatigue",
+        "how_to_measure": "Count work-related entries occurring after 14:00 (2 PM). Fewer afternoon work entries relative to morning may indicate fatigue.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "stress_health_search_count",
+        "construct": "Stress Level",
+        "how_to_measure": "Count searches related to: stress, anxiety, mental health, burnout, depression, sleep problems, relaxation, meditation, or mood-altering substances",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "escape_behavior_count",
+        "construct": "Stress Level",
+        "how_to_measure": "Count instances where entertainment/leisure entries appear immediately after work entries, suggesting escape-seeking behavior during work periods",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "work_clustering_rating",
+        "construct": "Focus Quality",
+        "how_to_measure": "Rate 1-5: How temporally clustered are work entries? 5 = tightly grouped with minimal time gaps, 1 = scattered throughout day. No work entries = 3.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "ordinal",
+        "aggregation": "mean"
+      },
+      {
+        "name": "max_consecutive_work_entries",
+        "construct": "Focus Quality",
+        "how_to_measure": "Count entries in the longest unbroken sequence of consecutive work entries (no leisure entries between them). No work entries = 0.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "max"
+      },
+      {
+        "name": "basic_lookup_count",
+        "construct": "Code Familiarity",
+        "how_to_measure": "Count searches for basic concepts or tutorials. Look for: 'what is X', 'how to X', 'X tutorial', 'X example', 'X for beginners', 'learn X', 'X basics'",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "documentation_visit_count",
+        "construct": "Code Familiarity",
+        "how_to_measure": "Count visits to documentation or API reference sites. Identify by: docs, documentation, reference, API, wiki, manual in URL or title.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "external_help_count",
+        "construct": "Team Support Availability",
+        "how_to_measure": "Count visits to external Q&A sites: Stack Overflow, Reddit programming threads, GitHub issues/discussions, programming forums, dev.to",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "multi_site_same_query",
+        "construct": "Team Support Availability",
+        "how_to_measure": "Binary: 1 if same programming question is searched on multiple different external sites (suggesting exhaustive external search when team unavailable), 0 otherwise",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "max"
+      },
+      {
+        "name": "debug_search_specificity",
+        "construct": "Debugging Confidence",
+        "how_to_measure": "Rate 1-5: How specific are debugging searches? 5 = very specific (exact function, precise error), 1 = vague ('help', 'not working'). No debugging searches = 3.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "ordinal",
+        "aggregation": "mean"
+      },
+      {
+        "name": "repeated_search_count",
+        "construct": "Debugging Confidence",
+        "how_to_measure": "Count instances where very similar searches appear multiple times (same main keywords with minor variations), suggesting uncertainty",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "search_progression_rating",
+        "construct": "Systematic Debugging Behavior",
+        "how_to_measure": "Rate 1-5: How logical is the debugging search progression? 5 = clear steps (understand \u2192 narrow down \u2192 solve), 1 = random/scattered. No debugging = 3.",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "ordinal",
+        "aggregation": "mean"
+      },
+      {
+        "name": "has_methodology_search",
+        "construct": "Systematic Debugging Behavior",
+        "how_to_measure": "Binary: 1 if any search for debugging methodology ('debugging tips', 'how to debug', 'troubleshooting steps', 'debugging best practices'), 0 otherwise",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "max"
+      },
+      {
+        "name": "debug_entry_count",
+        "construct": "Error Resolution Speed",
+        "how_to_measure": "Count entries about debugging/troubleshooting: error messages, 'debug', 'fix', 'solve', 'exception', 'troubleshoot', error codes",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "count",
+        "aggregation": "sum"
+      },
+      {
+        "name": "stuck_on_error",
+        "construct": "Error Resolution Speed",
+        "how_to_measure": "Binary: 1 if any specific error topic is searched 3+ times without apparent resolution (same error keywords recurring), 0 otherwise",
+        "measurement_granularity": "daily",
+        "measurement_dtype": "binary",
+        "aggregation": "max"
+      }
+    ]
+  }
+}

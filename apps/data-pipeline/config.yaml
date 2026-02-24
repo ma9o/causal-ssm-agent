@@ -1,0 +1,59 @@
+# Causal Agent Pipeline Configuration
+
+# Stage 1: Structure Proposal (Orchestrator)
+# The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
+stage1_structure_proposal:
+  model: openrouter/anthropic/claude-opus-4.6
+  sample_chunks: 10  # Number of chunks to show orchestrator
+  chunk_size: 100    # Lines per chunk for orchestrator
+
+# Stage 2: Dimension Population (Workers)
+# Workers process chunks in parallel to populate dimensions and suggest graph edits
+stage2_workers:
+  model: openrouter/google/gemini-3-flash-preview
+  chunk_size: 20  # Lines per chunk for each worker
+
+# Stage 3: Identifiability & Sensitivity Analysis
+# Uses y0 (Pearl's ID algorithm) - no LLM needed
+
+# Stage 4: Model Specification & Prior Elicitation
+stage4_prior_elicitation:
+  model: openrouter/anthropic/claude-opus-4.6
+  # Literature search for grounding priors (requires EXA_API_KEY in .env)
+  literature_search:
+    enabled: true
+    model: exa-research  # exa-research-fast, exa-research, or exa-research-pro
+    timeout_ms: 120000   # Max time to wait for research completion
+  # AutoElicit-style paraphrased prompting for prior elicitation
+  paraphrasing:
+    enabled: false       # Off by default (increases LLM cost)
+    n_paraphrases: 10    # Number of paraphrased prompts per parameter
+
+# Stage 5: Intervention Analysis
+# Uses NumPyro SSM - no LLM needed
+
+# Inference settings (shared across pipeline and benchmarks)
+inference:
+  method: svi
+  # gpu: A100  # Set to dispatch stage 5 to Modal GPU (A100, L4, B200). Omit for local.
+  num_warmup: 1000
+  num_samples: 1000
+  num_chains: 4
+  seed: 0
+  svi:
+    num_steps: 5000
+    learning_rate: 0.01
+    guide_type: mvn
+  nuts:
+    target_accept_prob: 0.85
+    max_tree_depth: 8
+
+# LLM generation settings (shared across all model calls)
+llm:
+  max_tokens: 65536
+  timeout: 900
+  reasoning_effort: high
+
+# Pipeline-level behavior
+pipeline:
+  max_prior_retries: 3

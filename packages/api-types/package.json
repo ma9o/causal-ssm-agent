@@ -1,0 +1,20 @@
+{
+  "name": "@causal-ssm/api-types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": ["src"],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "codegen": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py && cd ../../packages/api-types && bun run scripts/generate.ts",
+    "codegen:check": "bun run codegen && git diff --exit-code src/generated/"
+  },
+  "devDependencies": {
+    "@causal-ssm/typescript-config": "workspace:*",
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5"
+  }
+}

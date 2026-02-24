@@ -1,0 +1,406 @@
+{
+  "constructs": [
+    {
+      "name": "Developer Experience Level",
+      "description": "Baseline skill, years of professional experience, and accumulated problem-solving patterns in software development",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Codebase Complexity",
+      "description": "Overall architectural complexity, technical debt, and coupling of the system being worked on",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Team Size",
+      "description": "Number of available team members who can provide debugging support and guidance",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Documentation Quality",
+      "description": "Quality and availability of code documentation, architecture diagrams, and knowledge base resources",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Tooling Quality",
+      "description": "Quality of debugging tools, IDEs, logging infrastructure, and development environment",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Error Information Quality",
+      "description": "Quality of error messages, stack traces, and diagnostic logs that aid in root cause analysis",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Testing Infrastructure Quality",
+      "description": "Ability to reproduce errors, run tests, and verify fixes quickly through automated testing",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_invariant",
+      "causal_granularity": null
+    },
+    {
+      "name": "Sleep Quality",
+      "description": "Quality and duration of rest from prior night affecting next-day cognitive performance",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Workload Volume",
+      "description": "Amount of tasks, tickets, meetings, and responsibilities assigned on a given day",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Interruption Frequency",
+      "description": "How often deep work is broken by meetings, Slack messages, or other disruptions",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Deadline Pressure",
+      "description": "External time pressure from approaching deadlines, production incidents, or stakeholder demands",
+      "role": "exogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Error Complexity",
+      "description": "Difficulty and intricacy of the specific errors being worked on including race conditions, edge cases, and integration issues",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Cognitive Fatigue",
+      "description": "Mental tiredness and depletion of cognitive resources affecting problem-solving and analytical ability",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Stress Level",
+      "description": "Psychological pressure, anxiety, and frustration related to work demands",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Focus Quality",
+      "description": "Ability to maintain sustained deep attention and concentration on debugging tasks",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Code Familiarity",
+      "description": "Developer's evolving knowledge and understanding of the specific code areas being debugged",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "weekly"
+    },
+    {
+      "name": "Team Support Availability",
+      "description": "Access to timely help and collaboration from team members for debugging assistance",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Debugging Confidence",
+      "description": "Self-efficacy and belief in ability to diagnose and resolve errors successfully",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Systematic Debugging Behavior",
+      "description": "Use of structured approaches like binary search, hypothesis testing, and incremental isolation versus random trial and error",
+      "role": "endogenous",
+      "is_outcome": false,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    },
+    {
+      "name": "Error Resolution Speed",
+      "description": "How quickly errors and bugs are identified, diagnosed, and successfully fixed",
+      "role": "endogenous",
+      "is_outcome": true,
+      "temporal_status": "time_varying",
+      "causal_granularity": "daily"
+    }
+  ],
+  "edges": [
+    {
+      "cause": "Developer Experience Level",
+      "effect": "Error Resolution Speed",
+      "description": "Experienced developers have better mental models and debugging heuristics built from years of pattern recognition",
+      "lagged": true
+    },
+    {
+      "cause": "Developer Experience Level",
+      "effect": "Debugging Confidence",
+      "description": "Experience builds stable self-efficacy in debugging abilities",
+      "lagged": true
+    },
+    {
+      "cause": "Developer Experience Level",
+      "effect": "Systematic Debugging Behavior",
+      "description": "Experienced developers have internalized systematic debugging methodologies",
+      "lagged": true
+    },
+    {
+      "cause": "Codebase Complexity",
+      "effect": "Error Complexity",
+      "description": "Complex, tightly-coupled systems produce harder-to-diagnose emergent errors",
+      "lagged": true
+    },
+    {
+      "cause": "Codebase Complexity",
+      "effect": "Error Resolution Speed",
+      "description": "Complex codebases make errors harder to trace through layers of abstraction",
+      "lagged": true
+    },
+    {
+      "cause": "Team Size",
+      "effect": "Team Support Availability",
+      "description": "Larger teams provide more potential sources of domain knowledge and debugging assistance",
+      "lagged": true
+    },
+    {
+      "cause": "Documentation Quality",
+      "effect": "Error Resolution Speed",
+      "description": "Good documentation helps understand expected behavior, system design, and known issues",
+      "lagged": true
+    },
+    {
+      "cause": "Documentation Quality",
+      "effect": "Code Familiarity",
+      "description": "Quality documentation accelerates learning about unfamiliar code areas",
+      "lagged": true
+    },
+    {
+      "cause": "Tooling Quality",
+      "effect": "Error Resolution Speed",
+      "description": "Better debuggers, IDE features, and profilers speed up error identification and root cause analysis",
+      "lagged": true
+    },
+    {
+      "cause": "Tooling Quality",
+      "effect": "Systematic Debugging Behavior",
+      "description": "Good tools enable and encourage systematic debugging approaches like stepping through code",
+      "lagged": true
+    },
+    {
+      "cause": "Error Information Quality",
+      "effect": "Error Resolution Speed",
+      "description": "Clear error messages and detailed stack traces dramatically reduce diagnosis time",
+      "lagged": true
+    },
+    {
+      "cause": "Testing Infrastructure Quality",
+      "effect": "Error Resolution Speed",
+      "description": "Ability to quickly write tests, reproduce errors, and verify fixes speeds the debug-fix-verify cycle",
+      "lagged": true
+    },
+    {
+      "cause": "Sleep Quality",
+      "effect": "Cognitive Fatigue",
+      "description": "Poor sleep leads to higher baseline fatigue affecting next-day cognitive resources",
+      "lagged": true
+    },
+    {
+      "cause": "Sleep Quality",
+      "effect": "Focus Quality",
+      "description": "Sleep deprivation directly impairs attention, working memory, and concentration",
+      "lagged": true
+    },
+    {
+      "cause": "Workload Volume",
+      "effect": "Cognitive Fatigue",
+      "description": "Heavy workloads deplete cognitive resources faster through the day",
+      "lagged": false
+    },
+    {
+      "cause": "Workload Volume",
+      "effect": "Stress Level",
+      "description": "High workload creates pressure and increases perceived stress",
+      "lagged": false
+    },
+    {
+      "cause": "Workload Volume",
+      "effect": "Error Resolution Speed",
+      "description": "High workload forces time-boxing on debugging, reducing thoroughness",
+      "lagged": false
+    },
+    {
+      "cause": "Interruption Frequency",
+      "effect": "Focus Quality",
+      "description": "Frequent interruptions break flow state and require costly context switching back to debugging",
+      "lagged": false
+    },
+    {
+      "cause": "Interruption Frequency",
+      "effect": "Cognitive Fatigue",
+      "description": "Context switching from interruptions is cognitively exhausting",
+      "lagged": false
+    },
+    {
+      "cause": "Deadline Pressure",
+      "effect": "Stress Level",
+      "description": "Approaching deadlines amplify psychological pressure and anxiety",
+      "lagged": false
+    },
+    {
+      "cause": "Deadline Pressure",
+      "effect": "Systematic Debugging Behavior",
+      "description": "High pressure can cause abandonment of systematic approaches for desperate trial-and-error",
+      "lagged": false
+    },
+    {
+      "cause": "Error Complexity",
+      "effect": "Error Resolution Speed",
+      "description": "Complex errors like race conditions or subtle memory issues require more time to diagnose and fix",
+      "lagged": false
+    },
+    {
+      "cause": "Error Complexity",
+      "effect": "Stress Level",
+      "description": "Difficult errors increase frustration and pressure, especially under time constraints",
+      "lagged": false
+    },
+    {
+      "cause": "Cognitive Fatigue",
+      "effect": "Focus Quality",
+      "description": "Mental fatigue makes it progressively harder to maintain concentration",
+      "lagged": false
+    },
+    {
+      "cause": "Cognitive Fatigue",
+      "effect": "Error Resolution Speed",
+      "description": "Fatigue impairs analytical reasoning and pattern recognition critical for debugging",
+      "lagged": false
+    },
+    {
+      "cause": "Cognitive Fatigue",
+      "effect": "Stress Level",
+      "description": "Mental exhaustion reduces emotional regulation capacity increasing stress reactivity",
+      "lagged": false
+    },
+    {
+      "cause": "Stress Level",
+      "effect": "Focus Quality",
+      "description": "High stress impairs working memory and sustained attention through rumination",
+      "lagged": false
+    },
+    {
+      "cause": "Stress Level",
+      "effect": "Systematic Debugging Behavior",
+      "description": "Stress triggers reactive rather than deliberate debugging approaches",
+      "lagged": false
+    },
+    {
+      "cause": "Focus Quality",
+      "effect": "Error Resolution Speed",
+      "description": "Sustained deep attention is critical for systematic debugging and holding complex state in working memory",
+      "lagged": false
+    },
+    {
+      "cause": "Focus Quality",
+      "effect": "Systematic Debugging Behavior",
+      "description": "Good focus enables methodical step-by-step debugging rather than scattered attempts",
+      "lagged": false
+    },
+    {
+      "cause": "Code Familiarity",
+      "effect": "Error Resolution Speed",
+      "description": "Knowing the code helps quickly locate and understand the source of errors",
+      "lagged": true
+    },
+    {
+      "cause": "Code Familiarity",
+      "effect": "Debugging Confidence",
+      "description": "Familiarity with code increases confidence in ability to navigate and fix issues",
+      "lagged": true
+    },
+    {
+      "cause": "Team Support Availability",
+      "effect": "Error Resolution Speed",
+      "description": "Available teammates provide domain knowledge, pair debugging, and fresh perspectives",
+      "lagged": false
+    },
+    {
+      "cause": "Team Support Availability",
+      "effect": "Stress Level",
+      "description": "Knowing help is available reduces isolation and anxiety when stuck on hard bugs",
+      "lagged": false
+    },
+    {
+      "cause": "Debugging Confidence",
+      "effect": "Error Resolution Speed",
+      "description": "Confidence enables persistent, systematic approaches rather than giving up or escalating prematurely",
+      "lagged": false
+    },
+    {
+      "cause": "Debugging Confidence",
+      "effect": "Systematic Debugging Behavior",
+      "description": "Confident developers trust systematic methods rather than flailing",
+      "lagged": false
+    },
+    {
+      "cause": "Systematic Debugging Behavior",
+      "effect": "Error Resolution Speed",
+      "description": "Methodical approaches like binary search and hypothesis testing resolve errors faster than random attempts",
+      "lagged": false
+    },
+    {
+      "cause": "Error Resolution Speed",
+      "effect": "Debugging Confidence",
+      "description": "Successfully resolving errors builds confidence and positive momentum for future debugging",
+      "lagged": true
+    },
+    {
+      "cause": "Error Resolution Speed",
+      "effect": "Stress Level",
+      "description": "Faster resolution reduces backlog pressure and frees mental bandwidth",
+      "lagged": true
+    },
+    {
+      "cause": "Error Resolution Speed",
+      "effect": "Code Familiarity",
+      "description": "Debugging teaches deep understanding of code behavior and edge cases",
+      "lagged": true
+    }
+  ]
+}
