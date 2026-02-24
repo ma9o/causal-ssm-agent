@@ -73,8 +73,7 @@ export function DiagnosticsAccordion({
     }));
   })();
 
-  // All sections default open
-  const defaultOpen = ["mcmc", "svi", "loo", "posteriors", "power-scaling", "ppc"];
+  const defaultOpen = ["mcmc", "svi", "ppc", "loo", "power-scaling"];
 
   return (
     <Accordion defaultOpen={defaultOpen}>
@@ -131,6 +130,27 @@ export function DiagnosticsAccordion({
         </AccordionItem>
       )}
 
+      {/* ── Posterior Predictive Checks (warnings + overlays + test stats) ── */}
+      <AccordionItem value="ppc">
+        <AccordionTrigger className="text-sm">
+          <span className="inline-flex items-center gap-1.5 flex-wrap">
+            Posterior Predictive Checks
+            <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
+            <Badge variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}>
+              {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
+            </Badge>
+          </span>
+        </AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-6">
+            <p className="text-xs text-muted-foreground">
+              PPCs check distributional adequacy, not causal validity. A model can pass all checks and still encode wrong causal assumptions.
+            </p>
+            <PPCWarningsTable warnings={ppc.per_variable_warnings} testStats={ppc.test_stats ?? []} overlays={ppc.overlays ?? []} />
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
       {/* ── LOO Cross-Validation (PIT + Pareto-K side by side) ── */}
       {looDiagnostics && (
         <AccordionItem value="loo">
@@ -165,46 +185,6 @@ export function DiagnosticsAccordion({
                 {looDiagnostics.loo_pit && <LOOPITChart loo={looDiagnostics} />}
                 {looDiagnostics.pareto_k && <ParetoKChart loo={looDiagnostics} />}
               </div>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      )}
-
-      {/* ── Posterior Exploration (marginals + pairs) ── */}
-      {(hasMarginals || hasPairs) && (
-        <AccordionItem value="posteriors">
-          <AccordionTrigger className="text-sm">
-            <span className="inline-flex items-center gap-1.5 flex-wrap">
-              Posterior Exploration
-              <StatTooltip explanation="Marginal posterior densities with 94% HDI, and pairwise scatter plots revealing parameter correlations and identifiability issues." />
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
-              {hasMarginals && (
-                <div>
-                  <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Marginal distributions
-                  </h4>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {posteriorMarginals!.map((m) => (
-                      <PosteriorDensityChart key={m.parameter} marginal={m} />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {hasPairs && (
-                <div>
-                  <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Pairwise correlations
-                  </h4>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {posteriorPairs!.map((p) => (
-                      <PosteriorPairsChart key={`${p.param_x}-${p.param_y}`} pair={p} />
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -247,26 +227,45 @@ export function DiagnosticsAccordion({
         </AccordionContent>
       </AccordionItem>
 
-      {/* ── Posterior Predictive Checks (warnings + overlays + test stats) ── */}
-      <AccordionItem value="ppc">
-        <AccordionTrigger className="text-sm">
-          <span className="inline-flex items-center gap-1.5 flex-wrap">
-            Posterior Predictive Checks
-            <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
-            <Badge variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}>
-              {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
-            </Badge>
-          </span>
-        </AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-6">
-            <p className="text-xs text-muted-foreground">
-              PPCs check distributional adequacy, not causal validity. A model can pass all checks and still encode wrong causal assumptions.
-            </p>
-            <PPCWarningsTable warnings={ppc.per_variable_warnings} testStats={ppc.test_stats ?? []} overlays={ppc.overlays ?? []} />
-          </div>
-        </AccordionContent>
-      </AccordionItem>
+      {/* ── Posterior Exploration (marginals + pairs) ── */}
+      {(hasMarginals || hasPairs) && (
+        <AccordionItem value="posteriors">
+          <AccordionTrigger className="text-sm">
+            <span className="inline-flex items-center gap-1.5 flex-wrap">
+              Posterior Exploration
+              <StatTooltip explanation="Marginal posterior densities with 94% HDI, and pairwise scatter plots revealing parameter correlations and identifiability issues." />
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-4">
+              {hasMarginals && (
+                <div>
+                  <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Marginal distributions
+                  </h4>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {posteriorMarginals!.map((m) => (
+                      <PosteriorDensityChart key={m.parameter} marginal={m} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {hasPairs && (
+                <div>
+                  <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Pairwise correlations
+                  </h4>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {posteriorPairs!.map((p) => (
+                      <PosteriorPairsChart key={`${p.param_x}-${p.param_y}`} pair={p} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      )}
     </Accordion>
   );
 }
