@@ -21,8 +21,8 @@ const columns = [
   col.accessor("effect_size", {
     header: () => (
       <HeaderWithTooltip
-        label={"\u03B2\u0302"}
-        tooltip="Posterior mean of the causal effect. Positive values indicate the treatment increases the outcome."
+        label={"\u03C4\u0302"}
+        tooltip="Estimated individual treatment effect (ITE) via do-operator steady-state intervention. Positive values indicate the treatment increases the outcome."
       />
     ),
     cell: (info) => {
@@ -56,8 +56,8 @@ const columns = [
   col.accessor("prob_positive", {
     header: () => (
       <HeaderWithTooltip
-        label={`P(\u03B2>0)`}
-        tooltip="Posterior probability that the effect is positive. Values near 1 or 0 indicate strong directional evidence."
+        label={`P(\u03C4>0)`}
+        tooltip="Posterior probability that the treatment effect is positive. Values near 1 or 0 indicate strong directional evidence."
       />
     ),
     cell: (info) => {
@@ -81,5 +81,11 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
     [results],
   );
 
-  return <InfoTable columns={columns as ColumnDef<TreatmentEffect, unknown>[]} data={sorted} />;
+  return (
+    <InfoTable
+      columns={columns as ColumnDef<TreatmentEffect, unknown>[]}
+      data={sorted}
+      rowClassName={(_row, index) => (index === 0 ? "bg-emerald-500/10" : undefined)}
+    />
+  );
 }

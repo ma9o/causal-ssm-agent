@@ -73,6 +73,7 @@ interface InfoTableProps<TData> {
   estimateRowHeight?: number;
   groupBy?: (row: TData) => string;
   renderGroupHeader?: (groupKey: string, rows: TData[]) => ReactNode;
+  rowClassName?: (row: TData, index: number) => string | undefined;
 }
 
 export function InfoTable<TData>({
@@ -84,6 +85,7 @@ export function InfoTable<TData>({
   estimateRowHeight = 40,
   groupBy,
   renderGroupHeader,
+  rowClassName,
 }: InfoTableProps<TData>) {
   const [sortingState, setSortingState] = useState<SortingState>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -249,7 +251,7 @@ export function InfoTable<TData>({
               return (
                 <TableRow
                   key={row.id}
-                  className={cn(focusedRowIndex === row.index && "ring-2 ring-ring ring-inset")}
+                  className={cn(focusedRowIndex === row.index && "ring-2 ring-ring ring-inset", rowClassName?.(row.original, row.index))}
                   data-index={vi.index}
                   ref={virtualizer.measureElement}
                 >

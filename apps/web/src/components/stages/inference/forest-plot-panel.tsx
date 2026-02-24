@@ -54,10 +54,10 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
     <div className="rounded-md border bg-popover px-3 py-2 text-sm shadow-md">
       <div className="mb-1 font-medium">{d.treatment}</div>
       <div className="space-y-0.5 font-mono text-xs text-muted-foreground">
-        <div>{"\u03B2\u0302"} = {formatNumber(d.effect_size, 3)}</div>
+        <div>{"\u03C4\u0302"} = {formatNumber(d.effect_size, 3)}</div>
         <div>95% CI [{formatNumber(d.ci_lower, 3)}, {formatNumber(d.ci_upper, 3)}]</div>
         {d.prob_positive !== undefined && (
-          <div>P(β&gt;0) = {formatNumber(d.prob_positive, 3)}</div>
+          <div>P(τ&gt;0) = {formatNumber(d.prob_positive, 3)}</div>
         )}
       </div>
     </div>
