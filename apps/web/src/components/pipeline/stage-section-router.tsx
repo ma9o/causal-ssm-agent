@@ -16,6 +16,7 @@ import type {
   Stage4Data,
   Stage4bData,
   Stage5Data,
+  Stage6Data,
   StageMeta,
 } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5Content = lazy(() => import("./stage-contents/stage-5-content"));
+const Stage6Content = lazy(() => import("./stage-contents/stage-6-content"));
 
 function StageWithTrace({
   children,
@@ -190,6 +192,8 @@ function StageContent({ stageId, runId }: { stageId: string; runId: string }) {
       return <Stage4bWrapper runId={runId} />;
     case "stage-5":
       return <Stage5Wrapper runId={runId} />;
+    case "stage-6":
+      return <Stage6Wrapper runId={runId} />;
     default:
       return null;
   }
@@ -242,4 +246,10 @@ function Stage5Wrapper({ runId }: { runId: string }) {
   const { data } = useStageData<Stage5Data>(runId, "stage-5", true);
   if (!data) return null;
   return <Stage5Content data={data} />;
+}
+
+function Stage6Wrapper({ runId }: { runId: string }) {
+  const { data } = useStageData<Stage6Data>(runId, "stage-6", true);
+  if (!data) return null;
+  return <Stage6Content data={data} />;
 }

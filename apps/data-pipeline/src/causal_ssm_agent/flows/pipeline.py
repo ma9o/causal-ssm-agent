@@ -303,7 +303,9 @@ async def causal_inference_pipeline(
             {
                 "indicator": str(row.get("indicator", "")),
                 "value": _coerce_sample_value(row.get("value")),
-                "timestamp": str(row.get("timestamp")) if row.get("timestamp") is not None else None,
+                "timestamp": str(row.get("timestamp"))
+                if row.get("timestamp") is not None
+                else None,
             }
         )
 
@@ -517,7 +519,7 @@ async def causal_inference_pipeline(
         )
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 5: Fit and intervene (with identifiability awareness)
+    # Stage 5: Fit and diagnose / Stage 6: Treatment effects
     # ══════════════════════════════════════════════════════════════════════════
     print("\n=== Stage 5: Inference ===")
     print(f"Estimating effects of {len(treatments)} treatments on {outcome}")
@@ -704,7 +706,6 @@ async def causal_inference_pipeline(
         posterior_pairs = fitted_res.get("posterior_pairs")
 
     stage5_data = {
-        "intervention_results": intervention_results,
         "power_scaling": ps_list,
         "ppc": ppc_result,
         "inference_metadata": inf_meta,
@@ -716,7 +717,13 @@ async def causal_inference_pipeline(
     }
     persist_web_result("stage-5", stage5_data)
 
-    return stage5_data
+    stage6_data = {
+        "intervention_results": intervention_results,
+        "inference_metadata": inf_meta,
+    }
+    persist_web_result("stage-6", stage6_data)
+
+    return {**stage5_data, **stage6_data}
 
 
 if __name__ == "__main__":

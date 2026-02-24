@@ -188,15 +188,6 @@ def valid_stage_payloads() -> dict[str, dict]:
             }
         },
         "stage-5": {
-            "intervention_results": [
-                {
-                    "treatment": "Stress",
-                    "effect_size": 0.12,
-                    "credible_interval": [0.01, 0.23],
-                    "prob_positive": 0.97,
-                    "identifiable": True,
-                }
-            ],
             "power_scaling": [
                 {
                     "parameter": "rho_Stress",
@@ -222,6 +213,22 @@ def valid_stage_payloads() -> dict[str, dict]:
             "posterior_marginals": None,
             "posterior_pairs": None,
         },
+        "stage-6": {
+            "intervention_results": [
+                {
+                    "treatment": "Stress",
+                    "effect_size": 0.12,
+                    "credible_interval": [0.01, 0.23],
+                    "prob_positive": 0.97,
+                    "identifiable": True,
+                }
+            ],
+            "inference_metadata": {
+                "method": "svi",
+                "n_samples": 1000,
+                "duration_seconds": 1.2,
+            },
+        },
     }
 
 
@@ -246,10 +253,9 @@ def test_persist_web_result_rejects_missing_required_fields(valid_stage_payloads
         persist_web_result.fn("stage-2", bad)
 
 
-def test_stage5_rejects_malformed_credible_interval(valid_stage_payloads: dict[str, dict]):
+def test_stage6_rejects_malformed_credible_interval(valid_stage_payloads: dict[str, dict]):
     """Credible intervals must have exactly two numeric bounds."""
-    bad = deepcopy(valid_stage_payloads["stage-5"])
+    bad = deepcopy(valid_stage_payloads["stage-6"])
     bad["intervention_results"][0]["credible_interval"] = [0.1]
     with pytest.raises(ValidationError):
-        validate_stage_payload("stage-5", bad)
-
+        validate_stage_payload("stage-6", bad)

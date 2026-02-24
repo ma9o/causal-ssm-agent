@@ -65,6 +65,7 @@ export interface CausalSSMContracts {
   "stage-4": Stage4Contract;
   "stage-4b": Stage4BContract;
   "stage-5": Stage5Contract;
+  "stage-6": Stage6Contract;
   _partial: PartialStageResult;
 }
 export interface Stage0Contract {
@@ -560,7 +561,6 @@ export interface RBVariable {
   method: "kalman" | "particle";
 }
 export interface Stage5Contract {
-  intervention_results: TreatmentEffectContract[];
   power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
@@ -570,30 +570,6 @@ export interface Stage5Contract {
   posterior_marginals?: PosteriorMarginal[] | null;
   posterior_pairs?: PosteriorPair[] | null;
   context?: string | null;
-}
-export interface TreatmentEffectContract {
-  treatment: string;
-  effect_size: number | null;
-  credible_interval: [any, any] | null;
-  prob_positive?: number | null;
-  identifiable: boolean;
-  warning?: string | null;
-  ppc_warnings?: string[] | null;
-  prior_sensitivity_warning?: string | null;
-  temporal?: TemporalEffect | null;
-  manifest_effects?: {
-    [k: string]: number | undefined;
-  } | null;
-}
-/**
- * Temporal decomposition of a treatment effect.
- */
-export interface TemporalEffect {
-  effect_1d: number;
-  effect_7d: number;
-  effect_30d: number;
-  peak_effect: number;
-  time_to_peak_days: number;
 }
 export interface PowerScalingResultContract {
   parameter: string;
@@ -768,6 +744,35 @@ export interface PosteriorPair {
   x_values: number[];
   y_values: number[];
   divergent?: boolean[] | null;
+}
+export interface Stage6Contract {
+  intervention_results: TreatmentEffectContract[];
+  inference_metadata: InferenceMetadataContract;
+  context?: string | null;
+}
+export interface TreatmentEffectContract {
+  treatment: string;
+  effect_size: number | null;
+  credible_interval: [any, any] | null;
+  prob_positive?: number | null;
+  identifiable: boolean;
+  warning?: string | null;
+  ppc_warnings?: string[] | null;
+  prior_sensitivity_warning?: string | null;
+  temporal?: TemporalEffect | null;
+  manifest_effects?: {
+    [k: string]: number | undefined;
+  } | null;
+}
+/**
+ * Temporal decomposition of a treatment effect.
+ */
+export interface TemporalEffect {
+  effect_1d: number;
+  effect_7d: number;
+  effect_30d: number;
+  peak_effect: number;
+  time_to_peak_days: number;
 }
 /**
  * Partial stage result written to disk during LLM generation.

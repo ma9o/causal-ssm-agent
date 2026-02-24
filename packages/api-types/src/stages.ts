@@ -7,6 +7,7 @@ export const STAGE_IDS = [
   "stage-4",
   "stage-4b",
   "stage-5",
+  "stage-6",
 ] as const;
 
 export type StageId = (typeof STAGE_IDS)[number];
@@ -80,10 +81,18 @@ export const STAGES: StageMeta[] = [
   },
   {
     id: "stage-5",
-    label: "Inference & Results",
+    label: "Inference & Diagnostics",
     number: "5",
     hasGate: false,
     prefectTaskName: "fit_model",
     loadingHint: "Running Bayesian inference...",
+  },
+  {
+    id: "stage-6",
+    label: "Treatment Effects",
+    number: "6",
+    hasGate: false,
+    prefectTaskName: "run_interventions",
+    loadingHint: "Computing interventional effects...",
   },
 ];

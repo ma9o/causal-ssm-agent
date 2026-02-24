@@ -1,0 +1,51 @@
+{
+  "intervention_results": [
+    {
+      "treatment": "stress",
+      "effect_size": 0.298,
+      "credible_interval": [
+        0.114,
+        0.482
+      ],
+      "prob_positive": 0.969,
+      "identifiable": true
+    },
+    {
+      "treatment": "digital_distraction",
+      "effect_size": 0.185,
+      "credible_interval": [
+        0.032,
+        0.338
+      ],
+      "prob_positive": 0.932,
+      "identifiable": true
+    },
+    {
+      "treatment": "sleep_quality",
+      "effect_size": -0.142,
+      "credible_interval": [
+        -0.34,
+        0.056
+      ],
+      "prob_positive": 0.103,
+      "identifiable": true,
+      "prior_sensitivity_warning": "Sensitivity warning (mock fixture)"
+    },
+    {
+      "treatment": "workload",
+      "effect_size": 0.076,
+      "credible_interval": [
+        -0.051,
+        0.203
+      ],
+      "prob_positive": 0.789,
+      "identifiable": true
+    }
+  ],
+  "inference_metadata": {
+    "method": "NUTS-DA",
+    "n_samples": 2000,
+    "duration_seconds": 128.7
+  },
+  "context": "Stage 6 computes interventional treatment effects via the do-operator on the SSM steady state. Effects are ranked by posterior probability of positive effect."
+}

@@ -28,6 +28,9 @@
     "stage-5": {
       "$ref": "#/$defs/Stage5Contract"
     },
+    "stage-6": {
+      "$ref": "#/$defs/Stage6Contract"
+    },
     "_partial": {
       "$ref": "#/$defs/PartialStageResult"
     }
@@ -2289,13 +2292,6 @@
     "Stage5Contract": {
       "additionalProperties": false,
       "properties": {
-        "intervention_results": {
-          "items": {
-            "$ref": "#/$defs/TreatmentEffectContract"
-          },
-          "title": "Intervention Results",
-          "type": "array"
-        },
         "power_scaling": {
           "items": {
             "$ref": "#/$defs/PowerScalingResultContract"
@@ -2387,11 +2383,43 @@
       },
       "required": [
         "inference_metadata",
-        "intervention_results",
         "power_scaling",
         "ppc"
       ],
       "title": "Stage5Contract",
+      "type": "object"
+    },
+    "Stage6Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "intervention_results": {
+          "items": {
+            "$ref": "#/$defs/TreatmentEffectContract"
+          },
+          "title": "Intervention Results",
+          "type": "array"
+        },
+        "inference_metadata": {
+          "$ref": "#/$defs/InferenceMetadataContract"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        }
+      },
+      "required": [
+        "inference_metadata",
+        "intervention_results"
+      ],
+      "title": "Stage6Contract",
       "type": "object"
     },
     "TRuleResult": {
@@ -2918,6 +2946,7 @@
     "stage-3",
     "stage-4",
     "stage-4b",
-    "stage-5"
+    "stage-5",
+    "stage-6"
   ]
 }

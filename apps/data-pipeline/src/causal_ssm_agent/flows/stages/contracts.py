@@ -42,6 +42,7 @@ StageId = Literal[
     "stage-4",
     "stage-4b",
     "stage-5",
+    "stage-6",
 ]
 
 
@@ -231,7 +232,6 @@ class InferenceMetadataContract(BaseModel):
 class Stage5Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    intervention_results: list[TreatmentEffectContract]
     power_scaling: list[PowerScalingResultContract]
     ppc: PPCResultContract
     inference_metadata: InferenceMetadataContract
@@ -240,6 +240,14 @@ class Stage5Contract(BaseModel):
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
+    context: str | None = None
+
+
+class Stage6Contract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    intervention_results: list[TreatmentEffectContract]
+    inference_metadata: InferenceMetadataContract
     context: str | None = None
 
 
@@ -278,6 +286,7 @@ STAGE_CONTRACTS: dict[StageId, type[BaseModel]] = {
     "stage-4": Stage4Contract,
     "stage-4b": Stage4bContract,
     "stage-5": Stage5Contract,
+    "stage-6": Stage6Contract,
 }
 
 

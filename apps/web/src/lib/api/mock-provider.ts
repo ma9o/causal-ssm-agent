@@ -12,6 +12,7 @@ const STAGE_DELAYS_MS: Record<StageId, number> = {
   "stage-4": 8000,
   "stage-4b": 9500,
   "stage-5": 11000,
+  "stage-6": 12500,
 };
 
 export function isMockMode(): boolean {

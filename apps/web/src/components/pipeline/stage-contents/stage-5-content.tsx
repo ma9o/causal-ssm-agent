@@ -1,9 +1,7 @@
 "use client";
 
 import { DiagnosticsAccordion } from "@/components/stages/inference/diagnostics-accordion";
-import { ForestPlotPanel } from "@/components/stages/inference/forest-plot-panel";
 import { MockMethodSwitcher } from "@/components/stages/inference/mock-method-switcher";
-import { TreatmentRankingTable } from "@/components/stages/inference/treatment-ranking-table";
 import { isMockMode } from "@/lib/api/mock-provider";
 import type { Stage5Data } from "@causal-ssm/api-types";
 import { useState } from "react";
@@ -12,22 +10,9 @@ export default function Stage5Content({ data }: { data: Stage5Data }) {
   const [activeData, setActiveData] = useState(data);
   const mock = isMockMode();
 
-  if (data.intervention_results.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        No treatment effects were estimated. This may happen if no treatments passed
-        identification checks.
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {mock && <MockMethodSwitcher baseData={data} onDataChange={setActiveData} />}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <TreatmentRankingTable results={activeData.intervention_results} />
-        <ForestPlotPanel results={activeData.intervention_results} />
-      </div>
       <DiagnosticsAccordion
         powerScaling={activeData.power_scaling}
         ppc={activeData.ppc}
