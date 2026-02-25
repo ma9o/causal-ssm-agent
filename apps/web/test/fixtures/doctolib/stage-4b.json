@@ -1,0 +1,260 @@
+{
+  "parametric_id": {
+    "t_rule": {
+      "satisfies": true,
+      "n_free_params": 10,
+      "n_moments": 21,
+      "param_counts": {
+        "fixed_effect": 6,
+        "ar_coefficient": 2,
+        "residual_sd": 2
+      }
+    },
+    "threshold": 1.92,
+    "per_param_classification": [
+      {
+        "name": "beta_lipid_cv",
+        "classification": "identified",
+        "contraction_ratio": 0.88,
+        "profile_x": [
+          0.05,
+          0.09,
+          0.13,
+          0.17,
+          0.21,
+          0.25,
+          0.29,
+          0.33,
+          0.37,
+          0.41,
+          0.45,
+          0.49,
+          0.53,
+          0.57,
+          0.61,
+          0.65,
+          0.69,
+          0.73,
+          0.77,
+          0.81
+        ],
+        "profile_ll": [
+          -9.5,
+          -7.2,
+          -5.3,
+          -3.8,
+          -2.6,
+          -1.7,
+          -0.9,
+          -0.4,
+          -0.1,
+          0.0,
+          -0.1,
+          -0.3,
+          -0.8,
+          -1.5,
+          -2.5,
+          -3.8,
+          -5.4,
+          -7.3,
+          -9.5,
+          -12.0
+        ]
+      },
+      {
+        "name": "beta_pressure_cv",
+        "classification": "identified",
+        "contraction_ratio": 0.85,
+        "profile_x": [
+          0.05,
+          0.09,
+          0.12,
+          0.16,
+          0.19,
+          0.23,
+          0.26,
+          0.3,
+          0.33,
+          0.37,
+          0.4,
+          0.43,
+          0.47,
+          0.51,
+          0.54,
+          0.58,
+          0.61,
+          0.65,
+          0.68,
+          0.72
+        ],
+        "profile_ll": [
+          -8.8,
+          -6.5,
+          -4.7,
+          -3.3,
+          -2.2,
+          -1.3,
+          -0.7,
+          -0.3,
+          -0.1,
+          0.0,
+          -0.1,
+          -0.4,
+          -0.9,
+          -1.6,
+          -2.7,
+          -4.0,
+          -5.7,
+          -7.7,
+          -10.0,
+          -12.6
+        ]
+      },
+      {
+        "name": "beta_glycemic_cv",
+        "classification": "identified",
+        "contraction_ratio": 0.82,
+        "profile_x": [
+          -0.55,
+          -0.52,
+          -0.48,
+          -0.45,
+          -0.41,
+          -0.38,
+          -0.34,
+          -0.31,
+          -0.27,
+          -0.23,
+          -0.2,
+          -0.17,
+          -0.13,
+          -0.09,
+          -0.06,
+          -0.03,
+          0.01,
+          0.05,
+          0.08,
+          0.11
+        ],
+        "profile_ll": [
+          -10.2,
+          -7.6,
+          -5.5,
+          -3.8,
+          -2.5,
+          -1.5,
+          -0.8,
+          -0.3,
+          -0.1,
+          0.0,
+          -0.1,
+          -0.3,
+          -0.7,
+          -1.4,
+          -2.3,
+          -3.5,
+          -5.0,
+          -6.8,
+          -8.9,
+          -11.3
+        ]
+      },
+      {
+        "name": "sigma_pressure",
+        "classification": "practically_unidentifiable",
+        "contraction_ratio": 0.42,
+        "profile_x": [
+          1.0,
+          1.5,
+          2.0,
+          2.5,
+          3.0,
+          3.5,
+          4.0,
+          4.5,
+          5.0,
+          5.5,
+          6.0,
+          6.5,
+          7.0,
+          7.5,
+          8.0,
+          8.5,
+          9.0,
+          9.5,
+          10.0,
+          10.5
+        ],
+        "profile_ll": [
+          -3.5,
+          -2.3,
+          -1.5,
+          -0.9,
+          -0.4,
+          -0.1,
+          0.0,
+          -0.1,
+          -0.2,
+          -0.3,
+          -0.4,
+          -0.5,
+          -0.6,
+          -0.7,
+          -0.8,
+          -0.9,
+          -1.0,
+          -1.1,
+          -1.2,
+          -1.3
+        ]
+      }
+    ],
+    "weak_params": []
+  },
+  "rb_partition": {
+    "latent_variables": [
+      {
+        "name": "cardiovascular_risk",
+        "method": "kalman"
+      },
+      {
+        "name": "lipid_burden",
+        "method": "kalman"
+      },
+      {
+        "name": "arterial_pressure",
+        "method": "kalman"
+      },
+      {
+        "name": "glycemic_control",
+        "method": "particle"
+      },
+      {
+        "name": "renal_function",
+        "method": "particle"
+      }
+    ],
+    "obs_variables": [
+      {
+        "name": "ldl_cholesterol",
+        "method": "kalman"
+      },
+      {
+        "name": "systolic_bp",
+        "method": "kalman"
+      },
+      {
+        "name": "hba1c",
+        "method": "particle"
+      },
+      {
+        "name": "egfr",
+        "method": "particle"
+      }
+    ]
+  },
+  "context": "Stage 4b checks parametric identifiability via the T-rule and profile likelihoods. sigma_pressure is practically unidentifiable with the current data volume, but causal effect parameters are well-identified.",
+  "gate_overridden": {
+    "reason": "1 practically unidentifiable parameter (sigma_pressure, contraction ratio 0.42). User chose to continue."
+  }
+}
