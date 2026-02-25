@@ -9,7 +9,7 @@ export default function Stage4bContent({ data }: { data: Stage4bData }) {
 
   return (
     <div className="space-y-4">
-      {pid.t_rule && !pid.t_rule.satisfies && (
+      {data.outcome === "fail" && pid.t_rule && (
         <HardGateAlert
           title="T-Rule Violated — Pipeline Halted"
           explanation={`The model has ${pid.t_rule.n_free_params} free parameters but only ${pid.t_rule.n_moments} moment conditions. The model has more unknowns than equations.`}

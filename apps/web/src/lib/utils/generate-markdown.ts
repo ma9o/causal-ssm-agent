@@ -139,7 +139,7 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
     const spec = s1b.causal_spec;
 
     // Gate alert
-    if (s1b.gate_failed) {
+    if (s1b.outcome === "fail") {
       lines.push("> **GATE BLOCKED**: Non-identifiable treatment effects detected.");
       lines.push("");
     }

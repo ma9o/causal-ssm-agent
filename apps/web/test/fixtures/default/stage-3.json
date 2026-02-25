@@ -1,4 +1,5 @@
 {
+  "outcome": "fail",
   "validation_report": {
     "is_valid": false,
     "issues": [
@@ -19,6 +20,5 @@
       { "indicator": "workload_events", "n_obs": 200, "variance": 3.2, "time_coverage_ratio": 0.98, "max_gap_ratio": 0.01, "dtype_violations": 0, "duplicate_pct": 0.62, "arithmetic_sequence_detected": true, "cell_statuses": { "n_obs": "ok", "variance": "ok", "time_coverage_ratio": "ok", "max_gap_ratio": "ok", "dtype_violations": "ok", "duplicate_pct": "warning", "arithmetic_sequence_detected": "warning" } }
     ]
   },
-  "context": "Stage 3 validates extracted data. Checks include: sample size adequacy, variance thresholds, temporal coverage, dtype compliance, hallucination detection (duplicate patterns, arithmetic sequences).",
-  "gate_overridden": { "reason": "Data validation failed: 1 error (late_night_activity has zero variance) and 4 warnings. User chose to continue." }
+  "context": "Stage 3 validates extracted data. Checks include: sample size adequacy, variance thresholds, temporal coverage, dtype compliance, hallucination detection (duplicate patterns, arithmetic sequences)."
 }

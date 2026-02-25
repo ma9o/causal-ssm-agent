@@ -3,7 +3,7 @@ import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Download, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
@@ -41,7 +41,6 @@ export function PipelineProgressBar({
   if (!progress) return null;
 
   const completed = STAGES.filter((s) => progress.stages[s.id] === "completed").length;
-  const hasGateOverride = Object.values(progress.gateOverrides).some(Boolean);
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b px-4 py-2.5 sm:px-6 sm:py-3">
@@ -94,23 +93,26 @@ export function PipelineProgressBar({
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {
             const status = progress.stages[stage.id];
-            const isGateFailed = progress.gateFailures[stage.id] ?? false;
-            const isGateOverridden = progress.gateOverrides[stage.id] ?? false;
+            const outcome = progress.stageOutcomes[stage.id];
             const isClickable = status !== "pending";
 
-            const tooltipIcon = isGateFailed || status === "failed" || isGateOverridden
+            const tooltipIcon = outcome === "fail" || status === "failed"
               ? <X className="h-3 w-3 text-destructive" />
-              : status === "completed"
+              : outcome === "warn"
+                ? <AlertTriangle className="h-3 w-3 text-warning" />
+                : status === "completed"
                   ? <Check className="h-3 w-3 text-success" />
                   : status === "running"
                     ? <Loader2 className="h-3 w-3 animate-spin" />
                     : null;
 
-            const tooltipSuffix = isGateFailed ? " (blocked)" : isGateOverridden ? " (overridden)" : "";
+            const tooltipSuffix = outcome === "fail" ? " (blocked)" : outcome === "warn" ? " (warning)" : "";
 
-            const segmentColor = isGateFailed || status === "failed" || isGateOverridden
+            const segmentColor = outcome === "fail" || status === "failed"
               ? "bg-destructive"
-              : status === "completed"
+              : outcome === "warn"
+                ? "bg-warning"
+                : status === "completed"
                   ? "bg-success"
                   : status === "running"
                     ? "bg-primary animate-pulse-subtle"

@@ -1,6 +1,7 @@
 {
+  "outcome": "warn",
   "validation_report": {
-    "is_valid": false,
+    "is_valid": true,
     "issues": [
       {
         "indicator": "hba1c",
@@ -226,8 +227,5 @@
       }
     ]
   },
-  "context": "Stage 3 validates extracted clinical data. Sample sizes for quarterly/biannual measurements (HbA1c, eGFR, creatinine) are low but typical for routine clinical monitoring. High prescription fill rate clustering reflects good medication adherence.",
-  "gate_overridden": {
-    "reason": "Data validation has 5 warnings (low sample size for quarterly/biannual labs, prescription fill clustering). No errors. User chose to continue."
-  }
+  "context": "Stage 3 validates extracted clinical data. Sample sizes for quarterly/biannual measurements (HbA1c, eGFR, creatinine) are low but typical for routine clinical monitoring. High prescription fill rate clustering reflects good medication adherence."
 }

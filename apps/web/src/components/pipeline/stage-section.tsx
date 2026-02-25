@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { GateOverride } from "@causal-ssm/api-types";
+import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
@@ -20,7 +20,7 @@ export function StageSection({
   elapsedMs,
   hasGate = false,
   gateOverridden,
-  gateFailed = false,
+  outcome = "success",
   loadingHint,
 }: {
   id?: string;
@@ -33,7 +33,7 @@ export function StageSection({
   elapsedMs?: number;
   hasGate?: boolean;
   gateOverridden?: GateOverride;
-  gateFailed?: boolean;
+  outcome?: StageOutcome;
   loadingHint?: string;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -45,8 +45,8 @@ export function StageSection({
     }
   }, [status]);
 
-  // Gate-failed stages should not be collapsible — the failure must remain visible
-  const isCollapsible = status === "completed" && !gateFailed;
+  // Failed-outcome stages should not be collapsible — the failure must remain visible
+  const isCollapsible = status === "completed" && outcome !== "fail";
 
   return (
     <motion.section
@@ -54,16 +54,14 @@ export function StageSection({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6 ${
-        gateFailed ? "border-destructive/40" : ""
-      }`}
+      className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6`}
     >
       <div
         className={isCollapsible ? "flex items-start gap-3 cursor-pointer" : ""}
         onClick={isCollapsible ? () => setCollapsed((c) => !c) : undefined}
       >
         <div className="flex-1 min-w-0">
-          <StageHeader number={number} title={title} status={status} hasGate={hasGate} gateOverridden={gateOverridden} gateFailed={gateFailed} context={context} />
+          <StageHeader number={number} title={title} status={status} hasGate={hasGate} gateOverridden={gateOverridden} outcome={outcome} context={context} />
         </div>
         {isCollapsible && (
           <div className="flex shrink-0 items-center gap-2 pt-1">

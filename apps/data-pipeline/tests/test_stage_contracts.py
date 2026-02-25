@@ -53,7 +53,6 @@ def valid_stage_payloads() -> dict[str, dict]:
             },
             "outcome_name": "Perf",
             "treatments": ["Stress"],
-            "context": "latent model context",
         },
         "stage-1b": {
             "causal_spec": {
@@ -97,7 +96,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                     ],
                 },
             },
-            "context": "measurement context",
         },
         "stage-2": {
             "workers": [
@@ -259,3 +257,30 @@ def test_stage6_rejects_extra_fields(valid_stage_payloads: dict[str, dict]):
     bad["intervention_results"][0]["unknown_field"] = 42
     with pytest.raises(ValidationError):
         validate_stage_payload("stage-6", bad)
+
+
+def test_outcome_warn_and_fail_accepted(valid_stage_payloads: dict[str, dict]):
+    """outcome: 'warn' and 'fail' should be accepted on every stage."""
+    for stage_id, payload in valid_stage_payloads.items():
+        for value in ("warn", "fail"):
+            p = deepcopy(payload)
+            p["outcome"] = value
+            validated = validate_stage_payload(stage_id, p)
+            assert validated["outcome"] == value
+
+
+def test_outcome_invalid_value_rejected(valid_stage_payloads: dict[str, dict]):
+    """outcome with an invalid literal should be rejected."""
+    bad = deepcopy(valid_stage_payloads["stage-0"])
+    bad["outcome"] = "invalid"
+    with pytest.raises(ValidationError):
+        validate_stage_payload("stage-0", bad)
+
+
+def test_gate_failed_removed_from_stage1b_and_stage4b(valid_stage_payloads: dict[str, dict]):
+    """gate_failed field should no longer be accepted (extra=forbid)."""
+    for stage_id in ("stage-1b", "stage-4b"):
+        bad = deepcopy(valid_stage_payloads[stage_id])
+        bad["gate_failed"] = True
+        with pytest.raises(ValidationError):
+            validate_stage_payload(stage_id, bad)
