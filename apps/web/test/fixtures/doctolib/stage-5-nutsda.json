@@ -727,47 +727,25 @@
   },
   "svi_diagnostics": null,
   "mcmc_diagnostics": {
-    "n_chains": 4,
-    "n_warmup": 1000,
-    "n_samples_per_chain": 500,
-    "r_hat": {
-      "beta_lipid_cv": 1.002,
-      "beta_pressure_cv": 1.004,
-      "beta_glycemic_cv": 1.003,
-      "beta_renal_cv": 1.008,
-      "beta_adherence_lipid": 1.001,
-      "beta_adherence_pressure": 1.005,
-      "rho_lipid": 1.001,
-      "rho_pressure": 1.003,
-      "sigma_lipid": 1.002,
-      "sigma_pressure": 1.006
-    },
-    "ess_bulk": {
-      "beta_lipid_cv": 1842,
-      "beta_pressure_cv": 1654,
-      "beta_glycemic_cv": 1721,
-      "beta_renal_cv": 1203,
-      "beta_adherence_lipid": 1890,
-      "beta_adherence_pressure": 1567,
-      "rho_lipid": 1935,
-      "rho_pressure": 1482,
-      "sigma_lipid": 1756,
-      "sigma_pressure": 1128
-    },
-    "ess_tail": {
-      "beta_lipid_cv": 1456,
-      "beta_pressure_cv": 1312,
-      "beta_glycemic_cv": 1389,
-      "beta_renal_cv": 945,
-      "beta_adherence_lipid": 1502,
-      "beta_adherence_pressure": 1245,
-      "rho_lipid": 1578,
-      "rho_pressure": 1167,
-      "sigma_lipid": 1401,
-      "sigma_pressure": 892
-    },
-    "n_divergent": 3,
-    "max_treedepth_pct": 0.02
+    "per_parameter": [
+      { "parameter": "beta_lipid_cv", "r_hat": 1.002, "ess_bulk": 1842, "ess_tail": 1456, "mcse_mean": 0.0018 },
+      { "parameter": "beta_pressure_cv", "r_hat": 1.004, "ess_bulk": 1654, "ess_tail": 1312, "mcse_mean": 0.0023 },
+      { "parameter": "beta_glycemic_cv", "r_hat": 1.003, "ess_bulk": 1721, "ess_tail": 1389, "mcse_mean": 0.0015 },
+      { "parameter": "beta_renal_cv", "r_hat": 1.008, "ess_bulk": 1203, "ess_tail": 945, "mcse_mean": 0.0032 },
+      { "parameter": "beta_adherence_lipid", "r_hat": 1.001, "ess_bulk": 1890, "ess_tail": 1502, "mcse_mean": 0.0012 },
+      { "parameter": "beta_adherence_pressure", "r_hat": 1.005, "ess_bulk": 1567, "ess_tail": 1245, "mcse_mean": 0.0025 },
+      { "parameter": "rho_lipid", "r_hat": 1.001, "ess_bulk": 1935, "ess_tail": 1578, "mcse_mean": 0.0009 },
+      { "parameter": "rho_pressure", "r_hat": 1.003, "ess_bulk": 1482, "ess_tail": 1167, "mcse_mean": 0.0021 },
+      { "parameter": "sigma_lipid", "r_hat": 1.002, "ess_bulk": 1756, "ess_tail": 1401, "mcse_mean": 0.0011 },
+      { "parameter": "sigma_pressure", "r_hat": 1.006, "ess_bulk": 1128, "ess_tail": 892, "mcse_mean": 0.0029 }
+    ],
+    "num_divergences": 3,
+    "divergence_rate": 0.0015,
+    "tree_depth_mean": 6.2,
+    "tree_depth_max": 10,
+    "accept_prob_mean": 0.918,
+    "num_chains": 4,
+    "num_samples": 2000
   },
   "loo_diagnostics": {
     "elpd_loo": -40.18,
