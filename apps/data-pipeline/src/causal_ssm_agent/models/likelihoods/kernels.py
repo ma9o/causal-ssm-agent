@@ -306,13 +306,12 @@ def build_transition_kernel(
             sample_noise_fn=_make_gaussian_noise(),
             is_gaussian=True,
         )
-    elif dist == DistributionFamily.STUDENT_T:
+    if dist == DistributionFamily.STUDENT_T:
         df = extra_params.get("proc_df", 5.0)
         return TransitionKernel(
             sample_noise_fn=_make_student_t_noise(df),
             is_gaussian=False,
         )
-    else:
-        raise ValueError(
-            f"No transition kernel for diffusion_dist={dist!r}. Supported: gaussian, student_t."
-        )
+    raise ValueError(
+        f"No transition kernel for diffusion_dist={dist!r}. Supported: gaussian, student_t."
+    )

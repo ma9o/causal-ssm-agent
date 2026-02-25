@@ -262,6 +262,5 @@ def discretize_system_batched(
         if cd.ndim == 3:
             cd = cd.squeeze(-1)
         return Ad, Qd, cd
-    else:
-        Ad, Qd = vmap(lambda dt: _discretize_system_no_cint(drift, diffusion_cov, dt))(dt_array)
-        return Ad, Qd, None
+    Ad, Qd = vmap(lambda dt: _discretize_system_no_cint(drift, diffusion_cov, dt))(dt_array)
+    return Ad, Qd, None

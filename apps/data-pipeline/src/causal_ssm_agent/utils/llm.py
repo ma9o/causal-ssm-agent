@@ -293,9 +293,8 @@ def make_generate_fn(
                 trace_capture=trace_capture,
                 trace_path=trace_path,
             )
-        else:
-            response = await model.generate(chat_messages, config=config)
-            return response.completion
+        response = await model.generate(chat_messages, config=config)
+        return response.completion
 
     return generate
 
@@ -502,16 +501,15 @@ def make_validate_model_spec_tool(
                     capture_key="spec",
                     capture_result=True,
                 )
-            else:
-                from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
+            from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
 
-                return _validate_json_and_format(
-                    model_spec_json,
-                    lambda data: validate_model_spec_dict(data, indicators=indicators or None),
-                    capture=capture,
-                    capture_key="spec",
-                    capture_result=True,
-                )
+            return _validate_json_and_format(
+                model_spec_json,
+                lambda data: validate_model_spec_dict(data, indicators=indicators or None),
+                capture=capture,
+                capture_key="spec",
+                capture_result=True,
+            )
 
         return execute
 
@@ -849,38 +847,37 @@ async def multi_turn_generate(
         logger.info("multi_turn_generate completed in %.1fs", elapsed_total)
         # No finalization needed — persist_web_result overwrites with full stage output
         return last_nonempty
-    else:
-        # Simple generation without tools
-        t_gen = time.monotonic()
+    # Simple generation without tools
+    t_gen = time.monotonic()
+    response = await model.generate(messages, config=_config)
+    messages.append(ChatMessageAssistant(content=response.completion))
+    elapsed_gen = time.monotonic() - t_gen
+    logger.info("single-turn | %s", _summarize_output(response, elapsed_gen))
+    last_nonempty = response.completion
+
+    for i, prompt in enumerate(follow_ups):
+        logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
+        messages.append(ChatMessageUser(content=prompt))
+        t_fu = time.monotonic()
         response = await model.generate(messages, config=_config)
         messages.append(ChatMessageAssistant(content=response.completion))
-        elapsed_gen = time.monotonic() - t_gen
-        logger.info("single-turn | %s", _summarize_output(response, elapsed_gen))
-        last_nonempty = response.completion
+        elapsed_fu = time.monotonic() - t_fu
+        logger.info(
+            "Follow-up %d/%d | %s",
+            i + 1,
+            len(follow_ups),
+            _summarize_output(response, elapsed_fu),
+        )
+        if response.completion and response.completion.strip():
+            last_nonempty = response.completion
 
-        for i, prompt in enumerate(follow_ups):
-            logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
-            messages.append(ChatMessageUser(content=prompt))
-            t_fu = time.monotonic()
-            response = await model.generate(messages, config=_config)
-            messages.append(ChatMessageAssistant(content=response.completion))
-            elapsed_fu = time.monotonic() - t_fu
-            logger.info(
-                "Follow-up %d/%d | %s",
-                i + 1,
-                len(follow_ups),
-                _summarize_output(response, elapsed_fu),
-            )
-            if response.completion and response.completion.strip():
-                last_nonempty = response.completion
+    if trace_capture is not None:
+        trace_capture["trace"] = _build_trace(messages, response)
 
-        if trace_capture is not None:
-            trace_capture["trace"] = _build_trace(messages, response)
-
-        elapsed_total = time.monotonic() - t0
-        logger.info("multi_turn_generate completed in %.1fs", elapsed_total)
-        # No finalization needed — persist_web_result overwrites with full stage output
-        return last_nonempty
+    elapsed_total = time.monotonic() - t0
+    logger.info("multi_turn_generate completed in %.1fs", elapsed_total)
+    # No finalization needed — persist_web_result overwrites with full stage output
+    return last_nonempty
 
 
 # ---------------------------------------------------------------------------

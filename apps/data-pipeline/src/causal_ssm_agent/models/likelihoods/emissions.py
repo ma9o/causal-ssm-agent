@@ -151,31 +151,30 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
     extra_params = extra_params or {}
     if manifest_dist == "gaussian":
         return emission_log_prob_gaussian
-    elif manifest_dist == "poisson":
+    if manifest_dist == "poisson":
         return emission_log_prob_poisson
-    elif manifest_dist == "student_t":
+    if manifest_dist == "student_t":
         df = extra_params.get("obs_df", 5.0)
         return lambda y, z, H, d, R, m: emission_log_prob_student_t(y, z, H, d, R, m, df)
-    elif manifest_dist == "gamma":
+    if manifest_dist == "gamma":
         shape = extra_params.get("obs_shape", 1.0)
         if link == "inverse":
             return lambda y, z, H, d, R, m: emission_log_prob_gamma_inverse(y, z, H, d, R, m, shape)
         return lambda y, z, H, d, R, m: emission_log_prob_gamma(y, z, H, d, R, m, shape)
-    elif manifest_dist == "bernoulli":
+    if manifest_dist == "bernoulli":
         if link == "probit":
             return emission_log_prob_bernoulli_probit
         return emission_log_prob_bernoulli
-    elif manifest_dist == "negative_binomial":
+    if manifest_dist == "negative_binomial":
         r = extra_params.get("obs_r", 5.0)
         return lambda y, z, H, d, R, m: emission_log_prob_negative_binomial(y, z, H, d, R, m, r)
-    elif manifest_dist == "beta":
+    if manifest_dist == "beta":
         conc = extra_params.get("obs_concentration", 10.0)
         if link == "probit":
             return lambda y, z, H, d, R, m: emission_log_prob_beta_probit(y, z, H, d, R, m, conc)
         return lambda y, z, H, d, R, m: emission_log_prob_beta(y, z, H, d, R, m, conc)
-    else:
-        raise ValueError(
-            f"No emission function for manifest_dist='{manifest_dist}'. "
-            f"Supported: gaussian, student_t, poisson, gamma, bernoulli, "
-            f"negative_binomial, beta."
-        )
+    raise ValueError(
+        f"No emission function for manifest_dist='{manifest_dist}'. "
+        f"Supported: gaussian, student_t, poisson, gamma, bernoulli, "
+        f"negative_binomial, beta."
+    )

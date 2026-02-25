@@ -631,7 +631,7 @@ class SSMModel:
             init,
             observations,
             time_intervals,
-            extra_params=extra_params if extra_params else None,
+            extra_params=extra_params or None,
         )
 
         # lnc is (T,) cumulative log-normalizing constants from the filter.

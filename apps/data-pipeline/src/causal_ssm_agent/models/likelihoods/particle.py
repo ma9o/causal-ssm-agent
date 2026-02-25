@@ -135,8 +135,7 @@ class SSMAdapter:
             chi2_sample = jnp.maximum(random.gamma(key_chi2, df / 2.0) * 2.0, 1e-8)
             scale = jnp.sqrt((df - 2.0) / chi2_sample)
             return mean + chol @ (z * scale)
-        else:
-            return mean + chol @ random.normal(key, (self.n_latent,))
+        return mean + chol @ random.normal(key, (self.n_latent,))
 
     def observation_log_prob(
         self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array

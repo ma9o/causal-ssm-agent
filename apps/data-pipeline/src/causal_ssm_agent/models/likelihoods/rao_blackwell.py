@@ -403,18 +403,17 @@ def make_rb_callbacks(
 
         if obs_kernel.is_gaussian:
             return _obs_weight_gaussian(y_t, state.pred_mean, state.pred_cov, H, R, d, mask_t)
-        else:
-            return _obs_weight_quadrature(
-                y_t,
-                state.pred_mean,
-                state.pred_cov,
-                H,
-                R,
-                d,
-                mask_t,
-                obs_kernel,
-                quadrature=quadrature,
-                n_quadrature=n_quadrature,
-            )
+        return _obs_weight_quadrature(
+            y_t,
+            state.pred_mean,
+            state.pred_cov,
+            H,
+            R,
+            d,
+            mask_t,
+            obs_kernel,
+            quadrature=quadrature,
+            n_quadrature=n_quadrature,
+        )
 
     return init_sample, propagate_sample, log_potential

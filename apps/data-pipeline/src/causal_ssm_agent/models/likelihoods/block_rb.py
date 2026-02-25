@@ -295,31 +295,30 @@ def make_block_rb_callbacks(
             mahal = v @ jnp.linalg.solve(S, v)
             log_w = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
             return jnp.where(n_observed > 0, log_w, 0.0)
+        if quadrature == "unscented":
+            sigma_pts_g, sigma_wts = _unscented_sigma_points(
+                state.g_pred_mean, state.g_pred_cov
+            )
         else:
-            if quadrature == "unscented":
-                sigma_pts_g, sigma_wts = _unscented_sigma_points(
-                    state.g_pred_mean, state.g_pred_cov
-                )
-            else:
-                from causal_ssm_agent.models.likelihoods.rao_blackwell import (
-                    _multivariate_gauss_hermite,
-                )
+            from causal_ssm_agent.models.likelihoods.rao_blackwell import (
+                _multivariate_gauss_hermite,
+            )
 
-                gh_nodes, gh_wts = _multivariate_gauss_hermite(n_quadrature, n_g)
-                L = jla.cholesky(state.g_pred_cov + jnp.eye(n_g) * 1e-8, lower=True)
-                sigma_pts_g = state.g_pred_mean[None, :] + gh_nodes @ L.T
-                sigma_wts = gh_wts
+            gh_nodes, gh_wts = _multivariate_gauss_hermite(n_quadrature, n_g)
+            L = jla.cholesky(state.g_pred_cov + jnp.eye(n_g) * 1e-8, lower=True)
+            sigma_pts_g = state.g_pred_mean[None, :] + gh_nodes @ L.T
+            sigma_wts = gh_wts
 
-            def eval_one(x_g):
-                full_x = jnp.zeros(n_latent)
-                full_x = full_x.at[g_idx].set(x_g)
-                full_x = full_x.at[s_idx].set(x_s)
-                return obs_kernel.emission_fn(y_t, full_x, H, d, R, mask_float)
+        def eval_one(x_g):
+            full_x = jnp.zeros(n_latent)
+            full_x = full_x.at[g_idx].set(x_g)
+            full_x = full_x.at[s_idx].set(x_s)
+            return obs_kernel.emission_fn(y_t, full_x, H, d, R, mask_float)
 
-            log_obs_vals = jax.vmap(eval_one)(sigma_pts_g)
-            log_weights = jnp.log(jnp.maximum(sigma_wts, 1e-30))
-            log_integral = jax.nn.logsumexp(log_obs_vals + log_weights)
+        log_obs_vals = jax.vmap(eval_one)(sigma_pts_g)
+        log_weights = jnp.log(jnp.maximum(sigma_wts, 1e-30))
+        log_integral = jax.nn.logsumexp(log_obs_vals + log_weights)
 
-            return jnp.where(n_observed > 0, log_integral, 0.0)
+        return jnp.where(n_observed > 0, log_integral, 0.0)
 
     return init_sample, propagate_sample, log_potential
