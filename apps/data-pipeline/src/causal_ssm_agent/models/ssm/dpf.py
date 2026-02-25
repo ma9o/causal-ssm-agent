@@ -325,14 +325,13 @@ def _simulate_from_prior(
         if manifest_dist == "poisson":
             rate = jnp.exp(eta)
             return random.poisson(key, rate).astype(jnp.float32)
-        elif manifest_dist == "gamma":
+        if manifest_dist == "gamma":
             shape = extra_params.get("obs_shape", 1.0) if extra_params else 1.0
             scale = jnp.exp(eta) / shape
             return random.gamma(key, shape, shape=eta.shape) * scale
-        else:
-            # Gaussian
-            chol_R = jla.cholesky(R + jnp.eye(n_manifest) * 1e-6, lower=True)
-            return eta + chol_R @ random.normal(key, (n_manifest,))
+        # Gaussian
+        chol_R = jla.cholesky(R + jnp.eye(n_manifest) * 1e-6, lower=True)
+        return eta + chol_R @ random.normal(key, (n_manifest,))
 
     observations = jax.vmap(_sim_obs)(obs_keys, z_all)
 

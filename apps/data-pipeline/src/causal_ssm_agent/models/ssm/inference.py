@@ -606,42 +606,41 @@ def fit(
     """
     if method == "nuts":
         return _fit_nuts(model, observations, times, **kwargs)
-    elif method == "nuts_da":
+    if method == "nuts_da":
         from causal_ssm_agent.models.ssm.nuts_da import fit_nuts_da
 
         return fit_nuts_da(model, observations, times, **kwargs)
-    elif method == "svi":
+    if method == "svi":
         return _fit_svi(model, observations, times, **kwargs)
-    elif method == "hessmc2":
+    if method == "hessmc2":
         from causal_ssm_agent.models.ssm.hessmc2 import fit_hessmc2
 
         return fit_hessmc2(model, observations, times, **kwargs)
-    elif method == "pgas":
+    if method == "pgas":
         from causal_ssm_agent.models.ssm.pgas import fit_pgas
 
         return fit_pgas(model, observations, times, **kwargs)
-    elif method == "tempered_smc":
+    if method == "tempered_smc":
         from causal_ssm_agent.models.ssm.tempered_smc import fit_tempered_smc
 
         return fit_tempered_smc(model, observations, times, **kwargs)
-    elif method == "laplace_em":
+    if method == "laplace_em":
         from causal_ssm_agent.models.ssm.laplace_em import fit_laplace_em
 
         return fit_laplace_em(model, observations, times, **kwargs)
-    elif method == "structured_vi":
+    if method == "structured_vi":
         from causal_ssm_agent.models.ssm.structured_vi import fit_structured_vi
 
         return fit_structured_vi(model, observations, times, **kwargs)
-    elif method == "dpf":
+    if method == "dpf":
         from causal_ssm_agent.models.ssm.dpf import fit_dpf
 
         return fit_dpf(model, observations, times, **kwargs)
-    else:
-        raise ValueError(
-            f"Unknown inference method: {method!r}. "
-            "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
-            "'laplace_em', 'structured_vi', 'dpf', or 'pmmh'."
-        )
+    raise ValueError(
+        f"Unknown inference method: {method!r}. "
+        "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
+        "'laplace_em', 'structured_vi', 'dpf', or 'pmmh'."
+    )
 
 
 def prior_predictive(

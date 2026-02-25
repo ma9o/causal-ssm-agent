@@ -310,16 +310,15 @@ async def elicit_prior(
             literature_sources=literature_sources,
             feedback=feedback,
         )
-    else:
-        return await _research_single_prior_paraphrased(
-            parameter=parameter,
-            question=question,
-            generate=generate,
-            literature_context=literature_context,
-            literature_sources=literature_sources,
-            n_paraphrases=n_paraphrases,
-            feedback=feedback,
-        )
+    return await _research_single_prior_paraphrased(
+        parameter=parameter,
+        question=question,
+        generate=generate,
+        literature_context=literature_context,
+        literature_sources=literature_sources,
+        n_paraphrases=n_paraphrases,
+        feedback=feedback,
+    )
 
 
 async def research_single_prior(

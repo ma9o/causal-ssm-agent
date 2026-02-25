@@ -500,8 +500,8 @@ def simulate_posterior_predictive(
     draw_keys = jax.random.split(rng, n_use)
 
     # Determine dispatch path: all-Gaussian, uniform non-Gaussian, or mixed
-    effective_dists = manifest_dists if manifest_dists else None
-    effective_links = manifest_links if manifest_links else None
+    effective_dists = manifest_dists or None
+    effective_links = manifest_links or None
     unique_dists = set(effective_dists) if effective_dists else {manifest_dist}
     all_gaussian = unique_dists == {DistributionFamily.GAUSSIAN} or unique_dists == {"gaussian"}
 
