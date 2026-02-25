@@ -76,7 +76,6 @@ export interface Stage0Contract {
   sample: {
     [k: string]: (string | null) | undefined;
   }[];
-  context?: string | null;
 }
 export interface DateRangeContract {
   start: string;
@@ -87,7 +86,6 @@ export interface Stage1AContract {
   outcome_name: string;
   treatments: string[];
   llm_trace?: LLMTrace | null;
-  context?: string | null;
 }
 /**
  * Theoretical causal structure over constructs (the latent model).
@@ -190,7 +188,6 @@ export interface Stage1BContract {
   llm_trace?: LLMTrace | null;
   gate_failed?: boolean | null;
   gate_overridden?: GateOverrideContract | null;
-  context?: string | null;
 }
 /**
  * Complete causal specification combining latent and measurement models.
@@ -312,7 +309,6 @@ export interface Stage2Contract {
   per_indicator_counts: {
     [k: string]: number | undefined;
   };
-  context?: string | null;
 }
 export interface WorkerStatusContract {
   worker_id: number;
@@ -330,7 +326,6 @@ export interface Stage3Contract {
   validation_report: ValidationReportContract;
   gate_failed?: boolean | null;
   gate_overridden?: GateOverrideContract | null;
-  context?: string | null;
 }
 export interface ValidationReportContract {
   is_valid: boolean;
@@ -364,7 +359,6 @@ export interface Stage4Contract {
   prior_predictive_samples?: {
     [k: string]: number[] | undefined;
   } | null;
-  context?: string | null;
 }
 /**
  * Complete model specification from orchestrator.
@@ -494,7 +488,6 @@ export interface Stage4BContract {
   rb_partition?: RBPartitionResult | null;
   gate_failed?: boolean | null;
   gate_overridden?: GateOverrideContract | null;
-  context?: string | null;
 }
 /**
  * Full parametric identifiability result (Stage 4b payload).
@@ -569,7 +562,6 @@ export interface Stage5Contract {
   loo_diagnostics?: LOODiagnostics | null;
   posterior_marginals?: PosteriorMarginal[] | null;
   posterior_pairs?: PosteriorPair[] | null;
-  context?: string | null;
 }
 export interface PowerScalingResultContract {
   parameter: string;
@@ -748,7 +740,6 @@ export interface PosteriorPair {
 export interface Stage6Contract {
   intervention_results: TreatmentEffectContract[];
   inference_metadata: InferenceMetadataContract;
-  context?: string | null;
 }
 export interface TreatmentEffectContract {
   treatment: string;

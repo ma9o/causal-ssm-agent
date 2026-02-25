@@ -20,6 +20,8 @@ export interface StageMeta {
   prefectTaskName: string;
   /** Human-readable hint shown while this stage is running. */
   loadingHint: string;
+  /** Static subtitle describing what this stage does (dataset-agnostic). */
+  description: string;
 }
 
 export const STAGES: StageMeta[] = [
@@ -30,6 +32,7 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "preprocess_raw_input",
     loadingHint: "Parsing and preprocessing your data...",
+    description: "Parses raw data files and prepares them for downstream analysis.",
   },
   {
     id: "stage-1a",
@@ -38,6 +41,7 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "propose_latent_model",
     loadingHint: "LLM is proposing a causal DAG...",
+    description: "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
   },
   {
     id: "stage-1b",
@@ -46,6 +50,7 @@ export const STAGES: StageMeta[] = [
     hasGate: true,
     prefectTaskName: "propose_measurement_with_identifiability_fix",
     loadingHint: "Mapping indicators and checking identifiability...",
+    description: "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
   },
   {
     id: "stage-2",
@@ -54,6 +59,7 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "populate_indicators",
     loadingHint: "Extracting indicator values from your data...",
+    description: "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
   },
   {
     id: "stage-3",
@@ -62,6 +68,7 @@ export const STAGES: StageMeta[] = [
     hasGate: true,
     prefectTaskName: "validate_extraction",
     loadingHint: "Validating extraction quality...",
+    description: "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
   },
   {
     id: "stage-4",
@@ -70,6 +77,7 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "stage4_orchestrated_flow",
     loadingHint: "LLM is specifying priors and model parameters...",
+    description: "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
   },
   {
     id: "stage-4b",
@@ -78,6 +86,7 @@ export const STAGES: StageMeta[] = [
     hasGate: true,
     prefectTaskName: "stage4b_parametric_id_flow",
     loadingHint: "Checking parametric identifiability...",
+    description: "Checks whether the specified model parameters are identifiable from the available data.",
   },
   {
     id: "stage-5",
@@ -86,6 +95,7 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "fit_model",
     loadingHint: "Running Bayesian inference...",
+    description: "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
   },
   {
     id: "stage-6",
@@ -94,5 +104,6 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectTaskName: "run_interventions",
     loadingHint: "Computing interventional effects...",
+    description: "Computes interventional treatment effects and ranks them by magnitude and certainty.",
   },
 ];

@@ -147,7 +147,7 @@ export function StageSectionRouter({
       title={stage.label}
       status={status}
       elapsedMs={elapsedMs}
-      context={stageData?.context}
+      context={stage.description}
       hasGate={stage.hasGate}
       gateOverridden={stageData?.gate_overridden}
       gateFailed={gateFailed}

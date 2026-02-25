@@ -74,10 +74,6 @@ async def propose_measurement_with_identifiability_fix(
         "causal_spec": causal_spec,
         "measurement_model": result.measurement_model,
         "identifiability_status": result.identifiability_status,
-        "context": (
-            "Stage 1b proposes indicators and checks nonparametric identification "
-            "via do-calculus (Pearl/Shpitser-Pearl ID algorithm)."
-        ),
     }
     attach_trace(out, trace_capture)
     return out
