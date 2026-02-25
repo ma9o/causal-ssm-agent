@@ -388,7 +388,9 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
       lines.push(section(3, "T-Rule"));
       lines.push("");
       lines.push(`- **Free parameters**: ${pid.t_rule.n_free_params}`);
-      lines.push(`- **Manifest variables**: ${pid.t_rule.n_manifest}`);
+      if (pid.t_rule.n_manifest != null) {
+        lines.push(`- **Manifest variables**: ${pid.t_rule.n_manifest}`);
+      }
       if (pid.t_rule.n_timepoints != null) {
         lines.push(`- **Timepoints**: ${pid.t_rule.n_timepoints}`);
       }
