@@ -46,10 +46,6 @@ async def propose_latent_model(question: str) -> dict:
         "latent_model": latent_model,
         "outcome_name": outcome or "",
         "treatments": treatments,
-        "context": (
-            "Stage 1a proposes a latent causal model based on domain knowledge alone. "
-            "The model specifies theoretical constructs and their causal relationships."
-        ),
     }
     attach_trace(out, trace_capture)
     return out

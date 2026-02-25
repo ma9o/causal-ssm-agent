@@ -219,7 +219,6 @@ async def causal_inference_pipeline(
     stage1b_web_data: dict = {
         "causal_spec": causal_spec,
         "llm_trace": stage1b_result.get("llm_trace"),
-        "context": stage1b_result.get("context"),
     }
     if gate_1b_failed:
         stage1b_web_data["gate_failed"] = True
@@ -315,10 +314,6 @@ async def causal_inference_pipeline(
             "workers": worker_statuses,
             "combined_extractions_sample": combined_extractions_sample,
             "per_indicator_counts": per_ind_counts,
-            "context": (
-                "Stage 2 dispatches worker LLMs to extract indicator observations from raw "
-                "activity data. Each worker processes one chunk independently."
-            ),
         },
     )
 

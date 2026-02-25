@@ -67,7 +67,7 @@ class Stage0Contract(BaseModel):
     n_records: int
     date_range: DateRangeContract
     sample: list[dict[str, str | None]]
-    context: str | None = None
+
 
 
 class Stage1aContract(BaseModel):
@@ -77,7 +77,7 @@ class Stage1aContract(BaseModel):
     outcome_name: str
     treatments: list[str]
     llm_trace: LLMTrace | None = None
-    context: str | None = None
+
 
 
 class Stage1bContract(BaseModel):
@@ -87,7 +87,7 @@ class Stage1bContract(BaseModel):
     llm_trace: LLMTrace | None = None
     gate_failed: bool | None = None
     gate_overridden: GateOverrideContract | None = None
-    context: str | None = None
+
 
 
 class WorkerStatusContract(BaseModel):
@@ -114,7 +114,7 @@ class Stage2Contract(BaseModel):
     workers: list[WorkerStatusContract]
     combined_extractions_sample: list[ExtractionContract]
     per_indicator_counts: dict[str, int]
-    context: str | None = None
+
 
 
 class ValidationIssueContract(BaseModel):
@@ -154,7 +154,7 @@ class Stage3Contract(BaseModel):
     validation_report: ValidationReportContract
     gate_failed: bool | None = None
     gate_overridden: GateOverrideContract | None = None
-    context: str | None = None
+
 
 
 class ValidationRetryContract(BaseModel):
@@ -173,7 +173,7 @@ class Stage4Contract(BaseModel):
     validation_retries: list[ValidationRetryContract] | None = None
     llm_trace: LLMTrace | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
-    context: str | None = None
+
 
 
 class Stage4bContract(BaseModel):
@@ -183,7 +183,7 @@ class Stage4bContract(BaseModel):
     rb_partition: RBPartitionResult | None = None
     gate_failed: bool | None = None
     gate_overridden: GateOverrideContract | None = None
-    context: str | None = None
+
 
 
 class TreatmentEffectContract(BaseModel):
@@ -240,7 +240,7 @@ class Stage5Contract(BaseModel):
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
-    context: str | None = None
+
 
 
 class Stage6Contract(BaseModel):
@@ -248,7 +248,7 @@ class Stage6Contract(BaseModel):
 
     intervention_results: list[TreatmentEffectContract]
     inference_metadata: InferenceMetadataContract
-    context: str | None = None
+
 
 
 class LiveMetadata(BaseModel):

@@ -1928,18 +1928,6 @@
           },
           "title": "Sample",
           "type": "array"
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -1979,18 +1967,6 @@
             }
           ],
           "default": null
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2040,18 +2016,6 @@
             }
           ],
           "default": null
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2083,18 +2047,6 @@
           },
           "title": "Per Indicator Counts",
           "type": "object"
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2133,18 +2085,6 @@
             }
           ],
           "default": null
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2209,18 +2149,6 @@
           ],
           "default": null,
           "title": "Prior Predictive Samples"
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2269,18 +2197,6 @@
             }
           ],
           "default": null
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2367,18 +2283,6 @@
           ],
           "default": null,
           "title": "Posterior Pairs"
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
@@ -2401,18 +2305,6 @@
         },
         "inference_metadata": {
           "$ref": "#/$defs/InferenceMetadataContract"
-        },
-        "context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Context"
         }
       },
       "required": [
