@@ -785,6 +785,7 @@
     "p_loo": 3.15,
     "se": 5.12,
     "n_data_points": 55,
+    "observation_unit": "timestep (all manifest variables at time t)",
     "pareto_k": [
       0.08,
       0.06,
