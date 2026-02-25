@@ -206,7 +206,20 @@
         0.3356
       ],
       "prob_positive": 0.982,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": 0.004,
+        "effect_7d": 0.0646,
+        "effect_30d": 0.3392,
+        "peak_effect": 0.483,
+        "time_to_peak_days": 60
+      },
+      "manifest_effects": {
+        "ldl_cholesterol": 0.55,
+        "triglycerides": 0.28,
+        "resting_heart_rate": 0.08,
+        "systolic_bp": 0.05
+      }
     },
     {
       "treatment": "arterial_pressure",
@@ -414,7 +427,20 @@
         0.3215
       ],
       "prob_positive": 0.968,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": 0.0184,
+        "effect_7d": 0.1658,
+        "effect_30d": 0.3224,
+        "peak_effect": 0.4025,
+        "time_to_peak_days": 28
+      },
+      "manifest_effects": {
+        "systolic_bp": 0.48,
+        "diastolic_bp": 0.35,
+        "resting_heart_rate": 0.12,
+        "egfr": 0.06
+      }
     },
     {
       "treatment": "glycemic_control",
@@ -622,7 +648,20 @@
         -0.1814
       ],
       "prob_positive": 0.035,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": -0.0009,
+        "effect_7d": -0.027,
+        "effect_30d": -0.108,
+        "peak_effect": -0.3105,
+        "time_to_peak_days": 90
+      },
+      "manifest_effects": {
+        "hba1c": -0.38,
+        "fasting_glucose": -0.32,
+        "ldl_cholesterol": -0.05,
+        "resting_heart_rate": -0.03
+      }
     },
     {
       "treatment": "renal_function",
@@ -831,7 +870,19 @@
       ],
       "prob_positive": 0.115,
       "identifiable": false,
-      "prior_sensitivity_warning": "Effect estimate is prior-dominated (sparse eGFR data); interpret with caution"
+      "prior_sensitivity_warning": "Effect estimate is prior-dominated (sparse eGFR data); interpret with caution",
+      "temporal": {
+        "effect_1d": -0.0008,
+        "effect_7d": -0.0042,
+        "effect_30d": -0.0333,
+        "peak_effect": -0.1725,
+        "time_to_peak_days": 365
+      },
+      "manifest_effects": {
+        "egfr": -0.22,
+        "creatinine": -0.18,
+        "systolic_bp": -0.04
+      }
     },
     {
       "treatment": "medication_adherence",
@@ -1039,7 +1090,20 @@
         -0.2088
       ],
       "prob_positive": 0.021,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": -0.0087,
+        "effect_7d": -0.0695,
+        "effect_30d": -0.2171,
+        "peak_effect": -0.3795,
+        "time_to_peak_days": 45
+      },
+      "manifest_effects": {
+        "prescription_renewals": -0.45,
+        "ldl_cholesterol": -0.15,
+        "systolic_bp": -0.12,
+        "hba1c": -0.1
+      }
     }
   ],
   "inference_metadata": {
