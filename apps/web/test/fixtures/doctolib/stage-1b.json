@@ -1,4 +1,5 @@
 {
+  "outcome": "fail",
   "causal_spec": {
     "latent": {
       "constructs": [
@@ -223,8 +224,7 @@
         "renal_function": {
           "confounders": [
             "unobserved_aging_genetics"
-          ],
-          "notes": "Renal decline confounded by age-related nephron loss and genetic predisposition not captured in clinical records"
+          ]
         }
       }
     }

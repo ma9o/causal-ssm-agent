@@ -69,6 +69,7 @@ export interface CausalSSMContracts {
   _partial: PartialStageResult;
 }
 export interface Stage0Contract {
+  outcome: "success" | "warn" | "fail";
   source_type: string;
   source_label: string;
   n_records: number;
@@ -82,6 +83,7 @@ export interface DateRangeContract {
   end: string;
 }
 export interface Stage1AContract {
+  outcome: "success" | "warn" | "fail";
   latent_model: LatentModel;
   outcome_name: string;
   treatments: string[];
@@ -184,9 +186,9 @@ export interface TraceUsage {
   reasoning_tokens?: number | null;
 }
 export interface Stage1BContract {
+  outcome: "success" | "warn" | "fail";
   causal_spec: CausalSpec;
   llm_trace?: LLMTrace | null;
-  gate_failed?: boolean | null;
   gate_overridden?: GateOverrideContract | null;
 }
 /**
@@ -304,6 +306,7 @@ export interface GateOverrideContract {
   reason: string;
 }
 export interface Stage2Contract {
+  outcome: "success" | "warn" | "fail";
   workers: WorkerStatusContract[];
   combined_extractions_sample: ExtractionContract[];
   per_indicator_counts: {
@@ -323,9 +326,8 @@ export interface ExtractionContract {
   timestamp: string | null;
 }
 export interface Stage3Contract {
+  outcome: "success" | "warn" | "fail";
   validation_report: ValidationReportContract;
-  gate_failed?: boolean | null;
-  gate_overridden?: GateOverrideContract | null;
 }
 export interface ValidationReportContract {
   is_valid: boolean;
@@ -352,6 +354,7 @@ export interface IndicatorHealthContract {
   };
 }
 export interface Stage4Contract {
+  outcome: "success" | "warn" | "fail";
   model_spec: ModelSpec;
   priors: PriorProposal[];
   validation_retries?: ValidationRetryContract[] | null;
@@ -484,9 +487,9 @@ export interface ValidationRetryContract {
   feedback: string;
 }
 export interface Stage4BContract {
+  outcome: "success" | "warn" | "fail";
   parametric_id: ParametricIdResult;
   rb_partition?: RBPartitionResult | null;
-  gate_failed?: boolean | null;
   gate_overridden?: GateOverrideContract | null;
 }
 /**
@@ -554,6 +557,7 @@ export interface RBVariable {
   method: "kalman" | "particle";
 }
 export interface Stage5Contract {
+  outcome: "success" | "warn" | "fail";
   power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
@@ -738,6 +742,7 @@ export interface PosteriorPair {
   divergent?: boolean[] | null;
 }
 export interface Stage6Contract {
+  outcome: "success" | "warn" | "fail";
   intervention_results: TreatmentEffectContract[];
   inference_metadata: InferenceMetadataContract;
 }

@@ -3,7 +3,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils/cn";
 import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { GateOverride } from "@causal-ssm/api-types";
+import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 
 export function StageHeader({
@@ -13,7 +13,7 @@ export function StageHeader({
   hasGate = false,
   context,
   gateOverridden,
-  gateFailed = false,
+  outcome = "success",
 }: {
   number: string;
   title: string;
@@ -21,16 +21,18 @@ export function StageHeader({
   hasGate?: boolean;
   context?: string;
   gateOverridden?: GateOverride;
-  gateFailed?: boolean;
+  outcome?: StageOutcome;
 }) {
   return (
     <div className="flex items-center gap-3">
       <div
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold transition-colors",
-          gateFailed || gateOverridden
+          outcome === "fail"
             ? "bg-destructive text-white"
-            : status === "completed"
+            : outcome === "warn"
+              ? "bg-warning text-warning-foreground"
+              : status === "completed"
                 ? "bg-success text-success-foreground"
                 : status === "failed"
                   ? "bg-destructive text-white"
@@ -44,7 +46,7 @@ export function StageHeader({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold sm:text-lg">{title}</h2>
-          {hasGate && !gateOverridden && !gateFailed && (
+          {hasGate && !gateOverridden && outcome !== "fail" && (
             <Tooltip content="This stage can halt the pipeline if checks fail">
               <ShieldCheck className="h-4 w-4 text-foreground/75" />
             </Tooltip>

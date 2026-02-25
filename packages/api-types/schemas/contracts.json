@@ -1897,6 +1897,16 @@
     "Stage0Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "source_type": {
           "title": "Source Type",
           "type": "string"
@@ -1933,6 +1943,7 @@
       "required": [
         "date_range",
         "n_records",
+        "outcome",
         "sample",
         "source_label",
         "source_type"
@@ -1943,6 +1954,16 @@
     "Stage1aContract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "latent_model": {
           "$ref": "#/$defs/LatentModel"
         },
@@ -1971,6 +1992,7 @@
       },
       "required": [
         "latent_model",
+        "outcome",
         "outcome_name",
         "treatments"
       ],
@@ -1980,6 +2002,16 @@
     "Stage1bContract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "causal_spec": {
           "$ref": "#/$defs/CausalSpec"
         },
@@ -1994,18 +2026,6 @@
           ],
           "default": null
         },
-        "gate_failed": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Gate Failed"
-        },
         "gate_overridden": {
           "anyOf": [
             {
@@ -2019,7 +2039,8 @@
         }
       },
       "required": [
-        "causal_spec"
+        "causal_spec",
+        "outcome"
       ],
       "title": "Stage1bContract",
       "type": "object"
@@ -2027,6 +2048,16 @@
     "Stage2Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "workers": {
           "items": {
             "$ref": "#/$defs/WorkerStatusContract"
@@ -2051,6 +2082,7 @@
       },
       "required": [
         "combined_extractions_sample",
+        "outcome",
         "per_indicator_counts",
         "workers"
       ],
@@ -2060,34 +2092,22 @@
     "Stage3Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "validation_report": {
           "$ref": "#/$defs/ValidationReportContract"
-        },
-        "gate_failed": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Gate Failed"
-        },
-        "gate_overridden": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GateOverrideContract"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
+        "outcome",
         "validation_report"
       ],
       "title": "Stage3Contract",
@@ -2096,6 +2116,16 @@
     "Stage4Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "model_spec": {
           "$ref": "#/$defs/ModelSpec"
         },
@@ -2153,6 +2183,7 @@
       },
       "required": [
         "model_spec",
+        "outcome",
         "priors"
       ],
       "title": "Stage4Contract",
@@ -2161,6 +2192,16 @@
     "Stage4bContract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "parametric_id": {
           "$ref": "#/$defs/ParametricIdResult"
         },
@@ -2175,18 +2216,6 @@
           ],
           "default": null
         },
-        "gate_failed": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Gate Failed"
-        },
         "gate_overridden": {
           "anyOf": [
             {
@@ -2200,6 +2229,7 @@
         }
       },
       "required": [
+        "outcome",
         "parametric_id"
       ],
       "title": "Stage4bContract",
@@ -2208,6 +2238,16 @@
     "Stage5Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "power_scaling": {
           "items": {
             "$ref": "#/$defs/PowerScalingResultContract"
@@ -2287,6 +2327,7 @@
       },
       "required": [
         "inference_metadata",
+        "outcome",
         "power_scaling",
         "ppc"
       ],
@@ -2296,6 +2337,16 @@
     "Stage6Contract": {
       "additionalProperties": false,
       "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
         "intervention_results": {
           "items": {
             "$ref": "#/$defs/TreatmentEffectContract"
@@ -2309,7 +2360,8 @@
       },
       "required": [
         "inference_metadata",
-        "intervention_results"
+        "intervention_results",
+        "outcome"
       ],
       "title": "Stage6Contract",
       "type": "object"

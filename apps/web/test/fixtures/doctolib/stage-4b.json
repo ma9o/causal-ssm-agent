@@ -1,6 +1,8 @@
 {
+  "outcome": "warn",
   "parametric_id": {
     "checked": true,
+    "summary": { "structural_issues": [], "boundary_issues": [], "weak_params": ["sigma_pressure"] },
     "t_rule": {
       "satisfies": true,
       "n_free_params": 10,
@@ -211,8 +213,7 @@
           -1.3
         ]
       }
-    ],
-    "weak_params": []
+    ]
   },
   "rb_partition": {
     "latent_variables": [

@@ -10,11 +10,10 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
   const spec = data.causal_spec;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
-  const hasNonIdentifiable = nonIdEntries.length > 0;
 
   return (
     <div className="space-y-4">
-      {hasNonIdentifiable && (
+      {data.outcome === "fail" && nonIdEntries.length > 0 && (
         <HardGateAlert
           title="Non-Identifiable Treatment Effects Removed"
           explanation={`${nonIdEntries.length} treatment(s) have non-identifiable causal effects and were filtered out.`}

@@ -62,6 +62,7 @@ class DateRangeContract(BaseModel):
 class Stage0Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     source_type: str
     source_label: str
     n_records: int
@@ -69,25 +70,23 @@ class Stage0Contract(BaseModel):
     sample: list[dict[str, str | None]]
 
 
-
 class Stage1aContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     latent_model: LatentModel
     outcome_name: str
     treatments: list[str]
     llm_trace: LLMTrace | None = None
 
 
-
 class Stage1bContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     causal_spec: CausalSpec
     llm_trace: LLMTrace | None = None
-    gate_failed: bool | None = None
     gate_overridden: GateOverrideContract | None = None
-
 
 
 class WorkerStatusContract(BaseModel):
@@ -111,10 +110,10 @@ class ExtractionContract(BaseModel):
 class Stage2Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     workers: list[WorkerStatusContract]
     combined_extractions_sample: list[ExtractionContract]
     per_indicator_counts: dict[str, int]
-
 
 
 class ValidationIssueContract(BaseModel):
@@ -151,10 +150,8 @@ class ValidationReportContract(BaseModel):
 class Stage3Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     validation_report: ValidationReportContract
-    gate_failed: bool | None = None
-    gate_overridden: GateOverrideContract | None = None
-
 
 
 class ValidationRetryContract(BaseModel):
@@ -168,6 +165,7 @@ class ValidationRetryContract(BaseModel):
 class Stage4Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     model_spec: ModelSpec
     priors: list[PriorProposal]
     validation_retries: list[ValidationRetryContract] | None = None
@@ -175,15 +173,13 @@ class Stage4Contract(BaseModel):
     prior_predictive_samples: dict[str, list[float]] | None = None
 
 
-
 class Stage4bContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     parametric_id: ParametricIdResult
     rb_partition: RBPartitionResult | None = None
-    gate_failed: bool | None = None
     gate_overridden: GateOverrideContract | None = None
-
 
 
 class TreatmentEffectContract(BaseModel):
@@ -232,6 +228,7 @@ class InferenceMetadataContract(BaseModel):
 class Stage5Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     power_scaling: list[PowerScalingResultContract]
     ppc: PPCResultContract
     inference_metadata: InferenceMetadataContract
@@ -242,13 +239,12 @@ class Stage5Contract(BaseModel):
     posterior_pairs: list[PosteriorPair] | None = None
 
 
-
 class Stage6Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    outcome: Literal["success", "warn", "fail"] = "success"
     intervention_results: list[TreatmentEffectContract]
     inference_metadata: InferenceMetadataContract
-
 
 
 class LiveMetadata(BaseModel):

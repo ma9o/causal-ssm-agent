@@ -219,9 +219,8 @@ async def causal_inference_pipeline(
     stage1b_web_data: dict = {
         "causal_spec": causal_spec,
         "llm_trace": stage1b_result.get("llm_trace"),
+        "outcome": "fail" if non_identifiable else "success",
     }
-    if gate_1b_failed:
-        stage1b_web_data["gate_failed"] = True
     if gate_1b_overridden:
         stage1b_web_data["gate_overridden"] = {
             "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
@@ -308,9 +307,11 @@ async def causal_inference_pipeline(
             }
         )
 
+    stage2_outcome = "warn" if any(w["status"] == "failed" for w in worker_statuses) else "success"
     persist_web_result(
         "stage-2",
         {
+            "outcome": stage2_outcome,
             "workers": worker_statuses,
             "combined_extractions_sample": combined_extractions_sample,
             "per_indicator_counts": per_ind_counts,
@@ -356,37 +357,23 @@ async def causal_inference_pipeline(
             description="Stage 3 extraction validation issues",
         )
 
-    # Hard gate: abort if no usable data
-    gate_3_failed = False
-    gate_3_overridden = False
-    if validation_report and not validation_report.get("is_valid", True):
-        n_data = len(data_for_model) if hasattr(data_for_model, "__len__") else 0
-        if n_data == 0:
-            gate_3_failed = True
-            if gates_overridden:
-                print("⚠️  GATE 3 OVERRIDDEN: Validation failed with no usable data, continuing")
-                gate_3_overridden = True
-
-    # Persist web data BEFORE potential halt so frontend can display gate failure
+    # Persist web data
     validation_report_web = validation_report or {
         "is_valid": False,
         "issues": [],
         "per_indicator_health": [],
     }
-    stage3_web_data: dict = {"validation_report": validation_report_web}
-    if gate_3_failed:
-        stage3_web_data["gate_failed"] = True
-    if gate_3_overridden:
-        stage3_web_data["gate_overridden"] = {
-            "reason": "Validation failed with no usable data remaining"
-        }
-    persist_web_result("stage-3", stage3_web_data)
-
-    if gate_3_failed and not gates_overridden:
-        raise RuntimeError(
-            "Stage 3 validation failed and no usable data remains. "
-            "Cannot proceed to model specification."
-        )
+    if not validation_report_web.get("is_valid", True):
+        stage3_outcome = "fail"
+    elif any(
+        i.get("severity") in ("warning", "error") for i in validation_report_web.get("issues", [])
+    ):
+        stage3_outcome = "warn"
+    else:
+        stage3_outcome = "success"
+    persist_web_result(
+        "stage-3", {"outcome": stage3_outcome, "validation_report": validation_report_web}
+    )
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4: Model Specification (Orchestrator-Worker Architecture)
@@ -492,11 +479,22 @@ async def causal_inference_pipeline(
         print(f"  Skipped: {param_id.get('error', 'unknown')}")
 
     # Persist web data BEFORE potential halt so frontend can display gate failure
+    if gate_4b_failed:
+        stage4b_outcome = "fail"
+    elif param_id.get("checked", False):
+        summary = param_id.get("summary", {})
+        has_issues = (
+            summary.get("structural_issues")
+            or summary.get("boundary_issues")
+            or summary.get("weak_params")
+        )
+        stage4b_outcome = "warn" if has_issues else "success"
+    else:
+        stage4b_outcome = "success"
     stage4b_web_data: dict = {
+        "outcome": stage4b_outcome,
         "parametric_id": stage4_result.get("parametric_id", {}),
     }
-    if gate_4b_failed:
-        stage4b_web_data["gate_failed"] = True
     if gate_4b_overridden:
         stage4b_web_data["gate_overridden"] = {
             "reason": (
@@ -691,7 +689,14 @@ async def causal_inference_pipeline(
         posterior_marginals = fitted_res.get("posterior_marginals")
         posterior_pairs = fitted_res.get("posterior_pairs")
 
+    has_ppc_warnings = bool(ppc_result.get("per_variable_warnings"))
+    has_ps_issues = any(
+        e["diagnosis"] in ("prior_dominated", "prior_data_conflict") for e in ps_list
+    )
+    stage5_outcome = "warn" if (has_ppc_warnings or has_ps_issues) else "success"
+
     stage5_data = {
+        "outcome": stage5_outcome,
         "power_scaling": ps_list,
         "ppc": ppc_result,
         "inference_metadata": inf_meta,
@@ -703,7 +708,12 @@ async def causal_inference_pipeline(
     }
     persist_web_result("stage-5", stage5_data)
 
+    stage6_has_warnings = any(
+        r.get("warning") or r.get("ppc_warnings") or r.get("prior_sensitivity_warning")
+        for r in intervention_results
+    )
     stage6_data = {
+        "outcome": "warn" if stage6_has_warnings else "success",
         "intervention_results": intervention_results,
         "inference_metadata": inf_meta,
     }

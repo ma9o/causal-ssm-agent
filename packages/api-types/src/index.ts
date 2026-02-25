@@ -121,6 +121,7 @@ export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
 export type PowerScalingDiagnosis = "prior_dominated" | "well_identified" | "prior_data_conflict";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+export type StageOutcome = "success" | "warn" | "fail";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
 export type AggregationFunction =
   | "mean" | "sum" | "min" | "max" | "std" | "var" | "last" | "first"

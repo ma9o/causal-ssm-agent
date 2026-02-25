@@ -1,6 +1,6 @@
 "use client";
 
-import type { StageId, StageStatus } from "@causal-ssm/api-types";
+import type { StageId, StageOutcome, StageStatus } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
@@ -17,8 +17,7 @@ export interface StageTiming {
 export interface PipelineProgress {
   stages: Record<StageId, StageRunStatus>;
   timings: Partial<Record<StageId, StageTiming>>;
-  gateFailures: Partial<Record<StageId, boolean>>;
-  gateOverrides: Partial<Record<StageId, boolean>>;
+  stageOutcomes: Partial<Record<StageId, StageOutcome>>;
   currentStage: StageId | null;
   isComplete: boolean;
   isFailed: boolean;
@@ -27,7 +26,7 @@ export interface PipelineProgress {
 function initialProgress(): PipelineProgress {
   const stages = {} as Record<StageId, StageRunStatus>;
   for (const s of STAGES) stages[s.id] = "pending";
-  return { stages, timings: {}, gateFailures: {}, gateOverrides: {}, currentStage: null, isComplete: false, isFailed: false };
+  return { stages, timings: {}, stageOutcomes: {}, currentStage: null, isComplete: false, isFailed: false };
 }
 
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -57,11 +56,10 @@ export function useRunEvents(runId: string | null) {
         return {
           stages,
           timings,
-          gateFailures: prev.gateFailures,
-          gateOverrides: prev.gateOverrides,
+          stageOutcomes: prev.stageOutcomes,
           currentStage: status === "running" ? stageId : prev.currentStage,
           isComplete: completedAll,
-          isFailed: anyFailed,
+          isFailed: anyFailed || prev.isFailed,
         };
       });
     },
@@ -132,9 +130,12 @@ export function useRunEvents(runId: string | null) {
           updateStage(stage.id, "failed", eventTime);
         }
 
-        // Close permanently if pipeline is done — no need to reconnect
+        // Close permanently if pipeline is done — no need to reconnect.
+        // Check Prefect task statuses directly (not isFailed, which includes
+        // outcome-level failures that don't stop the pipeline when overridden).
         const progress = queryClient.getQueryData<PipelineProgress>(["pipeline", runId, "status"]);
-        if (progress?.isComplete || progress?.isFailed) {
+        const anyTaskFailed = progress && STAGES.some((s) => progress.stages[s.id] === "failed");
+        if (progress?.isComplete || anyTaskFailed) {
           ws.close();
         }
       } catch {
