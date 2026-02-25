@@ -206,7 +206,20 @@
         0.3175
       ],
       "prob_positive": 0.991,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": 0.0042,
+        "effect_7d": 0.0677,
+        "effect_30d": 0.3554,
+        "peak_effect": 0.506,
+        "time_to_peak_days": 60
+      },
+      "manifest_effects": {
+        "ldl_cholesterol": 0.55,
+        "triglycerides": 0.28,
+        "resting_heart_rate": 0.08,
+        "systolic_bp": 0.05
+      }
     },
     {
       "treatment": "arterial_pressure",
@@ -414,7 +427,20 @@
         0.4519
       ],
       "prob_positive": 0.978,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": 0.0189,
+        "effect_7d": 0.1705,
+        "effect_30d": 0.3316,
+        "peak_effect": 0.414,
+        "time_to_peak_days": 28
+      },
+      "manifest_effects": {
+        "systolic_bp": 0.48,
+        "diastolic_bp": 0.35,
+        "resting_heart_rate": 0.12,
+        "egfr": 0.06
+      }
     },
     {
       "treatment": "glycemic_control",
@@ -622,7 +648,20 @@
         -0.1954
       ],
       "prob_positive": 0.025,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": -0.0009,
+        "effect_7d": -0.028,
+        "effect_30d": -0.112,
+        "peak_effect": -0.322,
+        "time_to_peak_days": 90
+      },
+      "manifest_effects": {
+        "hba1c": -0.38,
+        "fasting_glucose": -0.32,
+        "ldl_cholesterol": -0.05,
+        "resting_heart_rate": -0.03
+      }
     },
     {
       "treatment": "renal_function",
@@ -831,7 +870,19 @@
       ],
       "prob_positive": 0.098,
       "identifiable": false,
-      "prior_sensitivity_warning": "Effect estimate is prior-dominated (sparse eGFR data); interpret with caution"
+      "prior_sensitivity_warning": "Effect estimate is prior-dominated (sparse eGFR data); interpret with caution",
+      "temporal": {
+        "effect_1d": -0.0009,
+        "effect_7d": -0.0044,
+        "effect_30d": -0.0356,
+        "peak_effect": -0.184,
+        "time_to_peak_days": 365
+      },
+      "manifest_effects": {
+        "egfr": -0.22,
+        "creatinine": -0.18,
+        "systolic_bp": -0.04
+      }
     },
     {
       "treatment": "medication_adherence",
@@ -1039,7 +1090,20 @@
         -0.167
       ],
       "prob_positive": 0.015,
-      "identifiable": true
+      "identifiable": true,
+      "temporal": {
+        "effect_1d": -0.0092,
+        "effect_7d": -0.0737,
+        "effect_30d": -0.2303,
+        "peak_effect": -0.4025,
+        "time_to_peak_days": 45
+      },
+      "manifest_effects": {
+        "prescription_renewals": -0.45,
+        "ldl_cholesterol": -0.15,
+        "systolic_bp": -0.12,
+        "hba1c": -0.1
+      }
     }
   ],
   "inference_metadata": {
@@ -1047,5 +1111,5 @@
     "n_samples": 2000,
     "duration_seconds": 185.4
   },
-  "context": "Stage 6 computes interventional treatment effects via NUTS-DA MCMC. Tighter posteriors than SVI \u2014 lipid burden remains #1 driver (99.1% certain). Medication adherence protective effect strengthened."
+  "context": "Stage 6 computes interventional treatment effects via NUTS-DA MCMC. Tighter posteriors than SVI — lipid burden remains #1 driver (99.1% certain). Medication adherence protective effect strengthened."
 }
