@@ -364,8 +364,10 @@ class TestObsWeights:
         y = jnp.array([0.8, 0.1])
         obs_mask = jnp.ones(2, dtype=bool)
         ok = build_observation_kernel(
-            DistributionFamily.STUDENT_T, LinkFunction.IDENTITY,
-            {"obs_df": 5.0}, manifest_cov=R,
+            DistributionFamily.STUDENT_T,
+            LinkFunction.IDENTITY,
+            {"obs_df": 5.0},
+            manifest_cov=R,
         )
 
         w = _obs_weight_quadrature(y, m, P, H, R, d, obs_mask, ok)
@@ -381,7 +383,9 @@ class TestObsWeights:
         y = jnp.array([1.5, 1.2])
         obs_mask = jnp.ones(2, dtype=bool)
         ok = build_observation_kernel(
-            DistributionFamily.GAMMA, LinkFunction.LOG, {"obs_shape": 2.0},
+            DistributionFamily.GAMMA,
+            LinkFunction.LOG,
+            {"obs_shape": 2.0},
         )
 
         w = _obs_weight_quadrature(y, m, P, H, R, d, obs_mask, ok)
@@ -411,7 +415,9 @@ class TestObsWeights:
         y = jnp.array([0.5, 0.8])  # positive observations
         obs_mask = jnp.ones(2, dtype=bool)
         ok = build_observation_kernel(
-            DistributionFamily.GAMMA, LinkFunction.INVERSE, {"obs_shape": 2.0},
+            DistributionFamily.GAMMA,
+            LinkFunction.INVERSE,
+            {"obs_shape": 2.0},
         )
 
         w = _obs_weight_quadrature(y, m, P, H, R, d, obs_mask, ok)
@@ -427,7 +433,9 @@ class TestObsWeights:
         y = jnp.array([0.3, 0.7])  # in (0, 1)
         obs_mask = jnp.ones(2, dtype=bool)
         ok = build_observation_kernel(
-            DistributionFamily.BETA, LinkFunction.PROBIT, {"obs_concentration": 10.0},
+            DistributionFamily.BETA,
+            LinkFunction.PROBIT,
+            {"obs_concentration": 10.0},
         )
 
         w = _obs_weight_quadrature(y, m, P, H, R, d, obs_mask, ok)

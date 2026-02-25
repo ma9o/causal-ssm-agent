@@ -237,10 +237,12 @@ class SSMModel:
 
         # Off-diagonal (cross-effects)
         if n_offdiag > 0:
-            drift_offdiag_pop = jnp.asarray(numpyro.sample(
-                "drift_offdiag_pop",
-                _make_prior_batch(self.priors.drift_offdiag, n_offdiag),
-            ))
+            drift_offdiag_pop = jnp.asarray(
+                numpyro.sample(
+                    "drift_offdiag_pop",
+                    _make_prior_batch(self.priors.drift_offdiag, n_offdiag),
+                )
+            )
         else:
             drift_offdiag_pop = jnp.array([])
 
@@ -291,10 +293,12 @@ class SSMModel:
             # Full lower triangular
             n_lower = n * (n - 1) // 2
             if n_lower > 0:
-                diff_lower = jnp.asarray(numpyro.sample(
-                    "diffusion_lower",
-                    _make_prior_batch(self.priors.diffusion_offdiag, n_lower),
-                ))
+                diff_lower = jnp.asarray(
+                    numpyro.sample(
+                        "diffusion_lower",
+                        _make_prior_batch(self.priors.diffusion_offdiag, n_lower),
+                    )
+                )
             else:
                 diff_lower = jnp.array([])
 
@@ -356,10 +360,12 @@ class SSMModel:
 
             n_free = len(free_positions)
             if n_free > 0:
-                free_loadings = jnp.asarray(numpyro.sample(
-                    "lambda_free",
-                    _make_prior_batch(self.priors.lambda_free, n_free),
-                ))
+                free_loadings = jnp.asarray(
+                    numpyro.sample(
+                        "lambda_free",
+                        _make_prior_batch(self.priors.lambda_free, n_free),
+                    )
+                )
                 for idx, (i, j) in enumerate(free_positions):
                     lambda_mat = lambda_mat.at[i, j].set(free_loadings[idx])
 
@@ -377,10 +383,12 @@ class SSMModel:
         # Sample additional loadings if needed
         if n_m > n_l:
             n_free = (n_m - n_l) * n_l
-            free_loadings = jnp.asarray(numpyro.sample(
-                "lambda_free",
-                _make_prior_dist(self.priors.lambda_free).expand((n_free,)),
-            ))
+            free_loadings = jnp.asarray(
+                numpyro.sample(
+                    "lambda_free",
+                    _make_prior_dist(self.priors.lambda_free).expand((n_free,)),
+                )
+            )
 
             idx = 0
             for i in range(n_l, n_m):

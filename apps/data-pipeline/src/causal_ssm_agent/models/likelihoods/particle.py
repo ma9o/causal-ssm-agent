@@ -354,7 +354,9 @@ class ParticleLikelihood:
                 return mean + trans_kernel.sample_noise_fn(key, chol_Qd_t)
 
             def log_potential(
-                state_prev: ArrayTreeLike, state: ArrayTreeLike, model_inputs: ArrayTreeLike  # noqa: ARG001
+                state_prev: ArrayTreeLike,
+                state: ArrayTreeLike,
+                model_inputs: ArrayTreeLike,
             ) -> ScalarArray:
                 obs = model_inputs["observation"]
                 mask = model_inputs["obs_mask"]

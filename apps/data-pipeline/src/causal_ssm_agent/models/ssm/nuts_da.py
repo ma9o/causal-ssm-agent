@@ -236,7 +236,12 @@ def _kalman_smooth_states(
     def get_observation_params(
         state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
     ) -> tuple[MeanAndCholCovFunc, Array, Array]:
-        H_t, d_t, chol_R_t, y_t = model_inputs["H"], model_inputs["d"], model_inputs["chol_R"], model_inputs["y"]
+        H_t, d_t, chol_R_t, y_t = (
+            model_inputs["H"],
+            model_inputs["d"],
+            model_inputs["chol_R"],
+            model_inputs["y"],
+        )
 
         def obs_fn(x: ArrayLike) -> tuple[Array, Array]:
             return H_t @ x + d_t, chol_R_t

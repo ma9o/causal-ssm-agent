@@ -296,9 +296,7 @@ def make_block_rb_callbacks(
             log_w = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
             return jnp.where(n_observed > 0, log_w, 0.0)
         if quadrature == "unscented":
-            sigma_pts_g, sigma_wts = _unscented_sigma_points(
-                state.g_pred_mean, state.g_pred_cov
-            )
+            sigma_pts_g, sigma_wts = _unscented_sigma_points(state.g_pred_mean, state.g_pred_cov)
         else:
             from causal_ssm_agent.models.likelihoods.rao_blackwell import (
                 _multivariate_gauss_hermite,
