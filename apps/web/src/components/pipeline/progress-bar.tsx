@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
-import { Check, Copy, Loader2, X } from "lucide-react";
+import { Check, Copy, Download, Loader2, X } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -10,9 +11,11 @@ import { useCallback, useState } from "react";
 export function PipelineProgressBar({
   progress,
   sessionCode,
+  runId,
 }: {
   progress: PipelineProgress | undefined;
   sessionCode?: string;
+  runId: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -22,6 +25,8 @@ export function PipelineProgressBar({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [sessionCode]);
+
+  const { exportToMarkdown } = useExportMarkdown(runId);
 
   if (!progress) return null;
 
@@ -71,6 +76,18 @@ export function PipelineProgressBar({
               <Badge variant="destructive">
                 {hasGateFailure ? "Blocked" : "Failed"}
               </Badge>
+            )}
+            {completed > 0 && (
+              <Tooltip content={<span className="text-xs">Export as Markdown</span>}>
+                <button
+                  type="button"
+                  onClick={exportToMarkdown}
+                  className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title="Export report as Markdown"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
             )}
           </div>
         </div>

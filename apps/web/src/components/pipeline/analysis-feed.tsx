@@ -54,7 +54,7 @@ export function AnalysisFeed({
 
   return (
     <div>
-      <PipelineProgressBar progress={progress} sessionCode={sessionCode} />
+      <PipelineProgressBar progress={progress} sessionCode={sessionCode} runId={runId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
         {visibleStages.map((stage) => (
           <StageSectionRouter
