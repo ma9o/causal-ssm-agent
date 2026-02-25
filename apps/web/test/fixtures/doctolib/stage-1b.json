@@ -1,0 +1,306 @@
+{
+  "causal_spec": {
+    "latent": {
+      "constructs": [
+        {
+          "name": "cardiovascular_risk",
+          "description": "Overall 10-year cardiovascular event risk integrating lipid, glycemic, hemodynamic, and renal factors",
+          "role": "endogenous",
+          "is_outcome": true,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "lipid_burden",
+          "description": "Atherogenic lipid profile reflecting LDL, triglycerides, and HDL balance",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "glycemic_control",
+          "description": "Quality of blood glucose regulation reflecting insulin sensitivity and hepatic glucose output",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "arterial_pressure",
+          "description": "Systemic blood pressure level reflecting vascular resistance and cardiac output",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "renal_function",
+          "description": "Glomerular filtration capacity reflecting nephron health",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "medication_adherence",
+          "description": "Prescription fill rate and treatment compliance across all prescribed medications",
+          "role": "exogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "weekly"
+        }
+      ],
+      "edges": [
+        {
+          "cause": "lipid_burden",
+          "effect": "cardiovascular_risk",
+          "description": "Atherogenic lipids accelerate coronary and carotid atherosclerosis",
+          "lagged": false
+        },
+        {
+          "cause": "arterial_pressure",
+          "effect": "cardiovascular_risk",
+          "description": "Elevated blood pressure increases cardiac workload and vascular damage",
+          "lagged": false
+        },
+        {
+          "cause": "glycemic_control",
+          "effect": "cardiovascular_risk",
+          "description": "Poor glycemic control drives micro- and macrovascular complications",
+          "lagged": false
+        },
+        {
+          "cause": "renal_function",
+          "effect": "cardiovascular_risk",
+          "description": "Declining kidney function is an independent cardiovascular risk factor",
+          "lagged": false
+        },
+        {
+          "cause": "medication_adherence",
+          "effect": "lipid_burden",
+          "description": "Atorvastatin inhibits HMG-CoA reductase, reducing hepatic LDL synthesis",
+          "lagged": true
+        },
+        {
+          "cause": "medication_adherence",
+          "effect": "arterial_pressure",
+          "description": "Ramipril and amlodipine reduce systemic vascular resistance",
+          "lagged": true
+        },
+        {
+          "cause": "medication_adherence",
+          "effect": "glycemic_control",
+          "description": "Metformin improves hepatic insulin sensitivity and reduces gluconeogenesis",
+          "lagged": true
+        },
+        {
+          "cause": "arterial_pressure",
+          "effect": "renal_function",
+          "description": "Sustained hypertension causes glomerular hyperfiltration injury",
+          "lagged": true
+        },
+        {
+          "cause": "cardiovascular_risk",
+          "effect": "arterial_pressure",
+          "description": "Worsening cardiovascular state feeds back into vascular stiffness",
+          "lagged": true
+        }
+      ]
+    },
+    "measurement": {
+      "indicators": [
+        {
+          "name": "ldl_cholesterol",
+          "construct_name": "lipid_burden",
+          "how_to_measure": "LDL cholesterol in mmol/L from lipid panel",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "triglycerides",
+          "construct_name": "lipid_burden",
+          "how_to_measure": "Serum triglycerides in mmol/L",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "hba1c",
+          "construct_name": "glycemic_control",
+          "how_to_measure": "Glycated hemoglobin %; lower = better control",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "fasting_glucose",
+          "construct_name": "glycemic_control",
+          "how_to_measure": "Fasting blood glucose in mmol/L",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "systolic_bp",
+          "construct_name": "arterial_pressure",
+          "how_to_measure": "Systolic blood pressure in mmHg",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "diastolic_bp",
+          "construct_name": "arterial_pressure",
+          "how_to_measure": "Diastolic blood pressure in mmHg",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "resting_heart_rate",
+          "construct_name": "cardiovascular_risk",
+          "how_to_measure": "Resting heart rate in bpm at consultation",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "egfr",
+          "construct_name": "renal_function",
+          "how_to_measure": "Estimated GFR in mL/min/1.73m\u00b2 (CKD-EPI); higher = better",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "creatinine",
+          "construct_name": "renal_function",
+          "how_to_measure": "Serum creatinine in \u00b5mol/L; lower = better",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "prescription_renewals",
+          "construct_name": "medication_adherence",
+          "how_to_measure": "Proportion of prescriptions renewed on time via Doctolib (0\u20131, quarterly)",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        }
+      ]
+    },
+    "identifiability": {
+      "identifiable_treatments": {
+        "lipid_burden": {
+          "method": "do_calculus",
+          "estimand": "P(cardiovascular_risk | do(lipid_burden))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "arterial_pressure": {
+          "method": "do_calculus",
+          "estimand": "P(cardiovascular_risk | do(arterial_pressure))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "glycemic_control": {
+          "method": "do_calculus",
+          "estimand": "P(cardiovascular_risk | do(glycemic_control))",
+          "marginalized_confounders": [],
+          "instruments": []
+        },
+        "medication_adherence": {
+          "method": "do_calculus",
+          "estimand": "P(cardiovascular_risk | do(medication_adherence))",
+          "marginalized_confounders": [],
+          "instruments": []
+        }
+      },
+      "non_identifiable_treatments": {
+        "renal_function": {
+          "confounders": [
+            "unobserved_aging_genetics"
+          ],
+          "notes": "Renal decline confounded by age-related nephron loss and genetic predisposition not captured in clinical records"
+        }
+      }
+    }
+  },
+  "filtered_treatments": [
+    "lipid_burden",
+    "glycemic_control",
+    "arterial_pressure",
+    "renal_function",
+    "medication_adherence"
+  ],
+  "llm_trace": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a clinical measurement specialist mapping latent constructs to observable biomarkers...",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "user",
+        "content": "Map the 6 latent constructs to measurable clinical indicators extractable from this patient's Doctolib records (lab results, vitals, prescriptions).",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "I'll propose 10 indicators from standard clinical measurements available in French primary care records.",
+        "reasoning": "LDL + triglycerides for lipid_burden; HbA1c + fasting glucose for glycemic_control; systolic + diastolic BP for arterial_pressure; eGFR + creatinine for renal_function; heart rate for CV risk; prescription fills for adherence.",
+        "tool_calls": [
+          {
+            "name": "validate_measurement_model",
+            "arguments": {
+              "measurement_json": "{\"indicators\": [...]}"
+            }
+          }
+        ],
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "tool",
+        "content": "VALID",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": "validate_measurement_model",
+        "tool_result": "VALID",
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "10 indicators mapped to 6 constructs. Renal function effect on CV risk is non-identifiable due to unobserved aging/genetic confounders.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      }
+    ],
+    "model": "claude-sonnet-4-20250514",
+    "total_time_seconds": 21.3,
+    "usage": {
+      "input_tokens": 3800,
+      "output_tokens": 3100,
+      "reasoning_tokens": 580
+    }
+  },
+  "context": "Stage 1b maps latent constructs to clinical biomarkers and checks nonparametric identification. 4 of 5 treatment effects are identifiable; renal_function is confounded by unobserved aging.",
+  "gate_overridden": {
+    "reason": "Renal function effect is non-identifiable due to age/genetic confounders. User chose to continue with partial identification."
+  }
+}

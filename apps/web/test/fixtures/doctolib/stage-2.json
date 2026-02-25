@@ -1,0 +1,808 @@
+{
+  "workers": [
+    {
+      "worker_id": 0,
+      "status": "completed",
+      "n_extractions": 42,
+      "chunk_size": 25
+    },
+    {
+      "worker_id": 1,
+      "status": "completed",
+      "n_extractions": 38,
+      "chunk_size": 25
+    },
+    {
+      "worker_id": 2,
+      "status": "completed",
+      "n_extractions": 45,
+      "chunk_size": 25
+    },
+    {
+      "worker_id": 3,
+      "status": "completed",
+      "n_extractions": 35,
+      "chunk_size": 18
+    }
+  ],
+  "combined_extractions_sample": [
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 4.1,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 4.1,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 4.1,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 3.5,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 3.5,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 3.2,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 3.3,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 3.0,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 2.7,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 2.6,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 2.4,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 2.3,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "ldl_cholesterol",
+      "value": 2.1,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.3,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.1,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.0,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.1,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.3,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 2.0,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.9,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.9,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.5,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.7,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.7,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.7,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "triglycerides",
+      "value": 1.5,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.8,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.7,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.7,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.3,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.4,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.1,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.8,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 7.0,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.8,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.9,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.8,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.4,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hba1c",
+      "value": 6.6,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.5,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.7,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.5,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.4,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.5,
+      "timestamp": "2022-08-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.3,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 8.0,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 7.9,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 7.7,
+      "timestamp": "2023-05-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 7.2,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 6.9,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 6.9,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 7.0,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 6.6,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "fasting_glucose",
+      "value": 7.3,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 149,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 147,
+      "timestamp": "2021-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 153,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 155,
+      "timestamp": "2022-03-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 150,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 150,
+      "timestamp": "2022-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 152,
+      "timestamp": "2022-08-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 145,
+      "timestamp": "2022-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 138,
+      "timestamp": "2022-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 141,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 146,
+      "timestamp": "2023-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 135,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 140,
+      "timestamp": "2023-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 140,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 139,
+      "timestamp": "2023-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 141,
+      "timestamp": "2023-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 139,
+      "timestamp": "2023-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 144,
+      "timestamp": "2024-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 135,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 129,
+      "timestamp": "2024-05-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 127,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 124,
+      "timestamp": "2024-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 129,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "systolic_bp",
+      "value": 122,
+      "timestamp": "2024-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 95,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 97,
+      "timestamp": "2021-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 92,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 92,
+      "timestamp": "2022-03-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 87,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2022-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2022-08-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 92,
+      "timestamp": "2022-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 93,
+      "timestamp": "2022-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2023-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 88,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 90,
+      "timestamp": "2023-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 89,
+      "timestamp": "2023-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 84,
+      "timestamp": "2023-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 88,
+      "timestamp": "2023-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 86,
+      "timestamp": "2024-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 87,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 82,
+      "timestamp": "2024-05-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 87,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 79,
+      "timestamp": "2024-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 83,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "diastolic_bp",
+      "value": 78,
+      "timestamp": "2024-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 76,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 74,
+      "timestamp": "2021-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 77,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 81,
+      "timestamp": "2022-03-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 79,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 78,
+      "timestamp": "2022-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 68,
+      "timestamp": "2022-08-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 77,
+      "timestamp": "2022-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 76,
+      "timestamp": "2022-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 72,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 72,
+      "timestamp": "2023-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 73,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 78,
+      "timestamp": "2023-06-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 69,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 71,
+      "timestamp": "2023-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 76,
+      "timestamp": "2023-11-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 70,
+      "timestamp": "2023-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 70,
+      "timestamp": "2024-02-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 71,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 66,
+      "timestamp": "2024-05-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 70,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 65,
+      "timestamp": "2024-09-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 71,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "resting_heart_rate",
+      "value": 68,
+      "timestamp": "2024-12-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 87,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 82,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 83,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 76,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 78,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 78,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "egfr",
+      "value": 79,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 74,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 81,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 81,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 84,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 83,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 82,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "creatinine",
+      "value": 81,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.87,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.94,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.92,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 1.0,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.9,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.95,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.85,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.91,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.94,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.97,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 1.0,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.93,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "prescription_renewals",
+      "value": 0.87,
+      "timestamp": "2024-10-15T00:00:00Z"
+    }
+  ],
+  "per_indicator_counts": {
+    "ldl_cholesterol": 13,
+    "triglycerides": 13,
+    "hba1c": 13,
+    "fasting_glucose": 15,
+    "systolic_bp": 24,
+    "diastolic_bp": 24,
+    "resting_heart_rate": 24,
+    "egfr": 7,
+    "creatinine": 7,
+    "prescription_renewals": 13
+  },
+  "context": "Stage 2 extracts clinical indicator values from the patient\u2019s Doctolib records. 4 LLM workers parse lab panels (quarterly), vital signs (per visit), renal markers (biannual), and prescription renewal data."
+}
