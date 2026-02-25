@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { uploadFile } from "@/lib/api/endpoints";
-import { isMockMode, MOCK_RUN_ID } from "@/lib/api/mock-provider";
+import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
 import { generateSessionCode } from "@/lib/session-code";
 import { Switch } from "@/components/ui/switch";
@@ -44,7 +44,10 @@ export default function LandingPage() {
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
-      router.push(`/analysis/${MOCK_RUN_ID}`);
+      const code = getMockFixture();
+      fetch(`/api/sessions/${code}`)
+        .then((r) => r.json())
+        .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`));
     }
   }, [router]);
 
