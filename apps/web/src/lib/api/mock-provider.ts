@@ -16,7 +16,13 @@ const STAGE_DELAYS_MS: Record<StageId, number> = {
 };
 
 export function isMockMode(): boolean {
-  return process.env.NEXT_PUBLIC_MOCK_DATA === "true";
+  const v = process.env.NEXT_PUBLIC_MOCK_DATA;
+  return !!v && v !== "false";
+}
+
+/** Returns the fixture directory name, e.g. "default". */
+export function getMockFixture(): string {
+  return process.env.NEXT_PUBLIC_MOCK_DATA || "default";
 }
 
 export interface MockEventHandler {
