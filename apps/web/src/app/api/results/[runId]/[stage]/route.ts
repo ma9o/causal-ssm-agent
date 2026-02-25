@@ -7,12 +7,13 @@ export async function GET(
   { params }: { params: Promise<{ runId: string; stage: string }> },
 ) {
   const { runId, stage } = await params;
-  const isMock = process.env.NEXT_PUBLIC_MOCK_DATA === "true";
+  const mockFixture = process.env.NEXT_PUBLIC_MOCK_DATA;
+  const isMock = !!mockFixture && mockFixture !== "false";
 
   const paths = [
     join(process.cwd(), "..", "data-pipeline", "results", runId, `${stage}.json`),
     ...(isMock
-      ? [join(process.cwd(), "test", "fixtures", `${stage}.json`)]
+      ? [join(process.cwd(), "test", "fixtures", mockFixture, `${stage}.json`)]
       : []),
   ];
 
