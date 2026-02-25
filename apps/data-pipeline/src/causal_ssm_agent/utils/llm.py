@@ -224,7 +224,10 @@ def get_generate_config() -> GenerateConfig:
     return GenerateConfig(
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
-        reasoning_effort=cast("Literal['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] | None", llm.reasoning_effort),
+        reasoning_effort=cast(
+            "Literal['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] | None",
+            llm.reasoning_effort,
+        ),
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
     )
 

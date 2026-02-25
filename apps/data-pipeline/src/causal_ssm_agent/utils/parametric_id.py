@@ -741,8 +741,15 @@ def sbc_check(
     dt: float = 0.5,
     n_sbc: int = 50,
     method: Literal[
-        "svi", "nuts", "nuts_da", "hessmc2", "pgas",
-        "tempered_smc", "laplace_em", "structured_vi", "dpf",
+        "svi",
+        "nuts",
+        "nuts_da",
+        "hessmc2",
+        "pgas",
+        "tempered_smc",
+        "laplace_em",
+        "structured_vi",
+        "dpf",
     ] = "laplace_em",
     seed: int = 42,
     **fit_kwargs,
@@ -850,9 +857,7 @@ def sbc_check(
         # g. Likelihood rank (data-dependent test quantity)
         if available:
             # Can build unconstrained vectors from raw param samples
-            log_lik_fn, _ = _build_eval_fns(
-                model, y_star, times, site_info, unravel_fn, backend
-            )
+            log_lik_fn, _ = _build_eval_fns(model, y_star, times, site_info, unravel_fn, backend)
             true_ll = float(log_lik_fn(true_z))
 
             post_z_list = []

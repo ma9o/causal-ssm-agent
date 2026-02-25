@@ -319,7 +319,9 @@ class TestPPCDataclasses:
         }
 
     def test_ppc_warning_to_dict_failed(self):
-        w = PPCWarning(variable="x", check_type="calibration", message="bad", value=0.5, passed=False)
+        w = PPCWarning(
+            variable="x", check_type="calibration", message="bad", value=0.5, passed=False
+        )
         d = w.model_dump()
         assert d["passed"] is False
         assert d["check_type"] == "calibration"
@@ -334,6 +336,7 @@ class TestPPCDataclasses:
         assert d["per_variable_warnings"][0]["variable"] == "x"
         assert d["overlays"] == []
         assert d["test_stats"] == []
+
 
 class TestLinkFunctionSimulation:
     """Tests for forward simulation with non-default link functions."""

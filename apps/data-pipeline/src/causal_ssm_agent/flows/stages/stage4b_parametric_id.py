@@ -178,11 +178,17 @@ def _compute_rb_partition_payload(builder: Any) -> dict | None:
 
         return {
             "latent_variables": [
-                {"name": latent_names[i], "method": "kalman" if i in partition.kalman_idx else "particle"}
+                {
+                    "name": latent_names[i],
+                    "method": "kalman" if i in partition.kalman_idx else "particle",
+                }
                 for i in range(spec.n_latent)
             ],
             "obs_variables": [
-                {"name": manifest_names[i], "method": "kalman" if i in partition.obs_kalman_idx else "particle"}
+                {
+                    "name": manifest_names[i],
+                    "method": "kalman" if i in partition.obs_kalman_idx else "particle",
+                }
                 for i in range(spec.n_manifest)
             ],
         }
