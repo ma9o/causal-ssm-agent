@@ -3,14 +3,36 @@
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { CHAIN_COLORS } from "@/lib/constants/charts";
 import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import { formatNumber } from "@/lib/utils/format";
-import type { MCMCDiagnostics, MCMCParamDiagnostic } from "@causal-ssm/api-types";
+import type {
+  MCMCDiagnostics,
+  MCMCParamDiagnostic,
+  TraceData,
+  RankHistogram as RankHistogramData,
+} from "@causal-ssm/api-types";
 import { AlertTriangle } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+} from "recharts";
 
 interface MCMCDiagnosticsPanelProps {
   diagnostics: MCMCDiagnostics;
 }
+
+interface EnrichedParamRow extends MCMCParamDiagnostic {
+  trace?: TraceData;
+  rank?: RankHistogramData;
+}
+
+/* ── Severity helpers ── */
 
 function rhatSeverity(value: number | number[]): "fail" | "warn" | undefined {
   const v = Array.isArray(value) ? Math.max(...value) : value;
@@ -32,14 +54,117 @@ function essSeverity(
   return undefined;
 }
 
-const col = createColumnHelper<MCMCParamDiagnostic>();
+/* ── Inline recharts sparklines ── */
+
+function InlineTrace({ trace }: { trace: TraceData }) {
+  const nPoints = trace.chains[0]?.values.length ?? 0;
+  const data = Array.from({ length: nPoints }, (_, i) => {
+    const row: Record<string, number> = { draw: i };
+    for (const ch of trace.chains) {
+      row[`chain_${ch.chain}`] = ch.values[i];
+    }
+    return row;
+  });
+
+  return (
+    <div className="h-11 w-[200px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+          <RechartsTooltip
+            formatter={
+              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
+              ((value: number, name: string) => [formatNumber(value, 3), name]) as any
+            }
+            contentStyle={{ fontSize: 11, padding: "4px 8px", background: "white", zIndex: 50 }}
+            wrapperStyle={{ zIndex: 50 }}
+          />
+          {trace.chains.map((ch) => (
+            <Line
+              key={ch.chain}
+              dataKey={`chain_${ch.chain}`}
+              style={{ stroke: CHAIN_COLORS[ch.chain % CHAIN_COLORS.length] }}
+              strokeWidth={1}
+              dot={false}
+              name={`Chain ${ch.chain}`}
+              opacity={0.7}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function InlineRankHist({ histogram }: { histogram: RankHistogramData }) {
+  const data = Array.from({ length: histogram.n_bins }, (_, i) => {
+    const row: Record<string, number> = { bin: i + 1 };
+    for (const ch of histogram.chains) {
+      row[`chain_${ch.chain}`] = ch.counts[i];
+    }
+    return row;
+  });
+
+  return (
+    <div className="h-11 w-[160px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+          <RechartsTooltip
+            formatter={
+              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
+              ((value: number, name: string) => [value, name]) as any
+            }
+            contentStyle={{ fontSize: 11, padding: "4px 8px", background: "white", zIndex: 50 }}
+            wrapperStyle={{ zIndex: 50 }}
+          />
+          <ReferenceLine
+            y={histogram.expected_per_bin}
+            stroke="var(--muted-foreground)"
+            strokeDasharray="4 4"
+            strokeWidth={1}
+          />
+          {histogram.chains.map((ch) => (
+            <Bar
+              key={ch.chain}
+              dataKey={`chain_${ch.chain}`}
+              style={{ fill: CHAIN_COLORS[ch.chain % CHAIN_COLORS.length] }}
+              fillOpacity={0.5}
+              name={`Chain ${ch.chain}`}
+              isAnimationActive={false}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ── Column helper ── */
+
+const col = createColumnHelper<EnrichedParamRow>();
 
 export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps) {
   const hasDivergences = diagnostics.num_divergences > 0;
   const hasEssTail = diagnostics.per_parameter.some((p) => p.ess_tail != null);
   const hasMcse = diagnostics.per_parameter.some((p) => p.mcse_mean != null);
+  const hasTraces = (diagnostics.trace_data?.length ?? 0) > 0;
+  const hasRankHists = (diagnostics.rank_histograms?.length ?? 0) > 0;
 
-  const columns = useMemo<ColumnDef<MCMCParamDiagnostic, unknown>[]>(() => {
+  const enrichedData = useMemo<EnrichedParamRow[]>(() => {
+    const traceByParam = new Map(
+      (diagnostics.trace_data ?? []).map((t) => [t.parameter, t]),
+    );
+    const rankByParam = new Map(
+      (diagnostics.rank_histograms ?? []).map((h) => [h.parameter, h]),
+    );
+    return diagnostics.per_parameter.map((p) => ({
+      ...p,
+      trace: traceByParam.get(p.parameter),
+      rank: rankByParam.get(p.parameter),
+    }));
+  }, [diagnostics.per_parameter, diagnostics.trace_data, diagnostics.rank_histograms]);
+
+  const columns = useMemo<ColumnDef<EnrichedParamRow, unknown>[]>(() => {
     const cols = [
       col.accessor("parameter", {
         header: "Parameter",
@@ -48,6 +173,42 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
         ),
         meta: { mono: true },
       }),
+      ...(hasTraces
+        ? [
+            col.display({
+              id: "trace",
+              header: () => (
+                <HeaderWithTooltip
+                  label="Trace"
+                  tooltip="Per-chain trace plot. Chains should mix well (look like a 'hairy caterpillar')."
+                />
+              ),
+              cell: (info) => {
+                const t = info.row.original.trace;
+                return t ? <InlineTrace trace={t} /> : <span className="text-muted-foreground">—</span>;
+              },
+              enableSorting: false,
+            }) as ColumnDef<EnrichedParamRow, unknown>,
+          ]
+        : []),
+      ...(hasRankHists
+        ? [
+            col.display({
+              id: "rank",
+              header: () => (
+                <HeaderWithTooltip
+                  label="Rank hist."
+                  tooltip="Rank histogram for chain mixing. Uniform bars indicate good mixing across chains."
+                />
+              ),
+              cell: (info) => {
+                const r = info.row.original.rank;
+                return r ? <InlineRankHist histogram={r} /> : <span className="text-muted-foreground">—</span>;
+              },
+              enableSorting: false,
+            }) as ColumnDef<EnrichedParamRow, unknown>,
+          ]
+        : []),
       col.accessor("r_hat", {
         header: () => (
           <HeaderWithTooltip
@@ -86,7 +247,7 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
             essSeverity(v, diagnostics.num_samples ?? null),
         },
       }),
-    ] as ColumnDef<MCMCParamDiagnostic, unknown>[];
+    ] as ColumnDef<EnrichedParamRow, unknown>[];
 
     if (hasEssTail) {
       cols.push(
@@ -109,7 +270,7 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
             severity: (v: number | number[] | null | undefined) =>
               essSeverity(v ?? undefined, diagnostics.num_samples ?? null),
           },
-        }) as ColumnDef<MCMCParamDiagnostic, unknown>,
+        }) as ColumnDef<EnrichedParamRow, unknown>,
       );
     }
 
@@ -129,12 +290,12 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
             return formatNumber(val, 4);
           },
           meta: { align: "right", mono: true },
-        }) as ColumnDef<MCMCParamDiagnostic, unknown>,
+        }) as ColumnDef<EnrichedParamRow, unknown>,
       );
     }
 
     return cols;
-  }, [hasEssTail, hasMcse, diagnostics.num_samples]);
+  }, [hasEssTail, hasMcse, hasTraces, hasRankHists, diagnostics.num_samples]);
 
   return (
     <div className="space-y-3">
@@ -159,9 +320,9 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
         </Badge>
       </div>
 
-      {/* Per-parameter table */}
-      {diagnostics.per_parameter.length > 0 && (
-        <InfoTable columns={columns} data={diagnostics.per_parameter} />
+      {/* Per-parameter table with inline traces & rank histograms */}
+      {enrichedData.length > 0 && (
+        <InfoTable columns={columns} data={enrichedData} estimateRowHeight={60} />
       )}
     </div>
   );

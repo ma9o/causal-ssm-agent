@@ -26,8 +26,6 @@ import { ParetoKChart } from "@/components/charts/pareto-k-chart";
 import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
 import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
 import { PowerScalingScatter } from "@/components/charts/power-scaling-scatter";
-import { RankHistogram } from "@/components/charts/rank-histogram";
-import { TracePlot } from "@/components/charts/trace-plot";
 import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
@@ -50,28 +48,9 @@ export function DiagnosticsAccordion({
   posteriorMarginals,
   posteriorPairs,
 }: DiagnosticsAccordionProps) {
-  const hasTraces = mcmcDiagnostics?.trace_data && mcmcDiagnostics.trace_data.length > 0;
-  const hasRankHists = mcmcDiagnostics?.rank_histograms && mcmcDiagnostics.rank_histograms.length > 0;
   const hasEnergy = mcmcDiagnostics?.energy != null;
   const hasMarginals = posteriorMarginals && posteriorMarginals.length > 0;
   const hasPairs = posteriorPairs && posteriorPairs.length > 0;
-
-  // Build paired trace + rank histogram data per parameter
-  const mcmcParamPairs = (() => {
-    if (!hasTraces && !hasRankHists) return [];
-    const traceByParam = new Map(
-      (mcmcDiagnostics?.trace_data ?? []).map((t) => [t.parameter, t]),
-    );
-    const rankByParam = new Map(
-      (mcmcDiagnostics?.rank_histograms ?? []).map((h) => [h.parameter, h]),
-    );
-    const params = new Set([...traceByParam.keys(), ...rankByParam.keys()]);
-    return Array.from(params).map((param) => ({
-      parameter: param,
-      trace: traceByParam.get(param),
-      rank: rankByParam.get(param),
-    }));
-  })();
 
   const defaultOpen = ["mcmc", "svi", "ppc", "loo", "power-scaling"];
 
@@ -95,21 +74,6 @@ export function DiagnosticsAccordion({
             <div className="space-y-4">
               <MCMCDiagnosticsPanel diagnostics={mcmcDiagnostics} />
               {hasEnergy && <EnergyChart energy={mcmcDiagnostics.energy!} />}
-
-              {/* Paired trace + rank histogram per parameter */}
-              {mcmcParamPairs.length > 0 && (
-                <div className="space-y-3">
-                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Per-parameter traces & rank histograms
-                  </h4>
-                  {mcmcParamPairs.map(({ parameter, trace, rank }) => (
-                    <div key={parameter} className="grid gap-4 sm:grid-cols-2">
-                      {trace && <TracePlot trace={trace} />}
-                      {rank && <RankHistogram histogram={rank} />}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </AccordionContent>
         </AccordionItem>
