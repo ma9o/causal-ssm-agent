@@ -65,7 +65,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-3",
     label: "Validation",
     number: "3",
-    hasGate: true,
+    hasGate: false,
     prefectTaskName: "validate_extraction",
     loadingHint: "Validating extraction quality...",
     description: "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
