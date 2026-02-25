@@ -1,10 +1,9 @@
-import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Download, Loader2, X } from "lucide-react";
-import { motion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
@@ -19,6 +18,17 @@ export function PipelineProgressBar({
 }) {
   const [copied, setCopied] = useState(false);
 
+  const { data: session } = useQuery<{ question: string }>({
+    queryKey: ["session", sessionCode],
+    queryFn: async () => {
+      const res = await fetch(`/api/sessions/${sessionCode}`);
+      if (!res.ok) throw new Error("Session not found");
+      return res.json();
+    },
+    enabled: !!sessionCode,
+    staleTime: Infinity,
+  });
+
   const handleCopy = useCallback(() => {
     if (!sessionCode) return;
     navigator.clipboard.writeText(sessionCode);
@@ -31,7 +41,6 @@ export function PipelineProgressBar({
   if (!progress) return null;
 
   const completed = STAGES.filter((s) => progress.stages[s.id] === "completed").length;
-  const hasGateFailure = Object.values(progress.gateFailures).some(Boolean);
   const hasGateOverride = Object.values(progress.gateOverrides).some(Boolean);
 
   return (
@@ -42,7 +51,7 @@ export function PipelineProgressBar({
             href="/"
             className="text-base font-semibold tracking-tight hover:opacity-80 transition-opacity"
           >
-            Causal Inference Pipeline
+            Causal SSM Agent
           </Link>
           <div className="flex items-center gap-2">
             {sessionCode && (
@@ -63,20 +72,6 @@ export function PipelineProgressBar({
             <span className="text-sm font-medium text-muted-foreground">
               {completed}/{STAGES.length} stages
             </span>
-            {progress.isComplete && !hasGateFailure && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              >
-                <Badge variant="success">Complete</Badge>
-              </motion.span>
-            )}
-            {(progress.isFailed || hasGateFailure) && (
-              <Badge variant="destructive">
-                {hasGateFailure ? "Blocked" : "Failed"}
-              </Badge>
-            )}
             {completed > 0 && (
               <Tooltip content={<span className="text-xs">Export as Markdown</span>}>
                 <button
@@ -91,6 +86,11 @@ export function PipelineProgressBar({
             )}
           </div>
         </div>
+        {session?.question && (
+          <p className="text-sm text-muted-foreground mb-1.5">
+            {session.question}
+          </p>
+        )}
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {
             const status = progress.stages[stage.id];
@@ -142,7 +142,7 @@ export function PipelineProgressBar({
                     }}
                   >
                     <div
-                      className={`h-1 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
+                      className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
                     />
                   </button>
               </Tooltip>

@@ -1,7 +1,6 @@
 import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 
-export const MOCK_RUN_ID = "mock-run-001";
 
 const STAGE_DELAYS_MS: Record<StageId, number> = {
   "stage-0": 500,
