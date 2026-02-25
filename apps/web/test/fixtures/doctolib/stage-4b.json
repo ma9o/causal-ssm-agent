@@ -1,8 +1,11 @@
 {
   "parametric_id": {
+    "checked": true,
     "t_rule": {
       "satisfies": true,
       "n_free_params": 10,
+      "n_manifest": 10,
+      "n_timepoints": 36,
       "n_moments": 21,
       "param_counts": {
         "fixed_effect": 6,
