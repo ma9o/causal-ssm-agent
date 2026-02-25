@@ -16,10 +16,6 @@ export default function Stage6Content({ data }: { data: Stage6Data }) {
   return (
     <div className="space-y-4">
       <TreatmentRankingTable results={data.intervention_results} />
-      <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-        Inference: {data.inference_metadata.method} | {data.inference_metadata.n_samples} samples |{" "}
-        {data.inference_metadata.duration_seconds.toFixed(1)}s
-      </div>
     </div>
   );
 }
