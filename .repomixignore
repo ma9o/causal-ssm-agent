@@ -2,3 +2,20 @@ apps/data-pipeline/notebooks/
 apps/data-pipeline/tests/
 apps/data-pipeline/data/
 apps/web
+
+# Lock files
+bun.lock
+uv.lock
+
+# Evals
+apps/data-pipeline/evals/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Boilerplate configs
+postcss.config.mjs
+next-env.d.ts
+biome.json
+
+packages/api-types/schemas/contracts.json
