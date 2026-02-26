@@ -3,7 +3,7 @@ import { MeasurementTable } from "@/components/stages/model-spec/measurement-tab
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { RetryIndicator } from "@/components/stages/model-spec/retry-indicator";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
-import type { Extraction, PriorProposal, Stage4Data } from "@causal-ssm/api-types";
+import type { Extraction, Indicator, PriorProposal, Stage4Data } from "@causal-ssm/api-types";
 
 /** Extract latent state names from AR coefficient parameters. */
 function stateNames(parameters: Stage4Data["model_spec"]["parameters"]): string[] {
@@ -41,12 +41,19 @@ function initialStatePriors(parameters: Stage4Data["model_spec"]["parameters"]):
 export default function Stage4Content({
   data,
   extractions,
+  indicators,
 }: {
   data: Stage4Data;
   extractions?: Extraction[];
+  indicators?: Indicator[];
 }) {
   const t0Priors = initialStatePriors(data.model_spec.parameters);
   const allPriors = [...data.priors, ...t0Priors];
+
+  // Build indicator → construct mapping for observation model equations
+  const indicatorConstructMap = indicators
+    ? Object.fromEntries(indicators.map((ind) => [ind.name, ind.construct_name]))
+    : undefined;
 
   return (
     <div className="space-y-4">
@@ -54,6 +61,7 @@ export default function Stage4Content({
         likelihoods={data.model_spec.likelihoods}
         parameters={data.model_spec.parameters}
         priors={allPriors}
+        indicatorConstructMap={indicatorConstructMap}
       />
       {extractions && extractions.length > 0 && (
         <div className="space-y-3">

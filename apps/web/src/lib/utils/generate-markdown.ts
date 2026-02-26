@@ -291,14 +291,20 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
     }
 
     // Observation model
+    const s1b = data["stage-1b"];
+    const indMap = s1b
+      ? Object.fromEntries(s1b.causal_spec.measurement.indicators.map((ind) => [ind.name, ind.construct_name]))
+      : undefined;
     if (s4.model_spec.likelihoods.length > 0) {
       lines.push(section(3, "Observation Model"));
       lines.push("");
-      lines.push(latex(`\\mu_v(t) = \\boldsymbol{\\lambda}_v^\\top \\boldsymbol{\\eta}(t)`));
-      lines.push("");
+      if (!indMap) {
+        lines.push(latex(`\\mu_v(t) = \\boldsymbol{\\lambda}_v^\\top \\boldsymbol{\\eta}(t)`));
+        lines.push("");
+      }
       lines.push(
         latex(
-          `\\begin{aligned}\n${s4.model_spec.likelihoods.map(likelihoodLine).join(" \\\\\n")}\n\\end{aligned}`,
+          `\\begin{aligned}\n${s4.model_spec.likelihoods.map((l) => likelihoodLine(l, indMap?.[l.variable])).join(" \\\\\n")}\n\\end{aligned}`,
         ),
       );
       lines.push("");

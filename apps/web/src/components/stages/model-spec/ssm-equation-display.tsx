@@ -20,6 +20,8 @@ interface SsmEquationDisplayProps {
   likelihoods: LikelihoodSpec[];
   parameters: ParameterSpec[];
   priors: PriorProposal[];
+  /** Maps indicator variable name → construct (latent) it loads on. */
+  indicatorConstructMap?: Record<string, string>;
 }
 
 /** Render a LaTeX string to an HTML string via KaTeX. */
@@ -42,6 +44,7 @@ export function SSMEquationDisplay({
   likelihoods,
   parameters,
   priors,
+  indicatorConstructMap,
 }: SsmEquationDisplayProps) {
   // --- State dynamics ---
   const transitionLines = concreteTransitionLines(parameters);
@@ -64,8 +67,9 @@ export function SSMEquationDisplay({
   const corrGroups = confounderGroups(parameters);
 
   // --- Observation model ---
+  // Only show the generic predictor definition when we don't have per-variable construct info
   const predictorDef =
-    likelihoods.length > 0
+    likelihoods.length > 0 && !indicatorConstructMap
       ? tex(
           String.raw`\mu_v(t) = \boldsymbol{\lambda}_v^\top \boldsymbol{\eta}(t)`,
         )
@@ -74,7 +78,7 @@ export function SSMEquationDisplay({
   const obsLatex =
     likelihoods.length > 0
       ? tex(
-          `\\begin{aligned}\n${likelihoods.map(likelihoodLine).join(" \\\\\n")}\n\\end{aligned}`,
+          `\\begin{aligned}\n${likelihoods.map((l) => likelihoodLine(l, indicatorConstructMap?.[l.variable])).join(" \\\\\n")}\n\\end{aligned}`,
         )
       : null;
 
@@ -154,10 +158,7 @@ export function SSMEquationDisplay({
                 {predictorDef && (
                   <div dangerouslySetInnerHTML={{ __html: predictorDef }} />
                 )}
-              <div className="mt-3 border-t border-dashed pt-3">
-
               <div dangerouslySetInnerHTML={{ __html: obsLatex }} />
-              </div>
             </div>
           </section>
         )}

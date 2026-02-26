@@ -41,10 +41,13 @@ export function distName(dist: string): string {
   return map[dist] ?? `\\text{${dist}}`;
 }
 
-/** Build a single observation-model line with per-variable μ subscript. */
-export function likelihoodLine(lik: LikelihoodSpec): string {
+/** Build a single observation-model line, inlining the latent construct when known. */
+export function likelihoodLine(lik: LikelihoodSpec, constructName?: string): string {
   const v = `\\text{${textify(lik.variable)}}`;
-  const mu = linkInverse(lik.link, `\\mu_{${v}}`);
+  const predictor = constructName
+    ? `\\lambda_{${v}} \\, \\eta_{\\text{${textify(constructName)}}}(t)`
+    : `\\mu_{${v}}`;
+  const mu = linkInverse(lik.link, predictor);
   const d = distName(lik.distribution);
 
   if (lik.distribution === "gaussian" || lik.distribution === "student_t") {
