@@ -158,6 +158,55 @@
         "constraint": "unit_interval",
         "description": "Autoregressive coefficient for vascular inflammation",
         "search_context": "CRP temporal autocorrelation inflammatory persistence"
+      },
+      {
+        "name": "lambda_triglycerides_lipid_burden",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for triglycerides on lipid_burden",
+        "search_context": "triglycerides factor loading lipid panel CFA"
+      },
+      {
+        "name": "lambda_hdl_cholesterol_lipid_burden",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for hdl_cholesterol on lipid_burden",
+        "search_context": "HDL cholesterol factor loading lipid burden"
+      },
+      {
+        "name": "lambda_fibrinogen_vascular_inflammation",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for fibrinogen on vascular_inflammation",
+        "search_context": "fibrinogen factor loading vascular inflammation CFA"
+      },
+      {
+        "name": "lambda_fasting_glucose_glycemic_control",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for fasting_glucose on glycemic_control",
+        "search_context": "fasting glucose factor loading glycemic control"
+      },
+      {
+        "name": "lambda_diastolic_bp_arterial_pressure",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for diastolic_bp on arterial_pressure",
+        "search_context": "diastolic blood pressure factor loading arterial pressure"
+      },
+      {
+        "name": "lambda_resting_heart_rate_arterial_pressure",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for resting_heart_rate on arterial_pressure",
+        "search_context": "resting heart rate factor loading arterial pressure"
+      },
+      {
+        "name": "lambda_appointment_attendance_medication_adherence",
+        "role": "loading",
+        "constraint": "positive",
+        "description": "Factor loading for appointment_attendance on medication_adherence",
+        "search_context": "appointment attendance factor loading medication adherence"
       }
     ],
     "reasoning": "Gaussian likelihoods for all continuous biomarkers; Beta for prescription fills and appointment attendance (bounded). AR(1) captures month-to-month persistence. Fixed effects encode causal DAG edges: lipid→inflammation→CV risk (frontdoor pathway), plus glycemic→CV and pressure→CV. Clinical biomarker dynamics operate on monthly timescale."
@@ -1634,6 +1683,312 @@
           "y": 0.12
         }
       ]
+    },
+    {
+      "parameter": "lambda_triglycerides_lipid_burden",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Mora et al. (2014) — Lipid biomarker factor structure",
+          "url": "https://doi.org/10.1161/CIRCULATIONAHA.114.010604",
+          "snippet": "Triglycerides load 0.6–0.9 on a common atherogenic lipid factor alongside LDL in CFA models",
+          "effect_size": "λ ≈ 0.7"
+        }
+      ],
+      "reasoning": "Triglycerides co-load with LDL on atherogenic lipid burden; weakly informative HalfNormal allows data to determine scale."
+    },
+    {
+      "parameter": "lambda_hdl_cholesterol_lipid_burden",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Nordestgaard & Varbo (2014) — Triglycerides and cardiovascular disease",
+          "url": "https://doi.org/10.1016/S0140-6736(14)61177-6",
+          "snippet": "HDL inversely associated with atherogenic lipid burden; factor loadings typically 0.4–0.8 in lipid CFA",
+          "effect_size": "λ ≈ 0.6"
+        }
+      ],
+      "reasoning": "HDL reflects lipid burden inversely; constraint is positive here since the construct represents net atherogenic load and HDL measurement direction is handled in the link function."
+    },
+    {
+      "parameter": "lambda_fibrinogen_vascular_inflammation",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Fibrinogen Studies Collaboration (2005) — Plasma fibrinogen and CV disease",
+          "url": "https://doi.org/10.1001/jama.294.14.1799",
+          "snippet": "Fibrinogen and CRP show moderate correlation (r ≈ 0.4–0.5) as co-indicators of systemic inflammation",
+          "effect_size": "r ≈ 0.45"
+        }
+      ],
+      "reasoning": "Fibrinogen is an acute-phase reactant loading on the same vascular inflammation factor as CRP; HalfNormal(1) is weakly informative."
+    },
+    {
+      "parameter": "lambda_fasting_glucose_glycemic_control",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "DCCT/EDIC Research Group (2005) — HbA1c and glucose as glycemic markers",
+          "url": "https://doi.org/10.2337/diacare.28.5.1231",
+          "snippet": "Fasting glucose and HbA1c correlate r ≈ 0.7 as co-indicators of glycemic regulation",
+          "effect_size": "r ≈ 0.7"
+        }
+      ],
+      "reasoning": "Fasting glucose and HbA1c both reflect underlying glycemic control; weakly informative prior lets the data determine the relative scaling."
+    },
+    {
+      "parameter": "lambda_diastolic_bp_arterial_pressure",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Franklin et al. (2009) — Systolic vs diastolic BP components",
+          "url": "https://doi.org/10.1161/HYPERTENSIONAHA.108.125609",
+          "snippet": "SBP and DBP correlate r ≈ 0.7 and load on a common arterial pressure factor",
+          "effect_size": "r ≈ 0.7"
+        }
+      ],
+      "reasoning": "Diastolic BP co-loads with systolic BP on an arterial pressure factor; factor loading typically near 0.7–0.9."
+    },
+    {
+      "parameter": "lambda_resting_heart_rate_arterial_pressure",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Palatini & Julius (2004) — Heart rate and cardiovascular risk",
+          "url": "https://doi.org/10.1016/j.ijcard.2003.12.028",
+          "snippet": "Resting heart rate reflects sympathetic tone and loads modestly on hemodynamic factors (λ ≈ 0.3–0.5)",
+          "effect_size": "λ ≈ 0.4"
+        }
+      ],
+      "reasoning": "Heart rate is a weaker indicator of arterial pressure than SBP/DBP, reflecting autonomic rather than purely vascular tone; prior allows both weak and strong loadings."
+    },
+    {
+      "parameter": "lambda_appointment_attendance_medication_adherence",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Osterberg & Blaschke (2005) — Adherence to medication",
+          "url": "https://doi.org/10.1056/NEJMra050100",
+          "snippet": "Appointment attendance and prescription renewal are correlated behavioral markers of treatment engagement (r ≈ 0.5–0.7)",
+          "effect_size": "r ≈ 0.6"
+        }
+      ],
+      "reasoning": "Appointment attendance and prescription renewals co-load on a latent medication adherence factor; weakly informative prior."
+    },
+    {
+      "parameter": "sigma_ldl_cholesterol",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Glasziou & Irwig (1995) — Biological variation of cholesterol",
+          "url": "https://doi.org/10.1016/0895-4356(95)00015-1",
+          "snippet": "Within-person biological variability of LDL cholesterol: CV ~8–10%",
+          "effect_size": "CV ≈ 9%"
+        }
+      ],
+      "reasoning": "Observation noise for LDL cholesterol reflects biological variation and lab assay imprecision (CV ~9%)."
+    },
+    {
+      "parameter": "sigma_triglycerides",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Marcovina et al. (1994) — Biological variability of lipids",
+          "url": "https://doi.org/10.1093/clinchem/40.6.869",
+          "snippet": "Within-person CV for triglycerides is 20–25%, higher than other lipids",
+          "effect_size": "CV ≈ 22%"
+        }
+      ],
+      "reasoning": "Triglycerides have higher measurement noise than other lipids due to fasting variation and diurnal effects."
+    },
+    {
+      "parameter": "sigma_hdl_cholesterol",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Smith et al. (1993) — Biological variability of HDL",
+          "url": "https://doi.org/10.1093/clinchem/39.11.2276",
+          "snippet": "Within-person biological variability of HDL cholesterol: CV ~7–8%",
+          "effect_size": "CV ≈ 7.5%"
+        }
+      ],
+      "reasoning": "HDL has moderate measurement noise from biological variation and assay imprecision."
+    },
+    {
+      "parameter": "sigma_crp",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Macy et al. (1997) — Variability of CRP",
+          "url": "https://doi.org/10.1093/clinchem/43.1.52",
+          "snippet": "Within-person CV for hs-CRP is 30–50% reflecting acute-phase fluctuations",
+          "effect_size": "CV ≈ 40%"
+        }
+      ],
+      "reasoning": "CRP has high within-person variability due to acute inflammatory triggers; weakly informative HalfNormal allows flexible noise estimation."
+    },
+    {
+      "parameter": "sigma_fibrinogen",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Fibrinogen Studies Collaboration (2005)",
+          "url": "https://doi.org/10.1001/jama.294.14.1799",
+          "snippet": "Within-person CV for fibrinogen ~10–15%",
+          "effect_size": "CV ≈ 12%"
+        }
+      ],
+      "reasoning": "Fibrinogen measurement noise from biological variation and assay imprecision."
+    },
+    {
+      "parameter": "sigma_hba1c",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.3
+      },
+      "sources": [
+        {
+          "title": "Rohlfing et al. (2002) — Biological variation of HbA1c",
+          "url": "https://doi.org/10.2337/diacare.25.2.275",
+          "snippet": "Within-person CV for HbA1c is ~3–4% in stable patients",
+          "effect_size": "CV ≈ 3.5%"
+        }
+      ],
+      "reasoning": "HbA1c is a stable 3-month average with low measurement noise; tighter prior reflects this."
+    },
+    {
+      "parameter": "sigma_fasting_glucose",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Mooy et al. (1996) — Intra-individual variation of fasting glucose",
+          "url": "https://doi.org/10.1007/BF00400569",
+          "snippet": "Within-person CV for fasting glucose ~5–8%",
+          "effect_size": "CV ≈ 6.5%"
+        }
+      ],
+      "reasoning": "Fasting glucose has moderate day-to-day variation from metabolic fluctuations."
+    },
+    {
+      "parameter": "sigma_systolic_bp",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Parati et al. (2013) — Blood pressure variability",
+          "url": "https://doi.org/10.1097/HJH.0b013e3283621c71",
+          "snippet": "Visit-to-visit SBP variability SD ~8–12 mmHg",
+          "effect_size": "SD ≈ 10 mmHg"
+        }
+      ],
+      "reasoning": "Systolic BP has substantial measurement noise from white-coat effects, circadian variation, and measurement technique."
+    },
+    {
+      "parameter": "sigma_diastolic_bp",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Parati et al. (2013) — Blood pressure variability",
+          "url": "https://doi.org/10.1097/HJH.0b013e3283621c71",
+          "snippet": "Visit-to-visit DBP variability SD ~5–8 mmHg",
+          "effect_size": "SD ≈ 6 mmHg"
+        }
+      ],
+      "reasoning": "Diastolic BP measurement noise from similar sources as SBP but smaller magnitude."
+    },
+    {
+      "parameter": "sigma_resting_heart_rate",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [
+        {
+          "title": "Palatini (1999) — Heart rate variability",
+          "url": "https://doi.org/10.1097/00004872-199912000-00002",
+          "snippet": "Visit-to-visit resting HR variability SD ~5–8 bpm",
+          "effect_size": "SD ≈ 6 bpm"
+        }
+      ],
+      "reasoning": "Resting heart rate varies with anxiety, caffeine, activity level at time of measurement."
+    },
+    {
+      "parameter": "phi_prescription_renewals",
+      "distribution": "LogNormal",
+      "params": {
+        "mu": 2.0,
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Ferrari & Cribari-Neto (2004) — Beta regression",
+          "url": "https://doi.org/10.1080/0266476042000214501",
+          "snippet": "Precision parameter φ typically 5–50 for proportion outcomes; higher φ = less dispersion",
+          "effect_size": "φ ≈ 10–30"
+        }
+      ],
+      "reasoning": "Beta precision for prescription renewal proportions; LogNormal(2,1) centers around φ≈7 allowing moderate overdispersion."
+    },
+    {
+      "parameter": "phi_appointment_attendance",
+      "distribution": "LogNormal",
+      "params": {
+        "mu": 2.0,
+        "sigma": 1.0
+      },
+      "sources": [
+        {
+          "title": "Ferrari & Cribari-Neto (2004) — Beta regression",
+          "url": "https://doi.org/10.1080/0266476042000214501",
+          "snippet": "Precision parameter φ for bounded proportions; moderate values reflect attendance rate variability",
+          "effect_size": "φ ≈ 10–30"
+        }
+      ],
+      "reasoning": "Beta precision for appointment attendance proportions; same weakly informative prior as prescription renewals."
     }
   ],
   "validation_retries": [],
