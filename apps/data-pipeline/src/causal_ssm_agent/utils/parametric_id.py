@@ -399,6 +399,247 @@ def _sample_prior_unc(param_names, site_info, rng_key, n_samples=200):
 
 
 # ---------------------------------------------------------------------------
+# Output sensitivity analysis
+# ---------------------------------------------------------------------------
+
+
+def _predict_moments(z_flat, unravel_fn, transforms, spec, times):
+    """Predicted observation means and variances from unconstrained params.
+
+    Runs Kalman prediction equations (no data update) to propagate state
+    mean and covariance through time. Returns a flat vector of
+    [means_flat, variances_flat] suitable for Jacobian computation.
+
+    Captures both mean-dependent identifiability (drift, lambda, intercepts)
+    and variance-dependent identifiability (diffusion, observation noise).
+    Fully deterministic and JAX-differentiable.
+    """
+    unc_dict = unravel_fn(z_flat)
+    con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
+
+    # Assemble matrices from constrained parameters (batch dim = 1)
+    batched = {k: v[None, ...] for k, v in con_dict.items()}
+    det = _assemble_deterministics(batched, spec)
+    det = {k: v[0] for k, v in det.items()}
+
+    n_l, n_m = spec.n_latent, spec.n_manifest
+
+    drift = det.get("drift", jnp.zeros((n_l, n_l)))
+    diffusion_chol = det.get("diffusion", jnp.eye(n_l))
+    diffusion_cov = diffusion_chol @ diffusion_chol.T
+    t0_means = det.get("t0_means", jnp.zeros(n_l))
+    t0_cov = det.get("t0_cov", jnp.eye(n_l))
+    manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
+
+    # Lambda: may be in det (free) or fixed in spec
+    lambda_val = det.get("lambda")
+    if lambda_val is None:
+        lambda_val = (
+            spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else jnp.eye(n_m, n_l)
+        )
+
+    # Always provide cint for JAX-traceability
+    cint = det.get("cint", jnp.zeros(n_l))
+
+    # Discretize CT → DT
+    dt_array = jnp.diff(times)
+    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
+
+    # Initial observation statistics
+    x_0 = t0_means
+    P_0 = t0_cov
+    y_mean_0 = lambda_val @ x_0
+    y_var_0 = jnp.diag(lambda_val @ P_0 @ lambda_val.T + manifest_cov)
+
+    # Propagate state mean and covariance through time
+    def scan_fn(carry, inputs):
+        x_m, P = carry
+        Ad_t, Qd_t, cd_t = inputs
+
+        # State prediction
+        x_m_next = Ad_t @ x_m + cd_t
+        P_next = Ad_t @ P @ Ad_t.T + Qd_t
+
+        # Observation statistics
+        y_m = lambda_val @ x_m_next
+        y_v = jnp.diag(lambda_val @ P_next @ lambda_val.T + manifest_cov)
+
+        return (x_m_next, P_next), (y_m, y_v)
+
+    _, (y_means_rest, y_vars_rest) = lax.scan(scan_fn, (x_0, P_0), (Ad, Qd, cd))
+
+    y_means = jnp.concatenate([y_mean_0[None, :], y_means_rest], axis=0)
+    y_vars = jnp.concatenate([y_var_0[None, :], y_vars_rest], axis=0)
+
+    return jnp.concatenate([y_means.reshape(-1), y_vars.reshape(-1)])
+
+
+@dataclass
+class OutputSensitivityResult:
+    """Results from output sensitivity analysis (pre-inference identifiability).
+
+    Structural identifiability check via the Jacobian of the forward model's
+    predicted means and variances. A full-rank sensitivity matrix indicates
+    all parameters are locally identifiable. Near-zero singular values
+    indicate parameter combinations that observations cannot distinguish.
+    """
+
+    singular_values: list[float]  # median SVD spectrum across draws (descending)
+    condition_number: float  # median max_sv / min_sv
+    per_parameter: list[dict]  # [{parameter, sensitivity_norm, identifiable}]
+    n_draws: int
+    n_observations: int  # output dimension (2 * T * D)
+    n_parameters: int  # number of scalar free parameters
+
+    def print_report(self) -> None:
+        """Print a human-readable sensitivity analysis report."""
+        print("\n=== Output Sensitivity Analysis ===")
+        print(f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}")
+        print(f"  Condition number: {self.condition_number:.2e}")
+        print(f"  Prior draws: {self.n_draws}")
+        n_nonsing = sum(1 for sv in self.singular_values if sv > 1e-10)
+        print(f"  Rank: {n_nonsing}/{min(self.n_observations, self.n_parameters)}")
+        for entry in self.per_parameter:
+            tag = "[ok]" if entry["identifiable"] else "[!]"
+            print(f"  {tag} {entry['parameter']}: norm={entry['sensitivity_norm']:.4f}")
+
+
+def output_sensitivity_analysis(
+    model: SSMModel,
+    times: jnp.ndarray,
+    n_draws: int = 8,
+    sv_threshold: float = 1e-6,
+    seed: int = 42,
+) -> OutputSensitivityResult:
+    """Pre-inference parametric identifiability via output sensitivity analysis.
+
+    Computes the sensitivity matrix S[i,j] = dy_i / dtheta_j for the forward
+    model's predicted observation means and variances (Kalman prediction
+    equations without data update), then performs SVD to detect structurally
+    non-identifiable parameter directions.
+
+    Args:
+        model: SSMModel instance
+        times: (T,) observation times
+        n_draws: Number of prior draws for robustness (default 8)
+        sv_threshold: Relative threshold for near-zero singular values
+            (default 1e-6, i.e., sv < 1e-6 * max_sv is near-singular)
+        seed: Random seed
+
+    Returns:
+        OutputSensitivityResult with SVD spectrum and per-parameter flags
+    """
+    import functools
+
+    rng_key = random.PRNGKey(seed)
+    T_obs = times.shape[0]
+    n_manifest = model.spec.n_manifest
+
+    # 1. Discover sites
+    backend = model.make_likelihood_backend()
+    dummy_obs = jnp.zeros((T_obs, n_manifest))
+    rng_key, trace_key = random.split(rng_key)
+    site_info = _discover_sites(model, dummy_obs, times, trace_key, backend)
+
+    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+    flat_example, unravel_fn = ravel_pytree(example_unc)
+    P = flat_example.shape[0]
+    param_names = sorted(site_info.keys())
+    scalar_names = _build_scalar_names(param_names, site_info)
+
+    transforms = {name: site_info[name]["transform"] for name in site_info}
+
+    # 2. Build differentiable forward statistics function
+    forward_fn = functools.partial(
+        _predict_moments,
+        unravel_fn=unravel_fn,
+        transforms=transforms,
+        spec=model.spec,
+        times=times,
+    )
+
+    # JIT-compiled Jacobian (jacrev because discretization uses custom_vjp)
+    jac_fn = jax.jit(jax.jacrev(forward_fn))
+
+    # 3. Sample from prior
+    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=n_draws)
+
+    # 4. Compute Jacobian and SVD for each draw
+    all_sv = []
+    all_col_norms = []
+    all_effective_sv = []  # per-parameter effective singular value
+
+    for i in range(n_draws):
+        z_0 = prior_z[i]
+        S = jac_fn(z_0)  # (N_out, P) sensitivity matrix
+
+        # Full SVD for per-parameter analysis
+        _U, sv, Vt = jnp.linalg.svd(S, full_matrices=False)
+        V = Vt.T  # (P, rank)
+        all_sv.append(sv)
+
+        # Per-parameter sensitivity: L2 norm of each column of S
+        col_norms = jnp.linalg.norm(S, axis=0)  # (P,)
+        all_col_norms.append(col_norms)
+
+        # Per-parameter effective singular value:
+        # For each parameter k, the minimum sv among directions where
+        # this parameter has significant weight (|V[k,j]| > 0.1).
+        # If the parameter has no significant weight anywhere, use max sv.
+        weight_threshold = 0.1
+        effective_sv = jnp.full(P, float(jnp.max(sv)))
+        for k in range(P):
+            significant = jnp.abs(V[k, :]) > weight_threshold
+            if jnp.any(significant):
+                effective_sv = effective_sv.at[k].set(
+                    jnp.min(jnp.where(significant, sv[: V.shape[1]], jnp.inf))
+                )
+        all_effective_sv.append(effective_sv)
+
+    sv_matrix = jnp.stack(all_sv)  # (n_draws, rank)
+    col_norm_matrix = jnp.stack(all_col_norms)  # (n_draws, P)
+    eff_sv_matrix = jnp.stack(all_effective_sv)  # (n_draws, P)
+
+    # 5. Aggregate across draws (median for robustness to outlier draws)
+    median_sv = jnp.median(sv_matrix, axis=0)
+    median_col_norms = jnp.median(col_norm_matrix, axis=0)
+    median_eff_sv = jnp.median(eff_sv_matrix, axis=0)
+
+    sv_max = float(jnp.max(median_sv))
+    sv_min = float(jnp.min(median_sv))
+    condition_number = sv_max / max(sv_min, 1e-30)
+
+    # 6. Per-parameter identifiability from effective singular values
+    # A direction is structural non-identifiability only if it's
+    # consistently near-singular across prior draws (not a local artifact)
+    eff_sv_threshold = sv_threshold * sv_max
+
+    per_param = []
+    for k, sname in enumerate(scalar_names):
+        norm_k = float(median_col_norms[k])
+        eff_sv_k = float(median_eff_sv[k])
+        per_param.append(
+            {
+                "parameter": sname,
+                "sensitivity_norm": norm_k,
+                "effective_sv": eff_sv_k,
+                "identifiable": eff_sv_k > eff_sv_threshold,
+            }
+        )
+
+    N_out = 2 * T_obs * n_manifest
+
+    return OutputSensitivityResult(
+        singular_values=[float(v) for v in median_sv],
+        condition_number=condition_number,
+        per_parameter=per_param,
+        n_draws=n_draws,
+        n_observations=N_out,
+        n_parameters=P,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Result dataclasses
 # ---------------------------------------------------------------------------
 

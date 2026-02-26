@@ -73,6 +73,8 @@ export type {
   ParametricIdResult,
   TRuleResult,
   ParameterIdentification,
+  SensitivityAnalysisResult,
+  SensitivityEntry,
 } from "./generated/models";
 
 // Rao-Blackwellization partition types

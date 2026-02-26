@@ -308,6 +308,108 @@ class TestSimulateSSM:
         assert jnp.all(y >= 0)
 
 
+class TestOutputSensitivity:
+    """Test output sensitivity analysis."""
+
+    def test_identified_model_mostly_identifiable(self):
+        """Well-identified 1D LGSS: all params should be flagged identifiable."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        # 1D model (3 free params: drift_diag, diffusion_diag, manifest_var_diag)
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            manifest_means=jnp.zeros(1),
+            diffusion="diag",
+            t0_means=jnp.zeros(1),
+            t0_var=jnp.eye(1),
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.3},
+            diffusion_diag={"sigma": 0.3},
+            manifest_var_diag={"sigma": 0.3},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+        T = 100
+        times = jnp.arange(T, dtype=jnp.float32)
+
+        result = output_sensitivity_analysis(model, times, n_draws=5, seed=42)
+
+        assert result.n_parameters > 0
+        assert result.n_observations == 2 * T * 1  # 2*T*D for mean + variance
+        assert result.n_draws == 5
+        assert len(result.singular_values) > 0
+        assert result.condition_number > 0
+        assert all(jnp.isfinite(jnp.array(result.singular_values)))
+
+        # All params should be identifiable for a well-specified 1D LGSS
+        for entry in result.per_parameter:
+            assert entry["identifiable"], (
+                f"Parameter {entry['parameter']} flagged as non-identifiable "
+                f"(norm={entry['sensitivity_norm']:.4f})"
+            )
+
+    def test_non_identified_model_flags_issues(self):
+        """Non-identified model (2 latent, 1 manifest): should flag issues."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        model = _make_nonidentified_model()
+        T = 50
+        times = jnp.linspace(0, 25, T)
+
+        result = output_sensitivity_analysis(model, times, n_draws=3, seed=42)
+
+        # Should have high condition number (near-singular directions)
+        assert result.condition_number > 100, (
+            f"Non-identified model should have high condition number, got {result.condition_number:.1f}"
+        )
+
+        # At least some parameters should be flagged as non-identifiable
+        n_non_id = sum(1 for e in result.per_parameter if not e["identifiable"])
+        assert n_non_id > 0, (
+            "Non-identified model should flag some parameters, all are identifiable"
+        )
+
+    def test_result_structure(self):
+        """OutputSensitivityResult should have correct structure."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        model = _make_identified_model()
+        times = jnp.linspace(0, 10, 20)
+
+        result = output_sensitivity_analysis(model, times, n_draws=2, seed=0)
+
+        # Check structure
+        assert isinstance(result.singular_values, list)
+        assert isinstance(result.condition_number, float)
+        assert isinstance(result.per_parameter, list)
+        assert all("parameter" in e for e in result.per_parameter)
+        assert all("sensitivity_norm" in e for e in result.per_parameter)
+        assert all("identifiable" in e for e in result.per_parameter)
+
+    def test_print_report(self, capsys):
+        """print_report should not crash."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        model = _make_identified_model()
+        times = jnp.linspace(0, 10, 20)
+
+        result = output_sensitivity_analysis(model, times, n_draws=2, seed=0)
+        result.print_report()
+
+        captured = capsys.readouterr()
+        assert "Output Sensitivity Analysis" in captured.out
+        assert "Condition number" in captured.out
+
+    def test_utils_init_exports(self):
+        """New exports should be available from utils __init__."""
+        from causal_ssm_agent.utils import OutputSensitivityResult, output_sensitivity_analysis
+
+        assert callable(output_sensitivity_analysis)
+        assert OutputSensitivityResult is not None
+
+
 class TestProfileLikelihood:
     """Test profile likelihood function."""
 

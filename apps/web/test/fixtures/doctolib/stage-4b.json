@@ -2,25 +2,51 @@
   "outcome": "warn",
   "parametric_id": {
     "checked": true,
-    "summary": { "structural_issues": [], "boundary_issues": [], "weak_params": ["sigma_pressure"] },
+    "summary": {
+      "structural_issues": [],
+      "boundary_issues": [],
+      "weak_params": [
+        "sigma_pressure"
+      ]
+    },
     "t_rule": {
       "satisfies": true,
-      "n_free_params": 10,
-      "n_manifest": 10,
+      "n_free_params": 11,
+      "n_manifest": 12,
       "n_timepoints": 36,
-      "n_moments": 21,
+      "n_moments": 25,
       "param_counts": {
         "fixed_effect": 6,
-        "ar_coefficient": 2,
+        "ar_coefficient": 3,
         "residual_sd": 2
       }
+    },
+    "sensitivity_analysis": {
+      "singular_values": [8.42, 5.17, 3.89, 2.64, 1.93, 1.41, 0.87, 0.52, 0.31, 0.14, 0.003],
+      "condition_number": 2807,
+      "per_parameter": [
+        { "parameter": "beta_lipid_inflammation", "sensitivity_norm": 2.84, "effective_sv": 1.93, "identifiable": true },
+        { "parameter": "beta_pressure_cv", "sensitivity_norm": 2.31, "effective_sv": 1.41, "identifiable": true },
+        { "parameter": "beta_inflammation_cv", "sensitivity_norm": 2.67, "effective_sv": 1.93, "identifiable": true },
+        { "parameter": "beta_glycemic_lipid", "sensitivity_norm": 1.52, "effective_sv": 0.87, "identifiable": true },
+        { "parameter": "beta_cv_pressure", "sensitivity_norm": 1.89, "effective_sv": 1.41, "identifiable": true },
+        { "parameter": "beta_glycemic_inflammation", "sensitivity_norm": 1.14, "effective_sv": 0.52, "identifiable": true },
+        { "parameter": "rho_cv", "sensitivity_norm": 3.21, "effective_sv": 2.64, "identifiable": true },
+        { "parameter": "rho_lipid", "sensitivity_norm": 2.95, "effective_sv": 2.64, "identifiable": true },
+        { "parameter": "rho_pressure", "sensitivity_norm": 1.73, "effective_sv": 0.31, "identifiable": true },
+        { "parameter": "sigma_cv", "sensitivity_norm": 0.87, "effective_sv": 0.14, "identifiable": true },
+        { "parameter": "sigma_pressure", "sensitivity_norm": 0.09, "effective_sv": 0.003, "identifiable": true }
+      ],
+      "n_draws": 8,
+      "n_observations": 864,
+      "n_parameters": 11
     },
     "threshold": 1.92,
     "per_param_classification": [
       {
-        "name": "beta_lipid_cv",
+        "name": "beta_lipid_inflammation",
         "classification": "identified",
-        "contraction_ratio": 0.88,
+        "contraction_ratio": 0.86,
         "profile_x": [
           0.05,
           0.09,
@@ -116,30 +142,30 @@
         ]
       },
       {
-        "name": "beta_glycemic_cv",
+        "name": "beta_inflammation_cv",
         "classification": "identified",
-        "contraction_ratio": 0.82,
+        "contraction_ratio": 0.84,
         "profile_x": [
-          -0.55,
-          -0.52,
-          -0.48,
-          -0.45,
-          -0.41,
-          -0.38,
-          -0.34,
-          -0.31,
-          -0.27,
-          -0.23,
-          -0.2,
-          -0.17,
-          -0.13,
-          -0.09,
-          -0.06,
-          -0.03,
-          0.01,
-          0.05,
-          0.08,
-          0.11
+          0.02,
+          0.06,
+          0.1,
+          0.14,
+          0.18,
+          0.22,
+          0.26,
+          0.3,
+          0.34,
+          0.38,
+          0.42,
+          0.46,
+          0.5,
+          0.54,
+          0.58,
+          0.62,
+          0.66,
+          0.7,
+          0.74,
+          0.78
         ],
         "profile_ll": [
           -10.2,
@@ -226,21 +252,25 @@
         "method": "kalman"
       },
       {
+        "name": "vascular_inflammation",
+        "method": "kalman"
+      },
+      {
         "name": "arterial_pressure",
         "method": "kalman"
       },
       {
         "name": "glycemic_control",
         "method": "particle"
-      },
-      {
-        "name": "renal_function",
-        "method": "particle"
       }
     ],
     "obs_variables": [
       {
         "name": "ldl_cholesterol",
+        "method": "kalman"
+      },
+      {
+        "name": "crp",
         "method": "kalman"
       },
       {
@@ -252,12 +282,20 @@
         "method": "particle"
       },
       {
-        "name": "egfr",
+        "name": "hdl_cholesterol",
+        "method": "kalman"
+      },
+      {
+        "name": "fibrinogen",
+        "method": "kalman"
+      },
+      {
+        "name": "appointment_attendance",
         "method": "particle"
       }
     ]
   },
-  "context": "Stage 4b checks parametric identifiability via the T-rule and profile likelihoods. sigma_pressure is practically unidentifiable with the current data volume, but causal effect parameters are well-identified.",
+  "context": "Stage 4b checks parametric identifiability via the T-rule and profile likelihoods. sigma_pressure is practically unidentifiable with the current data volume, but causal effect parameters (including the frontdoor chain beta_lipid_inflammation and beta_inflammation_cv) are well-identified.",
   "gate_overridden": {
     "reason": "1 practically unidentifiable parameter (sigma_pressure, contraction ratio 0.42). User chose to continue."
   }

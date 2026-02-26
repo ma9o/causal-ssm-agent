@@ -3,12 +3,14 @@
 # Aggregation utilities in causal_ssm_agent.utils.aggregations
 
 from causal_ssm_agent.utils.parametric_id import (
+    OutputSensitivityResult,
     PowerScalingResult,
     ProfileLikelihoodResult,
     SBCResult,
     TRuleResult,
     check_t_rule,
     count_free_params,
+    output_sensitivity_analysis,
     power_scaling_sensitivity,
     profile_likelihood,
     sbc_check,
@@ -16,12 +18,14 @@ from causal_ssm_agent.utils.parametric_id import (
 )
 
 __all__ = [
+    "OutputSensitivityResult",
     "PowerScalingResult",
     "ProfileLikelihoodResult",
     "SBCResult",
     "TRuleResult",
     "check_t_rule",
     "count_free_params",
+    "output_sensitivity_analysis",
     "power_scaling_sensitivity",
     "profile_likelihood",
     "sbc_check",
