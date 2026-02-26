@@ -561,73 +561,118 @@ def output_sensitivity_analysis(
     # JIT-compiled Jacobian (jacrev because discretization uses custom_vjp)
     jac_fn = jax.jit(jax.jacrev(forward_fn))
 
-    # 3. Sample from prior
+    # 3. Sample from prior (Jacobian draws + larger batch for prior std)
     prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=n_draws)
+    prior_z_std, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=200)
+    prior_std = jnp.std(prior_z_std, axis=0)  # (P,) per-parameter prior SD
+    # Guard against degenerate priors (zero std)
+    prior_std = jnp.maximum(prior_std, 1e-10)
 
-    # 4. Compute Jacobian and SVD for each draw
+    N_out = 2 * T_obs * n_manifest
+
+    # Helper to extract manifest_cov for a given parameter vector
+    def _get_obs_noise_scales(z_0):
+        unc_dict = unravel_fn(z_0)
+        con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
+        batched = {k: v[None, ...] for k, v in con_dict.items()}
+        det = _assemble_deterministics(batched, model.spec)
+        det = {k: v[0] for k, v in det.items()}
+        manifest_cov = det.get("manifest_cov", jnp.eye(n_manifest))
+        obs_sd = jnp.sqrt(jnp.diag(manifest_cov))
+        # Row scales: obs noise SD for mean rows, obs noise variance for var rows
+        mean_scales = jnp.tile(obs_sd, T_obs)
+        var_scales = jnp.tile(obs_sd**2, T_obs)
+        return jnp.concatenate([mean_scales, var_scales])
+
+    # Helper to compute per-parameter effective SVs from V matrix and sv vector
+    def _per_param_effective_sv(V, sv):
+        weight_threshold = 0.1
+        effective = jnp.full(P, float(jnp.max(sv)))
+        for k in range(P):
+            significant = jnp.abs(V[k, :]) > weight_threshold
+            if jnp.any(significant):
+                effective = effective.at[k].set(
+                    jnp.min(jnp.where(significant, sv[: V.shape[1]], jnp.inf))
+                )
+        return effective
+
+    # 4. Compute Jacobian and SVD for each draw (raw + normalized)
     all_sv = []
     all_col_norms = []
-    all_effective_sv = []  # per-parameter effective singular value
+    all_effective_sv = []
+    all_norm_effective_sv = []  # normalized effective SVs
 
     for i in range(n_draws):
         z_0 = prior_z[i]
         S = jac_fn(z_0)  # (N_out, P) sensitivity matrix
 
-        # Full SVD for per-parameter analysis
+        # --- Raw SVD ---
         _U, sv, Vt = jnp.linalg.svd(S, full_matrices=False)
         V = Vt.T  # (P, rank)
         all_sv.append(sv)
+        all_col_norms.append(jnp.linalg.norm(S, axis=0))
+        all_effective_sv.append(_per_param_effective_sv(V, sv))
 
-        # Per-parameter sensitivity: L2 norm of each column of S
-        col_norms = jnp.linalg.norm(S, axis=0)  # (P,)
-        all_col_norms.append(col_norms)
-
-        # Per-parameter effective singular value:
-        # For each parameter k, the minimum sv among directions where
-        # this parameter has significant weight (|V[k,j]| > 0.1).
-        # If the parameter has no significant weight anywhere, use max sv.
-        weight_threshold = 0.1
-        effective_sv = jnp.full(P, float(jnp.max(sv)))
-        for k in range(P):
-            significant = jnp.abs(V[k, :]) > weight_threshold
-            if jnp.any(significant):
-                effective_sv = effective_sv.at[k].set(
-                    jnp.min(jnp.where(significant, sv[: V.shape[1]], jnp.inf))
-                )
-        all_effective_sv.append(effective_sv)
+        # --- Normalized SVD ---
+        # S_norm[i,j] = (prior_std[j] / obs_scale[i]) * S[i,j]
+        row_scales = _get_obs_noise_scales(z_0)
+        row_scales = jnp.maximum(row_scales, 1e-10)
+        S_norm = (prior_std[None, :] / row_scales[:, None]) * S
+        _Un, sv_n, Vt_n = jnp.linalg.svd(S_norm, full_matrices=False)
+        V_n = Vt_n.T
+        all_norm_effective_sv.append(_per_param_effective_sv(V_n, sv_n))
 
     sv_matrix = jnp.stack(all_sv)  # (n_draws, rank)
     col_norm_matrix = jnp.stack(all_col_norms)  # (n_draws, P)
     eff_sv_matrix = jnp.stack(all_effective_sv)  # (n_draws, P)
+    norm_eff_sv_matrix = jnp.stack(all_norm_effective_sv)  # (n_draws, P)
 
     # 5. Aggregate across draws (median for robustness to outlier draws)
     median_sv = jnp.median(sv_matrix, axis=0)
     median_col_norms = jnp.median(col_norm_matrix, axis=0)
     median_eff_sv = jnp.median(eff_sv_matrix, axis=0)
+    median_norm_eff_sv = jnp.median(norm_eff_sv_matrix, axis=0)
 
     sv_max = float(jnp.max(median_sv))
     sv_min = float(jnp.min(median_sv))
     condition_number = sv_max / max(sv_min, 1e-30)
 
-    # 6. Per-parameter identifiability from effective singular values
-    # A direction is structural non-identifiability only if it's
-    # consistently near-singular across prior draws (not a local artifact)
-    eff_sv_threshold = sv_threshold * sv_max
-
+    # 6. Classify per-parameter identifiability
+    # Raw effective SV: relative 3-decade gap thresholds (Joubert et al.)
+    # Normalized effective SV: absolute thresholds (Fisher/prior scaling)
     per_param = []
     for k, sname in enumerate(scalar_names):
         norm_k = float(median_col_norms[k])
         eff_sv_k = float(median_eff_sv[k])
+        norm_eff_sv_k = float(median_norm_eff_sv[k])
+
+        # Raw: relative to max singular value
+        if eff_sv_k > 1e-3 * sv_max:
+            sv_status = "pass"
+        elif eff_sv_k > 1e-6 * sv_max:
+            sv_status = "warn"
+        else:
+            sv_status = "fail"
+
+        # Normalized: absolute (units of prior-SD per noise-SD)
+        if norm_eff_sv_k > 10:
+            norm_sv_status = "pass"
+        elif norm_eff_sv_k > 1:
+            norm_sv_status = "warn"
+        else:
+            norm_sv_status = "fail"
+
         per_param.append(
             {
                 "parameter": sname,
                 "sensitivity_norm": norm_k,
                 "effective_sv": eff_sv_k,
-                "identifiable": eff_sv_k > eff_sv_threshold,
+                "sv_status": sv_status,
+                "normalized_effective_sv": norm_eff_sv_k,
+                "normalized_sv_status": norm_sv_status,
+                "identifiable": sv_status != "fail",
             }
         )
-
-    N_out = 2 * T_obs * n_manifest
 
     return OutputSensitivityResult(
         singular_values=[float(v) for v in median_sv],

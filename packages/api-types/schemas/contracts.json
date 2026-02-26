@@ -1965,6 +1965,28 @@
           "title": "Effective Sv",
           "type": "number"
         },
+        "sv_status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Sv Status",
+          "type": "string"
+        },
+        "normalized_effective_sv": {
+          "title": "Normalized Effective Sv",
+          "type": "number"
+        },
+        "normalized_sv_status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Normalized Sv Status",
+          "type": "string"
+        },
         "identifiable": {
           "title": "Identifiable",
           "type": "boolean"
@@ -1973,8 +1995,11 @@
       "required": [
         "effective_sv",
         "identifiable",
+        "normalized_effective_sv",
+        "normalized_sv_status",
         "parameter",
-        "sensitivity_norm"
+        "sensitivity_norm",
+        "sv_status"
       ],
       "title": "SensitivityEntry",
       "type": "object"

@@ -547,6 +547,9 @@ export interface SensitivityEntry {
   parameter: string;
   sensitivity_norm: number;
   effective_sv: number;
+  sv_status: "pass" | "warn" | "fail";
+  normalized_effective_sv: number;
+  normalized_sv_status: "pass" | "warn" | "fail";
   identifiable: boolean;
 }
 /**
