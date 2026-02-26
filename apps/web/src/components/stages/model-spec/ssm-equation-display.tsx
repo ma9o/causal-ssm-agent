@@ -259,8 +259,8 @@ export function SSMEquationDisplay({
                 dangerouslySetInnerHTML={{
                   __html: tex(
                     String.raw`\begin{aligned}
-\mu_k(t) &= \boldsymbol{\lambda}_k^\top \boldsymbol{\eta}(t) \\
-y_k(t) &\sim \mathcal{F}\!\bigl(g^{-1}(\mu_k(t))\bigr)
+\mu_k(t) &= \boldsymbol{\lambda}_k^\top \boldsymbol{\eta}(t) \\[4pt]
+\mathbb{E}[y_k(t)] &= g_k^{-1}\!\bigl(\mu_k(t)\bigr), \quad y_k(t) \sim \mathcal{F}_k
 \end{aligned}`,
                   ),
                 }}
