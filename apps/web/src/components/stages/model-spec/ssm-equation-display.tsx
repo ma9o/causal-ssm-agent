@@ -251,12 +251,29 @@ export function SSMEquationDisplay({
               Measurement Model
               <StatTooltip explanation="Maps latent states to observed indicators. Each variable has a distribution family (e.g. Gaussian, Poisson) and a link function (e.g. identity, log, logit) that transforms the linear predictor λᵀη(t) to the distribution's natural parameter." />
             </h4>
-            <ObsModelTable
-              likelihoods={likelihoods}
-              parameters={parameters}
-              priors={priors}
-              indicatorConstructMap={indicatorConstructMap}
-            />
+            <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                General form
+              </p>
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: tex(
+                    String.raw`\begin{aligned}
+\mu_k(t) &= \boldsymbol{\lambda}_k^\top \boldsymbol{\eta}(t) \\
+y_k(t) &\sim \mathcal{F}\!\bigl(g^{-1}(\mu_k(t))\bigr)
+\end{aligned}`,
+                  ),
+                }}
+              />
+            </div>
+            <div className="mt-3">
+              <ObsModelTable
+                likelihoods={likelihoods}
+                parameters={parameters}
+                priors={priors}
+                indicatorConstructMap={indicatorConstructMap}
+              />
+            </div>
           </section>
         )}
       </CardContent>
