@@ -10,21 +10,21 @@ export default function Stage4bContent({ data }: { data: Stage4bData }) {
 
   return (
     <div className="space-y-4">
-      {data.outcome === "fail" && pid.t_rule && (
+      {/* {data.outcome === "fail" && pid.t_rule && (
         <HardGateAlert
           title="T-Rule Violated — Pipeline Halted"
           explanation={`The model has ${pid.t_rule.n_free_params} free parameters but only ${pid.t_rule.n_moments} moment conditions. The model has more unknowns than equations.`}
           suggestion="Reduce model complexity by removing parameters or collect more time points to increase moment conditions."
         />
       )}
-      {pid.t_rule && <TRuleCard tRule={pid.t_rule} />}
+      {pid.t_rule && <TRuleCard tRule={pid.t_rule} />} */}
+      {data.rb_partition && <RBPartitionCard partition={data.rb_partition} />}
       {pid.sensitivity_analysis && (
         <SensitivityAnalysisTable result={pid.sensitivity_analysis} />
       )}
-      {data.rb_partition && <RBPartitionCard partition={data.rb_partition} />}
-      {pid.per_param_classification && pid.per_param_classification.length > 0 && (
+      {/* {pid.per_param_classification && pid.per_param_classification.length > 0 && (
         <WeakParamsList params={pid.per_param_classification} threshold={pid.threshold} />
-      )}
+      )} */}
     </div>
   );
 }
