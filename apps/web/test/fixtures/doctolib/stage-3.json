@@ -10,13 +10,13 @@
         "message": "Only 13 observations (quarterly measurement; recommend >= 20)"
       },
       {
-        "indicator": "egfr",
+        "indicator": "fibrinogen",
         "issue_type": "low_n",
         "severity": "warning",
         "message": "Only 7 observations (biannual measurement)"
       },
       {
-        "indicator": "egfr",
+        "indicator": "fibrinogen",
         "issue_type": "insufficient_coverage",
         "severity": "warning",
         "message": "Time span 36 months with only 7 points; max gap 6 months"
@@ -28,10 +28,10 @@
         "message": ">40% of values are 0.95\u20131.0 (high-adherence cluster)"
       },
       {
-        "indicator": "creatinine",
-        "issue_type": "low_n",
+        "indicator": "appointment_attendance",
+        "issue_type": "suspicious_pattern",
         "severity": "warning",
-        "message": "Only 7 observations (biannual measurement)"
+        "message": ">50% of values are 0.88\u20131.0 (high-attendance cluster)"
       }
     ],
     "per_indicator_health": [
@@ -169,28 +169,28 @@
         }
       },
       {
-        "indicator": "egfr",
-        "n_obs": 7,
-        "variance": 5.8,
-        "time_coverage_ratio": 0.85,
-        "max_gap_ratio": 0.17,
+        "indicator": "crp",
+        "n_obs": 13,
+        "variance": 0.42,
+        "time_coverage_ratio": 0.92,
+        "max_gap_ratio": 0.08,
         "dtype_violations": 0,
         "duplicate_pct": 0.0,
         "arithmetic_sequence_detected": false,
         "cell_statuses": {
           "n_obs": "warning",
           "variance": "ok",
-          "time_coverage_ratio": "warning",
-          "max_gap_ratio": "warning",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
           "dtype_violations": "ok",
           "duplicate_pct": "ok",
           "arithmetic_sequence_detected": "ok"
         }
       },
       {
-        "indicator": "creatinine",
+        "indicator": "fibrinogen",
         "n_obs": 7,
-        "variance": 12.4,
+        "variance": 0.13,
         "time_coverage_ratio": 0.85,
         "max_gap_ratio": 0.17,
         "dtype_violations": 0,
@@ -224,8 +224,46 @@
           "duplicate_pct": "warning",
           "arithmetic_sequence_detected": "ok"
         }
+      },
+      {
+        "indicator": "hdl_cholesterol",
+        "n_obs": 13,
+        "variance": 0.009,
+        "time_coverage_ratio": 0.92,
+        "max_gap_ratio": 0.08,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "warning",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "appointment_attendance",
+        "n_obs": 13,
+        "variance": 0.003,
+        "time_coverage_ratio": 0.92,
+        "max_gap_ratio": 0.08,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.15,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "arithmetic_sequence_detected": "ok"
+        }
       }
     ]
   },
-  "context": "Stage 3 validates extracted clinical data. Sample sizes for quarterly/biannual measurements (HbA1c, eGFR, creatinine) are low but typical for routine clinical monitoring. High prescription fill rate clustering reflects good medication adherence."
+  "context": "Stage 3 validates extracted clinical data. Sample sizes for quarterly/biannual measurements (HbA1c, fibrinogen) are low but typical for routine clinical monitoring. hs-CRP shows steady decline consistent with statin pleiotropic effects. High prescription fill rate clustering reflects good medication adherence."
 }

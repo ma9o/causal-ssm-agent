@@ -5,7 +5,7 @@
       "constructs": [
         {
           "name": "cardiovascular_risk",
-          "description": "Overall 10-year cardiovascular event risk integrating lipid, glycemic, hemodynamic, and renal factors",
+          "description": "Overall 10-year cardiovascular event risk integrating lipid, glycemic, hemodynamic, and inflammatory factors",
           "role": "endogenous",
           "is_outcome": true,
           "temporal_status": "time_varying",
@@ -14,6 +14,14 @@
         {
           "name": "lipid_burden",
           "description": "Atherogenic lipid profile reflecting LDL, triglycerides, and HDL balance",
+          "role": "endogenous",
+          "is_outcome": false,
+          "temporal_status": "time_varying",
+          "temporal_scale": "monthly"
+        },
+        {
+          "name": "vascular_inflammation",
+          "description": "Arterial wall inflammatory state driven by atherogenic lipid infiltration and immune activation",
           "role": "endogenous",
           "is_outcome": false,
           "temporal_status": "time_varying",
@@ -36,45 +44,53 @@
           "temporal_scale": "monthly"
         },
         {
-          "name": "renal_function",
-          "description": "Glomerular filtration capacity reflecting nephron health",
-          "role": "endogenous",
-          "is_outcome": false,
-          "temporal_status": "time_varying",
-          "temporal_scale": "monthly"
-        },
-        {
           "name": "medication_adherence",
           "description": "Prescription fill rate and treatment compliance across all prescribed medications",
           "role": "exogenous",
           "is_outcome": false,
           "temporal_status": "time_varying",
           "temporal_scale": "weekly"
+        },
+        {
+          "name": "genetic_predisposition",
+          "description": "Inherited cardiovascular risk variants (LDLR, APOB, PCSK9, 9p21.3, APOE4) affecting lipid metabolism and vascular biology independently",
+          "role": "exogenous",
+          "is_outcome": false,
+          "temporal_status": "time_invariant",
+          "temporal_scale": null
+        },
+        {
+          "name": "psychosocial_stress",
+          "description": "Chronic psychosocial burden (occupational stress, social isolation, depressive symptoms) driving neuroendocrine dysregulation",
+          "role": "exogenous",
+          "is_outcome": false,
+          "temporal_status": "time_invariant",
+          "temporal_scale": null
         }
       ],
       "edges": [
         {
           "cause": "lipid_burden",
-          "effect": "cardiovascular_risk",
-          "description": "Atherogenic lipids accelerate coronary and carotid atherosclerosis",
+          "effect": "vascular_inflammation",
+          "description": "Oxidized LDL infiltrates the arterial intima, recruiting monocytes and triggering foam cell formation (atherogenesis initiation)",
           "lagged": false
         },
         {
-          "cause": "arterial_pressure",
+          "cause": "vascular_inflammation",
           "effect": "cardiovascular_risk",
-          "description": "Elevated blood pressure increases cardiac workload and vascular damage",
+          "description": "Inflammatory plaque destabilization thins fibrous caps and promotes thrombosis, driving acute cardiovascular events",
           "lagged": false
         },
         {
           "cause": "glycemic_control",
           "effect": "cardiovascular_risk",
-          "description": "Poor glycemic control drives micro- and macrovascular complications",
+          "description": "Chronic hyperglycemia generates advanced glycation end products (AGEs), accelerating micro- and macrovascular complications",
           "lagged": false
         },
         {
-          "cause": "renal_function",
+          "cause": "arterial_pressure",
           "effect": "cardiovascular_risk",
-          "description": "Declining kidney function is an independent cardiovascular risk factor",
+          "description": "Elevated blood pressure increases cardiac workload and accelerates atherosclerotic plaque progression",
           "lagged": false
         },
         {
@@ -85,27 +101,39 @@
         },
         {
           "cause": "medication_adherence",
-          "effect": "arterial_pressure",
-          "description": "Ramipril and amlodipine reduce systemic vascular resistance",
-          "lagged": true
-        },
-        {
-          "cause": "medication_adherence",
           "effect": "glycemic_control",
           "description": "Metformin improves hepatic insulin sensitivity and reduces gluconeogenesis",
           "lagged": true
         },
         {
-          "cause": "arterial_pressure",
-          "effect": "renal_function",
-          "description": "Sustained hypertension causes glomerular hyperfiltration injury",
+          "cause": "medication_adherence",
+          "effect": "arterial_pressure",
+          "description": "Ramipril and amlodipine reduce systemic vascular resistance",
           "lagged": true
         },
         {
-          "cause": "cardiovascular_risk",
-          "effect": "arterial_pressure",
-          "description": "Worsening cardiovascular state feeds back into vascular stiffness",
-          "lagged": true
+          "cause": "genetic_predisposition",
+          "effect": "lipid_burden",
+          "description": "Familial hypercholesterolemia variants (LDLR, APOB, PCSK9 gain-of-function) elevate baseline LDL cholesterol",
+          "lagged": false
+        },
+        {
+          "cause": "genetic_predisposition",
+          "effect": "cardiovascular_risk",
+          "description": "9p21.3 risk locus and APOE4 confer lipid-independent cardiovascular risk through endothelial dysfunction and platelet hyperreactivity",
+          "lagged": false
+        },
+        {
+          "cause": "psychosocial_stress",
+          "effect": "glycemic_control",
+          "description": "Chronic HPA axis activation elevates cortisol, driving hepatic gluconeogenesis and peripheral insulin resistance",
+          "lagged": false
+        },
+        {
+          "cause": "psychosocial_stress",
+          "effect": "cardiovascular_risk",
+          "description": "Sustained sympathetic overdrive and systemic inflammation from chronic stress independently increase cardiovascular event risk",
+          "lagged": false
         }
       ]
     },
@@ -123,6 +151,30 @@
           "name": "triglycerides",
           "construct_name": "lipid_burden",
           "how_to_measure": "Serum triglycerides in mmol/L",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "hdl_cholesterol",
+          "construct_name": "lipid_burden",
+          "how_to_measure": "HDL cholesterol in mmol/L from lipid panel (EAL); inversely related to atherogenic burden",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "crp",
+          "construct_name": "vascular_inflammation",
+          "how_to_measure": "High-sensitivity C-reactive protein (hs-CRP) in mg/L; marker of systemic and vascular inflammation",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
+        },
+        {
+          "name": "fibrinogen",
+          "construct_name": "vascular_inflammation",
+          "how_to_measure": "Plasma fibrinogen in g/L; acute-phase reactant reflecting inflammatory and prothrombotic state",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
           "ordinal_levels": null
@@ -161,24 +213,8 @@
         },
         {
           "name": "resting_heart_rate",
-          "construct_name": "cardiovascular_risk",
+          "construct_name": "arterial_pressure",
           "how_to_measure": "Resting heart rate in bpm at consultation",
-          "measurement_dtype": "continuous",
-          "aggregation": "mean",
-          "ordinal_levels": null
-        },
-        {
-          "name": "egfr",
-          "construct_name": "renal_function",
-          "how_to_measure": "Estimated GFR in mL/min/1.73m\u00b2 (CKD-EPI); higher = better",
-          "measurement_dtype": "continuous",
-          "aggregation": "mean",
-          "ordinal_levels": null
-        },
-        {
-          "name": "creatinine",
-          "construct_name": "renal_function",
-          "how_to_measure": "Serum creatinine in \u00b5mol/L; lower = better",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
           "ordinal_levels": null
@@ -190,6 +226,14 @@
           "measurement_dtype": "continuous",
           "aggregation": "mean",
           "ordinal_levels": null
+        },
+        {
+          "name": "appointment_attendance",
+          "construct_name": "medication_adherence",
+          "how_to_measure": "Proportion of kept vs missed Doctolib appointments (0\u20131, quarterly)",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "ordinal_levels": null
         }
       ]
     },
@@ -197,33 +241,34 @@
       "identifiable_treatments": {
         "lipid_burden": {
           "method": "do_calculus",
-          "estimand": "P(cardiovascular_risk | do(lipid_burden))",
-          "marginalized_confounders": [],
+          "estimand": "\u2211_{vasc_infl} P(vasc_infl | lipid) \u2211_{lipid'} P(cv_risk | lipid', vasc_infl) P(lipid')",
+          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
+          "instruments": [],
+          "notes": "Identified via front-door criterion through vascular_inflammation despite genetic confounding. genetic_predisposition confounds lipid_burden \u2194 cardiovascular_risk, but vascular_inflammation mediates ALL directed paths from lipid_burden to cardiovascular_risk and has no unblocked backdoor from treatment to mediator."
+        },
+        "vascular_inflammation": {
+          "method": "do_calculus",
+          "estimand": "P(cardiovascular_risk | do(vascular_inflammation))",
+          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
           "instruments": []
         },
         "arterial_pressure": {
           "method": "do_calculus",
           "estimand": "P(cardiovascular_risk | do(arterial_pressure))",
-          "marginalized_confounders": [],
-          "instruments": []
-        },
-        "glycemic_control": {
-          "method": "do_calculus",
-          "estimand": "P(cardiovascular_risk | do(glycemic_control))",
-          "marginalized_confounders": [],
+          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
           "instruments": []
         },
         "medication_adherence": {
           "method": "do_calculus",
           "estimand": "P(cardiovascular_risk | do(medication_adherence))",
-          "marginalized_confounders": [],
+          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
           "instruments": []
         }
       },
       "non_identifiable_treatments": {
-        "renal_function": {
+        "glycemic_control": {
           "confounders": [
-            "unobserved_aging_genetics"
+            "psychosocial_stress"
           ]
         }
       }
@@ -231,9 +276,9 @@
   },
   "filtered_treatments": [
     "lipid_burden",
+    "vascular_inflammation",
     "glycemic_control",
     "arterial_pressure",
-    "renal_function",
     "medication_adherence"
   ],
   "llm_trace": {
@@ -249,7 +294,7 @@
       },
       {
         "role": "user",
-        "content": "Map the 6 latent constructs to measurable clinical indicators extractable from this patient's Doctolib records (lab results, vitals, prescriptions).",
+        "content": "Map the 8 latent constructs to measurable clinical indicators extractable from this patient's Doctolib records (lab results, vitals, prescriptions). Note: genetic_predisposition and psychosocial_stress are unobserved \u2014 no indicators available.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,
@@ -258,8 +303,8 @@
       },
       {
         "role": "assistant",
-        "content": "I'll propose 10 indicators from standard clinical measurements available in French primary care records.",
-        "reasoning": "LDL + triglycerides for lipid_burden; HbA1c + fasting glucose for glycemic_control; systolic + diastolic BP for arterial_pressure; eGFR + creatinine for renal_function; heart rate for CV risk; prescription fills for adherence.",
+        "content": "I'll propose 12 indicators for the 6 observed constructs. The 2 unobserved confounders (genetic_predisposition, psychosocial_stress) have no indicators by design \u2014 they represent clinically important factors not captured in routine Doctolib records.",
+        "reasoning": "LDL + triglycerides + HDL for lipid_burden; hs-CRP + fibrinogen for vascular_inflammation (key mediator for frontdoor identification); HbA1c + fasting glucose for glycemic_control; systolic + diastolic BP + resting HR for arterial_pressure; prescription fills + appointment attendance for adherence. Cardiovascular risk has 0 direct indicators (second-order latent). vascular_inflammation indicators are essential \u2014 without them, the frontdoor criterion for lipid_burden\u2019s effect would fail.",
         "tool_calls": [
           {
             "name": "validate_measurement_model",
@@ -283,7 +328,7 @@
       },
       {
         "role": "assistant",
-        "content": "10 indicators mapped to 6 constructs. Renal function effect on CV risk is non-identifiable due to unobserved aging/genetic confounders.",
+        "content": "12 indicators mapped to 6 observed constructs. Identifiability check reveals a key contrast: lipid_burden\u2019s effect on cardiovascular_risk IS identifiable via the front-door criterion through vascular_inflammation, despite genetic confounding. However, glycemic_control\u2019s effect is NOT identifiable \u2014 psychosocial_stress confounds the relationship with no mediator or instrument available to recover the causal effect.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,
@@ -292,15 +337,15 @@
       }
     ],
     "model": "claude-sonnet-4-20250514",
-    "total_time_seconds": 21.3,
+    "total_time_seconds": 23.7,
     "usage": {
-      "input_tokens": 3800,
-      "output_tokens": 3100,
-      "reasoning_tokens": 580
+      "input_tokens": 4200,
+      "output_tokens": 3600,
+      "reasoning_tokens": 840
     }
   },
-  "context": "Stage 1b maps latent constructs to clinical biomarkers and checks nonparametric identification. 4 of 5 treatment effects are identifiable; renal_function is confounded by unobserved aging.",
+  "context": "Stage 1b maps latent constructs to clinical biomarkers and checks nonparametric identification. 4 of 5 treatment effects are identifiable. The key showcase: lipid_burden\u2019s effect on cardiovascular_risk is identified via the front-door criterion through vascular_inflammation, despite confounding from unobserved genetic_predisposition. In contrast, glycemic_control\u2019s effect is non-identifiable because psychosocial_stress confounds the relationship with no exploitable graphical structure.",
   "gate_overridden": {
-    "reason": "Renal function effect is non-identifiable due to age/genetic confounders. User chose to continue with partial identification."
+    "reason": "Glycemic control effect is non-identifiable due to psychosocial stress confounding. User chose to continue \u2014 the identified lipid_burden pathway (via frontdoor) and arterial_pressure pathway provide sufficient causal targets for intervention analysis."
   }
 }
