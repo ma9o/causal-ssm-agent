@@ -261,7 +261,7 @@
       },
       {
         "name": "glycemic_control",
-        "method": "particle"
+        "method": "kalman"
       }
     ],
     "obs_variables": [
