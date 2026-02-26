@@ -498,6 +498,7 @@ export interface Stage4BContract {
 export interface ParametricIdResult {
   checked: boolean;
   t_rule?: TRuleResult | null;
+  sensitivity_analysis?: SensitivityAnalysisResult | null;
   summary?: ParametricIdSummary | null;
   per_param_classification?: ParameterIdentification[] | null;
   threshold?: number | null;
@@ -523,6 +524,30 @@ export interface TRuleResult {
   param_counts: {
     [k: string]: number | undefined;
   };
+}
+/**
+ * Output sensitivity analysis result (pre-inference identifiability).
+ *
+ * Structural identifiability check via the Jacobian of the forward model's
+ * predicted observation means and variances. Near-zero singular values
+ * indicate parameter combinations that observations cannot distinguish.
+ */
+export interface SensitivityAnalysisResult {
+  singular_values: number[];
+  condition_number: number;
+  per_parameter: SensitivityEntry[];
+  n_draws: number;
+  n_observations: number;
+  n_parameters: number;
+}
+/**
+ * Per-parameter output sensitivity analysis entry.
+ */
+export interface SensitivityEntry {
+  parameter: string;
+  sensitivity_norm: number;
+  effective_sv: number;
+  identifiable: boolean;
 }
 /**
  * Summary of parametric identifiability issues.

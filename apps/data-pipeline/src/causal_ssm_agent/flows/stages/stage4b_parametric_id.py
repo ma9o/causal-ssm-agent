@@ -95,6 +95,26 @@ def parametric_id_task(
                 ),
             }
 
+        # Sensitivity analysis: structural check (sufficient for local identifiability)
+        sensitivity_payload = None
+        try:
+            from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+            sa_result = output_sensitivity_analysis(ssm_model, times, n_draws=8, seed=42)
+            sa_result.print_report()
+            sensitivity_payload = {
+                "singular_values": sa_result.singular_values,
+                "condition_number": sa_result.condition_number,
+                "per_parameter": sa_result.per_parameter,
+                "n_draws": sa_result.n_draws,
+                "n_observations": sa_result.n_observations,
+                "n_parameters": sa_result.n_parameters,
+            }
+        except Exception:
+            logger.debug(
+                "Sensitivity analysis failed, continuing with profile likelihood", exc_info=True
+            )
+
         # Compute RB partition to restrict profiling to Kalman-block params
         kalman_indices = None
         if ssm_model.spec.first_pass_rb:
@@ -150,6 +170,7 @@ def parametric_id_task(
                 "n_free_params": t_rule.n_free_params,
                 "n_moments": t_rule.n_moments,
             },
+            "sensitivity_analysis": sensitivity_payload,
             "summary": summary,
             "per_param_classification": per_param,
             "threshold": float(result.threshold),

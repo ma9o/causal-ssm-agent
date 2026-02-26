@@ -179,11 +179,37 @@ class ParametricIdSummary(BaseModel):
     weak_params: list[str] = Field(default_factory=list)
 
 
+class SensitivityEntry(BaseModel):
+    """Per-parameter output sensitivity analysis entry."""
+
+    parameter: str
+    sensitivity_norm: float
+    effective_sv: float
+    identifiable: bool
+
+
+class SensitivityAnalysisResult(BaseModel):
+    """Output sensitivity analysis result (pre-inference identifiability).
+
+    Structural identifiability check via the Jacobian of the forward model's
+    predicted observation means and variances. Near-zero singular values
+    indicate parameter combinations that observations cannot distinguish.
+    """
+
+    singular_values: list[float]
+    condition_number: float
+    per_parameter: list[SensitivityEntry]
+    n_draws: int
+    n_observations: int
+    n_parameters: int
+
+
 class ParametricIdResult(BaseModel):
     """Full parametric identifiability result (Stage 4b payload)."""
 
     checked: bool = False
     t_rule: TRuleResult | None = None
+    sensitivity_analysis: SensitivityAnalysisResult | None = None
     summary: ParametricIdSummary | None = None
     per_param_classification: list[ParameterIdentification] | None = None
     threshold: float | None = None
