@@ -3,25 +3,25 @@
     {
       "worker_id": 0,
       "status": "completed",
-      "n_extractions": 42,
+      "n_extractions": 50,
       "chunk_size": 25
     },
     {
       "worker_id": 1,
       "status": "completed",
-      "n_extractions": 38,
+      "n_extractions": 46,
       "chunk_size": 25
     },
     {
       "worker_id": 2,
       "status": "completed",
-      "n_extractions": 45,
+      "n_extractions": 55,
       "chunk_size": 25
     },
     {
       "worker_id": 3,
       "status": "completed",
-      "n_extractions": 35,
+      "n_extractions": 41,
       "chunk_size": 18
     }
   ],
@@ -657,73 +657,103 @@
       "timestamp": "2024-12-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 87,
+      "indicator": "crp",
+      "value": 4.2,
       "timestamp": "2021-10-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 82,
+      "indicator": "crp",
+      "value": 4.0,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 3.8,
       "timestamp": "2022-04-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 83,
+      "indicator": "crp",
+      "value": 3.7,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 3.5,
       "timestamp": "2022-10-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 76,
+      "indicator": "crp",
+      "value": 3.2,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 3.0,
       "timestamp": "2023-04-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 78,
+      "indicator": "crp",
+      "value": 2.9,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 2.7,
       "timestamp": "2023-10-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 78,
+      "indicator": "crp",
+      "value": 2.6,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 2.5,
       "timestamp": "2024-04-15T00:00:00Z"
     },
     {
-      "indicator": "egfr",
-      "value": 79,
+      "indicator": "crp",
+      "value": 2.4,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "crp",
+      "value": 2.3,
       "timestamp": "2024-10-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 74,
+      "indicator": "fibrinogen",
+      "value": 4.5,
       "timestamp": "2021-10-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 81,
+      "indicator": "fibrinogen",
+      "value": 4.3,
       "timestamp": "2022-04-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 81,
+      "indicator": "fibrinogen",
+      "value": 4.1,
       "timestamp": "2022-10-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 84,
+      "indicator": "fibrinogen",
+      "value": 3.9,
       "timestamp": "2023-04-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 83,
+      "indicator": "fibrinogen",
+      "value": 3.8,
       "timestamp": "2023-10-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 82,
+      "indicator": "fibrinogen",
+      "value": 3.6,
       "timestamp": "2024-04-15T00:00:00Z"
     },
     {
-      "indicator": "creatinine",
-      "value": 81,
+      "indicator": "fibrinogen",
+      "value": 3.5,
       "timestamp": "2024-10-15T00:00:00Z"
     },
     {
@@ -790,6 +820,136 @@
       "indicator": "prescription_renewals",
       "value": 0.87,
       "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.18,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.22,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.2,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.25,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.24,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.28,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.31,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.35,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.38,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.4,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.42,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.45,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "hdl_cholesterol",
+      "value": 1.48,
+      "timestamp": "2024-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.83,
+      "timestamp": "2021-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.92,
+      "timestamp": "2022-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.88,
+      "timestamp": "2022-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 1.0,
+      "timestamp": "2022-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.92,
+      "timestamp": "2022-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.96,
+      "timestamp": "2023-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.88,
+      "timestamp": "2023-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.92,
+      "timestamp": "2023-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.96,
+      "timestamp": "2023-10-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 1.0,
+      "timestamp": "2024-01-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.96,
+      "timestamp": "2024-04-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.92,
+      "timestamp": "2024-07-15T00:00:00Z"
+    },
+    {
+      "indicator": "appointment_attendance",
+      "value": 0.88,
+      "timestamp": "2024-10-15T00:00:00Z"
     }
   ],
   "per_indicator_counts": {
@@ -800,9 +960,11 @@
     "systolic_bp": 24,
     "diastolic_bp": 24,
     "resting_heart_rate": 24,
-    "egfr": 7,
-    "creatinine": 7,
-    "prescription_renewals": 13
+    "crp": 13,
+    "fibrinogen": 7,
+    "prescription_renewals": 13,
+    "hdl_cholesterol": 13,
+    "appointment_attendance": 13
   },
-  "context": "Stage 2 extracts clinical indicator values from the patient\u2019s Doctolib records. 4 LLM workers parse lab panels (quarterly), vital signs (per visit), renal markers (biannual), and prescription renewal data."
+  "context": "Stage 2 extracts clinical indicator values from the patient\u2019s Doctolib records. 4 LLM workers parse lab panels (quarterly), vital signs (per visit), inflammatory markers (hs-CRP quarterly, fibrinogen biannual), and prescription renewal data."
 }
