@@ -2,7 +2,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type {
+  LikelihoodSpec,
+  ParameterSpec,
+  PriorProposal,
+} from "@causal-ssm/api-types";
 import {
   concreteTransitionLines,
   confounderGroupLatex,
@@ -20,20 +24,32 @@ interface SsmEquationDisplayProps {
 
 /** Render a LaTeX string to an HTML string via KaTeX. */
 function tex(latex: string, displayMode = true): string {
-  return katex.renderToString(latex, { displayMode, throwOnError: false, strict: false });
+  return katex.renderToString(latex, {
+    displayMode,
+    throwOnError: false,
+    strict: false,
+  });
 }
 
 /** Render a confounder group's LaTeX to HTML via KaTeX. */
-function confounderGroupHtml(group: Parameters<typeof confounderGroupLatex>[0]): string {
+function confounderGroupHtml(
+  group: Parameters<typeof confounderGroupLatex>[0],
+): string {
   return tex(confounderGroupLatex(group));
 }
 
-export function SSMEquationDisplay({ likelihoods, parameters, priors }: SsmEquationDisplayProps) {
+export function SSMEquationDisplay({
+  likelihoods,
+  parameters,
+  priors,
+}: SsmEquationDisplayProps) {
   // --- State dynamics ---
   const transitionLines = concreteTransitionLines(parameters);
   const transitionLatex =
     transitionLines.length > 0
-      ? tex(`\\begin{aligned}\n${transitionLines.join(" \\\\\n")}\n\\end{aligned}`)
+      ? tex(
+          `\\begin{aligned}\n${transitionLines.join(" \\\\\n")}\n\\end{aligned}`,
+        )
       : null;
 
   // Generic form (kept as reference while iterating on the display)
@@ -57,13 +73,17 @@ export function SSMEquationDisplay({ likelihoods, parameters, priors }: SsmEquat
 
   const obsLatex =
     likelihoods.length > 0
-      ? tex(`\\begin{aligned}\n${likelihoods.map(likelihoodLine).join(" \\\\\n")}\n\\end{aligned}`)
+      ? tex(
+          `\\begin{aligned}\n${likelihoods.map(likelihoodLine).join(" \\\\\n")}\n\\end{aligned}`,
+        )
       : null;
 
   // --- Priors ---
   const priorsLatex =
     priors.length > 0
-      ? tex(`\\begin{aligned}\n${priors.map(priorLine).join(" \\\\\n")}\n\\end{aligned}`)
+      ? tex(
+          `\\begin{aligned}\n${priors.map(priorLine).join(" \\\\\n")}\n\\end{aligned}`,
+        )
       : null;
 
   return (
@@ -86,12 +106,15 @@ export function SSMEquationDisplay({ likelihoods, parameters, priors }: SsmEquat
               <Badge variant="outline">Linear-Gaussian Dynamics</Badge>
             </div>
             <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-              <div dangerouslySetInnerHTML={{ __html: transitionLatex }} />
-            </div>
-            {/* TODO: remove generic reference once display is finalized */}
-            <div className="mt-2 overflow-x-auto rounded-md border border-dashed bg-muted/15 px-4 py-3">
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Generic form (reference)</p>
-              <div dangerouslySetInnerHTML={{ __html: genericTransitionLatex }} />
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                General form
+              </p>
+              <div
+                dangerouslySetInnerHTML={{ __html: genericTransitionLatex }}
+              />
+              <div className="mt-3 border-t border-dashed pt-3">
+                <div dangerouslySetInnerHTML={{ __html: transitionLatex }} />
+              </div>
             </div>
           </section>
         )}
@@ -105,8 +128,15 @@ export function SSMEquationDisplay({ likelihoods, parameters, priors }: SsmEquat
             </h4>
             <div className="space-y-3">
               {corrGroups.map((group) => (
-                <div key={group.confounder} className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-                  <div dangerouslySetInnerHTML={{ __html: confounderGroupHtml(group) }} />
+                <div
+                  key={group.confounder}
+                  className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3"
+                >
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: confounderGroupHtml(group),
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -121,8 +151,13 @@ export function SSMEquationDisplay({ likelihoods, parameters, priors }: SsmEquat
               <StatTooltip explanation="Maps latent states to observed indicators. Each variable has a distribution family (e.g. Gaussian, Poisson) and a link function (e.g. identity, log, logit) that transforms the linear predictor λᵀη(t) to the distribution's natural parameter." />
             </h4>
             <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-              {predictorDef && <div dangerouslySetInnerHTML={{ __html: predictorDef }} />}
+                {predictorDef && (
+                  <div dangerouslySetInnerHTML={{ __html: predictorDef }} />
+                )}
+              <div className="mt-3 border-t border-dashed pt-3">
+
               <div dangerouslySetInnerHTML={{ __html: obsLatex }} />
+              </div>
             </div>
           </section>
         )}
