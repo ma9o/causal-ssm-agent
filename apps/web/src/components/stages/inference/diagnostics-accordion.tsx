@@ -107,9 +107,6 @@ export function DiagnosticsAccordion({
         </AccordionTrigger>
         <AccordionContent>
           <div className="space-y-6">
-            <p className="text-xs text-muted-foreground">
-              PPCs check distributional adequacy, not causal validity. A model can pass all checks and still encode wrong causal assumptions.
-            </p>
             <PPCWarningsTable warnings={ppc.per_variable_warnings} testStats={ppc.test_stats ?? []} overlays={ppc.overlays ?? []} />
           </div>
         </AccordionContent>
