@@ -223,6 +223,51 @@ export function confounderGroupLatex(group: ConfounderGroup): string {
   return `\\begin{aligned}\n${lines.join(" \\\\\n")}\n\\end{aligned}`;
 }
 
+// ── Per-state equation fragments for table display ───────
+
+export interface StateEquationRow {
+  state: string;
+  /** η(0) ~ N(μ₀, σ₀²) */
+  initialLatex: string;
+  /** ρ_s η_s(t-1) — the autoregressive term */
+  arTermLatex: string;
+  /** Each parent's cross-effect term */
+  crossEffects: Array<{ source: string; termLatex: string }>;
+  /** ε_s(t) ~ N(0, σ²) */
+  noiseLatex: string;
+}
+
+/** Build per-state equation fragments for tabular display. */
+export function stateEquationRows(parameters: ParameterSpec[]): StateEquationRow[] {
+  const states = stateNames(parameters);
+  const fixedEffects = parameters.filter((p) => p.role === "fixed_effect");
+
+  const effectsByTarget = new Map<string, string[]>();
+  for (const s of states) effectsByTarget.set(s, []);
+  for (const fe of fixedEffects) {
+    const parsed = parseFixedEffect(fe.name, states);
+    if (parsed) effectsByTarget.get(parsed.target)?.push(parsed.source);
+  }
+
+  return states.map((state) => {
+    const s = `\\text{${textify(state)}}`;
+    const parents = effectsByTarget.get(state) ?? [];
+    return {
+      state,
+      initialLatex: `\\eta_{${s}}(0) \\sim \\mathcal{N}(\\mu_{0,${s}},\\; \\sigma_{0,${s}}^{2})`,
+      arTermLatex: `\\rho_{${s}} \\, \\eta_{${s}}(t\\!-\\!1)`,
+      crossEffects: parents.map((src) => {
+        const srcTex = `\\text{${textify(src)}}`;
+        return {
+          source: src,
+          termLatex: `\\beta_{${srcTex} \\to ${s}} \\, \\eta_{${srcTex}}(t\\!-\\!1)`,
+        };
+      }),
+      noiseLatex: `\\varepsilon_{${s}}(t) \\sim \\mathcal{N}(0,\\, \\sigma_{${s}}^2)`,
+    };
+  });
+}
+
 /** Build concrete per-state transition LaTeX lines from actual parameters. */
 export function concreteTransitionLines(parameters: ParameterSpec[]): string[] {
   const states = stateNames(parameters);

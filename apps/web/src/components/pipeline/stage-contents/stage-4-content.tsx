@@ -66,7 +66,7 @@ export default function Stage4Content({
       {extractions && extractions.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Measurement Model</h3>
+            <h3 className="text-sm font-semibold">Measurement Model Likelihoods Details</h3>
             <FunctionalSpecLink />
           </div>
           <MeasurementTable
@@ -78,7 +78,7 @@ export default function Stage4Content({
       )}
       {allPriors.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Prior Distributions</h3>
+          <h3 className="text-sm font-semibold">Priors Details</h3>
           <PriorTable priors={allPriors} parameters={data.model_spec.parameters} />
         </div>
       )}

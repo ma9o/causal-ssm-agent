@@ -1,19 +1,23 @@
+import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
+import { ObsModelTable } from "@/components/stages/model-spec/obs-model-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
-import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
-import type {
-  LikelihoodSpec,
-  ParameterSpec,
-  PriorProposal,
-} from "@causal-ssm/api-types";
 import {
-  concreteTransitionLines,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   confounderGroupLatex,
   confounderGroups,
-  likelihoodLine,
   priorLine,
+  stateEquationRows,
 } from "@/lib/utils/ssm-latex";
+import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
 import katex from "katex";
 
 interface SsmEquationDisplayProps {
@@ -34,10 +38,18 @@ function tex(latex: string, displayMode = true): string {
 }
 
 /** Render a confounder group's LaTeX to HTML via KaTeX. */
-function confounderGroupHtml(
-  group: Parameters<typeof confounderGroupLatex>[0],
-): string {
+function confounderGroupHtml(group: Parameters<typeof confounderGroupLatex>[0]): string {
   return tex(confounderGroupLatex(group));
+}
+
+/** Inline KaTeX span. */
+function Katex({ latex }: { latex: string }) {
+  return <span dangerouslySetInnerHTML={{ __html: tex(latex, false) }} />;
+}
+
+/** Strip the & alignment marker from a priorLine result. */
+function priorLatex(prior: PriorProposal): string {
+  return priorLine(prior).replace(/&/g, "");
 }
 
 export function SSMEquationDisplay({
@@ -46,49 +58,17 @@ export function SSMEquationDisplay({
   priors,
   indicatorConstructMap,
 }: SsmEquationDisplayProps) {
-  // --- State dynamics ---
-  const transitionLines = concreteTransitionLines(parameters);
-  const transitionLatex =
-    transitionLines.length > 0
-      ? tex(
-          `\\begin{aligned}\n${transitionLines.join(" \\\\\n")}\n\\end{aligned}`,
-        )
-      : null;
+  const eqRows = stateEquationRows(parameters);
+  const corrGroups = confounderGroups(parameters);
+  const priorMap = new Map(priors.map((p) => [p.parameter, p]));
 
-  // Generic form (kept as reference while iterating on the display)
+  // Generic form (kept as reference)
   const genericTransitionLatex = tex(
     String.raw`\begin{aligned}
 \eta_i(t) &= \rho_i \, \eta_i(t\!-\!1) + \textstyle\sum_{j \in \mathrm{pa}(i)} \beta_{ji}\, \eta_j(t\!-\!1) + \varepsilon_i(t) \\
 \varepsilon_i(t) &\sim \mathcal{N}(0,\, \sigma_i^2)
 \end{aligned}`,
   );
-
-  // --- Correlated errors (from marginalized confounders) ---
-  const corrGroups = confounderGroups(parameters);
-
-  // --- Observation model ---
-  // Only show the generic predictor definition when we don't have per-variable construct info
-  const predictorDef =
-    likelihoods.length > 0 && !indicatorConstructMap
-      ? tex(
-          String.raw`\mu_v(t) = \boldsymbol{\lambda}_v^\top \boldsymbol{\eta}(t)`,
-        )
-      : null;
-
-  const obsLatex =
-    likelihoods.length > 0
-      ? tex(
-          `\\begin{aligned}\n${likelihoods.map((l) => likelihoodLine(l, indicatorConstructMap?.[l.variable])).join(" \\\\\n")}\n\\end{aligned}`,
-        )
-      : null;
-
-  // --- Priors ---
-  const priorsLatex =
-    priors.length > 0
-      ? tex(
-          `\\begin{aligned}\n${priors.map(priorLine).join(" \\\\\n")}\n\\end{aligned}`,
-        )
-      : null;
 
   return (
     <Card>
@@ -99,8 +79,8 @@ export function SSMEquationDisplay({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* State dynamics */}
-        {transitionLatex && (
+        {/* ── State dynamics ── */}
+        {eqRows.length > 0 && (
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h4 className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -113,17 +93,134 @@ export function SSMEquationDisplay({
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 General form
               </p>
-              <div
-                dangerouslySetInnerHTML={{ __html: genericTransitionLatex }}
-              />
-              <div className="mt-3 border-t border-dashed pt-3">
-                <div dangerouslySetInnerHTML={{ __html: transitionLatex }} />
-              </div>
+              <div dangerouslySetInnerHTML={{ __html: genericTransitionLatex }} />
+            </div>
+            <div className="mt-3 overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>State</TableHead>
+                    <TableHead>
+                      <span className="inline-flex items-center gap-1">
+                        ρ (Persistence)
+                        <StatTooltip explanation="Autoregressive coefficient controlling temporal persistence. Values near 1 mean high day-to-day persistence; near 0 means fast decay." />
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span className="inline-flex items-center gap-1">
+                        β (Cross Effects)
+                        <StatTooltip explanation="Directed causal effects from parent latent states, lagged by one time step." />
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span className="inline-flex items-center gap-1">
+                        σ (Noise)
+                        <StatTooltip explanation="Standard deviation of the innovation (process noise) driving this state's stochastic evolution." />
+                      </span>
+                    </TableHead>
+                    <TableHead>
+                      <span className="inline-flex items-center gap-1">
+                        Initial State
+                        <StatTooltip explanation="Distribution of the latent state at t = 0, and priors for its mean (μ₀) and standard deviation (σ₀)." />
+                      </span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {eqRows.map((row) => {
+                    const rhoPrior = priorMap.get(`rho_${row.state}`);
+                    const sigmaPrior = priorMap.get(`sigma_${row.state}`);
+                    const t0MeanPrior = priorMap.get(`t0_mean_${row.state}`);
+                    const t0SdPrior = priorMap.get(`t0_sd_${row.state}`);
+
+                    return (
+                      <TableRow key={row.state}>
+                        {/* State name */}
+                        <TableCell className="whitespace-nowrap align-top">
+                          <Katex latex={`\\eta_{\\text{${row.state.replace(/_/g, " ")}}}`} />
+                        </TableCell>
+
+                        {/* ρ (AR) — equation term + prior */}
+                        <TableCell className="whitespace-nowrap align-top">
+                          <div className="space-y-1">
+                            <div>
+                              <Katex latex={row.arTermLatex} />
+                            </div>
+                            {rhoPrior && (
+                              <div className="text-muted-foreground">
+                                <Katex latex={priorLatex(rhoPrior)} />
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* β (cross effects) — each parent's term + prior */}
+                        <TableCell className="whitespace-nowrap align-top">
+                          {row.crossEffects.length > 0 ? (
+                            <div className="space-y-2">
+                              {row.crossEffects.map((ce) => {
+                                const betaPrior = priorMap.get(`beta_${ce.source}_${row.state}`);
+                                return (
+                                  <div key={ce.source} className="space-y-1">
+                                    <div>
+                                      <Katex latex={ce.termLatex} />
+                                    </div>
+                                    {betaPrior && (
+                                      <div className="text-muted-foreground">
+                                        <Katex latex={priorLatex(betaPrior)} />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+
+                        {/* σ (noise) — equation + prior */}
+                        <TableCell className="whitespace-nowrap align-top">
+                          <div className="space-y-1">
+                            <div>
+                              <Katex latex={row.noiseLatex} />
+                            </div>
+                            {sigmaPrior && (
+                              <div className="text-muted-foreground">
+                                <Katex latex={priorLatex(sigmaPrior)} />
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* Initial state — equation + μ₀ & σ₀ priors */}
+                        <TableCell className="whitespace-nowrap align-top">
+                          <div className="space-y-1">
+                            <div>
+                              <Katex latex={row.initialLatex} />
+                            </div>
+                            {t0MeanPrior && (
+                              <div className="text-muted-foreground">
+                                <Katex latex={priorLatex(t0MeanPrior)} />
+                              </div>
+                            )}
+                            {t0SdPrior && (
+                              <div className="text-muted-foreground">
+                                <Katex latex={priorLatex(t0SdPrior)} />
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           </section>
         )}
 
-        {/* Correlated errors (per marginalized confounder) */}
+        {/* ── Correlated errors (per marginalized confounder) ── */}
         {corrGroups && (
           <section>
             <h4 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -147,32 +244,19 @@ export function SSMEquationDisplay({
           </section>
         )}
 
-        {/* Observation model */}
-        {obsLatex && (
+        {/* ── Observation model ── */}
+        {likelihoods.length > 0 && (
           <section>
             <h4 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Observation Model
+              Measurement Model
               <StatTooltip explanation="Maps latent states to observed indicators. Each variable has a distribution family (e.g. Gaussian, Poisson) and a link function (e.g. identity, log, logit) that transforms the linear predictor λᵀη(t) to the distribution's natural parameter." />
             </h4>
-            <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-                {predictorDef && (
-                  <div dangerouslySetInnerHTML={{ __html: predictorDef }} />
-                )}
-              <div dangerouslySetInnerHTML={{ __html: obsLatex }} />
-            </div>
-          </section>
-        )}
-
-        {/* Priors */}
-        {priorsLatex && (
-          <section>
-            <h4 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Priors
-              <StatTooltip explanation="Informative or weakly informative prior distributions for each model parameter, elicited from domain literature. These constrain the posterior and encode existing knowledge about plausible effect sizes, persistence, and variance." />
-            </h4>
-            <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-              <div dangerouslySetInnerHTML={{ __html: priorsLatex }} />
-            </div>
+            <ObsModelTable
+              likelihoods={likelihoods}
+              parameters={parameters}
+              priors={priors}
+              indicatorConstructMap={indicatorConstructMap}
+            />
           </section>
         )}
       </CardContent>
