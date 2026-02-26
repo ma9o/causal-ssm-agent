@@ -1,12 +1,16 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { InfoTable } from "@/components/ui/info-table";
+import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
+import { Tooltip } from "@/components/ui/tooltip";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram } from "@/lib/utils/histogram";
 import type { Extraction, LikelihoodSpec } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
+import katex from "katex";
+import { ExternalLink } from "lucide-react";
+import { useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -173,7 +177,7 @@ function MeasurementSparkline({ row }: { row: MeasurementRow }) {
 
 const col = createColumnHelper<MeasurementRow>();
 
-const columns: ColumnDef<MeasurementRow, unknown>[] = [
+const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
   col.display({
     id: "variable",
     header: "Variable",
@@ -211,12 +215,12 @@ const columns: ColumnDef<MeasurementRow, unknown>[] = [
       if (numericValues.length === 0)
         return <span className="text-xs text-muted-foreground">--</span>;
       const mean = numericValues.reduce((s, v) => s + v, 0) / numericValues.length;
+      const latex = `n=${numericValues.length} \\\\[2pt] \\hat{\\mu}=${formatNumber(mean, 2)}`;
       return (
-        <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-          n={numericValues.length}
-          <br />
-          {"μ"}={formatNumber(mean, 2)}
-        </span>
+        <span
+          className="text-xs text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: false, throwOnError: false, strict: false }) }}
+        />
       );
     },
   }),
@@ -229,7 +233,74 @@ const columns: ColumnDef<MeasurementRow, unknown>[] = [
       </span>
     ),
   }),
+  col.display({
+    id: "sources",
+    header: () => (
+      <HeaderWithTooltip
+        label="Sources"
+        tooltip="Literature sources supporting this likelihood distribution choice. Click to open."
+      />
+    ),
+    cell: ({ row }) => {
+      const sources = row.original.likelihood.sources;
+      if (!sources || sources.length === 0) {
+        return <span className="text-xs text-muted-foreground">--</span>;
+      }
+      return (
+        <div className="flex items-center gap-1.5">
+          {sources.map((source, i) => (
+            <Tooltip
+              key={`source-${
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered list
+                i
+              }`}
+              content={
+                <div className="max-w-xs text-xs">
+                  <p className="font-medium">{source.title}</p>
+                  <p className="text-muted-foreground">{source.snippet}</p>
+                </div>
+              }
+            >
+              {source.url ? (
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                >
+                  <Badge variant="secondary" className="cursor-pointer text-[10px] px-1.5">
+                    {i + 1}
+                    <ExternalLink className="ml-0.5 h-2.5 w-2.5" />
+                  </Badge>
+                </a>
+              ) : (
+                <Badge variant="secondary" className="text-[10px] px-1.5">
+                  {i + 1}
+                </Badge>
+              )}
+            </Tooltip>
+          ))}
+        </div>
+      );
+    },
+    meta: { align: "center" },
+  }),
 ];
+
+const searchContextColumn: ColumnDef<MeasurementRow, unknown> = col.display({
+  id: "search_context",
+  header: () => (
+    <HeaderWithTooltip
+      label="Search Context"
+      tooltip="The search query used by the pipeline to find literature supporting this likelihood choice."
+    />
+  ),
+  cell: ({ row }) => (
+    <span className="max-w-xs text-xs text-muted-foreground italic">
+      {row.original.likelihood.search_context || "--"}
+    </span>
+  ),
+});
 
 // ── Exported component ────────────────────────────────────
 
@@ -242,11 +313,22 @@ export function MeasurementTable({
   extractions: Extraction[];
   priorPredictiveSamples?: Record<string, number[]>;
 }) {
-  const rows: MeasurementRow[] = likelihoods.map((lik) => ({
-    likelihood: lik,
-    extractions: extractions.filter((e) => e.indicator === lik.variable),
-    priorSamples: priorPredictiveSamples?.[lik.variable],
-  }));
+  const rows: MeasurementRow[] = useMemo(
+    () =>
+      likelihoods.map((lik) => ({
+        likelihood: lik,
+        extractions: extractions.filter((e) => e.indicator === lik.variable),
+        priorSamples: priorPredictiveSamples?.[lik.variable],
+      })),
+    [likelihoods, extractions, priorPredictiveSamples],
+  );
+
+  const hasSearchContext = rows.some((r) => r.likelihood.search_context);
+
+  const columns = useMemo<ColumnDef<MeasurementRow, unknown>[]>(
+    () => (hasSearchContext ? [...baseColumns, searchContextColumn] : baseColumns),
+    [hasSearchContext],
+  );
 
   return <InfoTable columns={columns} data={rows} estimateRowHeight={88} />;
 }

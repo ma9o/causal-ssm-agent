@@ -58,6 +58,7 @@ export type { IndicatorHealthContract as IndicatorHealth } from "./generated/mod
 export type {
   ModelSpec,
   LikelihoodSpec,
+  LikelihoodSource,
   ParameterSpec,
   DistributionFamily,
   LinkFunction,

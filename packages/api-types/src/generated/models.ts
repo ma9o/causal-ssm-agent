@@ -397,6 +397,31 @@ export interface LikelihoodSpec {
    * Why this distribution/link was chosen for this variable
    */
   reasoning: string;
+  /**
+   * Literature sources supporting this likelihood choice
+   */
+  sources: LikelihoodSource[];
+  /**
+   * Search query used to find literature supporting this likelihood choice
+   */
+  search_context: string;
+}
+/**
+ * A source of evidence for a likelihood distribution choice.
+ */
+export interface LikelihoodSource {
+  /**
+   * Title of the source (paper, textbook, etc.)
+   */
+  title: string;
+  /**
+   * URL of the source if available
+   */
+  url?: string | null;
+  /**
+   * Relevant excerpt from the source
+   */
+  snippet: string;
 }
 /**
  * Specification for a parameter requiring a prior.

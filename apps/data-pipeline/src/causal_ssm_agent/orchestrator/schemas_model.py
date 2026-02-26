@@ -4,6 +4,8 @@ These schemas define the structure proposed by the orchestrator LLM
 for the statistical model specification.
 """
 
+from __future__ import annotations
+
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -28,7 +30,7 @@ class DistributionFamily(StrEnum):
     CATEGORICAL = "categorical"
 
     @classmethod
-    def _missing_(cls, value: object) -> "DistributionFamily | None":
+    def _missing_(cls, value: object) -> DistributionFamily | None:
         """Allow case-insensitive and legacy PascalCase construction.
 
         The LLM may propose PascalCase names (e.g. "Normal", "NegativeBinomial")
@@ -116,6 +118,14 @@ EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
 }
 
 
+class LikelihoodSource(BaseModel):
+    """A source of evidence for a likelihood distribution choice."""
+
+    title: str = Field(description="Title of the source (paper, textbook, etc.)")
+    url: str | None = Field(default=None, description="URL of the source if available")
+    snippet: str = Field(description="Relevant excerpt from the source")
+
+
 class LikelihoodSpec(BaseModel):
     """Specification for a likelihood (observed variable distribution)."""
 
@@ -123,6 +133,14 @@ class LikelihoodSpec(BaseModel):
     distribution: DistributionFamily = Field(description="Distribution family for this variable")
     link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
     reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
+    sources: list[LikelihoodSource] = Field(
+        default_factory=list,
+        description="Literature sources supporting this likelihood choice",
+    )
+    search_context: str = Field(
+        default="",
+        description="Search query used to find literature supporting this likelihood choice",
+    )
 
 
 class ParameterSpec(BaseModel):
@@ -274,7 +292,7 @@ def validate_model_spec(
 def validate_model_spec_dict(
     data: dict,
     indicators: list[dict] | None = None,
-) -> tuple["ModelSpec | None", list[str]]:
+) -> tuple[ModelSpec | None, list[str]]:
     """Validate a model spec dict, collecting ALL errors in one pass.
 
     Matches the pattern of validate_latent_model() and validate_measurement_model()

@@ -663,6 +663,40 @@
       "title": "LatentModel",
       "type": "object"
     },
+    "LikelihoodSource": {
+      "description": "A source of evidence for a likelihood distribution choice.",
+      "properties": {
+        "title": {
+          "description": "Title of the source (paper, textbook, etc.)",
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL of the source if available",
+          "title": "Url"
+        },
+        "snippet": {
+          "description": "Relevant excerpt from the source",
+          "title": "Snippet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snippet",
+        "title"
+      ],
+      "title": "LikelihoodSource",
+      "type": "object"
+    },
     "LikelihoodSpec": {
       "description": "Specification for a likelihood (observed variable distribution).",
       "properties": {
@@ -683,12 +717,28 @@
           "description": "Why this distribution/link was chosen for this variable",
           "title": "Reasoning",
           "type": "string"
+        },
+        "sources": {
+          "description": "Literature sources supporting this likelihood choice",
+          "items": {
+            "$ref": "#/$defs/LikelihoodSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "search_context": {
+          "default": "",
+          "description": "Search query used to find literature supporting this likelihood choice",
+          "title": "Search Context",
+          "type": "string"
         }
       },
       "required": [
         "distribution",
         "link",
         "reasoning",
+        "search_context",
+        "sources",
         "variable"
       ],
       "title": "LikelihoodSpec",
