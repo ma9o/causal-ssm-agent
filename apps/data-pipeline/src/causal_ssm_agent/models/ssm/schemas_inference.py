@@ -185,6 +185,9 @@ class SensitivityEntry(BaseModel):
     parameter: str
     sensitivity_norm: float
     effective_sv: float
+    sv_status: Literal["pass", "warn", "fail"]
+    normalized_effective_sv: float
+    normalized_sv_status: Literal["pass", "warn", "fail"]
     identifiable: bool
 
 

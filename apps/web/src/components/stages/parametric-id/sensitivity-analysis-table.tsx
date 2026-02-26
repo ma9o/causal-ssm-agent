@@ -10,6 +10,16 @@ import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 
 const col = createColumnHelper<SensitivityEntry>();
 
+function formatSV(v: number) {
+  return v < 0.01 ? v.toExponential(1) : formatNumber(v, 4);
+}
+
+function statusToSeverity(status: string): "fail" | "warn" | undefined {
+  if (status === "fail") return "fail";
+  if (status === "warn") return "warn";
+  return undefined;
+}
+
 const columns = [
   col.accessor("parameter", {
     header: "Parameter",
@@ -32,14 +42,27 @@ const columns = [
     header: () => (
       <HeaderWithTooltip
         label="Effective SV"
-        tooltip="Effective singular value: the minimum singular value among SVD directions where this parameter has significant weight. Captures aliasing — two parameters can each have high sensitivity norms but share a near-singular direction, making their individual effects indistinguishable from data."
+        tooltip="Effective singular value: the minimum singular value among SVD directions where this parameter has significant weight. Captures aliasing — two parameters can each have high sensitivity norms but share a near-singular direction, making their individual effects indistinguishable from data. Thresholds: >10⁻³·max = pass, >10⁻⁶·max = warn, ≤10⁻⁶·max = fail (3-decade gap convention)."
       />
     ),
-    cell: (info) => {
-      const v = info.getValue();
-      return v < 0.01 ? v.toExponential(1) : formatNumber(v, 4);
+    cell: (info) => formatSV(info.getValue()),
+    meta: {
+      mono: true,
+      severity: (_v: number, row: SensitivityEntry) => statusToSeverity(row.sv_status),
     },
-    meta: { mono: true },
+  }),
+  col.accessor("normalized_effective_sv", {
+    header: () => (
+      <HeaderWithTooltip
+        label="Normalized SV"
+        tooltip="Normalized effective singular value: effective SV after scaling the sensitivity matrix by prior SD (columns) and observation noise SD (rows). Units: prior-SD of parameter change per noise-SD of output change. Thresholds: >10 = pass (data overwhelms prior), >1 = warn (borderline), ≤1 = fail (data uninformative)."
+      />
+    ),
+    cell: (info) => formatSV(info.getValue()),
+    meta: {
+      mono: true,
+      severity: (_v: number, row: SensitivityEntry) => statusToSeverity(row.normalized_sv_status),
+    },
   }),
 ];
 
