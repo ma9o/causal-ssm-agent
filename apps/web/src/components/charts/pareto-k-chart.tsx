@@ -4,11 +4,11 @@ import { formatNumber } from "@/lib/utils/format";
 import type { LOODiagnostics } from "@causal-ssm/api-types";
 import {
   CartesianGrid,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
-  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";

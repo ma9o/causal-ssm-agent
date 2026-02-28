@@ -104,7 +104,7 @@ function AssistantMessage({ msg, idx }: { msg: TraceMessage; idx: number }) {
 
       {msg.tool_calls?.map((tc, i) => (
         <div
-          key={i}
+          key={`${tc.name}-${i}`}
           className="mt-2 flex items-center gap-1.5 rounded border bg-muted/50 px-2 py-1.5 text-[11px]"
         >
           <Wrench className="h-3 w-3 text-muted-foreground" />
