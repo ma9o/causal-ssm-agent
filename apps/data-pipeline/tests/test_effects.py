@@ -54,6 +54,24 @@ class TestBuildDigraph:
         assert set(G.nodes()) == {"A", "B", "C", "D"}
         assert len(G.edges()) == 4
 
+    def test_self_loop(self):
+        """Self-loop A → A is preserved in graph."""
+        model = {"edges": [{"cause": "A", "effect": "A"}]}
+        G = build_digraph(model)
+        assert set(G.nodes()) == {"A"}
+        assert G.has_edge("A", "A")
+
+    def test_duplicate_edges(self):
+        """Duplicate edges don't create multiple edges in digraph."""
+        model = {
+            "edges": [
+                {"cause": "A", "effect": "B"},
+                {"cause": "A", "effect": "B"},
+            ]
+        }
+        G = build_digraph(model)
+        assert len(G.edges()) == 1
+
 
 # =============================================================================
 # get_outcome_from_latent_model
@@ -183,3 +201,16 @@ class TestGetAllTreatments:
         }
         treatments = get_all_treatments(model)
         assert treatments == ["A", "B", "C"]
+
+    def test_empty_model(self):
+        """Empty model returns empty treatments list."""
+        model = {"constructs": [], "edges": []}
+        assert get_all_treatments(model) == []
+
+    def test_outcome_only(self):
+        """Single outcome node with no edges has no treatments."""
+        model = {
+            "constructs": [{"name": "Y", "is_outcome": True}],
+            "edges": [],
+        }
+        assert get_all_treatments(model) == []
