@@ -10,6 +10,7 @@ waste-free recycling, multi-step leapfrog, and precision preconditioning.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import jax
@@ -29,6 +30,8 @@ from causal_ssm_agent.models.ssm.utils import (
     _discover_sites,
     extract_constrained_samples,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def run_tempered_smc(
@@ -192,11 +195,12 @@ def run_tempered_smc(
     mode_tag = "adaptive" if adaptive_tempering else "linear"
     wf_tag = "+waste-free" if waste_free else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
-    print(
-        f"{print_prefix} [{mode_tag}{wf_tag}{hmc_tag}]: N={N}, K={n_outer}, D={D}, "
-        f"n_mh={n_mh_steps}, eps={eps}, target_accept={target_accept}"
+    logger.info(
+        "%s [%s%s%s]: N=%s, K=%s, D=%s, n_mh=%s, eps=%s, target_accept=%s",
+        print_prefix, mode_tag, wf_tag, hmc_tag, N, n_outer, D,
+        n_mh_steps, eps, target_accept,
     )
-    print(f"  Initializing {N} particles from prior...")
+    logger.info("  Initializing %s particles from prior...", N)
 
     parts = []
     for name in sorted(site_info.keys()):
@@ -214,7 +218,7 @@ def run_tempered_smc(
     # ===================================================================
     # Pilot: tune eps at prior (beta=0) before tempering
     # ===================================================================
-    print("  Pilot: adapting step size at prior...")
+    logger.info("  Pilot: adapting step size at prior...")
     for pilot_step in range(30):
         rng_key, mutate_key = random.split(rng_key)
         particles_new, n_accepts = _mutate_batch_jit(mutate_key, particles, 0.0, eps, chol_mass)
@@ -227,13 +231,13 @@ def run_tempered_smc(
         eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
 
         if pilot_step >= 5 and abs(avg_accept - target_accept) < 0.1:
-            print(
-                f"    pilot converged at step {pilot_step + 1}: "
-                f"accept={avg_accept:.2f} eps={eps:.4f}"
+            logger.info(
+                "    pilot converged at step %s: accept=%.2f eps=%.4f",
+                pilot_step + 1, avg_accept, eps,
             )
             break
     else:
-        print(f"    pilot done: accept={avg_accept:.2f} eps={eps:.4f}")
+        logger.info("    pilot done: accept=%.2f eps=%.4f", avg_accept, eps)
 
     # Recompute after pilot diversification
     log_liks, _ = batch_lik_val_and_grad(particles)
@@ -351,9 +355,9 @@ def run_tempered_smc(
         elif waste_free:
             resamp_tag = " [waste-free]"
 
-        print(
-            f"  step {level + 1}  beta={beta_k:.3f}  ESS={ess:.1f}/{N}"
-            f"  accept={avg_accept:.2f}  eps={eps:.4f}  rounds={n_rounds}{resamp_tag}"
+        logger.info(
+            "  step %s  beta=%.3f  ESS=%.1f/%s  accept=%.2f  eps=%.4f  rounds=%s%s",
+            level + 1, beta_k, ess, N, avg_accept, eps, n_rounds, resamp_tag,
         )
 
         beta_prev = beta_k

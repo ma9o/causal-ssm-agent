@@ -24,6 +24,7 @@ Key design choices:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import equinox as eqx
@@ -36,6 +37,8 @@ from numpyro.distributions import MultivariateNormal, Normal
 from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.likelihoods.base import (
@@ -457,9 +460,9 @@ def _train_proposal(
         proposal_net_new = eqx.apply_updates(proposal_net, updates)
         return proposal_net_new, opt_state_new, loss
 
-    print(
-        f"  Training proposal: {n_train_steps} steps, {n_train_seqs} sequences, "
-        f"{n_particles_train} particles..."
+    logger.info(
+        "  Training proposal: %s steps, %s sequences, %s particles...",
+        n_train_steps, n_train_seqs, n_particles_train,
     )
 
     for step in range(n_train_steps):
@@ -467,7 +470,7 @@ def _train_proposal(
         batch_idx = random.randint(batch_key, (), 0, n_train_seqs)
         proposal_net, opt_state, loss = _train_step(proposal_net, opt_state, batch_idx, step_key)
         if (step + 1) % 50 == 0:
-            print(f"    step {step + 1}/{n_train_steps}: VSMC loss = {float(loss):.2f}")
+            logger.info("    step %s/%s: VSMC loss = %.2f", step + 1, n_train_steps, float(loss))
 
     return proposal_net
 
@@ -617,7 +620,7 @@ def fit_dpf(
         else:
             R_train = jnp.eye(spec.n_manifest) * 0.25
 
-    print("DPF: Phase 1 - Training proposal network...")
+    logger.info("DPF: Phase 1 - Training proposal network...")
     rng_key, train_key = random.split(rng_key)
     proposal_net = _train_proposal(
         D_latent=spec.n_latent,
@@ -635,7 +638,7 @@ def fit_dpf(
         seed=int(train_key[0]),
     )
 
-    print("DPF: Phase 2 - Parameter inference via tempered SMC...")
+    logger.info("DPF: Phase 2 - Parameter inference via tempered SMC...")
 
     # Phase 2: Parameter inference via shared tempered SMC loop
     rng_key, dpf_key = random.split(rng_key)

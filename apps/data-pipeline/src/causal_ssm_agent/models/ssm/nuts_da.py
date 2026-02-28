@@ -27,6 +27,7 @@ problem of mass matrix adaptation in high dimensions.
 from __future__ import annotations
 
 import functools
+import logging
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -44,6 +45,8 @@ from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from cuthbert.gaussian.types import LinearizedKalmanFilterState
@@ -333,14 +336,16 @@ def _kalman_warmstart(
 
     # Fall back to pseudo-inverse of observations
     if smoothed is None:
-        print("  Using observation-based state initialization (pseudo-inverse)")
+        logger.info("Using observation-based state initialization (pseudo-inverse)")
         # Lambda has identity top block: eta_t ≈ obs_t[:n_l]
         # This works for standard SSM specs where n_manifest >= n_latent
         smoothed = observations[:, :n_l].copy()
 
-    print(
-        f"  State init: shape={smoothed.shape}, "
-        f"range=[{float(smoothed.min()):.3f}, {float(smoothed.max()):.3f}]"
+    logger.info(
+        "State init: shape=%s, range=[%.3f, %.3f]",
+        smoothed.shape,
+        float(smoothed.min()),
+        float(smoothed.max()),
     )
 
     # --- Phase 3: Build init_values dict ---
@@ -378,13 +383,16 @@ def _kalman_warmstart(
             init_values["eps_0"] = jnp.zeros(n_l)
             init_values["eps"] = jnp.zeros((observations.shape[0] - 1, n_l))
 
-    # Diagnostic: print init_values summary
+    # Diagnostic: log init_values summary
     for k, v in init_values.items():
         v_arr = jnp.asarray(v)
-        print(
-            f"  init[{k}]: shape={v_arr.shape}, "
-            f"range=[{float(v_arr.min()):.4f}, {float(v_arr.max()):.4f}], "
-            f"finite={bool(jnp.all(jnp.isfinite(v_arr)))}"
+        logger.info(
+            "init[%s]: shape=%s, range=[%.4f, %.4f], finite=%s",
+            k,
+            v_arr.shape,
+            float(v_arr.min()),
+            float(v_arr.max()),
+            bool(jnp.all(jnp.isfinite(v_arr))),
         )
 
     return init_values
@@ -423,23 +431,27 @@ def _try_svi(
         loss_0 = float(losses[0])
         loss_mid = float(losses[min(num_steps // 2, len(losses) - 1)])
         loss_end = float(losses[-1])
-        print(
-            f"  SVI ({backend_type}): loss@0={loss_0:.1f}, "
-            f"loss@{num_steps // 2}={loss_mid:.1f}, loss@end={loss_end:.1f}"
+        logger.info(
+            "SVI (%s): loss@0=%.1f, loss@%d=%.1f, loss@end=%.1f",
+            backend_type,
+            loss_0,
+            num_steps // 2,
+            loss_mid,
+            loss_end,
         )
 
         if not jnp.isfinite(loss_end):
-            print(f"  SVI ({backend_type}) failed: NaN/Inf loss")
+            logger.warning("SVI (%s) failed: NaN/Inf loss", backend_type)
             return None, None
 
-        print(f"  SVI ({backend_type}) warmstart: {num_steps} steps, ELBO={-loss_end:.1f}")
+        logger.info("SVI (%s) warmstart: %d steps, ELBO=%.1f", backend_type, num_steps, -loss_end)
 
         # Get parameter values from guide median (constrained space).
         # NOTE: Predictive(model, guide=guide) does NOT return sample sites
         # that are covered by the guide — it only returns deterministic sites
         # and observations. So we must get parameter values directly from the guide.
         param_init = guide.median(svi_result.params)
-        print(f"  SVI param sites: {sorted(param_init.keys())}")
+        logger.info("SVI param sites: %s", sorted(param_init.keys()))
 
         # Get deterministic values from Predictive (model conditioned on guide params)
         predictive = Predictive(model_fn, guide=guide, params=svi_result.params, num_samples=1)
@@ -454,7 +466,7 @@ def _try_svi(
         return param_init, det_values
 
     except Exception as e:
-        print(f"  SVI ({backend_type}) failed: {e}")
+        logger.warning("SVI (%s) failed: %s", backend_type, e)
         return None, None
 
 
@@ -507,17 +519,19 @@ def _try_smoother(
         )
 
         if not jnp.all(jnp.isfinite(smoothed)):
-            print("  Kalman smoother produced NaN/Inf states")
+            logger.warning("Kalman smoother produced NaN/Inf states")
             return None
 
-        print(
-            f"  Kalman smoother: states shape={smoothed.shape}, "
-            f"range=[{float(smoothed.min()):.3f}, {float(smoothed.max()):.3f}]"
+        logger.info(
+            "Kalman smoother: states shape=%s, range=[%.3f, %.3f]",
+            smoothed.shape,
+            float(smoothed.min()),
+            float(smoothed.max()),
         )
         return smoothed
 
     except Exception as e:
-        print(f"  Kalman smoother failed: {e}")
+        logger.warning("Kalman smoother failed: %s", e)
         return None
 
 
@@ -537,18 +551,23 @@ def _check_init_log_density(model_fn, init_values, observations, times, seed):
             is_finite = bool(jnp.isfinite(lp))
             if not is_finite:
                 v = site["value"]
-                print(
-                    f"  DIAG NaN/Inf: site={name}, logprob={float(lp):.2f}, "
-                    f"value_range=[{float(jnp.min(v)):.4f}, {float(jnp.max(v)):.4f}], "
-                    f"shape={v.shape}"
+                logger.warning(
+                    "DIAG NaN/Inf: site=%s, logprob=%.2f, value_range=[%.4f, %.4f], shape=%s",
+                    name,
+                    float(lp),
+                    float(jnp.min(v)),
+                    float(jnp.max(v)),
+                    v.shape,
                 )
             total_lp += lp
 
-        print(
-            f"  DIAG log-density at init: {float(total_lp):.2f}, finite={bool(jnp.isfinite(total_lp))}"
+        logger.info(
+            "DIAG log-density at init: %.2f, finite=%s",
+            float(total_lp),
+            bool(jnp.isfinite(total_lp)),
         )
     except Exception as e:
-        print(f"  DIAG check failed: {e}")
+        logger.warning("DIAG check failed: %s", e)
 
 
 def fit_nuts_da(
@@ -664,11 +683,11 @@ def fit_nuts_da(
                 **kwargs,
             )
             mcmc.run(rng_key, observations, times)
-            print(f"  NUTS initialized with: {strategy_name}")
+            logger.info("NUTS initialized with: %s", strategy_name)
             break
         except RuntimeError as e:
             if "Cannot find valid initial parameters" in str(e):
-                print(f"  {strategy_name} failed: {e}")
+                logger.warning("%s failed: %s", strategy_name, e)
                 continue
             raise
 
