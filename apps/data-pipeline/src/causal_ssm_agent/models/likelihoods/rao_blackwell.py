@@ -24,6 +24,8 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
+from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
+
 if TYPE_CHECKING:
     from causal_ssm_agent.models.likelihoods.kernels import ObservationKernel
 
@@ -167,7 +169,7 @@ def _kalman_update_gaussian(
     Returns updated (m, P) and the log marginal likelihood of y.
     """
     n_manifest = H.shape[0]
-    large_var = 1e10
+    large_var = MISSING_DATA_LARGE_VAR
     mask_float = obs_mask.astype(jnp.float32)
 
     # Inflate R for missing observations
@@ -229,7 +231,7 @@ def _linearized_update(
     v = (y - mean) * mask_float
 
     # Inflate for missing
-    large_var = 1e10
+    large_var = MISSING_DATA_LARGE_VAR
     R_pseudo = R_pseudo + jnp.diag((1.0 - mask_float) * large_var)
 
     # Standard Kalman update with pseudo-observation model
@@ -272,7 +274,7 @@ def _obs_weight_gaussian(
     S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * 1e-8
 
     # Inflate for missing
-    large_var = 1e10
+    large_var = MISSING_DATA_LARGE_VAR
     S = S + jnp.diag((1.0 - mask_float) * large_var)
 
     n_observed = jnp.sum(mask_float)

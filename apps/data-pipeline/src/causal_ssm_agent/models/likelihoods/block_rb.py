@@ -29,6 +29,7 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
+from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
 from causal_ssm_agent.models.likelihoods.rao_blackwell import (
     _kalman_predict,
     _kalman_update_gaussian,
@@ -284,7 +285,7 @@ def make_block_rb_callbacks(
             S = H_g @ state.g_pred_cov @ H_g.T + R
 
             n_m = H.shape[0]
-            large_var = 1e10
+            large_var = MISSING_DATA_LARGE_VAR
             S = 0.5 * (S + S.T) + jnp.eye(n_m) * 1e-8
             S = S + jnp.diag((1.0 - mask_float) * large_var)
 
