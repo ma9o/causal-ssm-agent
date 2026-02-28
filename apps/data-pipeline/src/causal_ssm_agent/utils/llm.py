@@ -160,7 +160,7 @@ def make_live_trace_path(stage_id: str) -> Path:
 
         run_id = flow_run.id
     except Exception:
-        pass
+        logger.debug("Could not get Prefect flow run ID; using timestamp fallback")
     if run_id is None:
         run_id = time.strftime("%Y%m%d-%H%M%S")
     return _RESULT_STORAGE / str(run_id) / f"{stage_id}.json"

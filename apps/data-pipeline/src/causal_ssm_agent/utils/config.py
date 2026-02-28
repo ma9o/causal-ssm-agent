@@ -162,7 +162,7 @@ def get_secret(name: str) -> str | None:
         block = Secret.load(name.lower().replace("_", "-"))
         return block.get()  # ty: ignore[unresolved-attribute]
     except Exception:
-        pass
+        logger.debug("Prefect Secret block '%s' not found; trying env var", name)
 
     # Fall back to environment variable
     return os.getenv(name)
