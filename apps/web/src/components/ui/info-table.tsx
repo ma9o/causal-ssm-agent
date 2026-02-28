@@ -204,6 +204,13 @@ export function InfoTable<TData>({
                           ? { cursor: "pointer", userSelect: "none" }
                           : undefined
                       }
+                      aria-sort={
+                        enableSorting && header.column.getIsSorted()
+                          ? header.column.getIsSorted() === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : undefined
+                      }
                     >
                       <span className="inline-flex items-center gap-1">
                         {header.isPlaceholder
