@@ -58,14 +58,19 @@ function buildRows(
   return Array.from(map.values());
 }
 
+// ── Shared helpers ───────────────────────────────────────
+
+function pValueForStat(stat: PPCTestStat): number {
+  return stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
+}
+
 // ── Test stat sparkline (mini histogram + p-value) ──────
 
 function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
   if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
 
   const bins = buildHistogram(stat.rep_values, 12);
-  const pValue =
-    stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
+  const pValue = pValueForStat(stat);
 
   return (
     <div className="space-y-1">
@@ -170,10 +175,6 @@ const STAT_TOOLTIPS: Record<StatName, string> = {
   min: "Compares observed minimum to distribution of replicated minima.",
   max: "Compares observed maximum to distribution of replicated maxima.",
 };
-
-function pValueForStat(stat: PPCTestStat): number {
-  return stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
-}
 
 const columns: ColumnDef<PPCVariableRow, unknown>[] = [
   col.display({
