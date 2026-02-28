@@ -17,6 +17,7 @@ import jax.numpy as jnp
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -150,7 +151,7 @@ def _simulate_one_draw_gaussian(
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey, okey = inputs
         # Cholesky of Qd_t (with jitter for PSD)
-        Qd_t_safe = Qd_t + 1e-8 * jnp.eye(n_latent)
+        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
         Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
         eps = jax.random.normal(pkey, (n_latent,))
         eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
@@ -207,7 +208,7 @@ def _simulate_one_draw_nongaussian(
 
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        Qd_t_safe = Qd_t + 1e-8 * jnp.eye(n_latent)
+        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
         Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
         eps = jax.random.normal(pkey, (n_latent,))
         eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
@@ -389,7 +390,7 @@ def _simulate_one_draw_mixed(
 
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        Qd_t_safe = Qd_t + 1e-8 * jnp.eye(n_latent)
+        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
         Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
         eps = jax.random.normal(pkey, (n_latent,))
         eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
@@ -523,9 +524,9 @@ def simulate_posterior_predictive(
     if all_gaussian:
         # Fast path: correlated Gaussian observation noise via Cholesky
         manifest_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0]))
+            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
         )(manifest_cov_sub)
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0])))(
+        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
             t0_cov_sub
         )
 
@@ -548,7 +549,7 @@ def simulate_posterior_predictive(
 
     elif is_mixed:
         # Per-channel dispatch: different distributions/links for different channels
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0])))(
+        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
             t0_cov_sub
         )
 
@@ -599,7 +600,7 @@ def simulate_posterior_predictive(
 
     else:
         # Uniform non-Gaussian: all channels share the same non-Gaussian distribution
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + 1e-8 * jnp.eye(cov.shape[0])))(
+        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
             t0_cov_sub
         )
 

@@ -43,6 +43,7 @@ import jax.scipy.linalg as jla
 from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.utils import (
     _build_eval_fns,
@@ -101,7 +102,7 @@ def _propose_so(x, grad, hessian, z, eps, eps_fb):
     """
     D = x.shape[0]
     neg_H = -hessian
-    chol_M = jla.cholesky(neg_H + jnp.eye(D) * 1e-8, lower=True)
+    chol_M = jla.cholesky(neg_H + jnp.eye(D) * CHOL_JITTER, lower=True)
     is_psd = jnp.all(jnp.isfinite(chol_M))
 
     # Safe Cholesky: identity if not PSD
@@ -138,7 +139,7 @@ def _reverse_so(v_half, grad_new, hessian_new, eps, eps_fb):
     """SO reverse with FO fallback (Eq 42, 44)."""
     D = v_half.shape[0]
     neg_H = -hessian_new
-    chol_M = jla.cholesky(neg_H + jnp.eye(D) * 1e-8, lower=True)
+    chol_M = jla.cholesky(neg_H + jnp.eye(D) * CHOL_JITTER, lower=True)
     is_psd = jnp.all(jnp.isfinite(chol_M))
 
     chol_safe = jnp.where(is_psd, chol_M, jnp.eye(D))

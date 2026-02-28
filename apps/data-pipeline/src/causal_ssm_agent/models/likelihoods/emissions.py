@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
-from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
 
 
 def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
@@ -22,7 +22,7 @@ def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
     residual = (y_t - pred) * obs_mask_t
     n_obs = jnp.sum(obs_mask_t)
     R_adj = R + jnp.diag((1.0 - obs_mask_t) * MISSING_DATA_LARGE_VAR)
-    R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(R.shape[0]) * 1e-8
+    R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(R.shape[0]) * CHOL_JITTER
     _, logdet = jnp.linalg.slogdet(R_adj)
     n_missing = y_t.shape[0] - n_obs
     logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
