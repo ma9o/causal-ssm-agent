@@ -60,7 +60,20 @@ export function StageSection({
     >
       <div
         className={isCollapsible ? "flex items-start gap-3 cursor-pointer" : ""}
+        role={isCollapsible ? "button" : undefined}
+        tabIndex={isCollapsible ? 0 : undefined}
+        aria-expanded={isCollapsible ? !collapsed : undefined}
         onClick={isCollapsible ? () => setCollapsed((c) => !c) : undefined}
+        onKeyDown={
+          isCollapsible
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setCollapsed((c) => !c);
+                }
+              }
+            : undefined
+        }
       >
         <div className="flex-1 min-w-0">
           <StageHeader
