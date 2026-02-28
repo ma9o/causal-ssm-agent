@@ -37,24 +37,3 @@ export async function triggerRun(
   return run.id;
 }
 
-export async function getFlowRun(runId: string): Promise<PrefectFlowRun> {
-  return apiFetch<PrefectFlowRun>(`/prefect/flow_runs/${runId}`);
-}
-
-interface PrefectTaskRun {
-  id: string;
-  name: string;
-  state: { type: string; name: string };
-  start_time: string | null;
-  end_time: string | null;
-}
-
-export async function getTaskRuns(flowRunId: string): Promise<PrefectTaskRun[]> {
-  return apiFetch<PrefectTaskRun[]>("/prefect/task_runs/filter", {
-    method: "POST",
-    body: JSON.stringify({
-      flow_runs: { id: { any_: [flowRunId] } },
-      sort: "START_TIME_ASC",
-    }),
-  });
-}
