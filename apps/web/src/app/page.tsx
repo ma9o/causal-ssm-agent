@@ -47,7 +47,10 @@ export default function LandingPage() {
       const code = getMockFixture();
       fetch(`/api/sessions/${code}`)
         .then((r) => r.json())
-        .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`));
+        .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`))
+        .catch(() => {
+          // Mock session fetch failed — stay on landing page
+        });
     }
   }, [router]);
   const [error, setError] = useState<string | null>(null);
