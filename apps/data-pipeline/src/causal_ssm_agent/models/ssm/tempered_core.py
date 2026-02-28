@@ -25,9 +25,9 @@ from causal_ssm_agent.models.ssm.mcmc_utils import (
     hmc_step,
 )
 from causal_ssm_agent.models.ssm.utils import (
-    _assemble_deterministics,
     _build_eval_fns,
     _discover_sites,
+    extract_constrained_samples,
 )
 
 
@@ -369,18 +369,7 @@ def run_tempered_smc(
     # 6. Post-process: discard warmup, transform to constrained space
     chain_particles = jnp.stack(chain_samples[n_warmup:], axis=0)  # (n_keep, D)
 
-    transforms = {name: info["transform"] for name, info in site_info.items()}
-    samples = {}
-    for name in transforms:
-
-        def _extract_one(z, _name=name):
-            unc = unravel_fn(z)
-            return transforms[_name](unc[_name])
-
-        samples[name] = jax.vmap(_extract_one)(chain_particles)
-
-    det_samples = _assemble_deterministics(samples, model.spec)
-    samples.update(det_samples)
+    samples = extract_constrained_samples(chain_particles, site_info, unravel_fn, model.spec)
 
     diagnostics = {
         "accept_rates": accept_rates,

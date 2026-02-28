@@ -155,6 +155,45 @@ def _assemble_deterministics(
 
 
 # ---------------------------------------------------------------------------
+# Sample extraction from unconstrained particles
+# ---------------------------------------------------------------------------
+
+
+def extract_constrained_samples(
+    particles: jnp.ndarray,
+    site_info: dict,
+    unravel_fn,
+    spec: SSMSpec,
+) -> dict[str, jnp.ndarray]:
+    """Extract constrained samples from unconstrained particles and assemble deterministics.
+
+    Shared by hessmc2, pgas, and tempered_core to avoid code duplication.
+
+    Args:
+        particles: (N, D) array of unconstrained parameter vectors
+        site_info: site info dict from _discover_sites
+        unravel_fn: function from ravel_pytree to unravel flat vectors
+        spec: SSMSpec for assembling deterministic sites
+
+    Returns:
+        Dict of constrained samples including deterministic sites
+    """
+    transforms = {name: info["transform"] for name, info in site_info.items()}
+    samples = {}
+    for name in transforms:
+
+        def _extract_one(z, _name=name):
+            unc = unravel_fn(z)
+            return transforms[_name](unc[_name])
+
+        samples[name] = jax.vmap(_extract_one)(particles)
+
+    det_samples = _assemble_deterministics(samples, spec)
+    samples.update(det_samples)
+    return samples
+
+
+# ---------------------------------------------------------------------------
 # Differentiable evaluators
 # ---------------------------------------------------------------------------
 

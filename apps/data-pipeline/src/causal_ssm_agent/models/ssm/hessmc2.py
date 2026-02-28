@@ -45,9 +45,9 @@ from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.utils import (
-    _assemble_deterministics,
     _build_eval_fns,
     _discover_sites,
+    extract_constrained_samples,
 )
 
 # ---------------------------------------------------------------------------
@@ -478,18 +478,7 @@ def fit_hessmc2(
     final_particles = all_particles[idx]
 
     # Extract final samples in constrained space (vmapped)
-    transforms = {name: info["transform"] for name, info in site_info.items()}
-    samples = {}
-    for name in transforms:
-
-        def _extract_one(z, _name=name):
-            unc = unravel_fn(z)
-            return transforms[_name](unc[_name])
-
-        samples[name] = jax.vmap(_extract_one)(final_particles)
-
-    det_samples = _assemble_deterministics(samples, model.spec)
-    samples.update(det_samples)
+    samples = extract_constrained_samples(final_particles, site_info, unravel_fn, model.spec)
 
     return InferenceResult(
         _samples=samples,
