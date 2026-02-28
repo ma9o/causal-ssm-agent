@@ -17,7 +17,7 @@ import jax.numpy as jnp
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -278,7 +278,7 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         k1, k2 = jax.random.split(k)
         z = jax.random.normal(k1, ())
         chi2 = 2.0 * jax.random.gamma(k2, df_v / 2.0)
-        t_val = z * jnp.sqrt(df_v / jnp.maximum(chi2, 1e-10))
+        t_val = z * jnp.sqrt(df_v / jnp.maximum(chi2, NUMERICAL_EPSILON))
         return loc + s * t_val
 
     def _poisson(loc, k, _s, _df, _sh, _r, _ph):
@@ -299,7 +299,7 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         mu = jnp.exp(jnp.clip(loc, -20.0, 20.0))
         k1, k2 = jax.random.split(k)
         g = jax.random.gamma(k1, r_v) * mu / jnp.maximum(r_v, 1e-8)
-        return jax.random.poisson(k2, jnp.maximum(g, 1e-10)).astype(jnp.float32)
+        return jax.random.poisson(k2, jnp.maximum(g, NUMERICAL_EPSILON)).astype(jnp.float32)
 
     def _beta(loc, k, _s, _df, _sh, _r, phi_v):
         mean = jax.nn.sigmoid(loc)
@@ -308,7 +308,7 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         k1, k2 = jax.random.split(k)
         g1 = jax.random.gamma(k1, alpha)
         g2 = jax.random.gamma(k2, beta_p)
-        return g1 / jnp.maximum(g1 + g2, 1e-10)
+        return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
 
     def _gamma_inv(loc, k, _s, _df, shape_v, _r, _ph):
         mean = 1.0 / jnp.clip(loc, 1e-6, None)
@@ -326,7 +326,7 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         k1, k2 = jax.random.split(k)
         g1 = jax.random.gamma(k1, alpha)
         g2 = jax.random.gamma(k2, beta_p)
-        return g1 / jnp.maximum(g1 + g2, 1e-10)
+        return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
 
     branches = [
         _gauss,

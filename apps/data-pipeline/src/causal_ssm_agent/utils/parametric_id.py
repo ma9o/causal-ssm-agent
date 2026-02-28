@@ -26,6 +26,7 @@ from jax import lax
 from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
 
+from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.utils import (
     _assemble_deterministics,
@@ -357,7 +358,7 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
     bin_idx = jnp.clip((ranks / bin_width).astype(jnp.int32), 0, n_bins - 1)
     observed = jnp.array([float(jnp.sum(bin_idx == i)) for i in range(n_bins)], dtype=jnp.float32)
     expected = float(n) / n_bins
-    chi2 = jnp.sum((observed - expected) ** 2 / jnp.maximum(expected, 1e-10))
+    chi2 = jnp.sum((observed - expected) ** 2 / jnp.maximum(expected, NUMERICAL_EPSILON))
     df = n_bins - 1
     return float(1.0 - jax.scipy.special.gammainc(df / 2.0, chi2 / 2.0))
 
@@ -496,7 +497,7 @@ class OutputSensitivityResult:
 
     def print_report(self) -> None:
         """Log a human-readable sensitivity analysis report."""
-        n_nonsing = sum(1 for sv in self.singular_values if sv > 1e-10)
+        n_nonsing = sum(1 for sv in self.singular_values if sv > NUMERICAL_EPSILON)
         lines = [
             "=== Output Sensitivity Analysis ===",
             f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}",
@@ -569,7 +570,7 @@ def output_sensitivity_analysis(
     prior_z_std, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=200)
     prior_std = jnp.std(prior_z_std, axis=0)  # (P,) per-parameter prior SD
     # Guard against degenerate priors (zero std)
-    prior_std = jnp.maximum(prior_std, 1e-10)
+    prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
 
     N_out = 2 * T_obs * n_manifest
 
@@ -619,7 +620,7 @@ def output_sensitivity_analysis(
         # --- Normalized SVD ---
         # S_norm[i,j] = (prior_std[j] / obs_scale[i]) * S[i,j]
         row_scales = _get_obs_noise_scales(z_0)
-        row_scales = jnp.maximum(row_scales, 1e-10)
+        row_scales = jnp.maximum(row_scales, NUMERICAL_EPSILON)
         S_norm = (prior_std[None, :] / row_scales[:, None]) * S
         _Un, sv_n, Vt_n = jnp.linalg.svd(S_norm, full_matrices=False)
         V_n = Vt_n.T

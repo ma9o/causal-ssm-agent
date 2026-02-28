@@ -36,7 +36,7 @@ from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoMultivariateNormal
 from numpyro.optim import ClippedAdam
 
-from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
+from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR, NUMERICAL_EPSILON
 from causal_ssm_agent.models.likelihoods.particle import SSMAdapter
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -364,7 +364,7 @@ def _csmc_sweep(
                 g = jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
                 raw_shift = langevin_step_size * Qd_t @ g
                 scaled = jla.solve_triangular(chol_t, raw_shift, lower=True)
-                norm = jnp.sqrt(jnp.dot(scaled, scaled) + 1e-10)
+                norm = jnp.sqrt(jnp.dot(scaled, scaled) + NUMERICAL_EPSILON)
                 clip = jnp.minimum(1.0, 1.0 / norm)
                 return raw_shift * clip
 
