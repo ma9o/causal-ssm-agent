@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatNumber, formatPercent, formatDate, formatDateRange } from "./format";
+import { formatDate, formatDateRange, formatNumber, formatPercent } from "./format";
 
 describe("formatNumber", () => {
   it("formats a positive number with default decimals", () => {
@@ -11,15 +11,15 @@ describe("formatNumber", () => {
   });
 
   it("returns NaN for NaN", () => {
-    expect(formatNumber(NaN)).toBe("NaN");
+    expect(formatNumber(Number.NaN)).toBe("NaN");
   });
 
   it("returns +Inf for positive infinity", () => {
-    expect(formatNumber(Infinity)).toBe("+Inf");
+    expect(formatNumber(Number.POSITIVE_INFINITY)).toBe("+Inf");
   });
 
   it("returns -Inf for negative infinity", () => {
-    expect(formatNumber(-Infinity)).toBe("-Inf");
+    expect(formatNumber(Number.NEGATIVE_INFINITY)).toBe("-Inf");
   });
 
   it("formats zero", () => {

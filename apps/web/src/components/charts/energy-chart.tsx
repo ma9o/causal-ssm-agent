@@ -1,14 +1,14 @@
 "use client";
 
-import { formatNumber } from "@/lib/utils/format";
 import { Badge } from "@/components/ui/badge";
+import { formatNumber } from "@/lib/utils/format";
 import type { EnergyDiagnostics } from "@causal-ssm/api-types";
 import {
   Area,
   CartesianGrid,
   ComposedChart,
-  ResponsiveContainer,
   Tooltip as RechartsTooltip,
+  ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";

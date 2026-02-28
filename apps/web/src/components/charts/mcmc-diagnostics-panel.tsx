@@ -1,26 +1,26 @@
 "use client";
 
-import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { CHAIN_COLORS } from "@/lib/constants/charts";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import { formatNumber } from "@/lib/utils/format";
 import type {
   MCMCDiagnostics,
   MCMCParamDiagnostic,
-  TraceData,
   RankHistogram as RankHistogramData,
+  TraceData,
 } from "@causal-ssm/api-types";
+import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle } from "lucide-react";
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
   Line,
   LineChart,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip as RechartsTooltip,
 } from "recharts";
 
 interface MCMCDiagnosticsPanelProps {

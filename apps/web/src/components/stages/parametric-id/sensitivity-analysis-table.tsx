@@ -1,12 +1,12 @@
 "use client";
 
-import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { formatNumber } from "@/lib/utils/format";
 import type { SensitivityAnalysisResult, SensitivityEntry } from "@causal-ssm/api-types";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 
 const col = createColumnHelper<SensitivityEntry>();
 

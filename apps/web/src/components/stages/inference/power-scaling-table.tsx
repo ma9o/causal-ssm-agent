@@ -1,8 +1,8 @@
-import { useMemo } from "react";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import { formatNumber } from "@/lib/utils/format";
 import type { PowerScalingResult } from "@causal-ssm/api-types";
+import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
+import { useMemo } from "react";
 
 const col = createColumnHelper<PowerScalingResult>();
 

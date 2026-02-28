@@ -1,7 +1,7 @@
 "use client";
 
-import { type ReactNode } from "react";
-import { ErrorBoundary as ReactErrorBoundary, type FallbackProps } from "react-error-boundary";
+import type { ReactNode } from "react";
+import { type FallbackProps, ErrorBoundary as ReactErrorBoundary } from "react-error-boundary";
 
 function DefaultFallback({ error, resetErrorBoundary }: FallbackProps) {
   const message = error instanceof Error ? error.message : String(error);

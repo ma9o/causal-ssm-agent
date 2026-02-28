@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { InfoTable } from "@/components/ui/info-table";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import type { Indicator } from "@causal-ssm/api-types";
+import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 
 const col = createColumnHelper<Indicator>();
 

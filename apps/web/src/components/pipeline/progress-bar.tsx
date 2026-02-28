@@ -26,7 +26,7 @@ export function PipelineProgressBar({
       return res.json();
     },
     enabled: !!sessionCode,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const handleCopy = useCallback(() => {

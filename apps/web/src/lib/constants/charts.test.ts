@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  CHAIN_COLORS,
-  diagnosisBadgeVariant,
-  diagnosisColor,
-  diagnosisLabel,
-} from "./charts";
+import { CHAIN_COLORS, diagnosisBadgeVariant, diagnosisColor, diagnosisLabel } from "./charts";
 
 describe("CHAIN_COLORS", () => {
   it("has at least 4 colors for multi-chain plots", () => {

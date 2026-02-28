@@ -2,9 +2,9 @@
 
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import { cn } from "@/lib/utils/cn";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
+import { cn } from "@/lib/utils/cn";
 import type {
   GateOverride,
   LLMTrace,

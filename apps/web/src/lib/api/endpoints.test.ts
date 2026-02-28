@@ -5,8 +5,8 @@ vi.mock("./client", () => ({
   apiFetch: vi.fn(),
 }));
 
-import { getStageResult, uploadFile } from "./endpoints";
 import { apiFetch } from "./client";
+import { getStageResult, uploadFile } from "./endpoints";
 
 describe("getStageResult", () => {
   afterEach(() => {

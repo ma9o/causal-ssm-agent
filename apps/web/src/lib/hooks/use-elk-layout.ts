@@ -1,4 +1,4 @@
-import { layoutDag, type LayoutResult } from "@/lib/utils/dag-layout";
+import { type LayoutResult, layoutDag } from "@/lib/utils/dag-layout";
 import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
