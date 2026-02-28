@@ -954,39 +954,6 @@ class TestSVIBackend:
 # =============================================================================
 
 
-class TestPMMHBackend:
-    """Tests specific to PMMH inference backend."""
-
-    @pytest.mark.slow
-    @pytest.mark.xfail(reason="PMMH acceptance rate sensitive to seed/initialization")
-    def test_pmmh_acceptance_rate_reasonable(self):
-        """PMMH acceptance rate should be between 0.05 and 0.95."""
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            diffusion="diag",
-        )
-        model = SSMModel(spec, n_particles=100)
-
-        T = 15
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, 1)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="pmmh",
-            num_warmup=50,
-            num_samples=50,
-        )
-
-        rate = result.diagnostics["acceptance_rate"]
-        assert 0.05 < rate < 0.95, f"Acceptance rate out of range: {rate:.3f}"
-
-
 # =============================================================================
 # SVI Parameter Recovery
 # =============================================================================

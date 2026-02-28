@@ -43,7 +43,6 @@ InferenceMethod = Literal[
     "laplace_em",
     "structured_vi",
     "dpf",
-    "pmmh",
 ]
 
 
@@ -644,7 +643,7 @@ def fit(
     raise ValueError(
         f"Unknown inference method: {method!r}. "
         "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
-        "'laplace_em', 'structured_vi', 'dpf', or 'pmmh'."
+        "'laplace_em', 'structured_vi', or 'dpf'."
     )
 
 
