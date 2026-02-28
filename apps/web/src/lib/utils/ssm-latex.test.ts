@@ -11,6 +11,7 @@ import {
   paramSymbol,
   parseCorrelation,
   parseFixedEffect,
+  priorLatex,
   priorLine,
   stateEquationRows,
   stateNames,
@@ -160,6 +161,33 @@ describe("priorLine", () => {
     } as PriorProposal;
     const result = priorLine(prior);
     expect(result).toContain("\\text{HalfNormal}");
+  });
+});
+
+describe("priorLatex", () => {
+  it("strips alignment markers from priorLine output", () => {
+    const prior = {
+      parameter: "beta_X_Y",
+      distribution: "Normal",
+      params: { loc: 0, scale: 1 },
+      sources: [],
+      reasoning: "",
+    } as PriorProposal;
+    const result = priorLatex(prior);
+    expect(result).not.toContain("&");
+    expect(result).toContain("\\sim");
+    expect(result).toContain("\\mathcal{N}");
+  });
+
+  it("matches priorLine with ampersands removed", () => {
+    const prior = {
+      parameter: "sigma_mood",
+      distribution: "HalfNormal",
+      params: { scale: 2 },
+      sources: [],
+      reasoning: "",
+    } as PriorProposal;
+    expect(priorLatex(prior)).toBe(priorLine(prior).replace(/&/g, ""));
   });
 });
 
