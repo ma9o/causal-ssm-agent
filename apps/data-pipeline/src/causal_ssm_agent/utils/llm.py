@@ -589,15 +589,39 @@ def calculate():
         Returns:
             The result of the calculation, or an error message if evaluation fails.
         """
-        # Whitelist of allowed characters for safe evaluation
-        allowed_chars = set("0123456789+-*/%()._ ")
-        if not all(c in allowed_chars for c in expression):
-            return "Error: Expression contains invalid characters. Only numbers and +-*/%()._ are allowed."
+        import ast
+        import operator
+
+        _OPERATORS: dict[type, object] = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+
+        def _safe_eval(node: ast.AST) -> float | int:
+            if isinstance(node, ast.Expression):
+                return _safe_eval(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return node.value
+            if isinstance(node, ast.UnaryOp) and type(node.op) in _OPERATORS:
+                op = _OPERATORS[type(node.op)]
+                return op(_safe_eval(node.operand))
+            if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
+                op = _OPERATORS[type(node.op)]
+                return op(_safe_eval(node.left), _safe_eval(node.right))
+            raise ValueError(f"Unsupported expression: {ast.dump(node)}")
 
         try:
-            result = eval(expression)
+            tree = ast.parse(expression, mode="eval")
+            result = _safe_eval(tree)
             return str(result)
-        except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
+        except (SyntaxError, ZeroDivisionError, TypeError, ValueError) as e:
             return f"Error evaluating expression: {e}"
 
     return execute
