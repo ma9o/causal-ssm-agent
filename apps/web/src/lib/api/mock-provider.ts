@@ -1,7 +1,6 @@
 import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 
-
 const STAGE_DELAYS_MS: Record<StageId, number> = {
   "stage-0": 500,
   "stage-1a": 2000,

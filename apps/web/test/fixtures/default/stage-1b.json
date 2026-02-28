@@ -191,9 +191,7 @@
       },
       "non_identifiable_treatments": {
         "sleep_quality": {
-          "confounders": [
-            "unobserved_chronotype"
-          ],
+          "confounders": ["unobserved_chronotype"],
           "notes": null
         }
       }

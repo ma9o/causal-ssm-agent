@@ -102,13 +102,7 @@
     ]
   },
   "outcome_name": "procrastination",
-  "treatments": [
-    "stress",
-    "sleep_quality",
-    "digital_distraction",
-    "self_efficacy",
-    "workload"
-  ],
+  "treatments": ["stress", "sleep_quality", "digital_distraction", "self_efficacy", "workload"],
   "llm_trace": {
     "messages": [
       {

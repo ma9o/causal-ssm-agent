@@ -8,9 +8,7 @@ export default function Stage4bContent({ data }: { data: Stage4bData }) {
   return (
     <div className="space-y-4">
       {data.rb_partition && <RBPartitionCard partition={data.rb_partition} />}
-      {pid.sensitivity_analysis && (
-        <SensitivityAnalysisTable result={pid.sensitivity_analysis} />
-      )}
+      {pid.sensitivity_analysis && <SensitivityAnalysisTable result={pid.sensitivity_analysis} />}
     </div>
   );
 }

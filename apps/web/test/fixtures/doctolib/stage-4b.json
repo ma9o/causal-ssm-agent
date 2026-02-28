@@ -5,9 +5,7 @@
     "summary": {
       "structural_issues": [],
       "boundary_issues": [],
-      "weak_params": [
-        "sigma_pressure"
-      ]
+      "weak_params": ["sigma_pressure"]
     },
     "t_rule": {
       "satisfies": true,
@@ -25,17 +23,105 @@
       "singular_values": [8.42, 5.17, 3.89, 2.64, 1.93, 1.41, 0.87, 0.52, 0.31, 0.14, 0.003],
       "condition_number": 2807,
       "per_parameter": [
-        { "parameter": "beta_lipid_inflammation", "sensitivity_norm": 2.84, "effective_sv": 1.93, "sv_status": "pass", "normalized_effective_sv": 48.2, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "beta_pressure_cv", "sensitivity_norm": 2.31, "effective_sv": 1.41, "sv_status": "pass", "normalized_effective_sv": 35.6, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "beta_inflammation_cv", "sensitivity_norm": 2.67, "effective_sv": 1.93, "sv_status": "pass", "normalized_effective_sv": 42.1, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "beta_glycemic_lipid", "sensitivity_norm": 1.52, "effective_sv": 0.87, "sv_status": "pass", "normalized_effective_sv": 21.4, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "beta_cv_pressure", "sensitivity_norm": 1.89, "effective_sv": 1.41, "sv_status": "pass", "normalized_effective_sv": 28.7, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "beta_glycemic_inflammation", "sensitivity_norm": 1.14, "effective_sv": 0.52, "sv_status": "pass", "normalized_effective_sv": 14.3, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "rho_cv", "sensitivity_norm": 3.21, "effective_sv": 2.64, "sv_status": "pass", "normalized_effective_sv": 56.8, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "rho_lipid", "sensitivity_norm": 2.95, "effective_sv": 2.64, "sv_status": "pass", "normalized_effective_sv": 51.3, "normalized_sv_status": "pass", "identifiable": true },
-        { "parameter": "rho_pressure", "sensitivity_norm": 1.73, "effective_sv": 0.31, "sv_status": "pass", "normalized_effective_sv": 7.2, "normalized_sv_status": "warn", "identifiable": true },
-        { "parameter": "sigma_cv", "sensitivity_norm": 0.87, "effective_sv": 0.14, "sv_status": "pass", "normalized_effective_sv": 3.8, "normalized_sv_status": "warn", "identifiable": true },
-        { "parameter": "sigma_pressure", "sensitivity_norm": 0.09, "effective_sv": 0.003, "sv_status": "warn", "normalized_effective_sv": 0.6, "normalized_sv_status": "fail", "identifiable": false }
+        {
+          "parameter": "beta_lipid_inflammation",
+          "sensitivity_norm": 2.84,
+          "effective_sv": 1.93,
+          "sv_status": "pass",
+          "normalized_effective_sv": 48.2,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "beta_pressure_cv",
+          "sensitivity_norm": 2.31,
+          "effective_sv": 1.41,
+          "sv_status": "pass",
+          "normalized_effective_sv": 35.6,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "beta_inflammation_cv",
+          "sensitivity_norm": 2.67,
+          "effective_sv": 1.93,
+          "sv_status": "pass",
+          "normalized_effective_sv": 42.1,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "beta_glycemic_lipid",
+          "sensitivity_norm": 1.52,
+          "effective_sv": 0.87,
+          "sv_status": "pass",
+          "normalized_effective_sv": 21.4,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "beta_cv_pressure",
+          "sensitivity_norm": 1.89,
+          "effective_sv": 1.41,
+          "sv_status": "pass",
+          "normalized_effective_sv": 28.7,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "beta_glycemic_inflammation",
+          "sensitivity_norm": 1.14,
+          "effective_sv": 0.52,
+          "sv_status": "pass",
+          "normalized_effective_sv": 14.3,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "rho_cv",
+          "sensitivity_norm": 3.21,
+          "effective_sv": 2.64,
+          "sv_status": "pass",
+          "normalized_effective_sv": 56.8,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "rho_lipid",
+          "sensitivity_norm": 2.95,
+          "effective_sv": 2.64,
+          "sv_status": "pass",
+          "normalized_effective_sv": 51.3,
+          "normalized_sv_status": "pass",
+          "identifiable": true
+        },
+        {
+          "parameter": "rho_pressure",
+          "sensitivity_norm": 1.73,
+          "effective_sv": 0.31,
+          "sv_status": "pass",
+          "normalized_effective_sv": 7.2,
+          "normalized_sv_status": "warn",
+          "identifiable": true
+        },
+        {
+          "parameter": "sigma_cv",
+          "sensitivity_norm": 0.87,
+          "effective_sv": 0.14,
+          "sv_status": "pass",
+          "normalized_effective_sv": 3.8,
+          "normalized_sv_status": "warn",
+          "identifiable": true
+        },
+        {
+          "parameter": "sigma_pressure",
+          "sensitivity_norm": 0.09,
+          "effective_sv": 0.003,
+          "sv_status": "warn",
+          "normalized_effective_sv": 0.6,
+          "normalized_sv_status": "fail",
+          "identifiable": false
+        }
       ],
       "n_draws": 8,
       "n_observations": 864,
@@ -48,48 +134,12 @@
         "classification": "identified",
         "contraction_ratio": 0.86,
         "profile_x": [
-          0.05,
-          0.09,
-          0.13,
-          0.17,
-          0.21,
-          0.25,
-          0.29,
-          0.33,
-          0.37,
-          0.41,
-          0.45,
-          0.49,
-          0.53,
-          0.57,
-          0.61,
-          0.65,
-          0.69,
-          0.73,
-          0.77,
-          0.81
+          0.05, 0.09, 0.13, 0.17, 0.21, 0.25, 0.29, 0.33, 0.37, 0.41, 0.45, 0.49, 0.53, 0.57, 0.61,
+          0.65, 0.69, 0.73, 0.77, 0.81
         ],
         "profile_ll": [
-          -9.5,
-          -7.2,
-          -5.3,
-          -3.8,
-          -2.6,
-          -1.7,
-          -0.9,
-          -0.4,
-          -0.1,
-          0.0,
-          -0.1,
-          -0.3,
-          -0.8,
-          -1.5,
-          -2.5,
-          -3.8,
-          -5.4,
-          -7.3,
-          -9.5,
-          -12.0
+          -9.5, -7.2, -5.3, -3.8, -2.6, -1.7, -0.9, -0.4, -0.1, 0.0, -0.1, -0.3, -0.8, -1.5, -2.5,
+          -3.8, -5.4, -7.3, -9.5, -12.0
         ]
       },
       {
@@ -97,48 +147,12 @@
         "classification": "identified",
         "contraction_ratio": 0.85,
         "profile_x": [
-          0.05,
-          0.09,
-          0.12,
-          0.16,
-          0.19,
-          0.23,
-          0.26,
-          0.3,
-          0.33,
-          0.37,
-          0.4,
-          0.43,
-          0.47,
-          0.51,
-          0.54,
-          0.58,
-          0.61,
-          0.65,
-          0.68,
-          0.72
+          0.05, 0.09, 0.12, 0.16, 0.19, 0.23, 0.26, 0.3, 0.33, 0.37, 0.4, 0.43, 0.47, 0.51, 0.54,
+          0.58, 0.61, 0.65, 0.68, 0.72
         ],
         "profile_ll": [
-          -8.8,
-          -6.5,
-          -4.7,
-          -3.3,
-          -2.2,
-          -1.3,
-          -0.7,
-          -0.3,
-          -0.1,
-          0.0,
-          -0.1,
-          -0.4,
-          -0.9,
-          -1.6,
-          -2.7,
-          -4.0,
-          -5.7,
-          -7.7,
-          -10.0,
-          -12.6
+          -8.8, -6.5, -4.7, -3.3, -2.2, -1.3, -0.7, -0.3, -0.1, 0.0, -0.1, -0.4, -0.9, -1.6, -2.7,
+          -4.0, -5.7, -7.7, -10.0, -12.6
         ]
       },
       {
@@ -146,48 +160,12 @@
         "classification": "identified",
         "contraction_ratio": 0.84,
         "profile_x": [
-          0.02,
-          0.06,
-          0.1,
-          0.14,
-          0.18,
-          0.22,
-          0.26,
-          0.3,
-          0.34,
-          0.38,
-          0.42,
-          0.46,
-          0.5,
-          0.54,
-          0.58,
-          0.62,
-          0.66,
-          0.7,
-          0.74,
-          0.78
+          0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54, 0.58,
+          0.62, 0.66, 0.7, 0.74, 0.78
         ],
         "profile_ll": [
-          -10.2,
-          -7.6,
-          -5.5,
-          -3.8,
-          -2.5,
-          -1.5,
-          -0.8,
-          -0.3,
-          -0.1,
-          0.0,
-          -0.1,
-          -0.3,
-          -0.7,
-          -1.4,
-          -2.3,
-          -3.5,
-          -5.0,
-          -6.8,
-          -8.9,
-          -11.3
+          -10.2, -7.6, -5.5, -3.8, -2.5, -1.5, -0.8, -0.3, -0.1, 0.0, -0.1, -0.3, -0.7, -1.4, -2.3,
+          -3.5, -5.0, -6.8, -8.9, -11.3
         ]
       },
       {
@@ -195,48 +173,12 @@
         "classification": "practically_unidentifiable",
         "contraction_ratio": 0.42,
         "profile_x": [
-          1.0,
-          1.5,
-          2.0,
-          2.5,
-          3.0,
-          3.5,
-          4.0,
-          4.5,
-          5.0,
-          5.5,
-          6.0,
-          6.5,
-          7.0,
-          7.5,
-          8.0,
-          8.5,
-          9.0,
-          9.5,
-          10.0,
-          10.5
+          1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5,
+          10.0, 10.5
         ],
         "profile_ll": [
-          -3.5,
-          -2.3,
-          -1.5,
-          -0.9,
-          -0.4,
-          -0.1,
-          0.0,
-          -0.1,
-          -0.2,
-          -0.3,
-          -0.4,
-          -0.5,
-          -0.6,
-          -0.7,
-          -0.8,
-          -0.9,
-          -1.0,
-          -1.1,
-          -1.2,
-          -1.3
+          -3.5, -2.3, -1.5, -0.9, -0.4, -0.1, 0.0, -0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7, -0.8,
+          -0.9, -1.0, -1.1, -1.2, -1.3
         ]
       }
     ]

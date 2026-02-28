@@ -7,7 +7,16 @@ import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
 import { generateSessionCode } from "@/lib/session-code";
 import { Switch } from "@/components/ui/switch";
-import { ArrowRight, FileText, Loader2, RotateCcw, ShieldAlert, Sparkles, Upload, X } from "lucide-react";
+import {
+  ArrowRight,
+  FileText,
+  Loader2,
+  RotateCcw,
+  ShieldAlert,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import prettyBytes from "pretty-bytes";
@@ -182,7 +191,9 @@ export default function LandingPage() {
           <Card>
             <CardHeader>
               <CardTitle>Research Question</CardTitle>
-              <CardDescription>What causal relationship do you want to investigate?</CardDescription>
+              <CardDescription>
+                What causal relationship do you want to investigate?
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <textarea
@@ -221,9 +232,7 @@ export default function LandingPage() {
           <Card>
             <CardHeader>
               <CardTitle>Data Upload</CardTitle>
-              <CardDescription>
-                Upload your Google Takeout export (ZIP or JSON)
-              </CardDescription>
+              <CardDescription>Upload your Google Takeout export (ZIP or JSON)</CardDescription>
             </CardHeader>
             <CardContent>
               <div
@@ -300,10 +309,7 @@ export default function LandingPage() {
                   </p>
                 </div>
               </div>
-              <Switch
-                checked={overrideGates}
-                onCheckedChange={setOverrideGates}
-              />
+              <Switch checked={overrideGates} onCheckedChange={setOverrideGates} />
             </CardContent>
           </Card>
         </motion.div>
@@ -353,9 +359,7 @@ export default function LandingPage() {
         </div>
 
         <motion.div className="space-y-3" {...fadeInUp(0.25)}>
-          <p className="text-center text-sm text-muted-foreground">
-            Resume a previous session
-          </p>
+          <p className="text-center text-sm text-muted-foreground">Resume a previous session</p>
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input
               type="text"
@@ -384,9 +388,7 @@ export default function LandingPage() {
               Resume
             </Button>
           </div>
-          {resumeError && (
-            <p className="text-center text-sm text-destructive">{resumeError}</p>
-          )}
+          {resumeError && <p className="text-center text-sm text-destructive">{resumeError}</p>}
         </motion.div>
       </div>
     </div>

@@ -12,9 +12,7 @@ export async function GET(
 
   const paths = [
     join(process.cwd(), "..", "data-pipeline", "results", runId, `${stage}.json`),
-    ...(isMock
-      ? [join(process.cwd(), "test", "fixtures", mockFixture, `${stage}.json`)]
-      : []),
+    ...(isMock ? [join(process.cwd(), "test", "fixtures", mockFixture, `${stage}.json`)] : []),
   ];
 
   for (const filePath of paths) {

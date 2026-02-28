@@ -23,7 +23,8 @@ export default function Stage5Content({ data }: { data: Stage5Data }) {
         posteriorPairs={activeData.posterior_pairs}
       />
       <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-        Inference: {activeData.inference_metadata.method} | {activeData.inference_metadata.n_samples} samples |{" "}
+        Inference: {activeData.inference_metadata.method} |{" "}
+        {activeData.inference_metadata.n_samples} samples |{" "}
         {activeData.inference_metadata.duration_seconds.toFixed(1)}s
       </div>
     </div>

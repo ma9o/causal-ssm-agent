@@ -45,7 +45,13 @@ export function LOOPITChart({ loo }: LOOPITChartProps) {
             <YAxis
               domain={[0, 1]}
               tick={{ fontSize: 11 }}
-              label={{ value: "ECDF", angle: -90, position: "insideLeft", offset: 10, fontSize: 11 }}
+              label={{
+                value: "ECDF",
+                angle: -90,
+                position: "insideLeft",
+                offset: 10,
+                fontSize: 11,
+              }}
             />
             <RechartsTooltip
               formatter={(value, name) => {
@@ -66,13 +72,7 @@ export function LOOPITChart({ loo }: LOOPITChartProps) {
               name="uniform"
             />
             {/* Empirical CDF of LOO-PIT values */}
-            <Line
-              dataKey="ecdf"
-              stroke="var(--primary)"
-              strokeWidth={2}
-              dot={false}
-              name="ecdf"
-            />
+            <Line dataKey="ecdf" stroke="var(--primary)" strokeWidth={2} dot={false} name="ecdf" />
           </LineChart>
         </ResponsiveContainer>
       </div>

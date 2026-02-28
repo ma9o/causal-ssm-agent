@@ -13,7 +13,6 @@ import {
   YAxis,
 } from "recharts";
 
-
 interface TracePlotProps {
   trace: TraceData;
 }

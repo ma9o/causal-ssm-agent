@@ -25,7 +25,8 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
         {trace.model}
       </Badge>
       <span className="text-muted-foreground">
-        {compactNumber.format(usage.input_tokens)} in / {compactNumber.format(usage.output_tokens)} out
+        {compactNumber.format(usage.input_tokens)} in / {compactNumber.format(usage.output_tokens)}{" "}
+        out
       </span>
       {usage.reasoning_tokens ? (
         <span className="text-muted-foreground">
@@ -83,10 +84,11 @@ function AssistantMessage({ msg, idx }: { msg: TraceMessage; idx: number }) {
 
       {msg.reasoning && (
         <Accordion>
-          <AccordionItem value={`reasoning-${idx}`} className="border-l-2 border-amber-400/50 !border-b-0">
-            <AccordionTrigger
-              className="py-1.5 text-[11px] text-amber-600 dark:text-amber-400"
-            >
+          <AccordionItem
+            value={`reasoning-${idx}`}
+            className="border-l-2 border-amber-400/50 !border-b-0"
+          >
+            <AccordionTrigger className="py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
               Thinking
             </AccordionTrigger>
             <AccordionContent>

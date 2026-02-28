@@ -19,10 +19,10 @@ interface PPCTestStatChartProps {
   stat: PPCTestStat;
 }
 
-
 export function PPCTestStatChart({ stat }: PPCTestStatChartProps) {
   const bins = buildHistogram(stat.rep_values);
-  const pValue = stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
+  const pValue =
+    stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
   const isExtreme = pValue < 0.05 || pValue > 0.95;
 
   return (

@@ -57,9 +57,7 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
           : construct.identificationStatus === "non_identified"
             ? "bg-destructive/5"
             : "bg-card",
-        construct.role === "endogenous"
-          ? "border-foreground/65"
-          : "border-foreground/35",
+        construct.role === "endogenous" ? "border-foreground/65" : "border-foreground/35",
         construct.is_outcome && "ring-2 ring-foreground/75 ring-offset-1",
         selected && "shadow-lg ring-2 ring-primary ring-offset-2",
       )}
@@ -96,9 +94,7 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
         <div className="border-t border-dashed border-border px-3 py-1.5">
           {indicators.map((ind) => (
             <div key={ind.name} className="flex items-center justify-between gap-2 py-0.5">
-              <span className="text-[11px] text-muted-foreground truncate">
-                {ind.name}
-              </span>
+              <span className="text-[11px] text-muted-foreground truncate">{ind.name}</span>
               <span className="text-[9px] text-muted-foreground shrink-0">
                 {ind.measurement_dtype}
               </span>
@@ -107,11 +103,7 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
         </div>
       )}
 
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!bg-muted-foreground !w-2 !h-2"
-      />
+      <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground !w-2 !h-2" />
     </div>
   );
 

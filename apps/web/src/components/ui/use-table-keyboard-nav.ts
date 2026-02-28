@@ -12,15 +12,11 @@ export function useTableKeyboardNav(rowCount: number) {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setFocusedRowIndex((prev) =>
-            prev === null ? 0 : Math.min(prev + 1, rowCount - 1),
-          );
+          setFocusedRowIndex((prev) => (prev === null ? 0 : Math.min(prev + 1, rowCount - 1)));
           break;
         case "ArrowUp":
           e.preventDefault();
-          setFocusedRowIndex((prev) =>
-            prev === null ? 0 : Math.max(prev - 1, 0),
-          );
+          setFocusedRowIndex((prev) => (prev === null ? 0 : Math.max(prev - 1, 0)));
           break;
         case "Home":
           e.preventDefault();

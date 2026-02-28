@@ -63,10 +63,10 @@ export function DiagnosticsAccordion({
             <span className="inline-flex items-center gap-1.5 flex-wrap">
               MCMC Diagnostics
               <StatTooltip explanation="Chain convergence (R-hat, ESS, MCSE), energy diagnostics, trace plots, and rank histograms for NUTS/HMC sampling." />
-              <Badge
-                variant={mcmcDiagnostics.num_divergences === 0 ? "success" : "destructive"}
-              >
-                {mcmcDiagnostics.num_divergences === 0 ? "Converged" : `${mcmcDiagnostics.num_divergences} divergences`}
+              <Badge variant={mcmcDiagnostics.num_divergences === 0 ? "success" : "destructive"}>
+                {mcmcDiagnostics.num_divergences === 0
+                  ? "Converged"
+                  : `${mcmcDiagnostics.num_divergences} divergences`}
               </Badge>
             </span>
           </AccordionTrigger>
@@ -100,14 +100,20 @@ export function DiagnosticsAccordion({
           <span className="inline-flex items-center gap-1.5 flex-wrap">
             Posterior Predictive Checks
             <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
-            <Badge variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}>
+            <Badge
+              variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}
+            >
               {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
             </Badge>
           </span>
         </AccordionTrigger>
         <AccordionContent>
           <div className="space-y-6">
-            <PPCWarningsTable warnings={ppc.per_variable_warnings} testStats={ppc.test_stats ?? []} overlays={ppc.overlays ?? []} />
+            <PPCWarningsTable
+              warnings={ppc.per_variable_warnings}
+              testStats={ppc.test_stats ?? []}
+              overlays={ppc.overlays ?? []}
+            />
           </div>
         </AccordionContent>
       </AccordionItem>
@@ -138,7 +144,9 @@ export function DiagnosticsAccordion({
                 <Badge variant="outline">SE = {formatNumber(looDiagnostics.se, 1)}</Badge>
                 {looDiagnostics.n_bad_k != null && (
                   <Badge variant={looDiagnostics.n_bad_k === 0 ? "success" : "destructive"}>
-                    {looDiagnostics.n_bad_k === 0 ? "All Pareto k OK" : `${looDiagnostics.n_bad_k} bad Pareto k`}
+                    {looDiagnostics.n_bad_k === 0
+                      ? "All Pareto k OK"
+                      : `${looDiagnostics.n_bad_k} bad Pareto k`}
                   </Badge>
                 )}
               </div>
@@ -160,15 +168,25 @@ export function DiagnosticsAccordion({
             {(() => {
               const nOk = powerScaling.filter((p) => p.diagnosis === "well_identified").length;
               const nPrior = powerScaling.filter((p) => p.diagnosis === "prior_dominated").length;
-              const nConflict = powerScaling.filter((p) => p.diagnosis === "prior_data_conflict").length;
+              const nConflict = powerScaling.filter(
+                (p) => p.diagnosis === "prior_data_conflict",
+              ).length;
               if (nOk === powerScaling.length) {
-                return <Badge variant="success">{nOk}/{powerScaling.length} OK</Badge>;
+                return (
+                  <Badge variant="success">
+                    {nOk}/{powerScaling.length} OK
+                  </Badge>
+                );
               }
               return (
                 <>
-                  <Badge variant="success">{nOk}/{powerScaling.length} OK</Badge>
+                  <Badge variant="success">
+                    {nOk}/{powerScaling.length} OK
+                  </Badge>
                   {nPrior > 0 && <Badge variant="warning">{nPrior} prior-dominated</Badge>}
-                  {nConflict > 0 && <Badge variant="destructive">{nConflict} prior-data conflict</Badge>}
+                  {nConflict > 0 && (
+                    <Badge variant="destructive">{nConflict} prior-data conflict</Badge>
+                  )}
                 </>
               );
             })()}

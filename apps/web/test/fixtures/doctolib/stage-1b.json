@@ -267,9 +267,7 @@
       },
       "non_identifiable_treatments": {
         "glycemic_control": {
-          "confounders": [
-            "psychosocial_stress"
-          ]
+          "confounders": ["psychosocial_stress"]
         }
       }
     }

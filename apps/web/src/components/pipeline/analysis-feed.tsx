@@ -23,9 +23,7 @@ export function AnalysisFeed({
 }) {
   const visibleStageIds = useMemo(
     () =>
-      progress
-        ? STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id)
-        : [],
+      progress ? STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id) : [],
     [progress],
   );
   useKeyboardNav(visibleStageIds);
@@ -38,9 +36,7 @@ export function AnalysisFeed({
           <p className="text-sm font-medium text-muted-foreground">
             Waiting for pipeline to start...
           </p>
-          <p className="text-xs text-muted-foreground/60">
-            This usually takes a few seconds
-          </p>
+          <p className="text-xs text-muted-foreground/60">This usually takes a few seconds</p>
         </div>
         <div className="w-full max-w-md space-y-3 mt-4">
           <Skeleton className="h-4 w-3/4 mx-auto" />
@@ -65,7 +61,11 @@ export function AnalysisFeed({
             timing={progress.timings[stage.id]}
           />
         ))}
-        {!progress.isComplete && <div className="max-w-6xl mx-auto"><ActiveStageIndicator stageId={progress.currentStage} /></div>}
+        {!progress.isComplete && (
+          <div className="max-w-6xl mx-auto">
+            <ActiveStageIndicator stageId={progress.currentStage} />
+          </div>
+        )}
       </div>
       <NewStagesNotification progress={progress} />
       <BackToTop />

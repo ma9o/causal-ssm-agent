@@ -9,9 +9,7 @@ const col = createColumnHelper<PowerScalingResult>();
 const baseColumns = [
   col.accessor("parameter", {
     header: "Parameter",
-    cell: (info) => (
-      <span className="font-medium">{info.getValue()}</span>
-    ),
+    cell: (info) => <span className="font-medium">{info.getValue()}</span>,
     meta: { mono: true },
   }),
   col.accessor("prior_sensitivity", {
@@ -78,7 +76,11 @@ export function PowerScalingTable({ results }: { results: PowerScalingResult[] }
   const hasPsis = results.some((p) => p.psis_k_hat != null);
 
   const columns = useMemo<ColumnDef<PowerScalingResult, unknown>[]>(
-    () => (hasPsis ? [...baseColumns, psisColumn] : baseColumns) as ColumnDef<PowerScalingResult, unknown>[],
+    () =>
+      (hasPsis ? [...baseColumns, psisColumn] : baseColumns) as ColumnDef<
+        PowerScalingResult,
+        unknown
+      >[],
     [hasPsis],
   );
 

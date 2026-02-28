@@ -96,9 +96,7 @@ export function asciiScatter(
   const yRange = yMax - yMin || 1;
 
   // Initialize grid
-  const grid: string[][] = Array.from({ length: height }, () =>
-    new Array<string>(width).fill(" "),
-  );
+  const grid: string[][] = Array.from({ length: height }, () => new Array<string>(width).fill(" "));
 
   // Plot points
   for (const p of points) {

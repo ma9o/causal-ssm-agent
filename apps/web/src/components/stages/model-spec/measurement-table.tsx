@@ -219,7 +219,13 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
       return (
         <span
           className="text-xs text-muted-foreground"
-          dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: false, throwOnError: false, strict: false }) }}
+          dangerouslySetInnerHTML={{
+            __html: katex.renderToString(latex, {
+              displayMode: false,
+              throwOnError: false,
+              strict: false,
+            }),
+          }}
         />
       );
     },

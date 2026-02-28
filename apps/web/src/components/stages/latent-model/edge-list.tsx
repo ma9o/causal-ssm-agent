@@ -24,9 +24,7 @@ const columns = [
   }),
   col.accessor("description", {
     header: "Description",
-    cell: (info) => (
-      <span className="max-w-xs text-muted-foreground">{info.getValue()}</span>
-    ),
+    cell: (info) => <span className="max-w-xs text-muted-foreground">{info.getValue()}</span>,
   }),
 ];
 

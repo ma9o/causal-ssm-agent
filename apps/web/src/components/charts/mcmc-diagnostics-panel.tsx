@@ -145,12 +145,8 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
   const hasRankHists = (diagnostics.rank_histograms?.length ?? 0) > 0;
 
   const enrichedData = useMemo<EnrichedParamRow[]>(() => {
-    const traceByParam = new Map(
-      (diagnostics.trace_data ?? []).map((t) => [t.parameter, t]),
-    );
-    const rankByParam = new Map(
-      (diagnostics.rank_histograms ?? []).map((h) => [h.parameter, h]),
-    );
+    const traceByParam = new Map((diagnostics.trace_data ?? []).map((t) => [t.parameter, t]));
+    const rankByParam = new Map((diagnostics.rank_histograms ?? []).map((h) => [h.parameter, h]));
     return diagnostics.per_parameter.map((p) => ({
       ...p,
       trace: traceByParam.get(p.parameter),
@@ -162,9 +158,7 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
     const cols = [
       col.accessor("parameter", {
         header: "Parameter",
-        cell: (info) => (
-          <span className="font-medium">{info.getValue()}</span>
-        ),
+        cell: (info) => <span className="font-medium">{info.getValue()}</span>,
         meta: { mono: true },
       }),
       ...(hasTraces
@@ -179,7 +173,11 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
               ),
               cell: (info) => {
                 const t = info.row.original.trace;
-                return t ? <InlineTrace trace={t} /> : <span className="text-muted-foreground">—</span>;
+                return t ? (
+                  <InlineTrace trace={t} />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                );
               },
               enableSorting: false,
             }) as ColumnDef<EnrichedParamRow, unknown>,
@@ -197,7 +195,11 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
               ),
               cell: (info) => {
                 const r = info.row.original.rank;
-                return r ? <InlineRankHist histogram={r} /> : <span className="text-muted-foreground">—</span>;
+                return r ? (
+                  <InlineRankHist histogram={r} />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                );
               },
               enableSorting: false,
             }) as ColumnDef<EnrichedParamRow, unknown>,
@@ -307,7 +309,8 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
           {hasDivergences && ` (${formatNumber(diagnostics.divergence_rate * 100, 1)}%)`}
         </Badge>
         <Badge variant="secondary">
-          tree depth: {formatNumber(diagnostics.tree_depth_mean, 1)} avg, {diagnostics.tree_depth_max} max
+          tree depth: {formatNumber(diagnostics.tree_depth_mean, 1)} avg,{" "}
+          {diagnostics.tree_depth_max} max
         </Badge>
         <Badge variant="secondary">
           accept: {formatNumber(diagnostics.accept_prob_mean * 100, 1)}%

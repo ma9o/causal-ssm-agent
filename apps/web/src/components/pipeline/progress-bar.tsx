@@ -61,11 +61,7 @@ export function PipelineProgressBar({
                 title="Copy session code"
               >
                 {sessionCode}
-                {copied ? (
-                  <Check className="h-3 w-3 text-success" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
+                {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
             )}
             <span className="text-sm font-medium text-muted-foreground">
@@ -86,9 +82,7 @@ export function PipelineProgressBar({
           </div>
         </div>
         {session?.question && (
-          <p className="text-sm text-muted-foreground mb-1.5">
-            {session.question}
-          </p>
+          <p className="text-sm text-muted-foreground mb-1.5">{session.question}</p>
         )}
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {
@@ -96,57 +90,60 @@ export function PipelineProgressBar({
             const outcome = progress.stageOutcomes[stage.id];
             const isClickable = status !== "pending";
 
-            const tooltipIcon = outcome === "fail" || status === "failed"
-              ? <X className="h-3 w-3 text-destructive" />
-              : outcome === "warn"
-                ? <AlertTriangle className="h-3 w-3 text-warning" />
-                : status === "completed"
-                  ? <Check className="h-3 w-3 text-success" />
-                  : status === "running"
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : null;
+            const tooltipIcon =
+              outcome === "fail" || status === "failed" ? (
+                <X className="h-3 w-3 text-destructive" />
+              ) : outcome === "warn" ? (
+                <AlertTriangle className="h-3 w-3 text-warning" />
+              ) : status === "completed" ? (
+                <Check className="h-3 w-3 text-success" />
+              ) : status === "running" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : null;
 
-            const tooltipSuffix = outcome === "fail" ? " (blocked)" : outcome === "warn" ? " (warning)" : "";
+            const tooltipSuffix =
+              outcome === "fail" ? " (blocked)" : outcome === "warn" ? " (warning)" : "";
 
-            const segmentColor = outcome === "fail" || status === "failed"
-              ? "bg-destructive"
-              : outcome === "warn"
-                ? "bg-warning"
-                : status === "completed"
-                  ? "bg-success"
-                  : status === "running"
-                    ? "bg-primary animate-pulse-subtle"
-                    : "bg-secondary";
+            const segmentColor =
+              outcome === "fail" || status === "failed"
+                ? "bg-destructive"
+                : outcome === "warn"
+                  ? "bg-warning"
+                  : status === "completed"
+                    ? "bg-success"
+                    : status === "running"
+                      ? "bg-primary animate-pulse-subtle"
+                      : "bg-secondary";
 
             return (
               <Tooltip
-                  key={stage.id}
-                  triggerClassName="flex-1"
-                  content={
-                    <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-                      {tooltipIcon}
-                      <span>
-                        {stage.number}. {stage.label}
-                        {tooltipSuffix}
-                      </span>
-                    </div>
-                  }
+                key={stage.id}
+                triggerClassName="flex-1"
+                content={
+                  <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
+                    {tooltipIcon}
+                    <span>
+                      {stage.number}. {stage.label}
+                      {tooltipSuffix}
+                    </span>
+                  </div>
+                }
+              >
+                <button
+                  type="button"
+                  disabled={!isClickable}
+                  className="group relative w-full"
+                  onClick={() => {
+                    if (!isClickable) return;
+                    document
+                      .getElementById(stage.id)
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
                 >
-                  <button
-                    type="button"
-                    disabled={!isClickable}
-                    className="group relative w-full"
-                    onClick={() => {
-                      if (!isClickable) return;
-                      document
-                        .getElementById(stage.id)
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}
-                  >
-                    <div
-                      className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
-                    />
-                  </button>
+                  <div
+                    className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
+                  />
+                </button>
               </Tooltip>
             );
           })}

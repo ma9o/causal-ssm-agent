@@ -42,10 +42,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
       {...containerProps}
     >
       {/* Sticky header */}
-      <div
-        className="sticky top-0 z-10 flex border-b bg-background"
-        role="row"
-      >
+      <div className="sticky top-0 z-10 flex border-b bg-background" role="row">
         {columns.map((col) => (
           <div
             key={col}
@@ -58,10 +55,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
       </div>
 
       {/* Virtualized body */}
-      <div
-        style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-        role="rowgroup"
-      >
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }} role="rowgroup">
         {virtualizer.getVirtualItems().map((vi) => {
           const row = rows[vi.index] as Record<string, unknown>;
           return (

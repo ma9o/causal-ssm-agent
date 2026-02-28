@@ -41,17 +41,26 @@ export function ParetoKChart({ loo }: ParetoKChartProps) {
             <YAxis
               dataKey="k"
               tick={{ fontSize: 10 }}
-              label={{ value: "Pareto k", angle: -90, position: "insideLeft", offset: 10, fontSize: 10 }}
+              label={{
+                value: "Pareto k",
+                angle: -90,
+                position: "insideLeft",
+                offset: 10,
+                fontSize: 10,
+              }}
             />
-            <RechartsTooltip
-              formatter={(value) => [formatNumber(Number(value), 3), "Pareto k"]}
-            />
+            <RechartsTooltip formatter={(value) => [formatNumber(Number(value), 3), "Pareto k"]} />
             {/* Threshold lines */}
             <ReferenceLine
               y={0.7}
               stroke="var(--destructive)"
               strokeDasharray="4 4"
-              label={{ value: "k = 0.7", position: "right", fontSize: 9, fill: "var(--destructive)" }}
+              label={{
+                value: "k = 0.7",
+                position: "right",
+                fontSize: 9,
+                fill: "var(--destructive)",
+              }}
             />
             <ReferenceLine
               y={0.5}
@@ -59,18 +68,13 @@ export function ParetoKChart({ loo }: ParetoKChartProps) {
               strokeDasharray="4 4"
               label={{ value: "k = 0.5", position: "right", fontSize: 9, fill: "var(--warning)" }}
             />
-            <Scatter
-              data={data}
-              fill="var(--primary)"
-              fillOpacity={0.6}
-              r={3}
-            />
+            <Scatter data={data} fill="var(--primary)" fillOpacity={0.6} r={3} />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
       <p className="text-xs text-muted-foreground">
-        Pareto k diagnostic per timestep (one-step-ahead predictive). Values above 0.7 indicate
-        the timestep is highly influential and LOO estimate may be unreliable.
+        Pareto k diagnostic per timestep (one-step-ahead predictive). Values above 0.7 indicate the
+        timestep is highly influential and LOO estimate may be unreliable.
       </p>
     </div>
   );

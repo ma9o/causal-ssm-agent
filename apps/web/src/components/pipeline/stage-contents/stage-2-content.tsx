@@ -30,7 +30,10 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
           </span>
         )}
         <span className="text-muted-foreground">
-          {Object.values(data.per_indicator_counts).reduce((a, b) => (a ?? 0) + (b ?? 0), 0)?.toLocaleString()} extractions
+          {Object.values(data.per_indicator_counts)
+            .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
+            ?.toLocaleString()}{" "}
+          extractions
         </span>
       </div>
 

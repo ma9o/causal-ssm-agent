@@ -58,7 +58,11 @@ export function EnergyChart({ energy }: EnergyChartProps) {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={data} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="x" tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 0)} />
+                <XAxis
+                  dataKey="x"
+                  tick={{ fontSize: 9 }}
+                  tickFormatter={(v: number) => formatNumber(v, 0)}
+                />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
                 <RechartsTooltip
                   formatter={(value) => [formatNumber(Number(value), 4), "Density"]}
@@ -81,7 +85,11 @@ export function EnergyChart({ energy }: EnergyChartProps) {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={transData} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="x" tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 0)} />
+                <XAxis
+                  dataKey="x"
+                  tick={{ fontSize: 9 }}
+                  tickFormatter={(v: number) => formatNumber(v, 0)}
+                />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
                 <RechartsTooltip
                   formatter={(value) => [formatNumber(Number(value), 4), "Density"]}

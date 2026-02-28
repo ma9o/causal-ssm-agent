@@ -36,4 +36,3 @@ export async function triggerRun(
   );
   return run.id;
 }
-

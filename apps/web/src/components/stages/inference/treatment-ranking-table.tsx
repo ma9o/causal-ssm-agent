@@ -64,9 +64,7 @@ function PosteriorHistogram({ draws, mean }: { draws: number[]; mean: number | n
             contentStyle={{ fontSize: 10, padding: "2px 6px" }}
           />
           <ReferenceLine x={0} strokeDasharray="4 3" className="stroke-muted-foreground/60" />
-          {mean !== null && (
-            <ReferenceLine x={mean} stroke="var(--foreground)" strokeWidth={1.5} />
-          )}
+          {mean !== null && <ReferenceLine x={mean} stroke="var(--foreground)" strokeWidth={1.5} />}
           <Bar dataKey="count" fill="var(--muted-foreground)" opacity={0.35} />
         </ComposedChart>
       </ResponsiveContainer>
@@ -130,7 +128,9 @@ const columns = [
       const draws = row.original.posterior_draws;
       return draws && draws.length > 0 ? (
         <PosteriorHistogram draws={draws} mean={row.original.effect_size} />
-      ) : "—";
+      ) : (
+        "—"
+      );
     },
     meta: {
       align: "right",
@@ -140,10 +140,7 @@ const columns = [
 
 export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] }) {
   const sorted = useMemo(
-    () =>
-      [...results].sort(
-        (a, b) => Math.abs(b.effect_size ?? 0) - Math.abs(a.effect_size ?? 0),
-      ),
+    () => [...results].sort((a, b) => Math.abs(b.effect_size ?? 0) - Math.abs(a.effect_size ?? 0)),
     [results],
   );
 

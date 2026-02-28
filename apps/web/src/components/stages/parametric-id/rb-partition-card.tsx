@@ -12,24 +12,16 @@ export function RBPartitionCard({ partition }: RBPartitionCardProps) {
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 py-3 text-sm">
-        <span className="inline-flex items-center gap-1.5 font-medium">
-          Rao-Blackwellization
-        </span>
+        <span className="inline-flex items-center gap-1.5 font-medium">Rao-Blackwellization</span>
 
         {/* Proportion bar */}
         <div className="min-w-24 max-w-64 flex-1">
           <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
             {kalman.length > 0 && (
-              <div
-                className="h-full bg-success"
-                style={{ flex: kalman.length }}
-              />
+              <div className="h-full bg-success" style={{ flex: kalman.length }} />
             )}
             {particle.length > 0 && (
-              <div
-                className="h-full bg-warning"
-                style={{ flex: particle.length }}
-              />
+              <div className="h-full bg-warning" style={{ flex: particle.length }} />
             )}
           </div>
         </div>

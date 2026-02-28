@@ -26,7 +26,14 @@ export interface PipelineProgress {
 function initialProgress(): PipelineProgress {
   const stages = {} as Record<StageId, StageRunStatus>;
   for (const s of STAGES) stages[s.id] = "pending";
-  return { stages, timings: {}, stageOutcomes: {}, currentStage: null, isComplete: false, isFailed: false };
+  return {
+    stages,
+    timings: {},
+    stageOutcomes: {},
+    currentStage: null,
+    isComplete: false,
+    isFailed: false,
+  };
 }
 
 const MAX_RECONNECT_ATTEMPTS = 10;
