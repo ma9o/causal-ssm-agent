@@ -67,13 +67,24 @@ class TestCalculate:
         result = _run(calc("3.14 * 2"))
         assert result == "6.28"
 
-    def test_invalid_chars_rejected(self, calc):
+    def test_import_rejected(self, calc):
         result = _run(calc("import os"))
         assert "Error" in result
-        assert "invalid characters" in result
 
     def test_semicolon_rejected(self, calc):
         result = _run(calc("1; 2"))
+        assert "Error" in result
+
+    def test_function_call_rejected(self, calc):
+        result = _run(calc("__import__('os')"))
+        assert "Error" in result
+
+    def test_attribute_access_rejected(self, calc):
+        result = _run(calc("().__class__"))
+        assert "Error" in result
+
+    def test_string_rejected(self, calc):
+        result = _run(calc("'hello'"))
         assert "Error" in result
 
     def test_division_by_zero(self, calc):
