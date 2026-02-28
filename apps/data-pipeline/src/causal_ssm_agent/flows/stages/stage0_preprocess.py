@@ -5,6 +5,7 @@ parses and sorts entries, and returns text lines + metadata for downstream use.
 """
 
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,8 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.utils.data import RAW_DIR
+
+logger = logging.getLogger(__name__)
 
 TAKEOUT_ZIP_PATH = "Takeout/My Activity/Search/MyActivity.json"
 
@@ -179,7 +182,7 @@ def preprocess_raw_input(user_id: str = "test_user") -> PreprocessResult:
         PreprocessResult with lines, source info, date range, and sample
     """
     raw_path = _find_raw_input(user_id)
-    print(f"Preprocessing {raw_path.name} from {raw_path.parent.name}/")
+    logger.info("Preprocessing %s from %s/", raw_path.name, raw_path.parent.name)
 
     if raw_path.suffix == ".json":
         records = _parse_json(raw_path)
@@ -187,7 +190,7 @@ def preprocess_raw_input(user_id: str = "test_user") -> PreprocessResult:
         records = _parse_takeout_zip(raw_path)
 
     lines = _records_to_lines(records)
-    print(f"Preprocessed {len(lines)} activity records")
+    logger.info("Preprocessed %d activity records", len(lines))
 
     return PreprocessResult(
         lines=lines,
