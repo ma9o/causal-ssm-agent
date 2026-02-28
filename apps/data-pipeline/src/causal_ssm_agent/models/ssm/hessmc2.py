@@ -254,7 +254,10 @@ def fit_hessmc2(
     if proposal == "hessian":
 
         def _safe_full_hessian(z):
-            H = jax.hessian(log_post_fn)(z)
+            # Use reverse-over-reverse (jacrev of grad) instead of jax.hessian
+            # (which uses forward-over-reverse) because cuthbert's Kalman filter
+            # uses custom_vjp which doesn't support forward-mode (jvp).
+            H = jax.jacrev(jax.grad(log_post_fn))(z)
             return jnp.nan_to_num(H, nan=0.0, posinf=0.0, neginf=0.0)
 
         _batch_hessian_jit = jax.jit(jax.vmap(_safe_full_hessian))
