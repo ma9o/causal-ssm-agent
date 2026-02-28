@@ -1,6 +1,6 @@
 import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
-import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
+import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 
 export interface LayoutResult {
   nodes: Node[];

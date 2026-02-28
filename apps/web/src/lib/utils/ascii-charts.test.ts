@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asciiHistogram, asciiScatter, asciiMultiLine, asciiDensity } from "./ascii-charts";
+import { asciiDensity, asciiHistogram, asciiMultiLine, asciiScatter } from "./ascii-charts";
 
 describe("asciiHistogram", () => {
   it("returns no data for empty array", () => {

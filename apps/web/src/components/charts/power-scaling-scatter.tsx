@@ -5,11 +5,11 @@ import { formatNumber } from "@/lib/utils/format";
 import type { PowerScalingResult } from "@causal-ssm/api-types";
 import {
   CartesianGrid,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
-  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
   ZAxis,

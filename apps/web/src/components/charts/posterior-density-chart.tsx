@@ -7,9 +7,9 @@ import {
   Area,
   CartesianGrid,
   ComposedChart,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";

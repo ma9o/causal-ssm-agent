@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { type KeyboardEvent, useCallback, useState } from "react";
 
 export function useTableKeyboardNav(rowCount: number) {
   const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 // The helper functions are not exported, so we test them through the module.
 // We can test the exported generateMarkdown with minimal stage data.
-import { generateMarkdown, type AllStageData } from "./generate-markdown";
+import { type AllStageData, generateMarkdown } from "./generate-markdown";
 
 describe("generateMarkdown", () => {
   it("generates header with run ID", () => {

@@ -4,10 +4,10 @@ import { formatNumber } from "@/lib/utils/format";
 import type { PosteriorPair } from "@causal-ssm/api-types";
 import {
   CartesianGrid,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
-  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";

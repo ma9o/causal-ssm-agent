@@ -1,8 +1,8 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect } from "react";
 import type { Stage5Data } from "@causal-ssm/api-types";
+import { useEffect, useState } from "react";
 
 type InferenceMethod = "svi" | "nuts_da" | "particle_filter";
 

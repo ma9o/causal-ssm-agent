@@ -1,3 +1,4 @@
+import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
 import { describe, expect, it } from "vitest";
 import {
   concreteTransitionLines,
@@ -16,7 +17,6 @@ import {
   textify,
 } from "./ssm-latex";
 import type { ConfounderGroup } from "./ssm-latex";
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
 
 describe("textify", () => {
   it("replaces underscores with spaces", () => {

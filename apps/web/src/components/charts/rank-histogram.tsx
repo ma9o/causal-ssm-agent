@@ -6,9 +6,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";

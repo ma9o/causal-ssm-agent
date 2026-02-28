@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
+import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { cn } from "@/lib/utils/cn";
 import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
-import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 

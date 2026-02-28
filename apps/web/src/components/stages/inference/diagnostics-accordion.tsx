@@ -1,5 +1,13 @@
 "use client";
 
+import { ELBOLossChart } from "@/components/charts/elbo-loss-chart";
+import { EnergyChart } from "@/components/charts/energy-chart";
+import { LOOPITChart } from "@/components/charts/loo-pit-chart";
+import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel";
+import { ParetoKChart } from "@/components/charts/pareto-k-chart";
+import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
+import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
+import { PowerScalingScatter } from "@/components/charts/power-scaling-scatter";
 import {
   Accordion,
   AccordionContent,
@@ -18,14 +26,6 @@ import type {
   PowerScalingResult,
   SVIDiagnostics,
 } from "@causal-ssm/api-types";
-import { ELBOLossChart } from "@/components/charts/elbo-loss-chart";
-import { EnergyChart } from "@/components/charts/energy-chart";
-import { LOOPITChart } from "@/components/charts/loo-pit-chart";
-import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel";
-import { ParetoKChart } from "@/components/charts/pareto-k-chart";
-import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
-import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
-import { PowerScalingScatter } from "@/components/charts/power-scaling-scatter";
 import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 

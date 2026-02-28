@@ -79,7 +79,10 @@ describe("triggerRun", () => {
   });
 
   it("sends parameters in request body", async () => {
-    vi.mocked(apiFetch).mockResolvedValue({ id: "run-1", state: { type: "SCHEDULED", name: "Scheduled" } });
+    vi.mocked(apiFetch).mockResolvedValue({
+      id: "run-1",
+      state: { type: "SCHEDULED", name: "Scheduled" },
+    });
 
     await triggerRun("dep-123", { user_id: "test", query: "test.txt" });
 

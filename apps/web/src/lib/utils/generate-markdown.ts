@@ -1,4 +1,5 @@
 import type {
+  PriorProposal,
   Stage0Data,
   Stage1aData,
   Stage1bData,
@@ -8,19 +9,18 @@ import type {
   Stage4bData,
   Stage5Data,
   Stage6Data,
-  PriorProposal,
 } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
-import { formatNumber, formatPercent, formatDateRange } from "./format";
+import { asciiDensity, asciiHistogram, asciiMultiLine, asciiScatter } from "./ascii-charts";
+import { formatDateRange, formatNumber, formatPercent } from "./format";
 import { mdTable } from "./markdown-tables";
-import { asciiHistogram, asciiDensity, asciiScatter, asciiMultiLine } from "./ascii-charts";
 import {
   concreteTransitionLines,
   confounderGroupLatex,
   confounderGroups,
   likelihoodLine,
-  priorLine,
   paramSymbol,
+  priorLine,
   stateNames,
 } from "./ssm-latex";
 

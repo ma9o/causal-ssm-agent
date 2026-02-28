@@ -1,9 +1,9 @@
-import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { formatNumber } from "@/lib/utils/format";
 import type { CellStatus, IndicatorHealth } from "@causal-ssm/api-types";
-import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
+import { useMemo } from "react";
 
 const col = createColumnHelper<IndicatorHealth>();
 
