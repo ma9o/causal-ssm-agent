@@ -1,0 +1,340 @@
+"""Tests for first-pass Rao-Blackwellization graph analysis.
+
+Covers: drift sparsity, observation dependency, per-variable distribution
+resolution, and the main analyze_first_pass_rb decomposition logic.
+"""
+
+import jax.numpy as jnp
+import numpy as np
+
+from causal_ssm_agent.models.likelihoods.graph_analysis import (
+    RBPartition,
+    analyze_first_pass_rb,
+    compute_drift_sparsity,
+    compute_obs_dependency,
+    get_per_channel_links,
+    get_per_channel_manifest,
+    get_per_variable_diffusion,
+)
+from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+# =============================================================================
+# Helper
+# =============================================================================
+
+def _make_spec(**kwargs) -> SSMSpec:
+    """Create an SSMSpec with defaults for testing."""
+    defaults = {
+        "n_latent": 2,
+        "n_manifest": 2,
+        "lambda_mat": jnp.eye(2),
+    }
+    defaults.update(kwargs)
+    return SSMSpec(**defaults)
+
+
+# =============================================================================
+# get_per_variable_diffusion
+# =============================================================================
+
+
+class TestGetPerVariableDiffusion:
+
+    def test_scalar_broadcast(self):
+        """Scalar diffusion_dist broadcasts to all latent variables."""
+        spec = _make_spec(n_latent=3, n_manifest=3, lambda_mat=jnp.eye(3))
+        result = get_per_variable_diffusion(spec)
+        assert result == [DistributionFamily.GAUSSIAN] * 3
+
+    def test_per_variable_override(self):
+        """diffusion_dists overrides scalar diffusion_dist."""
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3),
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+                DistributionFamily.GAUSSIAN,
+            ],
+        )
+        result = get_per_variable_diffusion(spec)
+        assert result[1] == DistributionFamily.STUDENT_T
+
+
+# =============================================================================
+# get_per_channel_manifest / links
+# =============================================================================
+
+
+class TestGetPerChannelManifest:
+
+    def test_scalar_broadcast(self):
+        spec = _make_spec()
+        result = get_per_channel_manifest(spec)
+        assert result == [DistributionFamily.GAUSSIAN] * 2
+
+    def test_per_channel_override(self):
+        spec = _make_spec(
+            manifest_dists=[DistributionFamily.POISSON, DistributionFamily.GAUSSIAN]
+        )
+        result = get_per_channel_manifest(spec)
+        assert result[0] == DistributionFamily.POISSON
+        assert result[1] == DistributionFamily.GAUSSIAN
+
+
+class TestGetPerChannelLinks:
+
+    def test_scalar_broadcast(self):
+        spec = _make_spec()
+        result = get_per_channel_links(spec)
+        assert result == [LinkFunction.IDENTITY] * 2
+
+    def test_per_channel_override(self):
+        spec = _make_spec(
+            manifest_links=[LinkFunction.LOG, LinkFunction.IDENTITY]
+        )
+        result = get_per_channel_links(spec)
+        assert result[0] == LinkFunction.LOG
+
+
+# =============================================================================
+# compute_drift_sparsity
+# =============================================================================
+
+
+class TestComputeDriftSparsity:
+
+    def test_free_drift_all_nonzero(self):
+        """Free drift → all entries could be nonzero."""
+        spec = _make_spec(drift="free")
+        mask = compute_drift_sparsity(spec)
+        assert mask.shape == (2, 2)
+        assert mask.all()
+
+    def test_drift_mask_used_directly(self):
+        """drift_mask is used directly when set."""
+        dm = np.array([[True, False], [True, True]])
+        spec = _make_spec(drift="free", drift_mask=dm)
+        mask = compute_drift_sparsity(spec)
+        np.testing.assert_array_equal(mask, dm)
+
+    def test_fixed_drift_sparsity(self):
+        """Fixed drift matrix: nonzero entries detected."""
+        A = jnp.array([[0.5, 0.0], [0.3, -0.2]])
+        spec = _make_spec(drift=A)
+        mask = compute_drift_sparsity(spec)
+        expected = np.array([[True, False], [True, True]])
+        np.testing.assert_array_equal(mask, expected)
+
+
+# =============================================================================
+# compute_obs_dependency
+# =============================================================================
+
+
+class TestComputeObsDependency:
+
+    def test_free_lambda_all_deps(self):
+        """Free lambda_mat → all observation channels depend on all latents."""
+        spec = _make_spec(lambda_mat="free")
+        dep = compute_obs_dependency(spec)
+        assert dep.shape == (2, 2)
+        assert dep.all()
+
+    def test_fixed_lambda_sparsity(self):
+        """Fixed lambda: detect nonzero entries."""
+        H = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]])
+        spec = _make_spec(n_manifest=3, lambda_mat=H)
+        dep = compute_obs_dependency(spec)
+        expected = np.array([[True, False], [False, True], [True, True]])
+        np.testing.assert_array_equal(dep, expected)
+
+    def test_lambda_mask_union_with_fixed(self):
+        """lambda_mask adds free positions to fixed nonzeros."""
+        H = jnp.array([[1.0, 0.0], [0.0, 0.0]])
+        lm = np.array([[False, True], [True, False]])
+        spec = _make_spec(lambda_mat=H, lambda_mask=lm)
+        dep = compute_obs_dependency(spec)
+        # Fixed: (0,0)=True; Mask: (0,1)=True, (1,0)=True
+        expected = np.array([[True, True], [True, False]])
+        np.testing.assert_array_equal(dep, expected)
+
+
+# =============================================================================
+# analyze_first_pass_rb — the core partition algorithm
+# =============================================================================
+
+
+class TestAnalyzeFirstPassRB:
+
+    def test_all_gaussian_diagonal(self):
+        """Fully Gaussian diagonal model → all variables go to Kalman."""
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3),
+            drift="free",
+            drift_mask=np.eye(3, dtype=bool),  # diagonal → no cross-coupling
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        assert partition.has_kalman_block
+        assert not partition.has_particle_block
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1, 2])
+        assert len(partition.particle_idx) == 0
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1, 2])
+        assert len(partition.obs_particle_idx) == 0
+
+    def test_all_nongaussian(self):
+        """All non-Gaussian diffusion → everything goes to PF."""
+        spec = _make_spec(
+            diffusion_dists=[DistributionFamily.STUDENT_T, DistributionFamily.STUDENT_T]
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        assert not partition.has_kalman_block
+        assert partition.has_particle_block
+        assert len(partition.kalman_idx) == 0
+        np.testing.assert_array_equal(partition.particle_idx, [0, 1])
+
+    def test_mixed_gaussian_nongaussian_decoupled(self):
+        """Mixed model with diagonal drift: Gaussian block goes to Kalman."""
+        # Latent 0: Gaussian diffusion, Latent 1: Student-t diffusion
+        # Diagonal drift → no coupling
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),  # diagonal, no cross-coupling
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        np.testing.assert_array_equal(partition.kalman_idx, [0])
+        np.testing.assert_array_equal(partition.particle_idx, [1])
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0])
+        np.testing.assert_array_equal(partition.obs_particle_idx, [1])
+
+    def test_coupled_prevents_kalman(self):
+        """Gaussian variable coupled to non-Gaussian via drift → goes to PF."""
+        # Latent 0: Gaussian, Latent 1: Student-t, but drift couples them
+        spec = _make_spec(
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            drift="free",
+            drift_mask=np.ones((2, 2), dtype=bool),  # fully coupled
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        # Both go to PF because the Gaussian variable is coupled to non-Gaussian
+        assert not partition.has_kalman_block
+        np.testing.assert_array_equal(partition.particle_idx, [0, 1])
+
+    def test_shared_obs_goes_to_particle(self):
+        """Obs channel depending on both Kalman and PF latents → goes to PF."""
+        # 3 latents: 0,1 Gaussian decoupled, 2 Student-t
+        # Obs 2 depends on latent 0 and 2 → mixed dependency
+        H = jnp.array([
+            [1.0, 0.0, 0.0],  # obs 0 → latent 0 only (Kalman)
+            [0.0, 1.0, 0.0],  # obs 1 → latent 1 only (Kalman)
+            [0.5, 0.0, 0.5],  # obs 2 → latent 0 + 2 (mixed → PF)
+        ])
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=H,
+            drift="free",
+            drift_mask=np.eye(3, dtype=bool),  # diagonal
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+            ],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.particle_idx, [2])
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.obs_particle_idx, [2])
+
+    def test_nongaussian_obs_prevents_kalman(self):
+        """Gaussian diffusion but Poisson observation → variable goes to PF."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+            manifest_dists=[DistributionFamily.POISSON, DistributionFamily.GAUSSIAN],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        # Latent 0 has Gaussian diffusion but Poisson observation → PF
+        # Latent 1 has Gaussian diffusion + Gaussian obs → Kalman
+        np.testing.assert_array_equal(partition.kalman_idx, [1])
+        np.testing.assert_array_equal(partition.particle_idx, [0])
+
+    def test_partition_properties(self):
+        """has_kalman_block and has_particle_block properties work correctly."""
+        p_full_kalman = RBPartition(
+            kalman_idx=np.array([0, 1]),
+            particle_idx=np.array([], dtype=np.int32),
+            obs_kalman_idx=np.array([0, 1]),
+            obs_particle_idx=np.array([], dtype=np.int32),
+        )
+        assert p_full_kalman.has_kalman_block
+        assert not p_full_kalman.has_particle_block
+
+        p_full_pf = RBPartition(
+            kalman_idx=np.array([], dtype=np.int32),
+            particle_idx=np.array([0, 1]),
+            obs_kalman_idx=np.array([], dtype=np.int32),
+            obs_particle_idx=np.array([0, 1]),
+        )
+        assert not p_full_pf.has_kalman_block
+        assert p_full_pf.has_particle_block
+
+    def test_free_drift_without_mask_couples_all(self):
+        """Free drift without mask → full coupling → no Kalman block if any non-Gaussian."""
+        spec = _make_spec(
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            drift="free",
+            # No drift_mask → all entries nonzero → full coupling
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        # Full coupling with one non-Gaussian → everything to PF
+        assert not partition.has_kalman_block
+
+    def test_three_block_partition(self):
+        """Three decoupled blocks: two Gaussian (Kalman), one Student-t (PF)."""
+        # Block structure via drift_mask: variables {0,1}, {2,3}, {4}
+        dm = np.zeros((5, 5), dtype=bool)
+        dm[0, 0] = dm[0, 1] = dm[1, 0] = dm[1, 1] = True  # block {0,1}
+        dm[2, 2] = dm[2, 3] = dm[3, 2] = dm[3, 3] = True  # block {2,3}
+        dm[4, 4] = True  # block {4}
+
+        spec = _make_spec(
+            n_latent=5,
+            n_manifest=5,
+            lambda_mat=jnp.eye(5),
+            drift="free",
+            drift_mask=dm,
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,   # 0 → Kalman
+                DistributionFamily.GAUSSIAN,   # 1 → Kalman (same block as 0)
+                DistributionFamily.GAUSSIAN,   # 2 → Kalman
+                DistributionFamily.STUDENT_T,  # 3 → PF (contaminates block {2,3})
+                DistributionFamily.GAUSSIAN,   # 4 → Kalman
+            ],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        # Block {0,1}: all Gaussian → Kalman
+        # Block {2,3}: mixed → PF
+        # Block {4}: Gaussian → Kalman
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1, 4])
+        np.testing.assert_array_equal(partition.particle_idx, [2, 3])
