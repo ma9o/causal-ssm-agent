@@ -1,19 +1,23 @@
 """Tests for Stage 0 preprocess.
 
 Covers: _extract_location, _process_activity, _records_to_lines,
-        _sample_records, _compute_date_range, _find_raw_input, _parse_json.
+        _sample_records, _compute_date_range, _find_raw_input,
+        _parse_json, _parse_takeout_zip.
 """
 
 import json
 from datetime import UTC, datetime
+from zipfile import ZipFile
 
 import pytest
 
 from causal_ssm_agent.flows.stages.stage0_preprocess import (
+    TAKEOUT_ZIP_PATH,
     _compute_date_range,
     _extract_location,
     _find_raw_input,
     _parse_json,
+    _parse_takeout_zip,
     _process_activity,
     _records_to_lines,
     _sample_records,
@@ -366,3 +370,54 @@ class TestPreprocessRawInputIntegration:
         assert result["n_records"] == 30
         assert len(result["sample"]) == 15
         assert len(result["lines"]) == 30
+
+
+# =============================================================================
+# _parse_takeout_zip
+# =============================================================================
+
+
+def _create_takeout_zip(zip_path, entries):
+    """Create a synthetic Google Takeout zip archive."""
+    with ZipFile(zip_path, "w") as zf:
+        zf.writestr(TAKEOUT_ZIP_PATH, json.dumps(entries))
+
+
+class TestParseTakeoutZip:
+    def test_parses_valid_zip(self, tmp_path):
+        entries = _make_raw_entries(10)
+        zip_path = tmp_path / "takeout.zip"
+        _create_takeout_zip(zip_path, entries)
+
+        records = _parse_takeout_zip(zip_path)
+        assert len(records) == 10
+        assert all("datetime" in r for r in records)
+        assert all("activity_type" in r for r in records)
+
+    def test_sorts_results_by_datetime(self, tmp_path):
+        entries = _make_raw_entries(20)
+        zip_path = tmp_path / "takeout.zip"
+        _create_takeout_zip(zip_path, entries)
+
+        records = _parse_takeout_zip(zip_path)
+        datetimes = [r["datetime"] for r in records]
+        assert datetimes == sorted(datetimes)
+
+    def test_not_a_zip_raises(self, tmp_path):
+        fake = tmp_path / "not_a_zip.zip"
+        fake.write_text("this is not a zip file")
+        with pytest.raises(ValueError, match="not a valid zip"):
+            _parse_takeout_zip(fake)
+
+    def test_missing_expected_path_raises(self, tmp_path):
+        zip_path = tmp_path / "takeout.zip"
+        with ZipFile(zip_path, "w") as zf:
+            zf.writestr("wrong/path.json", "[]")
+        with pytest.raises(ValueError, match="not found in archive"):
+            _parse_takeout_zip(zip_path)
+
+    def test_empty_json_in_zip_raises(self, tmp_path):
+        zip_path = tmp_path / "takeout.zip"
+        _create_takeout_zip(zip_path, [])
+        with pytest.raises(ValueError, match="Empty JSON"):
+            _parse_takeout_zip(zip_path)
