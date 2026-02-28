@@ -162,15 +162,16 @@ export function LLMTracePanel({ trace }: { trace: LLMTrace }) {
     <div className="flex flex-col gap-2">
       <TraceSummary trace={trace} />
       {trace.messages.map((msg, i) => {
+        const key = `${msg.role}-${i}`;
         switch (msg.role) {
           case "system":
-            return <SystemMessage key={i} msg={msg} />;
+            return <SystemMessage key={key} msg={msg} />;
           case "user":
-            return <UserMessage key={i} msg={msg} />;
+            return <UserMessage key={key} msg={msg} />;
           case "assistant":
-            return <AssistantMessage key={i} msg={msg} idx={i} />;
+            return <AssistantMessage key={key} msg={msg} idx={i} />;
           case "tool":
-            return <ToolMessage key={i} msg={msg} idx={i} />;
+            return <ToolMessage key={key} msg={msg} idx={i} />;
           default:
             return null;
         }
