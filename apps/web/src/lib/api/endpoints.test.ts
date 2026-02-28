@@ -1,0 +1,72 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock the client module before importing endpoints
+vi.mock("./client", () => ({
+  apiFetch: vi.fn(),
+}));
+
+import { getStageResult, uploadFile } from "./endpoints";
+import { apiFetch } from "./client";
+
+describe("getStageResult", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls apiFetch with correct path", async () => {
+    const mockData = { some: "data" };
+    vi.mocked(apiFetch).mockResolvedValue(mockData);
+
+    const result = await getStageResult("run-123", "stage-0");
+
+    expect(apiFetch).toHaveBeenCalledWith("/api/results/run-123/stage-0");
+    expect(result).toEqual(mockData);
+  });
+
+  it("propagates errors from apiFetch", async () => {
+    vi.mocked(apiFetch).mockRejectedValue(new Error("API error 500: Server Error"));
+
+    await expect(getStageResult("run-456", "stage-3")).rejects.toThrow("API error 500");
+  });
+});
+
+describe("uploadFile", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
+  });
+
+  it("sends FormData with file and userId", async () => {
+    const mockResponse = { path: "/uploads/test.json" };
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockResponse),
+    } as Response);
+
+    const file = new File(["content"], "test.json", { type: "application/json" });
+    const result = await uploadFile(file, "user-1");
+
+    expect(result).toEqual(mockResponse);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/upload");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+  });
+
+  it("throws on upload failure", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 413,
+    } as Response);
+
+    const file = new File(["x"], "big.json");
+    await expect(uploadFile(file, "user-1")).rejects.toThrow("Upload failed: 413");
+  });
+});
