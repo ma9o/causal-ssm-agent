@@ -50,4 +50,26 @@ describe("buildHistogram", () => {
     // More bins requested → more bins created (d3 may adjust slightly)
     expect(bins50.length).toBeGreaterThan(bins5.length);
   });
+
+  it("handles negative numbers", () => {
+    const values = [-10, -5, 0, 5, 10];
+    const bins = buildHistogram(values, 5);
+    const total = bins.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(5);
+    expect(bins[0].binStart).toBeLessThan(0);
+  });
+
+  it("handles identical values", () => {
+    const values = [7, 7, 7, 7, 7];
+    const bins = buildHistogram(values, 5);
+    const total = bins.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(5);
+  });
+
+  it("handles nBins greater than array length", () => {
+    const values = [1, 2, 3];
+    const bins = buildHistogram(values, 100);
+    const total = bins.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(3);
+  });
 });
