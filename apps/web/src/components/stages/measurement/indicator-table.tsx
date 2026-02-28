@@ -20,9 +20,7 @@ const columns = [
   }),
   col.accessor("how_to_measure", {
     header: "How to Measure",
-    cell: (info) => (
-      <span className="max-w-xs text-muted-foreground">{info.getValue()}</span>
-    ),
+    cell: (info) => <span className="max-w-xs text-muted-foreground">{info.getValue()}</span>,
   }),
 ];
 

@@ -23,9 +23,7 @@ function statusToSeverity(status: string): "fail" | "warn" | undefined {
 const columns = [
   col.accessor("parameter", {
     header: "Parameter",
-    cell: (info) => (
-      <span className="font-medium">{info.getValue()}</span>
-    ),
+    cell: (info) => <span className="font-medium">{info.getValue()}</span>,
     meta: { mono: true },
   }),
   col.accessor("sensitivity_norm", {
@@ -90,12 +88,8 @@ export function SensitivityAnalysisTable({
             <StatTooltip explanation="Condition number of the sensitivity matrix (max/min singular value). Values near 1 indicate excellent identifiability. Very large values (>10⁶) suggest near-singular directions where parameter combinations are aliased." />
           </span>
 
-          <Badge variant="secondary">
-            params: {result.n_parameters}
-          </Badge>
-          <Badge variant="secondary">
-            draws: {result.n_draws}
-          </Badge>
+          <Badge variant="secondary">params: {result.n_parameters}</Badge>
+          <Badge variant="secondary">draws: {result.n_draws}</Badge>
         </CardContent>
       </Card>
 

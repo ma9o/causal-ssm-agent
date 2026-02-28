@@ -52,18 +52,18 @@ export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
           <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatNumber(v, 1)} />
           <RechartsTooltip
             formatter={(value, name) => {
-                const labels: Record<string, string> = {
-                  observed: "Observed",
-                  median: "Median (y_rep)",
-                  q025: "2.5%",
-                  q975: "97.5%",
-                  q25: "25%",
-                  q75: "75%",
-                };
-                const n = String(name);
-                if (n.startsWith("draw_")) return [formatNumber(Number(value), 2), "y_rep"];
-                return [formatNumber(Number(value), 2), labels[n] ?? n];
-              }}
+              const labels: Record<string, string> = {
+                observed: "Observed",
+                median: "Median (y_rep)",
+                q025: "2.5%",
+                q975: "97.5%",
+                q25: "25%",
+                q75: "75%",
+              };
+              const n = String(name);
+              if (n.startsWith("draw_")) return [formatNumber(Number(value), 2), "y_rep"];
+              return [formatNumber(Number(value), 2), labels[n] ?? n];
+            }}
             labelFormatter={(label) => `t = ${label}`}
           />
           {/* 95% band (lightest) */}

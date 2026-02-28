@@ -19,8 +19,6 @@ interface PowerScalingScatterProps {
   results: PowerScalingResult[];
 }
 
-
-
 export function PowerScalingScatter({ results }: PowerScalingScatterProps) {
   // Group by diagnosis for coloring
   const groups = new Map<string, PowerScalingResult[]>();

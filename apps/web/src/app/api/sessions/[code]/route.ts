@@ -3,10 +3,7 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { readSessions } from "../_shared";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ code: string }> },
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
   const normalizedCode = code.toUpperCase();
 

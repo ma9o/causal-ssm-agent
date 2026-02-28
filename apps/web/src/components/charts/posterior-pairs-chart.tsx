@@ -36,9 +36,7 @@ export function PosteriorPairsChart({ pair }: PosteriorPairsChartProps) {
       <span className="text-xs font-mono text-muted-foreground">
         {pair.param_x} vs {pair.param_y}
         {hasDivergent && (
-          <span className="ml-2 text-destructive">
-            ({divergent.length} divergent)
-          </span>
+          <span className="ml-2 text-destructive">({divergent.length} divergent)</span>
         )}
       </span>
       <div className="h-36 w-full">
@@ -57,14 +55,24 @@ export function PosteriorPairsChart({ pair }: PosteriorPairsChartProps) {
               type="number"
               tick={{ fontSize: 9 }}
               tickFormatter={(v: number) => formatNumber(v, 2)}
-              label={{ value: pair.param_y, angle: -90, position: "insideLeft", offset: 10, fontSize: 9 }}
+              label={{
+                value: pair.param_y,
+                angle: -90,
+                position: "insideLeft",
+                offset: 10,
+                fontSize: 9,
+              }}
             />
-            <RechartsTooltip
-              formatter={(value) => [formatNumber(Number(value), 3)]}
-            />
+            <RechartsTooltip formatter={(value) => [formatNumber(Number(value), 3)]} />
             <Scatter data={normal} fill="var(--primary)" fillOpacity={0.3} r={2} name="normal" />
             {hasDivergent && (
-              <Scatter data={divergent} fill="var(--destructive)" fillOpacity={0.8} r={3} name="divergent" />
+              <Scatter
+                data={divergent}
+                fill="var(--destructive)"
+                fillOpacity={0.8}
+                r={3}
+                name="divergent"
+              />
             )}
           </ScatterChart>
         </ResponsiveContainer>

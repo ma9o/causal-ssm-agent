@@ -11,10 +11,7 @@ export async function POST(request: Request) {
   };
 
   if (!code || !runId || !question) {
-    return NextResponse.json(
-      { error: "code, runId, and question are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "code, runId, and question are required" }, { status: 400 });
   }
 
   const normalizedCode = code.toUpperCase();

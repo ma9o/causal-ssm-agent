@@ -251,7 +251,10 @@ export function InfoTable<TData>({
               return (
                 <TableRow
                   key={row.id}
-                  className={cn(focusedRowIndex === row.index && "ring-2 ring-ring ring-inset", rowClassName?.(row.original, row.index))}
+                  className={cn(
+                    focusedRowIndex === row.index && "ring-2 ring-ring ring-inset",
+                    rowClassName?.(row.original, row.index),
+                  )}
                   data-index={vi.index}
                   ref={virtualizer.measureElement}
                 >

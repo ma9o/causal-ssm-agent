@@ -63,7 +63,15 @@ export function StageSection({
         onClick={isCollapsible ? () => setCollapsed((c) => !c) : undefined}
       >
         <div className="flex-1 min-w-0">
-          <StageHeader number={number} title={title} status={status} hasGate={hasGate} gateOverridden={gateOverridden} outcome={outcome} context={context} />
+          <StageHeader
+            number={number}
+            title={title}
+            status={status}
+            hasGate={hasGate}
+            gateOverridden={gateOverridden}
+            outcome={outcome}
+            context={context}
+          />
         </div>
         {isCollapsible && (
           <div className="flex shrink-0 items-center gap-2 pt-1">
@@ -85,9 +93,7 @@ export function StageSection({
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
-          {loadingHint && (
-            <p className="text-sm text-muted-foreground">{loadingHint}</p>
-          )}
+          {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-4 w-1/2" />
           <Skeleton className="h-32 w-full" />

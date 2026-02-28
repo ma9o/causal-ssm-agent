@@ -26,9 +26,7 @@ const STATUS_FIELDS = [
   "arithmetic_sequence_detected",
 ] as const;
 
-function computeColumnSummaries(
-  rows: IndicatorHealth[],
-): Record<string, ColumnIssueSummary> {
+function computeColumnSummaries(rows: IndicatorHealth[]): Record<string, ColumnIssueSummary> {
   const summaries: Record<string, ColumnIssueSummary> = {};
   for (const field of STATUS_FIELDS) {
     let count = 0;
@@ -96,9 +94,7 @@ function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
         return (
           <span
             className={
-              hasError
-                ? "font-semibold text-destructive"
-                : "font-semibold text-warning-foreground"
+              hasError ? "font-semibold text-destructive" : "font-semibold text-warning-foreground"
             }
           >
             {count}
@@ -223,11 +219,7 @@ function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
         </span>
       ),
       cell: (info) =>
-        info.getValue() ? (
-          "detected"
-        ) : (
-          <span className="text-muted-foreground">none</span>
-        ),
+        info.getValue() ? "detected" : <span className="text-muted-foreground">none</span>,
       meta: {
         severity: (v: boolean) => (v ? "warn" : undefined),
       },

@@ -58,28 +58,19 @@ function buildRows(
 // ── Test stat sparkline (mini histogram + p-value) ──────
 
 function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
-  if (!stat)
-    return <span className="text-xs text-muted-foreground">—</span>;
+  if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
 
   const bins = buildHistogram(stat.rep_values, 12);
   const pValue =
-    stat.rep_values.filter((v) => v >= stat.observed_value).length /
-    stat.rep_values.length;
+    stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
 
   return (
     <div className="space-y-1">
       <span className="text-xs font-mono">p = {formatNumber(pValue, 2)}</span>
       <div className="h-14 w-28">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={bins}
-            margin={{ top: 2, right: 2, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              className="stroke-muted"
-              vertical={false}
-            />
+          <BarChart data={bins} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
             <XAxis
               dataKey="binCenter"
               type="number"
@@ -90,11 +81,7 @@ function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
             />
             <YAxis hide />
             <Bar dataKey="count" fill="var(--primary)" fillOpacity={0.5} />
-            <ReferenceLine
-              x={stat.observed_value}
-              stroke="var(--foreground)"
-              strokeWidth={1.5}
-            />
+            <ReferenceLine x={stat.observed_value} stroke="var(--foreground)" strokeWidth={1.5} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -105,8 +92,7 @@ function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
 // ── Overlay sparkline (mini ribbon chart) ────────────────
 
 function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
-  if (!overlay)
-    return <span className="text-xs text-muted-foreground">—</span>;
+  if (!overlay) return <span className="text-xs text-muted-foreground">—</span>;
 
   const data = overlay.observed.map((obs, i) => ({
     t: i,
@@ -119,10 +105,7 @@ function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
   return (
     <div className="h-16 w-48">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart
-          data={data}
-          margin={{ top: 2, right: 2, left: 0, bottom: 0 }}
-        >
+        <ComposedChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           <YAxis hide />
           <XAxis dataKey="t" hide />
           <Area
@@ -194,9 +177,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
     id: "variable",
     header: "Variable",
     cell: ({ row }) => (
-      <span className="font-medium font-mono text-xs">
-        {row.original.variable}
-      </span>
+      <span className="font-medium font-mono text-xs">{row.original.variable}</span>
     ),
   }),
   col.display({
@@ -238,19 +219,14 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
   ...STAT_NAMES.map((sn) =>
     col.display({
       id: `t_${sn}`,
-      header: () => (
-        <HeaderWithTooltip
-          label={`T(${sn})`}
-          tooltip={STAT_TOOLTIPS[sn]}
-        />
-      ),
+      header: () => <HeaderWithTooltip label={`T(${sn})`} tooltip={STAT_TOOLTIPS[sn]} />,
       cell: ({ row }) => <TestStatSparkline stat={row.original.testStats[sn]} />,
       meta: {
         severity: (_v: unknown, row: PPCVariableRow) => {
           const stat = row.testStats[sn];
           if (!stat) return undefined;
           const p = pValueForStat(stat);
-          return (p < 0.05 || p > 0.95) ? "fail" : undefined;
+          return p < 0.05 || p > 0.95 ? "fail" : undefined;
         },
       },
     }),
@@ -271,12 +247,5 @@ export function PPCWarningsTable({
   const rows = buildRows(warnings, testStats, overlays);
   if (rows.length === 0) return null;
 
-  return (
-    <InfoTable
-      columns={columns}
-      data={rows}
-      estimateRowHeight={80}
-      sorting={false}
-    />
-  );
+  return <InfoTable columns={columns} data={rows} estimateRowHeight={80} sorting={false} />;
 }

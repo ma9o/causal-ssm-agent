@@ -47,7 +47,11 @@ export function evaluatePdf(
     let y = 0;
 
     if (dist === "normal" || dist === "gaussian") {
-      y = jStat.normal.pdf(x, params.mu ?? params.loc ?? 0, params.sigma ?? params.scale ?? 1) as number;
+      y = jStat.normal.pdf(
+        x,
+        params.mu ?? params.loc ?? 0,
+        params.sigma ?? params.scale ?? 1,
+      ) as number;
     } else if (dist === "halfnormal" || dist === "half_normal") {
       y = halfNormalPdf(x, params.sigma ?? params.scale ?? 1);
     } else if (dist === "gamma") {

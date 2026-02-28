@@ -60,11 +60,7 @@ export function PosteriorDensityChart({ marginal }: PosteriorDensityChartProps) 
               strokeDasharray="4 4"
               strokeWidth={1}
             />
-            <ReferenceLine
-              x={marginal.mean}
-              stroke="var(--foreground)"
-              strokeWidth={1.5}
-            />
+            <ReferenceLine x={marginal.mean} stroke="var(--foreground)" strokeWidth={1.5} />
             <Area
               dataKey="density"
               stroke="var(--primary)"

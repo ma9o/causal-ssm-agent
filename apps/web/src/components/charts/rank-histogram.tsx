@@ -13,7 +13,6 @@ import {
   YAxis,
 } from "recharts";
 
-
 interface RankHistogramProps {
   histogram: RankHistogramType;
 }
@@ -38,9 +37,7 @@ export function RankHistogram({ histogram }: RankHistogramProps) {
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
             <XAxis dataKey="bin" tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} hide />
-            <RechartsTooltip
-              formatter={(value, name) => [String(value), String(name)]}
-            />
+            <RechartsTooltip formatter={(value, name) => [String(value), String(name)]} />
             <ReferenceLine
               y={histogram.expected_per_bin}
               stroke="var(--muted-foreground)"
