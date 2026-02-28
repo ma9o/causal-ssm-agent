@@ -57,8 +57,8 @@ export default function LandingPage() {
       fetch(`/api/sessions/${code}`)
         .then((r) => r.json())
         .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`))
-        .catch((err) => {
-          console.warn("Mock session fetch failed — staying on landing page:", err);
+        .catch(() => {
+          // Mock session fetch failed — staying on landing page
         });
     }
   }, [router]);

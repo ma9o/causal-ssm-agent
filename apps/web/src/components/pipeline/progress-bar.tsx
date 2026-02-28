@@ -5,7 +5,7 @@ import { STAGES } from "@causal-ssm/api-types";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function PipelineProgressBar({
   progress,
@@ -29,12 +29,20 @@ export function PipelineProgressBar({
     staleTime: Number.POSITIVE_INFINITY,
   });
 
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const handleCopy = useCallback(() => {
     if (!sessionCode) return;
     navigator.clipboard.writeText(sessionCode);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
   }, [sessionCode]);
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
 
   const { exportToMarkdown } = useExportMarkdown(runId);
 
