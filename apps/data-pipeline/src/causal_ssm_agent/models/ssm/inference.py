@@ -362,19 +362,20 @@ class InferenceResult:
         return pairs
 
     def print_summary(self) -> None:
-        """Print summary statistics for posterior samples."""
-        print(f"\nInference method: {self.method}")
-        print(f"{'Parameter':<30} {'Mean':>10} {'Std':>10} {'5%':>10} {'95%':>10}")
-        print("-" * 72)
+        """Log summary statistics for posterior samples."""
+        lines = [
+            f"Inference method: {self.method}",
+            f"{'Parameter':<30} {'Mean':>10} {'Std':>10} {'5%':>10} {'95%':>10}",
+            "-" * 72,
+        ]
         for name, values in self._samples.items():
             if values.ndim == 1:
                 mean = float(jnp.mean(values))
                 std = float(jnp.std(values))
                 q5 = float(jnp.percentile(values, 5))
                 q95 = float(jnp.percentile(values, 95))
-                print(f"{name:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
+                lines.append(f"{name:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
             elif values.ndim >= 2:
-                # Flatten parameter dimensions for summary
                 flat = values.reshape(values.shape[0], -1)
                 for i in range(flat.shape[1]):
                     label = f"{name}[{i}]"
@@ -382,7 +383,8 @@ class InferenceResult:
                     std = float(jnp.std(flat[:, i]))
                     q5 = float(jnp.percentile(flat[:, i], 5))
                     q95 = float(jnp.percentile(flat[:, i], 95))
-                    print(f"{label:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
+                    lines.append(f"{label:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
+        logger.info("\n%s", "\n".join(lines))
 
 
 def _build_trace_data(
