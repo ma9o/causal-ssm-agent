@@ -13,6 +13,7 @@ import type {
 import { STAGES } from "@causal-ssm/api-types";
 import { asciiDensity, asciiHistogram, asciiMultiLine, asciiScatter } from "./ascii-charts";
 import { formatDateRange, formatNumber, formatPercent } from "./format";
+import { quantile } from "./histogram";
 import { mdTable } from "./markdown-tables";
 import {
   concreteTransitionLines,
@@ -34,14 +35,6 @@ export interface AllStageData {
   "stage-4b"?: Stage4bData | null;
   "stage-5"?: Stage5Data | null;
   "stage-6"?: Stage6Data | null;
-}
-
-function quantile(sorted: number[], q: number): number {
-  const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
 function section(level: number, title: string): string {
