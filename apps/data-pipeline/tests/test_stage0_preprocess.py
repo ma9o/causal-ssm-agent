@@ -1,11 +1,21 @@
-"""Tests for Stage 0 preprocess."""
+"""Tests for Stage 0 preprocess.
+
+Covers: _extract_location, _process_activity, _records_to_lines,
+        _sample_records, _compute_date_range, _find_raw_input, _parse_json.
+"""
 
 import json
 from datetime import UTC, datetime
 
+import pytest
+
 from causal_ssm_agent.flows.stages.stage0_preprocess import (
     _compute_date_range,
+    _extract_location,
+    _find_raw_input,
+    _parse_json,
     _process_activity,
+    _records_to_lines,
     _sample_records,
 )
 
@@ -28,6 +38,48 @@ def _make_raw_entries(n: int = 30) -> list[dict]:
             }
         )
     return entries
+
+
+# =============================================================================
+# _extract_location
+# =============================================================================
+
+
+class TestExtractLocation:
+    def test_valid_center_coordinates(self):
+        entry = {
+            "locationInfos": [
+                {"url": "https://maps.google.com?center=40.7128,-74.0060&zoom=14"}
+            ]
+        }
+        assert _extract_location(entry) == "40.7128,-74.0060"
+
+    def test_negative_coordinates(self):
+        entry = {
+            "locationInfos": [
+                {"url": "https://maps.google.com?center=-33.8688,151.2093"}
+            ]
+        }
+        assert _extract_location(entry) == "-33.8688,151.2093"
+
+    def test_no_location_infos_key(self):
+        assert _extract_location({}) is None
+
+    def test_empty_location_infos(self):
+        assert _extract_location({"locationInfos": []}) is None
+
+    def test_url_without_center_param(self):
+        entry = {"locationInfos": [{"url": "https://maps.google.com?q=NYC"}]}
+        assert _extract_location(entry) is None
+
+    def test_no_url_key(self):
+        entry = {"locationInfos": [{"name": "some place"}]}
+        assert _extract_location(entry) is None
+
+
+# =============================================================================
+# _process_activity
+# =============================================================================
 
 
 class TestProcessActivity:
@@ -119,6 +171,158 @@ class TestComputeDateRange:
         # Should parse as date
         datetime.strptime(dr["start"], "%Y-%m-%d")
         datetime.strptime(dr["end"], "%Y-%m-%d")
+
+
+# =============================================================================
+# _records_to_lines
+# =============================================================================
+
+
+class TestRecordsToLines:
+    def test_basic_line_format(self):
+        records = [
+            {
+                "datetime": datetime(2024, 1, 15, 10, 30, tzinfo=UTC),
+                "activity_type": "search",
+                "content": "python",
+                "location": None,
+            }
+        ]
+        lines = _records_to_lines(records)
+        assert len(lines) == 1
+        assert "[search]" in lines[0]
+        assert "python" in lines[0]
+        assert "2024-01-15" in lines[0]
+
+    def test_includes_location(self):
+        records = [
+            {
+                "datetime": datetime(2024, 1, 15, 10, 30, tzinfo=UTC),
+                "activity_type": "visit",
+                "content": "coffee shop",
+                "location": "40.71,-74.00",
+            }
+        ]
+        lines = _records_to_lines(records)
+        assert "@ 40.71,-74.00" in lines[0]
+        assert "[visit]" in lines[0]
+
+    def test_omits_location_when_none(self):
+        records = [
+            {
+                "datetime": datetime(2024, 1, 15, tzinfo=UTC),
+                "activity_type": "search",
+                "content": "test",
+                "location": None,
+            }
+        ]
+        lines = _records_to_lines(records)
+        assert "@" not in lines[0]
+
+    def test_empty_records(self):
+        assert _records_to_lines([]) == []
+
+    def test_multiple_records(self):
+        records = [
+            {
+                "datetime": datetime(2024, 1, 15, 10, tzinfo=UTC),
+                "activity_type": "search",
+                "content": "a",
+                "location": None,
+            },
+            {
+                "datetime": datetime(2024, 1, 15, 11, tzinfo=UTC),
+                "activity_type": "visit",
+                "content": "b",
+                "location": None,
+            },
+        ]
+        lines = _records_to_lines(records)
+        assert len(lines) == 2
+        assert "[search]" in lines[0]
+        assert "[visit]" in lines[1]
+
+
+# =============================================================================
+# _find_raw_input
+# =============================================================================
+
+
+class TestFindRawInput:
+    def test_finds_json_file(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
+
+        monkeypatch.setattr(mod, "RAW_DIR", tmp_path)
+        user_dir = tmp_path / "user1"
+        user_dir.mkdir()
+        (user_dir / "data.json").write_text("[]")
+        assert _find_raw_input("user1") == user_dir / "data.json"
+
+    def test_finds_zip_file(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
+
+        monkeypatch.setattr(mod, "RAW_DIR", tmp_path)
+        user_dir = tmp_path / "user1"
+        user_dir.mkdir()
+        (user_dir / "archive.zip").write_text("fake")
+        assert _find_raw_input("user1") == user_dir / "archive.zip"
+
+    def test_prefers_json_over_zip(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
+
+        monkeypatch.setattr(mod, "RAW_DIR", tmp_path)
+        user_dir = tmp_path / "user1"
+        user_dir.mkdir()
+        (user_dir / "data.json").write_text("[]")
+        (user_dir / "archive.zip").write_text("fake")
+        result = _find_raw_input("user1")
+        assert result.suffix == ".json"
+
+    def test_missing_user_dir(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
+
+        monkeypatch.setattr(mod, "RAW_DIR", tmp_path)
+        with pytest.raises(FileNotFoundError, match="No raw data directory"):
+            _find_raw_input("nonexistent")
+
+    def test_empty_user_dir(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
+
+        monkeypatch.setattr(mod, "RAW_DIR", tmp_path)
+        user_dir = tmp_path / "user1"
+        user_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match=r"No \.json or \.zip files"):
+            _find_raw_input("user1")
+
+
+# =============================================================================
+# _parse_json
+# =============================================================================
+
+
+class TestParseJson:
+    def test_parses_valid_json(self, tmp_path):
+        entries = [
+            {"title": "Searched for hello", "time": "2024-01-01T00:00:00Z"},
+            {"title": "Visited example.com", "time": "2024-01-02T00:00:00Z"},
+        ]
+        f = tmp_path / "data.json"
+        f.write_text(json.dumps(entries))
+        records = _parse_json(f)
+        assert len(records) == 2
+        assert records[0]["activity_type"] == "search"
+        assert records[1]["activity_type"] == "visit"
+
+    def test_empty_json_raises(self, tmp_path):
+        f = tmp_path / "data.json"
+        f.write_text("[]")
+        with pytest.raises(ValueError, match="Empty JSON"):
+            _parse_json(f)
+
+
+# =============================================================================
+# Integration
+# =============================================================================
 
 
 class TestPreprocessRawInputIntegration:
