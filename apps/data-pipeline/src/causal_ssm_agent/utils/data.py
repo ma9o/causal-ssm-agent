@@ -96,6 +96,9 @@ def sample_chunks(
     if seed is not None:
         random.seed(seed)
 
+    if n <= 0:
+        return []
+
     n = min(n, len(chunks))
 
     if n >= len(chunks):
