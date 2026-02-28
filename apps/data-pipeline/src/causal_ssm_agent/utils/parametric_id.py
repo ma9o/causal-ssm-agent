@@ -1094,7 +1094,7 @@ def sbc_check(
     n_post = 0
     n_failed = 0
 
-    for _rep in range(n_sbc):
+    for rep in range(n_sbc):
         # a. Draw true params from prior
         true_con = {}
         true_unc_parts = []
@@ -1111,6 +1111,7 @@ def sbc_check(
         try:
             y_star = _simulate_from_params(true_con, model.spec, times, sim_key)
         except Exception:
+            logger.debug("SBC replicate %d: simulation failed", rep, exc_info=True)
             n_failed += 1
             continue  # skip replicate on simulation failure
 
@@ -1125,6 +1126,7 @@ def sbc_check(
                 model, y_star, times, method=method, seed=int(fit_key[0]), **fit_kwargs
             )
         except Exception:
+            logger.debug("SBC replicate %d: fit failed", rep, exc_info=True)
             n_failed += 1
             continue  # skip replicate on fit failure
 

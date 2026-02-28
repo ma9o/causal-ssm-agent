@@ -231,6 +231,7 @@ def _check_scale_plausibility(
             implied_stds_list.append(implied_std)
 
         except Exception:
+            logger.debug("Prior draw %d unstable (Lyapunov solver failed)", i, exc_info=True)
             n_unstable += 1
             continue
 
