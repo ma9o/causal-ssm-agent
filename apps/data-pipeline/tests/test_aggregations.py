@@ -110,6 +110,20 @@ class TestBuildAggExpr:
             result = df.select(_build_agg_expr(agg))
             assert "value" in result.columns
 
+    def test_single_value(self):
+        """Aggregating a single value works for all functions."""
+        df = _make_df([42.0])
+        for agg in ["mean", "sum", "min", "max", "count", "median", "first", "last"]:
+            result = df.select(_build_agg_expr(agg))
+            assert result["value"][0] is not None, f"{agg} failed on single value"
+
+    def test_cv_zero_mean(self):
+        """CV with zero mean should handle division safely."""
+        df = _make_df([-1.0, 1.0])  # mean = 0
+        result = df.select(_build_agg_expr("cv"))
+        # Should not crash; result may be inf or null
+        assert result.shape == (1, 1)
+
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown aggregation"):
             _build_agg_expr("nonexistent_agg")
@@ -338,6 +352,15 @@ class TestAggregateWorkerMeasurements:
         spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
         with pytest.raises(ValueError, match="Unknown aggregation_window"):
             aggregate_worker_measurements([df], spec, "invalid_window")
+
+    def test_single_row_df(self):
+        """A DataFrame with one row still aggregates correctly."""
+        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([df], spec, "daily")
+        assert "daily" in result
+        assert len(result["daily"]) == 1
+        assert abs(result["daily"]["value"][0] - 3.0) < 1e-6
 
     def test_unknown_indicators_filtered(self):
         df = _worker_df([
