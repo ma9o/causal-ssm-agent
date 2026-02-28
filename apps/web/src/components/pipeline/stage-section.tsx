@@ -56,7 +56,7 @@ export function StageSection({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6`}
+      className="scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6"
     >
       <div
         className={isCollapsible ? "flex items-start gap-3 cursor-pointer" : ""}

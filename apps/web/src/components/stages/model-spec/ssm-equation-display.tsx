@@ -44,6 +44,7 @@ function confounderGroupHtml(group: Parameters<typeof confounderGroupLatex>[0]):
 
 /** Inline KaTeX span. */
 function Katex({ latex }: { latex: string }) {
+  // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
   return <span dangerouslySetInnerHTML={{ __html: tex(latex, false) }} />;
 }
 
@@ -93,6 +94,7 @@ export function SSMEquationDisplay({
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 General form
               </p>
+              {/* biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math */}
               <div dangerouslySetInnerHTML={{ __html: genericTransitionLatex }} />
             </div>
             <div className="mt-3 overflow-x-auto rounded-md border">

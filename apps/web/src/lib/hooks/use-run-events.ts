@@ -57,7 +57,8 @@ export function useRunEvents(runId: string | null) {
         if (status === "running") {
           timings[stageId] = { startedAt: ts };
         } else if ((status === "completed" || status === "failed") && timings[stageId]) {
-          timings[stageId] = { ...timings[stageId]!, completedAt: ts };
+          const existing = timings[stageId];
+          timings[stageId] = { ...existing, completedAt: ts };
         }
 
         return {
@@ -91,7 +92,7 @@ export function useRunEvents(runId: string | null) {
     }
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4200";
-    const wsUrl = apiBase.replace(/^http/, "ws") + "/api/events/out";
+    const wsUrl = `${apiBase.replace(/^http/, "ws")}/api/events/out`;
     const ws = new ReconnectingWebSocket(wsUrl, [], {
       maxRetries: MAX_RECONNECT_ATTEMPTS,
       minReconnectionDelay: BASE_DELAY_MS,

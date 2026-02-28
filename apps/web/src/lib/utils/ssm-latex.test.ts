@@ -241,9 +241,10 @@ describe("confounderGroups", () => {
     const groups = confounderGroups(params);
     expect(groups).not.toBeNull();
     expect(groups).toHaveLength(1);
-    expect(groups![0].confounder).toBe("genetics");
-    expect(groups![0].states).toContain("stress");
-    expect(groups![0].states).toContain("sleep");
+    const first = groups?.[0];
+    expect(first?.confounder).toBe("genetics");
+    expect(first?.states).toContain("stress");
+    expect(first?.states).toContain("sleep");
   });
 });
 

@@ -49,8 +49,10 @@ export function DiagnosticsAccordion({
   posteriorPairs,
 }: DiagnosticsAccordionProps) {
   const hasEnergy = mcmcDiagnostics?.energy != null;
-  const hasMarginals = posteriorMarginals && posteriorMarginals.length > 0;
-  const hasPairs = posteriorPairs && posteriorPairs.length > 0;
+  const marginals = posteriorMarginals ?? [];
+  const pairs = posteriorPairs ?? [];
+  const hasMarginals = marginals.length > 0;
+  const hasPairs = pairs.length > 0;
 
   const defaultOpen = ["mcmc", "svi", "ppc", "loo", "power-scaling"];
 
@@ -73,7 +75,7 @@ export function DiagnosticsAccordion({
           <AccordionContent>
             <div className="space-y-4">
               <MCMCDiagnosticsPanel diagnostics={mcmcDiagnostics} />
-              {hasEnergy && <EnergyChart energy={mcmcDiagnostics.energy!} />}
+              {mcmcDiagnostics.energy != null && <EnergyChart energy={mcmcDiagnostics.energy} />}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -223,7 +225,7 @@ export function DiagnosticsAccordion({
                     Marginal distributions
                   </h4>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {posteriorMarginals!.map((m) => (
+                    {marginals.map((m) => (
                       <PosteriorDensityChart key={m.parameter} marginal={m} />
                     ))}
                   </div>
@@ -235,7 +237,7 @@ export function DiagnosticsAccordion({
                     Pairwise correlations
                   </h4>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {posteriorPairs!.map((p) => (
+                    {pairs.map((p) => (
                       <PosteriorPairsChart key={`${p.param_x}-${p.param_y}`} pair={p} />
                     ))}
                   </div>

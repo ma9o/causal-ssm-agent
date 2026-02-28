@@ -42,7 +42,7 @@ function EdgeLegend({
       <div className="flex items-center gap-4">
         {hasContemporaneous && (
           <div className="flex items-center gap-2">
-            <svg width="28" height="8" className="shrink-0" aria-hidden>
+            <svg width="28" height="8" className="shrink-0" aria-hidden="true">
               <line
                 x1="0"
                 y1="4"
@@ -58,7 +58,7 @@ function EdgeLegend({
         )}
         {hasLagged && (
           <div className="flex items-center gap-2">
-            <svg width="28" height="8" className="shrink-0" aria-hidden>
+            <svg width="28" height="8" className="shrink-0" aria-hidden="true">
               <line
                 x1="0"
                 y1="4"

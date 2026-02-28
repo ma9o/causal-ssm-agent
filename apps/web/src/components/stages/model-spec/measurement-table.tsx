@@ -219,6 +219,7 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
       return (
         <span
           className="text-xs text-muted-foreground"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
           dangerouslySetInnerHTML={{
             __html: katex.renderToString(latex, {
               displayMode: false,

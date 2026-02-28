@@ -81,7 +81,8 @@ export function NewStagesNotification({
 
   if (unseenIds.length === 0) return null;
 
-  const next = STAGES.find((s) => s.id === unseenIds[0])!;
+  const next = STAGES.find((s) => s.id === unseenIds[0]);
+  if (!next) return null;
   const label =
     unseenIds.length === 1
       ? `Stage ${next.number}: ${next.label} completed`

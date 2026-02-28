@@ -17,14 +17,15 @@ interface PosteriorPairsChartProps {
 }
 
 export function PosteriorPairsChart({ pair }: PosteriorPairsChartProps) {
-  const hasDivergent = pair.divergent && pair.divergent.some(Boolean);
+  const divFlags = pair.divergent ?? [];
+  const hasDivergent = divFlags.some(Boolean);
 
   const normal: { x: number; y: number }[] = [];
   const divergent: { x: number; y: number }[] = [];
 
   for (let i = 0; i < pair.x_values.length; i++) {
     const point = { x: pair.x_values[i], y: pair.y_values[i] };
-    if (hasDivergent && pair.divergent![i]) {
+    if (hasDivergent && divFlags[i]) {
       divergent.push(point);
     } else {
       normal.push(point);
