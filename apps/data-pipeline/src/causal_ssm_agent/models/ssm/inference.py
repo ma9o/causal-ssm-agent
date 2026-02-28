@@ -17,6 +17,7 @@ model; this module provides fit() to run inference with different backends:
 from __future__ import annotations
 
 import functools
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -29,6 +30,8 @@ from numpyro.optim import ClippedAdam
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel
+
+logger = logging.getLogger(__name__)
 
 InferenceMethod = Literal[
     "nuts",
@@ -96,6 +99,7 @@ class InferenceResult:
                 per_param.append(entry)
             result["per_parameter"] = per_param
         except Exception:
+            logger.debug("Failed to compute per-parameter diagnostics", exc_info=True)
             result["per_parameter"] = []
 
         # ArviZ-based ESS-tail and MCSE (enriches per_parameter entries)
@@ -116,7 +120,7 @@ class InferenceResult:
                     v = mcse_mean[name].values
                     entry["mcse_mean"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
         except Exception:
-            pass
+            logger.debug("ArviZ ESS-tail/MCSE enrichment failed", exc_info=True)
 
         # Sampler-level diagnostics from extra fields
         try:
@@ -140,7 +144,7 @@ class InferenceResult:
                     energy = energy.reshape(n_ch, -1)
                 result["energy"] = _build_energy_diagnostics(energy)
         except Exception:
-            pass
+            logger.debug("Sampler-level diagnostics extraction failed", exc_info=True)
 
         result["num_chains"] = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else None
         result["num_samples"] = int(mcmc._num_samples) if hasattr(mcmc, "_num_samples") else None
@@ -228,7 +232,7 @@ class InferenceResult:
                     )
                     ll_per_timestep_found = True
             except Exception:
-                pass
+                logger.debug("SSM-specific LOO path failed, trying standard ArviZ", exc_info=True)
 
             if not ll_per_timestep_found:
                 # Standard path: ArviZ extracts LL from observed sample sites
@@ -262,11 +266,12 @@ class InferenceResult:
                     else:
                         result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flatten()]
                 except Exception:
-                    pass
+                    logger.debug("LOO-PIT computation failed", exc_info=True)
 
             return result
 
         except Exception:
+            logger.debug("LOO diagnostics computation failed", exc_info=True)
             return None
 
     def get_posterior_marginals(self, n_bins: int = 50) -> list[dict[str, Any]]:
@@ -338,7 +343,7 @@ class InferenceResult:
                     div_flat = extra["diverging"].reshape(-1)
                     div_mask = [bool(v) for v in div_flat[::step]]
             except Exception:
-                pass
+                logger.debug("Divergence mask extraction failed", exc_info=True)
 
         pairs: list[dict[str, Any]] = []
         for i in range(len(scalars)):
