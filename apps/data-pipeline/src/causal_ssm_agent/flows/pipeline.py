@@ -75,7 +75,6 @@ def _coerce_sample_value(value: object) -> str | int | float | bool | None:
 
 
 @flow(
-    log_prints=True,
     persist_result=True,
     result_storage=RESULT_STORAGE,
     result_serializer="pickle",
@@ -119,10 +118,10 @@ async def causal_inference_pipeline(
         question = load_query(query_file)
     else:
         raise ValueError("Either 'query' (raw text) or 'query_file' (filename) must be provided")
-    print(f"Query source: {'raw text' if query else query_file}")
-    print(f"Question: {question[:100]}..." if len(question) > 100 else f"Question: {question}")
+    logger.info("Query source: %s", "raw text" if query else query_file)
+    logger.info("Question: %s", f"{question[:100]}..." if len(question) > 100 else question)
 
-    print(f"\n=== Stage 0: Preprocess (user: {user_id}) ===")
+    logger.info("=== Stage 0: Preprocess (user: %s) ===", user_id)
     preprocess_result = preprocess_raw_input(user_id)
     lines = preprocess_result["lines"]
 
@@ -138,33 +137,33 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 1a: Propose latent model (theory only, no data)
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 1a: Latent Model ===")
+    logger.info("=== Stage 1a: Latent Model ===")
     stage1a_result = await propose_latent_model(question)
     latent_model = stage1a_result["latent_model"]
     outcome = stage1a_result["outcome_name"]
     treatments = stage1a_result["treatments"]
     n_constructs = len(latent_model["constructs"])
     n_edges = len(latent_model["edges"])
-    print(f"Proposed {n_constructs} constructs with {n_edges} causal edges")
+    logger.info("Proposed %d constructs with %d causal edges", n_constructs, n_edges)
 
     if not outcome:
         raise ValueError("No outcome identified in latent model (missing is_outcome=true)")
-    print(f"Outcome variable: {outcome}")
+    logger.info("Outcome variable: %s", outcome)
 
-    print(f"Potential treatments: {len(treatments)} constructs with paths to {outcome}")
+    logger.info("Potential treatments: %d constructs with paths to %s", len(treatments), outcome)
     for t in treatments[:5]:
-        print(f"  - {t}")
+        logger.info("  - %s", t)
     if len(treatments) > 5:
-        print(f"  ... and {len(treatments) - 5} more")
+        logger.info("  ... and %d more", len(treatments) - 5)
 
     persist_web_result("stage-1a", stage1a_result)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 1b: Propose measurement model (with identifiability check)
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 1b: Measurement Model with Identifiability ===")
+    logger.info("=== Stage 1b: Measurement Model with Identifiability ===")
     orchestrator_chunks = load_orchestrator_chunks(lines)
-    print(f"Loaded {len(orchestrator_chunks)} orchestrator chunks")
+    logger.info("Loaded %d orchestrator chunks", len(orchestrator_chunks))
 
     # Propose measurements and check identifiability
     stage1b_result = await propose_measurement_with_identifiability_fix(
@@ -178,30 +177,30 @@ async def causal_inference_pipeline(
     identifiability_status = stage1b_result["identifiability_status"]
 
     n_indicators = len(measurement_model["indicators"])
-    print(f"Final model has {n_indicators} indicators")
+    logger.info("Final model has %d indicators", n_indicators)
 
     # Hard gate: filter out non-identifiable treatments
     non_identifiable = identifiability_status.get("non_identifiable_treatments", {})
     gate_1b_failed = False
     if non_identifiable:
-        print("\n⚠️  NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
+        logger.warning("NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
         for treatment in sorted(non_identifiable.keys()):
             details = non_identifiable[treatment]
             blockers = details.get("confounders", []) if isinstance(details, dict) else []
             notes = details.get("notes") if isinstance(details, dict) else None
             if blockers:
-                print(f"  - {treatment} → {outcome} (blocked by: {', '.join(blockers)})")
+                logger.warning("  - %s → %s (blocked by: %s)", treatment, outcome, ", ".join(blockers))
             elif notes:
-                print(f"  - {treatment} → {outcome} ({notes})")
+                logger.warning("  - %s → %s (%s)", treatment, outcome, notes)
             else:
-                print(f"  - {treatment} → {outcome}")
+                logger.warning("  - %s → %s", treatment, outcome)
         treatments = [t for t in treatments if t not in non_identifiable]
-        print(f"Continuing with {len(treatments)} identifiable treatments")
+        logger.info("Continuing with %d identifiable treatments", len(treatments))
         if not treatments:
             gate_1b_failed = True
             if gates_overridden:
-                print(
-                    "⚠️  GATE 1b OVERRIDDEN: No identifiable treatments, continuing with empty list"
+                logger.warning(
+                    "GATE 1b OVERRIDDEN: No identifiable treatments, continuing with empty list"
                 )
 
     gate_1b_overridden = gates_overridden and gate_1b_failed
@@ -237,9 +236,9 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 2: Parallel indicator population (worker chunk size)
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 2: Worker Extraction ===")
+    logger.info("=== Stage 2: Worker Extraction ===")
     worker_chunks = load_worker_chunks(lines)
-    print(f"Loaded {len(worker_chunks)} worker chunks")
+    logger.info("Loaded %d worker chunks", len(worker_chunks))
 
     worker_results = populate_indicators.map(
         worker_chunks,
@@ -255,7 +254,7 @@ async def causal_inference_pipeline(
     raw_data_result = raw_data.result() if hasattr(raw_data, "result") else raw_data
     n_observations = len(raw_data_result)
     n_unique_indicators = raw_data_result["indicator"].n_unique() if n_observations > 0 else 0
-    print(f"  Combined {n_observations} observations across {n_unique_indicators} indicators")
+    logger.info("  Combined %d observations across %d indicators", n_observations, n_unique_indicators)
 
     # Aggregate to pipeline-level aggregation window
     aggregated = aggregate_measurements(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
@@ -263,12 +262,13 @@ async def causal_inference_pipeline(
     if aggregated_result:
         data_for_model = flatten_aggregated_data(aggregated_result)
         n_agg = len(data_for_model)
-        print(
-            f"  Aggregated to {n_agg} observations across {list(aggregated_result.keys())} granularities"
+        logger.info(
+            "  Aggregated to %d observations across %s granularities",
+            n_agg, list(aggregated_result.keys()),
         )
     else:
         data_for_model = raw_data_result
-        print("  No aggregation applied (using raw data)")
+        logger.info("  No aggregation applied (using raw data)")
 
     # Persist stage-2 web data
     sample_rows = raw_data_result.head(20).to_dicts() if n_observations > 0 else []
@@ -322,7 +322,7 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 3: Extraction Validation ===")
+    logger.info("=== Stage 3: Extraction Validation ===")
     validation_task = validate_extraction(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
     validation_report = (
         validation_task.result() if hasattr(validation_task, "result") else validation_task
@@ -331,16 +331,18 @@ async def causal_inference_pipeline(
     if validation_report:
         issues = validation_report.get("issues", [])
         if not validation_report.get("is_valid", True):
-            print("⚠️  Stage 3 validation errors detected:")
+            logger.warning("Stage 3 validation errors detected:")
             for issue in issues:
-                print(
-                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
+                logger.warning(
+                    "    - %s: %s (%s) %s",
+                    issue["indicator"], issue["issue_type"], issue["severity"], issue["message"],
                 )
         elif issues:
-            print("⚠️  Stage 3 validation warnings:")
+            logger.warning("Stage 3 validation warnings:")
             for issue in issues:
-                print(
-                    f"    - {issue['indicator']}: {issue['issue_type']} ({issue['severity']}) {issue['message']}"
+                logger.warning(
+                    "    - %s: %s (%s) %s",
+                    issue["indicator"], issue["issue_type"], issue["severity"], issue["message"],
                 )
 
     if validation_report and validation_report.get("issues"):
@@ -385,7 +387,7 @@ async def causal_inference_pipeline(
         else config.stage4_prior_elicitation.literature_search.enabled
     )
 
-    print("\n=== Stage 4: Model Specification ===")
+    logger.info("=== Stage 4: Model Specification ===")
     stage4_result = await stage4_orchestrated_flow(
         causal_spec=causal_spec,
         question=question,
@@ -394,22 +396,22 @@ async def causal_inference_pipeline(
     )
 
     model_spec = stage4_result.get("model_spec", {})
-    print(f"Parameters: {len(model_spec.get('parameters', []))} total")
+    logger.info("Parameters: %d total", len(model_spec.get("parameters", [])))
 
     # Report validation issues
     validation = stage4_result.get("validation", {})
     if not validation.get("is_valid", True):
         issues = validation.get("issues", [])
-        print(f"⚠️  Stage 4 prior validation failed ({len(issues)} issues):")
+        logger.warning("Stage 4 prior validation failed (%d issues):", len(issues))
         for issue in issues:
             if isinstance(issue, dict):
-                print(f"    - {issue.get('parameter')}: {issue.get('issue')}")
+                logger.warning("    - %s: %s", issue.get("parameter"), issue.get("issue"))
             else:
-                print(f"    - {issue}")
+                logger.warning("    - %s", issue)
 
     model_info = stage4_result.get("model_info", {})
     if not model_info.get("model_built", True):
-        print(f"⚠️  Stage 4 model build failed: {model_info.get('error')}")
+        logger.warning("Stage 4 model build failed: %s", model_info.get("error"))
 
     create_markdown_artifact(
         key="model-spec",
@@ -448,7 +450,7 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4b: Parametric Identifiability Diagnostics
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 4b: Parametric Identifiability ===")
+    logger.info("=== Stage 4b: Parametric Identifiability ===")
     stage4_result = stage4b_parametric_id_flow(
         stage4_result, raw_data=data_for_model, builder=builder
     )
@@ -461,24 +463,23 @@ async def causal_inference_pipeline(
         if not t_rule.get("satisfies", True):
             gate_4b_failed = True
             if gates_overridden:
-                print(
-                    f"⚠️  GATE 4b OVERRIDDEN: T-rule violated "
-                    f"({t_rule.get('n_free_params')} free params "
-                    f"> {t_rule.get('n_moments')} moments), continuing"
+                logger.warning(
+                    "GATE 4b OVERRIDDEN: T-rule violated (%s free params > %s moments), continuing",
+                    t_rule.get("n_free_params"), t_rule.get("n_moments"),
                 )
                 gate_4b_overridden = True
         summary = param_id.get("summary", {})
         if summary.get("structural_issues"):
-            print("⚠️  STRUCTURAL non-identifiability detected — some parameters unconstrained")
+            logger.warning("STRUCTURAL non-identifiability detected — some parameters unconstrained")
         elif summary.get("boundary_issues"):
-            print("⚠️  Boundary identifiability issues at some prior draws")
+            logger.warning("Boundary identifiability issues at some prior draws")
         else:
-            print("Parametric identifiability OK")
+            logger.info("Parametric identifiability OK")
         weak = summary.get("weak_params", [])
         if weak:
-            print(f"  Weak parameters (low contraction): {weak}")
+            logger.info("  Weak parameters (low contraction): %s", weak)
     else:
-        print(f"  Skipped: {param_id.get('error', 'unknown')}")
+        logger.info("  Skipped: %s", param_id.get("error", "unknown"))
 
     # Persist web data BEFORE potential halt so frontend can display gate failure
     if gate_4b_failed:
@@ -516,8 +517,8 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 5: Fit and diagnose / Stage 6: Treatment effects
     # ══════════════════════════════════════════════════════════════════════════
-    print("\n=== Stage 5: Inference ===")
-    print(f"Estimating effects of {len(treatments)} treatments on {outcome}")
+    logger.info("=== Stage 5: Inference ===")
+    logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome)
     sampler_config = (
         config.inference.to_sampler_config(method_override=inference_method)
         if inference_method
@@ -528,7 +529,7 @@ async def causal_inference_pipeline(
         # ── GPU path: dispatch all stage 5 tasks to Modal ──
         from causal_ssm_agent.flows.gpu_inference import run_stage5_gpu
 
-        print(f"Dispatching to Modal ({config.inference.gpu} GPU)...")
+        logger.info("Dispatching to Modal (%s GPU)...", config.inference.gpu)
         gpu_result = run_stage5_gpu(
             stage4_result=stage4_result,
             raw_data=data_for_model,
@@ -561,39 +562,39 @@ async def causal_inference_pipeline(
         )
         intervention_results = results.result() if hasattr(results, "result") else results  # ty: ignore[call-non-callable]
 
-    # Print power-scaling results (shared by both paths)
-    print("\n--- Power-Scaling Sensitivity ---")
+    # Log power-scaling results (shared by both paths)
+    logger.info("--- Power-Scaling Sensitivity ---")
     if ps_result.get("checked", False):
         diagnosis = ps_result.get("diagnosis", {})
         prior_dominated = [k for k, v in diagnosis.items() if v == "prior_dominated"]
         conflicts = [k for k, v in diagnosis.items() if v == "prior_data_conflict"]
         if prior_dominated:
-            print(f"  Prior-dominated parameters: {prior_dominated}")
+            logger.warning("  Prior-dominated parameters: %s", prior_dominated)
         if conflicts:
-            print(f"  Prior-data conflicts: {conflicts}")
+            logger.warning("  Prior-data conflicts: %s", conflicts)
         if not prior_dominated and not conflicts:
-            print("  All parameters well-identified")
+            logger.info("  All parameters well-identified")
     else:
-        print(f"  Skipped: {ps_result.get('error', 'unknown')}")
+        logger.info("  Skipped: %s", ps_result.get("error", "unknown"))
 
-    # Print PPC results
-    print("\n--- Posterior Predictive Checks ---")
+    # Log PPC results
+    logger.info("--- Posterior Predictive Checks ---")
     if ppc_result.get("checked", False):
         ppc_warnings = ppc_result.get("per_variable_warnings", [])
         if ppc_warnings:
-            print(f"  {len(ppc_warnings)} warning(s):")
+            logger.warning("  %d warning(s):", len(ppc_warnings))
             for w in ppc_warnings:
-                print(f"    - {w['variable']}: {w['message']}")
+                logger.warning("    - %s: %s", w["variable"], w["message"])
         else:
-            print("  All checks passed")
+            logger.info("  All checks passed")
     else:
-        print(f"  Skipped: {ppc_result.get('error', 'unknown')}")
+        logger.info("  Skipped: %s", ppc_result.get("error", "unknown"))
 
-    # Print ranked results table
-    print(f"\n=== Treatment Ranking by Effect on {outcome} ===")
+    # Log ranked results table
+    logger.info("=== Treatment Ranking by Effect on %s ===", outcome)
     if intervention_results:
-        print(f"{'Rank':<5} {'Treatment':<30} {'Effect':>10} {'P(>0)':>8} {'ID':>4}")
-        print("-" * 59)
+        logger.info("%-5s %-30s %10s %8s %4s", "Rank", "Treatment", "Effect", "P(>0)", "ID")
+        logger.info("-" * 59)
         for rank, entry in enumerate(intervention_results, 1):
             name = entry["treatment"]
             effect = entry.get("effect_size")
@@ -605,17 +606,19 @@ async def causal_inference_pipeline(
                 line = f"{rank:<5} {name:<30} {effect:>+10.4f} {prob_str:>8} {ident:>4}"
                 if entry.get("prior_sensitivity_warning"):
                     line += "  *"
-                print(line)
+                logger.info(line)
             else:
                 warning = entry.get("warning", "no estimate")
-                print(f"{rank:<5} {name:<30} {'—':>10} {'':>8} {ident:>4}  ({warning})")
+                logger.info(
+                    "%-5d %-30s %10s %8s %4s  (%s)", rank, name, "—", "", ident, warning
+                )
 
-        # Print prior-sensitivity footnotes
+        # Log prior-sensitivity footnotes
         ps_entries = [e for e in intervention_results if e.get("prior_sensitivity_warning")]
         if ps_entries:
-            print("\n  * Prior-dominated effects:")
+            logger.warning("  * Prior-dominated effects:")
             for e in ps_entries:
-                print(f"    {e['treatment']}: {e['prior_sensitivity_warning']}")
+                logger.warning("    %s: %s", e["treatment"], e["prior_sensitivity_warning"])
 
     if intervention_results:
         create_table_artifact(
