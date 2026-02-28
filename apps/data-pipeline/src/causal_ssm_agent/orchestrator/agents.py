@@ -5,6 +5,8 @@ Two-stage approach following Anderson & Gerbing (1988):
 2. Measurement Model (Stage 1b) - operationalize constructs into indicators, WITH DATA
 """
 
+import asyncio
+
 from inspect_ai.model import get_model
 
 from causal_ssm_agent.utils.config import get_config  # also loads .env
@@ -51,8 +53,6 @@ def propose_latent_model(question: str) -> dict:
     Returns:
         LatentModel as a dictionary
     """
-    import asyncio
-
     return asyncio.run(propose_latent_model_async(question))
 
 
@@ -115,8 +115,6 @@ def propose_measurement_model(
     Returns:
         MeasurementModel as a dictionary
     """
-    import asyncio
-
     return asyncio.run(
         propose_measurement_model_async(question, latent_model, data_sample, dataset_summary)
     )
