@@ -231,11 +231,13 @@ class TestQueryFunctions:
 class TestPivotToWide:
     def test_basic_pivot(self):
         """Simple long-to-wide conversion."""
-        df = pl.DataFrame({
-            "timestamp": [1.0, 2.0, 1.0, 2.0],
-            "indicator": ["x", "x", "y", "y"],
-            "value": [10.0, 20.0, 30.0, 40.0],
-        })
+        df = pl.DataFrame(
+            {
+                "timestamp": [1.0, 2.0, 1.0, 2.0],
+                "indicator": ["x", "x", "y", "y"],
+                "value": [10.0, 20.0, 30.0, 40.0],
+            }
+        )
         from causal_ssm_agent.utils.data import pivot_to_wide
 
         wide = pivot_to_wide(df)
@@ -256,11 +258,13 @@ class TestPivotToWide:
         """Uses time_bucket column when present."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({
-            "time_bucket": [1.0, 2.0],
-            "indicator": ["x", "x"],
-            "value": [10.0, 20.0],
-        })
+        df = pl.DataFrame(
+            {
+                "time_bucket": [1.0, 2.0],
+                "indicator": ["x", "x"],
+                "value": [10.0, 20.0],
+            }
+        )
         wide = pivot_to_wide(df)
         assert "time" in wide.columns
 
@@ -271,11 +275,13 @@ class TestPivotToWide:
         t0 = datetime(2024, 1, 1)
         t1 = t0 + timedelta(days=1)
         t2 = t0 + timedelta(days=2)
-        df = pl.DataFrame({
-            "timestamp": [t0, t1, t2],
-            "indicator": ["x", "x", "x"],
-            "value": [1.0, 2.0, 3.0],
-        })
+        df = pl.DataFrame(
+            {
+                "timestamp": [t0, t1, t2],
+                "indicator": ["x", "x", "x"],
+                "value": [1.0, 2.0, 3.0],
+            }
+        )
         wide = pivot_to_wide(df)
         assert "time" in wide.columns
         times = wide["time"].to_list()
@@ -287,11 +293,13 @@ class TestPivotToWide:
         """Output should be sorted by time."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({
-            "timestamp": [3.0, 1.0, 2.0],
-            "indicator": ["x", "x", "x"],
-            "value": [30.0, 10.0, 20.0],
-        })
+        df = pl.DataFrame(
+            {
+                "timestamp": [3.0, 1.0, 2.0],
+                "indicator": ["x", "x", "x"],
+                "value": [30.0, 10.0, 20.0],
+            }
+        )
         wide = pivot_to_wide(df)
         times = wide["time"].to_list()
         assert times == sorted(times)
@@ -300,11 +308,13 @@ class TestPivotToWide:
         """Indicators without values at certain times should be null."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({
-            "timestamp": [1.0, 2.0, 2.0],
-            "indicator": ["x", "x", "y"],
-            "value": [10.0, 20.0, 30.0],
-        })
+        df = pl.DataFrame(
+            {
+                "timestamp": [1.0, 2.0, 2.0],
+                "indicator": ["x", "x", "y"],
+                "value": [10.0, 20.0, 30.0],
+            }
+        )
         wide = pivot_to_wide(df)
         # y has no value at t=1, so it should be null
         y_at_t1 = wide.filter(pl.col("time") == 1.0)["y"].to_list()
@@ -314,13 +324,63 @@ class TestPivotToWide:
         """String timestamps should be parsed to datetime."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({
-            "timestamp": ["2024-01-01", "2024-01-02"],
-            "indicator": ["x", "x"],
-            "value": [1.0, 2.0],
-        })
+        df = pl.DataFrame(
+            {
+                "timestamp": ["2024-01-01", "2024-01-02"],
+                "indicator": ["x", "x"],
+                "value": [1.0, 2.0],
+            }
+        )
         wide = pivot_to_wide(df)
         assert "time" in wide.columns
         times = wide["time"].to_list()
         assert abs(times[0]) < 0.001
         assert abs(times[1] - 1.0) < 0.001
+
+    def test_string_values_cast_to_float(self):
+        """String values should be cast to Float64."""
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        df = pl.DataFrame(
+            {
+                "timestamp": [1.0, 2.0],
+                "indicator": ["x", "x"],
+                "value": ["10.5", "20.3"],
+            }
+        )
+        wide = pivot_to_wide(df)
+        assert wide["x"].dtype == pl.Float64
+        assert abs(wide["x"][0] - 10.5) < 0.001
+
+    def test_duplicate_values_aggregated_with_mean(self):
+        """Multiple values at same time for same indicator should be averaged."""
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        df = pl.DataFrame(
+            {
+                "timestamp": [1.0, 1.0, 2.0],
+                "indicator": ["x", "x", "x"],
+                "value": [10.0, 20.0, 30.0],
+            }
+        )
+        wide = pivot_to_wide(df)
+        assert wide.height == 2
+        # At t=1, mean of 10 and 20 is 15
+        x_at_t1 = wide.filter(pl.col("time") == 1.0)["x"][0]
+        assert abs(x_at_t1 - 15.0) < 0.001
+
+    def test_single_indicator(self):
+        """Minimal case with just one indicator."""
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        df = pl.DataFrame(
+            {
+                "timestamp": [1.0],
+                "indicator": ["x"],
+                "value": [42.0],
+            }
+        )
+        wide = pivot_to_wide(df)
+        assert wide.height == 1
+        assert "x" in wide.columns
+        assert wide["x"][0] == 42.0
