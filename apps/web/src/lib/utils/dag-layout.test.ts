@@ -6,9 +6,9 @@ function makeConstruct(name: string, overrides: Partial<Construct> = {}): Constr
   return {
     name,
     description: `${name} description`,
-    dtype: "continuous",
+    role: "endogenous",
     is_outcome: false,
-    is_latent: true,
+    temporal_status: "time_varying",
     ...overrides,
   } as Construct;
 }
@@ -126,7 +126,7 @@ describe("layoutDag", () => {
   });
 
   it("assigns construct data to nodes", async () => {
-    const c = makeConstruct("stress", { is_outcome: true, dtype: "continuous" });
+    const c = makeConstruct("stress", { is_outcome: true });
     const result = await layoutDag([c], []);
     expect(result.nodes[0].data.name).toBe("stress");
     expect(result.nodes[0].data.is_outcome).toBe(true);

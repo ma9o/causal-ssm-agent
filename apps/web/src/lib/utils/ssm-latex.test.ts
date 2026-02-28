@@ -140,6 +140,8 @@ describe("priorLine", () => {
       parameter: "beta_X_Y",
       distribution: "Normal",
       params: { loc: 0, scale: 1 },
+      sources: [],
+      reasoning: "",
     } as PriorProposal;
     const result = priorLine(prior);
     expect(result).toContain("\\beta");
@@ -153,6 +155,8 @@ describe("priorLine", () => {
       parameter: "sigma_mood",
       distribution: "HalfNormal",
       params: { scale: 2 },
+      sources: [],
+      reasoning: "",
     } as PriorProposal;
     const result = priorLine(prior);
     expect(result).toContain("\\text{HalfNormal}");
