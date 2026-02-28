@@ -24,7 +24,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.likelihoods.kernels import ObservationKernel
@@ -110,7 +110,7 @@ def _unscented_sigma_points(mean: jnp.ndarray, cov: jnp.ndarray) -> tuple[jnp.nd
 
     # Cholesky of scaled covariance
     scaled_cov = (n + lam) * cov
-    L = jla.cholesky(scaled_cov + jnp.eye(n) * 1e-8, lower=True)  # (n, n)
+    L = jla.cholesky(scaled_cov + jnp.eye(n) * CHOL_JITTER, lower=True)  # (n, n)
 
     # Sigma points: mean, mean + L_i, mean - L_i
     points = jnp.zeros((2 * n + 1, n))
@@ -174,7 +174,7 @@ def _kalman_update_gaussian(
 
     # Inflate R for missing observations
     R_adj = R + jnp.diag((1.0 - mask_float) * large_var)
-    R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(n_manifest) * 1e-8
+    R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(n_manifest) * CHOL_JITTER
 
     # Innovation
     y_pred = H @ m + d
@@ -182,7 +182,7 @@ def _kalman_update_gaussian(
 
     # Innovation covariance S = H P H' + R_adj
     S = H @ P @ H.T + R_adj
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * 1e-8
+    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
 
     # Kalman gain K = P H' S^{-1}
     K = P @ H.T @ jnp.linalg.inv(S)
@@ -227,7 +227,7 @@ def _linearized_update(
 
     eta_pred = H @ m + d
     mean = obs_kernel.response_fn(eta_pred)
-    R_pseudo = obs_kernel.variance_fn(mean) + jnp.eye(n_manifest) * 1e-8
+    R_pseudo = obs_kernel.variance_fn(mean) + jnp.eye(n_manifest) * CHOL_JITTER
     v = (y - mean) * mask_float
 
     # Inflate for missing
@@ -236,7 +236,7 @@ def _linearized_update(
 
     # Standard Kalman update with pseudo-observation model
     S = H @ P @ H.T + R_pseudo
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * 1e-8
+    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
     K = P @ H.T @ jnp.linalg.inv(S)
 
     m_upd = m + K @ v
@@ -244,7 +244,7 @@ def _linearized_update(
     P_upd = 0.5 * (P_upd + P_upd.T)
 
     # Ensure P stays positive definite
-    P_upd = P_upd + jnp.eye(n) * 1e-8
+    P_upd = P_upd + jnp.eye(n) * CHOL_JITTER
 
     return m_upd, P_upd
 
@@ -271,7 +271,7 @@ def _obs_weight_gaussian(
     v = (y - y_pred) * mask_float
 
     S = H @ pred_cov @ H.T + R
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * 1e-8
+    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
 
     # Inflate for missing
     large_var = MISSING_DATA_LARGE_VAR
@@ -312,7 +312,7 @@ def _obs_weight_quadrature(
         sigma_pts, sigma_wts = _unscented_sigma_points(pred_mean, pred_cov)
     else:
         gh_nodes, gh_wts = _multivariate_gauss_hermite(n_quadrature, n_latent)
-        L = jla.cholesky(pred_cov + jnp.eye(n_latent) * 1e-8, lower=True)
+        L = jla.cholesky(pred_cov + jnp.eye(n_latent) * CHOL_JITTER, lower=True)
         sigma_pts = pred_mean[None, :] + gh_nodes @ L.T
         sigma_wts = gh_wts
 

@@ -16,6 +16,7 @@ from typing import NamedTuple, Protocol
 import jax.numpy as jnp
 
 MISSING_DATA_LARGE_VAR = 1e10
+CHOL_JITTER = 1e-8
 
 
 class CTParams(NamedTuple):
