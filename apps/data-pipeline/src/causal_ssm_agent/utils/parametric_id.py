@@ -508,7 +508,6 @@ def output_sensitivity_analysis(
     model: SSMModel,
     times: jnp.ndarray,
     n_draws: int = 8,
-    sv_threshold: float = 1e-6,
     seed: int = 42,
 ) -> OutputSensitivityResult:
     """Pre-inference parametric identifiability via output sensitivity analysis.
@@ -522,8 +521,6 @@ def output_sensitivity_analysis(
         model: SSMModel instance
         times: (T,) observation times
         n_draws: Number of prior draws for robustness (default 8)
-        sv_threshold: Relative threshold for near-zero singular values
-            (default 1e-6, i.e., sv < 1e-6 * max_sv is near-singular)
         seed: Random seed
 
     Returns:
