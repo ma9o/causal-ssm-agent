@@ -98,6 +98,11 @@ export function paramSymbol(name: string): string {
   return `\\text{${textify(name)}}`;
 }
 
+/** Strip the & alignment marker from a priorLine result for inline display. */
+export function priorLatex(prior: PriorProposal): string {
+  return priorLine(prior).replace(/&/g, "");
+}
+
 /** Map a prior distribution name + params to LaTeX. */
 export function priorLine(prior: PriorProposal): string {
   const sym = paramSymbol(prior.parameter);

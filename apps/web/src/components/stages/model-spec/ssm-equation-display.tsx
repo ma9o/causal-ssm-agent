@@ -14,7 +14,7 @@ import {
 import {
   confounderGroupLatex,
   confounderGroups,
-  priorLine,
+  priorLatex,
   stateEquationRows,
 } from "@/lib/utils/ssm-latex";
 import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
@@ -46,11 +46,6 @@ function confounderGroupHtml(group: Parameters<typeof confounderGroupLatex>[0]):
 function Katex({ latex }: { latex: string }) {
   // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
   return <span dangerouslySetInnerHTML={{ __html: tex(latex, false) }} />;
-}
-
-/** Strip the & alignment marker from a priorLine result. */
-function priorLatex(prior: PriorProposal): string {
-  return priorLine(prior).replace(/&/g, "");
 }
 
 export function SSMEquationDisplay({

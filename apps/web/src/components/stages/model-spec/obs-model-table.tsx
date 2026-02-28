@@ -1,7 +1,7 @@
 "use client";
 
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { likelihoodLine, priorLine } from "@/lib/utils/ssm-latex";
+import { likelihoodLine, priorLatex } from "@/lib/utils/ssm-latex";
 import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
@@ -10,10 +10,6 @@ import katex from "katex";
 
 function inlineKatex(latex: string): string {
   return katex.renderToString(latex, { displayMode: false, throwOnError: false, strict: false });
-}
-
-function priorLatex(prior: PriorProposal): string {
-  return priorLine(prior).replace(/&/g, "");
 }
 
 // ── row type ─────────────────────────────────────────────
