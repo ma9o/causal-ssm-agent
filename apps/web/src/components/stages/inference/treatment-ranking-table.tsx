@@ -2,7 +2,7 @@
 
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { formatNumber } from "@/lib/utils/format";
-import { buildHistogram } from "@/lib/utils/histogram";
+import { buildHistogram, quantile } from "@/lib/utils/histogram";
 import type { TreatmentEffect } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
@@ -23,14 +23,6 @@ function effectSeverity(row: TreatmentEffect): "fail" | "warn" | undefined {
   if (!row.identifiable) return "fail";
   if (row.prior_sensitivity_warning) return "warn";
   return undefined;
-}
-
-function quantile(sorted: number[], q: number): number {
-  const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
 function PosteriorHistogram({ draws, mean }: { draws: number[]; mean: number | null }) {

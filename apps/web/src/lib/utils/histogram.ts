@@ -1,9 +1,16 @@
 /**
- * Build a histogram from numeric values.
- *
- * Returns bin center, count, and edges for each bin.
+ * Numeric statistical utilities: histograms, quantiles, etc.
  */
 import { bin } from "d3-array";
+
+/** Linear-interpolation quantile on a pre-sorted array. */
+export function quantile(sorted: number[], q: number): number {
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
 
 export function buildHistogram(
   values: number[],
