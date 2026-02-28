@@ -4,12 +4,10 @@ import { ShieldX } from "lucide-react";
 export function HardGateAlert({
   title,
   explanation,
-  suggestion,
   children,
 }: {
   title: string;
   explanation: string;
-  suggestion?: string;
   children?: React.ReactNode;
 }) {
   return (
@@ -19,7 +17,6 @@ export function HardGateAlert({
       <AlertDescription className="mt-2 space-y-2">
         <p>{explanation}</p>
         {children}
-        {/* {suggestion && <p className="font-medium text-sm">Suggestion: {suggestion}</p>} */}
       </AlertDescription>
     </Alert>
   );

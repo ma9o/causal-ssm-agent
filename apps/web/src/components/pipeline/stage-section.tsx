@@ -6,7 +6,7 @@ import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { StageHeader } from "./stage-header";
 
 export function StageSection({
@@ -37,13 +37,15 @@ export function StageSection({
   loadingHint?: string;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [prevStatus, setPrevStatus] = useState(status);
 
-  // Expand when transitioning to completed
-  useEffect(() => {
+  // Expand when transitioning to completed (derive-state-from-props)
+  if (status !== prevStatus) {
+    setPrevStatus(status);
     if (status === "completed") {
       setCollapsed(false);
     }
-  }, [status]);
+  }
 
   // Failed-outcome stages should not be collapsible — the failure must remain visible
   const isCollapsible = status === "completed" && outcome !== "fail";

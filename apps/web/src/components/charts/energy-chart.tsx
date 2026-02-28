@@ -61,10 +61,7 @@ export function EnergyChart({ energy }: EnergyChartProps) {
                 <XAxis dataKey="x" tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 0)} />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
                 <RechartsTooltip
-                  formatter={
-                    // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                    ((value: number) => [formatNumber(value, 4), "Density"]) as any
-                  }
+                  formatter={(value) => [formatNumber(Number(value), 4), "Density"]}
                 />
                 <Area
                   dataKey="energy"
@@ -87,10 +84,7 @@ export function EnergyChart({ energy }: EnergyChartProps) {
                 <XAxis dataKey="x" tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 0)} />
                 <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
                 <RechartsTooltip
-                  formatter={
-                    // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                    ((value: number) => [formatNumber(value, 4), "Density"]) as any
-                  }
+                  formatter={(value) => [formatNumber(Number(value), 4), "Density"]}
                 />
                 <Area
                   dataKey="transition"

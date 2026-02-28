@@ -13,9 +13,8 @@ interface DataTableProps<T extends object> {
 const ROW_HEIGHT = 28;
 
 export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: DataTableProps<T>) {
-  if (rows.length === 0) return null;
-
   const columns = useMemo(() => {
+    if (rows.length === 0) return [];
     const firstRow = rows[0] as Record<string, unknown>;
     const allKeys = Object.keys(firstRow);
     return allKeys.filter((key) =>
@@ -33,6 +32,8 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
   });
 
   const { focusedRowIndex, containerProps } = useTableKeyboardNav(rows.length);
+
+  if (rows.length === 0) return null;
 
   return (
     <div

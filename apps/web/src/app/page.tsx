@@ -39,7 +39,7 @@ export default function LandingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMac, setIsMac] = useState(false);
+  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
@@ -50,10 +50,6 @@ export default function LandingPage() {
         .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`));
     }
   }, [router]);
-
-  useEffect(() => {
-    setIsMac(/Mac/.test(navigator.userAgent));
-  }, []);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);

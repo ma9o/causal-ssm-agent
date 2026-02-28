@@ -39,10 +39,7 @@ export function RankHistogram({ histogram }: RankHistogramProps) {
             <XAxis dataKey="bin" tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} hide />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number, name: string) => [value, name]) as any
-              }
+              formatter={(value, name) => [String(value), String(name)]}
             />
             <ReferenceLine
               y={histogram.expected_per_bin}

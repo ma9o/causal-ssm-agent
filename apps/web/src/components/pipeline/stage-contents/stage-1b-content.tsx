@@ -17,7 +17,6 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
         <HardGateAlert
           title="Non-Identifiable Treatment Effects Removed"
           explanation={`${nonIdEntries.length} treatment(s) have non-identifiable causal effects and were filtered out.`}
-          suggestion="Add instrumental variables or remove unobserved confounders to enable identification."
         >
           <div className="space-y-1.5">
             {nonIdEntries.map(([name, status]) => (

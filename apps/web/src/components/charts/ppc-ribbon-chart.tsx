@@ -51,9 +51,7 @@ export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
           />
           <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => formatNumber(v, 1)} />
           <RechartsTooltip
-            formatter={
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              ((value: number, name: string) => {
+            formatter={(value, name) => {
                 const labels: Record<string, string> = {
                   observed: "Observed",
                   median: "Median (y_rep)",
@@ -62,12 +60,11 @@ export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
                   q25: "25%",
                   q75: "75%",
                 };
-                if (name.startsWith("draw_")) return [formatNumber(value, 2), "y_rep"];
-                return [formatNumber(value, 2), labels[name] ?? name];
-              }) as any
-            }
-            // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-            labelFormatter={((label: number) => `t = ${label}`) as any}
+                const n = String(name);
+                if (n.startsWith("draw_")) return [formatNumber(Number(value), 2), "y_rep"];
+                return [formatNumber(Number(value), 2), labels[n] ?? n];
+              }}
+            labelFormatter={(label) => `t = ${label}`}
           />
           {/* 95% band (lightest) */}
           <Area

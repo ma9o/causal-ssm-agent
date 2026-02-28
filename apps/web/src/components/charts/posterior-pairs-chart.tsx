@@ -60,10 +60,7 @@ export function PosteriorPairsChart({ pair }: PosteriorPairsChartProps) {
               label={{ value: pair.param_y, angle: -90, position: "insideLeft", offset: 10, fontSize: 9 }}
             />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number) => [formatNumber(value, 3)]) as any
-              }
+              formatter={(value) => [formatNumber(Number(value), 3)]}
             />
             <Scatter data={normal} fill="var(--primary)" fillOpacity={0.3} r={2} name="normal" />
             {hasDivergent && (

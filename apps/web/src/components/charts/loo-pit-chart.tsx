@@ -48,16 +48,13 @@ export function LOOPITChart({ loo }: LOOPITChartProps) {
               label={{ value: "ECDF", angle: -90, position: "insideLeft", offset: 10, fontSize: 11 }}
             />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number, name: string) => {
-                  const labels: Record<string, string> = {
-                    ecdf: "ECDF",
-                    uniform: "Uniform",
-                  };
-                  return [formatNumber(value, 3), labels[name] ?? name];
-                }) as any
-              }
+              formatter={(value, name) => {
+                const labels: Record<string, string> = {
+                  ecdf: "ECDF",
+                  uniform: "Uniform",
+                };
+                return [formatNumber(Number(value), 3), labels[String(name)] ?? String(name)];
+              }}
             />
             {/* Reference: uniform CDF (45-degree line) */}
             <Line

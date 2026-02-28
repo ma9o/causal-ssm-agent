@@ -44,12 +44,8 @@ export function PosteriorDensityChart({ marginal }: PosteriorDensityChartProps) 
             />
             <YAxis tick={{ fontSize: 10 }} hide />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number) => [formatNumber(value, 3), "Density"]) as any
-              }
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              labelFormatter={((label: number) => formatNumber(label, 3)) as any}
+              formatter={(value) => [formatNumber(Number(value), 3), "Density"]}
+              labelFormatter={(label) => formatNumber(Number(label), 3)}
             />
             {/* HDI shading would need a more complex approach; use reference lines */}
             <ReferenceLine

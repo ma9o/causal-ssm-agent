@@ -48,14 +48,8 @@ export function PPCTestStatChart({ stat }: PPCTestStatChartProps) {
             />
             <YAxis tick={{ fontSize: 10 }} hide />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number) => [value, "Count"]) as any
-              }
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              labelFormatter={
-                ((label: number) => `T(y_rep) \u2248 ${formatNumber(label, 2)}`) as any
-              }
+              formatter={(value) => [String(value), "Count"]}
+              labelFormatter={(label) => `T(y_rep) \u2248 ${formatNumber(Number(label), 2)}`}
             />
             <Bar dataKey="count" fill="var(--primary)" fillOpacity={0.5} />
             <ReferenceLine
