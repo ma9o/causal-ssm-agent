@@ -8,6 +8,8 @@ DistributionFamily case-insensitive construction.
 import pytest
 
 from causal_ssm_agent.orchestrator.schemas_model import (
+    VALID_LIKELIHOODS_FOR_DTYPE,
+    VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LikelihoodSpec,
     LinkFunction,
@@ -195,6 +197,64 @@ class TestDistributionFamilyCaseInsensitive:
     def test_ordered_logistic_pascal(self):
         assert DistributionFamily("OrderedLogistic") == DistributionFamily.ORDERED_LOGISTIC
 
+    def test_space_to_underscore(self):
+        """Spaces should be converted to underscores."""
+        assert DistributionFamily("negative binomial") == DistributionFamily.NEGATIVE_BINOMIAL
+
+    def test_ordered_logistic_with_spaces(self):
+        assert DistributionFamily("ordered logistic") == DistributionFamily.ORDERED_LOGISTIC
+
+    def test_student_t_mixed_case(self):
+        assert DistributionFamily("Student_T") == DistributionFamily.STUDENT_T
+
+    def test_all_canonical_members_from_value(self):
+        """Every member's .value should round-trip through construction."""
+        for member in DistributionFamily:
+            assert DistributionFamily(member.value) == member
+
+    def test_non_string_raises(self):
+        with pytest.raises(ValueError):
+            DistributionFamily(42)
+
+    def test_none_raises(self):
+        with pytest.raises(ValueError):
+            DistributionFamily(None)
+
+    def test_empty_string_raises(self):
+        with pytest.raises(ValueError):
+            DistributionFamily("")
+
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             DistributionFamily("not_a_distribution")
+
+
+# =============================================================================
+# Mapping completeness
+# =============================================================================
+
+
+class TestMappingCompleteness:
+    def test_every_distribution_has_link_mapping(self):
+        """Every DistributionFamily member should appear in VALID_LINKS_FOR_DISTRIBUTION."""
+        for member in DistributionFamily:
+            assert member in VALID_LINKS_FOR_DISTRIBUTION, (
+                f"{member} has no link function mapping"
+            )
+
+    def test_every_link_mapping_is_non_empty(self):
+        for dist, links in VALID_LINKS_FOR_DISTRIBUTION.items():
+            assert len(links) > 0, f"{dist} has empty link set"
+
+    def test_every_dtype_has_distribution_mapping(self):
+        """All expected dtypes appear in VALID_LIKELIHOODS_FOR_DTYPE."""
+        expected_dtypes = {"binary", "count", "continuous", "ordinal", "categorical"}
+        assert set(VALID_LIKELIHOODS_FOR_DTYPE.keys()) == expected_dtypes
+
+    def test_every_dtype_distribution_is_valid_member(self):
+        """All distributions in the dtype mapping are valid DistributionFamily members."""
+        for dtype, dists in VALID_LIKELIHOODS_FOR_DTYPE.items():
+            for d in dists:
+                assert isinstance(d, DistributionFamily), (
+                    f"{dtype} contains non-member {d}"
+                )
