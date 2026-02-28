@@ -1,13 +1,20 @@
 """Tests for utils/data.py pure utility functions.
 
-Covers: chunk_lines, pivot_to_wide.
+Covers: chunk_lines, pivot_to_wide, load_lines, sample_chunks,
+        get_latest_preprocessed_file, resolve_query_path, load_query, list_queries.
 """
 
+import time
 from datetime import datetime, timedelta
 
 import polars as pl
 
-from causal_ssm_agent.utils.data import chunk_lines
+from causal_ssm_agent.utils.data import (
+    chunk_lines,
+    get_latest_preprocessed_file,
+    load_lines,
+    sample_chunks,
+)
 
 # =============================================================================
 # chunk_lines
@@ -42,6 +49,178 @@ class TestChunkLines:
         lines = ["a", "b", "c"]
         result = chunk_lines(lines, 1)
         assert result == ["a", "b", "c"]
+
+
+# =============================================================================
+# load_lines
+# =============================================================================
+
+
+class TestLoadLines:
+    def test_basic_load(self, tmp_path):
+        f = tmp_path / "data.txt"
+        f.write_text("line1\nline2\nline3\n")
+        assert load_lines(f) == ["line1", "line2", "line3"]
+
+    def test_strips_whitespace(self, tmp_path):
+        f = tmp_path / "data.txt"
+        f.write_text("  hello  \n  world  \n")
+        assert load_lines(f) == ["hello", "world"]
+
+    def test_skips_blank_lines(self, tmp_path):
+        f = tmp_path / "data.txt"
+        f.write_text("a\n\n\nb\n  \nc\n")
+        assert load_lines(f) == ["a", "b", "c"]
+
+    def test_empty_file(self, tmp_path):
+        f = tmp_path / "data.txt"
+        f.write_text("")
+        assert load_lines(f) == []
+
+
+# =============================================================================
+# sample_chunks
+# =============================================================================
+
+
+class TestSampleChunks:
+    def _write_lines(self, tmp_path, n):
+        """Write n lines to a temp file and return the path."""
+        f = tmp_path / "data.txt"
+        f.write_text("\n".join(f"line{i}" for i in range(n)))
+        return f
+
+    def test_n_zero_returns_empty(self, tmp_path):
+        f = self._write_lines(tmp_path, 10)
+        assert sample_chunks(f, 0, chunk_size=1) == []
+
+    def test_n_negative_returns_empty(self, tmp_path):
+        f = self._write_lines(tmp_path, 10)
+        assert sample_chunks(f, -5, chunk_size=1) == []
+
+    def test_n_equals_total(self, tmp_path):
+        f = self._write_lines(tmp_path, 5)
+        result = sample_chunks(f, 5, chunk_size=1)
+        assert len(result) == 5
+
+    def test_n_exceeds_total(self, tmp_path):
+        f = self._write_lines(tmp_path, 3)
+        result = sample_chunks(f, 100, chunk_size=1)
+        assert len(result) == 3
+
+    def test_deterministic_with_seed(self, tmp_path):
+        f = self._write_lines(tmp_path, 20)
+        r1 = sample_chunks(f, 5, seed=42, chunk_size=1)
+        r2 = sample_chunks(f, 5, seed=42, chunk_size=1)
+        assert r1 == r2
+
+    def test_samples_span_dataset(self, tmp_path):
+        """Evenly-spaced samples should cover early and late chunks."""
+        f = self._write_lines(tmp_path, 100)
+        result = sample_chunks(f, 3, seed=0, chunk_size=1)
+        assert len(result) == 3
+        # First sample from early lines, last from late lines
+        first_num = int(result[0].replace("line", ""))
+        last_num = int(result[-1].replace("line", ""))
+        assert first_num < 34  # first third
+        assert last_num >= 66  # last third
+
+
+# =============================================================================
+# get_latest_preprocessed_file
+# =============================================================================
+
+
+class TestGetLatestPreprocessedFile:
+    def test_returns_most_recent(self, tmp_path):
+        old = tmp_path / "old.txt"
+        old.write_text("old")
+        time.sleep(0.05)  # ensure different mtime
+        new = tmp_path / "new.txt"
+        new.write_text("new")
+        result = get_latest_preprocessed_file(tmp_path)
+        assert result == new
+
+    def test_excludes_specified_files(self, tmp_path):
+        keep = tmp_path / "keep.txt"
+        keep.write_text("keep")
+        time.sleep(0.05)
+        skip = tmp_path / "skip.txt"
+        skip.write_text("skip")
+        result = get_latest_preprocessed_file(tmp_path, exclude={"skip.txt"})
+        assert result == keep
+
+    def test_empty_directory(self, tmp_path):
+        assert get_latest_preprocessed_file(tmp_path) is None
+
+    def test_ignores_non_txt_files(self, tmp_path):
+        (tmp_path / "data.csv").write_text("csv")
+        assert get_latest_preprocessed_file(tmp_path) is None
+
+    def test_single_file(self, tmp_path):
+        f = tmp_path / "only.txt"
+        f.write_text("only")
+        assert get_latest_preprocessed_file(tmp_path) == f
+
+
+# =============================================================================
+# resolve_query_path / load_query / list_queries
+# =============================================================================
+
+
+class TestQueryFunctions:
+    def test_resolve_exact_match(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        f = tmp_path / "test.txt"
+        f.write_text("query content")
+        from causal_ssm_agent.utils.data import resolve_query_path
+
+        assert resolve_query_path("test.txt") == f
+
+    def test_resolve_adds_txt_extension(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        f = tmp_path / "test.txt"
+        f.write_text("content")
+        from causal_ssm_agent.utils.data import resolve_query_path
+
+        assert resolve_query_path("test") == f
+
+    def test_resolve_adds_md_extension(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        f = tmp_path / "test.md"
+        f.write_text("content")
+        from causal_ssm_agent.utils.data import resolve_query_path
+
+        assert resolve_query_path("test") == f
+
+    def test_resolve_not_found(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        import pytest
+
+        from causal_ssm_agent.utils.data import resolve_query_path
+
+        with pytest.raises(FileNotFoundError):
+            resolve_query_path("nonexistent")
+
+    def test_load_query(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        f = tmp_path / "q.txt"
+        f.write_text("  Does X cause Y?  \n")
+        from causal_ssm_agent.utils.data import load_query
+
+        assert load_query("q.txt") == "Does X cause Y?"
+
+    def test_list_queries(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
+        (tmp_path / "a.txt").write_text("a")
+        (tmp_path / "b.md").write_text("b")
+        (tmp_path / ".gitkeep").write_text("")
+        from causal_ssm_agent.utils.data import list_queries
+
+        names = list_queries()
+        assert "a.txt" in names
+        assert "b.md" in names
+        assert ".gitkeep" not in names
 
 
 # =============================================================================
