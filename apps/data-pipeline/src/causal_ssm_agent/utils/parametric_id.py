@@ -66,16 +66,19 @@ class TRuleResult(BaseModel):
     param_counts: dict[str, int]
 
     def print_report(self) -> None:
-        """Print a human-readable t-rule report."""
+        """Log a human-readable t-rule report."""
         tag = "[ok]" if self.satisfies else "[FAIL]"
-        print("\n=== T-Rule (Counting Condition) ===")
-        print(f"  {tag} {self.n_free_params} free params vs {self.n_moments} moment conditions")
+        lines = [
+            "=== T-Rule (Counting Condition) ===",
+            f"  {tag} {self.n_free_params} free params vs {self.n_moments} moment conditions",
+        ]
         if self.n_timepoints is not None:
-            print(f"  Time points: {self.n_timepoints}")
-        print(f"  Manifest variables: {self.n_manifest}")
-        print("  Parameter breakdown:")
+            lines.append(f"  Time points: {self.n_timepoints}")
+        lines.append(f"  Manifest variables: {self.n_manifest}")
+        lines.append("  Parameter breakdown:")
         for name, count in sorted(self.param_counts.items()):
-            print(f"    {name}: {count}")
+            lines.append(f"    {name}: {count}")
+        logger.info("\n%s", "\n".join(lines))
 
 
 def count_free_params(spec: SSMSpec) -> dict[str, int]:
@@ -492,16 +495,19 @@ class OutputSensitivityResult:
     n_parameters: int  # number of scalar free parameters
 
     def print_report(self) -> None:
-        """Print a human-readable sensitivity analysis report."""
-        print("\n=== Output Sensitivity Analysis ===")
-        print(f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}")
-        print(f"  Condition number: {self.condition_number:.2e}")
-        print(f"  Prior draws: {self.n_draws}")
+        """Log a human-readable sensitivity analysis report."""
         n_nonsing = sum(1 for sv in self.singular_values if sv > 1e-10)
-        print(f"  Rank: {n_nonsing}/{min(self.n_observations, self.n_parameters)}")
+        lines = [
+            "=== Output Sensitivity Analysis ===",
+            f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}",
+            f"  Condition number: {self.condition_number:.2e}",
+            f"  Prior draws: {self.n_draws}",
+            f"  Rank: {n_nonsing}/{min(self.n_observations, self.n_parameters)}",
+        ]
         for entry in self.per_parameter:
             tag = "[ok]" if entry["identifiable"] else "[!]"
-            print(f"  {tag} {entry['parameter']}: norm={entry['sensitivity_norm']:.4f}")
+            lines.append(f"  {tag} {entry['parameter']}: norm={entry['sensitivity_norm']:.4f}")
+        logger.info("\n%s", "\n".join(lines))
 
 
 def output_sensitivity_analysis(
@@ -734,19 +740,22 @@ class ProfileLikelihoodResult:
         return classifications
 
     def print_report(self) -> None:
-        """Print a human-readable profile likelihood report."""
+        """Log a human-readable profile likelihood report."""
         summary = self.summary()
         markers = {
             "identified": "[ok]",
             "practically_unidentifiable": "[~]",
             "structurally_unidentifiable": "[!]",
         }
-        print("\n=== Profile Likelihood Report ===")
-        print(f"  Parameters profiled: {len(self.parameter_profiles)}")
-        print(f"  Threshold: {self.threshold:.2f}")
-        print(f"  MAP log-posterior: {self.mle_ll:.2f}")
+        lines = [
+            "=== Profile Likelihood Report ===",
+            f"  Parameters profiled: {len(self.parameter_profiles)}",
+            f"  Threshold: {self.threshold:.2f}",
+            f"  MAP log-posterior: {self.mle_ll:.2f}",
+        ]
         for name, cls in summary.items():
-            print(f"  {markers.get(cls, '[?]')} {name}: {cls}")
+            lines.append(f"  {markers.get(cls, '[?]')} {name}: {cls}")
+        logger.info("\n%s", "\n".join(lines))
 
 
 @dataclass
@@ -785,22 +794,23 @@ class SBCResult:
         return result
 
     def print_report(self) -> None:
-        """Print a human-readable SBC report."""
+        """Log a human-readable SBC report."""
         summary = self.summary()
-        print(f"\n=== SBC Calibration Report (n={self.n_sbc}) ===")
+        lines = [f"=== SBC Calibration Report (n={self.n_sbc}) ==="]
         if self.n_failed > 0:
-            print(
+            lines.append(
                 f"  Replicates: {self.n_sbc} succeeded, {self.n_failed} failed "
                 f"out of {self.n_attempted} attempted"
             )
         for name, info in summary.items():
             tag = "ok" if info["uniform"] else "FAIL"
             if name == "_likelihood":
-                print(f"  [{tag}] likelihood: p={info['p_value']:.4f}")
+                lines.append(f"  [{tag}] likelihood: p={info['p_value']:.4f}")
             else:
-                print(
+                lines.append(
                     f"  [{tag}] {name}: p={info['p_value']:.4f} (mean_rank={info['mean_rank']:.1f})"
                 )
+        logger.info("\n%s", "\n".join(lines))
 
 
 @dataclass
@@ -813,18 +823,19 @@ class PowerScalingResult:
     psis_k_hat: dict[str, float] = field(default_factory=dict)
 
     def print_report(self) -> None:
-        """Print a human-readable power-scaling report."""
-        print("\n=== Power-Scaling Sensitivity Report ===")
+        """Log a human-readable power-scaling report."""
+        lines = ["=== Power-Scaling Sensitivity Report ==="]
         for name in self.diagnosis:
             prior_s = self.prior_sensitivity.get(name, 0.0)
             lik_s = self.likelihood_sensitivity.get(name, 0.0)
             diag = self.diagnosis[name]
             k_hat = self.psis_k_hat.get(name, float("nan"))
             reliable = "reliable" if k_hat < 0.7 else "UNRELIABLE"
-            print(
+            lines.append(
                 f"  {name}: prior_sens={prior_s:.3f}, lik_sens={lik_s:.3f} "
                 f"-> {diag} (k_hat={k_hat:.2f}, {reliable})"
             )
+        logger.info("\n%s", "\n".join(lines))
 
 
 # ---------------------------------------------------------------------------

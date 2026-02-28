@@ -207,8 +207,10 @@ class TestTRule:
         counts = count_free_params(spec)
         assert counts.get("obs_df") == 1
 
-    def test_print_report(self, capsys):
+    def test_print_report(self, caplog):
         """print_report should not crash."""
+        import logging
+
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         spec = SSMSpec(
@@ -222,10 +224,10 @@ class TestTRule:
             t0_var="diag",
         )
         result = check_t_rule(spec, T=50)
-        result.print_report()
-        captured = capsys.readouterr()
-        assert "T-Rule" in captured.out
-        assert "[ok]" in captured.out
+        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
+            result.print_report()
+        assert "T-Rule" in caplog.text
+        assert "[ok]" in caplog.text
 
     def test_utils_init_exports(self):
         """T-rule exports should be available from utils __init__."""
@@ -388,19 +390,21 @@ class TestOutputSensitivity:
         assert all("sensitivity_norm" in e for e in result.per_parameter)
         assert all("identifiable" in e for e in result.per_parameter)
 
-    def test_print_report(self, capsys):
+    def test_print_report(self, caplog):
         """print_report should not crash."""
+        import logging
+
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
         model = _make_identified_model()
         times = jnp.linspace(0, 10, 20)
 
         result = output_sensitivity_analysis(model, times, n_draws=2, seed=0)
-        result.print_report()
+        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
+            result.print_report()
 
-        captured = capsys.readouterr()
-        assert "Output Sensitivity Analysis" in captured.out
-        assert "Condition number" in captured.out
+        assert "Output Sensitivity Analysis" in caplog.text
+        assert "Condition number" in caplog.text
 
     def test_utils_init_exports(self):
         """New exports should be available from utils __init__."""
@@ -570,8 +574,10 @@ class TestProfileLikelihoodResult:
 
         assert result.summary()["p"] == "structurally_unidentifiable"
 
-    def test_print_report(self, capsys):
+    def test_print_report(self, caplog):
         """print_report should not crash."""
+        import logging
+
         from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 10)
@@ -589,10 +595,10 @@ class TestProfileLikelihoodResult:
             threshold=1.92,
             parameter_names=["p"],
         )
-        result.print_report()
+        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
+            result.print_report()
 
-        captured = capsys.readouterr()
-        assert "Profile Likelihood Report" in captured.out
+        assert "Profile Likelihood Report" in caplog.text
 
 
 class TestSBCCheck:
@@ -693,8 +699,10 @@ class TestSBCCheck:
 class TestPowerScalingResult:
     """Test PowerScalingResult dataclass."""
 
-    def test_print_report(self, capsys):
+    def test_print_report(self, caplog):
         """print_report should not crash."""
+        import logging
+
         from causal_ssm_agent.utils.parametric_id import PowerScalingResult
 
         result = PowerScalingResult(
@@ -707,11 +715,11 @@ class TestPowerScalingResult:
             psis_k_hat={"drift_diag_pop": 0.3, "diffusion_diag_pop": 0.5},
         )
 
-        result.print_report()
-        captured = capsys.readouterr()
-        assert "Power-Scaling Sensitivity Report" in captured.out
-        assert "well_identified" in captured.out
-        assert "prior_dominated" in captured.out
+        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
+            result.print_report()
+        assert "Power-Scaling Sensitivity Report" in caplog.text
+        assert "well_identified" in caplog.text
+        assert "prior_dominated" in caplog.text
 
 
 class TestPowerScalingSensitivity:
