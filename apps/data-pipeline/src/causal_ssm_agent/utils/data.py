@@ -7,6 +7,8 @@ from causal_ssm_agent.utils.config import get_config  # also loads .env
 
 logger = logging.getLogger(__name__)
 
+SECONDS_PER_DAY = 86400.0
+
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
@@ -226,7 +228,7 @@ def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
         t0 = wide_data[time_col].min()
         wide_data = wide_data.with_columns(
-            ((pl.col(time_col) - t0).dt.total_seconds() / 86400.0).alias(time_col)
+            ((pl.col(time_col) - t0).dt.total_seconds() / SECONDS_PER_DAY).alias(time_col)
         )
 
     if time_col in wide_data.columns:
