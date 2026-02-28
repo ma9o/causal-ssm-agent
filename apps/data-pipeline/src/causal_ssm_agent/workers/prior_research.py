@@ -123,7 +123,7 @@ Report specific numerical values when available.
         return result.data.get("sources", [])
 
     except Exception:
-        # Don't fail the pipeline if Exa search fails
+        logger.warning("Exa search failed; continuing without search results", exc_info=True)
         return []
 
 
@@ -163,6 +163,7 @@ async def _elicit_single_paraphrase(
             reasoning=prior_data.get("reasoning", ""),
         )
     except Exception:
+        logger.debug("Failed to parse prior elicitation response for paraphrase %d", paraphrase_id)
         return None
 
 
@@ -234,6 +235,7 @@ def _aggregate_gmm(
                 best_gmm = gmm
                 best_k = k
         except Exception:
+            logger.debug("GMM fitting failed for k=%d", k)
             continue
 
     if best_gmm is None or best_k == 1:
