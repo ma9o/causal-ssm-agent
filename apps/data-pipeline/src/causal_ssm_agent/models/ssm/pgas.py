@@ -36,6 +36,7 @@ from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoMultivariateNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
 from causal_ssm_agent.models.likelihoods.particle import SSMAdapter
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -317,7 +318,7 @@ def _csmc_sweep(
             assert manifest_means is not None
             R_adj_t = R_adj[0]  # base R_adj (missing data handled via mask inflation)
             # Adjust R_inv for this timestep's mask
-            mask_inf = (1.0 - mask_t) * 1e10
+            mask_inf = (1.0 - mask_t) * MISSING_DATA_LARGE_VAR
             R_adj_t_inflated = R_adj_t + jnp.diag(mask_inf)
             R_inv_t = jnp.linalg.inv(R_adj_t_inflated + jitter_obs)
             LtRinvL_t = lambda_mat.T @ R_inv_t @ lambda_mat
