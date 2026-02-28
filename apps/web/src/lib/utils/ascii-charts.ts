@@ -150,6 +150,8 @@ export function asciiMultiLine(series: number[][], opts: MultiLineOpts = {}): st
 /** Linearly resample an array to a target length. */
 function resample(arr: number[], targetLen: number): number[] {
   if (arr.length <= targetLen) return arr;
+  if (targetLen <= 0) return [];
+  if (targetLen === 1) return [arr[0]];
 
   const result: number[] = [];
   for (let i = 0; i < targetLen; i++) {
