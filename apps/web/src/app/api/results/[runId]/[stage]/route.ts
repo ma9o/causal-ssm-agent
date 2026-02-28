@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
+
+const RESULTS_DIR = resolve(process.cwd(), "..", "data-pipeline", "results");
+const FIXTURES_DIR = resolve(process.cwd(), "test", "fixtures");
 
 export async function GET(
   _request: Request,
@@ -10,12 +13,19 @@ export async function GET(
   const mockFixture = process.env.NEXT_PUBLIC_MOCK_DATA;
   const isMock = !!mockFixture && mockFixture !== "false";
 
-  const paths = [
-    join(process.cwd(), "..", "data-pipeline", "results", runId, `${stage}.json`),
-    ...(isMock ? [join(process.cwd(), "test", "fixtures", mockFixture, `${stage}.json`)] : []),
+  // Sanitize path components to prevent directory traversal
+  const safeRunId = basename(runId);
+  const safeStage = basename(stage);
+
+  const paths: Array<{ path: string; root: string }> = [
+    { path: resolve(join(RESULTS_DIR, safeRunId, `${safeStage}.json`)), root: RESULTS_DIR },
+    ...(isMock
+      ? [{ path: resolve(join(FIXTURES_DIR, basename(mockFixture), `${safeStage}.json`)), root: FIXTURES_DIR }]
+      : []),
   ];
 
-  for (const filePath of paths) {
+  for (const { path: filePath, root } of paths) {
+    if (!filePath.startsWith(root)) continue;
     try {
       const data = await readFile(filePath, "utf-8");
       return NextResponse.json(JSON.parse(data));

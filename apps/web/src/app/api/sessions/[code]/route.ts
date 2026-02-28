@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { readSessions } from "../_shared";
+
+const FIXTURES_DIR = resolve(process.cwd(), "test", "fixtures");
 
 export async function GET(_request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
@@ -20,10 +22,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ cod
 
   // 2. Try fixture (code doubles as fixture directory name)
   try {
-    const data = await readFile(
-      join(process.cwd(), "test", "fixtures", code.toLowerCase(), "session.json"),
-      "utf-8",
-    );
+    const safeCode = basename(code.toLowerCase());
+    const fixturePath = resolve(join(FIXTURES_DIR, safeCode, "session.json"));
+    if (!fixturePath.startsWith(FIXTURES_DIR)) {
+      return NextResponse.json({ error: "Invalid session code" }, { status: 400 });
+    }
+    const data = await readFile(fixturePath, "utf-8");
     return NextResponse.json(JSON.parse(data));
   } catch {
     // No fixture either
