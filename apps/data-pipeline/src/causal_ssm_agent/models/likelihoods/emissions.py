@@ -13,18 +13,19 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
+from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR
+
 
 def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
     """Log p(y_t | z_t) for Gaussian emissions."""
     pred = H @ z_t + d
     residual = (y_t - pred) * obs_mask_t
     n_obs = jnp.sum(obs_mask_t)
-    large_var = 1e10
-    R_adj = R + jnp.diag((1.0 - obs_mask_t) * large_var)
+    R_adj = R + jnp.diag((1.0 - obs_mask_t) * MISSING_DATA_LARGE_VAR)
     R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(R.shape[0]) * 1e-8
     _, logdet = jnp.linalg.slogdet(R_adj)
     n_missing = y_t.shape[0] - n_obs
-    logdet = logdet - n_missing * jnp.log(large_var)
+    logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
     mahal = residual @ jla.solve(R_adj, residual, assume_a="pos")
     return jnp.where(n_obs > 0, -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal), 0.0)
 
