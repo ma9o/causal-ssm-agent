@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint --fix",
     "format": "biome format --write .",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@causal-ssm/api-types": "workspace:*",
@@ -51,7 +52,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   },
   "ignoreScripts": ["sharp", "unrs-resolver"],
   "trustedDependencies": ["sharp", "unrs-resolver"]
