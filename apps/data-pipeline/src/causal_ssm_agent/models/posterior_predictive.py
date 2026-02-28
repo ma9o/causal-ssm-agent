@@ -521,6 +521,12 @@ def simulate_posterior_predictive(
     if is_mixed and effective_dists is None:
         effective_dists = [manifest_dist] * n_manifest
 
+    def _scalar(arr):
+        """Collapse a posterior draw array to a scalar mean."""
+        if arr is None:
+            return None
+        return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
+
     if all_gaussian:
         # Fast path: correlated Gaussian observation noise via Cholesky
         manifest_chol_sub = vmap(
@@ -566,11 +572,6 @@ def simulate_posterior_predictive(
             assert effective_dists is not None
             dist_indices = jnp.array([_DIST_IDX.get(d, 0) for d in effective_dists])
 
-        def _scalar(arr):
-            if arr is None:
-                return None
-            return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
-
         obs_df_val = _scalar(samples.get("obs_df")) or 5.0
         obs_shape_val = _scalar(samples.get("obs_shape")) or 2.0
         obs_r_val = _scalar(samples.get("obs_r")) or 5.0
@@ -607,12 +608,6 @@ def simulate_posterior_predictive(
         # Resolve effective scalar distribution and link
         effective_dist = effective_dists[0] if effective_dists else manifest_dist
         effective_link = effective_links[0] if effective_links else None
-
-        def _scalar(arr):
-            """Collapse a posterior draw array to a scalar mean."""
-            if arr is None:
-                return None
-            return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
 
         obs_df_val = _scalar(samples.get("obs_df"))
         obs_shape_val = _scalar(samples.get("obs_shape"))
