@@ -17,19 +17,14 @@ import type {
   Stage4bData,
   Stage5Data,
   Stage6Data,
+  StageId,
   StageMeta,
   StageOutcome,
 } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bot } from "lucide-react";
 import { motion } from "motion/react";
-import {
-  type ReactNode,
-  Suspense,
-  lazy,
-  useEffect,
-  useState,
-} from "react";
+import { type ComponentType, type ReactNode, Suspense, lazy, useEffect, useState } from "react";
 import { StageSection } from "./stage-section";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
@@ -77,10 +72,7 @@ function StageWithTrace({
         {children}
       </motion.div>
       <motion.div
-        className={cn(
-          "flex min-w-0 flex-col gap-3 overflow-hidden",
-          !showTrace && "h-0",
-        )}
+        className={cn("flex min-w-0 flex-col gap-3 overflow-hidden", !showTrace && "h-0")}
         animate={{ flex: showTrace ? 1 : 0, opacity: showTrace ? 1 : 0 }}
         initial={false}
         transition={transition}
@@ -117,8 +109,13 @@ export function StageSectionRouter({
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
-  // Read trace + gate override + outcome from the stage data (shared query key — cache hit when stage content is loaded)
-  const { data: stageData } = useStageData<{ llm_trace?: LLMTrace; gate_overridden?: GateOverride; outcome?: StageOutcome }>(runId, stage.id, isCompleted);
+  // Read context + trace + gate override + outcome from the stage data (shared query key — cache hit when stage content is loaded)
+  const { data: stageData } = useStageData<{
+    context?: string;
+    llm_trace?: LLMTrace;
+    gate_overridden?: GateOverride;
+    outcome?: StageOutcome;
+  }>(runId, stage.id, isCompleted);
 
   const outcome: StageOutcome = stageData?.outcome ?? "success";
 
@@ -160,69 +157,24 @@ export function StageSectionRouter({
   );
 
   if (stageData?.llm_trace) {
-    return (
-      <StageWithTrace trace={stageData.llm_trace}>
-        {section}
-      </StageWithTrace>
-    );
+    return <StageWithTrace trace={stageData.llm_trace}>{section}</StageWithTrace>;
   }
 
   return <div className="max-w-6xl mx-auto">{section}</div>;
 }
 
-function StageContent({ stageId, runId }: { stageId: string; runId: string }) {
-  switch (stageId) {
-    case "stage-0":
-      return <Stage0Wrapper runId={runId} />;
-    case "stage-1a":
-      return <Stage1aWrapper runId={runId} />;
-    case "stage-1b":
-      return <Stage1bWrapper runId={runId} />;
-    case "stage-2":
-      return <Stage2Wrapper runId={runId} />;
-    case "stage-3":
-      return <Stage3Wrapper runId={runId} />;
-    case "stage-4":
-      return <Stage4Wrapper runId={runId} />;
-    case "stage-4b":
-      return <Stage4bWrapper runId={runId} />;
-    case "stage-5":
-      return <Stage5Wrapper runId={runId} />;
-    case "stage-6":
-      return <Stage6Wrapper runId={runId} />;
-    default:
-      return null;
-  }
-}
-
-function Stage0Wrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage0Data>(runId, "stage-0", true);
+function SimpleStageWrapper<T>({
+  runId,
+  stageId,
+  Component,
+}: {
+  runId: string;
+  stageId: StageId;
+  Component: ComponentType<{ data: T }>;
+}) {
+  const { data } = useStageData<T>(runId, stageId, true);
   if (!data) return null;
-  return <Stage0Content data={data} />;
-}
-
-function Stage1aWrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage1aData>(runId, "stage-1a", true);
-  if (!data) return null;
-  return <Stage1aContent data={data} />;
-}
-
-function Stage1bWrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage1bData>(runId, "stage-1b", true);
-  if (!data) return null;
-  return <Stage1bContent data={data} />;
-}
-
-function Stage2Wrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage2Data>(runId, "stage-2", true);
-  if (!data) return null;
-  return <Stage2Content data={data} />;
-}
-
-function Stage3Wrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage3Data>(runId, "stage-3", true);
-  if (!data) return null;
-  return <Stage3Content data={data} />;
+  return <Component data={data} />;
 }
 
 function Stage4Wrapper({ runId }: { runId: string }) {
@@ -230,23 +182,64 @@ function Stage4Wrapper({ runId }: { runId: string }) {
   const { data: stage2 } = useStageData<Stage2Data>(runId, "stage-2", true);
   const { data: stage1b } = useStageData<Stage1bData>(runId, "stage-1b", true);
   if (!data) return null;
-  return <Stage4Content data={data} extractions={stage2?.combined_extractions_sample} indicators={stage1b?.causal_spec.measurement.indicators} />;
+  return (
+    <Stage4Content
+      data={data}
+      extractions={stage2?.combined_extractions_sample}
+      indicators={stage1b?.causal_spec.measurement.indicators}
+    />
+  );
 }
 
-function Stage4bWrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage4bData>(runId, "stage-4b", true);
-  if (!data) return null;
-  return <Stage4bContent data={data} />;
-}
-
-function Stage5Wrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage5Data>(runId, "stage-5", true);
-  if (!data) return null;
-  return <Stage5Content data={data} />;
-}
-
-function Stage6Wrapper({ runId }: { runId: string }) {
-  const { data } = useStageData<Stage6Data>(runId, "stage-6", true);
-  if (!data) return null;
-  return <Stage6Content data={data} />;
+function StageContent({ stageId, runId }: { stageId: string; runId: string }) {
+  switch (stageId) {
+    case "stage-0":
+      return (
+        <SimpleStageWrapper<Stage0Data> runId={runId} stageId="stage-0" Component={Stage0Content} />
+      );
+    case "stage-1a":
+      return (
+        <SimpleStageWrapper<Stage1aData>
+          runId={runId}
+          stageId="stage-1a"
+          Component={Stage1aContent}
+        />
+      );
+    case "stage-1b":
+      return (
+        <SimpleStageWrapper<Stage1bData>
+          runId={runId}
+          stageId="stage-1b"
+          Component={Stage1bContent}
+        />
+      );
+    case "stage-2":
+      return (
+        <SimpleStageWrapper<Stage2Data> runId={runId} stageId="stage-2" Component={Stage2Content} />
+      );
+    case "stage-3":
+      return (
+        <SimpleStageWrapper<Stage3Data> runId={runId} stageId="stage-3" Component={Stage3Content} />
+      );
+    case "stage-4":
+      return <Stage4Wrapper runId={runId} />;
+    case "stage-4b":
+      return (
+        <SimpleStageWrapper<Stage4bData>
+          runId={runId}
+          stageId="stage-4b"
+          Component={Stage4bContent}
+        />
+      );
+    case "stage-5":
+      return (
+        <SimpleStageWrapper<Stage5Data> runId={runId} stageId="stage-5" Component={Stage5Content} />
+      );
+    case "stage-6":
+      return (
+        <SimpleStageWrapper<Stage6Data> runId={runId} stageId="stage-6" Component={Stage6Content} />
+      );
+    default:
+      return null;
+  }
 }
