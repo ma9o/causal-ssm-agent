@@ -1,0 +1,380 @@
+"""Tests for model spec merging and dict validation.
+
+Covers: validate_model_spec_dict, merge_decisions_to_spec,
+        validate_model_spec_decisions_dict.
+"""
+
+
+from causal_ssm_agent.orchestrator.schemas_model import (
+    DistributionChoice,
+    DistributionFamily,
+    LinkFunction,
+    ModelSpecDecisions,
+    ParameterConstraint,
+    merge_decisions_to_spec,
+    validate_model_spec_decisions_dict,
+    validate_model_spec_dict,
+)
+
+
+def _valid_spec_dict():
+    """Minimal valid ModelSpec dict."""
+    return {
+        "likelihoods": [
+            {
+                "variable": "mood_score",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "Continuous variable",
+            }
+        ],
+        "parameters": [
+            {
+                "name": "beta_stress_mood",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "Effect of stress on mood",
+                "search_context": "stress mood effect size",
+            }
+        ],
+        "reasoning": "Standard linear model",
+    }
+
+
+# =============================================================================
+# validate_model_spec_dict
+# =============================================================================
+
+
+class TestValidateModelSpecDict:
+    def test_valid_dict(self):
+        spec, errors = validate_model_spec_dict(_valid_spec_dict())
+        assert spec is not None
+        assert errors == []
+
+    def test_not_dict(self):
+        spec, errors = validate_model_spec_dict("not a dict")
+        assert spec is None
+        assert any("dictionary" in e.lower() for e in errors)
+
+    def test_invalid_distribution(self):
+        d = _valid_spec_dict()
+        d["likelihoods"][0]["distribution"] = "nonexistent"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("distribution" in e and "nonexistent" in e for e in errors)
+
+    def test_invalid_link(self):
+        d = _valid_spec_dict()
+        d["likelihoods"][0]["link"] = "bad_link"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("link" in e and "bad_link" in e for e in errors)
+
+    def test_distribution_link_incompatible(self):
+        d = _valid_spec_dict()
+        d["likelihoods"][0]["distribution"] = "gaussian"
+        d["likelihoods"][0]["link"] = "log"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("link" in e and "invalid" in e for e in errors)
+
+    def test_invalid_role(self):
+        d = _valid_spec_dict()
+        d["parameters"][0]["role"] = "bad_role"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("role" in e and "bad_role" in e for e in errors)
+
+    def test_invalid_constraint(self):
+        d = _valid_spec_dict()
+        d["parameters"][0]["constraint"] = "bad_constraint"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("constraint" in e and "bad_constraint" in e for e in errors)
+
+    def test_duplicate_likelihood(self):
+        d = _valid_spec_dict()
+        d["likelihoods"].append(d["likelihoods"][0].copy())
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("duplicate" in e for e in errors)
+
+    def test_duplicate_parameter(self):
+        d = _valid_spec_dict()
+        d["parameters"].append(d["parameters"][0].copy())
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("duplicate" in e for e in errors)
+
+    def test_dtype_check_with_indicators(self):
+        d = _valid_spec_dict()
+        indicators = [{"name": "mood_score", "measurement_dtype": "binary"}]
+        spec, errors = validate_model_spec_dict(d, indicators=indicators)
+        assert spec is None
+        assert any("dtype" in e for e in errors)
+
+    def test_missing_indicator_coverage(self):
+        d = _valid_spec_dict()
+        indicators = [
+            {"name": "mood_score", "measurement_dtype": "continuous"},
+            {"name": "extra_var", "measurement_dtype": "continuous"},
+        ]
+        spec, errors = validate_model_spec_dict(d, indicators=indicators)
+        assert spec is None
+        assert any("extra_var" in e for e in errors)
+
+    def test_likelihoods_not_list(self):
+        d = _valid_spec_dict()
+        d["likelihoods"] = "bad"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("list" in e for e in errors)
+
+    def test_parameters_not_list(self):
+        d = _valid_spec_dict()
+        d["parameters"] = "bad"
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("list" in e for e in errors)
+
+    def test_likelihood_not_dict(self):
+        d = _valid_spec_dict()
+        d["likelihoods"].append(42)
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("dictionary" in e.lower() for e in errors)
+
+    def test_parameter_not_dict(self):
+        d = _valid_spec_dict()
+        d["parameters"].append("bad")
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("dictionary" in e.lower() for e in errors)
+
+    def test_role_constraint_mismatch(self):
+        d = _valid_spec_dict()
+        d["parameters"][0]["role"] = "residual_sd"
+        d["parameters"][0]["constraint"] = "none"  # should be positive
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("constraint" in e and "unexpected" in e for e in errors)
+
+
+# =============================================================================
+# merge_decisions_to_spec
+# =============================================================================
+
+
+class TestMergeDecisionsToSpec:
+    def test_basic_merge(self):
+        resolved = [
+            {"variable": "mood_score", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"},
+        ]
+        params = [
+            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "Effect of X"},
+        ]
+        decisions = ModelSpecDecisions(
+            distribution_choices=[],
+            loading_constraints=[],
+            search_contexts={"beta_x": "X effect size meta-analysis"},
+            reasoning="Standard model",
+        )
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        assert errors == []
+        assert spec is not None
+        assert len(spec.likelihoods) == 1
+        assert spec.likelihoods[0].variable == "mood_score"
+        assert spec.parameters[0].search_context == "X effect size meta-analysis"
+
+    def test_with_distribution_choices(self):
+        resolved = []
+        params = [
+            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "test"},
+        ]
+        decisions = ModelSpecDecisions(
+            distribution_choices=[
+                DistributionChoice(
+                    variable="steps",
+                    distribution=DistributionFamily.POISSON,
+                    link=LinkFunction.LOG,
+                    reasoning="Count data",
+                ),
+            ],
+            search_contexts={"beta_x": "search query"},
+            reasoning="model reason",
+        )
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        assert errors == []
+        assert spec is not None
+        assert len(spec.likelihoods) == 1
+        assert spec.likelihoods[0].distribution == DistributionFamily.POISSON
+
+    def test_loading_constraint_override(self):
+        resolved = []
+        params = [
+            {"name": "lambda_mood_pss", "role": "loading", "constraint": "none", "description": "Loading"},
+        ]
+        from causal_ssm_agent.orchestrator.schemas_model import LoadingConstraintChoice
+
+        decisions = ModelSpecDecisions(
+            distribution_choices=[],
+            loading_constraints=[
+                LoadingConstraintChoice(
+                    parameter="lambda_mood_pss",
+                    constraint=ParameterConstraint.POSITIVE,
+                    reasoning="Positive loading expected",
+                ),
+            ],
+            search_contexts={"lambda_mood_pss": "factor loading mood"},
+            reasoning="test",
+        )
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        assert errors == []
+        assert spec is not None
+        assert spec.parameters[0].constraint == ParameterConstraint.POSITIVE
+
+    def test_missing_search_context(self):
+        resolved = []
+        params = [
+            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "test"},
+        ]
+        decisions = ModelSpecDecisions(
+            distribution_choices=[],
+            search_contexts={},  # missing for beta_x
+            reasoning="test",
+        )
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        assert spec is None
+        assert any("search_context" in e and "beta_x" in e for e in errors)
+
+    def test_resolved_and_choices_combined(self):
+        resolved = [
+            {"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"},
+        ]
+        params = [
+            {"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d1"},
+        ]
+        decisions = ModelSpecDecisions(
+            distribution_choices=[
+                DistributionChoice(
+                    variable="steps", distribution=DistributionFamily.POISSON,
+                    link=LinkFunction.LOG, reasoning="count",
+                ),
+            ],
+            search_contexts={"p1": "query"},
+            reasoning="test",
+        )
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        assert errors == []
+        assert spec is not None
+        assert len(spec.likelihoods) == 2
+        variables = {lik.variable for lik in spec.likelihoods}
+        assert variables == {"mood", "steps"}
+
+
+# =============================================================================
+# validate_model_spec_decisions_dict
+# =============================================================================
+
+
+class TestValidateModelSpecDecisionsDict:
+    def _ambiguous(self):
+        return [{"variable": "steps", "dtype": "count"}]
+
+    def _resolved(self):
+        return [{"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"}]
+
+    def _params(self):
+        return [{"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d"}]
+
+    def test_valid_decisions(self):
+        data = {
+            "distribution_choices": [
+                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "count"},
+            ],
+            "search_contexts": {"p1": "query"},
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+        assert errors == []
+        assert spec is not None
+
+    def test_not_dict(self):
+        spec, errors = validate_model_spec_decisions_dict(
+            "bad", self._resolved(), self._ambiguous(), self._params()
+        )
+        assert spec is None
+        assert any("dictionary" in e.lower() for e in errors)
+
+    def test_missing_ambiguous_decision(self):
+        data = {
+            "distribution_choices": [],  # missing decision for 'steps'
+            "search_contexts": {"p1": "q"},
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+        assert spec is None
+        assert any("steps" in e for e in errors)
+
+    def test_invalid_distribution_in_choices(self):
+        data = {
+            "distribution_choices": [
+                {"variable": "steps", "distribution": "bad_dist", "link": "log", "reasoning": "r"},
+            ],
+            "search_contexts": {"p1": "q"},
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+        assert spec is None
+        assert any("bad_dist" in e for e in errors)
+
+    def test_invalid_constraint_in_loading(self):
+        data = {
+            "distribution_choices": [
+                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "r"},
+            ],
+            "loading_constraints": [
+                {"parameter": "lam", "constraint": "bad_constraint", "reasoning": "r"},
+            ],
+            "search_contexts": {"p1": "q"},
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+        assert spec is None
+        assert any("bad_constraint" in e for e in errors)
+
+    def test_search_contexts_not_dict(self):
+        data = {
+            "distribution_choices": [
+                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "r"},
+            ],
+            "search_contexts": "not a dict",
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+        assert spec is None
+        assert any("search_contexts" in e for e in errors)
+
+    def test_no_ambiguous_indicators(self):
+        """When no ambiguous indicators, no distribution_choices needed."""
+        data = {
+            "distribution_choices": [],
+            "search_contexts": {"p1": "query"},
+            "reasoning": "test",
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), [], self._params()
+        )
+        assert errors == []
+        assert spec is not None
