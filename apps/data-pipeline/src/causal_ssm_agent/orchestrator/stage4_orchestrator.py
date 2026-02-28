@@ -9,6 +9,8 @@ provides genuine decisions: distribution choices for ambiguous dtypes, loading
 constraints, search_context strings, and reasoning.
 """
 
+import logging
+
 from causal_ssm_agent.orchestrator.prompts.model_proposal import (
     SYSTEM as MODEL_PROPOSAL_SYSTEM,
 )
@@ -31,6 +33,8 @@ from causal_ssm_agent.utils.llm import (
     OrchestratorGenerateFn,
     make_validate_model_spec_tool,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def derive_deterministic_spec(
@@ -283,6 +287,6 @@ def build_data_summary(measurements_data: dict) -> str:
                         if mean is not None and std is not None:
                             lines.append(f"    {col}: mean={mean:.2f}, std={std:.2f}")
                     except Exception:
-                        pass
+                        logger.debug("Could not compute stats for column %s", col)
 
     return "\n".join(lines)

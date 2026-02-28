@@ -7,6 +7,7 @@ Two-stage specification following Anderson & Gerbing (1988):
 - Stage 1b: Measurement model (data-driven operationalization)
 """
 
+import logging
 import math
 from pathlib import Path
 
@@ -44,6 +45,8 @@ from .stages import (
     stage4b_parametric_id_flow,
     validate_extraction,
 )
+
+logger = logging.getLogger(__name__)
 
 RESULT_STORAGE = Path("results")
 
@@ -439,7 +442,8 @@ async def causal_inference_pipeline(
             causal_spec=stage4_result.get("causal_spec"),
         )
     except Exception:
-        builder = None  # stages will build their own
+        logger.warning("Pre-building SSM builder failed; stages will build their own", exc_info=True)
+        builder = None
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 4b: Parametric Identifiability Diagnostics

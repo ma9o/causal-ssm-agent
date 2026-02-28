@@ -5,6 +5,7 @@ Uses dependency injection for the LLM generate function.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 
 from causal_ssm_agent.utils.identifiability import (
@@ -19,6 +20,8 @@ from causal_ssm_agent.utils.llm import (
 
 from .prompts import measurement_model
 from .schemas import LatentModel, MeasurementModel
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -255,6 +258,7 @@ async def run_stage1b(
             try:
                 proxy_response = parse_json_response(proxy_completion)
             except Exception:
+                logger.debug("Failed to parse proxy completion as JSON", exc_info=True)
                 proxy_response = None
 
             if proxy_response and proxy_response.get("new_proxies"):
