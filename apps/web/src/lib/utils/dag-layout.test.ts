@@ -1,6 +1,6 @@
+import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
 import { describe, expect, it } from "vitest";
 import { layoutDag } from "./dag-layout";
-import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
 
 function makeConstruct(name: string, overrides: Partial<Construct> = {}): Construct {
   return {
@@ -102,9 +102,11 @@ describe("layoutDag", () => {
     expect(result.nodes).toHaveLength(3);
     expect(result.edges).toHaveLength(2);
     // A should be above B, B above C (layered top-down)
-    const posA = result.nodes.find((n) => n.id === "A")!.position;
-    const posC = result.nodes.find((n) => n.id === "C")!.position;
-    expect(posA.y).toBeLessThan(posC.y);
+    const nodeA = result.nodes.find((n) => n.id === "A");
+    const nodeC = result.nodes.find((n) => n.id === "C");
+    expect(nodeA).toBeDefined();
+    expect(nodeC).toBeDefined();
+    expect(nodeA?.position.y).toBeLessThan(nodeC?.position.y as number);
   });
 
   it("includes both contemporaneous and lagged edges in output", async () => {

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
 import type { StageId } from "@causal-ssm/api-types";
+import { describe, expect, it } from "vitest";
 
 describe("STAGE_IDS", () => {
   it("has 9 stages", () => {
