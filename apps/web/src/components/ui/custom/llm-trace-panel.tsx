@@ -8,13 +8,9 @@ import {
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils/cn";
+import { formatCompact } from "@/lib/utils/format";
 import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
 import { Bot, ChevronRight, Clock, Cpu, Wrench } from "lucide-react";
-
-const compactNumber = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
@@ -25,12 +21,12 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
         {trace.model}
       </Badge>
       <span className="text-muted-foreground">
-        {compactNumber.format(usage.input_tokens)} in / {compactNumber.format(usage.output_tokens)}{" "}
+        {formatCompact(usage.input_tokens)} in / {formatCompact(usage.output_tokens)}{" "}
         out
       </span>
       {usage.reasoning_tokens ? (
         <span className="text-muted-foreground">
-          ({compactNumber.format(usage.reasoning_tokens)} reasoning)
+          ({formatCompact(usage.reasoning_tokens)} reasoning)
         </span>
       ) : null}
       <span className="ml-auto flex items-center gap-1 text-muted-foreground">

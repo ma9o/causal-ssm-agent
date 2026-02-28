@@ -19,3 +19,12 @@ export function formatDate(iso: string): string {
 export function formatDateRange(start: string, end: string): string {
   return `${formatDate(start)} - ${formatDate(end)}`;
 }
+
+const compactFormatter = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export function formatCompact(n: number): string {
+  return compactFormatter.format(n);
+}

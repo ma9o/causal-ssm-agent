@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateRange, formatNumber, formatPercent } from "./format";
+import { formatCompact, formatDate, formatDateRange, formatNumber, formatPercent } from "./format";
 
 describe("formatNumber", () => {
   it("formats a positive number with default decimals", () => {
@@ -68,5 +68,23 @@ describe("formatDateRange", () => {
     expect(result).toContain("Jan");
     expect(result).toContain("Dec");
     expect(result).toContain(" - ");
+  });
+});
+
+describe("formatCompact", () => {
+  it("formats thousands as K", () => {
+    expect(formatCompact(1500)).toBe("1.5K");
+  });
+
+  it("formats millions as M", () => {
+    expect(formatCompact(2_500_000)).toBe("2.5M");
+  });
+
+  it("formats small numbers without suffix", () => {
+    expect(formatCompact(42)).toBe("42");
+  });
+
+  it("formats zero", () => {
+    expect(formatCompact(0)).toBe("0");
   });
 });
