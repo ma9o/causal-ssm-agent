@@ -14,7 +14,6 @@ import numpy as np
 import polars as pl
 
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
-from causal_ssm_agent.utils.data import pivot_to_wide
 from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 logger = logging.getLogger(__name__)
@@ -26,11 +25,6 @@ _PARAM_TO_SITE: list[tuple[list[str], list[str], str]] = [
     (["sigma", "sd"], ["diffusion_diag_pop", "manifest_var_diag"], "positive"),
     (["beta"], ["drift_offdiag_pop"], "none"),
 ]
-
-
-def _pivot_raw_data(raw_data: pl.DataFrame) -> pl.DataFrame:
-    """Pivot long-format raw data to wide format for model building."""
-    return pivot_to_wide(raw_data)
 
 
 def _compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
