@@ -1,8 +1,10 @@
 """Tests for utils/llm.py pure utility functions.
 
 Covers: parse_json_response, _validate_json_and_format, attach_trace,
-        dict_messages_to_chat.
+        dict_messages_to_chat, calculate, parse_date.
 """
+
+import asyncio
 
 import pytest
 
@@ -201,3 +203,107 @@ class TestDictMessagesToChat:
 
         msgs = dict_messages_to_chat([])
         assert len(msgs) == 0
+
+
+# =============================================================================
+# calculate (tool function)
+# =============================================================================
+
+
+def _run(coro):
+    """Run an async function synchronously for testing."""
+    return asyncio.run(coro)
+
+
+class TestCalculate:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from causal_ssm_agent.utils.llm import calculate
+
+        self.calc = calculate()
+
+    def test_addition(self):
+        assert _run(self.calc("2 + 3")) == "5"
+
+    def test_multiplication(self):
+        assert _run(self.calc("4 * 5")) == "20"
+
+    def test_division(self):
+        assert _run(self.calc("10 / 4")) == "2.5"
+
+    def test_floor_division(self):
+        assert _run(self.calc("10 // 3")) == "3"
+
+    def test_modulo(self):
+        assert _run(self.calc("10 % 3")) == "1"
+
+    def test_exponent(self):
+        assert _run(self.calc("2 ** 8")) == "256"
+
+    def test_negative(self):
+        assert _run(self.calc("-5 + 3")) == "-2"
+
+    def test_parentheses(self):
+        assert _run(self.calc("(10 + 5) * 2")) == "30"
+
+    def test_complex_expression(self):
+        assert _run(self.calc("2 + 3 * 4")) == "14"
+
+    def test_division_by_zero(self):
+        result = _run(self.calc("1 / 0"))
+        assert "Error" in result
+
+    def test_invalid_expression(self):
+        result = _run(self.calc("import os"))
+        assert "Error" in result
+
+    def test_function_call_rejected(self):
+        result = _run(self.calc("__import__('os')"))
+        assert "Error" in result
+
+    def test_float_result(self):
+        assert _run(self.calc("1.5 + 2.5")) == "4.0"
+
+
+# =============================================================================
+# parse_date (tool function)
+# =============================================================================
+
+
+class TestParseDate:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from causal_ssm_agent.utils.llm import parse_date
+
+        self.parse = parse_date()
+
+    def test_iso_date(self):
+        result = _run(self.parse("2024-03-15"))
+        assert "March" in result
+        assert "15" in result
+        assert "2024" in result
+
+    def test_iso_datetime(self):
+        result = _run(self.parse("2024-03-15T10:30:00"))
+        assert "March" in result
+        assert "15" in result
+
+    def test_iso_datetime_with_z(self):
+        result = _run(self.parse("2024-03-15T10:30:00Z"))
+        assert "March" in result
+
+    def test_slash_date_ymd(self):
+        result = _run(self.parse("2024/03/15"))
+        assert "March" in result
+
+    def test_unparseable_date(self):
+        result = _run(self.parse("not-a-date"))
+        assert "Could not parse" in result
+
+    def test_whitespace_stripped(self):
+        result = _run(self.parse("  2024-03-15  "))
+        assert "March" in result
+
+    def test_day_of_week_included(self):
+        result = _run(self.parse("2024-03-15"))
+        assert "Friday" in result
