@@ -1,7 +1,13 @@
 "use client";
 
 import { useElkLayout } from "@/lib/hooks/use-elk-layout";
-import type { CausalEdge, Construct, IdentifiabilityStatus, IdentifiedTreatmentStatus, Indicator } from "@causal-ssm/api-types";
+import type {
+  CausalEdge,
+  Construct,
+  IdentifiabilityStatus,
+  IdentifiedTreatmentStatus,
+  Indicator,
+} from "@causal-ssm/api-types";
 import {
   Background,
   BackgroundVariant,
@@ -27,14 +33,24 @@ const nodeTypes: NodeTypes = {
   construct: ConstructNode,
 };
 
-function EdgeLegend({ hasLagged, hasContemporaneous }: { hasLagged: boolean; hasContemporaneous: boolean }) {
+function EdgeLegend({
+  hasLagged,
+  hasContemporaneous,
+}: { hasLagged: boolean; hasContemporaneous: boolean }) {
   return (
     <div className="rounded-md border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm shadow-sm">
       <div className="flex items-center gap-4">
         {hasContemporaneous && (
           <div className="flex items-center gap-2">
-            <svg width="28" height="8" className="shrink-0">
-              <line x1="0" y1="4" x2="28" y2="4" stroke="var(--edge-contemporary)" strokeWidth="2" />
+            <svg width="28" height="8" className="shrink-0" aria-hidden>
+              <line
+                x1="0"
+                y1="4"
+                x2="28"
+                y2="4"
+                stroke="var(--edge-contemporary)"
+                strokeWidth="2"
+              />
               <polygon points="22,1 28,4 22,7" fill="var(--edge-contemporary)" />
             </svg>
             <span className="text-muted-foreground">same-time</span>
@@ -42,8 +58,16 @@ function EdgeLegend({ hasLagged, hasContemporaneous }: { hasLagged: boolean; has
         )}
         {hasLagged && (
           <div className="flex items-center gap-2">
-            <svg width="28" height="8" className="shrink-0">
-              <line x1="0" y1="4" x2="28" y2="4" stroke="var(--edge-lagged)" strokeWidth="1.5" strokeDasharray="6,4" />
+            <svg width="28" height="8" className="shrink-0" aria-hidden>
+              <line
+                x1="0"
+                y1="4"
+                x2="28"
+                y2="4"
+                stroke="var(--edge-lagged)"
+                strokeWidth="1.5"
+                strokeDasharray="6,4"
+              />
               <polygon points="22,1 28,4 22,7" fill="var(--edge-lagged)" />
             </svg>
             <span className="text-muted-foreground">lagged</span>
@@ -54,7 +78,10 @@ function EdgeLegend({ hasLagged, hasContemporaneous }: { hasLagged: boolean; has
   );
 }
 
-function IdLegend({ hasIdentified, hasNonIdentified }: { hasIdentified: boolean; hasNonIdentified: boolean }) {
+function IdLegend({
+  hasIdentified,
+  hasNonIdentified,
+}: { hasIdentified: boolean; hasNonIdentified: boolean }) {
   if (!hasIdentified && !hasNonIdentified) return null;
   return (
     <div className="rounded-md border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm shadow-sm">
@@ -86,12 +113,19 @@ export function CausalDag({
 }: CausalDagProps) {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
-  const { nodes: layoutNodes, edges: flowEdges, isLayouting } = useElkLayout(constructs, edges, indicators);
+  const {
+    nodes: layoutNodes,
+    edges: flowEdges,
+    isLayouting,
+  } = useElkLayout(constructs, edges, indicators);
 
   // Build a per-node identification info map
   const idInfoMap = useMemo(() => {
     if (!identifiability) return null;
-    const map = new Map<string, { status: "identified" | "non_identified"; details?: IdentifiedTreatmentStatus }>();
+    const map = new Map<
+      string,
+      { status: "identified" | "non_identified"; details?: IdentifiedTreatmentStatus }
+    >();
     for (const [name, details] of Object.entries(identifiability.identifiable_treatments)) {
       map.set(name, { status: "identified", details });
     }
@@ -120,7 +154,9 @@ export function CausalDag({
 
   // Local node state so dragging works (React Flow controlled mode needs onNodesChange)
   const [localNodes, setLocalNodes] = useState(nodesWithIdStatus);
-  const [prevNodeKey, setPrevNodeKey] = useState(() => JSON.stringify(nodesWithIdStatus.map((n) => n.id)));
+  const [prevNodeKey, setPrevNodeKey] = useState(() =>
+    JSON.stringify(nodesWithIdStatus.map((n) => n.id)),
+  );
   const nodeKey = JSON.stringify(nodesWithIdStatus.map((n) => n.id));
 
   // Sync external layout changes into local drag state (React derive-state-from-props pattern)
@@ -136,7 +172,8 @@ export function CausalDag({
   const hasLagged = edges.some((e) => e.lagged);
   const hasContemporaneous = edges.some((e) => !e.lagged);
   const hasIdentified = Object.keys(identifiability?.identifiable_treatments ?? {}).length > 0;
-  const hasNonIdentified = Object.keys(identifiability?.non_identifiable_treatments ?? {}).length > 0;
+  const hasNonIdentified =
+    Object.keys(identifiability?.non_identifiable_treatments ?? {}).length > 0;
 
   const styledNodes = useMemo(() => {
     if (!selectedNode) return localNodes;
