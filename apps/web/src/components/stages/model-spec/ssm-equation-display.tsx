@@ -236,6 +236,7 @@ export function SSMEquationDisplay({
                   className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3"
                 >
                   <div
+                    // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
                     dangerouslySetInnerHTML={{
                       __html: confounderGroupHtml(group),
                     }}
@@ -258,6 +259,7 @@ export function SSMEquationDisplay({
                 General form
               </p>
               <div
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
                 dangerouslySetInnerHTML={{
                   __html: tex(
                     String.raw`\begin{aligned}

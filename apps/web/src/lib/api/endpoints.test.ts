@@ -54,10 +54,10 @@ describe("uploadFile", () => {
 
     expect(result).toEqual(mockResponse);
 
-    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/upload");
-    expect(init!.method).toBe("POST");
-    expect(init!.body).toBeInstanceOf(FormData);
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
   });
 
   it("throws on upload failure", async () => {

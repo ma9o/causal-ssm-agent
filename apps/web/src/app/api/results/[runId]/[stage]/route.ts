@@ -20,7 +20,12 @@ export async function GET(
   const paths: Array<{ path: string; root: string }> = [
     { path: resolve(join(RESULTS_DIR, safeRunId, `${safeStage}.json`)), root: RESULTS_DIR },
     ...(isMock
-      ? [{ path: resolve(join(FIXTURES_DIR, basename(mockFixture), `${safeStage}.json`)), root: FIXTURES_DIR }]
+      ? [
+          {
+            path: resolve(join(FIXTURES_DIR, basename(mockFixture), `${safeStage}.json`)),
+            root: FIXTURES_DIR,
+          },
+        ]
       : []),
   ];
 

@@ -49,6 +49,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
           <div
             key={col}
             className="flex-1 min-w-0 py-1 px-3 text-xs font-medium text-muted-foreground capitalize truncate"
+            // biome-ignore lint/a11y/useSemanticElements: virtualized table requires div-based layout
             role="columnheader"
           >
             {col.replace(/_/g, " ")}
@@ -63,7 +64,6 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
           const row = rows[vi.index] as Record<string, unknown>;
           return (
             // biome-ignore lint/a11y/useFocusableInteractive: virtualized table uses divs with ARIA roles
-            // biome-ignore lint/a11y/useSemanticElements: virtualized table uses divs with ARIA roles
             <div
               key={vi.index}
               className={cn(
@@ -74,6 +74,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
                 height: vi.size,
                 transform: `translateY(${vi.start}px)`,
               }}
+              // biome-ignore lint/a11y/useSemanticElements: virtualized table uses divs with ARIA roles
               role="row"
             >
               {columns.map((col) => (
@@ -81,6 +82,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
                 <div
                   key={col}
                   className="flex-1 min-w-0 py-1 px-3 text-xs text-muted-foreground truncate leading-5"
+                  // biome-ignore lint/a11y/useSemanticElements: virtualized table requires div-based layout
                   role="gridcell"
                 >
                   {row[col] == null
