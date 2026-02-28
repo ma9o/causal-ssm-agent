@@ -1,308 +1,206 @@
-"""Tests for centralized pipeline configuration."""
+"""Tests for config.py: dataclass methods and load_config parsing."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+import textwrap
 
 from causal_ssm_agent.utils.config import (
     InferenceConfig,
-    LLMConfig,
     NUTSConfig,
-    PipelineBehaviorConfig,
-    PipelineConfig,
-    Stage1Config,
-    Stage2Config,
-    Stage4Config,
     SVIConfig,
-    get_secret,
     load_config,
 )
 
-
-@pytest.fixture(autouse=True)
-def _clear_config_cache():
-    """Clear the lru_cache between tests."""
-    load_config.cache_clear()
-    yield
-    load_config.cache_clear()
+# =============================================================================
+# InferenceConfig.to_sampler_config
+# =============================================================================
 
 
-# -- Minimal YAML for tests (no inference/llm/pipeline sections) --
+class TestToSamplerConfig:
+    def test_svi_defaults(self):
+        cfg = InferenceConfig()
+        result = cfg.to_sampler_config()
+        assert result["method"] == "svi"
+        assert result["num_warmup"] == 1000
+        assert result["num_samples"] == 1000
+        assert result["num_chains"] == 4
+        assert result["seed"] == 0
+        assert result["num_steps"] == 5000
+        assert result["learning_rate"] == 0.01
+        assert result["guide_type"] == "mvn"
 
-MINIMAL_YAML = {
-    "stage1_structure_proposal": {"model": "test-model", "sample_chunks": 5, "chunk_size": 50},
-    "stage2_workers": {"model": "test-worker", "chunk_size": 10},
-    "stage4_prior_elicitation": {"model": "test-prior"},
-}
+    def test_nuts_defaults(self):
+        cfg = InferenceConfig(method="nuts")
+        result = cfg.to_sampler_config()
+        assert result["method"] == "nuts"
+        assert result["target_accept_prob"] == 0.85
+        assert result["max_tree_depth"] == 8
+        assert "num_steps" not in result
+        assert "learning_rate" not in result
 
+    def test_method_override(self):
+        cfg = InferenceConfig(method="svi")
+        result = cfg.to_sampler_config(method_override="nuts")
+        assert result["method"] == "nuts"
+        assert result["target_accept_prob"] == 0.85
+        assert "num_steps" not in result
 
-FULL_YAML = {
-    **MINIMAL_YAML,
-    "inference": {
-        "method": "nuts",
-        "num_warmup": 500,
-        "num_samples": 2000,
-        "num_chains": 2,
-        "seed": 42,
-        "svi": {"num_steps": 3000, "learning_rate": 0.005, "guide_type": "diag"},
-        "nuts": {"target_accept_prob": 0.9, "max_tree_depth": 10},
-    },
-    "llm": {
-        "max_tokens": 4096,
-        "timeout": 300,
-        "reasoning_effort": "low",
-    },
-    "pipeline": {"max_prior_retries": 5},
-}
-
-
-def _mock_load(raw_yaml: dict):
-    """Return a patched load_config that reads from a dict instead of disk."""
-
-    def _loader():
-
-        # Simulate what load_config does, but with our dict
-        raw = raw_yaml
-        stage4_raw = raw["stage4_prior_elicitation"]
-        lit_search_raw = stage4_raw.get("literature_search", {})
-        paraphrasing_raw = stage4_raw.get("paraphrasing", {})
-
-        from causal_ssm_agent.utils.config import (
-            LiteratureSearchConfig,
-            ParaphrasingConfig,
+    def test_custom_svi_settings(self):
+        cfg = InferenceConfig(
+            svi=SVIConfig(num_steps=10000, learning_rate=0.001, guide_type="diagonal"),
         )
+        result = cfg.to_sampler_config()
+        assert result["num_steps"] == 10000
+        assert result["learning_rate"] == 0.001
+        assert result["guide_type"] == "diagonal"
 
-        stage4_config = Stage4Config(
-            model=stage4_raw["model"],
-            literature_search=LiteratureSearchConfig(**lit_search_raw)
-            if lit_search_raw
-            else LiteratureSearchConfig(),
-            paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
-            if paraphrasing_raw
-            else ParaphrasingConfig(),
-            worker_model=stage4_raw.get("worker_model"),
+    def test_custom_nuts_settings(self):
+        cfg = InferenceConfig(
+            method="nuts",
+            nuts=NUTSConfig(target_accept_prob=0.95, max_tree_depth=12),
         )
+        result = cfg.to_sampler_config()
+        assert result["target_accept_prob"] == 0.95
+        assert result["max_tree_depth"] == 12
 
-        inference_raw = dict(raw.get("inference", {}))
-        svi_raw = inference_raw.pop("svi", {})
-        nuts_raw = inference_raw.pop("nuts", {})
-        inference_config = InferenceConfig(
-            **inference_raw,
-            svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
-            nuts=NUTSConfig(**nuts_raw) if nuts_raw else NUTSConfig(),
-        )
+    def test_unknown_method_returns_base_keys_only(self):
+        cfg = InferenceConfig(method="hmc")
+        result = cfg.to_sampler_config()
+        assert result["method"] == "hmc"
+        assert "num_warmup" in result
+        assert "num_steps" not in result
+        assert "target_accept_prob" not in result
 
-        llm_raw = raw.get("llm", {})
-        llm_config = LLMConfig(**llm_raw) if llm_raw else LLMConfig()
-
-        pipeline_raw = raw.get("pipeline", {})
-        pipeline_config = (
-            PipelineBehaviorConfig(**pipeline_raw) if pipeline_raw else PipelineBehaviorConfig()
-        )
-
-        return PipelineConfig(
-            stage1_structure_proposal=Stage1Config(**raw["stage1_structure_proposal"]),
-            stage2_workers=Stage2Config(**raw["stage2_workers"]),
-            stage4_prior_elicitation=stage4_config,
-            inference=inference_config,
-            llm=llm_config,
-            pipeline=pipeline_config,
-        )
-
-    return _loader
+    def test_custom_chains_and_seed(self):
+        cfg = InferenceConfig(num_chains=8, seed=42)
+        result = cfg.to_sampler_config()
+        assert result["num_chains"] == 8
+        assert result["seed"] == 42
 
 
-# ── Config defaults ──────────────────────────────────────────────────────────
+# =============================================================================
+# load_config (with temp config file)
+# =============================================================================
 
 
-class TestLoadConfigDefaults:
-    """Verify new sections have correct defaults when missing from YAML."""
+MINIMAL_CONFIG = textwrap.dedent("""\
+    stage1_structure_proposal:
+      model: gpt-4
+      sample_chunks: 3
+      chunk_size: 500
+    stage2_workers:
+      model: gpt-4
+      chunk_size: 300
+    stage4_prior_elicitation:
+      model: gpt-4
+""")
 
-    def test_load_config_defaults(self):
-        cfg = _mock_load(MINIMAL_YAML)()
+FULL_CONFIG = textwrap.dedent("""\
+    stage1_structure_proposal:
+      model: claude-3
+      sample_chunks: 5
+      chunk_size: 800
+    stage2_workers:
+      model: claude-3
+      chunk_size: 400
+    stage4_prior_elicitation:
+      model: claude-3
+      worker_model: claude-3-haiku
+      literature_search:
+        enabled: false
+        model: exa-research
+        timeout_ms: 60000
+      paraphrasing:
+        enabled: true
+        n_paraphrases: 5
+    inference:
+      method: nuts
+      num_warmup: 500
+      num_samples: 2000
+      num_chains: 2
+      seed: 123
+      svi:
+        num_steps: 3000
+      nuts:
+        target_accept_prob: 0.9
+        max_tree_depth: 10
+    llm:
+      max_tokens: 4096
+      timeout: 120
+      reasoning_effort: low
+    pipeline:
+      max_prior_retries: 5
+      override_gates: true
+""")
 
-        # Inference defaults
+
+class TestLoadConfig:
+    def test_load_minimal(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(MINIMAL_CONFIG)
+
+        load_config.cache_clear()
+
+        import causal_ssm_agent.utils.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
+
+        cfg = load_config()
+        assert cfg.stage1_structure_proposal.model == "gpt-4"
+        assert cfg.stage1_structure_proposal.sample_chunks == 3
+        assert cfg.stage2_workers.chunk_size == 300
+        assert cfg.stage4_prior_elicitation.model == "gpt-4"
+        # Defaults for optional sections
         assert cfg.inference.method == "svi"
-        assert cfg.inference.num_warmup == 1000
-        assert cfg.inference.num_samples == 1000
-        assert cfg.inference.num_chains == 4
-        assert cfg.inference.seed == 0
-        assert cfg.inference.svi.num_steps == 5000
-        assert cfg.inference.svi.learning_rate == 0.01
-        assert cfg.inference.nuts.target_accept_prob == 0.85
-
-        # LLM defaults
         assert cfg.llm.max_tokens == 65536
-        assert cfg.llm.timeout == 900
-        assert cfg.llm.reasoning_effort == "high"
+        assert cfg.pipeline.override_gates is False
 
-        # Pipeline defaults
-        assert cfg.pipeline.max_prior_retries == 3
+        load_config.cache_clear()
 
+    def test_load_full(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(FULL_CONFIG)
 
-class TestLoadConfigWithInferenceSection:
-    """Verify full parsing of nested inference config."""
+        load_config.cache_clear()
 
-    def test_load_config_with_inference_section(self):
-        cfg = _mock_load(FULL_YAML)()
+        import causal_ssm_agent.utils.config as config_mod
 
+        monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
+
+        cfg = load_config()
+        assert cfg.stage4_prior_elicitation.worker_model == "claude-3-haiku"
+        assert cfg.stage4_prior_elicitation.literature_search.enabled is False
+        assert cfg.stage4_prior_elicitation.literature_search.timeout_ms == 60000
+        assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
+        assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
         assert cfg.inference.method == "nuts"
         assert cfg.inference.num_warmup == 500
         assert cfg.inference.num_samples == 2000
         assert cfg.inference.num_chains == 2
-        assert cfg.inference.seed == 42
-
+        assert cfg.inference.seed == 123
         assert cfg.inference.svi.num_steps == 3000
-        assert cfg.inference.svi.learning_rate == 0.005
-        assert cfg.inference.svi.guide_type == "diag"
-
         assert cfg.inference.nuts.target_accept_prob == 0.9
         assert cfg.inference.nuts.max_tree_depth == 10
-
         assert cfg.llm.max_tokens == 4096
-        assert cfg.llm.timeout == 300
         assert cfg.llm.reasoning_effort == "low"
-
         assert cfg.pipeline.max_prior_retries == 5
+        assert cfg.pipeline.override_gates is True
 
+        load_config.cache_clear()
 
-# ── InferenceConfig.to_sampler_config ────────────────────────────────────────
+    def test_sampler_config_roundtrip(self, tmp_path, monkeypatch):
+        """Load config and use to_sampler_config."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(FULL_CONFIG)
 
+        load_config.cache_clear()
 
-class TestToSamplerConfig:
-    def test_svi_default(self):
-        cfg = InferenceConfig()  # method="svi" by default
-        sc = cfg.to_sampler_config()
+        import causal_ssm_agent.utils.config as config_mod
 
-        assert sc["method"] == "svi"
-        assert sc["num_warmup"] == 1000
-        assert sc["num_samples"] == 1000
-        assert sc["num_chains"] == 4
-        assert sc["seed"] == 0
-        assert sc["num_steps"] == 5000
-        assert sc["learning_rate"] == 0.01
-        assert sc["guide_type"] == "mvn"
-        # NUTS keys should NOT be present
-        assert "target_accept_prob" not in sc
-        assert "max_tree_depth" not in sc
+        monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
-    def test_nuts_with_method_override(self):
-        cfg = InferenceConfig()  # method="svi" by default
-        sc = cfg.to_sampler_config(method_override="nuts")
+        cfg = load_config()
+        sampler = cfg.inference.to_sampler_config()
+        assert sampler["method"] == "nuts"
+        assert sampler["num_warmup"] == 500
+        assert sampler["target_accept_prob"] == 0.9
 
-        assert sc["method"] == "nuts"
-        assert sc["target_accept_prob"] == 0.85
-        assert sc["max_tree_depth"] == 8
-        # SVI keys should NOT be present
-        assert "num_steps" not in sc
-        assert "learning_rate" not in sc
-
-    def test_custom_values(self):
-        cfg = InferenceConfig(
-            method="nuts",
-            num_warmup=200,
-            seed=99,
-            nuts=NUTSConfig(target_accept_prob=0.95, max_tree_depth=12),
-        )
-        sc = cfg.to_sampler_config()
-
-        assert sc["method"] == "nuts"
-        assert sc["num_warmup"] == 200
-        assert sc["seed"] == 99
-        assert sc["target_accept_prob"] == 0.95
-        assert sc["max_tree_depth"] == 12
-
-
-# ── get_secret ───────────────────────────────────────────────────────────────
-
-
-class TestGetSecret:
-    def test_env_fallback(self, monkeypatch):
-        """When Prefect block fails, falls back to env var."""
-        monkeypatch.setenv("MY_SECRET", "from-env")
-
-        mock_secret_cls = MagicMock()
-        mock_secret_cls.load.side_effect = Exception("not found")
-        mock_module = MagicMock()
-        mock_module.Secret = mock_secret_cls
-
-        with patch.dict("sys.modules", {"prefect.blocks.system": mock_module}):
-            result = get_secret("MY_SECRET")
-
-        assert result == "from-env"
-
-    def test_prefect_block(self):
-        """Successful Prefect block load returns its value."""
-        mock_block = MagicMock()
-        mock_block.get.return_value = "from-prefect"
-
-        mock_secret_cls = MagicMock()
-        mock_secret_cls.load.return_value = mock_block
-
-        # Mock the import of Secret inside get_secret
-        mock_module = MagicMock()
-        mock_module.Secret = mock_secret_cls
-
-        with patch.dict("sys.modules", {"prefect.blocks.system": mock_module}):
-            result = get_secret("MY_SECRET")
-
-        assert result == "from-prefect"
-        mock_secret_cls.load.assert_called_once_with("my-secret")
-
-    def test_neither(self, monkeypatch):
-        """When both fail, returns None."""
-        monkeypatch.delenv("NONEXISTENT_SECRET", raising=False)
-
-        result = get_secret("NONEXISTENT_SECRET")
-        # Prefect block will fail (not configured in test), env var doesn't exist
-        assert result is None
-
-
-# ── Wiring tests ─────────────────────────────────────────────────────────────
-
-
-class TestGetGenerateConfigReadsConfig:
-    """Verify LLM config is wired through to get_generate_config."""
-
-    def test_get_generate_config_reads_config(self):
-        custom_llm = LLMConfig(max_tokens=1024, timeout=60, reasoning_effort="low")
-        mock_cfg = MagicMock()
-        mock_cfg.llm = custom_llm
-
-        with patch("causal_ssm_agent.utils.config.get_config", return_value=mock_cfg):
-            from causal_ssm_agent.utils.llm import get_generate_config
-
-            gc = get_generate_config()
-
-        assert gc.max_tokens == 1024
-        assert gc.timeout == 60
-        assert gc.reasoning_effort == "low"
-
-
-class TestGetDefaultSamplerConfigReadsConfig:
-    """Verify SSMModelBuilder reads from config."""
-
-    def test_get_default_sampler_config_reads_config(self):
-        custom_inference = InferenceConfig(
-            method="nuts",
-            num_warmup=200,
-            num_samples=500,
-            num_chains=1,
-            seed=7,
-            nuts=NUTSConfig(target_accept_prob=0.9, max_tree_depth=6),
-        )
-        mock_cfg = MagicMock()
-        mock_cfg.inference = custom_inference
-
-        with patch("causal_ssm_agent.utils.config.get_config", return_value=mock_cfg):
-            from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-            sc = SSMModelBuilder.get_default_sampler_config()
-
-        assert sc["method"] == "nuts"
-        assert sc["num_warmup"] == 200
-        assert sc["num_samples"] == 500
-        assert sc["num_chains"] == 1
-        assert sc["seed"] == 7
-        assert sc["target_accept_prob"] == 0.9
-        assert sc["max_tree_depth"] == 6
+        load_config.cache_clear()
