@@ -426,6 +426,23 @@ class Indicator(BaseModel):
         return v
 
     @model_validator(mode="after")
+    def validate_ordinal_levels(self) -> "Indicator":
+        """Ensure ordinal_levels is valid when measurement_dtype is 'ordinal'."""
+        if self.measurement_dtype == "ordinal":
+            if not self.ordinal_levels:
+                raise ValueError(
+                    "ordinal_levels is required when measurement_dtype='ordinal' "
+                    "(provide at least 2 ordered level labels)"
+                )
+            if len(self.ordinal_levels) < 2:
+                raise ValueError(
+                    f"ordinal_levels must have at least 2 items, got {len(self.ordinal_levels)}"
+                )
+            if len(self.ordinal_levels) != len(set(self.ordinal_levels)):
+                raise ValueError("ordinal_levels must not contain duplicate labels")
+        return self
+
+    @model_validator(mode="after")
     def warn_semantic_collisions(self) -> "Indicator":
         """Log warnings when how_to_measure text conflicts with aggregation."""
         collisions = check_semantic_collisions(self.how_to_measure, self.aggregation)
