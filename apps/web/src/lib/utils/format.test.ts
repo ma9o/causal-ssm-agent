@@ -51,6 +51,18 @@ describe("formatPercent", () => {
   it("formats values over 100%", () => {
     expect(formatPercent(1.5)).toBe("150.0%");
   });
+
+  it("formats negative values", () => {
+    expect(formatPercent(-0.5)).toBe("-50.0%");
+  });
+
+  it("formats NaN", () => {
+    expect(formatPercent(Number.NaN)).toBe("NaN%");
+  });
+
+  it("formats Infinity", () => {
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe("Infinity%");
+  });
 });
 
 describe("formatDate", () => {
@@ -86,5 +98,12 @@ describe("formatCompact", () => {
 
   it("formats zero", () => {
     expect(formatCompact(0)).toBe("0");
+  });
+
+  it("formats negative numbers", () => {
+    const result = formatCompact(-1500);
+    expect(result).toContain("1.5");
+    expect(result).toContain("K");
+    expect(result).toContain("-");
   });
 });
