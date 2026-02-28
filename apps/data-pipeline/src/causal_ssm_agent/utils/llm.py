@@ -319,9 +319,8 @@ def parse_json_response(content: str) -> dict:
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
-        print(f"Content length: {len(content)}")
-        print(f"Content preview: {content[:500]}...")
+        logger.error("JSON parsing error: %s (content length: %d)", e, len(content))
+        logger.debug("Content preview: %s", content[:500])
         raise ValueError(f"Failed to parse model response as JSON: {e}") from e
 
 
