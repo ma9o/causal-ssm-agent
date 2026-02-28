@@ -3,11 +3,11 @@ import { formatDate, formatDateRange, formatNumber, formatPercent } from "./form
 
 describe("formatNumber", () => {
   it("formats a positive number with default decimals", () => {
-    expect(formatNumber(3.14159)).toBe("3.142");
+    expect(formatNumber(Math.PI)).toBe("3.142");
   });
 
   it("formats with custom decimals", () => {
-    expect(formatNumber(3.14159, 1)).toBe("3.1");
+    expect(formatNumber(Math.PI, 1)).toBe("3.1");
   });
 
   it("returns NaN for NaN", () => {

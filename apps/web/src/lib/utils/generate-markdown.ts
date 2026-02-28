@@ -298,7 +298,7 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
       lines.push(section(3, "Observation Model"));
       lines.push("");
       if (!indMap) {
-        lines.push(latex(`\\mu_v(t) = \\boldsymbol{\\lambda}_v^\\top \\boldsymbol{\\eta}(t)`));
+        lines.push(latex("\\mu_v(t) = \\boldsymbol{\\lambda}_v^\\top \\boldsymbol{\\eta}(t)"));
         lines.push("");
       }
       lines.push(
@@ -637,14 +637,17 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
       if (withTemporal.length > 0) {
         lines.push(section(3, "Temporal Effects"));
         lines.push("");
-        const tempRows = withTemporal.map((t) => [
-          t.treatment,
-          formatNumber(t.temporal!.effect_1d),
-          formatNumber(t.temporal!.effect_7d),
-          formatNumber(t.temporal!.effect_30d),
-          formatNumber(t.temporal!.peak_effect),
-          `${formatNumber(t.temporal!.time_to_peak_days, 1)} days`,
-        ]);
+        const tempRows = withTemporal.map((t) => {
+          const tmp = t.temporal;
+          return [
+            t.treatment,
+            formatNumber(tmp?.effect_1d ?? 0),
+            formatNumber(tmp?.effect_7d ?? 0),
+            formatNumber(tmp?.effect_30d ?? 0),
+            formatNumber(tmp?.peak_effect ?? 0),
+            `${formatNumber(tmp?.time_to_peak_days ?? 0, 1)} days`,
+          ];
+        });
         lines.push(mdTable(["Treatment", "1d", "7d", "30d", "Peak", "Time to Peak"], tempRows));
         lines.push("");
       }

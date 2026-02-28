@@ -18,7 +18,8 @@ interface PPCRibbonChartProps {
 }
 
 export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
-  const hasSpaghetti = overlay.spaghetti_draws && overlay.spaghetti_draws.length > 0;
+  const draws = overlay.spaghetti_draws ?? [];
+  const hasSpaghetti = draws.length > 0;
 
   const data = overlay.observed.map((obs, i) => {
     const row: Record<string, number | null> = {
@@ -32,8 +33,8 @@ export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
     };
     // Add spaghetti draws
     if (hasSpaghetti) {
-      for (let d = 0; d < overlay.spaghetti_draws!.length; d++) {
-        row[`draw_${d}`] = overlay.spaghetti_draws![d][i];
+      for (let d = 0; d < draws.length; d++) {
+        row[`draw_${d}`] = draws[d][i];
       }
     }
     return row;
@@ -98,7 +99,7 @@ export function PPCRibbonChart({ overlay }: PPCRibbonChartProps) {
           />
           {/* Spaghetti draws (thin, semi-transparent) */}
           {hasSpaghetti &&
-            overlay.spaghetti_draws!.map((_, d) => (
+            draws.map((_, d) => (
               <Line
                 key={`draw_${d}`}
                 dataKey={`draw_${d}`}

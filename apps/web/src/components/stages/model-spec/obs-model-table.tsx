@@ -52,6 +52,7 @@ const columns = [
     id: "equation",
     header: "Equation",
     cell: ({ row }) => (
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
       <span dangerouslySetInnerHTML={{ __html: inlineKatex(row.original.equationLatex) }} />
     ),
     enableSorting: false,
@@ -67,6 +68,7 @@ const columns = [
       const { construct, loadingFixed } = row.original;
       if (!construct) return <span className="text-muted-foreground">—</span>;
       return loadingFixed ? (
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
         <span dangerouslySetInnerHTML={{ __html: inlineKatex("= 1") }} />
       ) : (
         <span className="text-muted-foreground">estimated</span>
@@ -85,6 +87,7 @@ const columns = [
             <div
               key={p.parameter}
               className="text-muted-foreground"
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
               dangerouslySetInnerHTML={{ __html: inlineKatex(priorLatex(p)) }}
             />
           ))}

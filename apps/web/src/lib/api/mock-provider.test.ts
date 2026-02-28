@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 
+function unsetEnv(key: string) {
+  Reflect.deleteProperty(process.env, key);
+}
+
 describe("isMockMode", () => {
   const original = process.env.NEXT_PUBLIC_MOCK_DATA;
 
@@ -8,12 +12,12 @@ describe("isMockMode", () => {
     if (original !== undefined) {
       process.env.NEXT_PUBLIC_MOCK_DATA = original;
     } else {
-      delete process.env.NEXT_PUBLIC_MOCK_DATA;
+      unsetEnv("NEXT_PUBLIC_MOCK_DATA");
     }
   });
 
   it("returns false when env var is unset", () => {
-    delete process.env.NEXT_PUBLIC_MOCK_DATA;
+    unsetEnv("NEXT_PUBLIC_MOCK_DATA");
     expect(isMockMode()).toBe(false);
   });
 
@@ -45,12 +49,12 @@ describe("getMockFixture", () => {
     if (original !== undefined) {
       process.env.NEXT_PUBLIC_MOCK_DATA = original;
     } else {
-      delete process.env.NEXT_PUBLIC_MOCK_DATA;
+      unsetEnv("NEXT_PUBLIC_MOCK_DATA");
     }
   });
 
   it("returns 'default' when env var is unset", () => {
-    delete process.env.NEXT_PUBLIC_MOCK_DATA;
+    unsetEnv("NEXT_PUBLIC_MOCK_DATA");
     expect(getMockFixture()).toBe("default");
   });
 

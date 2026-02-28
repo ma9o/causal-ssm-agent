@@ -31,6 +31,15 @@ interface PPCVariableRow {
   overlay?: PPCOverlay;
 }
 
+function getOrCreate(map: Map<string, PPCVariableRow>, variable: string): PPCVariableRow {
+  let row = map.get(variable);
+  if (!row) {
+    row = { variable, checks: {}, testStats: {} };
+    map.set(variable, row);
+  }
+  return row;
+}
+
 function buildRows(
   warnings: PPCWarning[],
   testStats: PPCTestStat[],
@@ -38,19 +47,13 @@ function buildRows(
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
-    if (!map.has(w.variable))
-      map.set(w.variable, { variable: w.variable, checks: {}, testStats: {} });
-    map.get(w.variable)!.checks[w.check_type] = w;
+    getOrCreate(map, w.variable).checks[w.check_type] = w;
   }
   for (const ts of testStats) {
-    if (!map.has(ts.variable))
-      map.set(ts.variable, { variable: ts.variable, checks: {}, testStats: {} });
-    map.get(ts.variable)!.testStats[ts.stat_name as StatName] = ts;
+    getOrCreate(map, ts.variable).testStats[ts.stat_name as StatName] = ts;
   }
   for (const ov of overlays) {
-    if (!map.has(ov.variable))
-      map.set(ov.variable, { variable: ov.variable, checks: {}, testStats: {} });
-    map.get(ov.variable)!.overlay = ov;
+    getOrCreate(map, ov.variable).overlay = ov;
   }
   return Array.from(map.values());
 }
