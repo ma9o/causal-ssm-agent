@@ -23,6 +23,7 @@ Upgrades:
 from __future__ import annotations
 
 import functools
+import logging
 from typing import Any
 
 import jax
@@ -50,6 +51,8 @@ from causal_ssm_agent.models.ssm.utils import (
     _discover_sites,
     extract_constrained_samples,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # SVI warmstart for mass matrix initialization
@@ -100,7 +103,7 @@ def _svi_warmstart(
 
     # Check for NaN/Inf
     if not (jnp.all(jnp.isfinite(init_theta)) and jnp.all(jnp.isfinite(scale_tril))):
-        print("  SVI warmstart: NaN detected, falling back to identity mass matrix")
+        logger.info("  SVI warmstart: NaN detected, falling back to identity mass matrix")
         return None, None, None
 
     # Full covariance and precision
@@ -126,7 +129,7 @@ def _svi_warmstart(
             block_chol_masses[block["name"]] = jla.cholesky(block_prec, lower=True)
 
     final_loss = float(svi_result.losses[-1])
-    print(f"  SVI warmstart: {num_steps} steps, final ELBO={final_loss:.0f}")
+    logger.info("  SVI warmstart: %s steps, final ELBO=%.0f", num_steps, final_loss)
 
     return init_theta, chol_mass_full, block_chol_masses
 
@@ -603,9 +606,9 @@ def fit_pgas(
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
     opt_tag = "+optimal" if gaussian_obs else ""
     svi_tag = "+svi_init" if svi_warmstart else ""
-    print(
-        f"PGAS [precond{block_tag}{hmc_tag}{opt_tag}{svi_tag}]: "
-        f"n_outer={n_outer}, N_csmc={N_csmc}, n_mh={n_mh_steps}, n_l={n_l}"
+    logger.info(
+        "PGAS [precond%s%s%s%s]: n_outer=%s, N_csmc=%s, n_mh=%s, n_l=%s",
+        block_tag, hmc_tag, opt_tag, svi_tag, n_outer, N_csmc, n_mh_steps, n_l,
     )
 
     # 1. Discover model sites
@@ -618,7 +621,7 @@ def fit_pgas(
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
-    print(f"  D={D} parameters, T={T} time steps")
+    logger.info("  D=%s parameters, T=%s time steps", D, T)
 
     # 2. SSMAdapter for observation model (supports Gaussian, Poisson, Student-t, Gamma)
     adapter = SSMAdapter(
@@ -799,7 +802,7 @@ def fit_pgas(
     mass_update_interval = 10
     min_mass_samples = max(2 * D, 20)
 
-    print("  Starting PGAS loop...")
+    logger.info("  Starting PGAS loop...")
 
     # 8. PGAS Gibbs loop
     for n in range(n_outer):
@@ -902,8 +905,9 @@ def fit_pgas(
                 chol_mass_full = compute_weighted_chol_mass(recent, jnp.zeros(len(recent)), D)
 
         if (n + 1) % max(1, n_outer // 5) == 0:
-            print(
-                f"  iter {n + 1}/{n_outer}  accept={accept_rate:.2f}  step={current_step_size:.4f}"
+            logger.info(
+                "  iter %s/%s  accept=%.2f  step=%.4f",
+                n + 1, n_outer, accept_rate, current_step_size,
             )
 
     # 9. Extract posterior samples (discard warmup)

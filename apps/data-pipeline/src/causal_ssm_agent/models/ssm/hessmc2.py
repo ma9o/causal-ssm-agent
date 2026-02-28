@@ -34,6 +34,7 @@ PF likelihood evaluation. Do NOT downgrade to diagonal Hessian.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 import jax
@@ -50,6 +51,8 @@ from causal_ssm_agent.models.ssm.utils import (
     _discover_sites,
     extract_constrained_samples,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # CoV L-kernel density (full covariance)
@@ -297,8 +300,8 @@ def fit_hessmc2(
     # via JAX (vectorized), bypassing numpyro handlers which aren't vmappable.
     # Sort by key name to match ravel_pytree's pytree leaf ordering.
     warmup_tag = f", warmup={warmup_iters}" if warmup_iters > 0 else ""
-    print(f"Hess-MC²: N={N}, K={K}, D={D}, proposal={proposal}, eps={step_size}{warmup_tag}")
-    print(f"  Initializing {N} particles from prior...")
+    logger.info("Hess-MC²: N=%s, K=%s, D=%s, proposal=%s, eps=%s%s", N, K, D, proposal, step_size, warmup_tag)
+    logger.info("  Initializing %s particles from prior...", N)
 
     parts = []
     for name in sorted(site_info.keys()):
@@ -469,7 +472,7 @@ def fit_hessmc2(
         eps_tag = f"  eps={step_size:.4f}" if adapt_step_size else ""
         beta_tag = f"  β={betas[k]:.2f}" if in_warmup else ""
         warmup_label = " [warmup/RW]" if in_warmup else ""
-        print(f"  step {k + 1}/{K}  ESS={ess:.1f}/{N}{resamp_tag}{eps_tag}{beta_tag}{warmup_label}")
+        logger.info("  step %s/%s  ESS=%.1f/%s%s%s%s%s", k + 1, K, ess, N, resamp_tag, eps_tag, beta_tag, warmup_label)
 
     # 5. Final resampling from recycled pool
     rng_key, final_key = random.split(rng_key)
