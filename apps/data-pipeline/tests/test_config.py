@@ -1,11 +1,13 @@
 """Tests for config.py: dataclass methods and load_config parsing."""
 
 import textwrap
+from unittest.mock import MagicMock, patch
 
 from causal_ssm_agent.utils.config import (
     InferenceConfig,
     NUTSConfig,
     SVIConfig,
+    get_secret,
     load_config,
 )
 
@@ -204,3 +206,55 @@ class TestLoadConfig:
         assert sampler["target_accept_prob"] == 0.9
 
         load_config.cache_clear()
+
+
+# =============================================================================
+# get_secret
+# =============================================================================
+
+
+class TestGetSecret:
+    def test_falls_back_to_env_var(self, monkeypatch):
+        """When Prefect block fails, get_secret falls back to os.getenv."""
+        monkeypatch.setenv("TEST_SECRET_ABC", "from-env")
+
+        def mock_import(name, *args, **kwargs):
+            if name == "prefect.blocks.system":
+                raise ImportError("No prefect")
+            return __import__(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", mock_import)
+        result = get_secret("TEST_SECRET_ABC")
+        assert result == "from-env"
+
+    def test_returns_none_when_both_miss(self, monkeypatch):
+        """When neither Prefect nor env var has the secret, returns None."""
+        monkeypatch.delenv("DEFINITELY_NOT_SET_XYZ_789", raising=False)
+
+        def mock_import(name, *args, **kwargs):
+            if name == "prefect.blocks.system":
+                raise ImportError("No prefect")
+            return __import__(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", mock_import)
+        result = get_secret("DEFINITELY_NOT_SET_XYZ_789")
+        assert result is None
+
+    def test_prefect_block_name_uses_slug_format(self):
+        """get_secret converts underscores to hyphens and lowercases for Prefect block name."""
+        mock_secret = MagicMock()
+        mock_secret.get.return_value = "val"
+
+        mock_module = MagicMock()
+        mock_module.Secret.load.return_value = mock_secret
+
+        with patch.dict("sys.modules", {"prefect.blocks.system": mock_module}):
+            import importlib
+
+            import causal_ssm_agent.utils.config as config_mod
+
+            importlib.reload(config_mod)
+
+            result = config_mod.get_secret("MY_API_KEY")
+            assert result == "val"
+            mock_module.Secret.load.assert_called_once_with("my-api-key")
