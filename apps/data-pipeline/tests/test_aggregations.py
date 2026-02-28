@@ -1,6 +1,7 @@
 """Tests for aggregation utility functions.
 
-Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous.
+Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous,
+flatten_aggregated_data, aggregate_worker_measurements.
 """
 
 import polars as pl
@@ -10,6 +11,8 @@ from causal_ssm_agent.utils.aggregations import (
     _build_agg_expr,
     _build_map_groups_fn,
     _encode_non_continuous,
+    aggregate_worker_measurements,
+    flatten_aggregated_data,
 )
 
 
@@ -196,3 +199,153 @@ class TestEncodeNonContinuous:
         })
         result = _encode_non_continuous(df, {"mood": "binary", "weight": "continuous"})
         assert len(result) == 2
+
+
+# =============================================================================
+# flatten_aggregated_data
+# =============================================================================
+
+
+class TestFlattenAggregatedData:
+    def test_empty_dict(self):
+        result = flatten_aggregated_data({})
+        assert isinstance(result, pl.DataFrame)
+        assert len(result) == 0
+        assert set(result.columns) == {"indicator", "value", "time_bucket"}
+
+    def test_single_granularity(self):
+        df = pl.DataFrame({
+            "indicator": ["mood", "mood"],
+            "value": [3.0, 4.0],
+            "time_bucket": ["2024-01-01", "2024-01-02"],
+        })
+        result = flatten_aggregated_data({"daily": df})
+        assert len(result) == 2
+        assert set(result.columns) == {"indicator", "value", "time_bucket"}
+
+    def test_multiple_granularities_combined(self):
+        df1 = pl.DataFrame({
+            "indicator": ["mood"],
+            "value": [3.0],
+            "time_bucket": ["2024-01-01"],
+        })
+        df2 = pl.DataFrame({
+            "indicator": ["mood"],
+            "value": [4.0],
+            "time_bucket": ["2024-01-08"],
+        })
+        result = flatten_aggregated_data({"daily": df1, "weekly": df2})
+        assert len(result) == 2
+
+    def test_sorted_output(self):
+        df = pl.DataFrame({
+            "indicator": ["sleep", "mood", "mood"],
+            "value": [8.0, 3.0, 4.0],
+            "time_bucket": ["2024-01-01", "2024-01-02", "2024-01-01"],
+        })
+        result = flatten_aggregated_data({"daily": df})
+        indicators = result["indicator"].to_list()
+        assert indicators[0] == "mood"  # sorted by indicator first
+
+
+# =============================================================================
+# aggregate_worker_measurements
+# =============================================================================
+
+
+def _worker_df(rows):
+    """Build a worker DataFrame from list of (indicator, value, timestamp) tuples."""
+    return pl.DataFrame(
+        {
+            "indicator": [r[0] for r in rows],
+            "value": [str(r[1]) for r in rows],
+            "timestamp": [r[2] for r in rows],
+        },
+        schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
+    )
+
+
+def _causal_spec_for_agg(*indicators):
+    """Build a causal spec for aggregation tests. Each indicator: (name, dtype, aggregation)."""
+    return {
+        "measurement": {
+            "indicators": [
+                {
+                    "name": name,
+                    "measurement_dtype": dtype,
+                    "aggregation": agg,
+                }
+                for name, dtype, agg in indicators
+            ]
+        }
+    }
+
+
+class TestAggregateWorkerMeasurements:
+    def test_empty_input(self):
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([], spec)
+        assert result == {}
+
+    def test_all_none_input(self):
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([None, None], spec)
+        assert result == {}
+
+    def test_basic_daily_aggregation(self):
+        df = _worker_df([
+            ("mood", 3.0, "2024-01-01T10:00:00"),
+            ("mood", 5.0, "2024-01-01T14:00:00"),
+            ("mood", 7.0, "2024-01-02T10:00:00"),
+        ])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([df], spec, "daily")
+        assert "daily" in result
+        agged = result["daily"]
+        assert len(agged) == 2  # 2 days
+        # Day 1 should be mean(3, 5) = 4
+        day1 = agged.filter(pl.col("time_bucket") == agged["time_bucket"][0])
+        assert abs(day1["value"][0] - 4.0) < 1e-6
+
+    def test_multiple_workers_combined(self):
+        df1 = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
+        df2 = _worker_df([("mood", 5.0, "2024-01-01T14:00:00")])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([df1, df2], spec, "daily")
+        assert "daily" in result
+        agged = result["daily"]
+        assert len(agged) == 1
+        assert abs(agged["value"][0] - 4.0) < 1e-6
+
+    def test_none_dfs_filtered(self):
+        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([None, df, None], spec, "daily")
+        assert "daily" in result
+
+    def test_finest_no_truncation(self):
+        df = _worker_df([
+            ("mood", 3.0, "2024-01-01T10:00:00"),
+            ("mood", 5.0, "2024-01-01T14:00:00"),
+        ])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([df], spec, "finest")
+        assert "finest" in result
+        assert len(result["finest"]) == 2  # no aggregation
+
+    def test_unknown_aggregation_window_raises(self):
+        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        with pytest.raises(ValueError, match="Unknown aggregation_window"):
+            aggregate_worker_measurements([df], spec, "invalid_window")
+
+    def test_unknown_indicators_filtered(self):
+        df = _worker_df([
+            ("mood", 3.0, "2024-01-01T10:00:00"),
+            ("unknown_ind", 5.0, "2024-01-01T10:00:00"),
+        ])
+        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
+        result = aggregate_worker_measurements([df], spec, "daily")
+        assert "daily" in result
+        indicators = result["daily"]["indicator"].unique().to_list()
+        assert "unknown_ind" not in indicators
