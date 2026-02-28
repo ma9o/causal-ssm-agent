@@ -17,7 +17,6 @@ import type {
   Stage4bData,
   Stage5Data,
   Stage6Data,
-  StageId,
   StageMeta,
   StageOutcome,
 } from "@causal-ssm/api-types";

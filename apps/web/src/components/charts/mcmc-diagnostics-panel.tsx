@@ -71,10 +71,7 @@ function InlineTrace({ trace }: { trace: TraceData }) {
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
           <RechartsTooltip
-            formatter={
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              ((value: number, name: string) => [formatNumber(value, 3), name]) as any
-            }
+            formatter={(value, name) => [formatNumber(Number(value), 3), String(name)]}
             contentStyle={{ fontSize: 11, padding: "4px 8px", background: "white", zIndex: 50 }}
             wrapperStyle={{ zIndex: 50 }}
           />
@@ -110,10 +107,7 @@ function InlineRankHist({ histogram }: { histogram: RankHistogramData }) {
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
           <RechartsTooltip
-            formatter={
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              ((value: number, name: string) => [value, name]) as any
-            }
+            formatter={(value, name) => [String(value), String(name)]}
             contentStyle={{ fontSize: 11, padding: "4px 8px", background: "white", zIndex: 50 }}
             wrapperStyle={{ zIndex: 50 }}
           />

@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { StatTooltip } from "@/components/ui/stat-tooltip";
 import type { RBPartitionResult } from "@causal-ssm/api-types";
 
 interface RBPartitionCardProps {

@@ -6,15 +6,14 @@ interface UseElkLayoutResult extends LayoutResult {
   isLayouting: boolean;
 }
 
-const EMPTY_RESULT: LayoutResult = { nodes: [], edges: [] };
+const EMPTY_RESULT: LayoutResult & { key: string } = { nodes: [], edges: [], key: "" };
 
 export function useElkLayout(
   constructs: Construct[],
   causalEdges: CausalEdge[],
   indicators?: Indicator[],
 ): UseElkLayoutResult {
-  const [result, setResult] = useState<LayoutResult>(EMPTY_RESULT);
-  const [isLayouting, setIsLayouting] = useState(true);
+  const [result, setResult] = useState(EMPTY_RESULT);
 
   const inputKey = useMemo(
     () => JSON.stringify({ constructs, causalEdges, indicators }),
@@ -22,19 +21,21 @@ export function useElkLayout(
   );
 
   const latestKeyRef = useRef(inputKey);
-  latestKeyRef.current = inputKey;
+
+  useEffect(() => {
+    latestKeyRef.current = inputKey;
+  });
 
   useEffect(() => {
     const currentKey = inputKey;
-    setIsLayouting(true);
 
     layoutDag(constructs, causalEdges, indicators).then((layoutResult) => {
       if (latestKeyRef.current === currentKey) {
-        setResult(layoutResult);
-        setIsLayouting(false);
+        setResult({ ...layoutResult, key: currentKey });
       }
     });
   }, [inputKey, constructs, causalEdges, indicators]);
 
-  return { ...result, isLayouting };
+  const isLayouting = result.key !== inputKey;
+  return { nodes: result.nodes, edges: result.edges, isLayouting };
 }

@@ -44,10 +44,7 @@ export function ParetoKChart({ loo }: ParetoKChartProps) {
               label={{ value: "Pareto k", angle: -90, position: "insideLeft", offset: 10, fontSize: 10 }}
             />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number) => [formatNumber(value, 3), "Pareto k"]) as any
-              }
+              formatter={(value) => [formatNumber(Number(value), 3), "Pareto k"]}
             />
             {/* Threshold lines */}
             <ReferenceLine

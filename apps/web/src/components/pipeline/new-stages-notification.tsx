@@ -5,7 +5,7 @@ import { STAGES } from "@causal-ssm/api-types";
 import type { StageId } from "@causal-ssm/api-types";
 import { ArrowDown } from "lucide-react";
 import { motion } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Fixed bottom notification for stages that completed while the user
@@ -20,61 +20,58 @@ export function NewStagesNotification({
 }) {
   // Stages the user has scrolled past (seen) at least once
   const seenRef = useRef<Set<StageId>>(new Set());
-  const [unseenIds, setUnseenIds] = useState<StageId[]>([]);
+  const [observerSeen, setObserverSeen] = useState<Set<StageId>>(new Set());
 
-  useEffect(() => {
-    const pendingUnseen: StageId[] = [];
-    const elementsToObserve: { id: StageId; el: Element }[] = [];
-
+  // Derive the list of completed/failed stage IDs from progress
+  const completedStageIds = useMemo(() => {
+    const ids: StageId[] = [];
     for (const s of STAGES) {
       const status = progress.stages[s.id];
-      if (status !== "completed" && status !== "failed") continue;
-      if (seenRef.current.has(s.id)) continue;
-
-      const el = document.getElementById(s.id);
-      if (!el) {
-        pendingUnseen.push(s.id);
-        continue;
+      if (status === "completed" || status === "failed") {
+        ids.push(s.id);
       }
-      elementsToObserve.push({ id: s.id, el });
+    }
+    return ids;
+  }, [progress]);
+
+  // Unseen = completed stages that haven't been scrolled into view
+  const unseenIds = useMemo(
+    () => completedStageIds.filter((id) => !observerSeen.has(id)),
+    [completedStageIds, observerSeen],
+  );
+
+  useEffect(() => {
+    const elementsToObserve: Element[] = [];
+
+    for (const stageId of completedStageIds) {
+      if (seenRef.current.has(stageId)) continue;
+      const el = document.getElementById(stageId);
+      if (el) elementsToObserve.push(el);
     }
 
-    if (elementsToObserve.length === 0) {
-      setUnseenIds(pendingUnseen);
-      return;
-    }
+    if (elementsToObserve.length === 0) return;
 
     const observer = new IntersectionObserver((entries) => {
-      let changed = false;
+      const newlySeen: StageId[] = [];
       for (const entry of entries) {
         if (entry.isIntersecting) {
           const stageId = entry.target.id as StageId;
           seenRef.current.add(stageId);
           observer.unobserve(entry.target);
-          changed = true;
+          newlySeen.push(stageId);
         }
       }
-      if (changed) {
-        setUnseenIds((prev) => prev.filter((id) => !seenRef.current.has(id)));
+      if (newlySeen.length > 0) {
+        setObserverSeen(new Set(seenRef.current));
       }
     });
 
-    // Check which elements are already visible vs need observation
-    for (const { id, el } of elementsToObserve) {
+    for (const el of elementsToObserve) {
       observer.observe(el);
     }
 
-    // Elements not yet in DOM are unseen; observed elements start as unseen
-    // until the observer fires (which is immediate if already in viewport)
-    setUnseenIds([
-      ...pendingUnseen,
-      ...elementsToObserve
-        .filter(({ id }) => !seenRef.current.has(id))
-        .map(({ id }) => id),
-    ]);
-
     return () => observer.disconnect();
-  }, [progress]);
+  }, [completedStageIds]);
 
   const scrollToNext = useCallback(() => {
     if (unseenIds.length === 0) return;

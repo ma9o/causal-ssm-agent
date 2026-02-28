@@ -43,10 +43,7 @@ export function TracePlot({ trace }: TracePlotProps) {
             />
             <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
             <RechartsTooltip
-              formatter={
-                // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-                ((value: number, name: string) => [formatNumber(value, 3), name]) as any
-              }
+              formatter={(value, name) => [formatNumber(Number(value), 3), String(name)]}
             />
             {trace.chains.map((ch) => (
               <Line

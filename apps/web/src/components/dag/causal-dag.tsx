@@ -11,7 +11,7 @@ import {
   ReactFlow,
   applyNodeChanges,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ConstructNode } from "./construct-node";
 
 interface CausalDagProps {
@@ -120,15 +120,14 @@ export function CausalDag({
 
   // Local node state so dragging works (React Flow controlled mode needs onNodesChange)
   const [localNodes, setLocalNodes] = useState(nodesWithIdStatus);
-  const layoutKeyRef = useRef<string>("");
+  const [prevNodeKey, setPrevNodeKey] = useState(() => JSON.stringify(nodesWithIdStatus.map((n) => n.id)));
+  const nodeKey = JSON.stringify(nodesWithIdStatus.map((n) => n.id));
 
-  useEffect(() => {
-    const key = JSON.stringify(nodesWithIdStatus.map((n) => n.id));
-    if (key !== layoutKeyRef.current) {
-      layoutKeyRef.current = key;
-      setLocalNodes(nodesWithIdStatus);
-    }
-  }, [nodesWithIdStatus]);
+  // Sync external layout changes into local drag state (React derive-state-from-props pattern)
+  if (nodeKey !== prevNodeKey) {
+    setPrevNodeKey(nodeKey);
+    setLocalNodes(nodesWithIdStatus);
+  }
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setLocalNodes((nds) => applyNodeChanges(changes, nds));

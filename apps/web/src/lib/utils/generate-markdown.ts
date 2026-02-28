@@ -11,7 +11,7 @@ import type {
   PriorProposal,
 } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
-import { formatNumber, formatPercent, formatDate, formatDateRange } from "./format";
+import { formatNumber, formatPercent, formatDateRange } from "./format";
 import { mdTable } from "./markdown-tables";
 import { asciiHistogram, asciiDensity, asciiScatter, asciiMultiLine } from "./ascii-charts";
 import {

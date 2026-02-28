@@ -44,12 +44,8 @@ export function ELBOLossChart({ diagnostics }: ELBOLossChartProps) {
             }}
           />
           <RechartsTooltip
-            formatter={
-              // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-              ((value: number) => [formatNumber(value, 1), "ELBO"]) as any
-            }
-            // biome-ignore lint/suspicious/noExplicitAny: recharts overload
-            labelFormatter={((label: number) => `Step ${label}`) as any}
+            formatter={(value) => [formatNumber(Number(value), 1), "ELBO"]}
+            labelFormatter={(label) => `Step ${label}`}
           />
           <Line
             dataKey="loss"
