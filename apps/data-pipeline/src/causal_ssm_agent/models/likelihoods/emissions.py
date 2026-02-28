@@ -13,7 +13,11 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
+from causal_ssm_agent.models.likelihoods.base import (
+    CHOL_JITTER,
+    MISSING_DATA_LARGE_VAR,
+    NUMERICAL_EPSILON,
+)
 
 
 def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
@@ -79,7 +83,7 @@ def emission_log_prob_negative_binomial(y_t, z_t, H, d, _R, obs_mask_t, r=5.0):
         - jax.lax.lgamma(r)
         - jax.lax.lgamma(y_t + 1.0)
         + r * jnp.log(r / (r + mu))
-        + y_t * jnp.log(mu / (r + mu) + 1e-10)
+        + y_t * jnp.log(mu / (r + mu) + NUMERICAL_EPSILON)
     )
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 

@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
+from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm import (
     InferenceResult,
     SSMModel,
@@ -763,7 +764,7 @@ class SSMModelBuilder:
                         rho_mu, _rho_sigma = dt_diag_raw[idx]
                         rho_abs = max(0.001, min(abs(rho_mu), 0.999))
                         first_order_mu = -math.log(rho_abs) / dt
-                        if abs(first_order_mu) > 1e-10:
+                        if abs(first_order_mu) > NUMERICAL_EPSILON:
                             ratio = abs(float(A_exact[idx, idx])) / first_order_mu
                             if isinstance(sigma_arr, list) and idx < len(sigma_arr):
                                 sigma_arr[idx] = float(sigma_arr[idx]) * ratio
@@ -784,11 +785,11 @@ class SSMModelBuilder:
                         if flat_idx in dt_offdiag_raw:
                             _beta_mu, beta_sigma = dt_offdiag_raw[flat_idx]
                             first_order_sigma = beta_sigma / dt
-                            if abs(first_order_sigma) > 1e-10:
+                            if abs(first_order_sigma) > NUMERICAL_EPSILON:
                                 # Use same relative uncertainty
                                 exact_mu = abs(float(A_exact[i, j]))
                                 first_order_mu_abs = abs(dt_offdiag_raw[flat_idx][0] / dt)
-                                if first_order_mu_abs > 1e-10:
+                                if first_order_mu_abs > NUMERICAL_EPSILON:
                                     ratio = exact_mu / first_order_mu_abs
                                     if isinstance(sigma_arr, list) and flat_idx < len(sigma_arr):
                                         sigma_arr[flat_idx] = first_order_sigma * max(ratio, 0.5)
@@ -835,7 +836,7 @@ class SSMModelBuilder:
 
         # Use minimum diagonal magnitude as reference
         min_diag = min(abs(float(d)) for d in diag_mu)
-        if min_diag < 1e-10:
+        if min_diag < NUMERICAL_EPSILON:
             return
 
         for i, od in enumerate(offdiag_mu):
@@ -894,14 +895,14 @@ class SSMModelBuilder:
                 continue
 
             mu_ct = abs(float(mu_arr[flat_idx]))
-            if mu_ct < 1e-10:
+            if mu_ct < NUMERICAL_EPSILON:
                 continue
 
             expected_lag_days = edge_lags[(ei, ci)]
             implied_timescale_days = 1.0 / mu_ct
 
             ratio = max(implied_timescale_days, expected_lag_days) / max(
-                min(implied_timescale_days, expected_lag_days), 1e-10
+                min(implied_timescale_days, expected_lag_days), NUMERICAL_EPSILON
             )
             if ratio > 5.0:
                 cause_name = ssm_spec.latent_names[ci] if ssm_spec.latent_names else f"latent_{ci}"

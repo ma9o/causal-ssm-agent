@@ -17,6 +17,7 @@ import jax.numpy as jnp
 
 MISSING_DATA_LARGE_VAR = 1e10
 CHOL_JITTER = 1e-8
+NUMERICAL_EPSILON = 1e-10
 
 
 class CTParams(NamedTuple):
