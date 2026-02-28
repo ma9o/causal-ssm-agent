@@ -1,8 +1,11 @@
 """Tests for ModelSpec domain validation.
 
 Covers: validate_model_spec (distribution-link compatibility, role-constraint
-compatibility, dtype-distribution compatibility, duplicate detection).
+compatibility, dtype-distribution compatibility, duplicate detection),
+DistributionFamily case-insensitive construction.
 """
+
+import pytest
 
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
@@ -162,3 +165,36 @@ class TestValidateModelSpec:
         )
         issues = validate_model_spec(spec)
         assert len(issues) >= 2  # at least one per bad likelihood
+
+
+# =============================================================================
+# DistributionFamily case-insensitive construction
+# =============================================================================
+
+
+class TestDistributionFamilyCaseInsensitive:
+    def test_lowercase(self):
+        assert DistributionFamily("gaussian") == DistributionFamily.GAUSSIAN
+
+    def test_pascal_case_normal(self):
+        """LLM may propose 'Normal' instead of 'gaussian'."""
+        assert DistributionFamily("Normal") == DistributionFamily.GAUSSIAN
+
+    def test_uppercase(self):
+        assert DistributionFamily("GAUSSIAN") == DistributionFamily.GAUSSIAN
+
+    def test_mixed_case(self):
+        assert DistributionFamily("Poisson") == DistributionFamily.POISSON
+
+    def test_negative_binomial_pascal(self):
+        assert DistributionFamily("NegativeBinomial") == DistributionFamily.NEGATIVE_BINOMIAL
+
+    def test_negative_binomial_underscore(self):
+        assert DistributionFamily("negative_binomial") == DistributionFamily.NEGATIVE_BINOMIAL
+
+    def test_ordered_logistic_pascal(self):
+        assert DistributionFamily("OrderedLogistic") == DistributionFamily.ORDERED_LOGISTIC
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError):
+            DistributionFamily("not_a_distribution")
