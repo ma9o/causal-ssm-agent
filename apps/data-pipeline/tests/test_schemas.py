@@ -279,6 +279,64 @@ class TestIndicator:
                 aggregation="mean",
             )
 
+    def test_ordinal_requires_levels(self):
+        """Ordinal dtype without ordinal_levels is rejected."""
+        with pytest.raises(ValueError, match="ordinal_levels is required"):
+            Indicator(
+                name="pain",
+                construct_name="pain",
+                how_to_measure="Extract pain level",
+                measurement_dtype="ordinal",
+                aggregation="median",
+            )
+
+    def test_ordinal_needs_at_least_two_levels(self):
+        """Ordinal with only one level is rejected."""
+        with pytest.raises(ValueError, match="at least 2 items"):
+            Indicator(
+                name="pain",
+                construct_name="pain",
+                how_to_measure="Extract pain level",
+                measurement_dtype="ordinal",
+                aggregation="median",
+                ordinal_levels=["only_one"],
+            )
+
+    def test_ordinal_no_duplicate_levels(self):
+        """Ordinal with duplicate levels is rejected."""
+        with pytest.raises(ValueError, match="duplicate labels"):
+            Indicator(
+                name="pain",
+                construct_name="pain",
+                how_to_measure="Extract pain level",
+                measurement_dtype="ordinal",
+                aggregation="median",
+                ordinal_levels=["low", "low", "high"],
+            )
+
+    def test_ordinal_valid_levels(self):
+        """Ordinal with valid levels passes."""
+        ind = Indicator(
+            name="pain",
+            construct_name="pain",
+            how_to_measure="Extract pain level",
+            measurement_dtype="ordinal",
+            aggregation="median",
+            ordinal_levels=["low", "medium", "high"],
+        )
+        assert ind.ordinal_levels == ["low", "medium", "high"]
+
+    def test_non_ordinal_ignores_levels(self):
+        """Non-ordinal dtype doesn't require ordinal_levels."""
+        ind = Indicator(
+            name="weight",
+            construct_name="health",
+            how_to_measure="Extract weight",
+            measurement_dtype="continuous",
+            aggregation="mean",
+        )
+        assert ind.ordinal_levels is None
+
 
 class TestMeasurementModel:
     """Tests for MeasurementModel."""
@@ -300,6 +358,7 @@ class TestMeasurementModel:
                     how_to_measure="Extract mood from text",
                     measurement_dtype="ordinal",
                     aggregation="mean",
+                    ordinal_levels=["low", "medium", "high"],
                 ),
                 Indicator(
                     name="stress_level",

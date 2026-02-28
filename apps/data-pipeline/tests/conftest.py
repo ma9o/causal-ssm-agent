@@ -72,13 +72,18 @@ def indicator_factory():
         construct_name: str,
         dtype: str = "continuous",
         aggregation: str = "mean",
+        ordinal_levels: list[str] | None = None,
     ) -> Indicator:
+        # Auto-provide ordinal_levels for ordinal dtype if not specified
+        if dtype == "ordinal" and ordinal_levels is None:
+            ordinal_levels = ["low", "medium", "high"]
         return Indicator(
             name=name,
             construct_name=construct_name,
             how_to_measure=f"Extract {name}",
             measurement_dtype=dtype,
             aggregation=aggregation,
+            ordinal_levels=ordinal_levels,
         )
 
     return _make
