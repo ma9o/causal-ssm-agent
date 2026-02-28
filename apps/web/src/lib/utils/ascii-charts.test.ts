@@ -105,4 +105,34 @@ describe("asciiMultiLine", () => {
     const result = asciiMultiLine([[1, 2, 3]], { label: "Traces" });
     expect(result).toContain("Traces");
   });
+
+  it("handles width=1 without NaN from resample", () => {
+    const long = Array.from({ length: 100 }, (_, i) => Math.sin(i));
+    const result = asciiMultiLine([long], { width: 1 });
+    expect(result).not.toContain("NaN");
+  });
+});
+
+describe("asciiScatter edge cases", () => {
+  it("handles all-same x values without division by zero", () => {
+    const points = [
+      { x: 5, y: 1 },
+      { x: 5, y: 2 },
+      { x: 5, y: 3 },
+    ];
+    const result = asciiScatter(points);
+    expect(result).not.toContain("NaN");
+    expect(result).toContain("\u2022");
+  });
+
+  it("handles all-same y values without division by zero", () => {
+    const points = [
+      { x: 1, y: 5 },
+      { x: 2, y: 5 },
+      { x: 3, y: 5 },
+    ];
+    const result = asciiScatter(points);
+    expect(result).not.toContain("NaN");
+    expect(result).toContain("\u2022");
+  });
 });
