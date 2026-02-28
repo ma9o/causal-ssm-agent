@@ -45,7 +45,11 @@ from causal_ssm_agent.models.ssm.mcmc_utils import (
     dual_averaging_update,
     hmc_step,
 )
-from causal_ssm_agent.models.ssm.utils import _assemble_deterministics, _discover_sites
+from causal_ssm_agent.models.ssm.utils import (
+    _assemble_deterministics,
+    _discover_sites,
+    extract_constrained_samples,
+)
 
 # ---------------------------------------------------------------------------
 # SVI warmstart for mass matrix initialization
@@ -905,17 +909,7 @@ def fit_pgas(
     # 9. Extract posterior samples (discard warmup)
     theta_samples_unc = jnp.stack(theta_chain[n_warmup:])
 
-    samples = {}
-    for name in transforms:
-
-        def _extract_one(z, _name=name):
-            unc = unravel_fn(z)
-            return transforms[_name](unc[_name])
-
-        samples[name] = jax.vmap(_extract_one)(theta_samples_unc)
-
-    det_samples = _assemble_deterministics(samples, model.spec)
-    samples.update(det_samples)
+    samples = extract_constrained_samples(theta_samples_unc, site_info, unravel_fn, model.spec)
 
     diagnostics = {
         "accept_rates": accept_rates,
