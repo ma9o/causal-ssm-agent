@@ -29,11 +29,15 @@ export function useElkLayout(
   useEffect(() => {
     const currentKey = inputKey;
 
-    layoutDag(constructs, causalEdges, indicators).then((layoutResult) => {
-      if (latestKeyRef.current === currentKey) {
-        setResult({ ...layoutResult, key: currentKey });
-      }
-    });
+    layoutDag(constructs, causalEdges, indicators)
+      .then((layoutResult) => {
+        if (latestKeyRef.current === currentKey) {
+          setResult({ ...layoutResult, key: currentKey });
+        }
+      })
+      .catch(() => {
+        // Layout computation failed — keep previous result
+      });
   }, [inputKey, constructs, causalEdges, indicators]);
 
   const isLayouting = result.key !== inputKey;

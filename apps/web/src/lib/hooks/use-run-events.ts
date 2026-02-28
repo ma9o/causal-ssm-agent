@@ -83,7 +83,8 @@ export function useRunEvents(runId: string | null) {
       return cleanup;
     }
 
-    const wsUrl = "ws://localhost:4200/api/events/out";
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4200";
+    const wsUrl = apiBase.replace(/^http/, "ws") + "/api/events/out";
     const ws = new ReconnectingWebSocket(wsUrl, [], {
       maxRetries: MAX_RECONNECT_ATTEMPTS,
       minReconnectionDelay: BASE_DELAY_MS,

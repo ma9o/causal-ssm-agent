@@ -28,7 +28,9 @@ export function MockMethodSwitcher({ baseData, onDataChange }: MockMethodSwitche
         setNutsdaData(d);
         if (d) onDataChange(d);
       })
-      .catch(() => {});
+      .catch(() => {
+        // Fetch failure is non-critical; NUTS-DA data simply won't be available
+      });
   }, [onDataChange]);
 
   const handleSwitch = (method: InferenceMethod) => {
