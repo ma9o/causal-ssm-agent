@@ -1,10 +1,12 @@
-"""Tests for stage payload contracts.
+"""Tests for individual contract models and STAGE_CONTRACTS registry.
 
-Covers: validate_stage_payload, STAGE_CONTRACTS, individual contract validation.
+Complements test_stage_contracts.py which covers validate_stage_payload
+and end-to-end validation. This file focuses on individual model schemas
+and the registry itself.
 """
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from causal_ssm_agent.flows.stages.contracts import (
     STAGE_CONTRACTS,
@@ -14,7 +16,6 @@ from causal_ssm_agent.flows.stages.contracts import (
     PartialStageResult,
     Stage0Contract,
     WorkerStatusContract,
-    validate_stage_payload,
 )
 
 # =============================================================================
@@ -31,75 +32,14 @@ class TestStageContracts:
         assert set(STAGE_CONTRACTS.keys()) == expected
 
     def test_all_values_are_basemodel_classes(self):
-        from pydantic import BaseModel
-
         for stage_id, cls in STAGE_CONTRACTS.items():
             assert issubclass(cls, BaseModel), f"{stage_id} maps to {cls}"
 
-
-# =============================================================================
-# validate_stage_payload
-# =============================================================================
-
-
-def _stage0_data():
-    """Minimal valid Stage0 payload."""
-    return {
-        "source_type": "google_takeout",
-        "source_label": "My Takeout",
-        "n_records": 100,
-        "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
-        "sample": [{"col": "val"}],
-    }
-
-
-class TestValidateStagePayload:
-    def test_valid_stage0(self):
-        result = validate_stage_payload("stage-0", _stage0_data())
-        assert result["source_type"] == "google_takeout"
-        assert result["n_records"] == 100
-        assert result["outcome"] == "success"
-
-    def test_unknown_stage_raises_valueerror(self):
-        with pytest.raises(ValueError, match="Unknown stage_id"):
-            validate_stage_payload("stage-99", {})
-
-    def test_invalid_payload_raises_validation_error(self):
-        with pytest.raises(ValidationError):
-            validate_stage_payload("stage-0", {"bad": "data"})
-
-    def test_extra_fields_forbidden(self):
-        data = {**_stage0_data(), "extra_field": "not allowed"}
-        with pytest.raises(ValidationError, match="extra"):
-            validate_stage_payload("stage-0", data)
-
-    def test_outcome_default(self):
-        result = validate_stage_payload("stage-0", _stage0_data())
-        assert result["outcome"] == "success"
-
-    def test_outcome_warn(self):
-        data = {**_stage0_data(), "outcome": "warn"}
-        result = validate_stage_payload("stage-0", data)
-        assert result["outcome"] == "warn"
-
-    def test_outcome_fail(self):
-        data = {**_stage0_data(), "outcome": "fail"}
-        result = validate_stage_payload("stage-0", data)
-        assert result["outcome"] == "fail"
-
-    def test_outcome_invalid_value(self):
-        data = {**_stage0_data(), "outcome": "invalid"}
-        with pytest.raises(ValidationError):
-            validate_stage_payload("stage-0", data)
-
-    def test_returns_json_serializable_dict(self):
-        """Result should be JSON-serializable (no Pydantic models, datetimes, etc.)."""
-        import json
-
-        result = validate_stage_payload("stage-0", _stage0_data())
-        # Should not raise
-        serialized = json.dumps(result)
-        assert isinstance(serialized, str)
+    def test_all_contracts_forbid_extra(self):
+        for stage_id, cls in STAGE_CONTRACTS.items():
+            assert cls.model_config.get("extra") == "forbid", (
+                f"{stage_id} contract does not forbid extra fields"
+            )
 
 
 # =============================================================================
@@ -136,6 +76,17 @@ class TestGateOverrideContract:
 # =============================================================================
 # Stage0Contract
 # =============================================================================
+
+
+def _stage0_data():
+    """Minimal valid Stage0 payload."""
+    return {
+        "source_type": "google_takeout",
+        "source_label": "My Takeout",
+        "n_records": 100,
+        "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
+        "sample": [{"col": "val"}],
+    }
 
 
 class TestStage0Contract:
