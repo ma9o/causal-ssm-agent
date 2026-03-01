@@ -113,4 +113,8 @@ describe("quantile", () => {
     // q=0.25 on [0, 10, 20, 30, 40] → index 1 → value 10
     expect(quantile([0, 10, 20, 30, 40], 0.25)).toBe(10);
   });
+
+  it("returns NaN for empty array", () => {
+    expect(quantile([], 0.5)).toBeNaN();
+  });
 });
