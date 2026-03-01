@@ -83,7 +83,8 @@ export function asciiScatter(
 ): string {
   if (points.length === 0) return "(no data)";
 
-  const { width = 50, height = 20, label } = opts;
+  const { width = 50, height: rawHeight = 20, label } = opts;
+  const height = Math.max(2, rawHeight);
 
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
