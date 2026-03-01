@@ -23,6 +23,7 @@ import {
   paramSymbol,
   priorLine,
   stateNames,
+  textify,
 } from "./ssm-latex";
 
 export interface AllStageData {
@@ -323,14 +324,14 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
         distribution: "Normal",
         params: { mu: 0, sigma: 2 },
         sources: [],
-        reasoning: `Default weakly informative prior for the initial state mean of ${s.replace(/_/g, " ")}.`,
+        reasoning: `Default weakly informative prior for the initial state mean of ${textify(s)}.`,
       });
       t0Priors.push({
         parameter: `t0_sd_${s}`,
         distribution: "HalfNormal",
         params: { sigma: 2 },
         sources: [],
-        reasoning: `Default weakly informative prior for the initial state standard deviation of ${s.replace(/_/g, " ")}.`,
+        reasoning: `Default weakly informative prior for the initial state standard deviation of ${textify(s)}.`,
       });
     }
     const allPriors = [...s4.priors, ...t0Priors];
