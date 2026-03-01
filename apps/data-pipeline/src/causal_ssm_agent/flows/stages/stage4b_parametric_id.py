@@ -191,7 +191,8 @@ def _compute_rb_partition_payload(builder: Any) -> dict | None:
     try:
         from causal_ssm_agent.models.likelihoods.graph_analysis import analyze_first_pass_rb
 
-        assert builder._model is not None
+        if builder._model is None:
+            return None
         spec = builder._model.spec
         partition = analyze_first_pass_rb(spec)
         latent_names = spec.latent_names or [f"latent_{i}" for i in range(spec.n_latent)]
