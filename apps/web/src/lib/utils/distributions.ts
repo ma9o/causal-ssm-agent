@@ -61,10 +61,10 @@ export function evaluatePdf(
     } else if (dist === "beta") {
       y = jStat.beta.pdf(x, params.alpha ?? params.a ?? 2, params.beta ?? params.b ?? 2) as number;
     } else if (dist === "uniform") {
-      y =
-        x >= (params.low ?? 0) && x <= (params.high ?? 1)
-          ? 1 / ((params.high ?? 1) - (params.low ?? 0))
-          : 0;
+      const uLow = params.low ?? 0;
+      const uHigh = params.high ?? 1;
+      const uRange = uHigh - uLow;
+      y = uRange > 0 && x >= uLow && x <= uHigh ? 1 / uRange : 0;
     }
 
     points.push({ x: Math.round(x * 1000) / 1000, y });

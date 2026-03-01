@@ -112,6 +112,14 @@ describe("evaluatePdf", () => {
         expect(p.y).toBe(0);
       }
     });
+
+    it("handles degenerate case where low equals high without Infinity", () => {
+      const points = evaluatePdf("Uniform", { low: 3, high: 3 });
+      for (const p of points) {
+        expect(Number.isFinite(p.y)).toBe(true);
+        expect(p.y).toBe(0);
+      }
+    });
   });
 
   it("uses default nPoints=200", () => {
