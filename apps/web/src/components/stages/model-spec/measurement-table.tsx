@@ -24,7 +24,7 @@ import {
 
 // ── Row type ──────────────────────────────────────────────
 
-export interface MeasurementRow {
+interface MeasurementRow {
   likelihood: LikelihoodSpec;
   extractions: Extraction[];
   priorSamples?: number[];
@@ -104,7 +104,10 @@ function MeasurementSparkline({ row }: { row: MeasurementRow }) {
   if (numericValues.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
 
   const isDiscrete =
-    row.likelihood.distribution === "poisson" || row.likelihood.distribution === "bernoulli";
+    row.likelihood.distribution === "poisson" ||
+    row.likelihood.distribution === "bernoulli" ||
+    row.likelihood.distribution === "negative_binomial" ||
+    row.likelihood.distribution === "ordered_logistic";
 
   const bins = isDiscrete
     ? buildCountFrequency(numericValues)
