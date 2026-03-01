@@ -190,6 +190,22 @@ class TestLatentModel:
                 ],
             )
 
+    def test_valid_exogenous_to_endogenous_contemporaneous(self, construct_factory):
+        """Exogenous → endogenous contemporaneous edge at same timescale is valid."""
+        model = LatentModel(
+            constructs=[
+                construct_factory("stress", "daily", Role.EXOGENOUS),
+                construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True),
+            ],
+            edges=[
+                CausalEdge(
+                    cause="stress", effect="mood", description="Contemporaneous exo→endo", lagged=False
+                )
+            ],
+        )
+        assert len(model.edges) == 1
+        assert model.edges[0].lagged is False
+
     def test_invalid_outcome_no_incoming_edges(self, construct_factory):
         """Outcome must have at least one incoming causal edge."""
         with pytest.raises(ValueError, match="has no incoming causal edges"):
@@ -525,6 +541,17 @@ class TestComputeLagHours:
         """Finer to coarser also returns coarser granularity."""
         assert compute_lag_hours("hourly", "daily", lagged=True) == 24
         assert compute_lag_hours("daily", "weekly", lagged=True) == 168
+
+    def test_time_invariant_both_none(self):
+        """Both granularities None (time-invariant constructs) returns 0."""
+        assert compute_lag_hours(None, None, lagged=False) == 0
+        assert compute_lag_hours(None, None, lagged=True) == 0
+
+    def test_time_invariant_mixed(self):
+        """One granularity None, other non-None uses cross-timescale logic."""
+        assert compute_lag_hours("daily", None, lagged=True) == 24
+        assert compute_lag_hours(None, "daily", lagged=True) == 24
+        assert compute_lag_hours(None, "hourly", lagged=False) == 1
 
 
 class TestDeriveObservationKind:
