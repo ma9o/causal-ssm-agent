@@ -129,9 +129,11 @@ export function DiagnosticsAccordion({
               <StatTooltip explanation="LOO-CV via PSIS using one-step-ahead predictive log-likelihoods from the filter (innovation decomposition). Each 'observation' is one complete timestep, not individual cells. Valid for SSMs because the innovation sequence is conditionally independent given parameters." />
               <Badge
                 variant={
-                  looDiagnostics.n_bad_k != null && looDiagnostics.n_bad_k === 0
-                    ? "success"
-                    : "warning"
+                  looDiagnostics.n_bad_k == null
+                    ? "outline"
+                    : looDiagnostics.n_bad_k === 0
+                      ? "success"
+                      : "warning"
                 }
               >
                 ELPD = {formatNumber(looDiagnostics.elpd_loo, 1)}
