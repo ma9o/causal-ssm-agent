@@ -61,6 +61,7 @@ function buildRows(
 // ── Shared helpers ───────────────────────────────────────
 
 function pValueForStat(stat: PPCTestStat): number {
+  if (stat.rep_values.length === 0) return NaN;
   return stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
 }
 
