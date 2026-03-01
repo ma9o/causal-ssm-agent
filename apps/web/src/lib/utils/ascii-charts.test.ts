@@ -135,4 +135,15 @@ describe("asciiScatter edge cases", () => {
     expect(result).not.toContain("NaN");
     expect(result).toContain("\u2022");
   });
+
+  it("handles height=1 without NaN or errors", () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+    ];
+    const result = asciiScatter(points, { height: 1 });
+    expect(result).not.toContain("NaN");
+    expect(result).not.toContain("Infinity");
+    expect(result).toContain("\u2022");
+  });
 });
