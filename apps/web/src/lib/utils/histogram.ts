@@ -5,6 +5,7 @@ import { bin } from "d3-array";
 
 /** Linear-interpolation quantile on a pre-sorted array. */
 export function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
   const pos = (sorted.length - 1) * q;
   const lo = Math.floor(pos);
   const hi = Math.ceil(pos);
