@@ -56,15 +56,6 @@ function IssueBadge({ summary }: { summary: ColumnIssueSummary | undefined }) {
   );
 }
 
-function rowIssueCount(row: IndicatorHealth): number {
-  let count = 0;
-  for (const field of STATUS_FIELDS) {
-    const status = row.cell_statuses?.[field];
-    if (status === "warning" || status === "error") count++;
-  }
-  return count;
-}
-
 function rowIssueSummary(row: IndicatorHealth): ColumnIssueSummary {
   let count = 0;
   let hasError = false;
@@ -85,7 +76,7 @@ function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
       header: "Indicator",
       cell: (info) => <span className="font-medium">{info.getValue()}</span>,
     }),
-    col.accessor((row) => rowIssueCount(row), {
+    col.accessor((row) => rowIssueSummary(row).count, {
       id: "issues",
       header: "Issues",
       cell: ({ row }) => {
