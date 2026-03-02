@@ -567,7 +567,7 @@ def output_sensitivity_analysis(
 
     # 3. Sample from prior (Jacobian draws + larger batch for prior std)
     prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=n_draws)
-    prior_z_std, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=200)
+    prior_z_std, rng_key = _sample_prior_unc(param_names, site_info, rng_key)
     prior_std = jnp.std(prior_z_std, axis=0)  # (P,) per-parameter prior SD
     # Guard against degenerate priors (zero std)
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
@@ -897,7 +897,7 @@ def profile_likelihood(
         return jnp.where(jnp.isfinite(val), val, jnp.array(1e10))
 
     # 3. Prior stds in unconstrained space (for grid range)
-    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=200)
+    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key)
     prior_stds = jnp.std(prior_z, axis=0)
     prior_stds = jnp.maximum(prior_stds, 0.1)
 
