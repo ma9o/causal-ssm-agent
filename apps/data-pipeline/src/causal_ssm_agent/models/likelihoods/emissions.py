@@ -15,8 +15,10 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.likelihoods.base import (
     CHOL_JITTER,
+    ETA_CLIP_MIN,
     MISSING_DATA_LARGE_VAR,
     NUMERICAL_EPSILON,
+    PROB_CLIP_MIN,
 )
 
 
@@ -109,7 +111,7 @@ def emission_log_prob_bernoulli_probit(y_t, z_t, H, d, _R, obs_mask_t):
     """
     eta = H @ z_t + d
     p = jstats.norm.cdf(eta)
-    p = jnp.clip(p, 1e-7, 1.0 - 1e-7)
+    p = jnp.clip(p, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     log_probs = y_t * jnp.log(p) + (1.0 - y_t) * jnp.log(1.0 - p)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
@@ -120,7 +122,7 @@ def emission_log_prob_gamma_inverse(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     mean = 1 / eta (canonical link for Gamma).
     """
     eta = H @ z_t + d
-    mean = 1.0 / jnp.clip(eta, 1e-6, None)
+    mean = 1.0 / jnp.clip(eta, ETA_CLIP_MIN, None)
     scale = mean / shape
     log_probs = jax.scipy.stats.gamma.logpdf(y_t, shape, scale=scale)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
@@ -134,7 +136,7 @@ def emission_log_prob_beta_probit(y_t, z_t, H, d, _R, obs_mask_t, concentration=
     """
     eta = H @ z_t + d
     mean = jstats.norm.cdf(eta)
-    mean = jnp.clip(mean, 1e-7, 1.0 - 1e-7)
+    mean = jnp.clip(mean, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     alpha = mean * concentration
     beta_ = (1.0 - mean) * concentration
     log_probs = jax.scipy.stats.beta.logpdf(y_t, alpha, beta_)
