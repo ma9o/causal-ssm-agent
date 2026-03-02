@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
-import { generateSessionCode } from "@/lib/session-code";
+import { CODE_LENGTH, generateSessionCode } from "@/lib/session-code";
 import {
   ArrowRight,
   FileText,
@@ -145,8 +145,8 @@ export default function LandingPage() {
 
   const handleResume = async () => {
     const code = resumeCode.trim().toUpperCase();
-    if (code.length !== 6) {
-      setResumeError("Session code must be 6 characters.");
+    if (code.length !== CODE_LENGTH) {
+      setResumeError(`Session code must be ${CODE_LENGTH} characters.`);
       return;
     }
 
@@ -365,7 +365,7 @@ export default function LandingPage() {
             <input
               type="text"
               aria-label="Session code"
-              maxLength={6}
+              maxLength={CODE_LENGTH}
               placeholder="ABC123"
               value={resumeCode}
               onChange={(e) => {
@@ -373,14 +373,14 @@ export default function LandingPage() {
                 if (resumeError) setResumeError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && resumeCode.trim().length === 6) handleResume();
+                if (e.key === "Enter" && resumeCode.trim().length === CODE_LENGTH) handleResume();
               }}
               className="flex-1 rounded-md border bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] uppercase placeholder:text-muted-foreground/40 placeholder:tracking-[0.3em]"
             />
             <Button
               variant="outline"
               onClick={handleResume}
-              disabled={isResuming || resumeCode.trim().length !== 6}
+              disabled={isResuming || resumeCode.trim().length !== CODE_LENGTH}
             >
               {isResuming ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
