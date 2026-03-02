@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Histogram binning edge padding to avoid artifacts at distribution tails
+HIST_PADDING_RATIO = 0.05
+HIST_PADDING_DEFAULT = 0.5
+
 InferenceMethod = Literal[
     "nuts",
     "nuts_da",
@@ -507,7 +511,7 @@ def _param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> dict[st
     """
     v_min, v_max = float(jnp.min(values)), float(jnp.max(values))
     # Slight padding to avoid edge artifacts
-    padding = (v_max - v_min) * 0.05 if v_max > v_min else 0.5
+    padding = (v_max - v_min) * HIST_PADDING_RATIO if v_max > v_min else HIST_PADDING_DEFAULT
     counts, edges = jnp.histogram(values, bins=n_bins, range=(v_min - padding, v_max + padding))
     # Normalize to density
     bin_width = float(edges[1] - edges[0])
@@ -573,7 +577,7 @@ def _build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str
 
     def _hist(vals: jnp.ndarray) -> dict[str, list[float]]:
         lo, hi = float(jnp.min(vals)), float(jnp.max(vals))
-        pad = (hi - lo) * 0.05 if hi > lo else 0.5
+        pad = (hi - lo) * HIST_PADDING_RATIO if hi > lo else HIST_PADDING_DEFAULT
         counts, edges = jnp.histogram(vals, bins=n_bins, range=(lo - pad, hi + pad))
         bw = float(edges[1] - edges[0])
         total = float(jnp.sum(counts))
