@@ -41,6 +41,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Chi-squared(1) critical values divided by 2, for profile likelihood thresholds.
+# chi2(1, 0.05) / 2 = 3.84 / 2 = 1.92  (95% confidence)
+# chi2(1, 0.01) / 2 = 6.635 / 2 ≈ 3.32 (99% confidence)
+CHI2_THRESHOLD_95 = 1.92
+CHI2_THRESHOLD_99 = 3.32
+
 
 # ---------------------------------------------------------------------------
 # T-rule (counting condition)
@@ -702,7 +708,7 @@ class ProfileLikelihoodResult:
     ]  # scalar_name -> {grid_unc, grid_con, profile_ll, mle_value}
     mle_ll: float  # MAP log-posterior
     mle_params: dict[str, jnp.ndarray]  # MAP parameter values (constrained)
-    threshold: float  # chi-squared threshold (1.92 for 95%)
+    threshold: float  # chi-squared threshold (CHI2_THRESHOLD_95 or CHI2_THRESHOLD_99)
     parameter_names: list[str]  # scalar element names that were profiled
 
     def summary(self) -> dict[str, str]:
@@ -929,7 +935,7 @@ def profile_likelihood(
         indices = list(range(D))
 
     # Threshold: chi2(1, alpha)/2
-    threshold = 3.32 if confidence >= 0.99 else 1.92
+    threshold = CHI2_THRESHOLD_99 if confidence >= 0.99 else CHI2_THRESHOLD_95
 
     # 7. Transforms for constrained mapping
     transforms = {name: site_info[name]["transform"] for name in site_info}
