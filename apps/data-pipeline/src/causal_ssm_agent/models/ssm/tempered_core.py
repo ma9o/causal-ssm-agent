@@ -21,6 +21,8 @@ from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
+    HMC_TARGET_ACCEPT,
+    RWM_TARGET_ACCEPT,
     compute_weighted_chol_mass,
     find_next_beta,
     hmc_step,
@@ -85,7 +87,7 @@ def run_tempered_smc(
     """
     # Default target acceptance depends on n_leapfrog
     if target_accept is None:
-        target_accept = 0.65 if n_leapfrog > 1 else 0.44
+        target_accept = HMC_TARGET_ACCEPT if n_leapfrog > 1 else RWM_TARGET_ACCEPT
 
     rng_key = random.PRNGKey(seed)
     N = n_csmc_particles
