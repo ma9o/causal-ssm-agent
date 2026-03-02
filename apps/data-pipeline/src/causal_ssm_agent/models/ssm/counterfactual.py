@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import vmap
 
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.discretization import discretize_system
 
 logger = logging.getLogger(__name__)
@@ -318,7 +319,7 @@ def compute_interventions(
                     manifest_effects = {}
                     for mi in range(len(loadings)):
                         loading_val = float(loadings[mi])
-                        if abs(loading_val) > 1e-8:
+                        if abs(loading_val) > CHOL_JITTER:
                             name = m_names[mi] if mi < len(m_names) else f"manifest_{mi}"
                             manifest_effects[name] = loading_val * mean_effect
                     if manifest_effects:

@@ -26,7 +26,7 @@ from jax import lax
 from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
 
-from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.utils import (
     _assemble_deterministics,
@@ -275,7 +275,7 @@ def simulate_ssm(
 
     # Sample initial state
     rng_key, init_key = random.split(rng_key)
-    t0_chol_safe = jnp.linalg.cholesky(t0_cov + jnp.eye(n_latent) * 1e-8)
+    t0_chol_safe = jnp.linalg.cholesky(t0_cov + jnp.eye(n_latent) * CHOL_JITTER)
     x_0 = t0_means + t0_chol_safe @ random.normal(init_key, (n_latent,))
 
     # First observation from x_0
@@ -284,7 +284,7 @@ def simulate_ssm(
     if manifest_dist == "poisson":
         y_0 = random.poisson(obs_key, jax.nn.softplus(mu_0)).astype(jnp.float32)
     else:
-        manifest_chol_safe = jnp.linalg.cholesky(manifest_cov + jnp.eye(n_manifest) * 1e-8)
+        manifest_chol_safe = jnp.linalg.cholesky(manifest_cov + jnp.eye(n_manifest) * CHOL_JITTER)
         y_0 = mu_0 + manifest_chol_safe @ random.normal(obs_key, (n_manifest,))
 
     # Scan over remaining timesteps
@@ -295,7 +295,7 @@ def simulate_ssm(
 
         # State transition
         rng, state_key, obs_key = random.split(rng, 3)
-        Qd_chol = jnp.linalg.cholesky(Qd_t + jnp.eye(n_latent) * 1e-8)
+        Qd_chol = jnp.linalg.cholesky(Qd_t + jnp.eye(n_latent) * CHOL_JITTER)
         mean_x = Ad_t @ x_prev + cd_t
         x_t = mean_x + Qd_chol @ random.normal(state_key, (n_latent,))
 
@@ -339,7 +339,7 @@ def _simulate_from_params(con_dict, spec, times, rng_key):
             det.get("manifest_cov", jnp.eye(n_m)) + jnp.eye(n_m) * 1e-8
         ),
         t0_means=det.get("t0_means", jnp.zeros(n_l)),
-        t0_chol=jnp.linalg.cholesky(det.get("t0_cov", jnp.eye(n_l)) + jnp.eye(n_l) * 1e-8),
+        t0_chol=jnp.linalg.cholesky(det.get("t0_cov", jnp.eye(n_l)) + jnp.eye(n_l) * CHOL_JITTER),
         times=times,
         rng_key=rng_key,
         cint=det.get("cint"),
