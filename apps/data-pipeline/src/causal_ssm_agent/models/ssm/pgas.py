@@ -42,6 +42,8 @@ from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
+    HMC_TARGET_ACCEPT,
+    MALA_TARGET_ACCEPT,
     compute_weighted_chol_mass,
     dual_averaging_init,
     dual_averaging_update,
@@ -791,7 +793,7 @@ def fit_pgas(
     block_accept_rates = {b["name"]: [] for b in blocks} if block_sampling else {}
 
     # Dual averaging for step size adaptation
-    target_accept = 0.65 if n_leapfrog > 1 else 0.574
+    target_accept = HMC_TARGET_ACCEPT if n_leapfrog > 1 else MALA_TARGET_ACCEPT
     da_state = dual_averaging_init(param_step_size)
     current_step_size = param_step_size
     # Per-block dual averaging states

@@ -16,6 +16,11 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 
+# Optimal target acceptance rates (from MCMC theory)
+HMC_TARGET_ACCEPT = 0.65  # Hoffman & Gelman (2014)
+MALA_TARGET_ACCEPT = 0.574  # Roberts & Rosenthal (1998)
+RWM_TARGET_ACCEPT = 0.44  # Roberts, Gelman & Gilks (1997)
+
 
 def hmc_step(rng_key, z, log_target_val_and_grad, step_size, chol_mass, n_leapfrog=1):
     """Preconditioned HMC step with full mass matrix M = L L^T.
@@ -227,7 +232,7 @@ def dual_averaging_init(eps_init):
     )
 
 
-def dual_averaging_update(state, accept_prob, target_accept=0.65, gamma=0.05, t0=10, kappa=0.75):
+def dual_averaging_update(state, accept_prob, target_accept=HMC_TARGET_ACCEPT, gamma=0.05, t0=10, kappa=0.75):
     """Update dual averaging state with new acceptance probability.
 
     Implements Algorithm 5 from Hoffman & Gelman (2014). Converges to
