@@ -94,4 +94,10 @@ describe("triggerRun", () => {
       }),
     );
   });
+
+  it("propagates API errors from apiFetch", async () => {
+    vi.mocked(apiFetch).mockRejectedValue(new Error("API error 500: Internal Server Error"));
+
+    await expect(triggerRun("dep-123", { user_id: "test" })).rejects.toThrow("API error 500");
+  });
 });
