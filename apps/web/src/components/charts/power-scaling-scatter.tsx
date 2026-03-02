@@ -1,6 +1,7 @@
 "use client";
 
 import { diagnosisColor, diagnosisLabel } from "@/lib/constants/charts";
+import { POWER_SCALING_THRESHOLD } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import type { PowerScalingResult } from "@causal-ssm/api-types";
 import {
@@ -77,13 +78,13 @@ export function PowerScalingScatter({ results }: PowerScalingScatterProps) {
           />
           {/* Threshold guides */}
           <ReferenceLine
-            x={0.05}
+            x={POWER_SCALING_THRESHOLD}
             stroke="var(--muted-foreground)"
             strokeDasharray="4 4"
             strokeOpacity={0.5}
           />
           <ReferenceLine
-            y={0.05}
+            y={POWER_SCALING_THRESHOLD}
             stroke="var(--muted-foreground)"
             strokeDasharray="4 4"
             strokeOpacity={0.5}

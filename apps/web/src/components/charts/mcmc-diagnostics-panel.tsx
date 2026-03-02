@@ -3,6 +3,13 @@
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { CHAIN_COLORS } from "@/lib/constants/charts";
+import {
+  DEFAULT_N_SAMPLES,
+  ESS_RATIO_FAIL,
+  ESS_RATIO_WARN,
+  RHAT_FAIL,
+  RHAT_WARN,
+} from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import type {
   MCMCDiagnostics,
@@ -36,8 +43,8 @@ interface EnrichedParamRow extends MCMCParamDiagnostic {
 
 function rhatSeverity(value: number | number[]): "fail" | "warn" | undefined {
   const v = Array.isArray(value) ? Math.max(...value) : value;
-  if (v >= 1.1) return "fail";
-  if (v >= 1.01) return "warn";
+  if (v >= RHAT_FAIL) return "fail";
+  if (v >= RHAT_WARN) return "warn";
   return undefined;
 }
 
@@ -47,10 +54,10 @@ function essSeverity(
 ): "fail" | "warn" | undefined {
   if (value == null) return undefined;
   const v = Array.isArray(value) ? Math.min(...value) : value;
-  const total = nSamples ?? 1000;
+  const total = nSamples ?? DEFAULT_N_SAMPLES;
   const ratio = v / total;
-  if (ratio <= 0.1) return "fail";
-  if (ratio <= 0.5) return "warn";
+  if (ratio <= ESS_RATIO_FAIL) return "fail";
+  if (ratio <= ESS_RATIO_WARN) return "warn";
   return undefined;
 }
 

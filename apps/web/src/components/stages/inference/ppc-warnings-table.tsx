@@ -2,6 +2,7 @@
 
 import { HeaderWithTooltip } from "@/components/ui/info-table";
 import { InfoTable } from "@/components/ui/info-table";
+import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram } from "@/lib/utils/histogram";
 import type { PPCOverlay, PPCTestStat, PPCWarning } from "@causal-ssm/api-types";
@@ -231,7 +232,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
           const stat = row.testStats[sn];
           if (!stat) return undefined;
           const p = pValueForStat(stat);
-          return p < 0.05 || p > 0.95 ? "fail" : undefined;
+          return p < PPC_P_LOWER || p > PPC_P_UPPER ? "fail" : undefined;
         },
       },
     }),

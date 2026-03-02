@@ -11,6 +11,7 @@ import type {
   Stage6Data,
 } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
+import { CI_LOWER, CI_UPPER } from "@/lib/constants/diagnostics";
 import { asciiDensity, asciiHistogram, asciiMultiLine, asciiScatter } from "./ascii-charts";
 import { formatDateRange, formatNumber, formatPercent } from "./format";
 import { quantile } from "./histogram";
@@ -603,7 +604,7 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
         let ci = "—";
         if (draws && draws.length > 0) {
           const s = [...draws].sort((a, b) => a - b);
-          ci = `[${formatNumber(quantile(s, 0.025))}, ${formatNumber(quantile(s, 0.975))}]`;
+          ci = `[${formatNumber(quantile(s, CI_LOWER))}, ${formatNumber(quantile(s, CI_UPPER))}]`;
         }
         return [
           t.treatment,

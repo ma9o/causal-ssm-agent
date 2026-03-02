@@ -1,5 +1,6 @@
 "use client";
 
+import { PARETO_K_FAIL, PARETO_K_WARN } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import type { LOODiagnostics } from "@causal-ssm/api-types";
 import {
@@ -52,21 +53,21 @@ export function ParetoKChart({ loo }: ParetoKChartProps) {
             <RechartsTooltip formatter={(value) => [formatNumber(Number(value), 3), "Pareto k"]} />
             {/* Threshold lines */}
             <ReferenceLine
-              y={0.7}
+              y={PARETO_K_FAIL}
               stroke="var(--destructive)"
               strokeDasharray="4 4"
               label={{
-                value: "k = 0.7",
+                value: `k = ${PARETO_K_FAIL}`,
                 position: "right",
                 fontSize: 9,
                 fill: "var(--destructive)",
               }}
             />
             <ReferenceLine
-              y={0.5}
+              y={PARETO_K_WARN}
               stroke="var(--warning)"
               strokeDasharray="4 4"
-              label={{ value: "k = 0.5", position: "right", fontSize: 9, fill: "var(--warning)" }}
+              label={{ value: `k = ${PARETO_K_WARN}`, position: "right", fontSize: 9, fill: "var(--warning)" }}
             />
             <Scatter data={data} fill="var(--primary)" fillOpacity={0.6} r={3} />
           </ScatterChart>

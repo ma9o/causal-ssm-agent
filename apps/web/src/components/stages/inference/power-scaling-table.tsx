@@ -1,4 +1,5 @@
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { PARETO_K_FAIL, PARETO_K_WARN } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import type { PowerScalingResult } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
@@ -65,8 +66,8 @@ const psisColumn = col.accessor("psis_k_hat", {
     mono: true,
     severity: (v: number | null | undefined) => {
       if (v == null) return undefined;
-      if (v > 0.7) return "fail";
-      if (v > 0.5) return "warn";
+      if (v > PARETO_K_FAIL) return "fail";
+      if (v > PARETO_K_WARN) return "warn";
       return undefined;
     },
   },
