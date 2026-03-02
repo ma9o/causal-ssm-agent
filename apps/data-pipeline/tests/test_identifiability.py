@@ -4,6 +4,8 @@ Covers: get_observed_constructs, _is_time_varying, _node_name,
         unroll_temporal_dag, find_blocking_confounders, find_instruments.
 """
 
+import pytest
+
 import networkx as nx
 
 from causal_ssm_agent.utils.identifiability import (
@@ -87,9 +89,10 @@ class TestIsTimeVarying:
         lm = {"constructs": [{"name": "X", "temporal_status": "time_invariant"}]}
         assert _is_time_varying(lm, "X") is False
 
-    def test_not_found_defaults_to_true(self):
+    def test_not_found_raises_value_error(self):
         lm = {"constructs": [{"name": "X"}]}
-        assert _is_time_varying(lm, "Z") is True
+        with pytest.raises(ValueError, match="not found in latent model"):
+            _is_time_varying(lm, "Z")
 
 
 # =============================================================================
