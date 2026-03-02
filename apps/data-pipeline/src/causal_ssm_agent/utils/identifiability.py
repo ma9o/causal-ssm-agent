@@ -175,7 +175,7 @@ def _is_time_varying(latent_model: dict, construct_name: str) -> bool:
     for construct in latent_model["constructs"]:
         if construct["name"] == construct_name:
             return construct.get("temporal_status", "time_varying") != "time_invariant"
-    return True  # Default to time-varying if not found
+    raise ValueError(f"Construct '{construct_name}' not found in latent model")
 
 
 def get_observed_constructs(measurement_model: dict) -> set[str]:
