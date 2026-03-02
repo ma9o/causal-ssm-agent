@@ -1,6 +1,7 @@
 "use client";
 
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { CI_LOWER, CI_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram, quantile } from "@/lib/utils/histogram";
 import type { TreatmentEffect } from "@causal-ssm/api-types";
@@ -98,8 +99,8 @@ const columns = [
       const draws = row.original.posterior_draws;
       if (!draws || draws.length === 0) return "—";
       const sorted = [...draws].sort((a, b) => a - b);
-      const lo = quantile(sorted, 0.025);
-      const hi = quantile(sorted, 0.975);
+      const lo = quantile(sorted, CI_LOWER);
+      const hi = quantile(sorted, CI_UPPER);
       return `[${formatNumber(lo)}, ${formatNumber(hi)}]`;
     },
     meta: {
