@@ -8,6 +8,8 @@ NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
 and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py
 """
 
+from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
+
 SYSTEM = """\
 You are a Bayesian statistician completing a model specification for causal inference.
 
@@ -203,8 +205,6 @@ def format_loading_params(loading_params: list[dict]) -> str:
 # Keep legacy formatters for backward compatibility with other callers
 def format_constructs(causal_spec: dict) -> str:
     """Format constructs for the prompt."""
-    from causal_ssm_agent.utils.causal_spec import get_constructs
-
     lines = []
     for construct in get_constructs(causal_spec):
         name = construct.get("name", "?")
@@ -221,8 +221,6 @@ def format_constructs(causal_spec: dict) -> str:
 
 def format_edges(causal_spec: dict) -> str:
     """Format causal edges for the prompt."""
-    from causal_ssm_agent.utils.causal_spec import get_edges
-
     lines = []
     for edge in get_edges(causal_spec):
         cause = edge.get("cause", "?")
@@ -237,8 +235,6 @@ def format_edges(causal_spec: dict) -> str:
 
 def format_indicators(causal_spec: dict) -> str:
     """Format indicators for the prompt."""
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-
     lines = []
     for indicator in get_indicators(causal_spec):
         name = indicator.get("name", "?")
