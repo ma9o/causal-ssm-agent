@@ -1,5 +1,7 @@
 import { plot as asciichartPlot } from "asciichart";
 
+const NO_DATA = "(no data)";
+
 interface HistogramOpts {
   width?: number;
   nBins?: number;
@@ -8,7 +10,7 @@ interface HistogramOpts {
 
 /** Render a horizontal bar histogram of numeric values using block characters. */
 export function asciiHistogram(values: number[], opts: HistogramOpts = {}): string {
-  if (values.length === 0) return "(no data)";
+  if (values.length === 0) return NO_DATA;
 
   const { width = 40, nBins = 15, label } = opts;
   const sorted = [...values].sort((a, b) => a - b);
@@ -50,7 +52,7 @@ interface DensityOpts {
 
 /** Render a density curve using asciichart. */
 export function asciiDensity(x: number[], y: number[], opts: DensityOpts = {}): string {
-  if (y.length === 0) return "(no data)";
+  if (y.length === 0) return NO_DATA;
 
   const { height = 12, width = 60, label } = opts;
 
@@ -81,7 +83,7 @@ export function asciiScatter(
   points: { x: number; y: number; label?: string }[],
   opts: ScatterOpts = {},
 ): string {
-  if (points.length === 0) return "(no data)";
+  if (points.length === 0) return NO_DATA;
 
   const { width = 50, height: rawHeight = 20, label } = opts;
   const height = Math.max(2, rawHeight);
@@ -133,7 +135,7 @@ interface MultiLineOpts {
 
 /** Render multi-series line chart (e.g. trace plots with multiple chains). */
 export function asciiMultiLine(series: number[][], opts: MultiLineOpts = {}): string {
-  if (series.length === 0 || series.every((s) => s.length === 0)) return "(no data)";
+  if (series.length === 0 || series.every((s) => s.length === 0)) return NO_DATA;
 
   const { height = 12, width = 60, label } = opts;
 
