@@ -133,4 +133,40 @@ describe("layoutDag", () => {
     expect(result.nodes[0].data.name).toBe("stress");
     expect(result.nodes[0].data.is_outcome).toBe(true);
   });
+
+  it("positions isolated nodes (no edges between them)", async () => {
+    const constructs = [makeConstruct("A"), makeConstruct("B"), makeConstruct("C")];
+    const result = await layoutDag(constructs, []);
+    expect(result.nodes).toHaveLength(3);
+    expect(result.edges).toHaveLength(0);
+    // All nodes should have valid positions
+    for (const node of result.nodes) {
+      expect(typeof node.position.x).toBe("number");
+      expect(typeof node.position.y).toBe("number");
+    }
+  });
+
+  it("handles diamond DAG (A→B, A→C, B→D, C→D)", async () => {
+    const constructs = [
+      makeConstruct("A"),
+      makeConstruct("B"),
+      makeConstruct("C"),
+      makeConstruct("D"),
+    ];
+    const edges = [
+      makeEdge("A", "B"),
+      makeEdge("A", "C"),
+      makeEdge("B", "D"),
+      makeEdge("C", "D"),
+    ];
+    const result = await layoutDag(constructs, edges);
+    expect(result.nodes).toHaveLength(4);
+    expect(result.edges).toHaveLength(4);
+    // A should be above D in layered layout
+    const nodeA = result.nodes.find((n) => n.id === "A");
+    const nodeD = result.nodes.find((n) => n.id === "D");
+    expect(nodeA).toBeDefined();
+    expect(nodeD).toBeDefined();
+    expect(nodeA?.position.y).toBeLessThan(nodeD?.position.y as number);
+  });
 });

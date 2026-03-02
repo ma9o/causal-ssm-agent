@@ -102,4 +102,10 @@ describe("apiFetch", () => {
 
     await expect(apiFetch("/api/broken")).rejects.toThrow("API error 500");
   });
+
+  it("propagates network errors when fetch rejects", async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(apiFetch("/api/down")).rejects.toThrow("Failed to fetch");
+  });
 });

@@ -26,4 +26,12 @@ describe("cn", () => {
   it("handles empty input", () => {
     expect(cn()).toBe("");
   });
+
+  it("handles object syntax for conditional classes", () => {
+    expect(cn({ "text-red-500": true, hidden: false })).toBe("text-red-500");
+  });
+
+  it("handles mixed strings and objects", () => {
+    expect(cn("base", { "p-4": true, "m-2": false }, "end")).toBe("base p-4 end");
+  });
 });
