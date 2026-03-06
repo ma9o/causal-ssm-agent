@@ -196,8 +196,6 @@ export interface CausalEdge {
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
   causal_spec: CausalSpec;
-  measurement_model: MeasurementModel;
-  identifiability_status?: IdentifiabilityStatus | null;
   llm_trace?: LLMTrace | null;
   gate_overridden?: GateOverrideContract | null;
 }

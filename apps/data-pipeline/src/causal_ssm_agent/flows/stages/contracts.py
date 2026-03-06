@@ -27,9 +27,7 @@ from causal_ssm_agent.models.ssm.schemas_inference import (  # noqa: TC001
 )
 from causal_ssm_agent.orchestrator.schemas import (  # noqa: TC001
     CausalSpec,
-    IdentifiabilityStatus,
     LatentModel,
-    MeasurementModel,
 )
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec  # noqa: TC001
 from causal_ssm_agent.utils.llm import LLMTrace  # noqa: TC001
@@ -97,8 +95,6 @@ class Stage1bContract(BaseModel):
 
     outcome: Literal["success", "warn", "fail"] = "success"
     causal_spec: CausalSpec
-    measurement_model: MeasurementModel
-    identifiability_status: IdentifiabilityStatus | None = None
     llm_trace: LLMTrace | None = None
     gate_overridden: GateOverrideContract | None = None
 
