@@ -3,16 +3,18 @@
 import { cn } from "@/lib/utils/cn";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useMemo, useRef } from "react";
+import { StatTooltip } from "./stat-tooltip";
 import { useTableKeyboardNav } from "./use-table-keyboard-nav";
 
 interface DataTableProps<T extends object> {
   rows: T[];
   maxHeight?: string;
+  columnTooltips?: Record<string, string>;
 }
 
 const ROW_HEIGHT = 28;
 
-export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: DataTableProps<T>) {
+export function DataTable<T extends object>({ rows, maxHeight = "max-h-64", columnTooltips }: DataTableProps<T>) {
   const columns = useMemo(() => {
     if (rows.length === 0) return [];
     const firstRow = rows[0] as Record<string, unknown>;
@@ -52,7 +54,10 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64" }: Da
             // biome-ignore lint/a11y/useSemanticElements: virtualized table requires div-based layout
             role="columnheader"
           >
-            {col.replace(/_/g, " ")}
+            <span className="inline-flex items-center gap-1">
+              {col.replace(/_/g, " ")}
+              {columnTooltips?.[col] && <StatTooltip explanation={columnTooltips[col]} />}
+            </span>
           </div>
         ))}
       </div>
