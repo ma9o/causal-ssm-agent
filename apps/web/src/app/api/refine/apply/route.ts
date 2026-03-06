@@ -2,8 +2,6 @@ import { openrouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 import { NextResponse } from "next/server";
 
-const MODEL = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4";
-
 const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
 
 /**
