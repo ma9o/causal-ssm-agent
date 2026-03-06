@@ -70,10 +70,10 @@ export default function LandingPage() {
   const [isResuming, setIsResuming] = useState(false);
 
   const validateFile = useCallback((f: File): string | null => {
-    const validTypes = [".zip", ".json"];
+    const validTypes = [".zip"];
     const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
     if (!validTypes.includes(ext)) {
-      return `Invalid file type "${ext}". Please upload a ZIP or JSON file.`;
+      return `Invalid file type "${ext}". Please upload a .zip file.`;
     }
     if (f.size > MAX_FILE_SIZE) {
       return `File too large (${prettyBytes(f.size)}). Maximum size is ${prettyBytes(MAX_FILE_SIZE)}.`;
@@ -287,7 +287,7 @@ export default function LandingPage() {
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
-                  accept=".zip,.json"
+                  accept=".zip"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) handleFileSelect(f);

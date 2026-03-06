@@ -1,6 +1,6 @@
 """Main causal inference pipeline.
 
-Orchestrates all stages from structure proposal to intervention analysis.
+Orchestrates all stages from agentic ingestion to intervention analysis.
 
 Two-stage specification following Anderson & Gerbing (1988):
 - Stage 1a: Latent model (theory-driven, no data)
@@ -8,31 +8,23 @@ Two-stage specification following Anderson & Gerbing (1988):
 """
 
 import logging
-import math
+
 from pathlib import Path
 
+import polars as pl
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact, create_table_artifact
-from prefect.utilities.annotations import unmapped
 
-from causal_ssm_agent.utils.aggregations import flatten_aggregated_data
-from causal_ssm_agent.utils.data import get_sample_chunks, load_query
+from causal_ssm_agent.utils.causal_spec import get_indicators
+from causal_ssm_agent.utils.data import load_query
 
 from .stages import (
+    # Stage 0
+    agentic_ingest,
     # Stage 3
-    aggregate_measurements,
-    # Stage 1b
-    combine_worker_results,
-    # Stage 5
     fit_model,
-    load_orchestrator_chunks,
-    # Stage 2
-    load_worker_chunks,
     # Web persistence
     persist_web_result,
-    populate_indicators,
-    # Stage 0
-    preprocess_raw_input,
     # Stage 1a
     propose_latent_model,
     propose_measurement_with_identifiability_fix,
@@ -51,27 +43,159 @@ logger = logging.getLogger(__name__)
 RESULT_STORAGE = Path("results")
 
 
-def _coerce_sample_value(value: object) -> str | int | float | bool | None:
-    """Coerce stringified extraction values back to JSON-friendly scalars."""
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
+# ---------------------------------------------------------------------------
+# Helpers for bridging ingested DataFrame → downstream pipeline
+# ---------------------------------------------------------------------------
 
-    if isinstance(value, str):
-        stripped = value.strip()
-        lower = stripped.lower()
-        if lower == "true":
-            return True
-        if lower == "false":
-            return False
-        if stripped and (stripped.isdigit() or (stripped[0] == "-" and stripped[1:].isdigit())):
-            return int(stripped)
-        try:
-            parsed = float(stripped)
-            return parsed if math.isfinite(parsed) else stripped
-        except ValueError:
-            return stripped
 
-    return str(value)
+def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
+    """Format a DataFrame schema and sample for LLM consumption.
+
+    Used by Stage 1b so the LLM can see what columns are available
+    when proposing the measurement model.
+    """
+    lines = ["## Dataset Schema\n"]
+    lines.append("| Column | Type | Description |")
+    lines.append("|--------|------|-------------|")
+    for col in df.columns:
+        dtype = str(df.schema[col])
+        desc = column_descriptions.get(col, "")
+        lines.append(f"| {col} | {dtype} | {desc} |")
+
+    lines.append("\n## Sample Data (first 10 rows)\n")
+    lines.append(str(df.head(10)))
+
+    lines.append("\n## Summary\n")
+    lines.append(f"- Total rows: {len(df)}")
+    lines.append(f"- Total columns: {len(df.columns)}")
+
+    # Basic stats for numeric columns
+    numeric_cols = [c for c in df.columns if df.schema[c].is_numeric()]
+    if numeric_cols:
+        lines.append("\n## Numeric Column Statistics\n")
+        lines.append(str(df.select(numeric_cols).describe()))
+
+    return "\n".join(lines)
+
+
+def map_columns_to_indicators(df: pl.DataFrame, causal_spec: dict) -> pl.DataFrame:
+    """Map ingested DataFrame columns to the long-format indicator representation.
+
+    Takes a wide-format DataFrame (one column per variable) and melts it to the
+    long format (indicator, value, timestamp) expected by Stage 3+.
+
+    The measurement model's indicator names must match DataFrame column names.
+
+    Args:
+        df: Wide-format ingested DataFrame.
+        causal_spec: CausalSpec dict with measurement model indicators.
+
+    Returns:
+        Long-format DataFrame with columns: indicator, value, timestamp.
+    """
+    indicators = get_indicators(causal_spec)
+    indicator_names = [ind["name"] for ind in indicators]
+
+    # Find which indicator names exist as columns
+    available = [name for name in indicator_names if name in df.columns]
+    if not available:
+        raise ValueError(
+            f"No indicator columns found in DataFrame. "
+            f"Expected: {indicator_names}, got: {df.columns}"
+        )
+
+    # Detect timestamp column
+    time_col = None
+    for candidate in ("timestamp", "date", "time", "datetime", "time_bucket"):
+        if candidate in df.columns:
+            time_col = candidate
+            break
+
+    # If no obvious time column, look for datetime-typed columns
+    if time_col is None:
+        for col in df.columns:
+            if df.schema[col] in (pl.Date, pl.Datetime):
+                time_col = col
+                break
+
+    # Build the long-format DataFrame
+    if time_col:
+        # Melt with timestamp
+        long_df = df.select([time_col, *available]).unpivot(
+            index=time_col,
+            on=available,
+            variable_name="indicator",
+            value_name="value",
+        )
+        # Rename time column to "timestamp"
+        if time_col != "timestamp":
+            long_df = long_df.rename({time_col: "timestamp"})
+        # Ensure string types for compatibility with downstream
+        long_df = long_df.with_columns(
+            pl.col("timestamp").cast(pl.Utf8),
+            pl.col("value").cast(pl.Utf8),
+        )
+    else:
+        # No timestamp — melt without it
+        long_df = df.select(available).unpivot(
+            on=available,
+            variable_name="indicator",
+            value_name="value",
+        )
+        long_df = long_df.with_columns(
+            pl.lit(None).alias("timestamp"),
+            pl.col("value").cast(pl.Utf8),
+        )
+
+    # Drop rows where value is null
+    long_df = long_df.drop_nulls(subset=["value"])
+
+    return long_df
+
+
+def _compute_date_range(df: pl.DataFrame) -> dict[str, str]:
+    """Compute date range from a DataFrame's time-like columns."""
+    for candidate in ("timestamp", "date", "time", "datetime"):
+        if candidate in df.columns:
+            col = df[candidate]
+            # Try to parse as date
+            if col.dtype in (pl.Date, pl.Datetime):
+                start = col.min()
+                end = col.max()
+                if start is not None and end is not None:
+                    return {
+                        "start": str(start)[:10],
+                        "end": str(end)[:10],
+                    }
+            elif col.dtype == pl.Utf8:
+                try:
+                    parsed = col.str.to_datetime(strict=False).drop_nulls()
+                    if len(parsed) > 0:
+                        return {
+                            "start": str(parsed.min())[:10],
+                            "end": str(parsed.max())[:10],
+                        }
+                except Exception:
+                    pass
+    return {"start": "", "end": ""}
+
+
+def _sample_rows(df: pl.DataFrame, n: int = 15) -> list[dict[str, str | None]]:
+    """Sample rows from a DataFrame for web display."""
+    if df.is_empty():
+        return []
+    total = len(df)
+    if total <= n:
+        sample = df
+    else:
+        step = (total - 1) / (n - 1)
+        indices = [round(i * step) for i in range(n)]
+        sample = df[indices]
+    # Convert all values to strings for JSON serialization
+    rows = []
+    for row_dict in sample.to_dicts():
+        rows.append({k: (str(v) if v is not None else None) for k, v in row_dict.items()})
+    return rows
 
 
 @flow(
@@ -110,7 +234,7 @@ async def causal_inference_pipeline(
     )
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 0: Preprocess raw input and load question
+    # Stage 0: Agentic data ingestion
     # ══════════════════════════════════════════════════════════════════════════
     if query:
         question = query.strip()
@@ -121,16 +245,26 @@ async def causal_inference_pipeline(
     logger.info("Query source: %s", "raw text" if query else query_file)
     logger.info("Question: %s", f"{question[:100]}..." if len(question) > 100 else question)
 
-    logger.info("=== Stage 0: Preprocess (user: %s) ===", user_id)
-    preprocess_result = preprocess_raw_input(user_id)
-    lines = preprocess_result["lines"]
+    logger.info("=== Stage 0: Agentic Ingestion (user: %s) ===", user_id)
+    ingestion_result = await agentic_ingest(user_id)
+    ingested_df = ingestion_result.dataframe
+    column_descriptions = ingestion_result.column_descriptions
+
+    logger.info("Ingested: %d rows x %d columns", ingested_df.shape[0], ingested_df.shape[1])
 
     persist_web_result(
         "stage-0",
         {
-            "n_records": preprocess_result["n_records"],
-            "date_range": preprocess_result["date_range"],
-            "sample": preprocess_result["sample"],
+            "source_label": ingestion_result.source_label,
+            "n_records": ingested_df.shape[0],
+            "n_columns": ingested_df.shape[1],
+            "date_range": _compute_date_range(ingested_df),
+            "sample": _sample_rows(ingested_df),
+            "column_descriptions": [
+                {"name": col, "dtype": str(ingested_df.schema[col]), "description": desc}
+                for col, desc in column_descriptions.items()
+            ],
+            "llm_trace": ingestion_result.llm_trace,
         },
     )
 
@@ -162,14 +296,16 @@ async def causal_inference_pipeline(
     # Stage 1b: Propose measurement model (with identifiability check)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=== Stage 1b: Measurement Model with Identifiability ===")
-    orchestrator_chunks = load_orchestrator_chunks(lines)
-    logger.info("Loaded %d orchestrator chunks", len(orchestrator_chunks))
 
-    # Propose measurements and check identifiability
+    # Format the ingested data schema for the LLM
+    dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
+
+    # Pass schema as a single "chunk" for Stage 1b
     stage1b_result = await propose_measurement_with_identifiability_fix(
         question,
         latent_model,
-        orchestrator_chunks[: get_sample_chunks()],
+        data_sample=[dataset_schema],
+        dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
     )
 
     causal_spec = stage1b_result["causal_spec"]
@@ -234,31 +370,23 @@ async def causal_inference_pipeline(
         )
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Stage 2: Parallel indicator population (worker chunk size)
+    # Stage 2: Column-to-indicator mapping (replaces worker extraction)
     # ══════════════════════════════════════════════════════════════════════════
-    logger.info("=== Stage 2: Worker Extraction ===")
-    worker_chunks = load_worker_chunks(lines)
-    logger.info("Loaded %d worker chunks", len(worker_chunks))
-
-    worker_results = populate_indicators.map(
-        worker_chunks,
-        question=unmapped(question),
-        causal_spec=unmapped(causal_spec),
-    )
-    resolved_worker_results = [
-        wr.result() if hasattr(wr, "result") else wr for wr in worker_results
-    ]
-
-    # Combine raw worker results
-    raw_data = combine_worker_results(resolved_worker_results)  # ty: ignore[no-matching-overload]
-    raw_data_result = raw_data.result() if hasattr(raw_data, "result") else raw_data
-    n_observations = len(raw_data_result)
-    n_unique_indicators = raw_data_result["indicator"].n_unique() if n_observations > 0 else 0
-    logger.info("  Combined %d observations across %d indicators", n_observations, n_unique_indicators)
+    logger.info("=== Stage 2: Column-to-Indicator Mapping ===")
+    raw_data = map_columns_to_indicators(ingested_df, causal_spec)
+    n_observations = len(raw_data)
+    n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
+    logger.info("Mapped %d observations across %d indicators", n_observations, n_unique_indicators)
 
     # Aggregate to pipeline-level aggregation window
-    aggregated = aggregate_measurements(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
-    aggregated_result = aggregated.result() if hasattr(aggregated, "result") else aggregated
+    # Wrap raw_data into a minimal WorkerResult-like structure for aggregate_measurements
+    from causal_ssm_agent.utils.aggregations import (
+        aggregate_worker_measurements,
+        flatten_aggregated_data,
+    )
+
+    worker_dfs = [raw_data]
+    aggregated_result = aggregate_worker_measurements(worker_dfs, causal_spec)
     if aggregated_result:
         data_for_model = flatten_aggregated_data(aggregated_result)
         n_agg = len(data_for_model)
@@ -267,53 +395,32 @@ async def causal_inference_pipeline(
             n_agg, list(aggregated_result.keys()),
         )
     else:
-        data_for_model = raw_data_result
+        data_for_model = raw_data
         logger.info("  No aggregation applied (using raw data)")
 
     # Persist stage-2 web data
-    sample_rows = raw_data_result.head(20).to_dicts() if n_observations > 0 else []
+    sample_rows = raw_data.head(20).to_dicts() if n_observations > 0 else []
     per_ind_counts = (
-        dict(raw_data_result.group_by("indicator").len().iter_rows()) if n_observations > 0 else {}
+        dict(raw_data.group_by("indicator").len().iter_rows()) if n_observations > 0 else {}
     )
-    worker_statuses = []
-    for i, chunk in enumerate(worker_chunks):
-        wr = resolved_worker_results[i] if i < len(resolved_worker_results) else None
-        output = getattr(wr, "output", None)
-        dataframe = getattr(wr, "dataframe", None)
-        n_extractions = (
-            len(output.extractions)
-            if output is not None and hasattr(output, "extractions")
-            else len(dataframe)
-            if dataframe is not None
-            else 0
-        )
-        worker_statuses.append(
-            {
-                "worker_id": i,
-                "status": "completed",
-                "n_extractions": n_extractions,
-                "chunk_size": chunk.count("\n") + 1 if chunk else 0,
-            }
-        )
 
     combined_extractions_sample = []
     for row in sample_rows:
         combined_extractions_sample.append(
             {
                 "indicator": str(row.get("indicator", "")),
-                "value": _coerce_sample_value(row.get("value")),
+                "value": row.get("value"),
                 "timestamp": str(row.get("timestamp"))
                 if row.get("timestamp") is not None
                 else None,
             }
         )
 
-    stage2_outcome = "warn" if any(w["status"] == "failed" for w in worker_statuses) else "success"
     persist_web_result(
         "stage-2",
         {
-            "outcome": stage2_outcome,
-            "workers": worker_statuses,
+            "outcome": "success",
+            "workers": [],
             "combined_extractions_sample": combined_extractions_sample,
             "per_indicator_counts": per_ind_counts,
         },
@@ -323,7 +430,7 @@ async def causal_inference_pipeline(
     # Stage 3: Validate Extraction
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=== Stage 3: Extraction Validation ===")
-    validation_task = validate_extraction(causal_spec, resolved_worker_results)  # ty: ignore[no-matching-overload]
+    validation_task = validate_extraction(causal_spec, [raw_data])
     validation_report = (
         validation_task.result() if hasattr(validation_task, "result") else validation_task
     )
@@ -628,7 +735,7 @@ async def causal_inference_pipeline(
                     "rank": i + 1,
                     "treatment": r["treatment"],
                     "effect": (
-                        f"{r['effect_size']:+.4f}" if r.get("effect_size") is not None else "—"
+                        f"{r['effect_size']:+.4f}" if r.get("effect_size") is not None else "---"
                     ),
                     "P(>0)": (
                         f"{r['prob_positive']:.2f}" if r.get("prob_positive") is not None else ""

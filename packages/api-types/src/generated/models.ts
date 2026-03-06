@@ -70,15 +70,57 @@ export interface CausalSSMContracts {
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
+  source_label: string;
   n_records: number;
+  n_columns: number;
   date_range: DateRangeContract;
   sample: {
     [k: string]: (string | null) | undefined;
   }[];
+  column_descriptions: ColumnDescriptionContract[];
+  llm_trace?: LLMTrace | null;
 }
 export interface DateRangeContract {
   start: string;
   end: string;
+}
+export interface ColumnDescriptionContract {
+  name: string;
+  dtype: string;
+  description: string;
+}
+/**
+ * Full trace of an LLM multi-turn conversation.
+ */
+export interface LLMTrace {
+  messages: TraceMessage[];
+  model: string;
+  total_time_seconds: number;
+  usage: TraceUsage;
+}
+/**
+ * A single message in an LLM trace.
+ */
+export interface TraceMessage {
+  role: string;
+  content: string;
+  reasoning?: string | null;
+  tool_calls?:
+    | {
+        [k: string]: any | undefined;
+      }[]
+    | null;
+  tool_name?: string | null;
+  tool_result?: string | null;
+  tool_is_error: boolean;
+}
+/**
+ * Token usage for an LLM trace.
+ */
+export interface TraceUsage {
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens?: number | null;
 }
 export interface Stage1AContract {
   outcome: "success" | "warn" | "fail";
@@ -149,39 +191,6 @@ export interface CausalEdge {
    * If True, effect at t is caused by cause at t-1. If False (contemporaneous), effect at t is caused by cause at t. Cross-timescale edges are always lagged.
    */
   lagged: boolean;
-}
-/**
- * Full trace of an LLM multi-turn conversation.
- */
-export interface LLMTrace {
-  messages: TraceMessage[];
-  model: string;
-  total_time_seconds: number;
-  usage: TraceUsage;
-}
-/**
- * A single message in an LLM trace.
- */
-export interface TraceMessage {
-  role: string;
-  content: string;
-  reasoning?: string | null;
-  tool_calls?:
-    | {
-        [k: string]: any | undefined;
-      }[]
-    | null;
-  tool_name?: string | null;
-  tool_result?: string | null;
-  tool_is_error: boolean;
-}
-/**
- * Token usage for an LLM trace.
- */
-export interface TraceUsage {
-  input_tokens: number;
-  output_tokens: number;
-  reasoning_tokens?: number | null;
 }
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";

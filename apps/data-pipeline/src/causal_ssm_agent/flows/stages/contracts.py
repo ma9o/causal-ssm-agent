@@ -59,13 +59,25 @@ class DateRangeContract(BaseModel):
     end: str
 
 
+class ColumnDescriptionContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    dtype: str
+    description: str
+
+
 class Stage0Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: Literal["success", "warn", "fail"] = "success"
+    source_label: str
     n_records: int
+    n_columns: int
     date_range: DateRangeContract
     sample: list[dict[str, str | None]]
+    column_descriptions: list[ColumnDescriptionContract]
+    llm_trace: LLMTrace | None = None
 
 
 class Stage1aContract(BaseModel):

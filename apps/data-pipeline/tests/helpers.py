@@ -7,18 +7,6 @@ For fixtures, see conftest.py.
 from dataclasses import dataclass
 
 import jax.numpy as jnp
-import polars as pl
-
-
-@dataclass
-class MockWorkerResult:
-    """Mock WorkerResult with a .dataframe attribute.
-
-    Matches the real WorkerResult interface (only the dataframe field is needed
-    by combine_worker_results / aggregate_measurements).
-    """
-
-    dataframe: pl.DataFrame | None
 
 
 @dataclass

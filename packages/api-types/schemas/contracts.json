@@ -101,6 +101,30 @@
       "title": "CausalSpec",
       "type": "object"
     },
+    "ColumnDescriptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "title": "Dtype",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "dtype",
+        "name"
+      ],
+      "title": "ColumnDescriptionContract",
+      "type": "object"
+    },
     "Construct": {
       "description": "A theoretical entity in the causal model.\n\nConstructs are conceptually 'latent' - they represent theoretical entities\nthat may be measured by one or more observed indicators.",
       "properties": {
@@ -2061,8 +2085,16 @@
           "title": "Outcome",
           "type": "string"
         },
+        "source_label": {
+          "title": "Source Label",
+          "type": "string"
+        },
         "n_records": {
           "title": "N Records",
+          "type": "integer"
+        },
+        "n_columns": {
+          "title": "N Columns",
           "type": "integer"
         },
         "date_range": {
@@ -2084,13 +2116,34 @@
           },
           "title": "Sample",
           "type": "array"
+        },
+        "column_descriptions": {
+          "items": {
+            "$ref": "#/$defs/ColumnDescriptionContract"
+          },
+          "title": "Column Descriptions",
+          "type": "array"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
+        "column_descriptions",
         "date_range",
+        "n_columns",
         "n_records",
         "outcome",
-        "sample"
+        "sample",
+        "source_label"
       ],
       "title": "Stage0Contract",
       "type": "object"

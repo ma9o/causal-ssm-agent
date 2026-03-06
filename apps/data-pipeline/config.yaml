@@ -1,5 +1,10 @@
 # Causal Agent Pipeline Configuration
 
+# Stage 0: Agentic Data Ingestion
+# LLM agent that explores zip archives and parses data into a Polars DataFrame
+stage0_ingestion:
+  model: openrouter/anthropic/claude-sonnet-4
+
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:

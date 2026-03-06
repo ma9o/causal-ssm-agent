@@ -10,18 +10,11 @@ from prefect.cache_policies import INPUTS
 from causal_ssm_agent.orchestrator.agents import build_causal_spec as _build_causal_spec_core
 from causal_ssm_agent.orchestrator.stage1b import run_stage1b
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.data import chunk_lines, get_orchestrator_chunk_size
 from causal_ssm_agent.utils.llm import (
     attach_trace,
     make_live_trace_path,
     make_orchestrator_generate_fn,
 )
-
-
-@task(cache_policy=INPUTS, result_serializer="json")
-def load_orchestrator_chunks(lines: list[str]) -> list[str]:
-    """Group preprocessed lines into orchestrator-sized chunks."""
-    return chunk_lines(lines, chunk_size=get_orchestrator_chunk_size())
 
 
 @task(cache_policy=INPUTS, result_serializer="json")
@@ -49,7 +42,7 @@ async def propose_measurement_with_identifiability_fix(
     Args:
         question: The causal research question
         latent_model: The latent model dict from Stage 1a
-        data_sample: Sample chunks from the dataset
+        data_sample: Dataset schema and sample (formatted by format_schema_for_llm)
         dataset_summary: Brief overview of the full dataset
 
     Returns:

@@ -19,8 +19,6 @@ from benchmarks.problems.four_latent import FOUR_LATENT
 
 from causal_ssm_agent.flows.stages.stage1b_measurement import build_causal_spec
 from causal_ssm_agent.flows.stages.stage3_validation import (
-    aggregate_measurements,
-    combine_worker_results,
     validate_extraction,
 )
 from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
@@ -30,9 +28,11 @@ from causal_ssm_agent.orchestrator.schemas import (
     LatentModel,
     MeasurementModel,
 )
-from causal_ssm_agent.utils.aggregations import flatten_aggregated_data
+from causal_ssm_agent.utils.aggregations import (
+    aggregate_worker_measurements,
+    flatten_aggregated_data,
+)
 from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
-from tests.helpers import MockWorkerResult
 
 # ==============================================================================
 # Constants
@@ -220,10 +220,10 @@ def causal_spec(latent_model, measurement_model):
 
 
 @pytest.fixture(scope="class")
-def worker_results(four_latent_sim):
-    """Stage 2 output: mock worker results from simulated observations.
+def worker_dfs(four_latent_sim):
+    """Stage 2 output: DataFrames from simulated observations.
 
-    Converts FOUR_LATENT observations to MockWorkerResult list with string values
+    Converts FOUR_LATENT observations to DataFrames with string values
     and ISO timestamps, split into 3 chunks.
     """
     obs = four_latent_sim["obs"]
@@ -249,7 +249,7 @@ def worker_results(four_latent_sim):
             chunk,
             schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
         )
-        results.append(MockWorkerResult(dataframe=df))
+        results.append(df)
 
     return results
 
@@ -372,19 +372,19 @@ def priors():
 
 
 @pytest.fixture(scope="class")
-def raw_data_pl(worker_results):
-    """Long-format polars DataFrame from combine_worker_results."""
-    return combine_worker_results.fn(worker_results)
+def raw_data_pl(worker_dfs):
+    """Long-format polars DataFrame from concatenating worker DataFrames."""
+    return pl.concat(worker_dfs, how="vertical")
 
 
 @pytest.fixture(scope="class")
-def daily_data(causal_spec, worker_results):
+def daily_data(causal_spec, worker_dfs):
     """Aggregated daily data (proper datetime time_bucket column).
 
     This is what stages 4b and 5 receive in the real pipeline —
     aggregated data with datetime time_bucket, not raw string timestamps.
     """
-    aggregated = aggregate_measurements.fn(causal_spec, worker_results)
+    aggregated = aggregate_worker_measurements(worker_dfs, causal_spec)
     return flatten_aggregated_data(aggregated)
 
 
@@ -487,9 +487,9 @@ class TestE2EPipeline:
     # Stage 3: validation + aggregation (Polars, fast)
     # ------------------------------------------------------------------
 
-    def test_stage3_validate_extraction(self, causal_spec, worker_results):
+    def test_stage3_validate_extraction(self, causal_spec, worker_dfs):
         """validate_extraction passes with all indicators present."""
-        result = validate_extraction.fn(causal_spec, worker_results)
+        result = validate_extraction.fn(causal_spec, worker_dfs)
         assert result["is_valid"] is True
         errors = [i for i in result["issues"] if i["severity"] == "error"]
         assert len(errors) == 0
@@ -498,15 +498,15 @@ class TestE2EPipeline:
         present = {i["indicator"] for i in result["issues"] if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
 
-    def test_stage3_combine(self, worker_results):
-        """combine_worker_results produces correct shape."""
-        combined = combine_worker_results.fn(worker_results)
+    def test_stage3_combine(self, worker_dfs):
+        """Concatenating worker DataFrames produces correct shape."""
+        combined = pl.concat(worker_dfs, how="vertical")
         assert len(combined) == T * len(INDICATOR_NAMES)  # 80 * 6 = 480
         assert set(combined.columns) == {"indicator", "value", "timestamp"}
 
-    def test_stage3_aggregate(self, causal_spec, worker_results):
-        """aggregate_measurements produces daily data for all indicators."""
-        aggregated = aggregate_measurements.fn(causal_spec, worker_results)
+    def test_stage3_aggregate(self, causal_spec, worker_dfs):
+        """aggregate_worker_measurements produces daily data for all indicators."""
+        aggregated = aggregate_worker_measurements(worker_dfs, causal_spec)
         assert "daily" in aggregated
         daily = aggregated["daily"]
         assert daily["indicator"].n_unique() == 6

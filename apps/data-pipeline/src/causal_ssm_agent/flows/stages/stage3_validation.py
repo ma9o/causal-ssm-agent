@@ -1,4 +1,4 @@
-"""Stage 3: Validate and aggregate extracted data.
+"""Stage 3: Validate extracted data.
 
 Validation checks (semantic only - Polars handles structural validation):
 1. Variance: Indicator has variance > 0 (constant values = zero information)
@@ -9,28 +9,18 @@ Validation checks (semantic only - Polars handles structural validation):
 6. Hallucination signals: Suspicious patterns from LLM extraction
 7. Construct correlations: Cross-indicator coherence within constructs
 
-Aggregation: Workers extract at the finest resolution visible in their chunk.
-aggregate_measurements() buckets timestamps and applies each indicator's
-aggregation function within a shared pipeline-level aggregation window.
-SSM discretization then handles the aggregated observations -> continuous time.
-
 See docs/reference/pipeline.md for full specification.
 """
 
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
 
 import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.orchestrator.schemas import GRANULARITY_HOURS
-from causal_ssm_agent.utils.aggregations import aggregate_worker_measurements
-
-if TYPE_CHECKING:
-    from causal_ssm_agent.workers.agents import WorkerResult
 
 logger = logging.getLogger(__name__)
 
@@ -413,11 +403,11 @@ def _check_construct_correlations(
 @task(cache_policy=INPUTS, result_serializer="json")
 def validate_extraction(
     causal_spec: dict,
-    worker_results: list["WorkerResult"],
+    dataframes: list[pl.DataFrame],
 ) -> dict:
     """Validate semantic properties of extracted data.
 
-    Checks raw worker extractions for:
+    Checks extracted data for:
     - Variance > 0 (constant values are uninformative)
     - Sample size (enough observations for temporal modeling)
     - Timestamp parseability and coverage
@@ -428,7 +418,7 @@ def validate_extraction(
 
     Args:
         causal_spec: The full causal spec with measurement model
-        worker_results: List of WorkerResults from Stage 2
+        dataframes: List of DataFrames with columns (indicator, value, timestamp)
 
     Returns:
         Dict with:
@@ -436,8 +426,8 @@ def validate_extraction(
             - issues: list of {indicator, issue_type, severity, message}
             - per_indicator_health: list of per-indicator metrics
     """
-    # Concatenate all worker dataframes
-    dataframes = [wr.dataframe for wr in worker_results if wr.dataframe is not None]
+    # Filter out empty/None
+    dataframes = [df for df in dataframes if df is not None and not df.is_empty()]
     if not dataframes:
         return {
             "is_valid": False,
@@ -634,47 +624,3 @@ def validate_extraction(
     }
 
 
-@task(cache_policy=INPUTS)
-def combine_worker_results(
-    worker_results: list["WorkerResult"],
-) -> pl.DataFrame:
-    """Combine raw worker results into a single DataFrame.
-
-    This produces the raw timestamped data that the SSM will use directly.
-    No aggregation is performed - the model handles irregular
-    time intervals via continuous-time discretization.
-
-    Args:
-        worker_results: List of WorkerResults from Stage 2
-
-    Returns:
-        Combined DataFrame with columns: indicator, value, timestamp
-    """
-    dataframes = [wr.dataframe for wr in worker_results if wr.dataframe is not None]
-    if not dataframes:
-        return pl.DataFrame({"indicator": [], "value": [], "timestamp": []})
-
-    return pl.concat(dataframes, how="vertical")
-
-
-@task(cache_policy=INPUTS)
-def aggregate_measurements(
-    causal_spec: dict,
-    worker_results: list["WorkerResult"],
-) -> dict[str, pl.DataFrame]:
-    """Aggregate raw worker extractions within a shared aggregation window.
-
-    Workers extract at the finest resolution visible in their chunk.
-    This task buckets timestamps and applies each indicator's aggregation
-    function within the pipeline-level aggregation window (default: daily).
-
-    Args:
-        causal_spec: The full causal spec with measurement model
-        worker_results: List of WorkerResults from Stage 2
-
-    Returns:
-        Dict keyed by aggregation window (e.g. "daily").
-        Each value is a DataFrame with columns (indicator, value, time_bucket).
-    """
-    worker_dfs = [wr.dataframe for wr in worker_results]
-    return aggregate_worker_measurements(worker_dfs, causal_spec)
