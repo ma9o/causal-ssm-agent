@@ -2212,6 +2212,20 @@
         "causal_spec": {
           "$ref": "#/$defs/CausalSpec"
         },
+        "measurement_model": {
+          "$ref": "#/$defs/MeasurementModel"
+        },
+        "identifiability_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentifiabilityStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2237,6 +2251,7 @@
       },
       "required": [
         "causal_spec",
+        "measurement_model",
         "outcome"
       ],
       "title": "Stage1bContract",
@@ -2327,11 +2342,11 @@
           "$ref": "#/$defs/ModelSpec"
         },
         "priors": {
-          "items": {
+          "additionalProperties": {
             "$ref": "#/$defs/PriorProposal"
           },
           "title": "Priors",
-          "type": "array"
+          "type": "object"
         },
         "validation_retries": {
           "anyOf": [
@@ -2733,6 +2748,18 @@
           ],
           "default": null,
           "title": "Tool Calls"
+        },
+        "tool_call_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Call Id"
         },
         "tool_name": {
           "anyOf": [

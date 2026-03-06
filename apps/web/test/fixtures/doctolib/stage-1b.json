@@ -242,32 +242,46 @@
         "lipid_burden": {
           "method": "do_calculus",
           "estimand": "\u2211_{vasc_infl} P(vasc_infl | lipid) \u2211_{lipid'} P(cv_risk | lipid', vasc_infl) P(lipid')",
-          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
+          "marginalized_confounders": [
+            "genetic_predisposition",
+            "psychosocial_stress"
+          ],
           "instruments": [],
           "notes": "Identified via front-door criterion through vascular_inflammation despite genetic confounding. genetic_predisposition confounds lipid_burden \u2194 cardiovascular_risk, but vascular_inflammation mediates ALL directed paths from lipid_burden to cardiovascular_risk and has no unblocked backdoor from treatment to mediator."
         },
         "vascular_inflammation": {
           "method": "do_calculus",
           "estimand": "P(cardiovascular_risk | do(vascular_inflammation))",
-          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
+          "marginalized_confounders": [
+            "genetic_predisposition",
+            "psychosocial_stress"
+          ],
           "instruments": []
         },
         "arterial_pressure": {
           "method": "do_calculus",
           "estimand": "P(cardiovascular_risk | do(arterial_pressure))",
-          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
+          "marginalized_confounders": [
+            "genetic_predisposition",
+            "psychosocial_stress"
+          ],
           "instruments": []
         },
         "medication_adherence": {
           "method": "do_calculus",
           "estimand": "P(cardiovascular_risk | do(medication_adherence))",
-          "marginalized_confounders": ["genetic_predisposition", "psychosocial_stress"],
+          "marginalized_confounders": [
+            "genetic_predisposition",
+            "psychosocial_stress"
+          ],
           "instruments": []
         }
       },
       "non_identifiable_treatments": {
         "glycemic_control": {
-          "confounders": ["psychosocial_stress"]
+          "confounders": [
+            "psychosocial_stress"
+          ]
         }
       }
     }
@@ -337,5 +351,105 @@
   },
   "gate_overridden": {
     "reason": "Glycemic control effect is non-identifiable due to psychosocial stress confounding. User chose to continue \u2014 the identified lipid_burden pathway (via frontdoor) and arterial_pressure pathway provide sufficient causal targets for intervention analysis."
+  },
+  "measurement_model": {
+    "indicators": [
+      {
+        "name": "ldl_cholesterol",
+        "construct_name": "lipid_burden",
+        "how_to_measure": "LDL cholesterol in mmol/L from lipid panel",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "triglycerides",
+        "construct_name": "lipid_burden",
+        "how_to_measure": "Serum triglycerides in mmol/L",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "hdl_cholesterol",
+        "construct_name": "lipid_burden",
+        "how_to_measure": "HDL cholesterol in mmol/L from lipid panel (EAL); inversely related to atherogenic burden",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "crp",
+        "construct_name": "vascular_inflammation",
+        "how_to_measure": "High-sensitivity C-reactive protein (hs-CRP) in mg/L; marker of systemic and vascular inflammation",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "fibrinogen",
+        "construct_name": "vascular_inflammation",
+        "how_to_measure": "Plasma fibrinogen in g/L; acute-phase reactant reflecting inflammatory and prothrombotic state",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "hba1c",
+        "construct_name": "glycemic_control",
+        "how_to_measure": "Glycated hemoglobin %; lower = better control",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "fasting_glucose",
+        "construct_name": "glycemic_control",
+        "how_to_measure": "Fasting blood glucose in mmol/L",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "systolic_bp",
+        "construct_name": "arterial_pressure",
+        "how_to_measure": "Systolic blood pressure in mmHg",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "diastolic_bp",
+        "construct_name": "arterial_pressure",
+        "how_to_measure": "Diastolic blood pressure in mmHg",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "resting_heart_rate",
+        "construct_name": "arterial_pressure",
+        "how_to_measure": "Resting heart rate in bpm at consultation",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "prescription_renewals",
+        "construct_name": "medication_adherence",
+        "how_to_measure": "Proportion of prescriptions renewed on time via Doctolib (0\u20131, quarterly)",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      },
+      {
+        "name": "appointment_attendance",
+        "construct_name": "medication_adherence",
+        "how_to_measure": "Proportion of kept vs missed Doctolib appointments (0\u20131, quarterly)",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "ordinal_levels": null
+      }
+    ]
   }
 }

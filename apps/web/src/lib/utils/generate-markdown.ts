@@ -335,7 +335,10 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
         reasoning: `Default weakly informative prior for the initial state standard deviation of ${textify(s)}.`,
       });
     }
-    const allPriors = [...s4.priors, ...t0Priors];
+    const allPriors: PriorProposal[] = [
+      ...Object.values(s4.priors).filter((p): p is PriorProposal => p != null),
+      ...t0Priors,
+    ];
 
     // Priors as LaTeX
     if (allPriors.length > 0) {
