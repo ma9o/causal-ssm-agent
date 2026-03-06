@@ -1,16 +1,12 @@
 "use client";
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils/cn";
 import { formatCompact } from "@/lib/utils/format";
-import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
-import { Bot, ChevronRight, Clock, Cpu, Wrench } from "lucide-react";
+import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
+import type { LLMTrace } from "@causal-ssm/api-types";
+import { Clock, Cpu } from "lucide-react";
+import { useMemo } from "react";
+import { ChatMessages } from "./chat-messages";
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
@@ -21,8 +17,7 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
         {trace.model}
       </Badge>
       <span className="text-muted-foreground">
-        {formatCompact(usage.input_tokens)} in / {formatCompact(usage.output_tokens)}{" "}
-        out
+        {formatCompact(usage.input_tokens)} in / {formatCompact(usage.output_tokens)} out
       </span>
       {usage.reasoning_tokens ? (
         <span className="text-muted-foreground">
@@ -37,141 +32,13 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
   );
 }
 
-function SystemMessage({ msg }: { msg: TraceMessage }) {
-  return (
-    <Accordion>
-      <AccordionItem value="system" className="border-l-2 border-muted-foreground/30 !border-b-0">
-        <AccordionTrigger className="py-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <ChevronRight className="h-3 w-3" />
-            System prompt
-          </span>
-        </AccordionTrigger>
-        <AccordionContent>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
-            {msg.content}
-          </pre>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
-  );
-}
-
-function UserMessage({ msg }: { msg: TraceMessage }) {
-  return (
-    <div className="rounded-md border bg-background p-2.5">
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        User
-      </div>
-      <div className="whitespace-pre-wrap text-xs">{msg.content}</div>
-    </div>
-  );
-}
-
-function AssistantMessage({ msg, idx }: { msg: TraceMessage; idx: number }) {
-  return (
-    <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
-      <div className="mb-1 flex items-center gap-1.5">
-        <Bot className="h-3 w-3 text-primary" />
-        <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
-          Assistant
-        </span>
-      </div>
-
-      {msg.reasoning && (
-        <Accordion>
-          <AccordionItem
-            value={`reasoning-${idx}`}
-            className="border-l-2 border-amber-400/50 !border-b-0"
-          >
-            <AccordionTrigger className="py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-              Thinking
-            </AccordionTrigger>
-            <AccordionContent>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-amber-50/50 p-2 text-[11px] dark:bg-amber-950/20">
-                {msg.reasoning}
-              </pre>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      )}
-
-      {msg.content && <div className="mt-1 whitespace-pre-wrap text-xs">{msg.content}</div>}
-
-      {msg.tool_calls?.map((tc, i) => (
-        <div
-          key={`${tc.name}-${i}`}
-          className="mt-2 flex items-center gap-1.5 rounded border bg-muted/50 px-2 py-1.5 text-[11px]"
-        >
-          <Wrench className="h-3 w-3 text-muted-foreground" />
-          <Badge variant="outline" className="text-[10px]">
-            {tc.name}
-          </Badge>
-          <span className="truncate text-muted-foreground">
-            {JSON.stringify(tc.arguments).slice(0, 80)}
-            {JSON.stringify(tc.arguments).length > 80 ? "..." : ""}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ToolMessage({ msg, idx }: { msg: TraceMessage; idx: number }) {
-  const isError = msg.tool_is_error;
-  return (
-    <div
-      className={cn(
-        "rounded-md border p-2.5",
-        isError ? "border-destructive/30 bg-destructive/5" : "border-muted bg-muted/30",
-      )}
-    >
-      <div className="mb-1 flex items-center gap-1.5">
-        <Wrench className="h-3 w-3 text-muted-foreground" />
-        {msg.tool_name && (
-          <Badge variant="outline" className="text-[10px]">
-            {msg.tool_name}
-          </Badge>
-        )}
-        <Badge variant={isError ? "destructive" : "success"} className="text-[10px]">
-          {isError ? "ERROR" : "VALID"}
-        </Badge>
-      </div>
-      <Accordion>
-        <AccordionItem value={`tool-${idx}`} className="!border-b-0">
-          <AccordionTrigger className="py-1 text-[11px] text-muted-foreground">
-            Result
-          </AccordionTrigger>
-          <AccordionContent>
-            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
-              {msg.tool_result || msg.content}
-            </pre>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-    </div>
-  );
-}
-
 export function LLMTracePanel({ trace }: { trace: LLMTrace }) {
+  const uiMessages = useMemo(() => traceToUIMessages(trace), [trace]);
+
   return (
     <div className="flex flex-col gap-2">
       <TraceSummary trace={trace} />
-      {trace.messages.map((msg, i) => {
-        const key = `${msg.role}-${i}`;
-        switch (msg.role) {
-          case "system":
-            return <SystemMessage key={key} msg={msg} />;
-          case "user":
-            return <UserMessage key={key} msg={msg} />;
-          case "assistant":
-            return <AssistantMessage key={key} msg={msg} idx={i} />;
-          case "tool":
-            return <ToolMessage key={key} msg={msg} idx={i} />;
-          default:
-            return null;
-        }
-      })}
+      <ChatMessages messages={uiMessages} />
     </div>
   );
 }
