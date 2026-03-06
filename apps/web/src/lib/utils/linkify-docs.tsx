@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-const GITHUB_BASE = "https://github.com/ma9o/causal-ssm-agent/blob/master/apps/data-pipeline";
+const GITHUB_BASE = "https://github.com/ma9o/causal-ssm-agent/blob/master";
 
 /**
  * Detect file paths ending in .md (e.g. `docs/modeling/functional_spec.md`)

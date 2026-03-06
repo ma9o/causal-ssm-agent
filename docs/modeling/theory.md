@@ -138,7 +138,7 @@ When the framework encounters an unobserved confounder without indicators:
 
 The correlated-error representation is useful for *acknowledging* and *bounding* confounding, not for *resolving* it without additional structure.
 
-For a worked example demonstrating why marginalization matters for MCMC convergence, see [`notebooks/frontdoor_pymc_demo.ipynb`](../../notebooks/frontdoor_pymc_demo.ipynb).
+For a worked example demonstrating why marginalization matters for MCMC convergence, see `apps/data-pipeline/notebooks/frontdoor_pymc_demo.ipynb`.
 
 ### References
 
@@ -161,9 +161,7 @@ The framework implements a two-stage workflow grounded in the structural equatio
 
 2. **Stage 1b (Measurement Model with Identifiability):** Given data, the orchestrator proposes observed indicators for each construct. Indicators follow the reflective measurement model. Constructs may have one indicator (measurement error absorbed) or multiple indicators (CFA identification). After proposing measurements, y0 checks identification of target causal effects using Pearl's ID algorithm. If effects are non-identifiable, the orchestrator is prompted to propose proxies for blocking confounders.
 
-3. **Stage 2 (Worker Extraction):** Worker LLMs process data chunks in parallel to extract indicator values.
-
-4. **Stage 3 (Extraction Validation):** Validates that worker extraction produced usable data. For multi-indicator constructs, CFA can validate that proposed indicators load on their intended constructs.
+3. **Stage 3 (Extraction Validation):** Validates that extraction produced usable data. For multi-indicator constructs, CFA can validate that proposed indicators load on their intended constructs.
 
 This two-step approach—measurement model first, structural model second—is the standard methodology in SEM research. As Anderson & Gerbing (1988) argue, validating the measurement model is a necessary prerequisite to interpreting structural relationships:
 

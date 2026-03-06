@@ -52,11 +52,10 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── orchestrator/      # LLM model specification (latent + measurement)
 │   │   │   ├── workers/           # Indicator extraction + prior research LLMs
 │   │   │   ├── models/            # NumPyro SSM, likelihoods, prior/posterior predictive
-│   │   │   ├── flows/             # Prefect pipeline stages (1a → 5)
+│   │   │   ├── flows/             # Prefect pipeline stages (0 → 5)
 │   │   │   └── utils/             # Shared utilities (config, llm, data, identifiability)
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
 │   │   ├── data/                  # Raw, processed, queries, eval data
-│   │   ├── docs/                  # Modeling theory, reference specs, guides
 │   │   ├── evals/                 # Inspect AI evals
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
@@ -64,11 +63,15 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   └── web/                       # Next.js frontend
 │       └── src/
 │           ├── app/               # Next.js app router pages
-│           ├── components/        # React components
-│           └── lib/               # Client-side utilities
+│           ├── components/        # React components (stages, charts, DAG, pipeline)
+│           └── lib/               # API clients, hooks, types, utilities
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types (from pipeline schemas)
 │   └── typescript-config/         # Shared TS config
-├── docs/                          # Top-level codegen guide
+├── docs/                          # Project documentation
+│   ├── modeling/                  # Theoretical foundations
+│   ├── reference/                 # Technical specifications
+│   ├── guides/                    # Practical usage guides
+│   └── papers/                    # Reference papers (PDFs)
 └── scratchpad/                    # Temporary work files (gitignored)
 ```
