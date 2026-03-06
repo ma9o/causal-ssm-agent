@@ -18,13 +18,15 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 
 **1.1 Link Functions from Indicator dtype**
 
-| `measurement_dtype` | Distribution | Link | NumPyro |
-|---------------------|--------------|------|---------|
-| `continuous` | Gaussian | identity | `numpyro.distributions.Normal` |
-| `binary` | Bernoulli | logit | `numpyro.distributions.Bernoulli(logits=...)` |
-| `count` | Poisson | log | `numpyro.distributions.Poisson(rate=jnp.exp(...))` |
-| `ordinal` | OrderedLogistic | cumulative logit | `numpyro.distributions.OrderedLogistic` |
-| `categorical` | Categorical | softmax | `numpyro.distributions.Categorical` |
+| `measurement_dtype` | Default distribution | Link | Alternatives |
+|---------------------|---------------------|------|--------------|
+| `continuous` | Gaussian | identity | Student-t, Gamma (log), Beta (logit) |
+| `binary` | Bernoulli | logit | — |
+| `count` | Poisson | log | Negative Binomial (log) |
+| `ordinal` | OrderedLogistic | cumulative logit | *planned* |
+| `categorical` | Categorical | softmax | *planned* |
+
+The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via the `observation_model` field in the model spec.
 
 **1.2 Temporal Structure (from A3 Markov assumption)**
 
@@ -81,7 +83,7 @@ Each parameter in the SSM has a **role** (its function in the model) and a **con
 
 | Role | Default constraint | Rationale |
 |------|-------------------|-----------|
-| `ar_coefficient` | `correlation` | Stationarity requires ρ ∈ (−1, 1); negative values indicate oscillatory dynamics |
+| `ar_coefficient` | `correlation` | Orchestrator elicits ρ ∈ (−1, 1) in DT terms; `SSMModelBuilder` transforms to CT drift diagonal via `−log(|ρ|)/dt` (magnitude), then the model enforces negativity via `−|x|` for stability. Note: the `|ρ|` means negative DT persistence (oscillatory dynamics) maps to the same CT drift as positive — real-valued OU processes cannot represent oscillatory AR. |
 | `fixed_effect` | `none` | Effect sizes can be positive or negative |
 | `residual_sd` | `positive` | Standard deviations are non-negative by definition |
 | `loading` | `positive` or `none` | LLM decides: `positive` for reference indicator (sign identification), `none` if negative loadings are plausible |
@@ -101,15 +103,15 @@ For parameters not fully determined by rules, we use LLM elicitation following r
 | AR ρ | Mean, SD | Bounded to (−1, 1) for stationarity |
 | Residual σ² | Scale | Must be positive (Exponential/HalfNormal) |
 
-**2.2 Elicitation Protocol (AutoElicit-style)**
+**2.2 Elicitation Protocol (AutoElicit-style)** *(planned, not yet implemented)*
 
-Based on Capstick et al. (2024), we use paraphrased prompting:
+Based on Capstick et al. (2024), the planned approach uses paraphrased prompting to handle LLM overconfidence:
 
 1. Generate N paraphrased task descriptions (N=10-100)
 2. For each paraphrase, elicit prior parameters from LLM
 3. Aggregate into mixture-of-Gaussians: p(β) = Σ π_k · N(μ_k, σ_k)
 
-This handles LLM overconfidence by capturing variance across phrasings.
+**Current implementation:** A single prompt per parameter is used (Section 2.3). Paraphrased prompting with mixture aggregation is a planned enhancement.
 
 **2.3 Prompt Structure**
 
@@ -189,12 +191,15 @@ Stage 4 produces a model specification dict that is consumed by `SSMModelBuilder
 
 ## Stage 4b: Parametric Identifiability
 
-After Stage 4 produces the model specification, **Stage 4b** runs pre-fit parametric identifiability diagnostics before handing off to Stage 5 (inference). This catches structural non-identifiability, boundary identifiability, and weakly informed parameters early -- before spending compute on expensive MCMC/SVI.
+After Stage 4 produces the model specification, **Stage 4b** runs pre-fit parametric identifiability diagnostics before handing off to Stage 5 (inference). This catches structural non-identifiability and weakly informed parameters early -- before spending compute on expensive MCMC/SVI.
 
-Stage 4b computes the Fisher information matrix at prior draws and checks:
-- **Rank deficiency:** Structurally non-identifiable parameters (zero Fisher information)
-- **Boundary identifiability:** Intermittent rank deficiency across draws
-- **Weak contraction:** Parameters with low expected prior-to-posterior contraction
+Stage 4b applies a cascade of diagnostics:
+
+1. **T-rule (necessary condition):** Checks whether the number of free parameters exceeds the number of unique observed covariance entries. Failure here guarantees non-identifiability without needing to fit the model.
+2. **Output sensitivity analysis:** Perturbs each parameter and measures the effect on model outputs. Parameters with near-zero sensitivity are structurally non-identifiable (the data cannot distinguish different values).
+3. **Profile likelihood:** For each parameter, optimizes over all other parameters to trace out the profile likelihood surface. A flat profile indicates non-identifiability; a bounded but shallow profile indicates weak identifiability (Raue et al., 2009).
+
+Additional optional diagnostics include SBC (simulation-based calibration) and power-scaling sensitivity analysis.
 
 See `stage4b_parametric_id.py` and `parametric_id.py` for implementation.
 
