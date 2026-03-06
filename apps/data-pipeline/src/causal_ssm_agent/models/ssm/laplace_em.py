@@ -255,69 +255,118 @@ def _compute_laplace_log_lik(
     observations,
     obs_mask,
     z_smooth,
-    P_smooth,
+    _P_smooth,
     Ad,
     Qd,
     cd,
     init_mean,
-    _init_cov,
+    init_cov,
     emission_log_prob_fn,
     H,
     d,
     R,
 ):
-    """Compute Laplace-approximated log-likelihood.
+    """Compute Laplace-approximated log-likelihood via prediction error decomposition.
 
-    log p(y|theta) ≈ sum_t log p(y_t | z_hat_t)
-                    + sum_t log N(z_hat_t; A z_hat_{t-1}, Q)
-                    + 0.5 * sum_t log det P_smooth_t + const
+    Uses the one-step-ahead Laplace formula. Linearizes the emission model
+    around z_smooth (from the IEKS), runs a forward Kalman filter pass with
+    the linearized model, and accumulates the per-step contribution:
 
-    The last term is the entropy of the Gaussian approximation to the
-    state posterior, which corrects for the integration over latent states.
+        ll_t = l(z_filt_t) - 0.5||z_filt_t - z_pred_t||^2_{P_pred^-1}
+             + 0.5 log(det P_filt_t / det P_pred_t)
+
+    where z_filt_t is the filter mode (the correct z* for the one-step Laplace),
+    NOT the smoother output. For the linear Gaussian case this reduces to the
+    exact Kalman prediction error decomposition.
     """
     T, D = z_smooth.shape
-
-    # 1. Emission log-probs at the mode
-    mask_float = obs_mask.astype(jnp.float32)
-    emission_lls = jax.vmap(lambda y, z, m: emission_log_prob_fn(y, z, H, d, R, m))(
-        observations, z_smooth, mask_float
-    )
-    total_emission_ll = jnp.sum(emission_lls)
-
-    # 2. Transition log-probs at the mode
     jitter = jnp.eye(D) * 1e-6
+    mask_float = obs_mask.astype(jnp.float32)
 
-    def _transition_ll(z_t, z_tm1, Ad_t, Qd_t, cd_t):
-        mean = Ad_t @ z_tm1 + cd_t
-        diff = z_t - mean
-        Qd_reg = Qd_t + jitter
-        _, logdet = jnp.linalg.slogdet(Qd_reg)
-        mahal = diff @ jla.solve(Qd_reg, diff, assume_a="pos")
-        return -0.5 * (D * jnp.log(2 * jnp.pi) + logdet + mahal)
+    # Compute emission gradients and Hessians at the smoothed states (linearization point)
+    def _emission_grad_hess(y_t, z_t, mask_t):
+        def _log_prob(z):
+            return emission_log_prob_fn(y_t, z, H, d, R, mask_t)
 
-    if T > 1:
-        trans_lls = jax.vmap(_transition_ll)(z_smooth[1:], z_smooth[:-1], Ad[1:], Qd[1:], cd[1:])
-        total_trans_ll = jnp.sum(trans_lls)
-    else:
-        total_trans_ll = 0.0
+        g = jax.grad(_log_prob)(z_t)
+        neg_H = -jax.hessian(_log_prob)(z_t)
+        neg_H = 0.5 * (neg_H + neg_H.T)
+        eigvals, eigvecs = jnp.linalg.eigh(neg_H)
+        neg_H = eigvecs @ jnp.diag(jnp.maximum(eigvals, 0.0)) @ eigvecs.T
+        return g, neg_H
 
-    # Initial state log-prob
-    diff0 = z_smooth[0] - (Ad[0] @ init_mean + cd[0])
-    Qd0_reg = Qd[0] + jitter
-    _, logdet0 = jnp.linalg.slogdet(Qd0_reg)
-    mahal0 = diff0 @ jla.solve(Qd0_reg, diff0, assume_a="pos")
-    init_ll = -0.5 * (D * jnp.log(2 * jnp.pi) + logdet0 + mahal0)
-    total_trans_ll = total_trans_ll + init_ll
+    all_grads_hess = jax.vmap(_emission_grad_hess)(observations, z_smooth, mask_float)
+    grads = all_grads_hess[0]  # (T, D)
+    J_t = all_grads_hess[1]  # (T, D, D) — emission info matrices
 
-    # 3. Entropy correction: 0.5 * sum_t log det P_smooth_t
-    def _log_det_P(P_t):
-        _, ld = jnp.linalg.slogdet(P_t + jitter)
-        return ld
+    def _step_ll(y_t, mask_t, z_pred, P_pred, J_obs, grad_obs, z_lin):
+        """Single-step Laplace log-likelihood contribution.
 
-    log_dets = jax.vmap(_log_det_P)(P_smooth)
-    entropy_correction = 0.5 * jnp.sum(log_dets) + 0.5 * T * D * jnp.log(2 * jnp.pi * jnp.e)
+        Returns (ll_t, z_filt, P_filt) for chaining the filter forward.
+        """
+        P_pred_reg = P_pred + jitter
 
-    return total_emission_ll + total_trans_ll + entropy_correction
+        # Filter update (information form): P_filt^{-1} = P_pred^{-1} + J_obs
+        P_pred_inv = jla.solve(P_pred_reg, jnp.eye(D), assume_a="pos")
+        P_filt_inv = P_pred_inv + J_obs
+        P_filt = jla.solve(P_filt_inv + jitter, jnp.eye(D), assume_a="pos")
+        P_filt = 0.5 * (P_filt + P_filt.T) + jitter
+
+        # Filter mean: z_filt = P_filt @ (P_pred_inv @ z_pred + tilde_y)
+        tilde_y = J_obs @ z_lin + grad_obs
+        z_filt = P_filt @ (P_pred_inv @ z_pred + tilde_y)
+
+        # Emission log-prob at the filter mode z_filt (the correct z* for one-step Laplace)
+        emission_ll = emission_log_prob_fn(y_t, z_filt, H, d, R, mask_t)
+
+        # Log-determinant ratio: log(det P_filt / det P_pred)
+        _, ld_filt = jnp.linalg.slogdet(P_filt)
+        _, ld_pred = jnp.linalg.slogdet(P_pred_reg)
+        log_det_ratio = ld_filt - ld_pred
+
+        # Prior penalty: -0.5 * (z_filt - z_pred)^T P_pred^{-1} (z_filt - z_pred)
+        diff = z_filt - z_pred
+        mahal = diff @ jla.solve(P_pred_reg, diff, assume_a="pos")
+
+        ll_t = emission_ll - 0.5 * mahal + 0.5 * log_det_ratio
+        return ll_t, z_filt, P_filt
+
+    # Time 0: predict from initial state
+    z_pred_0 = Ad[0] @ init_mean + cd[0]
+    P_pred_0 = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
+    P_pred_0 = 0.5 * (P_pred_0 + P_pred_0.T)
+
+    ll_0, z_filt_0, P_filt_0 = _step_ll(
+        observations[0], mask_float[0], z_pred_0, P_pred_0, J_t[0], grads[0], z_smooth[0]
+    )
+
+    if T == 1:
+        return ll_0
+
+    # Forward scan for t=1..T-1: predict, then compute ll_t
+    def _forward_ll_step(carry, inputs):
+        z_filt_prev, P_filt_prev = carry
+        Ad_t, Qd_t, cd_t, z_lin_t, J_obs_t, grad_t, y_t, mask_t = inputs
+
+        # Predict
+        z_pred = Ad_t @ z_filt_prev + cd_t
+        P_pred = Ad_t @ P_filt_prev @ Ad_t.T + Qd_t
+        P_pred = 0.5 * (P_pred + P_pred.T)
+
+        ll_t, z_filt, P_filt = _step_ll(
+            y_t, mask_t, z_pred, P_pred, J_obs_t, grad_t, z_lin_t
+        )
+
+        return (z_filt, P_filt), ll_t
+
+    _, ll_rest = jax.lax.scan(
+        _forward_ll_step,
+        (z_filt_0, P_filt_0),
+        (Ad[1:], Qd[1:], cd[1:], z_smooth[1:], J_t[1:], grads[1:],
+         observations[1:], mask_float[1:]),
+    )
+
+    return ll_0 + jnp.sum(ll_rest)
 
 
 # ---------------------------------------------------------------------------
@@ -423,14 +472,20 @@ def fit_laplace_em(
 
     Uses the Laplace-approximated marginal likelihood (via IEKS) as the
     log-density for a tempered SMC sampler over the parameter space.
+
+    If the model has an explicit likelihood override (e.g. likelihood="kalman"),
+    that backend is used instead of the Laplace approximation.
     """
-    backend = LaplaceLikelihood(
-        n_latent=model.spec.n_latent,
-        n_manifest=model.spec.n_manifest,
-        manifest_dist=model.spec.manifest_dist,
-        manifest_link=model.spec.manifest_link,
-        n_ieks_iters=n_ieks_iters,
-    )
+    if model.likelihood == "kalman":
+        backend = model.make_likelihood_backend()
+    else:
+        backend = LaplaceLikelihood(
+            n_latent=model.spec.n_latent,
+            n_manifest=model.spec.n_manifest,
+            manifest_dist=model.spec.manifest_dist,
+            manifest_link=model.spec.manifest_link,
+            n_ieks_iters=n_ieks_iters,
+        )
     return run_tempered_smc(
         model,
         observations,
