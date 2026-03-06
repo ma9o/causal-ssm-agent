@@ -118,8 +118,8 @@ export function StageSectionRouter({
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
-  // Read context + trace + gate override + outcome from the stage data (shared query key — cache hit when stage content is loaded)
-  const { data: stageData } = useStageData<{ context?: string; llm_trace?: LLMTrace; gate_overridden?: GateOverride; outcome?: StageOutcome }>(runId, stage.id, isCompleted);
+  // Read trace + gate override + outcome from the stage data (shared query key — cache hit when stage content is loaded)
+  const { data: stageData } = useStageData<{ llm_trace?: LLMTrace; gate_overridden?: GateOverride; outcome?: StageOutcome }>(runId, stage.id, isCompleted);
 
   const outcome: StageOutcome = stageData?.outcome ?? "success";
 

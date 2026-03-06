@@ -126,8 +126,6 @@ async def causal_inference_pipeline(
     persist_web_result(
         "stage-0",
         {
-            "source_type": preprocess_result["source_type"],
-            "source_label": preprocess_result["source_label"],
             "n_records": preprocess_result["n_records"],
             "date_range": preprocess_result["date_range"],
             "sample": preprocess_result["sample"],
@@ -709,13 +707,12 @@ async def causal_inference_pipeline(
     persist_web_result("stage-5", stage5_data)
 
     stage6_has_warnings = any(
-        r.get("warning") or r.get("ppc_warnings") or r.get("prior_sensitivity_warning")
+        r.get("ppc_warnings") or r.get("prior_sensitivity_warning")
         for r in intervention_results
     )
     stage6_data = {
         "outcome": "warn" if stage6_has_warnings else "success",
         "intervention_results": intervention_results,
-        "inference_metadata": inf_meta,
     }
     persist_web_result("stage-6", stage6_data)
 

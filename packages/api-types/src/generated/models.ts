@@ -70,8 +70,6 @@ export interface CausalSSMContracts {
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
-  source_type: string;
-  source_label: string;
   n_records: number;
   date_range: DateRangeContract;
   sample: {
@@ -378,10 +376,6 @@ export interface ModelSpec {
    * All parameters requiring priors
    */
   parameters: ParameterSpec[];
-  /**
-   * Overall reasoning for the model specification choices
-   */
-  reasoning: string;
 }
 /**
  * Specification for a likelihood (observed variable distribution).
@@ -797,7 +791,6 @@ export interface PosteriorPair {
 export interface Stage6Contract {
   outcome: "success" | "warn" | "fail";
   intervention_results: TreatmentEffectContract[];
-  inference_metadata: InferenceMetadataContract;
 }
 export interface TreatmentEffectContract {
   treatment: string;
@@ -805,7 +798,6 @@ export interface TreatmentEffectContract {
   posterior_draws?: number[] | null;
   prob_positive?: number | null;
   identifiable: boolean;
-  warning?: string | null;
   ppc_warnings?: string[] | null;
   prior_sensitivity_warning?: string | null;
   temporal?: TemporalEffect | null;

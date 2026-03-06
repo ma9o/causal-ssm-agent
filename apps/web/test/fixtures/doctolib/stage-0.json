@@ -1,6 +1,4 @@
 {
-  "source_type": "fhir-r4-patient-bundle",
-  "source_label": "Doctolib \u2014 Dossier M\u00e9dical",
   "n_records": 93,
   "date_range": {
     "start": "2021-09-15",
@@ -97,6 +95,5 @@
       "content": "Suivi Dr. Laurent. LDL 2.0, HbA1c 6.4%, TA 122/76. Poids 75kg (\u22123kg en 3 ans). Poursuite traitement identique.",
       "location": "Cabinet Dr. Laurent, 18 rue de Rivoli, Paris 1er"
     }
-  ],
-  "context": "Stage 0 ingests a FHIR R4 Patient Bundle from the patient\u2019s Doctolib account. 93 records spanning 3+ years of primary care (16 GP visits), cardiology (3 visits), endocrinology (5 visits), lab panels (13 quarterly), prescriptions (13 renewals), vital signs (24), and procedures (4) for a 58-year-old woman with type 2 diabetes, hypertension, and hypercholesterolemia."
+  ]
 }

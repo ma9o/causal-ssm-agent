@@ -1071,6 +1071,5 @@
     "deadline_proximity_searches": 182,
     "productive_hours": 26,
     "workload_events": 200
-  },
-  "context": "Stage 2 dispatches worker LLMs to extract indicator observations from raw activity data. Each worker processes a chunk of the data independently."
+  }
 }

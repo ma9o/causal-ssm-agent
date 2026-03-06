@@ -171,6 +171,5 @@
       "output_tokens": 2340,
       "reasoning_tokens": 680
     }
-  },
-  "context": "Stage 1a proposes a latent causal model based on domain knowledge alone. The model specifies theoretical constructs and their causal relationships. Assumption A4 (acyclicity) requires the contemporaneous subgraph to be a DAG. Feedback loops are modeled as lagged effects across time steps (A3 Markov property)."
+  }
 }

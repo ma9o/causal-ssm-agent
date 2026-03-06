@@ -274,13 +274,6 @@
       }
     }
   },
-  "filtered_treatments": [
-    "lipid_burden",
-    "vascular_inflammation",
-    "glycemic_control",
-    "arterial_pressure",
-    "medication_adherence"
-  ],
   "llm_trace": {
     "messages": [
       {
@@ -344,7 +337,6 @@
       "reasoning_tokens": 840
     }
   },
-  "context": "Stage 1b maps latent constructs to clinical biomarkers and checks nonparametric identification. 4 of 5 treatment effects are identifiable. The key showcase: lipid_burden\u2019s effect on cardiovascular_risk is identified via the front-door criterion through vascular_inflammation, despite confounding from unobserved genetic_predisposition. In contrast, glycemic_control\u2019s effect is non-identifiable because psychosocial_stress confounds the relationship with no exploitable graphical structure.",
   "gate_overridden": {
     "reason": "Glycemic control effect is non-identifiable due to psychosocial stress confounding. User chose to continue \u2014 the identified lipid_burden pathway (via frontdoor) and arterial_pressure pathway provide sufficient causal targets for intervention analysis."
   }

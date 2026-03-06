@@ -1017,17 +1017,11 @@
           },
           "title": "Parameters",
           "type": "array"
-        },
-        "reasoning": {
-          "description": "Overall reasoning for the model specification choices",
-          "title": "Reasoning",
-          "type": "string"
         }
       },
       "required": [
         "likelihoods",
-        "parameters",
-        "reasoning"
+        "parameters"
       ],
       "title": "ModelSpec",
       "type": "object"
@@ -2067,14 +2061,6 @@
           "title": "Outcome",
           "type": "string"
         },
-        "source_type": {
-          "title": "Source Type",
-          "type": "string"
-        },
-        "source_label": {
-          "title": "Source Label",
-          "type": "string"
-        },
         "n_records": {
           "title": "N Records",
           "type": "integer"
@@ -2104,9 +2090,7 @@
         "date_range",
         "n_records",
         "outcome",
-        "sample",
-        "source_label",
-        "source_type"
+        "sample"
       ],
       "title": "Stage0Contract",
       "type": "object"
@@ -2513,13 +2497,9 @@
           },
           "title": "Intervention Results",
           "type": "array"
-        },
-        "inference_metadata": {
-          "$ref": "#/$defs/InferenceMetadataContract"
         }
       },
       "required": [
-        "inference_metadata",
         "intervention_results",
         "outcome"
       ],
@@ -2820,18 +2800,6 @@
         "identifiable": {
           "title": "Identifiable",
           "type": "boolean"
-        },
-        "warning": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warning"
         },
         "ppc_warnings": {
           "anyOf": [

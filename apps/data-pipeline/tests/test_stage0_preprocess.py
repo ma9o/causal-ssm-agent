@@ -155,13 +155,10 @@ class TestPreprocessRawInputIntegration:
 
         result = PreprocessResult(
             lines=lines,
-            source_type="google-takeout-my-activity",
-            source_label="Google Takeout \u2014 My Activity",
             n_records=len(records),
             date_range=date_range,
             sample=sample,
         )
-        assert result["source_type"] == "google-takeout-my-activity"
         assert result["n_records"] == 30
         assert len(result["sample"]) == 15
         assert len(result["lines"]) == 30

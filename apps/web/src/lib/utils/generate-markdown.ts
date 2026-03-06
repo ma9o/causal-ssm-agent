@@ -74,7 +74,6 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
     lines.push(section(2, `Stage 0: ${STAGES[0].label}`));
     lines.push(`> ${STAGES[0].description}`);
     lines.push("");
-    lines.push(`- **Source**: ${s0.source_label}`);
     lines.push(`- **Records**: ${s0.n_records.toLocaleString()}`);
     lines.push(`- **Date range**: ${formatDateRange(s0.date_range.start, s0.date_range.end)}`);
     lines.push("");
@@ -618,11 +617,10 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
           ci,
           t.prob_positive != null ? formatPercent(t.prob_positive) : "—",
           t.identifiable ? "Yes" : "No",
-          t.warning ?? "—",
         ];
       });
       lines.push(
-        mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Identifiable", "Warning"], txRows),
+        mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Identifiable"], txRows),
       );
       lines.push("");
 
@@ -651,11 +649,6 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
         lines.push("");
       }
 
-      // Inference metadata
-      lines.push(
-        `*Inference: ${s6.inference_metadata.method} | ${s6.inference_metadata.n_samples} samples | ${s6.inference_metadata.duration_seconds.toFixed(1)}s*`,
-      );
-      lines.push("");
     }
   }
 

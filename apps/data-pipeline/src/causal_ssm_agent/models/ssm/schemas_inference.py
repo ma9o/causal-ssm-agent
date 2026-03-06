@@ -256,7 +256,6 @@ class TreatmentEffect(BaseModel):
     posterior_draws: list[float] | None = None
     prob_positive: float | None = None
     identifiable: bool = True
-    warning: str | None = None
     ppc_warnings: list[str] | None = None
     prior_sensitivity_warning: str | None = None
     temporal: TemporalEffect | None = None
