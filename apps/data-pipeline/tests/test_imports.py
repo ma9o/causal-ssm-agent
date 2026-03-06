@@ -30,9 +30,9 @@ def test_import_utils():
 
 
 def test_import_stage0():
-    from causal_ssm_agent.flows.stages.stage0_preprocess import preprocess_raw_input
+    from causal_ssm_agent.flows.stages.stage0_preprocess import agentic_ingest
 
-    assert callable(preprocess_raw_input)
+    assert callable(agentic_ingest)
 
 
 def test_schema_to_networkx():

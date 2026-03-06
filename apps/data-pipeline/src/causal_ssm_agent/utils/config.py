@@ -17,6 +17,13 @@ load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 
 
 @dataclass(frozen=True)
+class Stage0Config:
+    """Stage 0: Agentic Data Ingestion."""
+
+    model: str = "openrouter/anthropic/claude-sonnet-4"
+
+
+@dataclass(frozen=True)
 class Stage1Config:
     """Stage 1: Structure Proposal (Orchestrator)."""
 
@@ -138,6 +145,7 @@ class PipelineBehaviorConfig:
 class PipelineConfig:
     """Full pipeline configuration."""
 
+    stage0_ingestion: Stage0Config
     stage1_structure_proposal: Stage1Config
     stage2_workers: Stage2Config
     stage4_prior_elicitation: Stage4Config
@@ -223,7 +231,12 @@ def load_config() -> PipelineConfig:
         PipelineBehaviorConfig(**pipeline_raw) if pipeline_raw else PipelineBehaviorConfig()
     )
 
+    # Parse stage0 section
+    stage0_raw = raw.get("stage0_ingestion", {"model": "openrouter/anthropic/claude-sonnet-4"})
+    stage0_config = Stage0Config(**stage0_raw)
+
     return PipelineConfig(
+        stage0_ingestion=stage0_config,
         stage1_structure_proposal=Stage1Config(**raw["stage1_structure_proposal"]),
         stage2_workers=Stage2Config(**raw["stage2_workers"]),
         stage4_prior_elicitation=stage4_config,

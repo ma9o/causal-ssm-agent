@@ -2,21 +2,16 @@
 
 This module tests:
 1. validate_extraction() - semantic checks (variance, sample size)
-2. combine_worker_results() - combining raw worker data
-3. New validation checks - timestamps, dtype, coverage, gaps, hallucination, correlations
+2. Validation checks - timestamps, dtype, coverage, gaps, hallucination, correlations
 """
-
-from typing import Any
 
 import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage3_validation import (
     MIN_OBSERVATIONS,
-    combine_worker_results,
     validate_extraction,
 )
-from tests.helpers import MockWorkerResult
 
 
 @pytest.fixture
@@ -47,13 +42,13 @@ def simple_causal_spec():
     }
 
 
-def _create_worker_results(records: list[dict]) -> list[Any]:
-    """Create mock worker results from records."""
+def _create_worker_dfs(records: list[dict]) -> list[pl.DataFrame]:
+    """Create DataFrames for validate_extraction from records."""
     df = pl.DataFrame(
         records,
         schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
     )
-    return [MockWorkerResult(dataframe=df)]
+    return [df]
 
 
 def _make_spec(
@@ -105,61 +100,7 @@ def _make_spec(
 
 
 # ==============================================================================
-# UNIT TESTS: combine_worker_results
-# ==============================================================================
-
-
-class TestCombineWorkerResults:
-    """Test combining raw worker results."""
-
-    def test_combines_multiple_workers(self):
-        """Combines DataFrames from multiple workers."""
-        df1 = pl.DataFrame(
-            {
-                "indicator": ["stress_score"],
-                "value": ["5.0"],
-                "timestamp": ["2024-01-01 10:00"],
-            }
-        )
-        df2 = pl.DataFrame(
-            {
-                "indicator": ["sleep_hours"],
-                "value": ["7.5"],
-                "timestamp": ["2024-01-01 08:00"],
-            }
-        )
-
-        results: list[Any] = [MockWorkerResult(dataframe=df1), MockWorkerResult(dataframe=df2)]
-        combined = combine_worker_results.fn(results)
-
-        assert len(combined) == 2
-        assert set(combined["indicator"].to_list()) == {"stress_score", "sleep_hours"}
-
-    def test_handles_empty_results(self):
-        """Returns empty DataFrame for no results."""
-        combined = combine_worker_results.fn([])
-        assert combined.is_empty()
-
-    def test_handles_none_dataframes(self):
-        """Skips None DataFrames."""
-        df = pl.DataFrame(
-            {
-                "indicator": ["stress_score"],
-                "value": ["5.0"],
-                "timestamp": ["2024-01-01 10:00"],
-            }
-        )
-        results: list[Any] = [
-            MockWorkerResult(dataframe=df),
-            MockWorkerResult(dataframe=None),
-        ]
-        combined = combine_worker_results.fn(results)
-
-        assert len(combined) == 1
-
-
-# ==============================================================================
-# UNIT TESTS: validate_extraction (existing checks)
+# UNIT TESTS: validate_extraction
 # ==============================================================================
 
 
@@ -191,7 +132,7 @@ class TestValidateExtraction:
                 }
             )
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is True
@@ -205,7 +146,7 @@ class TestValidateExtraction:
             {"indicator": "stress_score", "value": "5.0", "timestamp": "2024-01-01 10:00"},
             # sleep_hours is missing
         ]
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # Should have warning for missing sleep_hours
@@ -231,7 +172,7 @@ class TestValidateExtraction:
                 }
             )
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is False
@@ -252,7 +193,7 @@ class TestValidateExtraction:
             {"indicator": "sleep_hours", "value": "8.0", "timestamp": "2024-01-03 08:00"},
         ]
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # Should be valid (warnings only)
@@ -274,7 +215,7 @@ class TestValidateExtraction:
             {"indicator": "sleep_hours", "value": "7.0", "timestamp": "2024-01-01 08:00"},
         ]
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         # stress_score should have no_numeric error
@@ -294,7 +235,7 @@ class TestValidateExtraction:
             {"indicator": "sleep_hours", "value": "7.5", "timestamp": "2024-01-03 08:00"},
         ]
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is False  # Has error
@@ -325,7 +266,7 @@ class TestValidateExtraction:
                 }
             )
 
-        worker_results = _create_worker_results(records)
+        worker_results = _create_worker_dfs(records)
         result = validate_extraction.fn(simple_causal_spec, worker_results)
 
         assert result["is_valid"] is True
@@ -352,7 +293,7 @@ class TestCheckTimestamps:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         ts_issues = [i for i in result["issues"] if i["issue_type"] == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
@@ -363,7 +304,7 @@ class TestCheckTimestamps:
             {"indicator": "stress_score", "value": str(float(i)), "timestamp": "not-a-date"}
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         ts_issues = [i for i in result["issues"] if i["issue_type"] == "unparseable_timestamps"]
         assert len(ts_issues) == 1
         assert ts_issues[0]["severity"] == "error"
@@ -375,7 +316,7 @@ class TestCheckTimestamps:
         for i in range(20):
             ts = f"2024-01-{i + 1:02d} 10:00" if i < 8 else "garbage"
             records.append({"indicator": "stress_score", "value": str(float(i)), "timestamp": ts})
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         ts_issues = [i for i in result["issues"] if i["issue_type"] == "unparseable_timestamps"]
         assert len(ts_issues) == 1
         assert ts_issues[0]["severity"] == "warning"
@@ -387,7 +328,7 @@ class TestCheckTimestamps:
         for i in range(20):
             ts = "garbage" if i < 5 else f"2024-01-{i + 1:02d} 10:00"
             records.append({"indicator": "stress_score", "value": str(float(i)), "timestamp": ts})
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         ts_issues = [i for i in result["issues"] if i["issue_type"] == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
@@ -407,7 +348,7 @@ class TestCheckDtypeRange:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(["0", "1", "0", "1", "1", "0", "1", "0", "1", "0"] * 2)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert len(dtype_issues) == 0
 
@@ -418,7 +359,7 @@ class TestCheckDtypeRange:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(["0", "1", "2", "0.5", "1", "0", "1", "0", "1", "0"])
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert len(dtype_issues) == 1
         assert dtype_issues[0]["severity"] == "error"
@@ -430,7 +371,7 @@ class TestCheckDtypeRange:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(["3", "5", "-1", "2", "4", "0", "1", "6", "3", "2"])
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert any(i["severity"] == "error" for i in dtype_issues)
         assert any("negative" in i["message"] for i in dtype_issues)
@@ -442,7 +383,7 @@ class TestCheckDtypeRange:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(["3", "5", "2.5", "2", "4", "0", "1", "6", "3", "2"])
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert any(i["severity"] == "error" for i in dtype_issues)
         assert any("fractional" in i["message"] for i in dtype_issues)
@@ -456,7 +397,7 @@ class TestCheckDtypeRange:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(values)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert len(dtype_issues) == 1
         assert dtype_issues[0]["severity"] == "warning"
@@ -472,7 +413,7 @@ class TestCheckDtypeRange:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         dtype_issues = [i for i in result["issues"] if i["issue_type"] == "dtype_violation"]
         assert len(dtype_issues) == 0
 
@@ -496,7 +437,7 @@ class TestCheckTimeCoverage:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         cov_issues = [i for i in result["issues"] if i["issue_type"] == "insufficient_coverage"]
         assert len(cov_issues) == 0
 
@@ -512,7 +453,7 @@ class TestCheckTimeCoverage:
             }
             for i in range(3)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         cov_issues = [i for i in result["issues"] if i["issue_type"] == "insufficient_coverage"]
         assert len(cov_issues) == 1
         assert cov_issues[0]["severity"] == "warning"
@@ -528,7 +469,7 @@ class TestCheckTimeCoverage:
             }
             for i in range(3)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         cov_issues = [i for i in result["issues"] if i["issue_type"] == "insufficient_coverage"]
         assert len(cov_issues) == 0
 
@@ -544,7 +485,7 @@ class TestCheckTimeCoverage:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         cov_issues = [i for i in result["issues"] if i["issue_type"] == "insufficient_coverage"]
         assert len(cov_issues) == 1
 
@@ -568,7 +509,7 @@ class TestCheckTimestampGaps:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         gap_issues = [i for i in result["issues"] if i["issue_type"] == "large_timestamp_gap"]
         assert len(gap_issues) == 0
 
@@ -588,7 +529,7 @@ class TestCheckTimestampGaps:
             {"indicator": "stress_score", "value": "9.0", "timestamp": "2024-01-24 10:00"},
             {"indicator": "stress_score", "value": "10.0", "timestamp": "2024-01-25 10:00"},
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         gap_issues = [i for i in result["issues"] if i["issue_type"] == "large_timestamp_gap"]
         assert len(gap_issues) == 1
         assert gap_issues[0]["severity"] == "warning"
@@ -600,7 +541,7 @@ class TestCheckTimestampGaps:
             {"indicator": "stress_score", "value": "1.0", "timestamp": "2024-01-01 10:00"},
             {"indicator": "stress_score", "value": "2.0", "timestamp": "2024-06-01 10:00"},
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         gap_issues = [i for i in result["issues"] if i["issue_type"] == "large_timestamp_gap"]
         assert len(gap_issues) == 0
 
@@ -624,7 +565,7 @@ class TestCheckHallucinationSignals:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         hall_issues = [i for i in result["issues"] if i["issue_type"] == "suspicious_pattern"]
         assert len(hall_issues) == 0
 
@@ -637,7 +578,7 @@ class TestCheckHallucinationSignals:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(values)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         hall_issues = [i for i in result["issues"] if i["issue_type"] == "suspicious_pattern"]
         assert any("5.0" in i["message"] for i in hall_issues)
 
@@ -652,7 +593,7 @@ class TestCheckHallucinationSignals:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         hall_issues = [i for i in result["issues"] if i["issue_type"] == "suspicious_pattern"]
         assert any("arithmetic sequence" in i["message"] for i in hall_issues)
 
@@ -665,7 +606,7 @@ class TestCheckHallucinationSignals:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(values)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         hall_issues = [
             i
             for i in result["issues"]
@@ -684,7 +625,7 @@ class TestCheckHallucinationSignals:
             {"indicator": "stress_score", "value": v, "timestamp": f"2024-01-{i + 1:02d} 10:00"}
             for i, v in enumerate(values)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         hall_issues = [
             i
             for i in result["issues"]
@@ -733,7 +674,7 @@ class TestCheckConstructCorrelations:
                     "timestamp": f"2024-01-{i + 1:02d} 10:00",
                 }
             )
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         corr_issues = [
             i for i in result["issues"] if i["issue_type"] == "low_construct_correlation"
         ]
@@ -770,7 +711,7 @@ class TestCheckConstructCorrelations:
                     "timestamp": f"2024-01-{i + 1:02d} 10:00",
                 }
             )
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         corr_issues = [
             i for i in result["issues"] if i["issue_type"] == "low_construct_correlation"
         ]
@@ -788,7 +729,7 @@ class TestCheckConstructCorrelations:
             }
             for i in range(20)
         ]
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         corr_issues = [
             i for i in result["issues"] if i["issue_type"] == "low_construct_correlation"
         ]
@@ -825,7 +766,7 @@ class TestCheckConstructCorrelations:
                     "timestamp": f"2024-02-{i + 1:02d} 10:00",  # Different month
                 }
             )
-        result = validate_extraction.fn(spec, _create_worker_results(records))
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
         corr_issues = [
             i for i in result["issues"] if i["issue_type"] == "low_construct_correlation"
         ]
