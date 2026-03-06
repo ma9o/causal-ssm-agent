@@ -272,8 +272,9 @@ async def causal_inference_pipeline(
         },
     )
 
-    # ── Materialize the full DataFrame for replay ──
+    # ── Materialize replay artifacts ──
     ingested_df.write_parquet(run_dir / "ingested_df.parquet")
+    (run_dir / "question.txt").write_text(question, encoding="utf-8")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 1a: Propose latent model (theory only, no data)
@@ -841,8 +842,17 @@ async def causal_inference_pipeline(
 
 
 if __name__ == "__main__":
-    # Serve the flow for UI access
-    causal_inference_pipeline.serve(
+    from prefect import serve as serve_deployments
+
+    from causal_ssm_agent.flows.resume import resume_pipeline
+
+    # Serve both the main pipeline and the resume flow
+    main_dep = causal_inference_pipeline.to_deployment(
         name="causal-inference",
         tags=["causal", "llm"],
     )
+    resume_dep = resume_pipeline.to_deployment(
+        name="resume-pipeline",
+        tags=["causal", "llm", "resume"],
+    )
+    serve_deployments(main_dep, resume_dep)
