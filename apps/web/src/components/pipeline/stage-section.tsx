@@ -2,12 +2,13 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
+import type { GateOverride, StageId, StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
 import { type ReactNode, useState } from "react";
 import { StageHeader } from "./stage-header";
+import { StageLogViewer } from "./stage-log-viewer";
 
 export function StageSection({
   id,
@@ -22,6 +23,8 @@ export function StageSection({
   gateOverridden,
   outcome = "success",
   loadingHint,
+  runId,
+  stageId,
 }: {
   id?: string;
   number: string;
@@ -35,6 +38,8 @@ export function StageSection({
   gateOverridden?: GateOverride;
   outcome?: StageOutcome;
   loadingHint?: string;
+  runId?: string;
+  stageId?: StageId;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -137,6 +142,9 @@ export function StageSection({
             </p>
           </div>
         </motion.div>
+      )}
+      {runId && stageId && status !== "pending" && (
+        <StageLogViewer runId={runId} stageId={stageId} status={status} />
       )}
     </motion.section>
   );

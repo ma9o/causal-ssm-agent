@@ -145,6 +145,8 @@ export function StageSectionRouter({
       gateOverridden={stageData?.gate_overridden}
       outcome={outcome}
       loadingHint={stage.loadingHint}
+      runId={runId}
+      stageId={stage.id}
     >
       {isCompleted && (
         <ErrorBoundary>

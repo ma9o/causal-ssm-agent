@@ -232,6 +232,11 @@ async def causal_inference_pipeline(
         override_gates if override_gates is not None else config.pipeline.override_gates
     )
 
+    # ── Materialize run directory for replay artifacts ──
+    from prefect.context import get_run_context
+    run_dir = RESULT_STORAGE / str(get_run_context().flow_run.id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 0: Agentic data ingestion
     # ══════════════════════════════════════════════════════════════════════════
@@ -266,6 +271,9 @@ async def causal_inference_pipeline(
             "llm_trace": ingestion_result.llm_trace,
         },
     )
+
+    # ── Materialize the full DataFrame for replay ──
+    ingested_df.write_parquet(run_dir / "ingested_df.parquet")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stage 1a: Propose latent model (theory only, no data)
