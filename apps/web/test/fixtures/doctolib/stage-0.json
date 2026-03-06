@@ -1,9 +1,18 @@
 {
+  "outcome": "success",
+  "source_label": "Doctolib medical records export",
   "n_records": 93,
+  "n_columns": 4,
   "date_range": {
     "start": "2021-09-15",
     "end": "2024-12-20"
   },
+  "column_descriptions": [
+    { "name": "datetime", "dtype": "Utf8", "description": "Timestamp of the medical event" },
+    { "name": "activity_type", "dtype": "Utf8", "description": "Type of medical activity (consultation, prescription, lab_result, procedure, vital_sign)" },
+    { "name": "content", "dtype": "Utf8", "description": "Free-text description of the medical event" },
+    { "name": "location", "dtype": "Utf8", "description": "Location where the event took place" }
+  ],
   "sample": [
     {
       "datetime": "2021-09-15T09:30:00+02:00",
