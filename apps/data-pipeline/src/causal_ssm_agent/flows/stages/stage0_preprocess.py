@@ -21,8 +21,6 @@ TAKEOUT_ZIP_PATH = "Takeout/My Activity/Search/MyActivity.json"
 
 class PreprocessResult(TypedDict):
     lines: list[str]
-    source_type: str
-    source_label: str
     n_records: int
     date_range: dict[str, str]
     sample: list[dict[str, str | None]]
@@ -193,8 +191,6 @@ def preprocess_raw_input(user_id: str = "test_user") -> PreprocessResult:
 
     return PreprocessResult(
         lines=lines,
-        source_type="google-takeout-my-activity",
-        source_label="Google Takeout \u2014 My Activity",
         n_records=len(records),
         date_range=_compute_date_range(records),
         sample=_sample_records(records),

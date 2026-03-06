@@ -965,6 +965,5 @@
     "prescription_renewals": 13,
     "hdl_cholesterol": 13,
     "appointment_attendance": 13
-  },
-  "context": "Stage 2 extracts clinical indicator values from the patient\u2019s Doctolib records. 4 LLM workers parse lab panels (quarterly), vital signs (per visit), inflammatory markers (hs-CRP quarterly, fibrinogen biannual), and prescription renewal data."
+  }
 }

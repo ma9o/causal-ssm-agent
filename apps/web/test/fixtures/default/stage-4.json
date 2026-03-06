@@ -108,8 +108,7 @@
         "description": "Residual correlation between procrastination and stress (marginalized confounder: mood)",
         "search_context": ""
       }
-    ],
-    "reasoning": "The model uses a continuous-time SSM with daily dynamics. Gaussian likelihoods for continuous indicators, Poisson for counts, Bernoulli for binary. AR(1) structure captures temporal persistence. Fixed effects capture cross-construct causal effects as specified in the DAG."
+    ]
   },
   "priors": [
     {
@@ -311,12 +310,6 @@
     }
   ],
   "validation_retries": [],
-  "ssm_equations": [
-    "d\u03b7(t) = (A\u03b7(t) + Bx(t) + c)dt + GdW(t)",
-    "\u03b7(t) = [procrastination(t), stress(t), sleep_quality(t), digital_distraction(t), self_efficacy(t)]",
-    "y(t) = \u039b\u03b7(t) + \u03b5(t)",
-    "A = diag(\u03c1_procrastination, \u03c1_stress, \u03c1_sleep, \u03c1_distraction, \u03c1_efficacy) + off-diagonal causal effects"
-  ],
   "llm_trace": {
     "messages": [
       {
@@ -1720,6 +1713,5 @@
       8,
       2
     ]
-  },
-  "context": "Stage 4 specifies the statistical model: distribution families, link functions, parameters, and priors. The SSM equations encode the continuous-time dynamics. See docs/modeling/functional_spec.md for details."
+  }
 }

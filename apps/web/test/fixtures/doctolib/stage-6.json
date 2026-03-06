@@ -1113,11 +1113,5 @@
         "ldl_cholesterol": 0.02
       }
     }
-  ],
-  "inference_metadata": {
-    "method": "SVI",
-    "n_samples": 10000,
-    "duration_seconds": 62.8
-  },
-  "context": "Stage 6 computes interventional treatment effects on cardiovascular risk. Lipid burden is the strongest positive driver (98.2% certain). Medication adherence has the strongest protective effect. Renal function effect is non-identifiable and prior-dominated."
+  ]
 }

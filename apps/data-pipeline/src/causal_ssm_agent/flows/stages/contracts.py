@@ -63,8 +63,6 @@ class Stage0Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: Literal["success", "warn", "fail"] = "success"
-    source_type: str
-    source_label: str
     n_records: int
     date_range: DateRangeContract
     sample: list[dict[str, str | None]]
@@ -190,7 +188,6 @@ class TreatmentEffectContract(BaseModel):
     posterior_draws: list[float] | None = None
     prob_positive: float | None = None
     identifiable: bool
-    warning: str | None = None
     ppc_warnings: list[str] | None = None
     prior_sensitivity_warning: str | None = None
     temporal: TemporalEffect | None = None
@@ -244,7 +241,6 @@ class Stage6Contract(BaseModel):
 
     outcome: Literal["success", "warn", "fail"] = "success"
     intervention_results: list[TreatmentEffectContract]
-    inference_metadata: InferenceMetadataContract
 
 
 class LiveMetadata(BaseModel):

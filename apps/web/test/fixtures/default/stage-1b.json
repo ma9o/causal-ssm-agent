@@ -199,13 +199,6 @@
       }
     }
   },
-  "filtered_treatments": [
-    "stress",
-    "digital_distraction",
-    "sleep_quality",
-    "workload",
-    "self_efficacy"
-  ],
   "llm_trace": {
     "messages": [
       {
@@ -269,7 +262,6 @@
       "reasoning_tokens": 520
     }
   },
-  "context": "Stage 1b proposes indicators and checks nonparametric identification via do-calculus (Pearl/Shpitser-Pearl ID algorithm). Assumption A7 (reflective measurement model) enables causal identification by linking latent constructs to observable data.",
   "gate_overridden": {
     "reason": "Nonparametric identification check failed: P(procrastination | do(stress)) is not identifiable via the ID algorithm. User chose to continue."
   }

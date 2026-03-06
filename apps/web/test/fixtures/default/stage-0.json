@@ -1,6 +1,4 @@
 {
-  "source_type": "google-takeout-my-activity",
-  "source_label": "Google Takeout \u2014 My Activity",
   "n_records": 4597,
   "date_range": {
     "start": "2024-01-01",
@@ -22,6 +20,5 @@
     { "datetime": "2024-05-25T08:20:00+00:00", "activity_type": "search", "content": "procrastination causes neurological", "location": null },
     { "datetime": "2024-06-06T11:00:00+00:00", "activity_type": "search", "content": "getting things done methodology", "location": null },
     { "datetime": "2024-06-30T16:45:00+00:00", "activity_type": "other", "content": "weekly review template", "location": null }
-  ],
-  "context": "Stage 0 preprocesses raw data into timestamped records. The sample shows 15 evenly-spaced entries across the full date range."
+  ]
 }

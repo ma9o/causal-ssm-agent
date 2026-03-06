@@ -1800,6 +1800,5 @@
         false
       ]
     }
-  ],
-  "context": "Stage 5 fits the SSM via NUTS with data augmentation (NUTS-DA), jointly sampling parameters and latent states. Includes power-scaling sensitivity, LOO cross-validation, and posterior predictive checks."
+  ]
 }

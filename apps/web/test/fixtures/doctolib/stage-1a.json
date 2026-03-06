@@ -205,6 +205,5 @@
       "output_tokens": 3400,
       "reasoning_tokens": 920
     }
-  },
-  "context": "Stage 1a proposes a latent causal model from the patient's clinical history. The model includes 2 unobserved confounders (genetic predisposition, psychosocial stress) alongside 6 observed constructs. The key design choice is that lipid_burden affects cardiovascular_risk only through vascular_inflammation, creating a frontdoor structure that enables identification despite genetic confounding."
+  }
 }

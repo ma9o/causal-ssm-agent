@@ -168,7 +168,6 @@ class ModelSpec(BaseModel):
         description="Likelihood specifications for each observed indicator"
     )
     parameters: list[ParameterSpec] = Field(description="All parameters requiring priors")
-    reasoning: str = Field(description="Overall reasoning for the model specification choices")
 
 
 def validate_model_spec(
@@ -481,7 +480,6 @@ class ModelSpecDecisions(BaseModel):
     search_contexts: dict[str, str] = Field(
         description="Parameter name → literature search query for each parameter"
     )
-    reasoning: str = Field(description="Overall reasoning for model design choices")
 
 
 def merge_decisions_to_spec(
@@ -542,7 +540,6 @@ def merge_decisions_to_spec(
     spec_dict = {
         "likelihoods": likelihoods,
         "parameters": final_params,
-        "reasoning": decisions.reasoning,
     }
     return validate_model_spec_dict(spec_dict)
 

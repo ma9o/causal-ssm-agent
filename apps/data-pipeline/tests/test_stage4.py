@@ -79,7 +79,6 @@ def simple_model_spec() -> dict:
                 "search_context": "mood variability within-person",
             },
         ],
-        "reasoning": "Simple AR(1) model for mood",
     }
 
 
@@ -561,7 +560,6 @@ class TestPriorPredictiveValidation:
                     "search_context": "",
                 }
             ],
-            "reasoning": "test",
         }
         # This should still build (builder is tolerant), but let's test
         # with a truly broken spec by patching build_model to raise
@@ -919,7 +917,6 @@ class TestSSMPriorConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         priors = {
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 5.0, "beta": 2.0}},
@@ -961,7 +958,6 @@ class TestSSMPriorConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         priors = {
             "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
@@ -1034,7 +1030,6 @@ class TestSSMPriorConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         priors = {
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
@@ -1097,7 +1092,6 @@ class TestSSMPriorConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         priors = {
             "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},

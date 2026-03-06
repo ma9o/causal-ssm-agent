@@ -1113,11 +1113,5 @@
         "ldl_cholesterol": 0.02
       }
     }
-  ],
-  "inference_metadata": {
-    "method": "NUTS-DA",
-    "n_samples": 2000,
-    "duration_seconds": 185.4
-  },
-  "context": "Stage 6 computes interventional treatment effects via NUTS-DA MCMC. Tighter posteriors than SVI — lipid burden remains #1 driver (99.1% certain). Medication adherence protective effect strengthened."
+  ]
 }

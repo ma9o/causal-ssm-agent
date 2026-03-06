@@ -264,6 +264,5 @@
         }
       }
     ]
-  },
-  "context": "Stage 3 validates extracted clinical data. Sample sizes for quarterly/biannual measurements (HbA1c, fibrinogen) are low but typical for routine clinical monitoring. hs-CRP shows steady decline consistent with statin pleiotropic effects. High prescription fill rate clustering reflects good medication adherence."
+  }
 }

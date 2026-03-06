@@ -29,11 +29,5 @@
       "prob_positive": 0.821,
       "identifiable": true
     }
-  ],
-  "inference_metadata": {
-    "method": "SVI",
-    "n_samples": 10000,
-    "duration_seconds": 45.2
-  },
-  "context": "Stage 6 computes interventional treatment effects via the do-operator on the SSM steady state. Effects are ranked by posterior probability of positive effect."
+  ]
 }

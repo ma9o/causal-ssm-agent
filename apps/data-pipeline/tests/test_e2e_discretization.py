@@ -170,7 +170,6 @@ def two_construct_model_spec() -> dict:
                 "search_context": "",
             },
         ],
-        "reasoning": "CT-SSM for stress-mood dynamics",
     }
 
 
@@ -698,7 +697,6 @@ class TestE2ESpecToDiscretization:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
 
         # Weekly study priors
@@ -1027,7 +1025,6 @@ class TestExactMatrixLogConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
 
         # All parameters at dt=7 (weekly)
@@ -1133,7 +1130,6 @@ class TestExactMatrixLogConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         builder = SSMModelBuilder(
             model_spec=model_spec,
@@ -1193,7 +1189,6 @@ class TestExactMatrixLogConversion:
                     "search_context": "",
                 },
             ],
-            "reasoning": "",
         }
         # Very large beta → CT rate implies very fast coupling (short timescale)
         # but edge lag is 1 day → should warn about mismatch

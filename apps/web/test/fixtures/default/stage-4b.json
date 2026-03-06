@@ -57,6 +57,5 @@
       { "name": "sleep_quality", "method": "kalman" }
     ]
   },
-  "context": "Stage 4b checks parametric identifiability via the T-rule (free parameters vs moment conditions). Parameters are classified as structurally identified, boundary, or weak based on profile likelihood analysis.",
   "gate_overridden": { "reason": "Parametric identification has 1 boundary parameter (sigma_stress, contraction ratio 0.45). User chose to continue." }
 }

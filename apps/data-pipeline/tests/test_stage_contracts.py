@@ -16,8 +16,6 @@ def valid_stage_payloads() -> dict[str, dict]:
     """Minimal valid payload for each persisted stage id."""
     return {
         "stage-0": {
-            "source_type": "google-takeout-my-activity",
-            "source_label": "Google Takeout — My Activity",
             "n_records": 10,
             "date_range": {"start": "2024-01-01", "end": "2024-01-10"},
             "sample": [{"datetime": "2024-01-01T10:00:00+00:00", "content": "foo"}],
@@ -158,7 +156,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                         "search_context": "stress autoregression",
                     }
                 ],
-                "reasoning": "minimal model",
             },
             "priors": [
                 {
@@ -221,11 +218,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                     "identifiable": True,
                 }
             ],
-            "inference_metadata": {
-                "method": "svi",
-                "n_samples": 1000,
-                "duration_seconds": 1.2,
-            },
         },
     }
 

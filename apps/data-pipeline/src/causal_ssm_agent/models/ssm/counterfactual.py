@@ -230,13 +230,9 @@ def compute_interventions(
     # Parse identifiability status
     id_status = causal_spec.get("identifiability") if causal_spec else None
     non_identifiable: set[str] = set()
-    blocker_details: dict[str, list[str]] = {}
     if id_status:
         ni_map = id_status.get("non_identifiable_treatments", {})
         non_identifiable = set(ni_map.keys())
-        blocker_details = {
-            t: d.get("confounders", []) for t, d in ni_map.items() if isinstance(d, dict)
-        }
 
     name_to_idx = {name: i for i, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
@@ -283,9 +279,8 @@ def compute_interventions(
     for treatment_name in treatments:
         treat_idx = name_to_idx.get(treatment_name)
         if treat_idx is None:
-            entry = _skeleton(treatment_name)
-            entry["warning"] = f"'{treatment_name}' not in latent model"
-            results.append(entry)
+            logger.warning("'%s' not in latent model — skipping", treatment_name)
+            results.append(_skeleton(treatment_name))
             continue
 
         effects = vmap(lambda d, c, ti=treat_idx, oi=outcome_idx: treatment_effect(d, c, ti, oi))(
@@ -302,13 +297,6 @@ def compute_interventions(
             "prob_positive": prob_positive,
             "identifiable": treatment_name not in non_identifiable,
         }
-
-        if treatment_name in non_identifiable:
-            blockers = blocker_details.get(treatment_name, [])
-            if blockers:
-                entry["warning"] = f"Effect not identifiable (blocked by: {', '.join(blockers)})"
-            else:
-                entry["warning"] = "Effect not identifiable (missing proxies)"
 
         # Forward simulation for temporal effects
         if dt_median is not None and horizon_steps is not None and horizon_steps > 0:

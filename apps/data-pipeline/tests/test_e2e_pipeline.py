@@ -338,7 +338,6 @@ def model_spec():
                 for name in INDICATOR_NAMES
             ],
         ],
-        "reasoning": "FOUR_LATENT benchmark model specification",
     }
 
 

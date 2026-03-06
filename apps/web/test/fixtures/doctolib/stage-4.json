@@ -208,8 +208,7 @@
         "description": "Factor loading for appointment_attendance on medication_adherence",
         "search_context": "appointment attendance factor loading medication adherence"
       }
-    ],
-    "reasoning": "Gaussian likelihoods for all continuous biomarkers; Beta for prescription fills and appointment attendance (bounded). AR(1) captures month-to-month persistence. Fixed effects encode causal DAG edges: lipid→inflammation→CV risk (frontdoor pathway), plus glycemic→CV and pressure→CV. Clinical biomarker dynamics operate on monthly timescale."
+    ]
   },
   "priors": [
     {
@@ -1992,12 +1991,6 @@
     }
   ],
   "validation_retries": [],
-  "ssm_equations": [
-    "dη(t) = (Aη(t) + Bx(t) + c)dt + GdW(t)",
-    "η(t) = [cardiovascular_risk(t), lipid_burden(t), vascular_inflammation(t), glycemic_control(t), arterial_pressure(t)]",
-    "y(t) = Λη(t) + ε(t)",
-    "A = diag(ρ_cv, ρ_lipid, ρ_inflammation, ρ_glycemic, ρ_pressure) + off-diagonal causal effects from DAG"
-  ],
   "llm_trace": {
     "messages": [
       {
@@ -4486,6 +4479,5 @@
       3.5,
       3.3
     ]
-  },
-  "context": "Stage 4 specifies the SSM with distribution families, parameters, and priors from landmark clinical trials (CTT, UKPDS, SPRINT, JUPITER, CANTOS). The lipid→inflammation→CV pathway is specified via beta_lipid_inflammation and beta_inflammation_cv. Prior predictive samples verify the model generates clinically plausible biomarker trajectories."
+  }
 }

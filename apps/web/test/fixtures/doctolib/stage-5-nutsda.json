@@ -10563,6 +10563,5 @@
         -0.316
       ]
     }
-  ],
-  "context": "Stage 5 fits the SSM via NUTS sampling. Posterior predictive checks show good fit for LDL, CRP, and systolic BP trajectories. The frontdoor-identified lipid\u2192inflammation\u2192CV pathway shows well-separated posteriors."
+  ]
 }

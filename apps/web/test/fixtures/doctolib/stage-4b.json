@@ -295,7 +295,6 @@
       }
     ]
   },
-  "context": "Stage 4b checks parametric identifiability via the T-rule and profile likelihoods. sigma_pressure is practically unidentifiable with the current data volume, but causal effect parameters (including the frontdoor chain beta_lipid_inflammation and beta_inflammation_cv) are well-identified.",
   "gate_overridden": {
     "reason": "1 practically unidentifiable parameter (sigma_pressure, contraction ratio 0.42). User chose to continue."
   }
