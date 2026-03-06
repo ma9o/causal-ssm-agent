@@ -8,7 +8,6 @@ Two-stage specification following Anderson & Gerbing (1988):
 """
 
 import logging
-
 from pathlib import Path
 
 import polars as pl
