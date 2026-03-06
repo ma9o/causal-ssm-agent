@@ -102,6 +102,6 @@ Lag must equal exactly one unit of the coarser (effect) construct's granularity.
 
 ## Out of Scope
 
-**Latent state filtering/smoothing.** If you want to estimate the values of a construct that has no indicators, that's a state-space problem. Use `pykalman` or similar tools.
+**Latent state filtering/smoothing.** If you want to estimate the values of a construct that has no indicators, that's a state-space problem outside the scope of this framework.
 
 This framework estimates **causal effects between constructs**, not latent state trajectories.

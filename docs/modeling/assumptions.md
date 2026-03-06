@@ -203,7 +203,7 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 The following are explicitly NOT assumed and may be added in future versions:
 
 - **Non-linear relationships:** Currently all structural effects are linear in parameters
-- **Non-Gaussian distributions:** Poisson, Student-t, Gamma, Bernoulli, Negative Binomial, and Beta are supported in the observation model (see `DistributionFamily` in `src/causal_ssm_agent/orchestrator/schemas_model.py` and the emission functions in `src/causal_ssm_agent/models/likelihoods/emissions.py`). Additional families may be added.
+- **Non-Gaussian distributions:** Poisson, Student-t, Gamma, Bernoulli, Negative Binomial, and Beta are supported in the observation model. Additional families may be added.
 - **Time-varying parameters:** Currently all causal coefficients are time-invariant
 - **Random slopes:** Currently only random intercepts, not person-specific effect sizes
 - **Cross-level interactions:** Currently between-person variables do not moderate within-person effects

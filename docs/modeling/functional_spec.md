@@ -6,7 +6,7 @@ This document describes how Stage 4 translates the causal DAG (topological struc
 
 ## Terminology
 
-See AGENTS.md for terminology conventions. Stage 4 receives the topological structure from Stage 1a/1b (see [pipeline.md](../reference/pipeline.md)) and translates it into a functional specification: the regression equations, distributions, and priors needed to fit the model in NumPyro.
+See AGENTS.md for terminology conventions. Stage 4 receives the topological structure from Stage 1a/1b and translates it into a functional specification: the regression equations, distributions, and priors needed to fit the model in NumPyro.
 
 ---
 
@@ -28,17 +28,12 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 
 **1.2 Temporal Structure (from A3 Markov assumption)**
 
-All endogenous time-varying constructs receive AR(1):
+All endogenous time-varying constructs receive AR(1) per [assumptions.md](assumptions.md) A3:
 ```
 Construct_t = ρ · Construct_{t-1} + Σ β_j · Parent_j + ε_t
 ```
 
-Where:
-- ρ ∈ [0, 1] for stability (enforced via prior bounds)
-- β_j are cross-lag coefficients for each causal edge
-- ε_t ~ N(0, σ²) is the structural residual
-
-**1.3 Measurement Model Structure (from A6/A9)**
+**1.3 Measurement Model Structure (from [A6/A9](assumptions.md))**
 
 | Indicator count | Structure | Loadings |
 |-----------------|-----------|----------|
@@ -51,31 +46,7 @@ The measurement equation follows the standard factor analysis form:
 x_i = τ_i + λ_i · ξ + ε_i
 ```
 
-Where x is the observed indicator, τ is the intercept, λ is the factor loading, ξ is the latent construct, and ε is measurement error.
-
-**NumPyro Implementation Pattern:**
-
-```python
-import numpyro
-import numpyro.distributions as dist
-import jax.numpy as jnp
-
-def model():
-    # Estimate all loadings with weakly informative prior
-    lambdas_raw = numpyro.sample("lambdas_raw", dist.Normal(1.0, 10.0).expand([n_indicators]))
-
-    # Fix first loading to 1 for scale identification
-    lambdas = numpyro.deterministic(
-        "lambdas",
-        lambdas_raw.at[0].set(1.0),
-    )
-```
-
-Key points:
-- First loading fixed to 1.0 establishes the measurement scale
-- Remaining loadings estimated freely with Normal(1, 10) prior
-- The closer loadings are to 1, the better the indicators measure the same construct
-- If loadings deviate substantially from 1, consider whether indicators belong together
+Where x is the observed indicator, τ is the intercept, λ is the factor loading, ξ is the latent construct, and ε is measurement error. The first loading is fixed to 1.0 to establish the measurement scale; remaining loadings are estimated freely.
 
 **1.4 Cross-Timescale Aggregation**
 
@@ -225,7 +196,7 @@ Stage 4b computes the Fisher information matrix at prior draws and checks:
 - **Boundary identifiability:** Intermittent rank deficiency across draws
 - **Weak contraction:** Parameters with low expected prior-to-posterior contraction
 
-See `src/causal_ssm_agent/flows/stages/stage4b_parametric_id.py` and `src/causal_ssm_agent/utils/parametric_id.py` for implementation.
+See `stage4b_parametric_id.py` and `parametric_id.py` for implementation.
 
 ---
 
@@ -317,18 +288,6 @@ Bayesian model validation uses predictive checks at two points in the workflow. 
 - Priors too narrow (artificially constrained, won't learn from data)
 - Structural misspecification (implied variance structure is unreasonable)
 
-**Implementation:**
-```python
-# NumPyro pattern — uses numpyro.infer.Predictive
-from numpyro.infer import Predictive
-
-predictive = Predictive(model_fn, num_samples=1000)
-prior_pred = predictive(rng_key)
-
-# Check: are simulated indicator values in plausible range?
-# Check: do simulated effect sizes match domain expectations?
-```
-
 **If check fails:** Iterate on prior specification before proceeding to MCMC.
 
 ### Posterior Predictive Checks (Stage 5)
@@ -345,21 +304,7 @@ prior_pred = predictive(rng_key)
 - Structural misspecification (missing edges, wrong functional form)
 - Distribution misspecification (heavy tails, multimodality)
 
-**Implementation:**
-```python
-# NumPyro pattern — uses numpyro.infer.Predictive with posterior samples
-from numpyro.infer import Predictive
-
-predictive = Predictive(model_fn, posterior_samples=samples)
-posterior_pred = predictive(rng_key)
-
-# Compare: observed vs replicated variance, means, correlations
-# Bayesian p-value: proportion of replicates where test stat > observed
-```
-
-**Interpretation:**
-- p-value near 0.5: Good fit (replicated data indistinguishable from observed)
-- p-value near 0 or 1: Systematic misfit (model fails to capture some aspect)
+**Interpretation:** A Bayesian p-value near 0.5 indicates good fit (replicated data indistinguishable from observed); near 0 or 1 indicates systematic misfit.
 
 **If check fails:** Revise model structure, re-fit, and re-check.
 
