@@ -107,9 +107,12 @@ export interface TraceMessage {
   reasoning?: string | null;
   tool_calls?:
     | {
-        [k: string]: any | undefined;
+        id: string;
+        name: string;
+        arguments: Record<string, unknown>;
       }[]
     | null;
+  tool_call_id?: string | null;
   tool_name?: string | null;
   tool_result?: string | null;
   tool_is_error: boolean;

@@ -40,6 +40,7 @@ class TraceMessage(BaseModel):
     content: str
     reasoning: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
     tool_name: str | None = None
     tool_result: str | None = None
     tool_is_error: bool = False
@@ -90,13 +91,16 @@ def _chat_message_to_trace(msg: "ChatMessage") -> TraceMessage:
             reasoning_text = "\n".join(reasoning_parts)
 
     # Extract tool calls from assistant messages
+    tool_call_id = None
     if isinstance(msg, ChatMessageAssistant) and msg.tool_calls:
         tool_calls_list = [
-            {"name": tc.function, "arguments": tc.arguments} for tc in msg.tool_calls
+            {"id": tc.id, "name": tc.function, "arguments": tc.arguments}
+            for tc in msg.tool_calls
         ]
 
     # Extract tool results from tool messages
     if isinstance(msg, ChatMessageTool):
+        tool_call_id = msg.tool_call_id
         tool_name = msg.function
         tool_result = content_text
         tool_is_error = msg.error is not None
@@ -106,6 +110,7 @@ def _chat_message_to_trace(msg: "ChatMessage") -> TraceMessage:
         content=content_text,
         reasoning=reasoning_text,
         tool_calls=tool_calls_list,
+        tool_call_id=tool_call_id,
         tool_name=tool_name,
         tool_result=tool_result,
         tool_is_error=tool_is_error,
