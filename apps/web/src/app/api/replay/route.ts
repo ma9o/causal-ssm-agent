@@ -1,8 +1,6 @@
-import { writeFile, unlink } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
 
-const RESULTS_DIR = resolve(process.cwd(), "..", "data-pipeline", "results");
 const PREFECT_API = "http://localhost:4200/api";
 
 const STAGE_ORDER = [
@@ -20,8 +18,11 @@ const STAGE_ORDER = [
 /**
  * POST /api/replay
  *
- * Overwrites a stage's JSON with refined data, clears downstream stages,
- * and triggers a resume pipeline flow via Prefect.
+ * Triggers a new pipeline run with the same parameters as the original,
+ * plus a stage_overrides entry for the refined stage. Prefect's native
+ * task caching (cache_policy=INPUTS) handles skipping unchanged upstream
+ * stages, and downstream stages automatically re-run because their
+ * inputs changed.
  *
  * Body: { runId: string, stageId: string, stageData: object }
  */
@@ -34,53 +35,47 @@ export async function POST(request: Request) {
 
   const safeRunId = basename(runId);
   const safeStageId = basename(stageId);
-  const runDir = resolve(join(RESULTS_DIR, safeRunId));
-
-  // Validate paths stay within RESULTS_DIR
-  if (!runDir.startsWith(RESULTS_DIR)) {
-    return NextResponse.json({ error: "Invalid runId" }, { status: 400 });
-  }
 
   const stageIdx = STAGE_ORDER.indexOf(safeStageId);
   if (stageIdx === -1) {
     return NextResponse.json({ error: `Unknown stageId: ${safeStageId}` }, { status: 400 });
   }
 
-  // 1. Overwrite the stage JSON
-  const stagePath = join(runDir, `${safeStageId}.json`);
-  await writeFile(stagePath, JSON.stringify(stageData, null, 2), "utf-8");
-
-  // 2. Clear downstream stage JSONs
-  const downstreamStart = stageIdx + 1;
-  for (const downstream of STAGE_ORDER.slice(downstreamStart)) {
-    const path = join(runDir, `${downstream}.json`);
-    try {
-      await unlink(path);
-    } catch {
-      // File may not exist — that's fine
-    }
-  }
-
-  // 3. Determine which stage to resume from (the one after the modified stage)
-  const resumeFrom = STAGE_ORDER[downstreamStart];
-  if (!resumeFrom) {
-    // Modified the last stage — nothing to re-run
-    return NextResponse.json({ ok: true, resumeFrom: null });
-  }
-
-  // 4. Find the resume-pipeline deployment and trigger it
   try {
+    // 1. Fetch the original flow run to get its parameters
+    const flowRunRes = await fetch(`${PREFECT_API}/flow_runs/${safeRunId}`);
+    if (!flowRunRes.ok) {
+      return NextResponse.json(
+        { error: `Could not fetch original flow run: ${flowRunRes.status}` },
+        { status: 502 },
+      );
+    }
+
+    const flowRun = await flowRunRes.json();
+    const originalParams = flowRun.parameters ?? {};
+
+    // 2. Build new parameters: original params + stage_overrides
+    const existingOverrides = originalParams.stage_overrides ?? {};
+    const newParams = {
+      ...originalParams,
+      stage_overrides: {
+        ...existingOverrides,
+        [safeStageId]: stageData,
+      },
+    };
+
+    // 3. Find the causal-inference deployment
     const deploymentsRes = await fetch(`${PREFECT_API}/deployments/filter`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        deployments: { name: { any_: ["resume-pipeline"] } },
+        deployments: { name: { any_: ["causal-inference"] } },
       }),
     });
 
     if (!deploymentsRes.ok) {
       return NextResponse.json(
-        { error: "Failed to find resume-pipeline deployment" },
+        { error: "Failed to find causal-inference deployment" },
         { status: 502 },
       );
     }
@@ -88,39 +83,34 @@ export async function POST(request: Request) {
     const deployments = await deploymentsRes.json();
     if (!deployments.length) {
       return NextResponse.json(
-        { error: "resume-pipeline deployment not found" },
+        { error: "causal-inference deployment not found" },
         { status: 404 },
       );
     }
 
     const deploymentId = deployments[0].id;
 
-    const flowRunRes = await fetch(
+    // 4. Trigger new flow run with original params + stage override
+    const createRes = await fetch(
       `${PREFECT_API}/deployments/${deploymentId}/create_flow_run`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parameters: {
-            original_run_id: safeRunId,
-            start_from: resumeFrom,
-          },
-        }),
+        body: JSON.stringify({ parameters: newParams }),
       },
     );
 
-    if (!flowRunRes.ok) {
-      return NextResponse.json(
-        { error: "Failed to trigger resume pipeline" },
-        { status: 502 },
-      );
+    if (!createRes.ok) {
+      return NextResponse.json({ error: "Failed to trigger pipeline" }, { status: 502 });
     }
 
-    const flowRun = await flowRunRes.json();
+    const newFlowRun = await createRes.json();
+    const downstreamStart = stageIdx + 1;
+
     return NextResponse.json({
       ok: true,
-      resumeFrom,
-      flowRunId: flowRun.id,
+      resumeFrom: downstreamStart < STAGE_ORDER.length ? STAGE_ORDER[downstreamStart] : null,
+      flowRunId: newFlowRun.id,
     });
   } catch (err) {
     return NextResponse.json(
