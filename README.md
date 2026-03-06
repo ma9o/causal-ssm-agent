@@ -37,10 +37,8 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the full documentation structure.
 
-- **[Modeling](docs/modeling/)** - Theoretical foundations: scope, assumptions, theory, estimation
-- **[Reference](docs/reference/)** - Technical specifications: schemas, pipeline stages
-- **[Guides](docs/guides/)** - Practical usage: quickstart, data workflow, running evals
-- **[Mplus Parity](docs/reference/mplus-parity.md)** - Feature comparison with Asparouhov et al. (2017)
+- **[Modeling](docs/modeling/)** - Theoretical foundations: scope, assumptions, estimation
+- **[Guides](docs/guides/)** - Practical usage: data workflow, running evals, codegen
 
 ## Structure
 
@@ -72,6 +70,6 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── modeling/                  # Theoretical foundations
 │   ├── reference/                 # Technical specifications
 │   ├── guides/                    # Practical usage guides
-│   └── papers/                    # Reference papers (PDFs)
+│   └── literature.md              # Reference papers (links + summaries)
 └── scratchpad/                    # Temporary work files (gitignored)
 ```

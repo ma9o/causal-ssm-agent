@@ -96,16 +96,20 @@ But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current
 
 ---
 
-## A5. Random Effects as Exogenous Between-Person Heterogeneity
+## A5. Time-Invariant Latents as Subject-Level Intercepts
 
-**Assumption:** Random effects (time-invariant constructs without indicators) capture stable between-person differences. They are exogenous by construction—no modeled causes within the system.
+**Assumption:** Time-invariant constructs capture stable subject-level differences. They are exogenous by construction—no modeled causes within the system.
+
+**Definition:** A time-invariant latent is implemented as a quasi-constant state: its drift diagonal is set to ≈0 (−1e−6) and its diffusion to ≈0, so η_i(t) ≈ η_i(0) throughout the time series.
 
 **Implications:**
-- Random effects partition variance into between-person and within-person components
-- They prevent conflation of between and within effects (Simpson's paradox)
+- Time-invariant latents act as subject-specific intercepts, absorbing stable baseline differences
 - They cannot be predicted by other variables in the model
+- They affect time-varying constructs at every timestep (see A3a unrolling)
 
-**Justification:** In intensive longitudinal data, ignoring between-person heterogeneity biases within-person effect estimates. Random intercepts are the minimal adjustment for this confound.
+**Note on hierarchical modeling:** The current implementation fits each subject independently—there is no cross-subject shrinkage or hierarchical prior on these intercepts. True random effects (in the SEM/multilevel sense) would require a hierarchical model where subject-level parameters are drawn from a population distribution. This is not currently supported.
+
+**Justification:** In intensive longitudinal data, ignoring stable individual differences biases within-person effect estimates. Subject-level intercepts are the minimal adjustment for this confound.
 
 ---
 
@@ -130,7 +134,11 @@ But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current
 
 **Assumption:** Once the measurement model is identified (via CFA for multi-indicator constructs, or by assumption for single-indicator constructs), constructs can be treated as effectively observed for the purpose of causal identification via the latent model.
 
-See theory.md §3 "Measurement Model Enables Causal Identification" for the full rationale.
+**Rationale:** Under the pure indicators assumption (no direct Indicator→Indicator edges), the construct covariance matrix becomes identified from observed indicator covariances via CFA. This matrix then serves as "data" for the latent model, and Pearl-style identification criteria apply to the construct-level DAG. This is the logic underlying all latent variable SEM since LISREL — the framework makes it explicit by separating the stages.
+
+**References:**
+- Anderson, J. C., & Gerbing, D. W. (1988). Structural equation modeling in practice: A review and recommended two-step approach. *Psychological Bulletin*, 103(3), 411-423.
+- Miao, W., Geng, Z., & Tchetgen Tchetgen, E. J. (2018). Identifying causal effects with proxy variables of an unmeasured confounder. *Biometrika*, 105(4), 987-993.
 
 ---
 
@@ -203,7 +211,7 @@ Where λ is fixed to 1 and measurement error merges with structural error.
 The following are explicitly NOT assumed and may be added in future versions:
 
 - **Non-linear relationships:** Currently all structural effects are linear in parameters
-- **Non-Gaussian distributions:** Poisson, Student-t, Gamma, Bernoulli, Negative Binomial, and Beta are supported in the observation model. Additional families may be added.
+- **General non-Gaussian latent dynamics:** Student-t process noise is supported (via the particle filter backend with `diffusion_dist="student_t"`), but more general non-Gaussian dynamics (e.g., jump-diffusion, switching regimes) are not
 - **Time-varying parameters:** Currently all causal coefficients are time-invariant
 - **Random slopes:** Currently only random intercepts, not person-specific effect sizes
 - **Cross-level interactions:** Currently between-person variables do not moderate within-person effects
