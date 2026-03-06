@@ -44,7 +44,9 @@ This yields four construct types:
 
 ## Identification
 
-Identifiability is checked by y0 in Stage 1b, not enforced at the schema level. See [theory.md](theory.md) for the theoretical foundations (locality, measurement-to-causal ID) and [assumptions.md](assumptions.md) A3a/A7 for the temporal unrolling strategy.
+Identifiability is checked by y0 in Stage 1b, not enforced at the schema level. See [assumptions.md](assumptions.md) A3a/A7 for the temporal unrolling strategy.
+
+Each treatment-outcome pair is checked independently. Non-identifiability of one effect does not affect identifiability of others, because the ID algorithm (Shpitser & Pearl, 2006) restricts attention to ancestors of the outcome — additions elsewhere cannot introduce new blocking structures.
 
 ---
 
@@ -63,9 +65,13 @@ Raw data may be finer-grained than the indicator's target granularity. The measu
 - Mean: average level matters
 - Sum: cumulative amount matters
 - Max/Min: extremes matter
-- Last: most recent state matters
-- Variance: instability itself matters
-- Custom: domain-specific aggregations (rolling means, exponential decay, quantiles, etc.)
+- Last/First: most recent or earliest state matters
+- Variance/Std: instability itself matters
+- Median, Skew, Kurtosis, Entropy: distributional shape matters
+- Percentiles (p10, p25, p75, p90, p99): tail behavior matters
+- Range, IQR, CV: spread relative to level matters
+- Instability (MSSD): mean squared successive differences
+- Trend: OLS slope over time within aggregation window
 
 ---
 
@@ -102,6 +108,4 @@ Lag must equal exactly one unit of the coarser (effect) construct's granularity.
 
 ## Out of Scope
 
-**Latent state filtering/smoothing.** If you want to estimate the values of a construct that has no indicators, that's a state-space problem outside the scope of this framework.
-
-This framework estimates **causal effects between constructs**, not latent state trajectories.
+**Trajectory estimation for unmeasured constructs.** Every construct must have at least one indicator. Latent state filtering is used internally for likelihood computation, but the framework's outputs are causal effect estimates, not state trajectories.

@@ -28,7 +28,7 @@ where:
 - `Lambda` is the `n_manifest x n_latent` **factor loading matrix** mapping latent states to observed indicators.
 - `mu` is the `n_manifest x 1` **manifest intercept**.
 - `R` is the `n_manifest x n_manifest` **measurement error covariance** (Cholesky-parameterized internally).
-- `F` is the observation noise family -- Gaussian by default, but also Poisson (log-link), Student-t, or Gamma (log-link).
+- `F` is the observation noise family -- Gaussian by default, but also Poisson (log-link), Student-t, Gamma (log-link), Bernoulli (logit-link), Negative Binomial (log-link), or Beta (logit-link).
 
 ## 2. Discretization (CT to DT)
 
@@ -46,6 +46,8 @@ Given drift `A`, diffusion covariance `Q_c = G G'`, and continuous intercept `c`
 | Discrete intercept | `c_d = A^{-1} * (A_d - I) * c` |
 
 The Lyapunov equation is solved via Bartels-Stewart (Sylvester solver), which is O(n^3) vs O(n^6) for the Kronecker vectorization approach.
+
+**Note on backward pass:** The forward pass uses Bartels-Stewart (Sylvester solver) at O(n^3). A custom VJP (`@jax.custom_vjp` on `solve_lyapunov`) uses implicit differentiation to compute gradients, but the adjoint Lyapunov equation is solved via Kronecker vectorization at O(n^6) because JAX lacks differentiation rules for Schur decomposition. For models with large latent dimension this backward pass can dominate gradient computation cost.
 
 ### Batched discretization
 
@@ -79,7 +81,7 @@ Missing observations are handled by inflating the measurement variance for unobs
 
 ## 4. Library Stack
 
-The estimation pipeline composes four main libraries:
+The estimation pipeline composes three main libraries:
 
 - **JAX**: Foundation layer. Array operations, matrix exponentials for discretization, vmap for batching, automatic differentiation for gradient-based inference, `lax.scan` for sequential filtering, `checkpoint` for memory-efficient backpropagation through long time series.
 
@@ -119,13 +121,15 @@ After estimation, causal effects are computed via the do-operator on the continu
 
 This is vmapped over posterior draws to produce posterior distributions of causal effects, ranked by effect size.
 
+4. **Forward simulation (optional):** For time-varying interventions or transient dynamics, `forward_simulate_intervention()` propagates the discrete-time system forward under a specified intervention schedule, producing full trajectories rather than just steady-state comparisons.
+
 ## 6. Interpretation Guidance
 
 Effects are estimated as relationships between constructs as measured through their indicators. Measurement error in indicators is absorbed into residual variance. Interpret:
 
 - **AR coefficients** as inertia in the construct
 - **Cross-lag coefficients** as causal relationships between constructs
-- **Random effects** as stable between-person differences in baselines
+- **Time-invariant latents** as stable subject-level intercepts (see [assumptions.md](assumptions.md) A5)
 
 Causal interpretation requires that the DAG correctly captures the true causal structure and that all relevant confounders are included.
 
