@@ -6,7 +6,6 @@ the contents into a single Polars DataFrame.
 
 import logging
 import tempfile
-
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
