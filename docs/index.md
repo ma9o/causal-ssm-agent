@@ -7,8 +7,8 @@ This index helps coding agents navigate the documentation structure.
 ```
 docs/
 ├── index.md           # This file
-├── modeling/          # Theoretical foundations (scope, assumptions, theory, estimation)
-├── guides/            # Practical usage (quickstart, data, evals, prompting)
+├── modeling/          # Theoretical foundations (scope, assumptions, estimation)
+├── guides/            # Practical usage (data workflow, evals, codegen)
 └── literature.md      # Reference papers (links + summaries)
 ```
 
@@ -17,15 +17,10 @@ docs/
 **Understanding the modeling approach:**
 - Start with `modeling/scope.md` for construct taxonomy, ontology, temporal granularity, cross-timescale rules, and what's in/out of scope
 - Check `modeling/assumptions.md` for specific technical assumptions (A1-A9)
-- See `modeling/theory.md` for design rationale (per-effect identification, confounders, measurement-to-causal bridge)
 - See `modeling/estimation.md` for the estimation pipeline (CT-SDE, discretization, likelihood backends, counterfactual inference)
 - See `modeling/inference-strategies.md` for inference method selection (SVI, NUTS, NUTS-DA, Hess-MC², PGAS, Tempered SMC, etc.)
 - See `modeling/functional_spec.md` for Stage 4 model specification (rule-based constraints, LLM prior elicitation, parametric ID)
 
 **Running the system:**
-- `guides/quickstart.md` for installation and first run
 - `guides/data_workflow.md` for data preprocessing
 - `guides/running_evals.md` for evaluation
-
-**LLM usage:**
-- `guides/prompting.md` for LLM prompting best practices
