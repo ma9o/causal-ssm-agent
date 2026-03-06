@@ -101,6 +101,17 @@ def valid_stage_payloads() -> dict[str, dict]:
                     ],
                 },
             },
+            "measurement_model": {
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "construct_name": "Stress",
+                        "how_to_measure": "Self-reported stress",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
+            },
         },
         "stage-2": {
             "workers": [
@@ -164,15 +175,15 @@ def valid_stage_payloads() -> dict[str, dict]:
                     }
                 ],
             },
-            "priors": [
-                {
+            "priors": {
+                "rho_Stress": {
                     "parameter": "rho_Stress",
                     "distribution": "Normal",
                     "params": {"mu": 0.0, "sigma": 0.3},
                     "sources": [],
                     "reasoning": "weakly informative",
                 }
-            ],
+            },
             "prior_predictive_samples": {"stress_score": [0.1, -0.2, 0.3]},
         },
         "stage-4b": {

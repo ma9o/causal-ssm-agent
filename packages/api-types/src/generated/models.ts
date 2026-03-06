@@ -107,9 +107,7 @@ export interface TraceMessage {
   reasoning?: string | null;
   tool_calls?:
     | {
-        id: string;
-        name: string;
-        arguments: Record<string, unknown>;
+        [k: string]: any | undefined;
       }[]
     | null;
   tool_call_id?: string | null;
@@ -198,6 +196,8 @@ export interface CausalEdge {
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
   causal_spec: CausalSpec;
+  measurement_model: MeasurementModel;
+  identifiability_status?: IdentifiabilityStatus | null;
   llm_trace?: LLMTrace | null;
   gate_overridden?: GateOverrideContract | null;
 }
@@ -366,7 +366,9 @@ export interface IndicatorHealthContract {
 export interface Stage4Contract {
   outcome: "success" | "warn" | "fail";
   model_spec: ModelSpec;
-  priors: PriorProposal[];
+  priors: {
+    [k: string]: PriorProposal | undefined;
+  };
   validation_retries?: ValidationRetryContract[] | null;
   llm_trace?: LLMTrace | null;
   prior_predictive_samples?: {

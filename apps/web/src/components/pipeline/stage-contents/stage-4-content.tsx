@@ -48,7 +48,10 @@ export default function Stage4Content({
   indicators?: Indicator[];
 }) {
   const t0Priors = initialStatePriors(data.model_spec.parameters);
-  const allPriors = [...data.priors, ...t0Priors];
+  const allPriors: PriorProposal[] = [
+    ...Object.values(data.priors).filter((p): p is PriorProposal => p != null),
+    ...t0Priors,
+  ];
 
   // Build indicator → construct mapping for observation model equations
   const indicatorConstructMap = indicators
