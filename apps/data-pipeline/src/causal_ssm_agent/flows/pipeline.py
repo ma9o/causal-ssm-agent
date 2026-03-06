@@ -326,8 +326,8 @@ async def causal_inference_pipeline(
         )
 
     causal_spec = stage1b_result["causal_spec"]
-    measurement_model = stage1b_result["measurement_model"]
-    identifiability_status = stage1b_result.get("identifiability_status", {})
+    measurement_model = stage1b_result.get("measurement_model", causal_spec.get("measurement", {}))
+    identifiability_status = stage1b_result.get("identifiability_status", causal_spec.get("identifiability", {}) or {})
 
     n_indicators = len(measurement_model["indicators"])
     logger.info("Final model has %d indicators", n_indicators)
@@ -371,8 +371,6 @@ async def causal_inference_pipeline(
     # Persist web data BEFORE potential halt so frontend can display gate failure
     stage1b_web_data: dict = {
         "causal_spec": causal_spec,
-        "measurement_model": measurement_model,
-        "identifiability_status": identifiability_status,
         "llm_trace": stage1b_result.get("llm_trace"),
         "outcome": "fail" if non_identifiable else "success",
     }

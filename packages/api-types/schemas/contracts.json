@@ -2212,20 +2212,6 @@
         "causal_spec": {
           "$ref": "#/$defs/CausalSpec"
         },
-        "measurement_model": {
-          "$ref": "#/$defs/MeasurementModel"
-        },
-        "identifiability_status": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/IdentifiabilityStatus"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2251,7 +2237,6 @@
       },
       "required": [
         "causal_spec",
-        "measurement_model",
         "outcome"
       ],
       "title": "Stage1bContract",

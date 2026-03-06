@@ -101,17 +101,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                     ],
                 },
             },
-            "measurement_model": {
-                "indicators": [
-                    {
-                        "name": "stress_score",
-                        "construct_name": "Stress",
-                        "how_to_measure": "Self-reported stress",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            },
         },
         "stage-2": {
             "workers": [
