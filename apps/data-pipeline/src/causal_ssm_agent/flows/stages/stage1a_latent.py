@@ -5,6 +5,7 @@ Wraps the core Stage 1a logic for use in Prefect pipelines.
 
 from inspect_ai.model import get_model
 from prefect import task
+from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.orchestrator.stage1a import run_stage1a
 from causal_ssm_agent.utils.config import get_config
@@ -17,6 +18,8 @@ from causal_ssm_agent.utils.llm import (
 
 
 @task(
+    cache_policy=INPUTS,
+    persist_result=True,
     retries=2,
     retry_delay_seconds=30,
 )

@@ -11,6 +11,7 @@ from zipfile import ZipFile, is_zipfile
 
 from inspect_ai.model import get_model
 from prefect import task
+from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import RAW_DIR
@@ -58,7 +59,7 @@ def _extract_zip(archive_path: Path, dest_dir: Path) -> Path:
     return dest_dir
 
 
-@task(result_serializer="pickle")
+@task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
 async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     """Ingest raw data using an LLM agent.
 

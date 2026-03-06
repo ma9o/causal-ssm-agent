@@ -209,6 +209,7 @@ async def causal_inference_pipeline(
     enable_literature: bool | None = None,
     override_gates: bool | None = None,
     query: str | None = None,
+    stage_overrides: dict[str, dict] | None = None,
 ):
     """
     Main causal inference pipeline.
@@ -280,7 +281,11 @@ async def causal_inference_pipeline(
     # Stage 1a: Propose latent model (theory only, no data)
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=== Stage 1a: Latent Model ===")
-    stage1a_result = await propose_latent_model(question)
+    if stage_overrides and "stage-1a" in stage_overrides:
+        logger.info("Using stage-1a override")
+        stage1a_result = stage_overrides["stage-1a"]
+    else:
+        stage1a_result = await propose_latent_model(question)
     latent_model = stage1a_result["latent_model"]
     outcome = stage1a_result["outcome_name"]
     treatments = stage1a_result["treatments"]
@@ -305,20 +310,24 @@ async def causal_inference_pipeline(
     # ══════════════════════════════════════════════════════════════════════════
     logger.info("=== Stage 1b: Measurement Model with Identifiability ===")
 
-    # Format the ingested data schema for the LLM
-    dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
+    if stage_overrides and "stage-1b" in stage_overrides:
+        logger.info("Using stage-1b override")
+        stage1b_result = stage_overrides["stage-1b"]
+    else:
+        # Format the ingested data schema for the LLM
+        dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
 
-    # Pass schema as a single "chunk" for Stage 1b
-    stage1b_result = await propose_measurement_with_identifiability_fix(
-        question,
-        latent_model,
-        data_sample=[dataset_schema],
-        dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
-    )
+        # Pass schema as a single "chunk" for Stage 1b
+        stage1b_result = await propose_measurement_with_identifiability_fix(
+            question,
+            latent_model,
+            data_sample=[dataset_schema],
+            dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
+        )
 
     causal_spec = stage1b_result["causal_spec"]
     measurement_model = stage1b_result["measurement_model"]
-    identifiability_status = stage1b_result["identifiability_status"]
+    identifiability_status = stage1b_result.get("identifiability_status", {})
 
     n_indicators = len(measurement_model["indicators"])
     logger.info("Final model has %d indicators", n_indicators)
@@ -362,6 +371,8 @@ async def causal_inference_pipeline(
     # Persist web data BEFORE potential halt so frontend can display gate failure
     stage1b_web_data: dict = {
         "causal_spec": causal_spec,
+        "measurement_model": measurement_model,
+        "identifiability_status": identifiability_status,
         "llm_trace": stage1b_result.get("llm_trace"),
         "outcome": "fail" if non_identifiable else "success",
     }
@@ -503,12 +514,16 @@ async def causal_inference_pipeline(
     )
 
     logger.info("=== Stage 4: Model Specification ===")
-    stage4_result = await stage4_orchestrated_flow(
-        causal_spec=causal_spec,
-        question=question,
-        raw_data=data_for_model,
-        enable_literature=lit_enabled,
-    )
+    if stage_overrides and "stage-4" in stage_overrides:
+        logger.info("Using stage-4 override")
+        stage4_result = stage_overrides["stage-4"]
+    else:
+        stage4_result = await stage4_orchestrated_flow(
+            causal_spec=causal_spec,
+            question=question,
+            raw_data=data_for_model,
+            enable_literature=lit_enabled,
+        )
 
     model_spec = stage4_result.get("model_spec", {})
     logger.info("Parameters: %d total", len(model_spec.get("parameters", [])))
@@ -540,7 +555,7 @@ async def causal_inference_pipeline(
         "stage-4",
         {
             "model_spec": model_spec,
-            "priors": list(stage4_result.get("priors", {}).values()),
+            "priors": stage4_result.get("priors", {}),
             "llm_trace": stage4_result.get("llm_trace"),
             "prior_predictive_samples": stage4_result.get("prior_predictive_samples"),
         },
@@ -844,15 +859,8 @@ async def causal_inference_pipeline(
 if __name__ == "__main__":
     from prefect import serve as serve_deployments
 
-    from causal_ssm_agent.flows.resume import resume_pipeline
-
-    # Serve both the main pipeline and the resume flow
     main_dep = causal_inference_pipeline.to_deployment(
         name="causal-inference",
         tags=["causal", "llm"],
     )
-    resume_dep = resume_pipeline.to_deployment(
-        name="resume-pipeline",
-        tags=["causal", "llm", "resume"],
-    )
-    serve_deployments(main_dep, resume_dep)
+    serve_deployments(main_dep)

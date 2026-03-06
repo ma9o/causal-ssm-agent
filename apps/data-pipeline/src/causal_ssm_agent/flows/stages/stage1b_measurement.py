@@ -26,6 +26,8 @@ def build_causal_spec(
 
 
 @task(
+    cache_policy=INPUTS,
+    persist_result=True,
     result_serializer="json",
 )
 async def propose_measurement_with_identifiability_fix(
