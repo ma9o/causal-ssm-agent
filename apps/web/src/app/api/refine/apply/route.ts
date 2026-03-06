@@ -1,4 +1,4 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { openrouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 import { NextResponse } from "next/server";
 
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
   try {
     const { text } = await generateText({
-      model: anthropic("claude-sonnet-4-20250514"),
+      model: openrouter("anthropic/claude-sonnet-4"),
       messages: extractionMessages,
     });
 

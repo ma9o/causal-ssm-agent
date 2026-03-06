@@ -12,9 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.58",
     "@ai-sdk/react": "^3.0.118",
     "@causal-ssm/api-types": "workspace:*",
+    "@openrouter/ai-sdk-provider": "^2.2.3",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
