@@ -393,9 +393,17 @@ def _csmc_sweep(
             log_fq = jax.vmap(log_ratio)(diff_f, diff_q)
             log_w_free = obs_ll_free + log_fq
 
-        # Reference particle weight: observation likelihood only (no proposal ratio)
-        ref_obs_ll = obs_lp_fn(ref_x_t, y_t, mask_t)
-        new_log_w = jnp.concatenate([log_w_free, jnp.array([ref_obs_ll])])
+        # Reference particle weight must be consistent with free particles.
+        # For the optimal proposal, importance weight = p(y_t | x_{t-1}),
+        # regardless of the actual x_t (the f/q ratio cancels to give the
+        # predictive likelihood). The reference's "parent" before ancestor
+        # sampling is particles_prev[N-1] (the previous reference).
+        if gaussian_obs:
+            ref_prior_mean = Ad_t @ particles_prev[N - 1] + cd_t
+            ref_log_w = log_pred_lik(ref_prior_mean)
+        else:
+            ref_log_w = obs_lp_fn(ref_x_t, y_t, mask_t)
+        new_log_w = jnp.concatenate([log_w_free, jnp.array([ref_log_w])])
 
         # ---- Ancestor sampling for reference (Eq 33: w * f(ref|x_prev)) ----
         def log_trans_to_ref(x_prev):

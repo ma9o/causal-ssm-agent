@@ -77,11 +77,10 @@ def hmc_step(rng_key, z, log_target_val_and_grad, step_size, chol_mass, n_leapfr
     grad_prop = jnp.nan_to_num(grad_prop, nan=0.0, posinf=0.0, neginf=0.0)
     p_prop = p_prop + 0.5 * step_size * grad_prop
 
-    # Kinetic energy: 0.5 * p^T M^{-1} p = 0.5 * ||L^{-1} p||^2
-    p_init = chol_mass @ u + 0.5 * step_size * grad  # reconstruct initial momentum
-    Linv_p_init = jla.solve_triangular(chol_mass, p_init, lower=True)
+    # Kinetic energy: K(p) = 0.5 * p^T M^{-1} p = 0.5 * ||L^{-1} p||^2
+    # Initial: K(p₀) = 0.5 * ||L^{-1} L u||^2 = 0.5 * ||u||^2
+    kinetic_old = 0.5 * jnp.dot(u, u)
     Linv_p_prop = jla.solve_triangular(chol_mass, p_prop, lower=True)
-    kinetic_old = 0.5 * jnp.dot(Linv_p_init, Linv_p_init)
     kinetic_new = 0.5 * jnp.dot(Linv_p_prop, Linv_p_prop)
 
     log_alpha = (log_pi_prop - kinetic_new) - (log_pi - kinetic_old)
@@ -232,7 +231,9 @@ def dual_averaging_init(eps_init):
     )
 
 
-def dual_averaging_update(state, accept_prob, target_accept=HMC_TARGET_ACCEPT, gamma=0.05, t0=10, kappa=0.75):
+def dual_averaging_update(
+    state, accept_prob, target_accept=HMC_TARGET_ACCEPT, gamma=0.05, t0=10, kappa=0.75
+):
     """Update dual averaging state with new acceptance probability.
 
     Implements Algorithm 5 from Hoffman & Gelman (2014). Converges to
