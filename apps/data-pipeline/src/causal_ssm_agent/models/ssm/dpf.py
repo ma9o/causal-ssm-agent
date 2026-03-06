@@ -642,15 +642,18 @@ def fit_dpf(
 
     # Phase 2: Parameter inference via shared tempered SMC loop
     rng_key, dpf_key = random.split(rng_key)
-    backend = DPFLikelihood(
-        n_latent=spec.n_latent,
-        n_manifest=spec.n_manifest,
-        manifest_dist=spec.manifest_dist,
-        manifest_link=spec.manifest_link,
-        n_particles=n_pf_particles,
-        proposal_net=proposal_net,
-        rng_key=dpf_key,
-    )
+    if model.likelihood == "kalman":
+        backend = model.make_likelihood_backend()
+    else:
+        backend = DPFLikelihood(
+            n_latent=spec.n_latent,
+            n_manifest=spec.n_manifest,
+            manifest_dist=spec.manifest_dist,
+            manifest_link=spec.manifest_link,
+            n_particles=n_pf_particles,
+            proposal_net=proposal_net,
+            rng_key=dpf_key,
+        )
     return run_tempered_smc(
         model,
         observations,

@@ -26,6 +26,24 @@ from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
+@jax.custom_vjp
+def _nan_safe_ll(ll):
+    """Return ll if finite, else -1e30. Gradient is zeroed when ll is non-finite."""
+    return jnp.where(jnp.isfinite(ll), ll, -1e30)
+
+
+def _nan_safe_ll_fwd(ll):
+    y = _nan_safe_ll(ll)
+    return y, jnp.isfinite(ll)
+
+
+def _nan_safe_ll_bwd(is_finite, g):
+    return (jnp.where(is_finite, jnp.nan_to_num(g, nan=0.0), 0.0),)
+
+
+_nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
+
+
 @dataclass
 class SSMSpec:
     """Specification for a state-space model.
@@ -647,9 +665,10 @@ class SSMModel:
         # diff(lnc) = per-timestep one-step-ahead predictive log p(y_t|y_{1:t-1},θ),
         # needed for proper LOO-CV on time series (innovation decomposition).
         if lnc.ndim == 0:
-            # Scalar return from backends without per-timestep support
-            numpyro.factor("log_likelihood", lnc)
+            total_ll = _nan_safe_ll(lnc)
+            numpyro.factor("log_likelihood", total_ll)
         else:
-            numpyro.factor("log_likelihood", lnc[-1])
+            total_ll = _nan_safe_ll(lnc[-1])
+            numpyro.factor("log_likelihood", total_ll)
             ll_per_timestep = jnp.diff(lnc, prepend=0.0)
             numpyro.deterministic("ll_per_timestep", ll_per_timestep)

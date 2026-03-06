@@ -227,7 +227,7 @@ class StructuredVILikelihood:
         n_manifest: int,
         manifest_dist: DistributionFamily | str = "gaussian",
         manifest_link: LinkFunction | str = "identity",
-        n_vi_steps: int = 100,
+        n_vi_steps: int = 20,
         n_mc_samples: int = 4,
         vi_lr: float = 0.01,
     ):
@@ -342,7 +342,7 @@ def fit_structured_vi(
     n_warmup: int | None = None,
     target_accept: float | None = None,
     seed: int = 0,
-    n_vi_steps: int = 50,
+    n_vi_steps: int = 20,
     n_mc_samples: int = 4,
     vi_lr: float = 0.01,
     n_leapfrog: int = 5,
@@ -355,16 +355,22 @@ def fit_structured_vi(
 
     Uses the ELBO from structured VI as the log-density for a tempered SMC
     sampler over the parameter space.
+
+    If the model has an explicit likelihood override (e.g. likelihood="kalman"),
+    that backend is used instead of the structured VI ELBO.
     """
-    backend = StructuredVILikelihood(
-        n_latent=model.spec.n_latent,
-        n_manifest=model.spec.n_manifest,
-        manifest_dist=model.spec.manifest_dist,
-        manifest_link=model.spec.manifest_link,
-        n_vi_steps=n_vi_steps,
-        n_mc_samples=n_mc_samples,
-        vi_lr=vi_lr,
-    )
+    if model.likelihood == "kalman":
+        backend = model.make_likelihood_backend()
+    else:
+        backend = StructuredVILikelihood(
+            n_latent=model.spec.n_latent,
+            n_manifest=model.spec.n_manifest,
+            manifest_dist=model.spec.manifest_dist,
+            manifest_link=model.spec.manifest_link,
+            n_vi_steps=n_vi_steps,
+            n_mc_samples=n_mc_samples,
+            vi_lr=vi_lr,
+        )
     return run_tempered_smc(
         model,
         observations,
