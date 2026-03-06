@@ -4,9 +4,8 @@ Covers: get_observed_constructs, _is_time_varying, _node_name,
         unroll_temporal_dag, find_blocking_confounders, find_instruments.
 """
 
-import pytest
-
 import networkx as nx
+import pytest
 
 from causal_ssm_agent.utils.identifiability import (
     _is_time_varying,

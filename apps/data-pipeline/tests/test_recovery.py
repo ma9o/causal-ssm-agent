@@ -213,14 +213,14 @@ class TestPGASRecovery:
             observations=lgss_data["observations"],
             times=lgss_data["times"],
             method="pgas",
-            n_outer=150,
+            n_outer=200,
             n_csmc_particles=30,
             n_mh_steps=10,
             langevin_step_size=0.0,
-            param_step_size=0.1,
-            n_warmup=75,
+            param_step_size=0.05,
+            n_warmup=100,
             block_sampling=False,
-            n_leapfrog=1,
+            n_leapfrog=3,
             seed=0,
         )
 
@@ -302,7 +302,6 @@ class TestTemperedSMCRecovery:
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
-    @pytest.mark.xfail(reason="MCMC convergence sensitive to seed; needs tuning")
     def test_tempered_smc_recovery(self, lgss_data):
         """Tempered SMC recovers 1D LGSS params (D=3) within 90% CIs."""
         model = SSMModel(lgss_data["spec"], n_particles=50)
