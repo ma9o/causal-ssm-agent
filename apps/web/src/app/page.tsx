@@ -6,10 +6,12 @@ import { Switch } from "@/components/ui/switch";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
+import { clearUserApiKey, getUserApiKey, initiateOpenRouterAuth } from "@/lib/auth";
 import { CODE_LENGTH, generateSessionCode } from "@/lib/session-code";
 import {
   ArrowRight,
   FileText,
+  KeyRound,
   Loader2,
   RotateCcw,
   ShieldAlert,
@@ -48,7 +50,18 @@ export default function LandingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const isMac = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+  const [hasCredits, setHasCredits] = useState<boolean | null>(null);
+  const [userKey, setUserKey] = useState<string | null>(null);
+  const [isMac, setIsMac] = useState(false);
+
+  useEffect(() => {
+    setIsMac(/Mac/.test(navigator.userAgent));
+    setUserKey(getUserApiKey());
+    fetch("/api/auth/credits")
+      .then((r) => r.json())
+      .then((d) => setHasCredits(d.hasCredits))
+      .catch(() => setHasCredits(false));
+  }, []);
 
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
@@ -128,6 +141,7 @@ export default function LandingPage() {
         query: question,
         user_id: code,
         override_gates: overrideGates || undefined,
+        openrouter_api_key: userKey || undefined,
       });
 
       await fetch("/api/sessions", {
@@ -168,6 +182,17 @@ export default function LandingPage() {
     }
   };
 
+  const noAccess = !userKey && hasCredits === false;
+
+  const handleOpenRouterAuth = async () => {
+    await initiateOpenRouterAuth(`${window.location.origin}/auth/callback`);
+  };
+
+  const handleSignOut = () => {
+    clearUserApiKey();
+    setUserKey(null);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && question.trim() && file && !isSubmitting) {
       handleSubmit();
@@ -188,6 +213,61 @@ export default function LandingPage() {
         </motion.div>
 
         <motion.div {...fadeInUp()}>
+          <Card className={noAccess ? "border-destructive/50" : ""}>
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                {hasCredits === null ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : userKey ? (
+                  <div className="h-2 w-2 rounded-full bg-success" />
+                ) : hasCredits ? (
+                  <div className="h-2 w-2 rounded-full bg-success" />
+                ) : (
+                  <div className="h-2 w-2 rounded-full bg-destructive" />
+                )}
+                <div>
+                  {hasCredits === null ? (
+                    <p className="text-sm text-muted-foreground">Checking credits...</p>
+                  ) : userKey ? (
+                    <p className="text-sm font-medium">Using your OpenRouter API key</p>
+                  ) : hasCredits ? (
+                    <>
+                      <p className="text-sm font-medium">Free credits available</p>
+                      <p className="text-xs text-muted-foreground">
+                        Or bring your own key for unlimited usage
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-destructive">
+                        Free credits exhausted
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Sign in with OpenRouter to use your own API key
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+              {userKey ? (
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  Sign out
+                </Button>
+              ) : (
+                <Button
+                  variant={noAccess ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleOpenRouterAuth}
+                >
+                  <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                  Sign in with OpenRouter
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div {...fadeInUp(0.05)}>
           <Card>
             <CardHeader>
               <CardTitle>Research Question</CardTitle>
@@ -229,7 +309,7 @@ export default function LandingPage() {
           </Card>
         </motion.div>
 
-        <motion.div {...fadeInUp(0.1)}>
+        <motion.div {...fadeInUp(0.15)}>
           <Card>
             <CardHeader>
               <CardTitle>Data Upload</CardTitle>
@@ -298,7 +378,7 @@ export default function LandingPage() {
           </Card>
         </motion.div>
 
-        <motion.div {...fadeInUp(0.15)}>
+        <motion.div {...fadeInUp(0.2)}>
           <Card>
             <CardContent className="flex items-center justify-between py-4">
               <div className="flex items-center gap-2">
@@ -321,12 +401,12 @@ export default function LandingPage() {
           </motion.p>
         )}
 
-        <motion.div className="space-y-2" {...fadeInUp(0.2)}>
+        <motion.div className="space-y-2" {...fadeInUp(0.25)}>
           <Button
             className="w-full"
             size="lg"
             onClick={handleSubmit}
-            disabled={isSubmitting || !question.trim() || !file}
+            disabled={isSubmitting || !question.trim() || !file || noAccess}
           >
             {isSubmitting ? (
               <>
@@ -359,7 +439,7 @@ export default function LandingPage() {
           <div className="flex-1 border-t" />
         </div>
 
-        <motion.div className="space-y-3" {...fadeInUp(0.25)}>
+        <motion.div className="space-y-3" {...fadeInUp(0.3)}>
           <p className="text-center text-sm text-muted-foreground">Resume a previous session</p>
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input

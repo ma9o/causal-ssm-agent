@@ -64,6 +64,7 @@ async def causal_inference_pipeline(
     override_gates: bool | None = None,
     query: str | None = None,
     stage_overrides: dict[str, dict] | None = None,
+    openrouter_api_key: str | None = None,
 ):
     """Main causal inference pipeline.
 
@@ -76,9 +77,15 @@ async def causal_inference_pipeline(
         query: Raw query text (used by web UI). Takes precedence over query_file.
         stage_overrides: Dict mapping stage ids (e.g. "stage-1a") to override
             payloads. Translated to Hamilton ``overrides`` by node name.
+        openrouter_api_key: User-provided OpenRouter API key (BYOK). Overrides the default key.
     """
+    import os
+
     from hamilton import async_driver
 
+    if openrouter_api_key:
+        os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
+        logger.info("Using user-provided OpenRouter API key")
     from causal_ssm_agent.utils.config import get_config
 
     from . import dag
