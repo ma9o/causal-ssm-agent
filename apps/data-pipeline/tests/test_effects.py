@@ -15,7 +15,6 @@ from causal_ssm_agent.utils.effects import (
 
 
 class TestBuildDigraph:
-
     def test_simple_chain(self):
         """A → B → C chain creates correct graph."""
         model = {
@@ -79,7 +78,6 @@ class TestBuildDigraph:
 
 
 class TestGetOutcome:
-
     def test_finds_outcome(self):
         model = {
             "constructs": [
@@ -111,7 +109,6 @@ class TestGetOutcome:
 
 
 class TestGetAllTreatments:
-
     def test_chain_treatments(self):
         """In A → B → Y, both A and B are treatments for Y."""
         model = {

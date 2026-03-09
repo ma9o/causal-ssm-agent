@@ -26,27 +26,46 @@ class TestFormatResolvedLikelihoods:
         assert "none" in result.lower()
 
     def test_single_likelihood(self):
-        result = format_resolved_likelihoods([
-            {"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"}
-        ])
+        result = format_resolved_likelihoods(
+            [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "continuous",
+                }
+            ]
+        )
         assert "mood" in result
         assert "gaussian" in result
         assert "identity" in result
         assert "continuous" in result
 
     def test_markdown_table_header(self):
-        result = format_resolved_likelihoods([
-            {"variable": "x", "distribution": "d", "link": "l", "reasoning": "r"}
-        ])
+        result = format_resolved_likelihoods(
+            [{"variable": "x", "distribution": "d", "link": "l", "reasoning": "r"}]
+        )
         assert "Variable" in result
         assert "Distribution" in result
         assert "|" in result
 
     def test_multiple_likelihoods(self):
-        result = format_resolved_likelihoods([
-            {"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "r1"},
-            {"variable": "smoke", "distribution": "bernoulli", "link": "logit", "reasoning": "r2"},
-        ])
+        result = format_resolved_likelihoods(
+            [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "r1",
+                },
+                {
+                    "variable": "smoke",
+                    "distribution": "bernoulli",
+                    "link": "logit",
+                    "reasoning": "r2",
+                },
+            ]
+        )
         assert "mood" in result
         assert "smoke" in result
 
@@ -62,41 +81,47 @@ class TestFormatAmbiguousIndicators:
         assert "none" in result.lower()
 
     def test_fixed_distribution_choose_link(self):
-        result = format_ambiguous_indicators([
-            {
-                "variable": "smoke",
-                "dtype": "binary",
-                "fixed_distribution": "bernoulli",
-                "valid_links": ["logit", "probit"],
-            }
-        ])
+        result = format_ambiguous_indicators(
+            [
+                {
+                    "variable": "smoke",
+                    "dtype": "binary",
+                    "fixed_distribution": "bernoulli",
+                    "valid_links": ["logit", "probit"],
+                }
+            ]
+        )
         assert "smoke" in result
         assert "bernoulli" in result
         assert "logit" in result
         assert "probit" in result
 
     def test_choose_distribution(self):
-        result = format_ambiguous_indicators([
-            {
-                "variable": "steps",
-                "dtype": "count",
-                "valid_distributions": ["poisson", "negative_binomial"],
-                "link_options": {"poisson": ["log"], "negative_binomial": ["log"]},
-            }
-        ])
+        result = format_ambiguous_indicators(
+            [
+                {
+                    "variable": "steps",
+                    "dtype": "count",
+                    "valid_distributions": ["poisson", "negative_binomial"],
+                    "link_options": {"poisson": ["log"], "negative_binomial": ["log"]},
+                }
+            ]
+        )
         assert "steps" in result
         assert "poisson" in result
         assert "negative_binomial" in result
 
     def test_auto_link_shown(self):
-        result = format_ambiguous_indicators([
-            {
-                "variable": "x",
-                "dtype": "count",
-                "valid_distributions": ["poisson"],
-                "link_options": {"poisson": ["log"]},
-            }
-        ])
+        result = format_ambiguous_indicators(
+            [
+                {
+                    "variable": "x",
+                    "dtype": "count",
+                    "valid_distributions": ["poisson"],
+                    "link_options": {"poisson": ["log"]},
+                }
+            ]
+        )
         assert "auto" in result
 
 
@@ -111,29 +136,50 @@ class TestFormatParameters:
         assert "none" in result.lower()
 
     def test_single_parameter(self):
-        result = format_parameters([
-            {"name": "beta_X_Y", "role": "fixed_effect", "constraint": "none", "description": "Effect of X on Y"}
-        ])
+        result = format_parameters(
+            [
+                {
+                    "name": "beta_X_Y",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "Effect of X on Y",
+                }
+            ]
+        )
         assert "beta_X_Y" in result
         assert "fixed_effect" in result
         assert "Effect of X on Y" in result
 
     def test_loading_role_annotated(self):
-        result = format_parameters([
-            {"name": "lambda_mood", "role": "loading", "constraint": "positive", "description": "Loading for mood"}
-        ])
+        result = format_parameters(
+            [
+                {
+                    "name": "lambda_mood",
+                    "role": "loading",
+                    "constraint": "positive",
+                    "description": "Loading for mood",
+                }
+            ]
+        )
         assert "you decide" in result
 
     def test_non_loading_no_annotation(self):
-        result = format_parameters([
-            {"name": "sigma_X", "role": "residual_sd", "constraint": "positive", "description": "SD for X"}
-        ])
+        result = format_parameters(
+            [
+                {
+                    "name": "sigma_X",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "SD for X",
+                }
+            ]
+        )
         assert "you decide" not in result
 
     def test_markdown_table(self):
-        result = format_parameters([
-            {"name": "x", "role": "r", "constraint": "c", "description": "d"}
-        ])
+        result = format_parameters(
+            [{"name": "x", "role": "r", "constraint": "c", "description": "d"}]
+        )
         assert "Name" in result
         assert "Role" in result
         assert "|" in result
@@ -150,17 +196,15 @@ class TestFormatLoadingParams:
         assert "skip" in result.lower()
 
     def test_single_loading(self):
-        result = format_loading_params([
-            {"name": "lambda_mood_pss", "indicator": "pss_score", "construct": "mood"}
-        ])
+        result = format_loading_params(
+            [{"name": "lambda_mood_pss", "indicator": "pss_score", "construct": "mood"}]
+        )
         assert "lambda_mood_pss" in result
         assert "pss_score" in result
         assert "mood" in result
 
     def test_markdown_table(self):
-        result = format_loading_params([
-            {"name": "l", "indicator": "i", "construct": "c"}
-        ])
+        result = format_loading_params([{"name": "l", "indicator": "i", "construct": "c"}])
         assert "Parameter" in result
         assert "Indicator" in result
         assert "|" in result
@@ -277,8 +321,18 @@ class TestFormatIndicators:
         spec = {
             "measurement": {
                 "indicators": [
-                    {"name": "pss", "construct_name": "stress", "measurement_dtype": "continuous", "aggregation": "mean"},
-                    {"name": "hrs", "construct_name": "sleep", "measurement_dtype": "continuous", "aggregation": "mean"},
+                    {
+                        "name": "pss",
+                        "construct_name": "stress",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "hrs",
+                        "construct_name": "sleep",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
                 ]
             }
         }

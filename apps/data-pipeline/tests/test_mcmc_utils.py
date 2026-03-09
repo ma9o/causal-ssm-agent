@@ -256,9 +256,7 @@ class TestFindNextBeta:
         beta_prev = 0.0
         beta_next = find_next_beta(logw, log_liks, beta_prev, target_ess_ratio=0.5, N=N)
 
-        assert beta_next < 0.1, (
-            f"beta step should be small with high-variance liks: {beta_next}"
-        )
+        assert beta_next < 0.1, f"beta step should be small with high-variance liks: {beta_next}"
 
     def test_beta_bounded_by_one(self):
         """Beta should never exceed 1.0."""
@@ -302,9 +300,7 @@ class TestDualAveraging:
         for _ in range(50):
             state = dual_averaging_update(state, accept_prob=0.2, target_accept=0.65)
 
-        assert state.eps_bar < 1.0, (
-            f"Step size should decrease for low acceptance: {state.eps_bar}"
-        )
+        assert state.eps_bar < 1.0, f"Step size should decrease for low acceptance: {state.eps_bar}"
 
     def test_adapts_up_for_high_acceptance(self):
         """When accept_prob > target, step size should increase."""

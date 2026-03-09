@@ -64,7 +64,13 @@ def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
     return "\n".join(lines)
 
 
-@task(cache_policy=INPUTS, persist_result=True, retries=2, retry_delay_seconds=10, task_run_name="propose-model-spec")
+@task(
+    cache_policy=INPUTS,
+    persist_result=True,
+    retries=2,
+    retry_delay_seconds=10,
+    task_run_name="propose-model-spec",
+)
 async def propose_model_task(
     causal_spec: dict,
     question: str,
@@ -113,7 +119,13 @@ async def propose_model_task(
     return out
 
 
-@task(cache_policy=INPUTS, persist_result=True, retries=2, retry_delay_seconds=5, task_run_name="search-literature-{parameter_spec[name]}")
+@task(
+    cache_policy=INPUTS,
+    persist_result=True,
+    retries=2,
+    retry_delay_seconds=5,
+    task_run_name="search-literature-{parameter_spec[name]}",
+)
 async def search_literature_task(
     parameter_spec: dict,
 ) -> dict:
@@ -139,7 +151,13 @@ async def search_literature_task(
     return {"sources": sources, "formatted": formatted}
 
 
-@task(cache_policy=INPUTS, persist_result=True, retries=2, retry_delay_seconds=5, task_run_name="elicit-prior-{parameter_spec[name]}")
+@task(
+    cache_policy=INPUTS,
+    persist_result=True,
+    retries=2,
+    retry_delay_seconds=5,
+    task_run_name="elicit-prior-{parameter_spec[name]}",
+)
 async def elicit_prior_task(
     parameter_spec: dict,
     question: str,

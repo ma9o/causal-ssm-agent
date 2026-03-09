@@ -532,9 +532,9 @@ def simulate_posterior_predictive(
         manifest_chol_sub = vmap(
             lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
         )(manifest_cov_sub)
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
-            t0_cov_sub
-        )
+        t0_chol_sub = vmap(
+            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
+        )(t0_cov_sub)
 
         def sim_one(i):
             ci = cint_sub[i] if cint_sub is not None else None
@@ -555,9 +555,9 @@ def simulate_posterior_predictive(
 
     elif is_mixed:
         # Per-channel dispatch: different distributions/links for different channels
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
-            t0_cov_sub
-        )
+        t0_chol_sub = vmap(
+            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
+        )(t0_cov_sub)
 
         # Build combined (dist, link) indices
         if effective_links is not None:
@@ -601,9 +601,9 @@ def simulate_posterior_predictive(
 
     else:
         # Uniform non-Gaussian: all channels share the same non-Gaussian distribution
-        t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
-            t0_cov_sub
-        )
+        t0_chol_sub = vmap(
+            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
+        )(t0_cov_sub)
 
         # Resolve effective scalar distribution and link
         effective_dist = effective_dists[0] if effective_dists else manifest_dist

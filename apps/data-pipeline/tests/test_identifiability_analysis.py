@@ -51,7 +51,11 @@ def _id_result_all_identifiable():
     """All treatments identifiable via do-calculus."""
     return {
         "identifiable_treatments": {
-            "X": {"method": "do_calculus", "estimand": "P(Y|do(X))", "marginalized_confounders": ["U"]},
+            "X": {
+                "method": "do_calculus",
+                "estimand": "P(Y|do(X))",
+                "marginalized_confounders": ["U"],
+            },
         },
         "non_identifiable_treatments": {},
         "graph_info": {

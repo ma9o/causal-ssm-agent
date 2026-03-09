@@ -60,85 +60,99 @@ class TestValidateModelSpec:
         assert issues == []
 
     def test_duplicate_likelihood_variable(self):
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("mood"),
-            _make_likelihood("mood"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("mood"),
+                _make_likelihood("mood"),
+            ]
+        )
         issues = validate_model_spec(spec)
         assert any(i["severity"] == "error" and "duplicate" in i["issue"] for i in issues)
 
     def test_duplicate_parameter_name(self):
-        spec = _make_spec(parameters=[
-            _make_param("beta_x"),
-            _make_param("beta_x"),
-        ])
+        spec = _make_spec(
+            parameters=[
+                _make_param("beta_x"),
+                _make_param("beta_x"),
+            ]
+        )
         issues = validate_model_spec(spec)
         assert any(i["severity"] == "error" and "duplicate" in i["issue"] for i in issues)
 
     def test_invalid_link_for_distribution(self):
         """Gaussian requires identity link, not log."""
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x", "gaussian", "log"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x", "gaussian", "log"),
+            ]
+        )
         issues = validate_model_spec(spec)
         assert any(i["severity"] == "error" and "link" in i["issue"] for i in issues)
 
     def test_valid_link_for_bernoulli(self):
         """Bernoulli accepts logit link."""
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x", "bernoulli", "logit"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x", "bernoulli", "logit"),
+            ]
+        )
         issues = validate_model_spec(spec)
         error_issues = [i for i in issues if i["severity"] == "error"]
         assert error_issues == []
 
     def test_role_constraint_mismatch_warning(self):
         """residual_sd with none constraint should warn."""
-        spec = _make_spec(parameters=[
-            _make_param("sigma_x", "residual_sd", "none"),
-        ])
+        spec = _make_spec(
+            parameters=[
+                _make_param("sigma_x", "residual_sd", "none"),
+            ]
+        )
         issues = validate_model_spec(spec)
         assert any(i["severity"] == "warning" and "constraint" in i["issue"] for i in issues)
 
     def test_role_constraint_correct_no_warning(self):
         """residual_sd with positive constraint should not warn."""
-        spec = _make_spec(parameters=[
-            _make_param("sigma_x", "residual_sd", "positive"),
-        ])
+        spec = _make_spec(
+            parameters=[
+                _make_param("sigma_x", "residual_sd", "positive"),
+            ]
+        )
         issues = validate_model_spec(spec)
         constraint_warnings = [
-            i for i in issues
-            if i["severity"] == "warning" and "constraint" in i["issue"]
+            i for i in issues if i["severity"] == "warning" and "constraint" in i["issue"]
         ]
         assert constraint_warnings == []
 
     def test_dtype_distribution_mismatch(self):
         """Binary dtype with gaussian distribution should error."""
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x", "gaussian", "identity"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x", "gaussian", "identity"),
+            ]
+        )
         indicators = [{"name": "x", "measurement_dtype": "binary"}]
         issues = validate_model_spec(spec, indicators=indicators)
         assert any(i["severity"] == "error" and "dtype" in i["issue"] for i in issues)
 
     def test_dtype_distribution_correct(self):
         """Binary dtype with bernoulli should not error."""
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x", "bernoulli", "logit"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x", "bernoulli", "logit"),
+            ]
+        )
         indicators = [{"name": "x", "measurement_dtype": "binary"}]
         issues = validate_model_spec(spec, indicators=indicators)
-        dtype_errors = [
-            i for i in issues
-            if i["severity"] == "error" and "dtype" in i["issue"]
-        ]
+        dtype_errors = [i for i in issues if i["severity"] == "error" and "dtype" in i["issue"]]
         assert dtype_errors == []
 
     def test_missing_indicator_coverage_warning(self):
         """Indicator without likelihood should warn."""
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x"),
+            ]
+        )
         indicators = [
             {"name": "x", "measurement_dtype": "continuous"},
             {"name": "y", "measurement_dtype": "continuous"},
@@ -147,9 +161,11 @@ class TestValidateModelSpec:
         assert any(i["severity"] == "warning" and "y" in i["issue"] for i in issues)
 
     def test_poisson_with_log_link_valid(self):
-        spec = _make_spec(likelihoods=[
-            _make_likelihood("x", "poisson", "log"),
-        ])
+        spec = _make_spec(
+            likelihoods=[
+                _make_likelihood("x", "poisson", "log"),
+            ]
+        )
         issues = validate_model_spec(spec)
         error_issues = [i for i in issues if i["severity"] == "error"]
         assert error_issues == []
@@ -238,9 +254,7 @@ class TestMappingCompleteness:
     def test_every_distribution_has_link_mapping(self):
         """Every DistributionFamily member should appear in VALID_LINKS_FOR_DISTRIBUTION."""
         for member in DistributionFamily:
-            assert member in VALID_LINKS_FOR_DISTRIBUTION, (
-                f"{member} has no link function mapping"
-            )
+            assert member in VALID_LINKS_FOR_DISTRIBUTION, f"{member} has no link function mapping"
 
     def test_every_link_mapping_is_non_empty(self):
         for dist, links in VALID_LINKS_FOR_DISTRIBUTION.items():
@@ -255,6 +269,4 @@ class TestMappingCompleteness:
         """All distributions in the dtype mapping are valid DistributionFamily members."""
         for dtype, dists in VALID_LIKELIHOODS_FOR_DTYPE.items():
             for d in dists:
-                assert isinstance(d, DistributionFamily), (
-                    f"{dtype} contains non-member {d}"
-                )
+                assert isinstance(d, DistributionFamily), f"{dtype} contains non-member {d}"

@@ -622,5 +622,3 @@ def validate_extraction(
         "issues": issues,
         "per_indicator_health": per_indicator_health,
     }
-
-

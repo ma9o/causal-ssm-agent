@@ -201,8 +201,13 @@ class TestForwardSimulateIntervention:
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
         c = jnp.array([1.0, 0.5])
         traj = forward_simulate_intervention(
-            A, c, treat_idx=0, outcome_idx=1,
-            shift_size=1.0, dt=0.1, horizon_steps=50,
+            A,
+            c,
+            treat_idx=0,
+            outcome_idx=1,
+            shift_size=1.0,
+            dt=0.1,
+            horizon_steps=50,
         )
         assert traj.shape == (50,)
 
@@ -211,8 +216,13 @@ class TestForwardSimulateIntervention:
         A = -jnp.eye(2)
         c = jnp.array([1.0, 2.0])
         traj = forward_simulate_intervention(
-            A, c, treat_idx=0, outcome_idx=1,
-            shift_size=1.0, dt=0.1, horizon_steps=100,
+            A,
+            c,
+            treat_idx=0,
+            outcome_idx=1,
+            shift_size=1.0,
+            dt=0.1,
+            horizon_steps=100,
         )
         assert jnp.allclose(traj, 0.0, atol=1e-3)
 
@@ -221,8 +231,13 @@ class TestForwardSimulateIntervention:
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
         c = jnp.array([1.0, 0.5])
         traj = forward_simulate_intervention(
-            A, c, treat_idx=0, outcome_idx=1,
-            shift_size=1.0, dt=0.1, horizon_steps=200,
+            A,
+            c,
+            treat_idx=0,
+            outcome_idx=1,
+            shift_size=1.0,
+            dt=0.1,
+            horizon_steps=200,
         )
         # Later in the trajectory, effect should be positive
         assert float(traj[-1]) > 0
@@ -232,8 +247,13 @@ class TestForwardSimulateIntervention:
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
         c = jnp.array([1.0, 0.5])
         traj = forward_simulate_intervention(
-            A, c, treat_idx=0, outcome_idx=1,
-            shift_size=0.0, dt=0.1, horizon_steps=50,
+            A,
+            c,
+            treat_idx=0,
+            outcome_idx=1,
+            shift_size=0.0,
+            dt=0.1,
+            horizon_steps=50,
         )
         assert jnp.allclose(traj, 0.0, atol=1e-4)
 
@@ -254,8 +274,10 @@ class TestComputeInterventions:
         """Should return a list of dicts with required keys."""
         samples = self._make_samples()
         results = compute_interventions(
-            samples, treatments=["A", "B"],
-            outcome="C", latent_names=["A", "B", "C"],
+            samples,
+            treatments=["A", "B"],
+            outcome="C",
+            latent_names=["A", "B", "C"],
         )
         assert len(results) == 2
         for r in results:
@@ -267,8 +289,10 @@ class TestComputeInterventions:
         """Missing outcome returns skeleton entries."""
         samples = self._make_samples()
         results = compute_interventions(
-            samples, treatments=["A"],
-            outcome="MISSING", latent_names=["A", "B", "C"],
+            samples,
+            treatments=["A"],
+            outcome="MISSING",
+            latent_names=["A", "B", "C"],
         )
         assert len(results) == 1
         assert results[0]["effect_size"] is None
@@ -277,8 +301,10 @@ class TestComputeInterventions:
         """Treatment not in latent names should produce a warning entry."""
         samples = self._make_samples()
         results = compute_interventions(
-            samples, treatments=["UNKNOWN"],
-            outcome="C", latent_names=["A", "B", "C"],
+            samples,
+            treatments=["UNKNOWN"],
+            outcome="C",
+            latent_names=["A", "B", "C"],
         )
         assert results[0]["effect_size"] is None
         assert "warning" in results[0]
@@ -286,8 +312,10 @@ class TestComputeInterventions:
     def test_no_drift_samples(self):
         """Missing drift returns skeletons."""
         results = compute_interventions(
-            {}, treatments=["A"],
-            outcome="C", latent_names=["A", "B", "C"],
+            {},
+            treatments=["A"],
+            outcome="C",
+            latent_names=["A", "B", "C"],
         )
         assert results[0]["effect_size"] is None
 
@@ -301,8 +329,10 @@ class TestComputeInterventions:
             "cint": jnp.broadcast_to(jnp.ones(3), (n, 3)),
         }
         results = compute_interventions(
-            samples, treatments=["A", "B"],
-            outcome="C", latent_names=["A", "B", "C"],
+            samples,
+            treatments=["A", "B"],
+            outcome="C",
+            latent_names=["A", "B", "C"],
         )
         effects = [abs(r["effect_size"]) for r in results if r["effect_size"] is not None]
         assert effects == sorted(effects, reverse=True)
@@ -311,15 +341,13 @@ class TestComputeInterventions:
         """Non-identifiable treatments should be flagged."""
         samples = self._make_samples()
         causal_spec = {
-            "identifiability": {
-                "non_identifiable_treatments": {
-                    "A": {"confounders": ["U"]}
-                }
-            }
+            "identifiability": {"non_identifiable_treatments": {"A": {"confounders": ["U"]}}}
         }
         results = compute_interventions(
-            samples, treatments=["A", "B"],
-            outcome="C", latent_names=["A", "B", "C"],
+            samples,
+            treatments=["A", "B"],
+            outcome="C",
+            latent_names=["A", "B", "C"],
             causal_spec=causal_spec,
         )
         a_result = next(r for r in results if r["treatment"] == "A")
@@ -333,8 +361,10 @@ class TestComputeInterventions:
         n = 5
         samples = {"drift": jnp.broadcast_to(-jnp.eye(2), (n, 2, 2))}
         results = compute_interventions(
-            samples, treatments=["A"],
-            outcome="B", latent_names=["A", "B"],
+            samples,
+            treatments=["A"],
+            outcome="B",
+            latent_names=["A", "B"],
         )
         # With diagonal drift and zero cint, steady state is zero
         # so treatment effect should be nonzero from the shift

@@ -16,53 +16,57 @@ from causal_ssm_agent.orchestrator.scoring import (
 
 def _simple_model_json():
     """Minimal valid latent model JSON."""
-    return json.dumps({
-        "constructs": [
-            {
-                "name": "stress",
-                "description": "Perceived stress level",
-                "role": "exogenous",
-                "temporal_status": "time_varying",
-                "temporal_scale": "daily",
-            },
-            {
-                "name": "sleep",
-                "description": "Sleep quality",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-                "temporal_scale": "daily",
-                "is_outcome": True,
-            },
-        ],
-        "edges": [
-            {"cause": "stress", "effect": "sleep", "description": "Stress disrupts sleep"},
-        ],
-    })
+    return json.dumps(
+        {
+            "constructs": [
+                {
+                    "name": "stress",
+                    "description": "Perceived stress level",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                },
+                {
+                    "name": "sleep",
+                    "description": "Sleep quality",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                    "is_outcome": True,
+                },
+            ],
+            "edges": [
+                {"cause": "stress", "effect": "sleep", "description": "Stress disrupts sleep"},
+            ],
+        }
+    )
 
 
 def _model_with_invariant_json():
     """Model with a time-invariant construct."""
-    return json.dumps({
-        "constructs": [
-            {
-                "name": "trait",
-                "description": "Stable personality trait",
-                "role": "exogenous",
-                "temporal_status": "time_invariant",
-            },
-            {
-                "name": "mood",
-                "description": "Daily mood state",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-                "temporal_scale": "daily",
-                "is_outcome": True,
-            },
-        ],
-        "edges": [
-            {"cause": "trait", "effect": "mood", "description": "Trait affects mood"},
-        ],
-    })
+    return json.dumps(
+        {
+            "constructs": [
+                {
+                    "name": "trait",
+                    "description": "Stable personality trait",
+                    "role": "exogenous",
+                    "temporal_status": "time_invariant",
+                },
+                {
+                    "name": "mood",
+                    "description": "Daily mood state",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                    "is_outcome": True,
+                },
+            ],
+            "edges": [
+                {"cause": "trait", "effect": "mood", "description": "Trait affects mood"},
+            ],
+        }
+    )
 
 
 # =============================================================================
@@ -80,18 +84,22 @@ class TestCountRulePoints:
         """Adding constructs should increase score."""
         small = LatentModel(**json.loads(_simple_model_json()))
         large_data = json.loads(_simple_model_json())
-        large_data["constructs"].append({
-            "name": "exercise",
-            "description": "Physical activity",
-            "role": "exogenous",
-            "temporal_status": "time_varying",
-            "temporal_scale": "daily",
-        })
-        large_data["edges"].append({
-            "cause": "exercise",
-            "effect": "sleep",
-            "description": "Exercise improves sleep",
-        })
+        large_data["constructs"].append(
+            {
+                "name": "exercise",
+                "description": "Physical activity",
+                "role": "exogenous",
+                "temporal_status": "time_varying",
+                "temporal_scale": "daily",
+            }
+        )
+        large_data["edges"].append(
+            {
+                "cause": "exercise",
+                "effect": "sleep",
+                "description": "Exercise improves sleep",
+            }
+        )
         large = LatentModel(**large_data)
 
         assert _count_rule_points(large) > _count_rule_points(small)
@@ -159,7 +167,7 @@ class TestScoreLatentModel:
         assert score == 0.0
 
     def test_empty_object_zero(self):
-        pred = SimpleNamespace(structure='{}')
+        pred = SimpleNamespace(structure="{}")
         score = score_latent_model(None, pred)
         assert score == 0.0
 

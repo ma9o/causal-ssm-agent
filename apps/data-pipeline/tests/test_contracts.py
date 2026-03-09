@@ -33,8 +33,15 @@ from causal_ssm_agent.flows.stages.contracts import (
 class TestStageContracts:
     def test_has_all_nine_stages(self):
         expected = {
-            "stage-0", "stage-1a", "stage-1b", "stage-2",
-            "stage-3", "stage-4", "stage-4b", "stage-5", "stage-6",
+            "stage-0",
+            "stage-1a",
+            "stage-1b",
+            "stage-2",
+            "stage-3",
+            "stage-4",
+            "stage-4b",
+            "stage-5",
+            "stage-6",
         }
         assert set(STAGE_CONTRACTS.keys()) == expected
 
@@ -201,9 +208,7 @@ class TestExtractionContract:
 
     def test_extra_field_rejected(self):
         with pytest.raises(ValidationError):
-            ExtractionContract(
-                indicator="mood", value="good", timestamp="2024-01-01", extra="bad"
-            )
+            ExtractionContract(indicator="mood", value="good", timestamp="2024-01-01", extra="bad")
 
 
 # =============================================================================
@@ -388,9 +393,7 @@ class TestTreatmentEffectContract:
 
 class TestInferenceMetadataContract:
     def test_valid(self):
-        m = InferenceMetadataContract(
-            method="svi", n_samples=1000, duration_seconds=45.2
-        )
+        m = InferenceMetadataContract(method="svi", n_samples=1000, duration_seconds=45.2)
         assert m.method == "svi"
         assert m.n_samples == 1000
 

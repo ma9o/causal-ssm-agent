@@ -245,9 +245,7 @@ class TestGetFailedParameters:
 
 class TestComputeDataStats:
     def test_basic_stats(self):
-        df = pl.DataFrame(
-            {"indicator": ["mood", "mood", "mood"], "value": [1.0, 2.0, 3.0]}
-        )
+        df = pl.DataFrame({"indicator": ["mood", "mood", "mood"], "value": [1.0, 2.0, 3.0]})
         stats = _compute_data_stats(df)
         assert "mood" in stats
         assert abs(stats["mood"]["mean"] - 2.0) < 1e-6
@@ -267,9 +265,7 @@ class TestComputeDataStats:
         assert abs(stats["sleep"]["mean"] - 15.0) < 1e-6
 
     def test_std_computed(self):
-        df = pl.DataFrame(
-            {"indicator": ["x", "x", "x", "x"], "value": [0.0, 0.0, 10.0, 10.0]}
-        )
+        df = pl.DataFrame({"indicator": ["x", "x", "x", "x"], "value": [0.0, 0.0, 10.0, 10.0]})
         stats = _compute_data_stats(df)
         assert stats["x"]["std"] is not None
         assert stats["x"]["std"] > 0

@@ -94,8 +94,7 @@ def _chat_message_to_trace(msg: "ChatMessage") -> TraceMessage:
     tool_call_id = None
     if isinstance(msg, ChatMessageAssistant) and msg.tool_calls:
         tool_calls_list = [
-            {"id": tc.id, "name": tc.function, "arguments": tc.arguments}
-            for tc in msg.tool_calls
+            {"id": tc.id, "name": tc.function, "arguments": tc.arguments} for tc in msg.tool_calls
         ]
 
     # Extract tool results from tool messages

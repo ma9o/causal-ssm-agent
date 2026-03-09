@@ -17,10 +17,7 @@ def _causal_spec(*indicators):
     """Build a minimal CausalSpec dict with given indicator tuples (name, dtype)."""
     return {
         "measurement": {
-            "indicators": [
-                {"name": name, "measurement_dtype": dtype}
-                for name, dtype in indicators
-            ]
+            "indicators": [{"name": name, "measurement_dtype": dtype} for name, dtype in indicators]
         }
     }
 
@@ -177,9 +174,7 @@ class TestValidateWorkerOutput:
     def test_timestamp_preserved(self):
         spec = _causal_spec(("mood", "continuous"))
         data = {
-            "extractions": [
-                {"indicator": "mood", "value": 5.0, "timestamp": "2024-01-01T10:00:00"}
-            ]
+            "extractions": [{"indicator": "mood", "value": 5.0, "timestamp": "2024-01-01T10:00:00"}]
         }
         output, errors = validate_worker_output(data, spec)
         assert output is not None
@@ -240,16 +235,12 @@ class TestWorkerOutputToDataframe:
         assert df["timestamp"][0] == "2024-01-01"
 
     def test_none_value_preserved(self):
-        output = WorkerOutput(
-            extractions=[Extraction(indicator="mood", value=None)]
-        )
+        output = WorkerOutput(extractions=[Extraction(indicator="mood", value=None)])
         df = output.to_dataframe()
         assert df["value"][0] is None
 
     def test_bool_converted_to_string(self):
-        output = WorkerOutput(
-            extractions=[Extraction(indicator="smoke", value=True)]
-        )
+        output = WorkerOutput(extractions=[Extraction(indicator="smoke", value=True)])
         df = output.to_dataframe()
         assert df["value"][0] == "True"
 
