@@ -13,6 +13,7 @@ import logging
 import polars as pl
 from prefect import flow, task
 from prefect.concurrency.asyncio import concurrency
+from prefect.task_runners import ThreadPoolTaskRunner
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def extract_chunk_task(
     from causal_ssm_agent.utils.llm import make_worker_generate_fn
     from causal_ssm_agent.workers.core import run_worker_extraction
 
-    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1):
+    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1, strict=True):
         config = get_config()
         model = get_model(config.stage2_workers.model)
         generate = make_worker_generate_fn(model)
@@ -74,6 +75,7 @@ async def extract_chunk_task(
     log_prints=True,
     persist_result=True,
     result_serializer="json",
+    task_runner=ThreadPoolTaskRunner(max_workers=20),
 )
 async def stage2_extraction_flow(
     raw_df: pl.DataFrame,
@@ -142,16 +144,17 @@ async def stage2_extraction_flow(
     n_total = 0
 
     for i, future in enumerate(results):
-        result = future.result() if hasattr(future, "result") else future
-        if isinstance(result, Exception):
-            logger.warning("Chunk %d failed: %s", i, result)
+        try:
+            result = future.result()
+        except Exception as e:
+            logger.warning("Chunk %d failed: %s", i, e)
             worker_statuses.append(
                 {
                     "worker_id": i,
                     "status": "failed",
                     "n_extractions": 0,
                     "chunk_size": len(chunks[i]),
-                    "error": str(result),
+                    "error": str(e),
                 }
             )
             continue
