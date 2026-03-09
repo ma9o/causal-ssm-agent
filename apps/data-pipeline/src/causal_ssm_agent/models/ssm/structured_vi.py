@@ -349,6 +349,7 @@ def fit_structured_vi(
     adaptive_tempering: bool = True,
     target_ess_ratio: float = 0.5,
     waste_free: bool = False,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM via structured VI with tempered SMC outer loop.
@@ -394,4 +395,5 @@ def fit_structured_vi(
             "vi_lr": vi_lr,
         },
         print_prefix="Structured VI",
+        reparam=reparam,
     )

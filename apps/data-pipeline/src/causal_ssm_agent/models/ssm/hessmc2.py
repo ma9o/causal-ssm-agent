@@ -187,6 +187,7 @@ def fit_hessmc2(
     warmup_iters: int = 0,
     warmup_step_size: float | None = None,
     seed: int = 0,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM parameters via Hess-MC² (SMC with CoV L-kernels).
@@ -221,14 +222,14 @@ def fit_hessmc2(
     # 1. Discover model sites
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, trace_key, backend)
+    site_info = _discover_sites(model, observations, times, trace_key, backend, reparam=reparam)
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
 
     # 2. Build differentiable functions
     log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, site_info, unravel_fn, backend
+        model, observations, times, site_info, unravel_fn, backend, reparam=reparam
     )
 
     # Gradient and Hessian target the log-POSTERIOR (paper Eq 9, 11)
@@ -300,7 +301,15 @@ def fit_hessmc2(
     # via JAX (vectorized), bypassing numpyro handlers which aren't vmappable.
     # Sort by key name to match ravel_pytree's pytree leaf ordering.
     warmup_tag = f", warmup={warmup_iters}" if warmup_iters > 0 else ""
-    logger.info("Hess-MC²: N=%s, K=%s, D=%s, proposal=%s, eps=%s%s", N, K, D, proposal, step_size, warmup_tag)
+    logger.info(
+        "Hess-MC²: N=%s, K=%s, D=%s, proposal=%s, eps=%s%s",
+        N,
+        K,
+        D,
+        proposal,
+        step_size,
+        warmup_tag,
+    )
     logger.info("  Initializing %s particles from prior...", N)
 
     parts = []
@@ -472,7 +481,17 @@ def fit_hessmc2(
         eps_tag = f"  eps={step_size:.4f}" if adapt_step_size else ""
         beta_tag = f"  β={betas[k]:.2f}" if in_warmup else ""
         warmup_label = " [warmup/RW]" if in_warmup else ""
-        logger.info("  step %s/%s  ESS=%.1f/%s%s%s%s%s", k + 1, K, ess, N, resamp_tag, eps_tag, beta_tag, warmup_label)
+        logger.info(
+            "  step %s/%s  ESS=%.1f/%s%s%s%s%s",
+            k + 1,
+            K,
+            ess,
+            N,
+            resamp_tag,
+            eps_tag,
+            beta_tag,
+            warmup_label,
+        )
 
     # 5. Final resampling from recycled pool
     rng_key, final_key = random.split(rng_key)
@@ -482,7 +501,16 @@ def fit_hessmc2(
     final_particles = all_particles[idx]
 
     # Extract final samples in constrained space (vmapped)
-    samples = extract_constrained_samples(final_particles, site_info, unravel_fn, model.spec)
+    samples = extract_constrained_samples(
+        final_particles,
+        site_info,
+        unravel_fn,
+        model.spec,
+        reparam=reparam,
+        model=model,
+        observations=observations,
+        times=times,
+    )
 
     return InferenceResult(
         _samples=samples,

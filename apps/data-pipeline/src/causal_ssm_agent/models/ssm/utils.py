@@ -28,9 +28,11 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _discover_sites(model, observations, times, rng_key, likelihood_backend):
+def _discover_sites(model, observations, times, rng_key, likelihood_backend, reparam=None):
     """Trace model once to discover sample sites (names, shapes, transforms)."""
     model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
+    if reparam is not None:
+        model_fn = handlers.reparam(model_fn, config=reparam)
     with handlers.seed(rng_seed=int(rng_key[0])):
         trace = handlers.trace(model_fn).get_trace(observations, times)
 
@@ -159,21 +161,41 @@ def _assemble_deterministics(
 # ---------------------------------------------------------------------------
 
 
+class _DummyLikelihoodBackend:
+    """Dummy backend for model replay — returns zero log-likelihood."""
+
+    def compute_log_likelihood(self, *_args, **_kwargs):
+        return jnp.array(0.0)
+
+
 def extract_constrained_samples(
     particles: jnp.ndarray,
     site_info: dict,
     unravel_fn,
     spec: SSMSpec,
+    *,
+    reparam=None,
+    model=None,
+    observations: jnp.ndarray | None = None,
+    times: jnp.ndarray | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Extract constrained samples from unconstrained particles and assemble deterministics.
 
     Shared by hessmc2, pgas, and tempered_core to avoid code duplication.
+
+    When ``reparam`` is provided, replays the reparameterized model to recover
+    original parameter names and assembled matrices via the model's own
+    deterministic sites.
 
     Args:
         particles: (N, D) array of unconstrained parameter vectors
         site_info: site info dict from _discover_sites
         unravel_fn: function from ravel_pytree to unravel flat vectors
         spec: SSMSpec for assembling deterministic sites
+        reparam: Optional reparameterization config (Strategy, dict, or None).
+        model: SSMModel instance (required when reparam is provided).
+        observations: Observed data (required when reparam is provided).
+        times: Time points (required when reparam is provided).
 
     Returns:
         Dict of constrained samples including deterministic sites
@@ -188,9 +210,34 @@ def extract_constrained_samples(
 
         samples[name] = jax.vmap(_extract_one)(particles)
 
-    det_samples = _assemble_deterministics(samples, spec)
-    samples.update(det_samples)
-    return samples
+    if reparam is None:
+        det_samples = _assemble_deterministics(samples, spec)
+        samples.update(det_samples)
+        return samples
+
+    # Reparam path: replay model to recover original parameter names.
+    # The model's deterministic sites produce assembled matrices; the reparam
+    # handler creates deterministic sites for original parameter names.
+    replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
+    replay_fn = handlers.reparam(replay_fn, config=reparam)
+
+    N = particles.shape[0]
+    all_samples: dict[str, list] = {}
+    for i in range(N):
+        con_i = {name: samples[name][i] for name in samples}
+        with handlers.seed(rng_seed=0), handlers.substitute(data=con_i):
+            trace = handlers.trace(replay_fn).get_trace(observations, times)
+        for site_name, site in trace.items():
+            if site_name in ("log_likelihood", "ll_per_timestep"):
+                continue
+            if site.get("is_observed", False):
+                continue
+            if site["type"] in ("sample", "deterministic"):
+                if site_name not in all_samples:
+                    all_samples[site_name] = []
+                all_samples[site_name].append(site["value"])
+
+    return {name: jnp.stack(vals) for name, vals in all_samples.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -198,11 +245,14 @@ def extract_constrained_samples(
 # ---------------------------------------------------------------------------
 
 
-def _build_eval_fns(model, observations, times, site_info, unravel_fn, likelihood_backend):
+def _build_eval_fns(
+    model, observations, times, site_info, unravel_fn, likelihood_backend, reparam=None
+):
     """Build differentiable functions for log-likelihood and log-prior.
 
     Args:
         likelihood_backend: Likelihood backend instance to use for evaluation.
+        reparam: Optional reparameterization config (Strategy, dict, or None).
 
     Returns:
         log_lik_fn(z) -> scalar log p(y|theta)
@@ -212,6 +262,8 @@ def _build_eval_fns(model, observations, times, site_info, unravel_fn, likelihoo
     distributions = {name: info["distribution"] for name, info in site_info.items()}
 
     model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
+    if reparam is not None:
+        model_fn = handlers.reparam(model_fn, config=reparam)
 
     def _constrain(z):
         unc = unravel_fn(z)

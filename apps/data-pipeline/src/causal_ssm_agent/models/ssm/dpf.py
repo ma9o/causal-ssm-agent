@@ -462,7 +462,9 @@ def _train_proposal(
 
     logger.info(
         "  Training proposal: %s steps, %s sequences, %s particles...",
-        n_train_steps, n_train_seqs, n_particles_train,
+        n_train_steps,
+        n_train_seqs,
+        n_particles_train,
     )
 
     for step in range(n_train_steps):
@@ -587,6 +589,7 @@ def fit_dpf(
     n_particles_train: int = 32,
     T_train: int | None = None,
     proposal_lr: float = 1e-3,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM via DPF with learned proposals + tempered SMC outer loop.
@@ -678,4 +681,5 @@ def fit_dpf(
             "proposal_net": proposal_net,
         },
         print_prefix="DPF",
+        reparam=reparam,
     )

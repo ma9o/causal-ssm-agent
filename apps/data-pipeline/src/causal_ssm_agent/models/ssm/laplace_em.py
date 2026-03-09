@@ -466,6 +466,7 @@ def fit_laplace_em(
     adaptive_tempering: bool = True,
     target_ess_ratio: float = 0.5,
     waste_free: bool = False,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM parameters via Laplace-EM with tempered SMC outer loop.
@@ -505,4 +506,5 @@ def fit_laplace_em(
         likelihood_backend=backend,
         extra_diagnostics={"n_ieks_iters": n_ieks_iters},
         print_prefix="Laplace-EM",
+        reparam=reparam,
     )

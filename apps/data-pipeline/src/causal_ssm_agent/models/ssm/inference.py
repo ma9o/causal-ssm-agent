@@ -34,10 +34,15 @@ from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_media
 from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
+
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
 
 logger = logging.getLogger(__name__)
+
+# Sentinel for "use AutoReparam with method-appropriate centering".
+_AUTO_REPARAM = object()
 
 # Histogram binning edge padding to avoid artifacts at distribution tails
 HIST_PADDING_RATIO = 0.05
@@ -645,11 +650,37 @@ def select_default_method(spec: SSMSpec) -> InferenceMethod:
     return "laplace_em"
 
 
+def _apply_reparam(model_fn, reparam_config):
+    """Wrap a model function with reparameterization if config is provided.
+
+    Args:
+        model_fn: A NumPyro model function.
+        reparam_config: A dict, callable (Strategy), or None.
+
+    Returns:
+        The model function, possibly wrapped with handlers.reparam.
+    """
+    if reparam_config is None:
+        return model_fn
+    return handlers.reparam(model_fn, config=reparam_config)
+
+
+def _resolve_reparam(reparam, method: InferenceMethod):
+    """Resolve _AUTO_REPARAM sentinel to a concrete AutoReparam config."""
+    if reparam is not _AUTO_REPARAM:
+        return reparam
+    # SVI benefits from learnable centering; all other methods use fixed NCP.
+    if method == "svi":
+        return AutoReparam()  # centered=None → learnable via numpyro.param
+    return AutoReparam(centered=0.0)  # fully decentered
+
+
 def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     method: InferenceMethod = "auto",
+    reparam=_AUTO_REPARAM,
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -661,6 +692,12 @@ def fit(
         method: Inference method - "auto" (structural routing, default),
             "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em",
             "structured_vi", "dpf", or "nuts_da"
+        reparam: Reparameterization config. Can be:
+            - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
+              centering (learnable for SVI, fully decentered for MCMC/SMC).
+            - A ``Strategy`` instance (e.g., ``AutoReparam(centered=0.0)``)
+            - A dict mapping site names to ``Reparam`` instances
+            - None: no reparameterization
         **kwargs: Method-specific arguments
 
     Returns:
@@ -669,38 +706,39 @@ def fit(
     if method == "auto":
         method = select_default_method(model.spec)
 
+    reparam = _resolve_reparam(reparam, method)
     if method == "nuts":
-        return _fit_nuts(model, observations, times, **kwargs)
+        return _fit_nuts(model, observations, times, reparam=reparam, **kwargs)
     if method == "nuts_da":
         from causal_ssm_agent.models.ssm.nuts_da import fit_nuts_da
 
-        return fit_nuts_da(model, observations, times, **kwargs)
+        return fit_nuts_da(model, observations, times, reparam=reparam, **kwargs)
     if method == "svi":
-        return _fit_svi(model, observations, times, **kwargs)
+        return _fit_svi(model, observations, times, reparam=reparam, **kwargs)
     if method == "hessmc2":
         from causal_ssm_agent.models.ssm.hessmc2 import fit_hessmc2
 
-        return fit_hessmc2(model, observations, times, **kwargs)
+        return fit_hessmc2(model, observations, times, reparam=reparam, **kwargs)
     if method == "pgas":
         from causal_ssm_agent.models.ssm.pgas import fit_pgas
 
-        return fit_pgas(model, observations, times, **kwargs)
+        return fit_pgas(model, observations, times, reparam=reparam, **kwargs)
     if method == "tempered_smc":
         from causal_ssm_agent.models.ssm.tempered_smc import fit_tempered_smc
 
-        return fit_tempered_smc(model, observations, times, **kwargs)
+        return fit_tempered_smc(model, observations, times, reparam=reparam, **kwargs)
     if method == "laplace_em":
         from causal_ssm_agent.models.ssm.laplace_em import fit_laplace_em
 
-        return fit_laplace_em(model, observations, times, **kwargs)
+        return fit_laplace_em(model, observations, times, reparam=reparam, **kwargs)
     if method == "structured_vi":
         from causal_ssm_agent.models.ssm.structured_vi import fit_structured_vi
 
-        return fit_structured_vi(model, observations, times, **kwargs)
+        return fit_structured_vi(model, observations, times, reparam=reparam, **kwargs)
     if method == "dpf":
         from causal_ssm_agent.models.ssm.dpf import fit_dpf
 
-        return fit_dpf(model, observations, times, **kwargs)
+        return fit_dpf(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
         f"Unknown inference method: {method!r}. "
         "Use 'auto', 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
@@ -747,6 +785,7 @@ def _fit_nuts(
     dense_mass: bool = False,
     target_accept_prob: float = 0.85,
     max_tree_depth: int = 8,
+    reparam=None,
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit using NUTS (HMC).
@@ -762,12 +801,14 @@ def _fit_nuts(
         dense_mass: Use dense mass matrix
         target_accept_prob: Target acceptance probability
         max_tree_depth: Max tree depth
+        reparam: Optional reparameterization config (Strategy, dict, or None)
         **kwargs: Additional MCMC arguments
 
     Returns:
         InferenceResult with NUTS samples
     """
     model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    model_fn = _apply_reparam(model_fn, reparam)
     kernel = NUTS(
         model_fn,
         init_strategy=init_to_median(num_samples=15),
@@ -808,6 +849,7 @@ def _fit_svi(
     num_samples: int = 1000,
     learning_rate: float = 0.01,
     seed: int = 0,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit using Stochastic Variational Inference.
@@ -824,12 +866,14 @@ def _fit_svi(
         num_samples: Number of posterior samples to draw after fitting
         learning_rate: Adam learning rate
         seed: Random seed
+        reparam: Optional reparameterization config (Strategy, dict, or None)
         **kwargs: Ignored
 
     Returns:
         InferenceResult with approximate posterior samples
     """
     model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    model_fn = _apply_reparam(model_fn, reparam)
     guide_cls = {
         "normal": AutoNormal,
         "mvn": AutoMultivariateNormal,

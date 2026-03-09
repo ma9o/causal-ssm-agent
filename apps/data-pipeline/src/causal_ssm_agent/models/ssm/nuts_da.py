@@ -585,6 +585,7 @@ def fit_nuts_da(
     svi_warmstart: bool = True,
     svi_num_steps: int = 2000,
     svi_learning_rate: float = 0.01,
+    reparam=None,
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit using NUTS with data augmentation (joint parameter + state sampling).
@@ -633,6 +634,12 @@ def fit_nuts_da(
         )
 
     model_fn = functools.partial(_da_model, model, centered=centered)
+
+    # Apply reparameterization if provided
+    if reparam is not None:
+        from numpyro import handlers as _handlers
+
+        model_fn = _handlers.reparam(model_fn, config=reparam)
 
     # Determine initialization strategy
     init_values = None

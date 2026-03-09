@@ -31,6 +31,7 @@ def fit_tempered_smc(
     target_ess_ratio: float = 0.5,
     waste_free: bool = False,
     n_leapfrog: int = 5,
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM parameters via tempered SMC with preconditioned HMC mutations."""
@@ -52,4 +53,5 @@ def fit_tempered_smc(
         method_name="tempered_smc",
         likelihood_backend=model.make_likelihood_backend(),
         print_prefix="Tempered SMC",
+        reparam=reparam,
     )
