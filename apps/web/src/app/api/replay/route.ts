@@ -19,10 +19,10 @@ const STAGE_ORDER = [
  * POST /api/replay
  *
  * Triggers a new pipeline run with the same parameters as the original,
- * plus a stage_overrides entry for the refined stage. Prefect's native
- * task caching (cache_policy=INPUTS) handles skipping unchanged upstream
- * stages, and downstream stages automatically re-run because their
- * inputs changed.
+ * plus a stage_overrides entry for the refined stage. The pipeline
+ * translates stage_overrides into Hamilton DAG overrides, which skip
+ * the overridden node's computation and re-run all downstream nodes
+ * with the new data.
  *
  * Body: { runId: string, stageId: string, stageData: object }
  */
