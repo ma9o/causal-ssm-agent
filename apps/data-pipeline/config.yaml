@@ -16,7 +16,7 @@ stage1_structure_proposal:
 # Workers process DataFrame chunks in parallel to extract indicator values
 stage2_workers:
   model: openrouter/google/gemini-3-flash-preview
-  chunk_size: 20  # Rows per chunk for each worker
+  chunk_size: 50  # Rows per chunk for each worker
 
 # Stage 3: Identifiability & Sensitivity Analysis
 # Uses y0 (Pearl's ID algorithm) - no LLM needed
@@ -60,4 +60,4 @@ llm:
 # Pipeline-level behavior
 pipeline:
   max_prior_retries: 3
-  max_concurrent_workers: 5  # Max parallel API calls (Exa + LLM) in stage 4
+  max_concurrent_workers: 20  # Max parallel API calls (Exa + LLM) in stage 4
