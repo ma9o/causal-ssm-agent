@@ -45,8 +45,6 @@ class LiteratureSearchConfig:
     """Literature search configuration for grounding priors."""
 
     enabled: bool = True
-    model: str = "exa-research"
-    timeout_ms: int = 120000
 
 
 @dataclass(frozen=True)
@@ -139,6 +137,7 @@ class PipelineBehaviorConfig:
 
     max_prior_retries: int = 3
     override_gates: bool = False
+    max_concurrent_workers: int = 5
 
 
 @dataclass(frozen=True)
