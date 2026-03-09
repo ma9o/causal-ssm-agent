@@ -36,18 +36,16 @@ logger = logging.getLogger(__name__)
 
 async def search_parameter_literature(
     parameter: ParameterSpec,
-    model: str | None = None,
-    timeout_ms: int | None = None,
 ) -> list[dict]:
     """Search Exa for literature relevant to this specific parameter.
 
     This is separated from elicitation so results can be cached and reused
     across retry loops without re-hitting the Exa API.
 
+    Uses Exa deep search with structured output schema.
+
     Args:
         parameter: The parameter spec with search_context
-        model: Exa model to use (reads from config if None)
-        timeout_ms: Timeout for Exa research (reads from config if None)
 
     Returns:
         List of source dicts with title, url, snippet, effect_size
@@ -58,34 +56,19 @@ async def search_parameter_literature(
     if not api_key:
         return []
 
-    # Read from config if not provided
-    if model is None or timeout_ms is None:
-        from causal_ssm_agent.utils.config import get_config
-
-        config = get_config()
-        lit_config = config.stage4_prior_elicitation.literature_search
-        if model is None:
-            model = lit_config.model
-        if timeout_ms is None:
-            timeout_ms = lit_config.timeout_ms
-
     try:
         from exa_py import AsyncExa
 
         exa = AsyncExa(api_key=api_key)
 
-        # Build search instructions from parameter context
-        instructions = f"""\
-Search for empirical effect sizes related to:
+        # Build search query from parameter context
+        query = f"""\
+Empirical effect sizes related to:
 
 {parameter.search_context}
 
-Focus on:
-1. Meta-analyses and systematic reviews (highest priority)
-2. Large-scale longitudinal studies
-3. Standardized effect sizes (Cohen's d, correlation r, standardized beta)
-
-Report specific numerical values when available.
+Focus on meta-analyses, systematic reviews, and large-scale longitudinal studies.
+Report standardized effect sizes (Cohen's d, correlation r, standardized beta).
 """
 
         output_schema = {
@@ -106,21 +89,19 @@ Report specific numerical values when available.
             },
         }
 
-        research = await exa.research.create(  # ty: ignore[no-matching-overload]
-            instructions=instructions,
+        result = await exa.search(
+            query,
+            type="deep",
             output_schema=output_schema,
-            model=model,
         )
 
-        result = await exa.research.poll_until_finished(  # ty: ignore[invalid-await]
-            research.id,
-            timeout_ms=timeout_ms,
-        )
-
-        if result.status != "completed" or not result.data:
+        if not result.output or not result.output.content:
             return []
 
-        return result.data.get("sources", [])
+        content = result.output.content
+        if isinstance(content, dict):
+            return content.get("sources", [])
+        return []
 
     except Exception:
         logger.warning("Exa search failed; continuing without search results", exc_info=True)

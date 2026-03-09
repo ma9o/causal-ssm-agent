@@ -108,8 +108,6 @@ FULL_CONFIG = textwrap.dedent("""\
       worker_model: claude-3-haiku
       literature_search:
         enabled: false
-        model: exa-research
-        timeout_ms: 60000
       paraphrasing:
         enabled: true
         n_paraphrases: 5
@@ -170,7 +168,6 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.stage4_prior_elicitation.worker_model == "claude-3-haiku"
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
-        assert cfg.stage4_prior_elicitation.literature_search.timeout_ms == 60000
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
         assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
         assert cfg.inference.method == "nuts"
