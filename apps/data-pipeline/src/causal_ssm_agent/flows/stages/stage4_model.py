@@ -149,7 +149,7 @@ async def search_literature_task(
         format_literature_for_parameter,
     )
 
-    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1):
+    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1, strict=True):
         param = ParameterSpec.model_validate(parameter_spec)
         sources = await search_parameter_literature(param)
         formatted = format_literature_for_parameter(sources)
@@ -196,7 +196,7 @@ async def elicit_prior_task(
         get_default_prior,
     )
 
-    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1):
+    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1, strict=True):
         config = get_config()
         worker_model = (
             config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
@@ -428,11 +428,15 @@ async def stage4_orchestrated_flow(
     #    task.map() fans out all parameters; concurrency limit inside
     #    the task caps how many actually hit the API simultaneously.
     if enable_literature:
-        literature_results = search_literature_task.map(parameter_specs)
+        literature_futures = search_literature_task.map(parameter_specs)
         literature_by_name = {}
-        for i, (ps, lit) in enumerate(zip(parameter_specs, literature_results)):
+        for i, (ps, future) in enumerate(zip(parameter_specs, literature_futures)):
             name = ps.get("name", f"param_{i}")
-            literature_by_name[name] = lit.result() if hasattr(lit, "result") else lit
+            try:
+                literature_by_name[name] = future.result()
+            except Exception as e:
+                logger.warning("Literature search failed for %s: %s", name, e)
+                literature_by_name[name] = {"sources": [], "formatted": ""}
     else:
         literature_by_name = {
             ps.get("name", f"param_{i}"): {"sources": [], "formatted": ""}
@@ -440,7 +444,7 @@ async def stage4_orchestrated_flow(
         }
 
     # 3. Initial LLM elicitation (all parameters via task.map, concurrency-limited)
-    initial_results = elicit_prior_task.map(
+    initial_futures = elicit_prior_task.map(
         parameter_specs,
         question=unmapped(question),
         literature=[
@@ -449,10 +453,11 @@ async def stage4_orchestrated_flow(
         n_paraphrases=unmapped(n_paraphrases),
     )
 
+    initial_results = initial_futures.result()
     priors = {}
     for i, (ps, result) in enumerate(zip(parameter_specs, initial_results)):
         name = ps.get("name", f"param_{i}")
-        priors[name] = result.result() if hasattr(result, "result") else result
+        priors[name] = result
 
     # Compute data stats once for feedback messages
     data_stats = (
@@ -462,8 +467,7 @@ async def stage4_orchestrated_flow(
     # 4. Validation loop
     validation_result = None
     for attempt in range(max_prior_retries + 1):
-        validation = validate_priors_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-        validation_result = validation.result() if hasattr(validation, "result") else validation
+        validation_result = validate_priors_task(model_spec, priors, raw_data, causal_spec=causal_spec)
 
         if validation_result.get("is_valid", False):
             logger.info("Prior validation passed on attempt %d", attempt + 1)
@@ -519,7 +523,7 @@ async def stage4_orchestrated_flow(
         ]
         failed_feedbacks = [feedbacks[n] for n in failed_param_names]
 
-        re_results = elicit_prior_task.map(
+        re_futures = elicit_prior_task.map(
             failed_specs,
             question=unmapped(question),
             literature=failed_literature,
@@ -528,12 +532,12 @@ async def stage4_orchestrated_flow(
         )
 
         # Merge re-elicited priors back
+        re_results = re_futures.result()
         for name, result in zip(failed_param_names, re_results):
-            priors[name] = result.result() if hasattr(result, "result") else result
+            priors[name] = result
 
     # 5. Build SSMModel (only after validation loop)
-    model_info = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-    model_result = model_info.result() if hasattr(model_info, "result") else model_info
+    model_result = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
 
     result = {
         "model_spec": model_spec,
