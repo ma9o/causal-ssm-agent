@@ -2,87 +2,263 @@
 
 Provides the LLM agent with tools to explore a zip archive and
 produce a single Polars DataFrame from arbitrary file contents.
+
+Code execution runs inside a Modal CPU sandbox for isolation.
 """
 
-import csv
-import datetime
+from __future__ import annotations
+
 import io
 import json
-import math
-import re
-import traceback
-from pathlib import Path
+import logging
+import tarfile
+from typing import TYPE_CHECKING
 
 import polars as pl
 from inspect_ai.tool import Tool, tool
 
-# Curated namespace for LLM-generated code execution.
-# Only safe, data-oriented modules are exposed.
-_SAFE_BUILTINS = {
-    "print": print,
-    "len": len,
-    "range": range,
-    "enumerate": enumerate,
-    "zip": zip,
-    "map": map,
-    "filter": filter,
-    "sorted": sorted,
-    "reversed": reversed,
-    "list": list,
-    "dict": dict,
-    "set": set,
-    "tuple": tuple,
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "isinstance": isinstance,
-    "type": type,
-    "None": None,
-    "True": True,
-    "False": False,
-    "min": min,
-    "max": max,
-    "sum": sum,
-    "abs": abs,
-    "round": round,
-    "any": any,
-    "all": all,
-    "open": open,
-    "ValueError": ValueError,
-    "TypeError": TypeError,
-    "KeyError": KeyError,
-    "IndexError": IndexError,
-    "Exception": Exception,
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import modal
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Runner script executed inside the Modal sandbox.
+#
+# Reads user code from /tmp/user_code.py, executes it, and writes
+# structured status to /tmp/status.json.  If a result_df DataFrame
+# is produced, it is serialised to /tmp/result.ipc (Arrow IPC).
+# ---------------------------------------------------------------------------
+
+_SANDBOX_RUNNER = r"""
+import polars as pl
+import csv, json, re, math, io, datetime, traceback, sys
+from pathlib import Path
+
+DATA_DIR = "/data"
+
+user_code = open("/tmp/user_code.py").read()
+
+ns = {
+    "__builtins__": __builtins__,
+    "pl": pl,
+    "polars": pl,
+    "csv": csv,
+    "json": json,
+    "Path": Path,
+    "datetime": datetime,
+    "re": re,
+    "math": math,
+    "io": io,
+    "DATA_DIR": DATA_DIR,
 }
 
+status = {}
+try:
+    exec(user_code, ns)
+except Exception:
+    status = {"s": "error", "tb": traceback.format_exc()}
+else:
+    result_df = ns.get("result_df")
+    if result_df is not None and isinstance(result_df, pl.DataFrame):
+        if result_df.is_empty():
+            status = {"s": "empty"}
+        else:
+            result_df.write_ipc("/tmp/result.ipc")
+            lines = [
+                f"Shape: {result_df.shape[0]} rows x {result_df.shape[1]} columns",
+                "",
+                "Schema:",
+            ]
+            for col in result_df.columns:
+                lines.append(f"  {col}: {result_df.schema[col]}")
+            sample = min(5, len(result_df))
+            lines.append(f"\nFirst {sample} rows:")
+            lines.append(str(result_df.head(sample)))
+            status = {"s": "saved", "preview": "\n".join(lines)}
+    elif result_df is not None:
+        status = {"s": "not_df", "type": type(result_df).__name__}
+    else:
+        defined = [
+            k
+            for k in ns
+            if not k.startswith("_")
+            and k
+            not in (
+                "pl", "polars", "csv", "json", "Path",
+                "datetime", "re", "math", "io", "DATA_DIR",
+            )
+        ]
+        status = {"s": "no_result", "defined": defined}
 
-def _make_safe_globals(data_dir: Path) -> dict:
-    """Build the globals dict injected into exec() for LLM code."""
-    return {
-        "__builtins__": _SAFE_BUILTINS,
-        "pl": pl,
-        "polars": pl,
-        "csv": csv,
-        "json": json,
-        "Path": Path,
-        "datetime": datetime,
-        "re": re,
-        "math": math,
-        "io": io,
-        "DATA_DIR": str(data_dir),
-    }
+with open("/tmp/status.json", "w") as f:
+    json.dump(status, f)
+""".lstrip()
 
 
-def _format_df_preview(df: pl.DataFrame, max_rows: int = 5) -> str:
-    """Format a DataFrame schema + sample for LLM feedback."""
-    lines = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns\n"]
-    lines.append("Schema:")
-    for col in df.columns:
-        lines.append(f"  {col}: {df.schema[col]}")
-    lines.append(f"\nFirst {min(max_rows, len(df))} rows:")
-    lines.append(str(df.head(max_rows)))
-    return "\n".join(lines)
+# ---------------------------------------------------------------------------
+# Modal CPU sandbox
+# ---------------------------------------------------------------------------
+
+
+def _make_sandbox_image():
+    """Build a lightweight Modal image for data parsing."""
+    import modal
+
+    return modal.Image.debian_slim(python_version="3.12").pip_install(
+        "polars", "openpyxl", "fastexcel"
+    )
+
+
+class ModalCodeSandbox:
+    """Modal CPU sandbox for executing LLM-generated code safely.
+
+    The extracted archive is uploaded once on ``start()``.  Each
+    ``execute()`` call writes the user code into the sandbox and runs
+    the runner script, returning feedback text and (optionally) the
+    deserialised Polars DataFrame.
+    """
+
+    def __init__(self, extract_dir: Path, *, timeout: int = 600):
+        self._extract_dir = extract_dir
+        self._timeout = timeout
+        self._sandbox: modal.Sandbox | None = None
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def start(self) -> None:
+        import modal
+
+        image = _make_sandbox_image()
+        app = modal.App.lookup("causal-ssm-stage0", create_if_missing=True)
+
+        self._sandbox = modal.Sandbox.create(
+            image=image,
+            app=app,
+            timeout=self._timeout,
+            cpu=1,
+            block_network=True,
+        )
+
+        # Upload the extracted archive as a tarball and unpack it.
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            tar.add(str(self._extract_dir), arcname=".")
+        tar_bytes = tar_buf.getvalue()
+
+        f = self._sandbox.open("/tmp/archive.tar.gz", "wb")
+        f.write(tar_bytes)
+        f.close()
+
+        self._sandbox.exec("mkdir", "-p", "/data").wait()
+        self._sandbox.exec("tar", "xzf", "/tmp/archive.tar.gz", "-C", "/data").wait()
+
+        # Upload runner script (once).
+        f = self._sandbox.open("/tmp/runner.py", "w")
+        f.write(_SANDBOX_RUNNER)
+        f.close()
+
+        logger.info("Modal sandbox ready (timeout=%ds)", self._timeout)
+
+    def terminate(self) -> None:
+        if self._sandbox is not None:
+            try:
+                self._sandbox.terminate()
+            except Exception:
+                logger.warning("Failed to terminate sandbox", exc_info=True)
+            self._sandbox = None
+
+    def __enter__(self) -> ModalCodeSandbox:
+        self.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.terminate()
+
+    # -- code execution ------------------------------------------------------
+
+    def execute(self, code: str) -> tuple[str, pl.DataFrame | None]:
+        """Run *code* inside the sandbox.
+
+        Returns:
+            ``(feedback_text, result_df_or_none)``
+        """
+        assert self._sandbox is not None, "Sandbox not started"
+
+        # Write user code.
+        f = self._sandbox.open("/tmp/user_code.py", "w")
+        f.write(code)
+        f.close()
+
+        # Run the runner.
+        process = self._sandbox.exec("python", "/tmp/runner.py", timeout=120)
+        process.wait()
+
+        stdout = process.stdout.read()
+        stderr = process.stderr.read()
+
+        # Read structured status written by the runner.
+        try:
+            sf = self._sandbox.open("/tmp/status.json", "r")
+            status: dict = json.loads(sf.read())
+            sf.close()
+        except Exception:
+            # Runner crashed before writing status (OOM, timeout, …).
+            output = ""
+            if stdout:
+                output += stdout
+            if stderr:
+                output += f"\n{stderr}" if output else stderr
+            return output or "Code execution failed (no output).", None
+
+        return self._parse_status(status, stdout)
+
+    # -- helpers -------------------------------------------------------------
+
+    def _parse_status(self, status: dict, stdout: str) -> tuple[str, pl.DataFrame | None]:
+        s = status.get("s")
+        user_output = stdout.strip()
+        prefix = f"{user_output}\n\n" if user_output else ""
+
+        if s == "error":
+            return f"{prefix}Execution error:\n{status['tb']}", None
+
+        if s == "saved":
+            assert self._sandbox is not None
+            rf = self._sandbox.open("/tmp/result.ipc", "rb")
+            ipc_bytes = rf.read()
+            rf.close()
+            result_df = pl.read_ipc(io.BytesIO(ipc_bytes))
+            return f"{prefix}Success!\n\n{status['preview']}", result_df
+
+        if s == "empty":
+            return (
+                f"{prefix}Warning: `result_df` is empty (0 rows). Check your parsing logic."
+            ), None
+
+        if s == "not_df":
+            type_name = status.get("type", "unknown")
+            return (
+                f"{prefix}`result_df` is {type_name}, not a Polars DataFrame.\n"
+                "Use pl.DataFrame(...) or pl.read_csv(...) to create one."
+            ), None
+
+        if s == "no_result":
+            defined = status.get("defined", [])
+            return (
+                f"{prefix}No `result_df` variable found after execution.\n"
+                f"Variables defined: {defined}\n"
+                "Assign your final DataFrame to `result_df`."
+            ), None
+
+        return f"{prefix}Unexpected sandbox status.", None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _safe_resolve(base: Path, user_path: str) -> Path:
@@ -93,17 +269,30 @@ def _safe_resolve(base: Path, user_path: str) -> Path:
     return resolved
 
 
-def make_ingestion_tools(extract_dir: Path) -> tuple[list[Tool], dict]:
+# ---------------------------------------------------------------------------
+# Tool factory
+# ---------------------------------------------------------------------------
+
+
+def make_ingestion_tools(
+    extract_dir_raw: Path,
+    sandbox: ModalCodeSandbox,
+) -> tuple[list[Tool], dict]:
     """Create the toolset for the agentic ingestion agent.
 
     Args:
         extract_dir: Root directory of the extracted zip contents.
+        sandbox: A started ``ModalCodeSandbox`` for code execution.
 
     Returns:
         Tuple of (tools_list, capture_dict). After the agent loop,
         check capture["dataframe"] for the final DataFrame and
         capture["column_descriptions"] for per-column descriptions.
     """
+    # Resolve once so symlinks (e.g. macOS /var → /private/var) don't
+    # break relative_to() inside tools.
+    extract_dir = extract_dir_raw.resolve()
+
     capture: dict = {}
 
     @tool
@@ -192,9 +381,9 @@ def make_ingestion_tools(extract_dir: Path) -> tuple[list[Tool], dict]:
             # Text-based files: read first N lines
             for encoding in ("utf-8", "latin-1"):
                 try:
-                    with target.open(encoding=encoding) as f:
+                    with target.open(encoding=encoding) as fh:
                         lines = []
-                        for i, line in enumerate(f):
+                        for i, line in enumerate(fh):
                             if i >= n_lines:
                                 break
                             lines.append(line.rstrip("\n"))
@@ -212,15 +401,16 @@ def make_ingestion_tools(extract_dir: Path) -> tuple[list[Tool], dict]:
 
     @tool
     def execute_python():
-        """Execute Python code to parse files into a Polars DataFrame."""
+        """Execute Python code in a Modal sandbox to parse files into a Polars DataFrame."""
 
         async def execute(code: str) -> str:
             """
             Execute Python code that produces a Polars DataFrame.
 
-            The code must assign its result to a variable named `result_df`.
-            Available in the namespace: polars (as `pl`), csv, json, Path,
-            datetime, re, math, io. DATA_DIR points to the extracted archive.
+            The code runs inside an isolated Modal sandbox container.
+            Assign your result to a variable named ``result_df``.
+            Available in the namespace: polars (as ``pl``), csv, json, Path,
+            datetime, re, math, io.  ``DATA_DIR`` points to the extracted archive.
 
             Args:
                 code: Python code to execute.
@@ -228,35 +418,10 @@ def make_ingestion_tools(extract_dir: Path) -> tuple[list[Tool], dict]:
             Returns:
                 DataFrame schema and sample rows on success, or traceback on error.
             """
-            safe_globals = _make_safe_globals(extract_dir)
-            local_ns: dict = {}
-
-            try:
-                exec(code, safe_globals, local_ns)
-            except Exception:
-                return f"Execution error:\n{traceback.format_exc()}"
-
-            result_df = local_ns.get("result_df")
-            if result_df is None:
-                available = [k for k in local_ns if not k.startswith("_")]
-                return (
-                    "No `result_df` variable found after execution.\n"
-                    f"Variables defined: {available}\n"
-                    "Assign your final DataFrame to `result_df`."
-                )
-
-            if not isinstance(result_df, pl.DataFrame):
-                return (
-                    f"`result_df` is {type(result_df).__name__}, not a Polars DataFrame.\n"
-                    "Use pl.DataFrame(...) or pl.read_csv(...) to create one."
-                )
-
-            if result_df.is_empty():
-                return "Warning: `result_df` is empty (0 rows). Check your parsing logic."
-
-            # Store for later submission
-            capture["dataframe"] = result_df
-            return f"Success!\n\n{_format_df_preview(result_df)}"
+            output, result_df = sandbox.execute(code)
+            if result_df is not None:
+                capture["dataframe"] = result_df
+            return output
 
         return execute
 

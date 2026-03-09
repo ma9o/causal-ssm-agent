@@ -1,14 +1,20 @@
 """Tests for Stage 0 agentic ingestion tools and helpers."""
 
 import asyncio
+import csv
+import datetime
+import io
 import json
+import math
+import re
+import traceback
 import zipfile
+from pathlib import Path
 
 import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage0_tools import (
-    _format_df_preview,
     _safe_resolve,
     make_ingestion_tools,
 )
@@ -17,6 +23,81 @@ from causal_ssm_agent.flows.stages.stage0_tools import (
 def _run(coro):
     """Run an async coroutine synchronously (no pytest-asyncio needed)."""
     return asyncio.run(coro)
+
+
+# ---------------------------------------------------------------------------
+# Mock sandbox that runs code locally (mirrors the real sandbox runner logic
+# but avoids the Modal dependency in unit tests).
+# ---------------------------------------------------------------------------
+
+
+class _MockSandbox:
+    """Local exec()-based sandbox for unit tests."""
+
+    def __init__(self, extract_dir: Path):
+        self._extract_dir = extract_dir
+
+    def execute(self, code: str) -> tuple[str, pl.DataFrame | None]:
+        ns = {
+            "__builtins__": __builtins__,
+            "pl": pl,
+            "polars": pl,
+            "csv": csv,
+            "json": json,
+            "Path": Path,
+            "datetime": datetime,
+            "re": re,
+            "math": math,
+            "io": io,
+            "DATA_DIR": str(self._extract_dir),
+        }
+        try:
+            exec(code, ns)
+        except Exception:
+            return f"Execution error:\n{traceback.format_exc()}", None
+
+        result_df = ns.get("result_df")
+        if result_df is None:
+            available = [
+                k
+                for k in ns
+                if not k.startswith("_")
+                and k
+                not in (
+                    "pl",
+                    "polars",
+                    "csv",
+                    "json",
+                    "Path",
+                    "datetime",
+                    "re",
+                    "math",
+                    "io",
+                    "DATA_DIR",
+                )
+            ]
+            return (
+                f"No `result_df` variable found after execution.\n"
+                f"Variables defined: {available}\n"
+                "Assign your final DataFrame to `result_df`."
+            ), None
+
+        if not isinstance(result_df, pl.DataFrame):
+            return (
+                f"`result_df` is {type(result_df).__name__}, not a Polars DataFrame.\n"
+                "Use pl.DataFrame(...) or pl.read_csv(...) to create one."
+            ), None
+
+        if result_df.is_empty():
+            return "Warning: `result_df` is empty (0 rows). Check your parsing logic.", None
+
+        preview = f"Shape: {result_df.shape[0]} rows x {result_df.shape[1]} columns"
+        return f"Success!\n\n{preview}", result_df
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
 class TestSafeResolve:
@@ -37,15 +118,6 @@ class TestSafeResolve:
             _safe_resolve(tmp_path, "../../../etc/passwd")
 
 
-class TestFormatDfPreview:
-    def test_basic_preview(self):
-        df = pl.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
-        preview = _format_df_preview(df, max_rows=2)
-        assert "3 rows x 2 columns" in preview
-        assert "a:" in preview
-        assert "b:" in preview
-
-
 class TestIngestionTools:
     """Test the individual tools returned by make_ingestion_tools."""
 
@@ -61,8 +133,12 @@ class TestIngestionTools:
         (sub / "nested.txt").write_text("hello\nworld\n")
         return tmp_path
 
+    def _make_tools(self, extract_dir):
+        sandbox = _MockSandbox(extract_dir)
+        return make_ingestion_tools(extract_dir, sandbox)
+
     def test_list_files(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         list_tool = tools[0]
         result = _run(list_tool(path="."))
         assert "data.csv" in result
@@ -70,20 +146,20 @@ class TestIngestionTools:
         assert "subdir/" in result
 
     def test_read_file_sample(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         read_tool = tools[1]
         result = _run(read_tool(path="data.csv", n_lines=10))
         assert "date,value,category" in result
         assert "2024-01-01" in result
 
     def test_read_file_traversal_blocked(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         read_tool = tools[1]
         result = _run(read_tool(path="../../../etc/passwd"))
         assert "Path traversal blocked" in result
 
     def test_execute_python_success(self, sample_archive):
-        tools, capture = make_ingestion_tools(sample_archive)
+        tools, capture = self._make_tools(sample_archive)
         exec_tool = tools[2]
         code = 'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
         result = _run(exec_tool(code=code))
@@ -93,20 +169,20 @@ class TestIngestionTools:
         assert len(capture["dataframe"]) == 2
 
     def test_execute_python_no_result_df(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         exec_tool = tools[2]
         result = _run(exec_tool(code="x = 42"))
         assert "No `result_df` variable found" in result
 
     def test_execute_python_error(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         exec_tool = tools[2]
         result = _run(exec_tool(code="1/0"))
         assert "Execution error" in result
         assert "ZeroDivisionError" in result
 
     def test_submit_table_success(self, sample_archive):
-        tools, capture = make_ingestion_tools(sample_archive)
+        tools, capture = self._make_tools(sample_archive)
         exec_tool = tools[2]
         submit_tool = tools[3]
 
@@ -129,7 +205,7 @@ class TestIngestionTools:
         assert "date" in capture["column_descriptions"]
 
     def test_submit_table_missing_descriptions(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         exec_tool = tools[2]
         submit_tool = tools[3]
 
@@ -144,7 +220,7 @@ class TestIngestionTools:
         assert "Missing descriptions" in result
 
     def test_submit_table_no_dataframe(self, sample_archive):
-        tools, _ = make_ingestion_tools(sample_archive)
+        tools, _ = self._make_tools(sample_archive)
         submit_tool = tools[3]
         result = _run(
             submit_tool(
