@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import polars as pl
 
-from causal_ssm_agent.utils.causal_spec import get_indicators
-
 
 def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
     """Format a DataFrame schema and sample for LLM consumption.
@@ -38,62 +36,6 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
         lines.append(str(df.select(numeric_cols).describe()))
 
     return "\n".join(lines)
-
-
-def map_columns_to_indicators(df: pl.DataFrame, causal_spec: dict) -> pl.DataFrame:
-    """Map ingested DataFrame columns to the long-format indicator representation.
-
-    Takes a wide-format DataFrame (one column per variable) and melts it to the
-    long format (indicator, value, timestamp) expected by Stage 3+.
-    """
-    indicators = get_indicators(causal_spec)
-    indicator_names = [ind["name"] for ind in indicators]
-
-    available = [name for name in indicator_names if name in df.columns]
-    if not available:
-        raise ValueError(
-            f"No indicator columns found in DataFrame. "
-            f"Expected: {indicator_names}, got: {df.columns}"
-        )
-
-    # Detect timestamp column
-    time_col = None
-    for candidate in ("timestamp", "date", "time", "datetime", "time_bucket"):
-        if candidate in df.columns:
-            time_col = candidate
-            break
-    if time_col is None:
-        for col in df.columns:
-            if df.schema[col] in (pl.Date, pl.Datetime):
-                time_col = col
-                break
-
-    if time_col:
-        long_df = df.select([time_col, *available]).unpivot(
-            index=time_col,
-            on=available,
-            variable_name="indicator",
-            value_name="value",
-        )
-        if time_col != "timestamp":
-            long_df = long_df.rename({time_col: "timestamp"})
-        long_df = long_df.with_columns(
-            pl.col("timestamp").cast(pl.Utf8),
-            pl.col("value").cast(pl.Utf8),
-        )
-    else:
-        long_df = df.select(available).unpivot(
-            on=available,
-            variable_name="indicator",
-            value_name="value",
-        )
-        long_df = long_df.with_columns(
-            pl.lit(None).alias("timestamp"),
-            pl.col("value").cast(pl.Utf8),
-        )
-
-    long_df = long_df.drop_nulls(subset=["value"])
-    return long_df
 
 
 def compute_date_range(df: pl.DataFrame) -> dict[str, str]:
