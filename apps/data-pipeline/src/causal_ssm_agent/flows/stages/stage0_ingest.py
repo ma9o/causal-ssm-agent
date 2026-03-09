@@ -1,7 +1,8 @@
 """Stage 0: Agentic ingestion core logic.
 
 An LLM agent explores an extracted zip archive, writes Python code to parse
-the contents, and produces a single Polars DataFrame.
+the contents, and produces a single Polars DataFrame.  Code execution happens
+inside a Modal CPU sandbox for isolation.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ import polars as pl
 
 from causal_ssm_agent.utils.llm import GenerateFn
 
-from .stage0_tools import make_ingestion_tools
+from .stage0_tools import ModalCodeSandbox, make_ingestion_tools
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -55,6 +56,7 @@ Polars DataFrame.
 
 ## Code Environment
 
+Your code runs inside an isolated sandbox container. \
 Available in the namespace:
 - `polars` / `pl` — Polars library
 - `csv`, `json`, `re`, `math`, `io`, `datetime` — standard library
@@ -86,7 +88,7 @@ df = pl.DataFrame(data)
 """
 
 USER_PROMPT = """\
-The archive has been extracted to: {extract_dir}
+The archive has been extracted and is available via DATA_DIR.
 
 Explore the contents and parse all relevant data into a single Polars DataFrame.
 """
@@ -103,8 +105,8 @@ async def run_agentic_ingestion(
 ) -> IngestionResult:
     """Run the agentic ingestion loop.
 
-    The LLM agent explores the extracted archive using tools and produces
-    a Polars DataFrame.
+    Spins up a Modal CPU sandbox, then lets the LLM agent explore the
+    extracted archive using tools and produce a Polars DataFrame.
 
     Args:
         extract_dir: Root directory of the extracted zip contents.
@@ -116,14 +118,15 @@ async def run_agentic_ingestion(
     Raises:
         ValueError: If the agent did not produce a valid table.
     """
-    tools, capture = make_ingestion_tools(extract_dir)
+    with ModalCodeSandbox(extract_dir) as sandbox:
+        tools, capture = make_ingestion_tools(extract_dir, sandbox)
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": USER_PROMPT.format(extract_dir=extract_dir)},
-    ]
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": USER_PROMPT},
+        ]
 
-    await generate(messages, tools)
+        await generate(messages, tools)
 
     # Extract result from capture
     df = capture.get("dataframe")
