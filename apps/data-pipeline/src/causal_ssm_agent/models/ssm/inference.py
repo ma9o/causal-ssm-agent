@@ -1,17 +1,23 @@
 """Inference backends for SSM models.
 
 Separates inference from model definition. SSMModel defines the probabilistic
-model; this module provides fit() to run inference with different backends:
+model; this module provides fit() to run inference with different backends.
 
-- SVI (default): Fast approximate posterior via ELBO optimization.
-  Tolerates PF gradient noise because SGD is designed for noisy gradients.
-- NUTS: HMC-based sampling. Works well with Kalman likelihood but struggles
-  with PF resampling discontinuities.
-- NUTS-DA: Data augmentation MCMC — jointly samples parameters and latent
-  states with NUTS. No filter needed. Non-centered parameterization (default).
-- Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
-- PGAS: Particle Gibbs with ancestor sampling + gradient-informed proposals.
+Structural routing (method="auto", the default) selects the best method
+from model properties: "nuts" for Kalman-eligible models (all Gaussian +
+identity link), "laplace_em" for non-Gaussian emissions. Users can override
+to any specific method. See docs/modeling/inference-strategies.md for details.
+
+Available methods:
+- NUTS: HMC-based sampling. Gold standard for Kalman-eligible models.
+- SVI: Fast approximate posterior via ELBO optimization.
 - Tempered SMC: Adaptive tempering with preconditioned HMC/MALA mutations.
+- Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
+- Laplace-EM: IEKS + Laplace approximation for non-Gaussian emissions.
+- Structured VI: Backward-factored variational family.
+- DPF: Differentiable Particle Filter with learned proposals.
+- NUTS-DA: Data augmentation MCMC — jointly samples params and latent states.
+- PGAS: Particle Gibbs with ancestor sampling + gradient-informed proposals.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNorma
 from numpyro.optim import ClippedAdam
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,7 @@ HIST_PADDING_RATIO = 0.05
 HIST_PADDING_DEFAULT = 0.5
 
 InferenceMethod = Literal[
+    "auto",
     "nuts",
     "nuts_da",
     "svi",
@@ -595,11 +602,54 @@ def _build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str
     }
 
 
+def select_default_method(spec: SSMSpec) -> InferenceMethod:
+    """Select the default inference method based on model structure.
+
+    Implements the structural routing decision tree from
+    docs/modeling/inference-strategies.md:
+
+    1. A = Marginalize (structural default for all models)
+    2. Determine B from model structure:
+       - B = Closed-form (Kalman) if partition.has_particle_block is False
+         (all emissions Gaussian + identity link + Gaussian diffusion)
+       - B = Deterministic approx (IEKS) otherwise
+    3. Select C given B:
+       - Kalman → exact smooth gradients → MCMC optimal → "nuts"
+       - IEKS → smooth approximate gradients → SMC (multimodality
+         protection for non-Gaussian emission posteriors) → "laplace_em"
+
+    User overrides (nuts_da, pgas, svi, hessmc2, dpf, structured_vi)
+    bypass this routing entirely.
+
+    Args:
+        spec: SSMSpec encoding model structure decisions.
+
+    Returns:
+        "nuts" for Kalman-eligible models, "laplace_em" otherwise.
+    """
+    from causal_ssm_agent.models.likelihoods.graph_analysis import analyze_first_pass_rb
+
+    partition = analyze_first_pass_rb(spec)
+
+    if not partition.has_particle_block:
+        # B = Closed-form (Kalman): all latent-obs chains are linear-Gaussian
+        # with identity links. Exact, smooth gradients → MCMC is optimal.
+        logger.info("Structural routing: Kalman-eligible model → nuts")
+        return "nuts"
+
+    # B = Deterministic approx (IEKS/Laplace): non-Gaussian emissions or
+    # non-identity links. CT-LTI dynamics are always linear and all 7
+    # emission families have C² log-densities, so IEKS is always available.
+    # SMC handles multimodality in the parameter posterior.
+    logger.info("Structural routing: non-Kalman model → laplace_em")
+    return "laplace_em"
+
+
 def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    method: InferenceMethod = "svi",
+    method: InferenceMethod = "auto",
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
@@ -608,12 +658,17 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method - "svi" (default), "nuts", "hessmc2", "pgas", "tempered_smc"
+        method: Inference method - "auto" (structural routing, default),
+            "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em",
+            "structured_vi", "dpf", or "nuts_da"
         **kwargs: Method-specific arguments
 
     Returns:
         InferenceResult with posterior samples and diagnostics
     """
+    if method == "auto":
+        method = select_default_method(model.spec)
+
     if method == "nuts":
         return _fit_nuts(model, observations, times, **kwargs)
     if method == "nuts_da":
@@ -648,7 +703,7 @@ def fit(
         return fit_dpf(model, observations, times, **kwargs)
     raise ValueError(
         f"Unknown inference method: {method!r}. "
-        "Use 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
+        "Use 'auto', 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
         "'laplace_em', 'structured_vi', or 'dpf'."
     )
 

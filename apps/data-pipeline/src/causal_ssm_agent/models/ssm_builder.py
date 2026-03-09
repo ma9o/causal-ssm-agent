@@ -1146,8 +1146,8 @@ class SSMModelBuilder:
         # Merge sampler config with kwargs
         sampler_config = {**self._sampler_config, **kwargs}
 
-        # Extract method (default to nuts_da) without mutating
-        method = sampler_config.get("method", "nuts_da")
+        # Extract method (default to auto = structural routing) without mutating
+        method = sampler_config.get("method", "auto")
         fit_kwargs = {k: v for k, v in sampler_config.items() if k != "method"}
 
         result = fit(
