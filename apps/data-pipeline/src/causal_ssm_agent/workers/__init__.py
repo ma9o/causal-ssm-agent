@@ -1,4 +1,4 @@
-from .agents import WorkerResult, process_chunk, process_chunks
+from .agents import WorkerResult, process_chunk
 from .schemas import (
     Extraction,
     WorkerOutput,
@@ -9,5 +9,4 @@ __all__ = [
     "WorkerOutput",
     "WorkerResult",
     "process_chunk",
-    "process_chunks",
 ]

@@ -179,32 +179,54 @@ def stage1b_web(stage1b: dict, stage1b_gate: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Stage 2: Column-to-indicator mapping
+# Stage 2: Worker extraction (parallel, concurrency-limited)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def stage2(stage0: dict, stage1b: dict) -> dict:
-    """Map ingested columns to long-format indicator representation.
+async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
+    """Extract indicator values from data using LLM workers.
 
     Returns dict with:
     - ``_raw_data``: long-format Polars DataFrame
     - ``_data_for_model``: aggregated DataFrame for modeling
+    - ``_worker_statuses``: per-worker status list
     - plus web-serializable fields
     """
+    import polars as pl
+
     from causal_ssm_agent.utils.aggregations import (
         aggregate_worker_measurements,
         flatten_aggregated_data,
     )
 
-    from .pipeline_helpers import map_columns_to_indicators
+    from .stages import stage2_extraction_flow
 
     ingested_df = stage0["_df"]
     causal_spec = stage1b["causal_spec"]
 
-    raw_data = map_columns_to_indicators(ingested_df, causal_spec)
+    stage2_result = await stage2_extraction_flow(
+        raw_df=ingested_df,
+        question=question,
+        causal_spec=causal_spec,
+    )
+
+    # Reconstruct raw_data DataFrame from worker results
+    raw_data_dicts = stage2_result.get("raw_data", [])
+    if raw_data_dicts:
+        raw_data = pl.DataFrame(
+            raw_data_dicts,
+            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
+        )
+    else:
+        raw_data = pl.DataFrame(
+            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
+        )
+
     n_observations = len(raw_data)
     n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
-    logger.info("Mapped %d observations across %d indicators", n_observations, n_unique_indicators)
+    logger.info(
+        "Extracted %d observations across %d indicators", n_observations, n_unique_indicators
+    )
 
     # Aggregate to pipeline-level granularity
     worker_dfs = [raw_data]
@@ -234,10 +256,13 @@ def stage2(stage0: dict, stage1b: dict) -> dict:
         for row in sample_rows
     ]
 
+    worker_statuses = stage2_result.get("worker_statuses", [])
+
     return {
         "_raw_data": raw_data,
         "_data_for_model": data_for_model,
-        "workers": [],
+        "_worker_statuses": worker_statuses,
+        "workers": worker_statuses,
         "combined_extractions_sample": combined_extractions_sample,
         "per_indicator_counts": per_ind_counts,
     }
@@ -248,7 +273,8 @@ def stage2_web(stage2: dict) -> dict:
     from .stages import persist_web_result
 
     web = {k: v for k, v in stage2.items() if not k.startswith("_")}
-    web["outcome"] = "success"
+    n_observations = len(stage2.get("_raw_data", []))
+    web["outcome"] = "success" if n_observations > 0 else "fail"
     persist_web_result("stage-2", web)
     return web
 

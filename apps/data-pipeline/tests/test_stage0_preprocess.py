@@ -231,57 +231,6 @@ class TestIngestionTools:
         assert "No DataFrame available" in result
 
 
-class TestMapColumnsToIndicators:
-    """Test the column-to-indicator mapping function."""
-
-    def test_basic_mapping(self):
-        from causal_ssm_agent.flows.pipeline import map_columns_to_indicators
-
-        df = pl.DataFrame(
-            {
-                "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                "ldl_cholesterol": [4.1, 3.8, 4.0],
-                "systolic_bp": [120.0, 118.0, 122.0],
-                "irrelevant_col": ["a", "b", "c"],
-            }
-        )
-        causal_spec = {
-            "measurement": {
-                "indicators": [
-                    {"name": "ldl_cholesterol", "construct_name": "cardiovascular"},
-                    {"name": "systolic_bp", "construct_name": "cardiovascular"},
-                ]
-            }
-        }
-        result = map_columns_to_indicators(df, causal_spec)
-        assert set(result.columns) == {"indicator", "value", "timestamp"}
-        assert result["indicator"].n_unique() == 2
-        assert len(result) == 6  # 3 rows x 2 indicators
-
-    def test_no_matching_columns_raises(self):
-        from causal_ssm_agent.flows.pipeline import map_columns_to_indicators
-
-        df = pl.DataFrame({"x": [1, 2], "y": [3, 4]})
-        causal_spec = {
-            "measurement": {"indicators": [{"name": "nonexistent", "construct_name": "c"}]}
-        }
-        with pytest.raises(ValueError, match="No indicator columns found"):
-            map_columns_to_indicators(df, causal_spec)
-
-    def test_detects_timestamp_column(self):
-        from causal_ssm_agent.flows.pipeline import map_columns_to_indicators
-
-        df = pl.DataFrame(
-            {
-                "timestamp": ["2024-01-01", "2024-01-02"],
-                "hr": [72.0, 75.0],
-            }
-        )
-        causal_spec = {"measurement": {"indicators": [{"name": "hr", "construct_name": "health"}]}}
-        result = map_columns_to_indicators(df, causal_spec)
-        assert "timestamp" in result.columns
-        assert result["timestamp"][0] == "2024-01-01"
-
 
 class TestFindRawInput:
     def test_finds_zip(self, tmp_path):

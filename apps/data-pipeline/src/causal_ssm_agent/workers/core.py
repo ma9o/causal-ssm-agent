@@ -51,18 +51,33 @@ def _get_outcome_description(causal_spec: dict) -> str:
     return "Not specified"
 
 
+def _format_dataframe_schema(df: pl.DataFrame) -> str:
+    """Format a DataFrame schema for the worker prompt."""
+    lines = ["| Column | Type |", "|--------|------|"]
+    for col in df.columns:
+        lines.append(f"| {col} | {df.schema[col]} |")
+    return "\n".join(lines)
+
+
+def _format_dataframe_chunk(df: pl.DataFrame) -> str:
+    """Format a DataFrame chunk as a string table for the worker prompt."""
+    return str(df)
+
+
 @dataclass
 class WorkerMessages:
     """Message builders for worker prompts."""
 
     question: str
     causal_spec: dict
-    chunk: str
+    chunk_df: pl.DataFrame
 
     def extraction_messages(self) -> list[dict]:
         """Build messages for worker extraction."""
         indicators_text = _format_indicators(self.causal_spec)
         outcome_description = _get_outcome_description(self.causal_spec)
+        schema_text = _format_dataframe_schema(self.chunk_df)
+        chunk_text = _format_dataframe_chunk(self.chunk_df)
 
         return [
             {"role": "system", "content": SYSTEM},
@@ -72,26 +87,28 @@ class WorkerMessages:
                     question=self.question,
                     outcome_description=outcome_description,
                     indicators=indicators_text,
-                    chunk=self.chunk,
+                    schema=schema_text,
+                    n_rows=len(self.chunk_df),
+                    chunk=chunk_text,
                 ),
             },
         ]
 
 
 async def run_worker_extraction(
-    chunk: str,
+    chunk_df: pl.DataFrame,
     question: str,
     causal_spec: dict,
     generate: WorkerGenerateFn,
 ) -> WorkerResult:
     """
-    Run worker extraction for a single chunk.
+    Run worker extraction for a single DataFrame chunk.
 
     This is the core logic, decoupled from any framework. The caller provides
     a `generate` function that handles LLM calls.
 
     Args:
-        chunk: The data chunk to process
+        chunk_df: A slice of the raw DataFrame to process
         question: The causal research question
         causal_spec: The CausalSpec dict with latent and measurement
         generate: Async function (messages, tools) -> completion
@@ -99,7 +116,7 @@ async def run_worker_extraction(
     Returns:
         WorkerResult with output, dataframe, and raw completion
     """
-    msgs = WorkerMessages(question, causal_spec, chunk)
+    msgs = WorkerMessages(question, causal_spec, chunk_df)
 
     # Build messages and tools
     # The validation tool captures the last valid output so we don't depend

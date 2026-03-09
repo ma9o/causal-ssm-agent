@@ -15,10 +15,9 @@ def test_import_orchestrator():
 
 
 def test_import_workers():
-    from causal_ssm_agent.workers import process_chunk, process_chunks
+    from causal_ssm_agent.workers import process_chunk
 
     assert callable(process_chunk)
-    assert callable(process_chunks)
 
 
 def test_import_utils():

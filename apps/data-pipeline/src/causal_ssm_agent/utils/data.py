@@ -120,6 +120,21 @@ def sample_chunks(
     return sampled
 
 
+def chunk_dataframe(df: pl.DataFrame, chunk_size: int) -> list[pl.DataFrame]:
+    """Split a DataFrame into row-based chunks.
+
+    Args:
+        df: DataFrame to split.
+        chunk_size: Maximum rows per chunk.
+
+    Returns:
+        List of DataFrame slices, each with at most chunk_size rows.
+    """
+    if df.is_empty():
+        return []
+    return [df.slice(i, chunk_size) for i in range(0, len(df), chunk_size)]
+
+
 def get_latest_preprocessed_file(
     directory: Path | None = None,
     exclude: set[str] | None = None,
