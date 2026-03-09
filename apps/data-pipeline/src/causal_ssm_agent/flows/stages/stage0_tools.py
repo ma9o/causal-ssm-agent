@@ -263,36 +263,26 @@ class ModalCodeSandbox:
 
 def _safe_resolve(base: Path, user_path: str) -> Path:
     """Resolve a user-provided path safely within the base directory."""
+    base_resolved = base.resolve()
     resolved = (base / user_path).resolve()
-    if not str(resolved).startswith(str(base.resolve())):
+    if not str(resolved).startswith(str(base_resolved)):
         raise ValueError(f"Path traversal blocked: {user_path}")
     return resolved
 
 
-# ---------------------------------------------------------------------------
-# Tool factory
-# ---------------------------------------------------------------------------
-
-
-def make_ingestion_tools(
-    extract_dir_raw: Path,
-    sandbox: ModalCodeSandbox,
-) -> tuple[list[Tool], dict]:
+def make_ingestion_tools(extract_dir_raw: Path) -> tuple[list[Tool], dict]:
     """Create the toolset for the agentic ingestion agent.
 
     Args:
         extract_dir: Root directory of the extracted zip contents.
-        sandbox: A started ``ModalCodeSandbox`` for code execution.
 
     Returns:
         Tuple of (tools_list, capture_dict). After the agent loop,
         check capture["dataframe"] for the final DataFrame and
         capture["column_descriptions"] for per-column descriptions.
     """
-    # Resolve once so symlinks (e.g. macOS /var → /private/var) don't
-    # break relative_to() inside tools.
+    # Resolve once to avoid macOS /var vs /private/var symlink mismatches
     extract_dir = extract_dir_raw.resolve()
-
     capture: dict = {}
 
     @tool

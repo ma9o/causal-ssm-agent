@@ -334,7 +334,10 @@ def aggregate_worker_measurements(
                 agged = (
                     ind_data.group_by("time_bucket", maintain_order=True)
                     .map_groups(fn)
-                    .with_columns(pl.lit(ind_name).alias("indicator"))
+                    .with_columns(
+                        pl.lit(ind_name).alias("indicator"),
+                        pl.col("value").cast(pl.Float64),
+                    )
                     .select("indicator", "value", "time_bucket")
                 )
             else:
@@ -342,7 +345,10 @@ def aggregate_worker_measurements(
                 agged = (
                     ind_data.group_by("time_bucket", maintain_order=True)
                     .agg(agg_expr)
-                    .with_columns(pl.lit(ind_name).alias("indicator"))
+                    .with_columns(
+                        pl.lit(ind_name).alias("indicator"),
+                        pl.col("value").cast(pl.Float64),
+                    )
                     .select("indicator", "value", "time_bucket")
                 )
             agg_frames.append(agged)
