@@ -3,32 +3,30 @@
 # Stage 0: Agentic Data Ingestion
 # LLM agent that explores zip archives and parses data into a Polars DataFrame
 stage0_ingestion:
-  model: openrouter/anthropic/claude-sonnet-4
+  model: openrouter/google/gemini-3-flash-preview
 
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:
-  model: openrouter/anthropic/claude-opus-4.6
+  model: openrouter/google/gemini-3-flash-preview
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
 
-# Stage 2: Dimension Population (Workers)
-# Workers process chunks in parallel to populate dimensions and suggest graph edits
+# Stage 2: Worker Extraction
+# Workers process DataFrame chunks in parallel to extract indicator values
 stage2_workers:
   model: openrouter/google/gemini-3-flash-preview
-  chunk_size: 20  # Lines per chunk for each worker
+  chunk_size: 20  # Rows per chunk for each worker
 
 # Stage 3: Identifiability & Sensitivity Analysis
 # Uses y0 (Pearl's ID algorithm) - no LLM needed
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  model: openrouter/anthropic/claude-opus-4.6
+  model: openrouter/google/gemini-3-flash-preview
   # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true
-    model: exa-research  # exa-research-fast, exa-research, or exa-research-pro
-    timeout_ms: 120000   # Max time to wait for research completion
   # AutoElicit-style paraphrased prompting for prior elicitation
   paraphrasing:
     enabled: false       # Off by default (increases LLM cost)
@@ -62,3 +60,4 @@ llm:
 # Pipeline-level behavior
 pipeline:
   max_prior_retries: 3
+  max_concurrent_workers: 5  # Max parallel API calls (Exa + LLM) in stage 4
