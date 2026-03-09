@@ -136,6 +136,17 @@ export function useRunEvents(runId: string | null) {
           currentStage = prev.currentStage;
         }
 
+        // When currentStage advances, the next stage is already being
+        // processed — mark it running so it becomes visible immediately.
+        if (
+          currentStage &&
+          currentStage !== prev.currentStage &&
+          stages[currentStage] === "pending"
+        ) {
+          stages[currentStage] = "running";
+          timings[currentStage] = { startedAt: ts };
+        }
+
         return {
           stages,
           timings,
