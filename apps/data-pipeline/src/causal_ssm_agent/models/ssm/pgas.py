@@ -564,6 +564,7 @@ def fit_pgas(
     block_sampling: bool = False,
     svi_warmstart: bool = True,
     svi_num_steps: int = 500,
+    reparam=None,  # noqa: ARG001 — accepted for API consistency; PGAS Gibbs handles geometry
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM via PGAS with gradient-informed CSMC and HMC parameter updates.
@@ -619,7 +620,14 @@ def fit_pgas(
     svi_tag = "+svi_init" if svi_warmstart else ""
     logger.info(
         "PGAS [precond%s%s%s%s]: n_outer=%s, N_csmc=%s, n_mh=%s, n_l=%s",
-        block_tag, hmc_tag, opt_tag, svi_tag, n_outer, N_csmc, n_mh_steps, n_l,
+        block_tag,
+        hmc_tag,
+        opt_tag,
+        svi_tag,
+        n_outer,
+        N_csmc,
+        n_mh_steps,
+        n_l,
     )
 
     # 1. Discover model sites
@@ -918,7 +926,10 @@ def fit_pgas(
         if (n + 1) % max(1, n_outer // 5) == 0:
             logger.info(
                 "  iter %s/%s  accept=%.2f  step=%.4f",
-                n + 1, n_outer, accept_rate, current_step_size,
+                n + 1,
+                n_outer,
+                accept_rate,
+                current_step_size,
             )
 
     # 9. Extract posterior samples (discard warmup)

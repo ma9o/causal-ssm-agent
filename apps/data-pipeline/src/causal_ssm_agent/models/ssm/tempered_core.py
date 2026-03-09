@@ -56,6 +56,7 @@ def run_tempered_smc(
     likelihood_backend=None,
     extra_diagnostics: dict[str, Any] | None = None,
     print_prefix: str = "Tempered SMC",
+    reparam=None,
 ) -> InferenceResult:
     """Run tempered SMC with preconditioned HMC/MALA mutations.
 
@@ -105,7 +106,9 @@ def run_tempered_smc(
 
     # 1. Discover model sites
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, trace_key, likelihood_backend)
+    site_info = _discover_sites(
+        model, observations, times, trace_key, likelihood_backend, reparam=reparam
+    )
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
     D = flat_example.shape[0]
@@ -118,6 +121,7 @@ def run_tempered_smc(
         site_info,
         unravel_fn,
         likelihood_backend=likelihood_backend,
+        reparam=reparam,
     )
 
     # Safe value-and-grad for log-likelihood
@@ -199,8 +203,16 @@ def run_tempered_smc(
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
     logger.info(
         "%s [%s%s%s]: N=%s, K=%s, D=%s, n_mh=%s, eps=%s, target_accept=%s",
-        print_prefix, mode_tag, wf_tag, hmc_tag, N, n_outer, D,
-        n_mh_steps, eps, target_accept,
+        print_prefix,
+        mode_tag,
+        wf_tag,
+        hmc_tag,
+        N,
+        n_outer,
+        D,
+        n_mh_steps,
+        eps,
+        target_accept,
     )
     logger.info("  Initializing %s particles from prior...", N)
 
@@ -235,7 +247,9 @@ def run_tempered_smc(
         if pilot_step >= 5 and abs(avg_accept - target_accept) < 0.1:
             logger.info(
                 "    pilot converged at step %s: accept=%.2f eps=%.4f",
-                pilot_step + 1, avg_accept, eps,
+                pilot_step + 1,
+                avg_accept,
+                eps,
             )
             break
     else:
@@ -359,7 +373,14 @@ def run_tempered_smc(
 
         logger.info(
             "  step %s  beta=%.3f  ESS=%.1f/%s  accept=%.2f  eps=%.4f  rounds=%s%s",
-            level + 1, beta_k, ess, N, avg_accept, eps, n_rounds, resamp_tag,
+            level + 1,
+            beta_k,
+            ess,
+            N,
+            avg_accept,
+            eps,
+            n_rounds,
+            resamp_tag,
         )
 
         beta_prev = beta_k
@@ -375,7 +396,16 @@ def run_tempered_smc(
     # 6. Post-process: discard warmup, transform to constrained space
     chain_particles = jnp.stack(chain_samples[n_warmup:], axis=0)  # (n_keep, D)
 
-    samples = extract_constrained_samples(chain_particles, site_info, unravel_fn, model.spec)
+    samples = extract_constrained_samples(
+        chain_particles,
+        site_info,
+        unravel_fn,
+        model.spec,
+        reparam=reparam,
+        model=model,
+        observations=observations,
+        times=times,
+    )
 
     diagnostics = {
         "accept_rates": accept_rates,
