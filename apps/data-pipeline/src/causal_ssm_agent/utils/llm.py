@@ -678,7 +678,7 @@ def parse_date():
 # Per-turn logging helpers
 # ---------------------------------------------------------------------------
 
-MAX_TOOL_LOOP_TURNS = 25
+MAX_TOOL_LOOP_TURNS = 40
 WARN_TOOL_LOOP_TURNS = 10
 
 
