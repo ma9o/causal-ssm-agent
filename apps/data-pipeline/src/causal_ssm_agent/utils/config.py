@@ -137,7 +137,7 @@ class PipelineBehaviorConfig:
 
     max_prior_retries: int = 3
     override_gates: bool = False
-    max_concurrent_workers: int = 5
+    max_parallel_tasks: int = 50
 
 
 @dataclass(frozen=True)
