@@ -16,12 +16,14 @@ from causal_ssm_agent.models.likelihoods.graph_analysis import (
     get_per_channel_manifest,
     get_per_variable_diffusion,
 )
+from causal_ssm_agent.models.ssm.inference import select_default_method
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 # =============================================================================
 # Helper
 # =============================================================================
+
 
 def _make_spec(**kwargs) -> SSMSpec:
     """Create an SSMSpec with defaults for testing."""
@@ -40,7 +42,6 @@ def _make_spec(**kwargs) -> SSMSpec:
 
 
 class TestGetPerVariableDiffusion:
-
     def test_scalar_broadcast(self):
         """Scalar diffusion_dist broadcasts to all latent variables."""
         spec = _make_spec(n_latent=3, n_manifest=3, lambda_mat=jnp.eye(3))
@@ -69,32 +70,26 @@ class TestGetPerVariableDiffusion:
 
 
 class TestGetPerChannelManifest:
-
     def test_scalar_broadcast(self):
         spec = _make_spec()
         result = get_per_channel_manifest(spec)
         assert result == [DistributionFamily.GAUSSIAN] * 2
 
     def test_per_channel_override(self):
-        spec = _make_spec(
-            manifest_dists=[DistributionFamily.POISSON, DistributionFamily.GAUSSIAN]
-        )
+        spec = _make_spec(manifest_dists=[DistributionFamily.POISSON, DistributionFamily.GAUSSIAN])
         result = get_per_channel_manifest(spec)
         assert result[0] == DistributionFamily.POISSON
         assert result[1] == DistributionFamily.GAUSSIAN
 
 
 class TestGetPerChannelLinks:
-
     def test_scalar_broadcast(self):
         spec = _make_spec()
         result = get_per_channel_links(spec)
         assert result == [LinkFunction.IDENTITY] * 2
 
     def test_per_channel_override(self):
-        spec = _make_spec(
-            manifest_links=[LinkFunction.LOG, LinkFunction.IDENTITY]
-        )
+        spec = _make_spec(manifest_links=[LinkFunction.LOG, LinkFunction.IDENTITY])
         result = get_per_channel_links(spec)
         assert result[0] == LinkFunction.LOG
 
@@ -105,7 +100,6 @@ class TestGetPerChannelLinks:
 
 
 class TestComputeDriftSparsity:
-
     def test_free_drift_all_nonzero(self):
         """Free drift → all entries could be nonzero."""
         spec = _make_spec(drift="free")
@@ -135,7 +129,6 @@ class TestComputeDriftSparsity:
 
 
 class TestComputeObsDependency:
-
     def test_free_lambda_all_deps(self):
         """Free lambda_mat → all observation channels depend on all latents."""
         spec = _make_spec(lambda_mat="free")
@@ -168,7 +161,6 @@ class TestComputeObsDependency:
 
 
 class TestAnalyzeFirstPassRB:
-
     def test_all_gaussian_diagonal(self):
         """Fully Gaussian diagonal model → all variables go to Kalman."""
         spec = _make_spec(
@@ -236,11 +228,13 @@ class TestAnalyzeFirstPassRB:
         """Obs channel depending on both Kalman and PF latents → goes to PF."""
         # 3 latents: 0,1 Gaussian decoupled, 2 Student-t
         # Obs 2 depends on latent 0 and 2 → mixed dependency
-        H = jnp.array([
-            [1.0, 0.0, 0.0],  # obs 0 → latent 0 only (Kalman)
-            [0.0, 1.0, 0.0],  # obs 1 → latent 1 only (Kalman)
-            [0.5, 0.0, 0.5],  # obs 2 → latent 0 + 2 (mixed → PF)
-        ])
+        H = jnp.array(
+            [
+                [1.0, 0.0, 0.0],  # obs 0 → latent 0 only (Kalman)
+                [0.0, 1.0, 0.0],  # obs 1 → latent 1 only (Kalman)
+                [0.5, 0.0, 0.5],  # obs 2 → latent 0 + 2 (mixed → PF)
+            ]
+        )
         spec = _make_spec(
             n_latent=3,
             n_manifest=3,
@@ -324,11 +318,11 @@ class TestAnalyzeFirstPassRB:
             drift="free",
             drift_mask=dm,
             diffusion_dists=[
-                DistributionFamily.GAUSSIAN,   # 0 → Kalman
-                DistributionFamily.GAUSSIAN,   # 1 → Kalman (same block as 0)
-                DistributionFamily.GAUSSIAN,   # 2 → Kalman
+                DistributionFamily.GAUSSIAN,  # 0 → Kalman
+                DistributionFamily.GAUSSIAN,  # 1 → Kalman (same block as 0)
+                DistributionFamily.GAUSSIAN,  # 2 → Kalman
                 DistributionFamily.STUDENT_T,  # 3 → PF (contaminates block {2,3})
-                DistributionFamily.GAUSSIAN,   # 4 → Kalman
+                DistributionFamily.GAUSSIAN,  # 4 → Kalman
             ],
         )
         partition = analyze_first_pass_rb(spec)
@@ -338,3 +332,136 @@ class TestAnalyzeFirstPassRB:
         # Block {4}: Gaussian → Kalman
         np.testing.assert_array_equal(partition.kalman_idx, [0, 1, 4])
         np.testing.assert_array_equal(partition.particle_idx, [2, 3])
+
+    def test_nonidentity_link_prevents_kalman(self):
+        """Gaussian diffusion + Gaussian obs but non-identity link → goes to PF."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+            manifest_links=[LinkFunction.LOG, LinkFunction.IDENTITY],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        # Latent 0 has log link → PF despite Gaussian everything else
+        # Latent 1 has identity link → Kalman
+        np.testing.assert_array_equal(partition.kalman_idx, [1])
+        np.testing.assert_array_equal(partition.particle_idx, [0])
+
+    def test_all_nonidentity_links_no_kalman(self):
+        """All non-identity links → no Kalman block."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            manifest_link=LinkFunction.LOG,
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        assert not partition.has_kalman_block
+        assert partition.has_particle_block
+
+
+# =============================================================================
+# select_default_method — structural inference routing
+# =============================================================================
+
+
+class TestSelectDefaultMethod:
+    def test_gaussian_model_routes_to_nuts(self):
+        """Fully Gaussian model with identity links → nuts."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+        )
+        assert select_default_method(spec) == "nuts"
+
+    def test_poisson_obs_routes_to_laplace_em(self):
+        """Poisson observations → laplace_em."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.POISSON,
+            manifest_link=LinkFunction.LOG,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_student_t_diffusion_routes_to_laplace_em(self):
+        """Student-t diffusion noise → laplace_em."""
+        spec = _make_spec(
+            diffusion_dist=DistributionFamily.STUDENT_T,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_mixed_model_routes_to_laplace_em(self):
+        """Mixed Gaussian + non-Gaussian with coupling → laplace_em."""
+        spec = _make_spec(
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            drift="free",
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_gaussian_with_log_link_routes_to_laplace_em(self):
+        """Gaussian noise but log link → non-Kalman → laplace_em."""
+        spec = _make_spec(
+            manifest_link=LinkFunction.LOG,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_bernoulli_routes_to_laplace_em(self):
+        """Bernoulli observations → laplace_em."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.BERNOULLI,
+            manifest_link=LinkFunction.LOGIT,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_gamma_routes_to_laplace_em(self):
+        """Gamma observations → laplace_em."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.GAMMA,
+            manifest_link=LinkFunction.LOG,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_negative_binomial_routes_to_laplace_em(self):
+        """Negative binomial observations → laplace_em."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.NEGATIVE_BINOMIAL,
+            manifest_link=LinkFunction.LOG,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_beta_routes_to_laplace_em(self):
+        """Beta observations → laplace_em."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.BETA,
+            manifest_link=LinkFunction.LOGIT,
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_per_channel_mixed_routes_to_laplace_em(self):
+        """Per-channel mixed distributions: one Poisson channel → laplace_em."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
+        )
+        assert select_default_method(spec) == "laplace_em"
+
+    def test_large_gaussian_model_routes_to_nuts(self):
+        """Larger fully Gaussian model → nuts."""
+        n = 5
+        spec = _make_spec(
+            n_latent=n,
+            n_manifest=n,
+            lambda_mat=jnp.eye(n),
+            drift="free",
+            drift_mask=np.eye(n, dtype=bool),
+        )
+        assert select_default_method(spec) == "nuts"

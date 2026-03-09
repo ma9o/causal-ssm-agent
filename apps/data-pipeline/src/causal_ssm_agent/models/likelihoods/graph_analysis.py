@@ -140,20 +140,24 @@ def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
     obs_dep = compute_obs_dependency(spec)
     per_var = get_per_variable_diffusion(spec)
     per_obs = get_per_channel_manifest(spec)
+    per_links = get_per_channel_links(spec)
 
     # Step 1: Identify Gaussian-eligible variables (Gaussian diffusion +
-    # all observation channels that depend on them have Gaussian obs noise)
+    # all observation channels that depend on them have Gaussian obs noise
+    # AND identity link function — non-identity links make the observation
+    # model nonlinear, which the Kalman filter cannot handle)
     gaussian_eligible = set()
     for i in range(n):
         if per_var[i] != "gaussian":
             continue
         # Check that all obs channels depending on i have Gaussian obs noise
-        has_nongaussian_obs = False
+        # and identity link function
+        has_nonlinear_obs = False
         for k in range(spec.n_manifest):
-            if obs_dep[k, i] and per_obs[k] != "gaussian":
-                has_nongaussian_obs = True
+            if obs_dep[k, i] and (per_obs[k] != "gaussian" or per_links[k] != "identity"):
+                has_nonlinear_obs = True
                 break
-        if not has_nongaussian_obs:
+        if not has_nonlinear_obs:
             gaussian_eligible.add(i)
 
     non_gaussian = set(range(n)) - gaussian_eligible
