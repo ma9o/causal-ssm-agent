@@ -13,6 +13,9 @@ from .stage1b_measurement import (
     build_causal_spec,
     propose_measurement_with_identifiability_fix,
 )
+from .stage2_extract import (
+    stage2_extraction_flow,
+)
 from .stage3_validation import (
     validate_extraction,
 )
@@ -38,6 +41,8 @@ __all__ = [
     # Stage 1b
     "propose_measurement_with_identifiability_fix",
     "build_causal_spec",
+    # Stage 2
+    "stage2_extraction_flow",
     # Stage 3: Validate
     "validate_extraction",
     # Persistence

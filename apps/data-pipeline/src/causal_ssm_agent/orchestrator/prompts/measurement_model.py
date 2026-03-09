@@ -1,7 +1,7 @@
 """Stage 1b prompts: Measurement Model (data-driven operationalization)."""
 
 SYSTEM = """\
-You are a measurement specialist. Given a theoretical causal structure and an ingested dataset, propose how to MAP existing data columns to constructs as observable indicators.
+You are a measurement specialist. Given a theoretical causal structure and an ingested dataset, propose how to operationalize constructs as observable indicators using the available data columns.
 
 ## Context
 
@@ -9,7 +9,7 @@ You are given:
 1. A latent model with theoretical constructs and causal edges (from Stage 1a)
 2. A structured dataset with named columns (already parsed from the user's data)
 
-Your job is to propose INDICATORS that map existing columns to constructs. Each indicator's `name` must match an existing column name in the dataset.
+Your job is to propose INDICATORS that operationalize constructs using the available data columns. Each indicator gets a semantic `name` (it does NOT need to match a column name). The `how_to_measure` field must describe exactly how to derive the indicator value from the raw data columns — worker LLMs will follow these instructions to extract values.
 
 ## Reflective Measurement Model (A1)
 
@@ -33,9 +33,9 @@ Each indicator needs:
 
 | Field | Description |
 |-------|-------------|
-| **name** | Must match an existing column name in the dataset |
+| **name** | Semantic name for this indicator (does NOT need to match a column name) |
 | **construct** | Which construct this measures (must match a construct name) |
-| **how_to_measure** | Description of what this column represents and how it relates to the construct |
+| **how_to_measure** | Precise instructions for how to derive this value from the raw data columns. Workers will follow these instructions. Reference specific column names. |
 | **measurement_dtype** | 'continuous', 'binary', 'count', 'ordinal', 'categorical' |
 | **aggregation** | How to collapse within aggregation window |
 
@@ -67,14 +67,15 @@ The aggregated value should reflect the construct's state at that granularity. A
 The `how_to_measure` field describes what the column represents and why it measures the construct:
 
 ### Good Examples
-- "LDL cholesterol level in mg/dL — direct biomarker of cardiovascular health"
-- "Daily step count from fitness tracker — proxy for physical activity level"
-- "Binary flag: 1 if medication was taken that day, 0 otherwise"
+- "Use the `ldl_cholesterol` column directly. Values are in mg/dL. Higher values indicate worse cardiovascular health."
+- "Use the `steps` column directly. Represents daily step count from fitness tracker."
+- "Derive from the `medication_log` column: set to 1 if the value is non-null/non-empty for that day, 0 otherwise."
+- "Compute from `systolic_bp` and `diastolic_bp` columns: use the mean arterial pressure formula (diastolic + (systolic - diastolic) / 3)."
 
 ### Important
-- The data is already structured — no extraction is needed
-- Focus on WHY this column is a good indicator of the construct
-- Note any transformations implied by the dtype/aggregation choice
+- Reference specific column names from the dataset so workers know exactly where to look
+- Describe any derivation, transformation, or filtering needed
+- Workers will follow these instructions on each row of data
 
 ## Temporal Independence (A8)
 
@@ -130,9 +131,10 @@ Question: {question}
 
 ---
 
-Map existing dataset columns to constructs as indicators. Remember:
+Operationalize constructs as indicators using the available data columns. Remember:
 - Every time-varying construct needs at least one indicator
-- Indicator `name` must match an existing column in the dataset
+- Indicator `name` is a semantic label (does NOT need to match a column name)
+- `how_to_measure` must reference specific column names and describe how to derive the value
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 

@@ -1,7 +1,16 @@
 """Worker extraction prompts."""
 
 SYSTEM = """
-You are a data extraction worker. Given a causal question, a proposed indicator schema, and a data chunk, your job is to extract data for each indicator in the schema at the finest resolution visible in the data.
+You are a data extraction worker. Given a causal question, a proposed indicator schema, and a chunk of structured data, your job is to extract indicator values from the data rows.
+
+## Your Task
+
+You receive:
+1. A causal question
+2. A list of indicators with `how_to_measure` instructions
+3. A chunk of rows from a structured DataFrame (with column names and types)
+
+For each row, extract values for each indicator following the `how_to_measure` instructions. The instructions tell you which column(s) to use and how to derive the indicator value.
 
 ## Data Types (measurement_dtype)
 
@@ -42,11 +51,15 @@ USER = """\
 
 {outcome_description}
 
-## Indicators
+## Indicators to extract
 
 {indicators}
 
-## Data Chunk
+## DataFrame Schema
+
+{schema}
+
+## Data Chunk ({n_rows} rows)
 
 {chunk}
 """
