@@ -32,6 +32,7 @@ const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
 const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
 const Stage1bContent = lazy(() => import("./stage-contents/stage-1b-content"));
 const Stage2Content = lazy(() => import("./stage-contents/stage-2-content"));
+const Stage2RunningContent = lazy(() => import("./stage-contents/stage-2-running-content"));
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
@@ -166,6 +167,8 @@ export function StageSectionRouter({
     });
   }, [outcome, queryClient, runId, stage.id]);
 
+  const isStage2Running = stage.id === "stage-2" && status === "running";
+
   const section = (
     <StageSection
       id={stage.id}
@@ -178,6 +181,13 @@ export function StageSectionRouter({
       gateOverridden={stageData?.gate_overridden}
       outcome={outcome}
       loadingHint={stage.loadingHint}
+      runningContent={
+        isStage2Running ? (
+          <Suspense fallback={null}>
+            <Stage2RunningContent runId={runId} stageStatus={status} />
+          </Suspense>
+        ) : undefined
+      }
       runId={runId}
       stageId={stage.id}
     >

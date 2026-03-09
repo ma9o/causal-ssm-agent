@@ -23,6 +23,7 @@ export function StageSection({
   gateOverridden,
   outcome = "success",
   loadingHint,
+  runningContent,
   runId,
   stageId,
 }: {
@@ -38,6 +39,7 @@ export function StageSection({
   gateOverridden?: GateOverride;
   outcome?: StageOutcome;
   loadingHint?: string;
+  runningContent?: ReactNode;
   runId?: string;
   stageId?: StageId;
 }) {
@@ -111,10 +113,14 @@ export function StageSection({
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
-          {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-          <Skeleton className="h-32 w-full" />
+          {runningContent ?? (
+            <>
+              {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-32 w-full" />
+            </>
+          )}
         </motion.div>
       )}
       {status === "completed" && !collapsed && (
