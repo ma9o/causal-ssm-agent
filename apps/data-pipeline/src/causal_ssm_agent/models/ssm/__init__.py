@@ -5,8 +5,10 @@ This module implements Bayesian state-space models with:
 - Automatic CT→DT discretization for irregular time intervals
 - Multiple inference backends: SVI (default), NUTS, NUTS-DA, Hess-MC², PGAS,
   Tempered SMC, Laplace-EM, Structured VI, Differentiable PF
+- Automatic reparameterization via AutoReparam
 """
 
+from causal_ssm_agent.models.ssm.autoreparam import AutoReparam, MinimalReparam, Strategy
 from causal_ssm_agent.models.ssm.discretization import (
     compute_asymptotic_diffusion,
     compute_discrete_cint,
@@ -40,4 +42,8 @@ __all__ = [
     "InferenceMethod",
     "InferenceResult",
     "fit",
+    # Reparameterization
+    "AutoReparam",
+    "MinimalReparam",
+    "Strategy",
 ]
