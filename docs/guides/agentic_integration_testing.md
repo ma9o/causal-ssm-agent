@@ -55,49 +55,6 @@ curl -sf -o /dev/null http://localhost:3001 && echo "next.js ok"
 
 All three must succeed before proceeding.
 
-### 4. Clear stale concurrency slots and zombie tasks
-
-Prefect's global concurrency limits persist across runs. If a previous run crashed mid-Stage-2, two things go wrong:
-
-1. **Zombie task runs** — worker tasks stay in `RUNNING` state forever, holding concurrency slots
-2. **Stuck concurrency slots** — the limit shows `active_slots > 0` even though no real work is happening
-
-Both must be cleaned up, otherwise new runs' workers will hang waiting for slots that never free.
-
-**Always run this cleanup before a new test run:**
-
-```bash
-# 1. Check for stuck concurrency limits
-curl -s -X POST http://localhost:4200/api/v2/concurrency_limits/filter \
-  -H 'Content-Type: application/json' -d '{}' | jq '.[] | {name, limit, active_slots}'
-
-# 2. Cancel ALL zombie task runs (running tasks from dead flows)
-ZOMBIE_IDS=$(curl -s -X POST http://localhost:4200/api/task_runs/filter \
-  -H 'Content-Type: application/json' \
-  -d '{"task_runs":{"state":{"type":{"any_":["RUNNING"]}}},"limit":200}' \
-  | jq -r '.[].id')
-
-for ID in $ZOMBIE_IDS; do
-  curl -s -X POST "http://localhost:4200/api/task_runs/$ID/set_state" \
-    -H 'Content-Type: application/json' \
-    -d '{"state":{"type":"CANCELLED"}}' > /dev/null
-done
-echo "Cancelled $(echo "$ZOMBIE_IDS" | wc -w | tr -d ' ') zombie tasks"
-
-# 3. Delete ALL concurrency limits (the pipeline recreates them)
-LIMIT_IDS=$(curl -s -X POST http://localhost:4200/api/v2/concurrency_limits/filter \
-  -H 'Content-Type: application/json' -d '{}' | jq -r '.[].id')
-
-for ID in $LIMIT_IDS; do
-  curl -s -X DELETE "http://localhost:4200/api/v2/concurrency_limits/$ID"
-done
-echo "Deleted $(echo "$LIMIT_IDS" | wc -w | tr -d ' ') concurrency limits"
-```
-
-**Why this happens:** Prefect's `ThreadPoolTaskRunner` marks tasks as `RUNNING` when they start but has no mechanism to clean up if the parent flow crashes or is cancelled. The concurrency context manager (`async with concurrency(...)`) acquires a slot on entry but never releases it if the process dies. Zombie slots from dead runs will block new workers.
-
-**Root cause prevention:** The pipeline uses `strict=True` on the concurrency gate — the limit must exist before workers acquire slots. Each stage flow upserts the limit before fanning out tasks via `task.map()`, so it is always created a priori. Deleting stale limits (step 3 above) is safe because the next run will recreate them before any worker starts.
-
 The `.mcp.json` at the worktree root must configure `next-devtools-mcp` for `browser_eval` access.
 
 ## Step-by-Step Flow
