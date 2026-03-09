@@ -18,6 +18,11 @@ from causal_ssm_agent.flows.stages.contracts import (
     STAGE_CONTRACTS,
     PartialStageResult,
 )
+from causal_ssm_agent.flows.stages.mcp_meta import (
+    LARGE_ARRAY_FIELDS,
+    LARGE_NESTED_FIELDS,
+    INTERACTIVE_STAGES,
+)
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "packages" / "api-types" / "schemas"
 
@@ -142,15 +147,38 @@ def export_schemas() -> dict:
     return combined
 
 
+def export_mcp_meta() -> dict:
+    """Build MCP metadata from pipeline configuration."""
+    stages = []
+    for stage_id in STAGE_CONTRACTS:
+        stages.append({
+            "id": stage_id,
+            "interactive": stage_id in INTERACTIVE_STAGES,
+        })
+
+    return {
+        "stages": stages,
+        "interactive_stages": sorted(INTERACTIVE_STAGES),
+        "large_array_fields": LARGE_ARRAY_FIELDS,
+        "large_nested_fields": LARGE_NESTED_FIELDS,
+    }
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT_DIR / "contracts.json"
 
+    # Export JSON Schema for TypeScript type codegen
+    output_path = OUTPUT_DIR / "contracts.json"
     schema = export_schemas()
     output_path.write_text(json.dumps(schema, indent=2) + "\n")
-
     n_defs = len(schema.get("$defs", {}))
     print(f"Exported {n_defs} definitions to {output_path}")
+
+    # Export MCP metadata for MCP server codegen
+    mcp_meta_path = OUTPUT_DIR / "mcp-meta.json"
+    mcp_meta = export_mcp_meta()
+    mcp_meta_path.write_text(json.dumps(mcp_meta, indent=2) + "\n")
+    print(f"Exported MCP metadata ({len(mcp_meta['stages'])} stages) to {mcp_meta_path}")
 
 
 if __name__ == "__main__":

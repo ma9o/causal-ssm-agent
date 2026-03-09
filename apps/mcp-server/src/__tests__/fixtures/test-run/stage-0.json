@@ -1,0 +1,11 @@
+{
+  "outcome": "success",
+  "source_label": "test_data.zip",
+  "n_records": 100,
+  "n_columns": 5,
+  "date_range": { "start": "2024-01-01", "end": "2024-06-01" },
+  "sample": [{ "col1": "a", "col2": "1" }],
+  "column_descriptions": [
+    { "name": "col1", "dtype": "string", "description": "Test column 1" }
+  ]
+}

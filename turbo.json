@@ -22,8 +22,13 @@
     "type-check": {
       "dependsOn": ["^build"]
     },
-    "codegen:check": {
+    "codegen": {
+      "dependsOn": ["^codegen"],
       "cache": false
+    },
+    "codegen:check": {
+      "cache": false,
+      "dependsOn": ["codegen"]
     }
   }
 }
