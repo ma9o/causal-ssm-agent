@@ -1,0 +1,19 @@
+{
+  "outcome": "success",
+  "intervention_results": [
+    {
+      "treatment": "stress",
+      "effect_size": 0.312,
+      "posterior_draws": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2],
+      "prob_positive": 0.978,
+      "identifiable": true
+    },
+    {
+      "treatment": "exercise",
+      "effect_size": -0.15,
+      "posterior_draws": [0.01, 0.02, 0.03, 0.04, 0.05],
+      "prob_positive": 0.12,
+      "identifiable": true
+    }
+  ]
+}
