@@ -94,5 +94,7 @@ async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     if "llm_trace" in result_meta:
         result.llm_trace = result_meta["llm_trace"]
 
-    logger.info("Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1])
+    logger.info(
+        "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
+    )
     return result

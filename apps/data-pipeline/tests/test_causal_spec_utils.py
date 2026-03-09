@@ -20,7 +20,12 @@ def _full_spec():
         "latent": {
             "constructs": [
                 {"name": "stress", "role": "exogenous", "temporal_scale": "daily"},
-                {"name": "mood", "role": "endogenous", "is_outcome": True, "temporal_scale": "daily"},
+                {
+                    "name": "mood",
+                    "role": "endogenous",
+                    "is_outcome": True,
+                    "temporal_scale": "daily",
+                },
             ],
             "edges": [
                 {"cause": "stress", "effect": "mood", "description": "Stress affects mood"},

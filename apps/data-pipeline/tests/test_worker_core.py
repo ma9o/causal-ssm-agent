@@ -16,7 +16,12 @@ def _causal_spec():
         "latent": {
             "constructs": [
                 {"name": "stress", "role": "exogenous", "description": "Perceived stress"},
-                {"name": "sleep", "role": "endogenous", "description": "Sleep quality", "is_outcome": True},
+                {
+                    "name": "sleep",
+                    "role": "endogenous",
+                    "description": "Sleep quality",
+                    "is_outcome": True,
+                },
             ],
             "edges": [{"cause": "stress", "effect": "sleep"}],
         },

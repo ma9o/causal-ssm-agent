@@ -91,11 +91,7 @@ def _iv_model():
 
 def _measurement_for(*names):
     """Create minimal measurement model for given construct names."""
-    return {
-        "indicators": [
-            {"name": f"{n}_obs", "construct_name": n} for n in names
-        ]
-    }
+    return {"indicators": [{"name": f"{n}_obs", "construct_name": n} for n in names]}
 
 
 # =============================================================================

@@ -88,14 +88,23 @@ class TestDeriveDeterministicSpec:
         """Binary dtype should resolve to bernoulli."""
         spec = _make_causal_spec(
             constructs=[
-                {"name": "mood", "role": "endogenous", "temporal_status": "time_varying",
-                 "temporal_scale": "daily", "is_outcome": True},
+                {
+                    "name": "mood",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                    "is_outcome": True,
+                },
             ],
             edges=[],
             indicators=[
-                {"name": "happy", "construct_name": "mood",
-                 "measurement_dtype": "binary", "how_to_measure": "Happy?",
-                 "aggregation": "mean"},
+                {
+                    "name": "happy",
+                    "construct_name": "mood",
+                    "measurement_dtype": "binary",
+                    "how_to_measure": "Happy?",
+                    "aggregation": "mean",
+                },
             ],
         )
         resolved, ambiguous, _, _ = derive_deterministic_spec(spec)
@@ -108,14 +117,23 @@ class TestDeriveDeterministicSpec:
         """Count dtype has multiple valid distributions (poisson, negative_binomial)."""
         spec = _make_causal_spec(
             constructs=[
-                {"name": "activity", "role": "endogenous", "temporal_status": "time_varying",
-                 "temporal_scale": "daily", "is_outcome": True},
+                {
+                    "name": "activity",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                    "is_outcome": True,
+                },
             ],
             edges=[],
             indicators=[
-                {"name": "steps", "construct_name": "activity",
-                 "measurement_dtype": "count", "how_to_measure": "Steps",
-                 "aggregation": "sum"},
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Steps",
+                    "aggregation": "sum",
+                },
             ],
         )
         _, ambiguous, _, _ = derive_deterministic_spec(spec)
@@ -149,17 +167,30 @@ class TestDeriveDeterministicSpec:
         """Multi-indicator constructs should get loading params for non-reference indicators."""
         spec = _make_causal_spec(
             constructs=[
-                {"name": "stress", "role": "endogenous", "temporal_status": "time_varying",
-                 "temporal_scale": "daily", "is_outcome": True},
+                {
+                    "name": "stress",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                    "is_outcome": True,
+                },
             ],
             edges=[],
             indicators=[
-                {"name": "pss", "construct_name": "stress",
-                 "measurement_dtype": "continuous", "how_to_measure": "PSS",
-                 "aggregation": "mean"},
-                {"name": "vas", "construct_name": "stress",
-                 "measurement_dtype": "continuous", "how_to_measure": "VAS",
-                 "aggregation": "mean"},
+                {
+                    "name": "pss",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "PSS",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "vas",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "VAS",
+                    "aggregation": "mean",
+                },
             ],
         )
         _, _, _, loading_params = derive_deterministic_spec(spec)
@@ -187,20 +218,24 @@ class TestDeriveDeterministicSpec:
 
 class TestBuildDataSummary:
     def test_basic_output(self):
-        df = pl.DataFrame({
-            "time_bucket": ["2024-01-01", "2024-01-02"],
-            "mood": [5.0, 7.0],
-            "sleep": [6.0, 8.0],
-        })
+        df = pl.DataFrame(
+            {
+                "time_bucket": ["2024-01-01", "2024-01-02"],
+                "mood": [5.0, 7.0],
+                "sleep": [6.0, 8.0],
+            }
+        )
         result = build_data_summary({"daily": df})
         assert "daily" in result.lower()
         assert "2" in result  # 2 time points
 
     def test_time_invariant(self):
-        df = pl.DataFrame({
-            "time_bucket": ["na"],
-            "age": [30.0],
-        })
+        df = pl.DataFrame(
+            {
+                "time_bucket": ["na"],
+                "age": [30.0],
+            }
+        )
         result = build_data_summary({"time_invariant": df})
         assert "time-invariant" in result.lower()
 

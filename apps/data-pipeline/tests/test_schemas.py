@@ -199,7 +199,10 @@ class TestLatentModel:
             ],
             edges=[
                 CausalEdge(
-                    cause="stress", effect="mood", description="Contemporaneous exo→endo", lagged=False
+                    cause="stress",
+                    effect="mood",
+                    description="Contemporaneous exo→endo",
+                    lagged=False,
                 )
             ],
         )

@@ -110,18 +110,20 @@ class TestIngestionTools:
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(exec_tool(
-            code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
-        ))
+        _run(exec_tool(code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'))
 
-        result = _run(submit_tool(
-            source_label="Test data",
-            column_descriptions_json=json.dumps({
-                "date": "Date of observation",
-                "value": "Numeric value",
-                "category": "Category label",
-            }),
-        ))
+        result = _run(
+            submit_tool(
+                source_label="Test data",
+                column_descriptions_json=json.dumps(
+                    {
+                        "date": "Date of observation",
+                        "value": "Numeric value",
+                        "category": "Category label",
+                    }
+                ),
+            )
+        )
         assert result == "VALID"
         assert capture["source_label"] == "Test data"
         assert "date" in capture["column_descriptions"]
@@ -131,23 +133,25 @@ class TestIngestionTools:
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(exec_tool(
-            code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
-        ))
+        _run(exec_tool(code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'))
 
-        result = _run(submit_tool(
-            source_label="Test",
-            column_descriptions_json=json.dumps({"date": "Date"}),
-        ))
+        result = _run(
+            submit_tool(
+                source_label="Test",
+                column_descriptions_json=json.dumps({"date": "Date"}),
+            )
+        )
         assert "Missing descriptions" in result
 
     def test_submit_table_no_dataframe(self, sample_archive):
         tools, _ = make_ingestion_tools(sample_archive)
         submit_tool = tools[3]
-        result = _run(submit_tool(
-            source_label="Test",
-            column_descriptions_json="{}",
-        ))
+        result = _run(
+            submit_tool(
+                source_label="Test",
+                column_descriptions_json="{}",
+            )
+        )
         assert "No DataFrame available" in result
 
 
@@ -157,12 +161,14 @@ class TestMapColumnsToIndicators:
     def test_basic_mapping(self):
         from causal_ssm_agent.flows.pipeline import map_columns_to_indicators
 
-        df = pl.DataFrame({
-            "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
-            "ldl_cholesterol": [4.1, 3.8, 4.0],
-            "systolic_bp": [120.0, 118.0, 122.0],
-            "irrelevant_col": ["a", "b", "c"],
-        })
+        df = pl.DataFrame(
+            {
+                "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
+                "ldl_cholesterol": [4.1, 3.8, 4.0],
+                "systolic_bp": [120.0, 118.0, 122.0],
+                "irrelevant_col": ["a", "b", "c"],
+            }
+        )
         causal_spec = {
             "measurement": {
                 "indicators": [
@@ -181,9 +187,7 @@ class TestMapColumnsToIndicators:
 
         df = pl.DataFrame({"x": [1, 2], "y": [3, 4]})
         causal_spec = {
-            "measurement": {
-                "indicators": [{"name": "nonexistent", "construct_name": "c"}]
-            }
+            "measurement": {"indicators": [{"name": "nonexistent", "construct_name": "c"}]}
         }
         with pytest.raises(ValueError, match="No indicator columns found"):
             map_columns_to_indicators(df, causal_spec)
@@ -191,15 +195,13 @@ class TestMapColumnsToIndicators:
     def test_detects_timestamp_column(self):
         from causal_ssm_agent.flows.pipeline import map_columns_to_indicators
 
-        df = pl.DataFrame({
-            "timestamp": ["2024-01-01", "2024-01-02"],
-            "hr": [72.0, 75.0],
-        })
-        causal_spec = {
-            "measurement": {
-                "indicators": [{"name": "hr", "construct_name": "health"}]
+        df = pl.DataFrame(
+            {
+                "timestamp": ["2024-01-01", "2024-01-02"],
+                "hr": [72.0, 75.0],
             }
-        }
+        )
+        causal_spec = {"measurement": {"indicators": [{"name": "hr", "construct_name": "health"}]}}
         result = map_columns_to_indicators(df, causal_spec)
         assert "timestamp" in result.columns
         assert result["timestamp"][0] == "2024-01-01"

@@ -61,7 +61,9 @@ class TestResponseFunctions:
 class TestBuildObservationKernel:
     def test_gaussian_is_gaussian(self):
         R = jnp.eye(2)
-        kernel = build_observation_kernel(DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY, manifest_cov=R)
+        kernel = build_observation_kernel(
+            DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY, manifest_cov=R
+        )
         assert kernel.is_gaussian
 
     def test_poisson_not_gaussian(self):
@@ -126,11 +128,15 @@ class TestBuildObservationKernel:
 
     def test_unsupported_link_raises(self):
         with pytest.raises(ValueError, match="No response function"):
-            build_observation_kernel(DistributionFamily.GAUSSIAN, "nonexistent_link", manifest_cov=jnp.eye(2))
+            build_observation_kernel(
+                DistributionFamily.GAUSSIAN, "nonexistent_link", manifest_cov=jnp.eye(2)
+            )
 
     def test_gaussian_response_is_identity(self):
         R = jnp.eye(2)
-        kernel = build_observation_kernel(DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY, manifest_cov=R)
+        kernel = build_observation_kernel(
+            DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY, manifest_cov=R
+        )
         x = jnp.array([1.0, -2.0])
         assert jnp.allclose(kernel.response_fn(x), x)
 
@@ -162,7 +168,9 @@ class TestBuildTransitionKernel:
         assert noise.shape == (3,)
 
     def test_student_t_noise_shape(self):
-        kernel = build_transition_kernel(DistributionFamily.STUDENT_T, extra_params={"proc_df": 5.0})
+        kernel = build_transition_kernel(
+            DistributionFamily.STUDENT_T, extra_params={"proc_df": 5.0}
+        )
         key = jax.random.PRNGKey(0)
         chol_Q = jnp.eye(2) * 0.5
         noise = kernel.sample_noise_fn(key, chol_Q)

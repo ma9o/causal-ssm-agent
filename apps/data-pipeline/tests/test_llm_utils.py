@@ -186,10 +186,12 @@ class TestDictMessagesToChat:
     def test_mixed_messages(self):
         from causal_ssm_agent.utils.llm import dict_messages_to_chat
 
-        msgs = dict_messages_to_chat([
-            {"role": "system", "content": "System prompt"},
-            {"role": "user", "content": "User message"},
-        ])
+        msgs = dict_messages_to_chat(
+            [
+                {"role": "system", "content": "System prompt"},
+                {"role": "user", "content": "User message"},
+            ]
+        )
         assert len(msgs) == 2
 
     def test_unknown_role_skipped(self):

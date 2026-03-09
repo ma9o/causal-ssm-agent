@@ -353,17 +353,23 @@ def _compute_laplace_log_lik(
         P_pred = Ad_t @ P_filt_prev @ Ad_t.T + Qd_t
         P_pred = 0.5 * (P_pred + P_pred.T)
 
-        ll_t, z_filt, P_filt = _step_ll(
-            y_t, mask_t, z_pred, P_pred, J_obs_t, grad_t, z_lin_t
-        )
+        ll_t, z_filt, P_filt = _step_ll(y_t, mask_t, z_pred, P_pred, J_obs_t, grad_t, z_lin_t)
 
         return (z_filt, P_filt), ll_t
 
     _, ll_rest = jax.lax.scan(
         _forward_ll_step,
         (z_filt_0, P_filt_0),
-        (Ad[1:], Qd[1:], cd[1:], z_smooth[1:], J_t[1:], grads[1:],
-         observations[1:], mask_float[1:]),
+        (
+            Ad[1:],
+            Qd[1:],
+            cd[1:],
+            z_smooth[1:],
+            J_t[1:],
+            grads[1:],
+            observations[1:],
+            mask_float[1:],
+        ),
     )
 
     return ll_0 + jnp.sum(ll_rest)

@@ -168,10 +168,12 @@ class TestBuildMapGroupsFn:
 
 class TestEncodeNonContinuous:
     def test_binary_true_false(self):
-        df = pl.DataFrame({
-            "indicator": ["mood", "mood", "mood"],
-            "value": ["true", "false", "yes"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["mood", "mood", "mood"],
+                "value": ["true", "false", "yes"],
+            }
+        )
         result = _encode_non_continuous(df, {"mood": "binary"})
         values = result.sort("value")["value"].to_list()
         # "false" -> "0.0", "true" -> "1.0", "yes" -> "1.0"
@@ -179,10 +181,12 @@ class TestEncodeNonContinuous:
         assert "1.0" in values
 
     def test_ordinal_encoding(self):
-        df = pl.DataFrame({
-            "indicator": ["pain", "pain", "pain"],
-            "value": ["low", "medium", "high"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["pain", "pain", "pain"],
+                "value": ["low", "medium", "high"],
+            }
+        )
         result = _encode_non_continuous(
             df,
             {"pain": "ordinal"},
@@ -193,10 +197,12 @@ class TestEncodeNonContinuous:
         assert vals == [0.0, 1.0, 2.0]
 
     def test_continuous_passthrough(self):
-        df = pl.DataFrame({
-            "indicator": ["weight", "weight"],
-            "value": [70.5, 80.2],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["weight", "weight"],
+                "value": [70.5, 80.2],
+            }
+        )
         result = _encode_non_continuous(df, {"weight": "continuous"})
         assert len(result) == 2
 
@@ -207,10 +213,12 @@ class TestEncodeNonContinuous:
 
     def test_mixed_indicators(self):
         """Only non-continuous indicators should be encoded."""
-        df = pl.DataFrame({
-            "indicator": ["mood", "weight"],
-            "value": ["true", "70.5"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["mood", "weight"],
+                "value": ["true", "70.5"],
+            }
+        )
         result = _encode_non_continuous(df, {"mood": "binary", "weight": "continuous"})
         assert len(result) == 2
 
@@ -228,35 +236,43 @@ class TestFlattenAggregatedData:
         assert set(result.columns) == {"indicator", "value", "time_bucket"}
 
     def test_single_granularity(self):
-        df = pl.DataFrame({
-            "indicator": ["mood", "mood"],
-            "value": [3.0, 4.0],
-            "time_bucket": ["2024-01-01", "2024-01-02"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["mood", "mood"],
+                "value": [3.0, 4.0],
+                "time_bucket": ["2024-01-01", "2024-01-02"],
+            }
+        )
         result = flatten_aggregated_data({"daily": df})
         assert len(result) == 2
         assert set(result.columns) == {"indicator", "value", "time_bucket"}
 
     def test_multiple_granularities_combined(self):
-        df1 = pl.DataFrame({
-            "indicator": ["mood"],
-            "value": [3.0],
-            "time_bucket": ["2024-01-01"],
-        })
-        df2 = pl.DataFrame({
-            "indicator": ["mood"],
-            "value": [4.0],
-            "time_bucket": ["2024-01-08"],
-        })
+        df1 = pl.DataFrame(
+            {
+                "indicator": ["mood"],
+                "value": [3.0],
+                "time_bucket": ["2024-01-01"],
+            }
+        )
+        df2 = pl.DataFrame(
+            {
+                "indicator": ["mood"],
+                "value": [4.0],
+                "time_bucket": ["2024-01-08"],
+            }
+        )
         result = flatten_aggregated_data({"daily": df1, "weekly": df2})
         assert len(result) == 2
 
     def test_sorted_output(self):
-        df = pl.DataFrame({
-            "indicator": ["sleep", "mood", "mood"],
-            "value": [8.0, 3.0, 4.0],
-            "time_bucket": ["2024-01-01", "2024-01-02", "2024-01-01"],
-        })
+        df = pl.DataFrame(
+            {
+                "indicator": ["sleep", "mood", "mood"],
+                "value": [8.0, 3.0, 4.0],
+                "time_bucket": ["2024-01-01", "2024-01-02", "2024-01-01"],
+            }
+        )
         result = flatten_aggregated_data({"daily": df})
         indicators = result["indicator"].to_list()
         assert indicators[0] == "mood"  # sorted by indicator first
@@ -307,11 +323,13 @@ class TestAggregateWorkerMeasurements:
         assert result == {}
 
     def test_basic_daily_aggregation(self):
-        df = _worker_df([
-            ("mood", 3.0, "2024-01-01T10:00:00"),
-            ("mood", 5.0, "2024-01-01T14:00:00"),
-            ("mood", 7.0, "2024-01-02T10:00:00"),
-        ])
+        df = _worker_df(
+            [
+                ("mood", 3.0, "2024-01-01T10:00:00"),
+                ("mood", 5.0, "2024-01-01T14:00:00"),
+                ("mood", 7.0, "2024-01-02T10:00:00"),
+            ]
+        )
         spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
         result = aggregate_worker_measurements([df], spec, "daily")
         assert "daily" in result
@@ -338,10 +356,12 @@ class TestAggregateWorkerMeasurements:
         assert "daily" in result
 
     def test_finest_no_truncation(self):
-        df = _worker_df([
-            ("mood", 3.0, "2024-01-01T10:00:00"),
-            ("mood", 5.0, "2024-01-01T14:00:00"),
-        ])
+        df = _worker_df(
+            [
+                ("mood", 3.0, "2024-01-01T10:00:00"),
+                ("mood", 5.0, "2024-01-01T14:00:00"),
+            ]
+        )
         spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
         result = aggregate_worker_measurements([df], spec, "finest")
         assert "finest" in result
@@ -363,10 +383,12 @@ class TestAggregateWorkerMeasurements:
         assert abs(result["daily"]["value"][0] - 3.0) < 1e-6
 
     def test_unknown_indicators_filtered(self):
-        df = _worker_df([
-            ("mood", 3.0, "2024-01-01T10:00:00"),
-            ("unknown_ind", 5.0, "2024-01-01T10:00:00"),
-        ])
+        df = _worker_df(
+            [
+                ("mood", 3.0, "2024-01-01T10:00:00"),
+                ("unknown_ind", 5.0, "2024-01-01T10:00:00"),
+            ]
+        )
         spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
         result = aggregate_worker_measurements([df], spec, "daily")
         assert "daily" in result

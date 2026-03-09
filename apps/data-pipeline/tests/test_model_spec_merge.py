@@ -4,7 +4,6 @@ Covers: validate_model_spec_dict, merge_decisions_to_spec,
         validate_model_spec_decisions_dict.
 """
 
-
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionChoice,
     DistributionFamily,
@@ -169,10 +168,20 @@ class TestValidateModelSpecDict:
 class TestMergeDecisionsToSpec:
     def test_basic_merge(self):
         resolved = [
-            {"variable": "mood_score", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"},
+            {
+                "variable": "mood_score",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "continuous",
+            },
         ]
         params = [
-            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "Effect of X"},
+            {
+                "name": "beta_x",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "Effect of X",
+            },
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[],
@@ -213,7 +222,12 @@ class TestMergeDecisionsToSpec:
     def test_loading_constraint_override(self):
         resolved = []
         params = [
-            {"name": "lambda_mood_pss", "role": "loading", "constraint": "none", "description": "Loading"},
+            {
+                "name": "lambda_mood_pss",
+                "role": "loading",
+                "constraint": "none",
+                "description": "Loading",
+            },
         ]
         from causal_ssm_agent.orchestrator.schemas_model import LoadingConstraintChoice
 
@@ -250,7 +264,12 @@ class TestMergeDecisionsToSpec:
 
     def test_resolved_and_choices_combined(self):
         resolved = [
-            {"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"},
+            {
+                "variable": "mood",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "continuous",
+            },
         ]
         params = [
             {"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d1"},
@@ -258,8 +277,10 @@ class TestMergeDecisionsToSpec:
         decisions = ModelSpecDecisions(
             distribution_choices=[
                 DistributionChoice(
-                    variable="steps", distribution=DistributionFamily.POISSON,
-                    link=LinkFunction.LOG, reasoning="count",
+                    variable="steps",
+                    distribution=DistributionFamily.POISSON,
+                    link=LinkFunction.LOG,
+                    reasoning="count",
                 ),
             ],
             search_contexts={"p1": "query"},
@@ -283,7 +304,14 @@ class TestValidateModelSpecDecisionsDict:
         return [{"variable": "steps", "dtype": "count"}]
 
     def _resolved(self):
-        return [{"variable": "mood", "distribution": "gaussian", "link": "identity", "reasoning": "continuous"}]
+        return [
+            {
+                "variable": "mood",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "continuous",
+            }
+        ]
 
     def _params(self):
         return [{"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d"}]
@@ -291,7 +319,12 @@ class TestValidateModelSpecDecisionsDict:
     def test_valid_decisions(self):
         data = {
             "distribution_choices": [
-                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "count"},
+                {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "count",
+                },
             ],
             "search_contexts": {"p1": "query"},
             "reasoning": "test",
