@@ -3,6 +3,8 @@
 Covers: _format_indicators, _get_outcome_description, WorkerMessages.
 """
 
+import polars as pl
+
 from causal_ssm_agent.workers.core import (
     WorkerMessages,
     _format_indicators,
@@ -104,11 +106,18 @@ class TestGetOutcomeDescription:
 
 
 class TestWorkerMessages:
+    def _sample_df(self):
+        return pl.DataFrame({
+            "date": ["Day 1", "Day 2"],
+            "pss_score": [25, 18],
+            "sleep_hours": [6.5, 7.2],
+        })
+
     def test_extraction_messages_structure(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            chunk="Day 1: patient reported high stress",
+            chunk_df=self._sample_df(),
         )
         msgs = wm.extraction_messages()
         assert len(msgs) == 2
@@ -119,18 +128,20 @@ class TestWorkerMessages:
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            chunk="Day 1: PSS score = 25",
+            chunk_df=self._sample_df(),
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]
         assert "stress" in user_msg.lower() or "sleep" in user_msg.lower()
-        assert "PSS score = 25" in user_msg
+        # CSV format should contain the actual data values
+        assert "25" in user_msg
+        assert "6.5" in user_msg
 
     def test_indicators_in_prompt(self):
         wm = WorkerMessages(
             question="test",
             causal_spec=_causal_spec(),
-            chunk="test chunk",
+            chunk_df=self._sample_df(),
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]

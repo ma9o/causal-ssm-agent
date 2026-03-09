@@ -60,8 +60,13 @@ def _format_dataframe_schema(df: pl.DataFrame) -> str:
 
 
 def _format_dataframe_chunk(df: pl.DataFrame) -> str:
-    """Format a DataFrame chunk as a string table for the worker prompt."""
-    return str(df)
+    """Format a DataFrame chunk as CSV for the worker prompt.
+
+    Uses CSV rather than str(df) because Polars' default __str__
+    truncates both rows and columns (replacing them with '…'),
+    which hides most of the data from the LLM.
+    """
+    return df.write_csv()
 
 
 @dataclass
