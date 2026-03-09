@@ -36,6 +36,60 @@ function initialProgress(): PipelineProgress {
   };
 }
 
+interface PrefectTaskRun {
+  name: string;
+  state_type: string;
+  start_time: string | null;
+  end_time: string | null;
+}
+
+/**
+ * Fetch existing task runs from Prefect to hydrate progress on page load.
+ * Critical for session resumption — without this, stages that completed
+ * before the page loaded would stay "pending" forever.
+ */
+async function hydrateFromPrefect(
+  runId: string,
+  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number) => void,
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  try {
+    const res = await fetch("/prefect/task_runs/filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        flow_runs: { id: { any_: [runId] } },
+        sort: "EXPECTED_START_TIME_ASC",
+      }),
+    });
+    if (!res.ok) return;
+
+    const taskRuns: PrefectTaskRun[] = await res.json();
+
+    for (const tr of taskRuns) {
+      const stage = STAGES.find((s) => tr.name.startsWith(s.prefectTaskName));
+      if (!stage) continue;
+
+      const stateType = tr.state_type.toUpperCase();
+      const startTime = tr.start_time ? new Date(tr.start_time).getTime() : undefined;
+      const endTime = tr.end_time ? new Date(tr.end_time).getTime() : undefined;
+
+      if (stateType === "COMPLETED") {
+        if (startTime) updateStage(stage.id, "running", startTime);
+        updateStage(stage.id, "completed", endTime);
+        queryClient.invalidateQueries({ queryKey: ["pipeline", runId, "stage", stage.id] });
+      } else if (stateType === "RUNNING") {
+        updateStage(stage.id, "running", startTime);
+      } else if (stateType === "FAILED") {
+        if (startTime) updateStage(stage.id, "running", startTime);
+        updateStage(stage.id, "failed", endTime);
+      }
+    }
+  } catch {
+    // Best-effort — WebSocket will still provide live updates
+  }
+}
+
 const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_DELAY_MS = 1000;
 
@@ -61,11 +115,32 @@ export function useRunEvents(runId: string | null) {
           timings[stageId] = { ...existing, completedAt: ts };
         }
 
+        // Advance currentStage without regressing: when a stage completes,
+        // point to the next stage so the loading indicator stays current
+        // even before the next persist task starts.
+        const stageIdx = STAGES.findIndex((s) => s.id === stageId);
+        const curIdx = prev.currentStage
+          ? STAGES.findIndex((s) => s.id === prev.currentStage)
+          : -1;
+        let currentStage: StageId | null;
+        if (status === "running" && stageIdx >= curIdx) {
+          currentStage = stageId;
+        } else if (
+          status === "completed" &&
+          !completedAll &&
+          stageIdx + 1 < STAGES.length &&
+          stageIdx + 1 > curIdx
+        ) {
+          currentStage = STAGES[stageIdx + 1].id;
+        } else {
+          currentStage = prev.currentStage;
+        }
+
         return {
           stages,
           timings,
           stageOutcomes: prev.stageOutcomes,
-          currentStage: status === "running" ? stageId : prev.currentStage,
+          currentStage,
           isComplete: completedAll,
           isFailed: anyFailed || prev.isFailed,
         };
@@ -77,8 +152,10 @@ export function useRunEvents(runId: string | null) {
   useEffect(() => {
     if (!runId) return;
 
-    // Initialize progress
+    // Initialize progress, then hydrate from Prefect to catch up on
+    // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(["pipeline", runId, "status"], initialProgress());
+    hydrateFromPrefect(runId, updateStage, queryClient);
 
     if (isMockMode()) {
       const cleanup = simulatePipelineEvents({

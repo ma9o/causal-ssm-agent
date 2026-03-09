@@ -32,8 +32,14 @@ export async function GET(
   for (const { path: filePath, root } of paths) {
     if (!filePath.startsWith(root)) continue;
     try {
-      const data = await readFile(filePath, "utf-8");
-      return NextResponse.json(JSON.parse(data));
+      const raw = await readFile(filePath, "utf-8");
+      const parsed = JSON.parse(raw);
+      // Prefect wraps persisted results as { metadata, result: "<JSON string>" }.
+      // Unwrap to return the actual stage data.
+      if (parsed.metadata && typeof parsed.result === "string") {
+        return NextResponse.json(JSON.parse(parsed.result));
+      }
+      return NextResponse.json(parsed);
     } catch {
       // Try next path
     }
