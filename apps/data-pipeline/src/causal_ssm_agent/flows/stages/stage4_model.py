@@ -18,8 +18,11 @@ import logging
 import polars as pl
 from prefect import flow, task
 from prefect.cache_policies import INPUTS
+from prefect.concurrency.asyncio import concurrency
 
 logger = logging.getLogger(__name__)
+
+CONCURRENCY_LIMIT_NAME = "stage4-api"
 
 
 def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
@@ -132,6 +135,7 @@ async def search_literature_task(
     """Search Exa for literature relevant to a parameter.
 
     Run once per parameter; results are cached for reuse across retry loops.
+    Uses a global concurrency limit to avoid flooding the Exa API.
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -145,10 +149,11 @@ async def search_literature_task(
         format_literature_for_parameter,
     )
 
-    param = ParameterSpec.model_validate(parameter_spec)
-    sources = await search_parameter_literature(param)
-    formatted = format_literature_for_parameter(sources)
-    return {"sources": sources, "formatted": formatted}
+    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1):
+        param = ParameterSpec.model_validate(parameter_spec)
+        sources = await search_parameter_literature(param)
+        formatted = format_literature_for_parameter(sources)
+        return {"sources": sources, "formatted": formatted}
 
 
 @task(
@@ -169,6 +174,7 @@ async def elicit_prior_task(
 
     Uses pre-fetched literature context (no Exa call). Accepts optional
     feedback from a previous failed validation for re-elicitation.
+    Uses a global concurrency limit to avoid flooding the LLM API.
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -190,29 +196,30 @@ async def elicit_prior_task(
         get_default_prior,
     )
 
-    config = get_config()
-    worker_model = (
-        config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
-    )
-    model = get_model(worker_model)
-    generate = make_worker_generate_fn(model)
-
-    param = ParameterSpec.model_validate(parameter_spec)
-
-    try:
-        result = await elicit_prior(
-            parameter=param,
-            question=question,
-            generate=generate,
-            literature_context=literature.get("formatted", ""),
-            literature_sources=literature.get("sources", []),
-            feedback=feedback,
-            n_paraphrases=n_paraphrases,
+    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1):
+        config = get_config()
+        worker_model = (
+            config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
         )
-        return result.proposal.model_dump()
-    except Exception as e:
-        logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
-        return get_default_prior(param).model_dump()
+        model = get_model(worker_model)
+        generate = make_worker_generate_fn(model)
+
+        param = ParameterSpec.model_validate(parameter_spec)
+
+        try:
+            result = await elicit_prior(
+                parameter=param,
+                question=question,
+                generate=generate,
+                literature_context=literature.get("formatted", ""),
+                literature_sources=literature.get("sources", []),
+                feedback=feedback,
+                n_paraphrases=n_paraphrases,
+            )
+            return result.proposal.model_dump()
+        except Exception as e:
+            logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
+            return get_default_prior(param).model_dump()
 
 
 @task(retries=1, task_run_name="validate-priors")
@@ -369,6 +376,7 @@ async def stage4_orchestrated_flow(
     Returns:
         Stage 4 result dict with model_spec, priors, validation
     """
+    from prefect.client.orchestration import get_client
     from prefect.utilities.annotations import unmapped
 
     from causal_ssm_agent.models.prior_predictive import (
@@ -384,6 +392,18 @@ async def stage4_orchestrated_flow(
         max_prior_retries = config.pipeline.max_prior_retries
     paraphrasing = config.stage4_prior_elicitation.paraphrasing
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
+    max_concurrent = config.pipeline.max_concurrent_workers
+
+    # Ensure the global concurrency limit exists (idempotent upsert).
+    # This caps how many search/elicit tasks run simultaneously,
+    # preventing API flooding when task.map() fans out all parameters.
+    async with get_client() as client:
+        await client.upsert_global_concurrency_limit_by_name(
+            CONCURRENCY_LIMIT_NAME, limit=max_concurrent
+        )
+    logger.info(
+        "Concurrency limit '%s' set to %d", CONCURRENCY_LIMIT_NAME, max_concurrent
+    )
 
     # 1. Orchestrator proposes model specification
     model_spec = await propose_model_task(causal_spec, question, raw_data)
@@ -399,10 +419,14 @@ async def stage4_orchestrated_flow(
     inject_marginalized_correlations(model_spec, causal_spec)
     parameter_specs = model_spec.get("parameters", [])
 
+    logger.info("Stage 4: %d parameters", len(parameter_specs))
+
     # Build a lookup from parameter name -> spec dict
     param_spec_by_name = {ps.get("name", f"param_{i}"): ps for i, ps in enumerate(parameter_specs)}
 
     # 2. Exa literature search per parameter (run once, cached for retries)
+    #    task.map() fans out all parameters; concurrency limit inside
+    #    the task caps how many actually hit the API simultaneously.
     if enable_literature:
         literature_results = search_literature_task.map(parameter_specs)
         literature_by_name = {}
@@ -415,7 +439,7 @@ async def stage4_orchestrated_flow(
             for i, ps in enumerate(parameter_specs)
         }
 
-    # 3. Initial LLM elicitation (all parameters in parallel)
+    # 3. Initial LLM elicitation (all parameters via task.map, concurrency-limited)
     initial_results = elicit_prior_task.map(
         parameter_specs,
         question=unmapped(question),
@@ -488,7 +512,7 @@ async def stage4_orchestrated_flow(
                 data_stats=data_stats,
             )
 
-        # Re-elicit only failed parameters in parallel
+        # Re-elicit only failed parameters (concurrency-limited via task.map)
         failed_specs = [param_spec_by_name[n] for n in failed_param_names]
         failed_literature = [
             literature_by_name.get(n, {"sources": [], "formatted": ""}) for n in failed_param_names
@@ -509,7 +533,7 @@ async def stage4_orchestrated_flow(
 
     # 5. Build SSMModel (only after validation loop)
     model_info = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-    model_result = model_info.result() if hasattr(model_info, "result") else model_info  # ty: ignore[call-non-callable]
+    model_result = model_info.result() if hasattr(model_info, "result") else model_info
 
     result = {
         "model_spec": model_spec,
