@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 
 import pytest
@@ -247,7 +248,48 @@ def test_persist_web_result_rejects_missing_required_fields(valid_stage_payloads
     bad = deepcopy(valid_stage_payloads["stage-2"])
     bad.pop("workers")
     with pytest.raises(ValidationError):
-        persist_web_result.fn("stage-2", bad)
+        persist_web_result.fn("stage-2", bad, "run-123")
+
+
+def test_persist_web_result_logs_stage5_summary(
+    valid_stage_payloads: dict[str, dict], caplog: pytest.LogCaptureFixture
+):
+    """Persistence task should emit a compact stage summary for UI-visible logs."""
+    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stages.persist"):
+        persist_web_result.fn("stage-5", valid_stage_payloads["stage-5"], "run-123")
+
+    assert any(
+        record.levelno == logging.INFO
+        and record.message
+        == "Stage 5 summary: method=svi samples=1000 power_scaling_issues=0 ppc_warnings=0 outcome=success"
+        for record in caplog.records
+    )
+
+
+def test_persist_web_result_logs_warning_summary_for_warn_stage(
+    valid_stage_payloads: dict[str, dict], caplog: pytest.LogCaptureFixture
+):
+    """Warn/fail outcomes should be surfaced at warning level in persisted stage logs."""
+    payload = deepcopy(valid_stage_payloads["stage-3"])
+    payload["outcome"] = "warn"
+    payload["validation_report"]["issues"] = [
+        {
+            "indicator": "stress_score",
+            "issue_type": "insufficient_coverage",
+            "severity": "warning",
+            "message": "Too few daily periods",
+        }
+    ]
+
+    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stages.persist"):
+        persist_web_result.fn("stage-3", payload, "run-123")
+
+    assert any(
+        record.levelno == logging.WARNING
+        and record.message
+        == "Stage 3 summary: is_valid=True issues=1 errors=0 warnings=1 outcome=warn"
+        for record in caplog.records
+    )
 
 
 def test_stage6_rejects_extra_fields(valid_stage_payloads: dict[str, dict]):

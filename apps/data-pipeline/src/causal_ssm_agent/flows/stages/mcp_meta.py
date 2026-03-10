@@ -1,7 +1,7 @@
 """MCP server metadata derived from pipeline configuration.
 
-Lightweight module with no heavy dependencies (no Prefect, Hamilton, etc.)
-so it can be safely imported by export_schemas.py.
+Lightweight module with no heavy dependencies so it can be safely imported by
+export_schemas.py.
 
 When adding new interactive stages or large-array fields, update here.
 The codegen pipeline will propagate changes to the MCP server.
@@ -9,8 +9,7 @@ The codegen pipeline will propagate changes to the MCP server.
 
 from __future__ import annotations
 
-# Stages supporting human/agent-in-the-loop refinement via Hamilton overrides.
-# Must be a subset of STAGE_TO_NODE keys in pipeline.py.
+# Stages supporting human/agent-in-the-loop refinement via ``stage_overrides``.
 INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4"})
 
 # Top-level fields per stage that contain large numerical arrays.

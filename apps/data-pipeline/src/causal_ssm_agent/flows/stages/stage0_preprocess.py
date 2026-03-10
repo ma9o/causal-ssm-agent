@@ -4,7 +4,6 @@ Accepts any .zip archive, extracts it, and uses an LLM agent to parse
 the contents into a single Polars DataFrame.
 """
 
-import logging
 import tempfile
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
@@ -21,9 +20,10 @@ from causal_ssm_agent.utils.llm import (
     make_live_trace_path,
 )
 
+from .. import get_prefect_logger
 from .stage0_ingest import IngestionResult, run_agentic_ingestion
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def _find_raw_input(user_id: str) -> Path:

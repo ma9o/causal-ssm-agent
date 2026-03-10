@@ -57,12 +57,14 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   ├── evals/                 # Inspect AI evals
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
+│   │   │   └── test_pipeline.py   # Flow orchestration and replay contract coverage
 │   │   └── tools/                 # CLI tools + UIs
 │   └── web/                       # Next.js frontend
 │       └── src/
 │           ├── app/               # Next.js app router pages
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
 │           └── lib/               # API clients, hooks, types, utilities
+│               └── hooks/         # Prefect progress state, event streaming, stage telemetry
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types (from pipeline schemas)
 │   └── typescript-config/         # Shared TS config

@@ -13,16 +13,14 @@ Orchestrator-Worker architecture with SSM grounding:
 See docs/modeling/functional_spec.md for design rationale.
 """
 
-import logging
 
 import polars as pl
 from prefect import flow, task
 from prefect.cache_policies import INPUTS
-from prefect.concurrency.asyncio import concurrency
 
-logger = logging.getLogger(__name__)
+from .. import get_prefect_logger
 
-CONCURRENCY_LIMIT_NAME = "stage4-api"
+logger = get_prefect_logger(__name__)
 
 
 def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
@@ -135,7 +133,6 @@ async def search_literature_task(
     """Search Exa for literature relevant to a parameter.
 
     Run once per parameter; results are cached for reuse across retry loops.
-    Uses a global concurrency limit to avoid flooding the Exa API.
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -149,11 +146,10 @@ async def search_literature_task(
         format_literature_for_parameter,
     )
 
-    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1, strict=True):
-        param = ParameterSpec.model_validate(parameter_spec)
-        sources = await search_parameter_literature(param)
-        formatted = format_literature_for_parameter(sources)
-        return {"sources": sources, "formatted": formatted}
+    param = ParameterSpec.model_validate(parameter_spec)
+    sources = await search_parameter_literature(param)
+    formatted = format_literature_for_parameter(sources)
+    return {"sources": sources, "formatted": formatted}
 
 
 @task(
@@ -174,7 +170,6 @@ async def elicit_prior_task(
 
     Uses pre-fetched literature context (no Exa call). Accepts optional
     feedback from a previous failed validation for re-elicitation.
-    Uses a global concurrency limit to avoid flooding the LLM API.
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -196,30 +191,29 @@ async def elicit_prior_task(
         get_default_prior,
     )
 
-    async with concurrency(CONCURRENCY_LIMIT_NAME, occupy=1, strict=True):
-        config = get_config()
-        worker_model = (
-            config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
+    config = get_config()
+    worker_model = (
+        config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
+    )
+    model = get_model(worker_model)
+    generate = make_worker_generate_fn(model)
+
+    param = ParameterSpec.model_validate(parameter_spec)
+
+    try:
+        result = await elicit_prior(
+            parameter=param,
+            question=question,
+            generate=generate,
+            literature_context=literature.get("formatted", ""),
+            literature_sources=literature.get("sources", []),
+            feedback=feedback,
+            n_paraphrases=n_paraphrases,
         )
-        model = get_model(worker_model)
-        generate = make_worker_generate_fn(model)
-
-        param = ParameterSpec.model_validate(parameter_spec)
-
-        try:
-            result = await elicit_prior(
-                parameter=param,
-                question=question,
-                generate=generate,
-                literature_context=literature.get("formatted", ""),
-                literature_sources=literature.get("sources", []),
-                feedback=feedback,
-                n_paraphrases=n_paraphrases,
-            )
-            return result.proposal.model_dump()
-        except Exception as e:
-            logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
-            return get_default_prior(param).model_dump()
+        return result.proposal.model_dump()
+    except Exception as e:
+        logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
+        return get_default_prior(param).model_dump()
 
 
 @task(retries=1, task_run_name="validate-priors")
@@ -376,7 +370,6 @@ async def stage4_orchestrated_flow(
     Returns:
         Stage 4 result dict with model_spec, priors, validation
     """
-    from prefect.client.orchestration import get_client
     from prefect.utilities.annotations import unmapped
 
     from causal_ssm_agent.models.prior_predictive import (
@@ -392,18 +385,6 @@ async def stage4_orchestrated_flow(
         max_prior_retries = config.pipeline.max_prior_retries
     paraphrasing = config.stage4_prior_elicitation.paraphrasing
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
-    max_concurrent = config.pipeline.max_concurrent_workers
-
-    # Ensure the global concurrency limit exists (idempotent upsert).
-    # This caps how many search/elicit tasks run simultaneously,
-    # preventing API flooding when task.map() fans out all parameters.
-    async with get_client() as client:
-        await client.upsert_global_concurrency_limit_by_name(
-            CONCURRENCY_LIMIT_NAME, limit=max_concurrent
-        )
-    logger.info(
-        "Concurrency limit '%s' set to %d", CONCURRENCY_LIMIT_NAME, max_concurrent
-    )
 
     # 1. Orchestrator proposes model specification
     model_spec = await propose_model_task(causal_spec, question, raw_data)

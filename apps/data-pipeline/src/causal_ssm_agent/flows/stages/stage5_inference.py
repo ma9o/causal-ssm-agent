@@ -4,7 +4,6 @@ Fits the SSM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 """
 
-import logging
 from typing import Any
 
 import polars as pl
@@ -12,7 +11,9 @@ from prefect import task
 
 from causal_ssm_agent.utils.data import pivot_to_wide
 
-logger = logging.getLogger(__name__)
+from .. import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 
 @task(persist_result=False)
@@ -41,6 +42,14 @@ def fit_model(
     model_spec = stage4_result.get("model_spec", {})
     priors = stage4_result.get("priors", {})
     causal_spec = stage4_result.get("causal_spec")
+    logger.info(
+        "Fitting model: rows=%d indicators=%d parameters=%d sampler=%s builder_reused=%s",
+        len(raw_data),
+        raw_data["indicator"].n_unique() if "indicator" in raw_data.columns else 0,
+        len(model_spec.get("parameters", [])),
+        (sampler_config or {}).get("method", "config default"),
+        builder is not None,
+    )
 
     try:
         if builder is None:
@@ -56,6 +65,12 @@ def fit_model(
 
         # Fit the model — returns InferenceResult (default: SVI)
         result = builder.fit(X)
+        logger.info(
+            "Fit complete: method=%s wide_rows=%d manifest_vars=%d",
+            result.method,
+            len(X),
+            len([col for col in X.columns if col != "time"]),
+        )
 
         # Extract times for forward simulation in interventions
         import jax.numpy as jnp
@@ -99,11 +114,13 @@ def fit_model(
         }
 
     except NotImplementedError:
+        logger.warning("SSM implementation not available for model fitting")
         return {
             "fitted": False,
             "error": "SSM implementation not available",
         }
     except Exception as e:
+        logger.exception("Model fitting failed")
         return {
             "fitted": False,
             "error": str(e),
@@ -251,6 +268,13 @@ def run_interventions(
     """
     from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
 
+    logger.info(
+        "Running interventions: treatments=%d outcome=%s fitted=%s",
+        len(treatments),
+        outcome or "unknown",
+        fitted_model.get("fitted", False),
+    )
+
     # If model not fitted, return skeleton results
     if not fitted_model.get("fitted", False):
         id_status = causal_spec.get("identifiability") if causal_spec else None
@@ -277,7 +301,7 @@ def run_interventions(
 
     manifest_names = spec.manifest_names or []
 
-    return compute_interventions(
+    results = compute_interventions(
         samples=samples,
         treatments=treatments,
         outcome=outcome,
@@ -288,3 +312,5 @@ def run_interventions(
         ps_result=ps_result,
         times=fitted_model.get("times"),
     )
+    logger.info("Interventions complete: ranked_treatments=%d", len(results))
+    return results

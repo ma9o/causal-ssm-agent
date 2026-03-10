@@ -1,6 +1,6 @@
-"""Pure helper functions used by both the Hamilton DAG nodes and the pipeline.
+"""Pure helper functions shared by stage helpers and the pipeline.
 
-No Prefect or Hamilton imports here — just data transformations.
+No orchestration imports here, just data transformations.
 """
 
 from __future__ import annotations

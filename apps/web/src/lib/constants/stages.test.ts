@@ -1,6 +1,7 @@
 import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
 import type { StageId } from "@causal-ssm/api-types";
 import { describe, expect, it } from "vitest";
+import { getStageForPrefectRunName } from "./stages";
 
 describe("STAGE_IDS", () => {
   it("has 9 stages", () => {
@@ -50,9 +51,9 @@ describe("STAGES metadata", () => {
     }
   });
 
-  it("every stage has a non-empty prefectTaskName", () => {
+  it("every stage has a non-empty prefectFlowName", () => {
     for (const stage of STAGES) {
-      expect(stage.prefectTaskName.length).toBeGreaterThan(0);
+      expect(stage.prefectFlowName.length).toBeGreaterThan(0);
     }
   });
 
@@ -68,8 +69,8 @@ describe("STAGES metadata", () => {
     }
   });
 
-  it("prefectTaskName values are unique", () => {
-    const names = STAGES.map((s) => s.prefectTaskName);
+  it("prefectFlowName values are unique", () => {
+    const names = STAGES.map((s) => s.prefectFlowName);
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -87,5 +88,20 @@ describe("STAGES metadata", () => {
     for (const stage of STAGES) {
       expect(stage.id).toBe(`stage-${stage.number}` as StageId);
     }
+  });
+});
+
+describe("getStageForPrefectRunName", () => {
+  it("matches exact stage flow names", () => {
+    expect(getStageForPrefectRunName("stage-4-flow")?.id).toBe("stage-4");
+  });
+
+  it("prefers the longest matching prefix when stage names overlap", () => {
+    expect(getStageForPrefectRunName("stage-4b-flow")?.id).toBe("stage-4b");
+    expect(getStageForPrefectRunName("stage-4b-flow-retry-1")?.id).toBe("stage-4b");
+  });
+
+  it("returns undefined for unrelated run names", () => {
+    expect(getStageForPrefectRunName("extract-chunk-0")).toBeUndefined();
   });
 });
