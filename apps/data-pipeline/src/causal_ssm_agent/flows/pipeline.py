@@ -12,9 +12,8 @@ from typing import Any
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.data import load_query
-
-from . import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
@@ -83,9 +82,8 @@ async def causal_inference_pipeline(
         os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
         logger.info("Using user-provided OpenRouter API key")
 
+    from causal_ssm_agent.flows import dag
     from causal_ssm_agent.utils.config import get_config
-
-    from . import dag
 
     config = get_config()
 

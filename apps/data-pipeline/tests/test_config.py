@@ -103,6 +103,8 @@ FULL_CONFIG = textwrap.dedent("""\
     stage2_workers:
       model: claude-3
       chunk_size: 400
+      max_concurrent_workers: 6
+      submission_batch_size: 25
     stage4_prior_elicitation:
       model: claude-3
       worker_model: claude-3-haiku
@@ -147,6 +149,8 @@ class TestLoadConfig:
         assert cfg.stage1_structure_proposal.model == "gpt-4"
         assert cfg.stage1_structure_proposal.sample_chunks == 3
         assert cfg.stage2_workers.chunk_size == 300
+        assert cfg.stage2_workers.max_concurrent_workers == 4
+        assert cfg.stage2_workers.submission_batch_size == 50
         assert cfg.stage4_prior_elicitation.model == "gpt-4"
         # Defaults for optional sections
         assert cfg.inference.method == "svi"
@@ -166,6 +170,8 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
+        assert cfg.stage2_workers.max_concurrent_workers == 6
+        assert cfg.stage2_workers.submission_batch_size == 25
         assert cfg.stage4_prior_elicitation.worker_model == "claude-3-haiku"
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True

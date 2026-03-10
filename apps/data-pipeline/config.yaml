@@ -17,6 +17,8 @@ stage1_structure_proposal:
 stage2_workers:
   model: openrouter/google/gemini-3-flash-preview
   chunk_size: 50  # Rows per chunk for each worker
+  max_concurrent_workers: 30  # Actual concurrent LLM worker calls
+  submission_batch_size: 100  # Chunk tasks submitted to Prefect at a time
 
 # Stage 3: Identifiability & Sensitivity Analysis
 # Uses y0 (Pearl's ID algorithm) - no LLM needed
@@ -60,4 +62,3 @@ llm:
 # Pipeline-level behavior
 pipeline:
   max_prior_retries: 3
-  max_parallel_tasks: 50

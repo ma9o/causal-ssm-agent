@@ -13,7 +13,6 @@ from time import perf_counter
 
 import polars as pl
 from prefect import flow, get_run_logger, task
-from prefect.task_runners import ThreadPoolTaskRunner
 
 from .. import get_prefect_logger
 
@@ -33,7 +32,8 @@ async def extract_chunk_task(
 ) -> dict:
     """Extract indicator values from a single DataFrame chunk.
 
-    The Stage 2 task runner bounds parallel execution.
+    The Stage 2 wrapper flow bounds parallel execution via the configured
+    task runner on the enclosing subflow invocation.
 
     Args:
         chunk_df: Slice of the raw DataFrame to process.
@@ -105,7 +105,6 @@ async def extract_chunk_task(
     log_prints=True,
     persist_result=True,
     result_serializer="json",
-    task_runner=ThreadPoolTaskRunner(max_workers=20),
 )
 async def stage2_extraction_flow(
     raw_df_path: str,
@@ -138,12 +137,18 @@ async def stage2_extraction_flow(
     config = get_config()
     if chunk_size is None:
         chunk_size = config.stage2_workers.chunk_size
-    max_parallel = config.pipeline.max_parallel_tasks
+    submission_batch_size = config.stage2_workers.submission_batch_size
     raw_df = pl.read_parquet(Path(raw_df_path))
 
     # Chunk the DataFrame
     chunks = chunk_dataframe(raw_df, chunk_size)
-    logger.info("Stage 2: %d chunks of up to %d rows each", len(chunks), chunk_size)
+    logger.info(
+        "Stage 2: %d chunks of up to %d rows each (max_concurrent_workers=%d, submission_batch_size=%d)",
+        len(chunks),
+        chunk_size,
+        config.stage2_workers.max_concurrent_workers,
+        submission_batch_size,
+    )
 
     if not chunks:
         return {
@@ -159,8 +164,8 @@ async def stage2_extraction_flow(
 
     # Batch mapped task creation so Prefect is not asked to register thousands
     # of task runs in a single burst for large datasets.
-    for batch_start in range(0, len(chunks), max_parallel):
-        batch_chunks = chunks[batch_start : batch_start + max_parallel]
+    for batch_start in range(0, len(chunks), submission_batch_size):
+        batch_chunks = chunks[batch_start : batch_start + submission_batch_size]
         batch_indices = list(range(batch_start, batch_start + len(batch_chunks)))
         logger.info(
             "Stage 2: submitting chunk batch %d-%d (%d tasks)",
