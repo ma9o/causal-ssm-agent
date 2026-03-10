@@ -187,7 +187,6 @@ async def propose_model_spec(
     data_summary: str,
     question: str,
     generate: OrchestratorGenerateFn,
-    feedback: str | None = None,
 ) -> Stage4OrchestratorResult:
     """Orchestrator proposes complete model specification.
 
@@ -200,7 +199,6 @@ async def propose_model_spec(
         data_summary: Summary of the data (time points, subjects, etc.)
         question: The research question for context
         generate: Async generate function (messages, tools, follow_ups) -> str
-        feedback: Optional compiler error feedback from a previous attempt
 
     Returns:
         Stage4OrchestratorResult with ModelSpec
@@ -237,20 +235,6 @@ async def propose_model_spec(
             ),
         },
     ]
-
-    # Append compiler feedback from a prior attempt, if any
-    if feedback:
-        messages.append({"role": "assistant", "content": "I'll propose the model specification."})
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "Your previous proposal failed during SSM compilation with the "
-                    "following error. Please fix the specification.\n\n"
-                    f"Compiler error:\n{feedback}"
-                ),
-            }
-        )
 
     # Generate with validation feedback loop
     tool, capture = make_validate_model_spec_tool(

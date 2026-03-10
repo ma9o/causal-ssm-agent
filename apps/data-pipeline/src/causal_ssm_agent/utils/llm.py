@@ -411,11 +411,11 @@ def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[T
 
     @tool
     def validate_measurement_model_tool():
-        """Tool for validating measurement model JSON (Stage 1b)."""
+        """Tool for validating measurement model JSON plus compiler constraints."""
 
         async def execute(measurement_json: str) -> str:
             """
-            Validate a measurement model and return all validation errors.
+            Validate a measurement model and return all validation/compiler errors.
 
             Args:
                 measurement_json: The JSON string containing the measurement model to validate.
@@ -423,11 +423,13 @@ def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[T
             Returns:
                 "VALID" if the model passes validation, otherwise a list of all errors found.
             """
-            from causal_ssm_agent.orchestrator.schemas import validate_measurement_model
+            from causal_ssm_agent.models.ssm_compiler import (
+                validate_measurement_model_for_compilation,
+            )
 
             return _validate_json_and_format(
                 measurement_json,
-                lambda data: validate_measurement_model(data, latent_model),
+                lambda data: validate_measurement_model_for_compilation(data, latent_model),
                 capture=capture,
                 capture_key="measurement",
             )

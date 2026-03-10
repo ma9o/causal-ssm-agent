@@ -109,7 +109,7 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 
 ## Validation Tool
 
-You have access to `validate_measurement_model` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+You have access to `validate_measurement_model` tool. It checks both schema validity and compiler-level measurement constraints. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
 
 IMPORTANT: Once you get "VALID", STOP. Do not output anything else — the validated result is already saved by the tool. Any additional output will be ignored.
 """

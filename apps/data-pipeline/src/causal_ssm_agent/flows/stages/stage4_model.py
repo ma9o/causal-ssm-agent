@@ -75,7 +75,6 @@ async def propose_model_task(
     causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
-    feedback: str | None = None,
 ) -> dict:
     """Orchestrator proposes model specification.
 
@@ -83,7 +82,6 @@ async def propose_model_task(
         causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data (indicator, value, timestamp)
-        feedback: Optional compiler error feedback from a previous attempt
 
     Returns:
         ModelSpec as dict
@@ -113,7 +111,6 @@ async def propose_model_task(
         data_summary=data_summary,
         question=question,
         generate=generate,
-        feedback=feedback,
     )
 
     out = result.model_spec.model_dump()
@@ -349,7 +346,7 @@ async def stage4_orchestrated_flow(
 ) -> dict:
     """Stage 4 orchestrated flow with validation-driven prior elicitation.
 
-    1. Orchestrator proposes model specification (with syntax validation loop)
+    1. Orchestrator proposes model specification (with syntax validation)
     2. Exa literature search per parameter (run once, cached)
     3. LLM elicits priors in parallel
     4. Prior predictive validation loop:
@@ -385,41 +382,20 @@ async def stage4_orchestrated_flow(
     paraphrasing = config.stage4_prior_elicitation.paraphrasing
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
 
-    # 1. Orchestrator proposes model specification (with compiler validation loop)
+    # 1. Orchestrator proposes model specification. Stage 1b owns structural
+    # validation, so stage 4 only performs a single compile-time assertion.
     from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
     from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
 
-    max_spec_retries = 2
-    spec_feedback: str | None = None
-    llm_trace = None
+    model_spec = await propose_model_task(causal_spec, question, raw_data)
+    llm_trace = model_spec.pop("llm_trace", None)
 
-    for spec_attempt in range(max_spec_retries + 1):
-        model_spec = await propose_model_task(
-            causal_spec, question, raw_data, feedback=spec_feedback
-        )
-        llm_trace = model_spec.pop("llm_trace", None)
+    # Auto-add correlation parameters for marginalized confounders.
+    inject_marginalized_correlations(model_spec, causal_spec)
 
-        # Auto-add correlation parameters for marginalized confounders.
-        inject_marginalized_correlations(model_spec, causal_spec)
-
-        compile_error = trial_compile_model_spec(model_spec, causal_spec)
-        if compile_error is None:
-            break
-
-        if spec_attempt < max_spec_retries:
-            spec_feedback = compile_error
-            logger.warning(
-                "Model spec failed compilation (attempt %d/%d): %s",
-                spec_attempt + 1,
-                max_spec_retries + 1,
-                compile_error,
-            )
-        else:
-            logger.warning(
-                "Model spec still fails compilation after %d attempts, proceeding: %s",
-                max_spec_retries + 1,
-                compile_error,
-            )
+    compile_error = trial_compile_model_spec(model_spec, causal_spec)
+    if compile_error is not None:
+        raise ValueError(f"Stage 4 model spec failed compilation: {compile_error}")
 
     parameter_specs = model_spec.get("parameters", [])
 

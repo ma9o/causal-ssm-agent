@@ -11,6 +11,7 @@ import json
 
 import pytest
 
+from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
 from causal_ssm_agent.orchestrator.stage1b import (
     Stage1bMessages,
     Stage1bResult,
@@ -174,12 +175,122 @@ class TestStage1bMessages:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# UNIT TESTS: Measurement Compiler
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMeasurementCompiler:
+    """Test compiler-level measurement validation used in Stage 1b."""
+
+    def test_valid_measurement_returns_none(
+        self, stage1b_simple_latent, stage1b_measurement_all_observed
+    ):
+        """A valid measurement model compiles cleanly."""
+        result = trial_compile_measurement_model(
+            stage1b_measurement_all_observed, stage1b_simple_latent
+        )
+        assert result is None
+
+    def test_missing_outcome_indicator_returns_error(
+        self, stage1b_simple_latent, stage1b_measurement_all_observed
+    ):
+        """Outcome coverage is enforced at compile time."""
+        measurement = {
+            "indicators": [
+                indicator
+                for indicator in stage1b_measurement_all_observed["indicators"]
+                if indicator["construct_name"] != "Outcome"
+            ]
+        }
+
+        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+
+        assert result is not None
+        assert "Outcome construct 'Outcome'" in result
+
+    def test_duplicate_operationalization_returns_error(
+        self, stage1b_simple_latent, stage1b_measurement_all_observed
+    ):
+        """Identical indicators for the same construct are rejected."""
+        measurement = {
+            "indicators": [
+                stage1b_measurement_all_observed["indicators"][0],
+                {
+                    "name": "treatment_dose_copy",
+                    "construct_name": "Treatment",
+                    "how_to_measure": "Extract the treatment dosage from the data",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+                stage1b_measurement_all_observed["indicators"][1],
+            ]
+        }
+
+        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+
+        assert result is not None
+        assert "duplicate indicator operationalizations" in result
+
+    def test_semantic_collision_returns_error(
+        self, stage1b_simple_latent, stage1b_measurement_all_observed
+    ):
+        """Compiler surfaces aggregation/measurement semantic mismatches."""
+        measurement = {
+            "indicators": [
+                {
+                    "name": "treatment_count",
+                    "construct_name": "Treatment",
+                    "how_to_measure": "Count the number of treatments administered",
+                    "measurement_dtype": "count",
+                    "aggregation": "mean",
+                },
+                stage1b_measurement_all_observed["indicators"][1],
+            ]
+        }
+
+        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+
+        assert result is not None
+        assert "Semantic collision" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # INTEGRATION TESTS: Full Stage 1b Flow
 # ══════════════════════════════════════════════════════════════════════════════
 
 
 class TestStage1bFlow:
     """Integration tests for the full Stage 1b flow."""
+
+    def test_invalid_measurement_compile_raises(
+        self,
+        stage1b_simple_latent,
+        stage1b_dummy_chunks,
+    ):
+        """Fallback parsing still enforces compiler-level measurement checks."""
+        invalid_measurement = {
+            "indicators": [
+                {
+                    "name": "treatment_dose",
+                    "construct_name": "Treatment",
+                    "how_to_measure": "Extract the treatment dosage from the data",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                }
+            ]
+        }
+
+        mock_generate = make_mock_generate([json.dumps(invalid_measurement)])
+
+        with pytest.raises(ValueError, match="Outcome construct 'Outcome'"):
+            asyncio.run(
+                run_stage1b(
+                    question="Does treatment improve outcome?",
+                    latent_model=stage1b_simple_latent,
+                    chunks=stage1b_dummy_chunks,
+                    generate=mock_generate,
+                )
+            )
 
     def test_all_identifiable_no_proxy(
         self,

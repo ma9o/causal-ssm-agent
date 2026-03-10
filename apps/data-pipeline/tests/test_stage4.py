@@ -1,5 +1,6 @@
 """Tests for Stage 4: Model Specification & Prior Elicitation."""
 
+import asyncio
 from unittest.mock import patch
 
 import jax.numpy as jnp
@@ -1229,3 +1230,201 @@ class TestTrialCompile:
             result = trial_compile_model_spec(spec)
         assert result is not None
         assert "dimension mismatch" in result
+
+    def test_role_constraint_mismatch_returns_error(self):
+        """Compiler should reject parameter-role constraint mismatches."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        spec = {
+            "likelihoods": [
+                {
+                    "variable": "x",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_x",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "test",
+                    "search_context": "",
+                },
+                {
+                    "name": "sigma_x",
+                    "role": "residual_sd",
+                    "constraint": "none",
+                    "description": "test",
+                    "search_context": "",
+                },
+            ],
+        }
+
+        result = trial_compile_model_spec(spec)
+
+        assert result is not None
+        assert "constraint 'none' unexpected for role 'residual_sd'" in result
+
+    def test_missing_ar_parameters_returns_error(self):
+        """Compiler should reject ModelSpecs with no latent dimensionality signal."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        spec = {
+            "likelihoods": [
+                {
+                    "variable": "x",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "sigma_x",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "test",
+                    "search_context": "",
+                }
+            ],
+        }
+
+        result = trial_compile_model_spec(spec)
+
+        assert result is not None
+        assert "No AR_COEFFICIENT parameters found" in result
+
+    def test_rank_deficient_structure_returns_error(self):
+        """Compiler should reject model specs with fewer manifests than latents."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        spec = {
+            "likelihoods": [
+                {
+                    "variable": "outcome_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_outcome",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "test",
+                    "search_context": "",
+                }
+            ],
+        }
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "Treatment",
+                        "role": "exogenous",
+                        "description": "Treatment",
+                        "temporal_status": "time_varying",
+                        "temporal_scale": "daily",
+                    },
+                    {
+                        "name": "Outcome",
+                        "role": "endogenous",
+                        "description": "Outcome",
+                        "temporal_status": "time_varying",
+                        "temporal_scale": "daily",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [],
+            },
+            "measurement": {
+                "indicators": [
+                    {
+                        "name": "outcome_score",
+                        "construct_name": "Outcome",
+                        "how_to_measure": "Use the outcome column directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ]
+            },
+        }
+
+        result = trial_compile_model_spec(spec, causal_spec)
+
+        assert result is not None
+        assert "Loading matrix is rank-deficient" in result
+
+
+class TestStage4CompileOwnership:
+    """Stage 4 should assert compilation, not retry via LLM feedback."""
+
+    def test_stage4_compile_failure_raises_immediately(self, monkeypatch):
+        """Compile failures should stop stage 4 instead of triggering retries."""
+        from causal_ssm_agent.flows.stages.stage4_model import stage4_orchestrated_flow
+
+        async def stub_propose_model_task(causal_spec: dict, question: str, raw_data: pl.DataFrame):
+            return {"likelihoods": [], "parameters": [], "llm_trace": {"messages": []}}
+
+        def stub_inject_marginalized_correlations(model_spec: dict, causal_spec: dict) -> None:
+            return None
+
+        def stub_trial_compile_model_spec(model_spec: dict, causal_spec: dict) -> str:
+            return "dimension mismatch in drift matrix"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_model.propose_model_task",
+            stub_propose_model_task,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.identifiability.inject_marginalized_correlations",
+            stub_inject_marginalized_correlations,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.trial_compile_model_spec",
+            stub_trial_compile_model_spec,
+        )
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "Outcome",
+                        "role": "endogenous",
+                        "description": "Outcome",
+                        "temporal_status": "time_varying",
+                        "temporal_scale": "daily",
+                        "is_outcome": True,
+                    }
+                ],
+                "edges": [],
+            },
+            "measurement": {
+                "indicators": [
+                    {
+                        "name": "outcome_score",
+                        "construct_name": "Outcome",
+                        "how_to_measure": "Use the outcome column directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ]
+            },
+            "identifiability": {
+                "identifiable_treatments": {},
+                "non_identifiable_treatments": {},
+            },
+        }
+
+        with pytest.raises(ValueError, match="Stage 4 model spec failed compilation"):
+            asyncio.run(
+                stage4_orchestrated_flow(
+                    causal_spec=causal_spec,
+                    question="Does treatment affect outcome?",
+                    raw_data=pl.DataFrame(schema={"indicator": pl.Utf8, "value": pl.Float64}),
+                    enable_literature=False,
+                )
+            )
