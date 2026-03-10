@@ -564,7 +564,7 @@ def fit_pgas(
     block_sampling: bool = False,
     svi_warmstart: bool = True,
     svi_num_steps: int = 500,
-    reparam=None,  # noqa: ARG001 — accepted for API consistency; PGAS Gibbs handles geometry
+    reparam=None,
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM via PGAS with gradient-informed CSMC and HMC parameter updates.
@@ -593,6 +593,9 @@ def fit_pgas(
     Returns:
         InferenceResult with posterior samples
     """
+    if reparam is not None:
+        raise ValueError("PGAS does not support reparameterization.")
+
     rng_key = random.PRNGKey(seed)
     N_csmc = n_csmc_particles
     T = observations.shape[0]

@@ -218,8 +218,18 @@ def extract_constrained_samples(
     # Reparam path: replay model to recover original parameter names.
     # The model's deterministic sites produce assembled matrices; the reparam
     # handler creates deterministic sites for original parameter names.
-    replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
-    replay_fn = handlers.reparam(replay_fn, config=reparam)
+    base_replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
+    with handlers.seed(rng_seed=0):
+        public_trace = handlers.trace(base_replay_fn).get_trace(observations, times)
+    public_sites = {
+        name
+        for name, site in public_trace.items()
+        if site["type"] in ("sample", "deterministic")
+        and not site.get("is_observed", False)
+        and name not in {"log_likelihood", "ll_per_timestep"}
+    }
+
+    replay_fn = handlers.reparam(base_replay_fn, config=reparam)
 
     N = particles.shape[0]
     all_samples: dict[str, list] = {}
@@ -228,11 +238,7 @@ def extract_constrained_samples(
         with handlers.seed(rng_seed=0), handlers.substitute(data=con_i):
             trace = handlers.trace(replay_fn).get_trace(observations, times)
         for site_name, site in trace.items():
-            if site_name in ("log_likelihood", "ll_per_timestep"):
-                continue
-            if site.get("is_observed", False):
-                continue
-            if site["type"] in ("sample", "deterministic"):
+            if site_name in public_sites and site["type"] in ("sample", "deterministic"):
                 if site_name not in all_samples:
                     all_samples[site_name] = []
                 all_samples[site_name].append(site["value"])
