@@ -4,7 +4,9 @@ Core logic for worker data extraction, decoupled from Prefect/Inspect frameworks
 Uses dependency injection for the LLM generate function.
 """
 
+import logging
 from dataclasses import dataclass
+from typing import Any
 
 import polars as pl
 
@@ -105,6 +107,7 @@ async def run_worker_extraction(
     question: str,
     causal_spec: dict,
     generate: WorkerGenerateFn,
+    logger: Any | None = None,
 ) -> WorkerResult:
     """
     Run worker extraction for a single DataFrame chunk.
@@ -121,6 +124,7 @@ async def run_worker_extraction(
     Returns:
         WorkerResult with output, dataframe, and raw completion
     """
+    active_logger = logger or logging.getLogger(__name__)
     msgs = WorkerMessages(question, causal_spec, chunk_df)
 
     # Build messages and tools
@@ -128,17 +132,36 @@ async def run_worker_extraction(
     # on the final completion being valid JSON.
     extraction_msgs = msgs.extraction_messages()
     tools, capture = make_worker_tools(causal_spec)
+    chunk_csv = _format_dataframe_chunk(chunk_df)
+
+    active_logger.info(
+        "Prepared worker prompt with %d rows, %d columns, %d indicators, %d CSV chars",
+        len(chunk_df),
+        len(chunk_df.columns),
+        len(get_indicators(causal_spec)),
+        len(chunk_csv),
+    )
 
     # Generate extraction
+    active_logger.info("Calling extraction model")
     completion = await generate(extraction_msgs, tools)
+    active_logger.info("Model call returned %d characters", len(completion))
 
     # Prefer the captured result from the validation tool
     data = capture.get("output")
     if data is None:
         # Fallback: try parsing the final completion directly
+        active_logger.warning(
+            "Validation tool did not capture structured output; falling back to completion parsing",
+        )
         data = parse_json_response(completion)
     output = WorkerOutput.model_validate(data)
     dataframe = output.to_dataframe()
+    active_logger.info(
+        "Validated %d extractions into %d output rows",
+        len(output.extractions),
+        dataframe.height,
+    )
 
     return WorkerResult(
         output=output,

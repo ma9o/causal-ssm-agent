@@ -1,14 +1,20 @@
 """Tests for worker core helper functions.
 
-Covers: _format_indicators, _get_outcome_description, WorkerMessages.
+Covers: _format_indicators, _get_outcome_description, WorkerMessages,
+run_worker_extraction.
 """
 
+import asyncio
+import logging
+
 import polars as pl
+import pytest
 
 from causal_ssm_agent.workers.core import (
     WorkerMessages,
     _format_indicators,
     _get_outcome_description,
+    run_worker_extraction,
 )
 
 
@@ -44,6 +50,10 @@ def _causal_spec():
             ]
         },
     }
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 # =============================================================================
@@ -147,3 +157,40 @@ class TestWorkerMessages:
         user_msg = msgs[1]["content"]
         assert "pss_score" in user_msg
         assert "sleep_hours" in user_msg
+
+
+# =============================================================================
+# run_worker_extraction
+# =============================================================================
+
+
+class TestRunWorkerExtraction:
+    def _sample_df(self):
+        return pl.DataFrame({
+            "timestamp": ["2024-01-01T00:00:00Z"],
+            "activity_type": ["Search"],
+            "full_title": ["Searched for sleep hygiene"],
+            "url": ["https://example.com"],
+        })
+
+    def test_empty_completion_raises_parse_error(self, caplog):
+        async def fake_generate(messages, tools=None, follow_ups=None):
+            return ""
+
+        logger = logging.getLogger("test_worker_core")
+
+        with caplog.at_level(logging.INFO, logger=logger.name), pytest.raises(
+            ValueError, match="Failed to parse model response as JSON"
+        ):
+            _run(
+                run_worker_extraction(
+                    chunk_df=self._sample_df(),
+                    question="How does screen time affect sleep?",
+                    causal_spec=_causal_spec(),
+                    generate=fake_generate,
+                    logger=logger,
+                )
+            )
+
+        assert "Model call returned 0 characters" in caplog.text
+        assert "falling back to completion parsing" in caplog.text
