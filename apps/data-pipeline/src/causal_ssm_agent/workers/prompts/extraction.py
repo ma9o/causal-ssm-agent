@@ -24,7 +24,13 @@ For each row, extract values for each indicator following the `how_to_measure` i
 
 ## Validation Tool
 
-You have access to `validate_extractions` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+You have access to `validate_extractions` tool.
+1. Draft the full JSON extraction payload.
+2. Call `validate_extractions` with that full payload.
+3. If the tool returns validation errors, fix the JSON and try again.
+4. If the tool returns "VALID", stop immediately.
+
+Call `validate_extractions` exactly once per draft. Do not emit prose, tables, or markdown after a valid tool call.
 
 ## Output
 ```json

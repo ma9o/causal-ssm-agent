@@ -15,6 +15,9 @@ from causal_ssm_agent.utils.llm import (
     TraceMessage,
     _validate_json_and_format,
     attach_trace,
+    make_validate_worker_output_tool,
+    make_worker_tools,
+    multi_turn_generate,
     parse_json_response,
 )
 
@@ -131,6 +134,79 @@ class TestValidateJsonAndFormat:
             capture_key="test",
         )
         assert "test" not in capture
+
+
+def _worker_schema():
+    return {
+        "latent": {
+            "constructs": [
+                {"name": "stress", "role": "exogenous"},
+                {"name": "sleep", "role": "endogenous", "is_outcome": True},
+            ],
+            "edges": [{"cause": "stress", "effect": "sleep"}],
+        },
+        "measurement": {
+            "indicators": [
+                {
+                    "name": "sleep_hours",
+                    "construct_name": "sleep",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Read sleep hours directly from the rows",
+                }
+            ]
+        },
+    }
+
+
+class TestWorkerValidationTools:
+    def test_make_worker_tools_exposes_only_validation_tool(self):
+        tools, _capture = make_worker_tools(_worker_schema())
+        assert [tool.name for tool in tools] == ["validate_extractions"]
+
+    def test_validate_worker_tool_stops_on_valid_output(self):
+        tool, _capture = make_validate_worker_output_tool(_worker_schema())
+        assert tool.stop_on_success is True
+        assert tool.success_output == "VALID"
+
+    def test_multi_turn_generate_stops_after_valid_terminal_tool(self, monkeypatch):
+        call_count = 0
+        tool, capture = make_validate_worker_output_tool(_worker_schema())
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "validate_extractions",
+                            "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Extract sleep hours"}],
+                model_name="test-model",
+                tools=[tool],
+            )
+        )
+
+        assert result == ""
+        assert call_count == 1
+        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
 
 # =============================================================================

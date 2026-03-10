@@ -145,21 +145,26 @@ async def extract_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import make_worker_generate_fn
+    from causal_ssm_agent.utils.llm import get_stage2_generate_config, make_generate_fn
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
-    generate = make_worker_generate_fn(config.stage2_workers.model)
+    generate = make_generate_fn(
+        config.stage2_workers.model,
+        config=get_stage2_generate_config(),
+    )
     indicator_count = len(get_indicators(causal_spec))
     chunk_label = _chunk_log_label(chunk_idx, chunk_df)
 
     run_logger.info(
-        "[%s] Starting extraction with %d rows, %d indicators using model %s",
+        "[%s] Starting extraction with %d rows, %d indicators using model %s (max_tokens=%d, reasoning_effort=%s)",
         chunk_label,
         len(chunk_df),
         indicator_count,
         config.stage2_workers.model,
+        config.stage2_workers.max_tokens,
+        config.stage2_workers.reasoning_effort,
     )
 
     started_at = perf_counter()

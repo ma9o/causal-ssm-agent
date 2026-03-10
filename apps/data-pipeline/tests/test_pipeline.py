@@ -1,6 +1,8 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
+import cloudpickle
 import polars as pl
 
 from causal_ssm_agent.flows import dag, pipeline
@@ -15,6 +17,19 @@ def _stub_config() -> SimpleNamespace:
 
 def _noop_artifact(**_kwargs) -> None:
     return None
+
+
+def _write_public_result(tmp_path, run_id: str, stage_id: str, payload: dict) -> None:
+    run_dir = tmp_path / "results" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / f"{stage_id}.json").write_text(
+        json.dumps(
+            {
+                "metadata": {},
+                "result": json.dumps(payload),
+            }
+        )
+    )
 
 
 def _patch_common_stage_stubs(monkeypatch, calls: list):
@@ -231,6 +246,159 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
 
     assert any(entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls)
     assert result == {"stage5": True, "stage6": True}
+
+
+def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        _stub_config,
+    )
+    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    calls: list = []
+    _patch_common_stage_stubs(monkeypatch, calls)
+
+    prior_run = "prior-run"
+    prior_dir = tmp_path / "results" / prior_run
+    prior_dir.mkdir(parents=True, exist_ok=True)
+    prior_df_path = prior_dir / "stage0-raw-input.parquet"
+    pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}).write_parquet(prior_df_path)
+
+    _write_public_result(
+        tmp_path,
+        prior_run,
+        "stage-0",
+        {
+            "outcome": "success",
+            "source_label": "prior",
+            "n_records": 1,
+            "n_columns": 2,
+            "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
+            "sample": [],
+            "column_descriptions": [
+                {"name": "timestamp", "dtype": "String", "description": "ts"},
+                {"name": "value", "dtype": "String", "description": "val"},
+            ],
+        },
+    )
+    _write_public_result(
+        tmp_path,
+        prior_run,
+        "stage-1a",
+        {
+            "latent_model": {"constructs": []},
+            "outcome_name": "outcome",
+            "treatments": ["treatment"],
+        },
+    )
+    _write_public_result(
+        tmp_path,
+        prior_run,
+        "stage-1b",
+        {
+            "outcome": "success",
+            "causal_spec": {
+                "latent": {"constructs": [], "edges": []},
+                "measurement": {"indicators": []},
+            },
+        },
+    )
+
+    async def stage0(_user_id: str) -> dict:
+        raise AssertionError("stage0 should be restored, not rerun")
+
+    async def stage1a(_question: str) -> dict:
+        raise AssertionError("stage1a should be restored, not rerun")
+
+    async def stage1b(_question: str, _stage0: dict, _stage1a: dict) -> dict:
+        raise AssertionError("stage1b should be restored, not rerun")
+
+    captured: dict = {}
+
+    async def stage2(question: str, stage0_result: dict, stage1b_result: dict) -> dict:
+        calls.append(("stage2", question, stage0_result, stage1b_result))
+        captured["question"] = question
+        captured["stage0_df_path"] = stage0_result["_df_path"]
+        captured["stage1b_result"] = stage1b_result
+        raw_data = pl.DataFrame(
+            {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        )
+        return {
+            "_data_for_model": raw_data,
+            "_raw_data": raw_data,
+            "_worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+            "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+            "combined_extractions_sample": [],
+            "per_indicator_counts": {},
+        }
+
+    monkeypatch.setattr(dag, "stage0", stage0)
+    monkeypatch.setattr(dag, "stage1a", stage1a)
+    monkeypatch.setattr(dag, "stage1b", stage1b)
+    monkeypatch.setattr(dag, "stage2", stage2)
+
+    result = asyncio.run(
+        pipeline.causal_inference_pipeline(
+            query="why is this happening?",
+            resume_run_id=prior_run,
+            start_stage="stage-2",
+            end_stage="stage-2",
+        )
+    )
+
+    assert result["final_stage"] == "stage-2"
+    assert captured["question"] == "why is this happening?"
+    assert captured["stage1b_result"]["causal_spec"]["measurement"]["indicators"] == []
+    assert captured["stage0_df_path"] != str(prior_df_path)
+    assert captured["stage0_df_path"] == f"results/{result['run_id']}/stage0-raw-input.parquet"
+    assert (tmp_path / "results" / result["run_id"] / "stage0-raw-input.parquet").exists()
+    assert (tmp_path / "results" / result["run_id"] / "stage-0-state.pkl").exists()
+    assert (tmp_path / "results" / result["run_id"] / "stage-1a-state.pkl").exists()
+    assert (tmp_path / "results" / result["run_id"] / "stage-1b-state.pkl").exists()
+    assert (tmp_path / "results" / result["run_id"] / "stage-2-state.pkl").exists()
+
+
+def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    run_id = "legacy-run"
+    run_dir = tmp_path / "results" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "stage5-fitted-result.pkl").write_bytes(
+        cloudpickle.dumps({"samples": {"x": [1, 2, 3]}})
+    )
+    _write_public_result(
+        tmp_path,
+        run_id,
+        "stage-5",
+        {
+            "outcome": "warn",
+            "power_scaling": [
+                {
+                    "parameter": "beta_x",
+                    "diagnosis": "prior_dominated",
+                    "prior_sensitivity": 0.8,
+                    "likelihood_sensitivity": 0.2,
+                    "psis_k_hat": 0.4,
+                }
+            ],
+            "ppc": {"checked": True, "per_variable_warnings": [{"variable": "y", "message": "m"}]},
+            "inference_metadata": {"method": "svi"},
+            "mcmc_diagnostics": None,
+            "svi_diagnostics": {"loss": [1.0]},
+            "loo_diagnostics": None,
+            "posterior_marginals": None,
+            "posterior_pairs": None,
+        },
+    )
+
+    state = dag.load_stage_state(run_id, "stage-5")
+
+    assert state["result"]["_fitted_result_path"].endswith("stage5-fitted-result.pkl")
+    assert state["result"]["ps_result"]["checked"] is True
+    assert state["result"]["ps_result"]["diagnosis"] == {"beta_x": "prior_dominated"}
+    assert state["result"]["ppc_result"]["checked"] is True
 
 
 class _AsyncSubflowStub:

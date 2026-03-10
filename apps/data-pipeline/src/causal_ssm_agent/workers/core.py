@@ -156,6 +156,7 @@ async def run_worker_extraction(
     extraction_msgs = msgs.extraction_messages()
     tools, capture = make_worker_tools(causal_spec)
     chunk_csv = _format_dataframe_chunk(chunk_df)
+    tool_names = [tool.name for tool in tools]
 
     active_logger.info(
         _log_message(
@@ -166,6 +167,10 @@ async def run_worker_extraction(
         len(chunk_df.columns),
         len(get_indicators(causal_spec)),
         len(chunk_csv),
+    )
+    active_logger.info(
+        _log_message(call_label, "Using worker tools: %s"),
+        tool_names,
     )
 
     # Generate extraction

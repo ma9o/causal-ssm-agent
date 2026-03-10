@@ -216,6 +216,24 @@ def get_generate_config() -> GenerateConfig:
     )
 
 
+def get_stage2_generate_config() -> GenerateConfig:
+    """Get a Stage-2-tuned GenerateConfig for worker extraction."""
+    from causal_ssm_agent.utils.config import get_config
+
+    config = get_config()
+    llm = config.llm
+    stage2 = config.stage2_workers
+    return GenerateConfig(
+        max_tokens=stage2.max_tokens,
+        timeout=llm.timeout,
+        reasoning_effort=stage2.reasoning_effort,
+        reasoning_history="all",  # Preserve reasoning across tool retries when validation fails.
+        verbose_logging=llm.verbose_logging,
+        log_reasoning=llm.log_reasoning,
+        log_output_char_limit=llm.log_output_char_limit,
+    )
+
+
 def dict_messages_to_chat(messages: list[dict]) -> list[dict[str, Any]]:
     """Normalize dict messages for LiteLLM/OpenAI chat format.
 
@@ -383,7 +401,10 @@ def make_validate_latent_model_tool() -> tuple[Tool, dict]:
 
         return execute
 
-    return validate_latent_model_tool(), capture
+    tool_obj = validate_latent_model_tool()
+    tool_obj.stop_on_success = True
+    tool_obj.success_output = "VALID"
+    return tool_obj, capture
 
 
 def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[Tool, dict]:
@@ -423,7 +444,10 @@ def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[T
 
         return execute
 
-    return validate_measurement_model_tool(), capture
+    tool_obj = validate_measurement_model_tool()
+    tool_obj.stop_on_success = True
+    tool_obj.success_output = "VALID"
+    return tool_obj, capture
 
 
 def make_validate_model_spec_tool(
@@ -499,14 +523,17 @@ def make_validate_model_spec_tool(
 
         return execute
 
-    return validate_model_spec_tool(), capture
+    tool_obj = validate_model_spec_tool()
+    tool_obj.stop_on_success = True
+    tool_obj.success_output = "VALID"
+    return tool_obj, capture
 
 
 def make_worker_tools(schema: dict) -> tuple[list[Tool], dict]:
     """Create the standard toolset for worker agents.
 
-    This is the single source of truth for worker tools.
-    Used by both production workers and evals.
+    Workers only get the validation tool. Hidden utility tools caused repeated
+    extra model turns during extraction and materially reduced throughput.
 
     Args:
         schema: The model schema dict to validate extractions against
@@ -516,7 +543,7 @@ def make_worker_tools(schema: dict) -> tuple[list[Tool], dict]:
         capture["output"] for the last validated worker output dict (or None).
     """
     tool, capture = make_validate_worker_output_tool(schema)
-    return [tool, parse_date(), calculate()], capture
+    return [tool], capture
 
 
 def make_validate_worker_output_tool(schema: dict) -> tuple[Tool, dict]:
@@ -556,7 +583,10 @@ def make_validate_worker_output_tool(schema: dict) -> tuple[Tool, dict]:
 
         return execute
 
-    return validate_extractions(), capture
+    tool_obj = validate_extractions()
+    tool_obj.stop_on_success = True
+    tool_obj.success_output = "VALID"
+    return tool_obj, capture
 
 
 @tool
@@ -682,6 +712,25 @@ def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
     return " | ".join(parts)
 
 
+def _terminal_tool_success(
+    tool_messages: list[dict[str, Any]],
+    tools: list[Tool],
+) -> tuple[str, str] | None:
+    """Return the first successful terminal tool result, if any."""
+    tool_map = {tool.name: tool for tool in tools}
+    for tool_message in tool_messages:
+        tool_name = str(tool_message.get("name", ""))
+        tool_obj = tool_map.get(tool_name)
+        if tool_obj is None or not tool_obj.stop_on_success:
+            continue
+        if tool_message.get("error") is not None:
+            continue
+        result_text = str(tool_message.get("content", "")).strip()
+        if tool_obj.success_output is None or result_text == tool_obj.success_output:
+            return tool_name, result_text
+    return None
+
+
 async def _run_tool_loop(
     messages: list[dict[str, Any]],
     model_name: str,
@@ -747,6 +796,7 @@ async def _run_tool_loop(
             _summarize_output(output, elapsed_turn),
         )
 
+        tool_messages: list[dict[str, Any]] = []
         if output["message"].get("tool_calls"):
             tool_messages = await execute_tools(
                 output["message"],
@@ -758,6 +808,21 @@ async def _run_tool_loop(
 
         if trace_path is not None:
             _persist_partial_trace(messages, trace_path, label, turn, time.monotonic() - t0)
+
+        terminal_tool = _terminal_tool_success(tool_messages, tools) if tool_messages else None
+        if terminal_tool is not None:
+            tool_name, result_text = terminal_tool
+            elapsed_total = time.monotonic() - t0
+            _log_with_optional_label(
+                logger.info,
+                scoped_label,
+                "terminal tool %s returned %r; stopping after %d turns in %.1fs",
+                tool_name,
+                result_text,
+                turn,
+                elapsed_total,
+            )
+            return messages, output
 
         if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
