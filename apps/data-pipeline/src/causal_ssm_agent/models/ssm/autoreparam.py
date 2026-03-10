@@ -203,6 +203,9 @@ def _loc_scale_reparam(
 
 def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None:
     """Apply minimal reparameterization for distributions that need it."""
+    if is_observed:
+        return None
+
     # Unwrap through known wrapper types only.
     inner = fn
     while True:
