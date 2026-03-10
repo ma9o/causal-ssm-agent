@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import fields
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -11,11 +12,17 @@ import jax.numpy as jnp
 import numpy as np
 
 from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction, ModelSpec
+from causal_ssm_agent.orchestrator.schemas_model import (
+    DistributionFamily,
+    LinkFunction,
+    ModelSpec,
+    ParameterRole,
+)
 
 if TYPE_CHECKING:
     import polars as pl
 
+    from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
     from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 CompiledSSMArtifact = dict[str, Any]
@@ -98,6 +105,170 @@ def deserialize_ssm_priors(payload: dict[str, Any]) -> SSMPriors:
     return SSMPriors(**payload)
 
 
+def _normalize_measurement_instruction(text: str) -> str:
+    """Normalize free-text measurement instructions for duplicate checks."""
+    return " ".join(text.lower().split())
+
+
+def _collect_measurement_compile_errors(
+    measurement: MeasurementModel,
+    latent: LatentModel,
+) -> list[str]:
+    """Collect deterministic measurement checks best handled at compile time."""
+    from causal_ssm_agent.orchestrator.schemas import check_semantic_collisions
+
+    errors: list[str] = []
+
+    if not measurement.indicators:
+        errors.append("Measurement model must include at least one indicator.")
+        return errors
+
+    outcome_names = [construct.name for construct in latent.constructs if construct.is_outcome]
+    for outcome_name in outcome_names:
+        if not measurement.get_indicators_for_construct(outcome_name):
+            errors.append(f"Outcome construct '{outcome_name}' must have at least one indicator.")
+
+    duplicate_groups: dict[tuple[str, str, str, str, tuple[str, ...]], list[str]] = defaultdict(
+        list
+    )
+    for indicator in measurement.indicators:
+        collisions = check_semantic_collisions(indicator.how_to_measure, indicator.aggregation)
+        for warning in collisions:
+            errors.append(f"Indicator '{indicator.name}': {warning}")
+
+        duplicate_key = (
+            indicator.construct_name,
+            _normalize_measurement_instruction(indicator.how_to_measure),
+            indicator.measurement_dtype,
+            indicator.aggregation,
+            tuple(indicator.ordinal_levels or ()),
+        )
+        duplicate_groups[duplicate_key].append(indicator.name)
+
+    for duplicate_key, indicator_names in duplicate_groups.items():
+        if len(indicator_names) < 2:
+            continue
+
+        construct_name = duplicate_key[0]
+        joined_names = ", ".join(sorted(indicator_names))
+        errors.append(
+            f"Construct '{construct_name}' has duplicate indicator operationalizations: "
+            f"{joined_names}. Each indicator should add distinct measurement information."
+        )
+
+    return errors
+
+
+def validate_measurement_model_for_compilation(
+    measurement_model: dict,
+    latent_model: LatentModel | dict,
+) -> tuple[MeasurementModel | None, list[str]]:
+    """Validate measurement output against schema and compile-time constraints."""
+    from causal_ssm_agent.orchestrator.schemas import LatentModel as LatentModelCls
+    from causal_ssm_agent.orchestrator.schemas import validate_measurement_model
+
+    latent = (
+        LatentModelCls.model_validate(latent_model)
+        if isinstance(latent_model, dict)
+        else latent_model
+    )
+    measurement, errors = validate_measurement_model(measurement_model, latent)
+    if measurement is None:
+        return None, errors
+
+    compile_errors = _collect_measurement_compile_errors(measurement, latent)
+    if compile_errors:
+        return None, compile_errors
+
+    return measurement, []
+
+
+def trial_compile_measurement_model(
+    measurement_model: MeasurementModel | dict,
+    latent_model: LatentModel | dict,
+) -> str | None:
+    """Try compiling a measurement model and return a feedback string on failure."""
+    measurement_data = (
+        measurement_model.model_dump(mode="json")
+        if hasattr(measurement_model, "model_dump")
+        else measurement_model
+    )
+    _, errors = validate_measurement_model_for_compilation(measurement_data, latent_model)
+    if errors:
+        return "\n".join(errors)
+    return None
+
+
+def _collect_model_spec_compile_errors(
+    model_spec: ModelSpec,
+    causal_spec: dict | None = None,
+) -> list[str]:
+    """Collect deterministic ModelSpec checks that the compiler owns."""
+    errors: list[str] = []
+    n_manifest = len(model_spec.likelihoods)
+
+    if causal_spec is not None:
+        from causal_ssm_agent.utils.causal_spec import get_constructs
+
+        constructs = get_constructs(causal_spec)
+        if not constructs:
+            errors.append("causal_spec.latent.constructs is empty")
+            return errors
+
+        n_latent = len(constructs)
+        if n_manifest < n_latent:
+            errors.append(
+                "Loading matrix is rank-deficient: "
+                f"n_manifest ({n_manifest}) < n_latent ({n_latent})."
+            )
+        return errors
+
+    ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
+    if not ar_params:
+        errors.append(
+            "No AR_COEFFICIENT parameters found in ModelSpec; "
+            "cannot infer latent dimensionality without causal_spec."
+        )
+        return errors
+
+    n_latent = len(ar_params)
+    if n_manifest < n_latent:
+        errors.append(
+            "Loading matrix is rank-deficient: "
+            f"n_manifest ({n_manifest}) < inferred n_latent ({n_latent})."
+        )
+
+    return errors
+
+
+def validate_model_spec_for_compilation(
+    model_spec: ModelSpec | dict,
+    causal_spec: dict | None = None,
+) -> tuple[ModelSpec | None, list[str]]:
+    """Validate model-spec schema/domain rules plus compiler-owned invariants."""
+    from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
+
+    indicators = None
+    if causal_spec is not None:
+        from causal_ssm_agent.utils.causal_spec import get_indicators
+
+        indicators = get_indicators(causal_spec)
+
+    model_spec_data = (
+        model_spec.model_dump(mode="json") if isinstance(model_spec, ModelSpec) else model_spec
+    )
+
+    spec_obj, errors = validate_model_spec_dict(model_spec_data, indicators=indicators)
+    if spec_obj is None:
+        return None, errors
+
+    compile_errors = _collect_model_spec_compile_errors(spec_obj, causal_spec=causal_spec)
+    if compile_errors:
+        return None, compile_errors
+
+    return spec_obj, []
+
+
 def trial_compile_model_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -134,7 +305,18 @@ def compile_ssm_artifact(
     """Compile user-facing specs into an executable, serializable SSM artifact."""
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
-    builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
+    validated_model_spec, errors = validate_model_spec_for_compilation(
+        model_spec, causal_spec=causal_spec
+    )
+    if errors:
+        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+
+    assert validated_model_spec is not None
+    builder = SSMModelBuilder(
+        model_spec=validated_model_spec,
+        priors=priors,
+        causal_spec=causal_spec,
+    )
     spec, ssm_priors = builder.compile_inputs()
 
     return {

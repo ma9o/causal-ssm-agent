@@ -11,7 +11,10 @@ from .ssm_compiler import (
     compile_ssm_artifact,
     deserialize_ssm_priors,
     deserialize_ssm_spec,
+    trial_compile_measurement_model,
     trial_compile_model_spec,
+    validate_measurement_model_for_compilation,
+    validate_model_spec_for_compilation,
 )
 
 __all__ = [
@@ -24,6 +27,9 @@ __all__ = [
     "build_compiled_ssm_builder",
     "deserialize_ssm_spec",
     "deserialize_ssm_priors",
+    "validate_measurement_model_for_compilation",
+    "validate_model_spec_for_compilation",
+    "trial_compile_measurement_model",
     "trial_compile_model_spec",
     # Validation
     "validate_prior_predictive",

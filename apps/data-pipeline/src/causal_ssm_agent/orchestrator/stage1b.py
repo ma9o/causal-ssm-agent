@@ -19,7 +19,7 @@ from causal_ssm_agent.utils.llm import (
 )
 
 from .prompts import measurement_model
-from .schemas import LatentModel, MeasurementModel
+from .schemas import LatentModel
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +199,20 @@ def _get_confounders_to_fix(
     return blocking_info, confounders_to_fix
 
 
+def _validate_measurement_compilation(measurement: dict, latent: LatentModel) -> dict:
+    """Run the stage 1b measurement compiler and return a normalized dict."""
+    from causal_ssm_agent.models.ssm_compiler import validate_measurement_model_for_compilation
+
+    validated_measurement, errors = validate_measurement_model_for_compilation(measurement, latent)
+    if errors:
+        raise ValueError(
+            "Measurement model failed compiler validation:\n"
+            + "\n".join(f"- {error}" for error in errors)
+        )
+    assert validated_measurement is not None
+    return validated_measurement.model_dump(mode="json")
+
+
 async def run_stage1b(
     question: str,
     latent_model: dict,
@@ -239,7 +253,7 @@ async def run_stage1b(
     if measurement is None:
         # Fallback: try parsing the final completion directly
         measurement = parse_json_response(completion)
-    MeasurementModel.model_validate(measurement)  # Validate schema
+    measurement = _validate_measurement_compilation(measurement, latent)
 
     # Step 2: Check identifiability
     initial_id = check_identifiability(latent_model, measurement)
@@ -263,8 +277,7 @@ async def run_stage1b(
 
             if proxy_response and proxy_response.get("new_proxies"):
                 measurement = _merge_proxies(measurement, proxy_response)
-                # Re-validate after merge to catch schema violations
-                MeasurementModel.model_validate(measurement)
+                measurement = _validate_measurement_compilation(measurement, latent)
 
     # Step 4: Final identifiability check
     final_id = check_identifiability(latent_model, measurement)
