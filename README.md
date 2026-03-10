@@ -51,7 +51,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── workers/           # Indicator extraction + prior research LLMs
 │   │   │   ├── models/            # NumPyro SSM, likelihoods, prior/posterior predictive
 │   │   │   ├── flows/             # Prefect pipeline stages (0 → 5)
-│   │   │   └── utils/             # Shared utilities (config, llm, data, identifiability)
+│   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
 │   │   ├── data/                  # Raw, processed, queries, eval data
 │   │   ├── evals/                 # Inspect AI evals

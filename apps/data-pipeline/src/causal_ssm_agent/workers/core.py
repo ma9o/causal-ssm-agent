@@ -1,7 +1,7 @@
 """Worker extraction core logic.
 
-Core logic for worker data extraction, decoupled from Prefect/Inspect frameworks.
-Uses dependency injection for the LLM generate function.
+Core logic for worker data extraction, decoupled from Prefect and model-client
+frameworks. Uses dependency injection for the LLM generate function.
 """
 
 import logging

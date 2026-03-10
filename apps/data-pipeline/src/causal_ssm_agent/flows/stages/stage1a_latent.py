@@ -3,7 +3,6 @@
 Wraps the core Stage 1a logic for use in Prefect pipelines.
 """
 
-from inspect_ai.model import get_model
 from prefect import task
 from prefect.cache_policies import INPUTS
 
@@ -34,10 +33,11 @@ async def propose_latent_model(question: str) -> dict:
     Returns:
         Stage1aData dict matching the web frontend contract.
     """
-    model = get_model(get_config().stage1_structure_proposal.model)
     trace_capture: dict = {}
     generate = make_orchestrator_generate_fn(
-        model, trace_capture=trace_capture, trace_path=make_live_trace_path("stage-1a")
+        get_config().stage1_structure_proposal.model,
+        trace_capture=trace_capture,
+        trace_path=make_live_trace_path("stage-1a"),
     )
     result = await run_stage1a(question=question, generate=generate)
     latent_model = result.latent_model

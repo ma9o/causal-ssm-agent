@@ -15,7 +15,8 @@ import tarfile
 from typing import TYPE_CHECKING
 
 import polars as pl
-from inspect_ai.tool import Tool, tool
+
+from causal_ssm_agent.utils.litellm_client import Tool, tool
 
 if TYPE_CHECKING:
     from pathlib import Path

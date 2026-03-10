@@ -5,26 +5,22 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any
 
-from inspect_ai.model import (
-    ChatMessageAssistant,
-    ChatMessageSystem,
-    ChatMessageTool,
-    ChatMessageUser,
-    GenerateConfig,
-    Model,
-    ModelOutput,
-    execute_tools,
-)
-from inspect_ai.tool import Tool, tool
 from pydantic import BaseModel, Field
+
+from causal_ssm_agent.utils.litellm_client import (
+    GenerateConfig,
+    Tool,
+    call_model,
+    execute_tools,
+    normalize_message,
+    tool,
+)
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from inspect_ai.model import ChatMessage
-
     from causal_ssm_agent.orchestrator.schemas import LatentModel
 
 
@@ -63,73 +59,36 @@ class LLMTrace(BaseModel):
     usage: TraceUsage = Field(default_factory=TraceUsage)
 
 
-def _chat_message_to_trace(msg: "ChatMessage") -> TraceMessage:
-    """Convert an inspect_ai ChatMessage to a TraceMessage."""
-    from inspect_ai._util.content import ContentReasoning, ContentText
-
-    role = msg.role
-    content_text = ""
-    reasoning_text = None
-    tool_calls_list = None
-    tool_name = None
-    tool_result = None
-    tool_is_error = False
-
-    # Extract text and reasoning from content
-    if isinstance(msg.content, str):
-        content_text = msg.content
-    elif isinstance(msg.content, list):
-        text_parts = []
-        reasoning_parts = []
-        for part in msg.content:
-            if isinstance(part, ContentText):
-                text_parts.append(part.text)
-            elif isinstance(part, ContentReasoning):
-                reasoning_parts.append(part.reasoning)
-        content_text = "\n".join(text_parts)
-        if reasoning_parts:
-            reasoning_text = "\n".join(reasoning_parts)
-
-    # Extract tool calls from assistant messages
-    tool_call_id = None
-    if isinstance(msg, ChatMessageAssistant) and msg.tool_calls:
-        tool_calls_list = [
-            {"id": tc.id, "name": tc.function, "arguments": tc.arguments} for tc in msg.tool_calls
-        ]
-
-    # Extract tool results from tool messages
-    if isinstance(msg, ChatMessageTool):
-        tool_call_id = msg.tool_call_id
-        tool_name = msg.function
-        tool_result = content_text
-        tool_is_error = msg.error is not None
+def _chat_message_to_trace(msg: dict[str, Any]) -> TraceMessage:
+    """Convert a runtime chat message to a TraceMessage."""
 
     return TraceMessage(
-        role=role,
-        content=content_text,
-        reasoning=reasoning_text,
-        tool_calls=tool_calls_list,
-        tool_call_id=tool_call_id,
-        tool_name=tool_name,
-        tool_result=tool_result,
-        tool_is_error=tool_is_error,
+        role=msg["role"],
+        content=str(msg.get("content", "")),
+        reasoning=msg.get("reasoning"),
+        tool_calls=msg.get("tool_calls"),
+        tool_call_id=msg.get("tool_call_id"),
+        tool_name=msg.get("name"),
+        tool_result=str(msg.get("content", "")) if msg["role"] == "tool" else None,
+        tool_is_error=msg.get("error") is not None,
     )
 
 
-def _build_trace(all_messages: list["ChatMessage"], output: ModelOutput) -> LLMTrace:
-    """Build an LLMTrace from a final message list and ModelOutput."""
+def _build_trace(all_messages: list[dict[str, Any]], output: dict[str, Any]) -> LLMTrace:
+    """Build an LLMTrace from a final message list and response summary."""
     messages = [_chat_message_to_trace(m) for m in all_messages]
     usage = TraceUsage()
-    if output.usage:
+    if output.get("usage"):
+        output_usage = output["usage"]
         usage = TraceUsage(
-            input_tokens=output.usage.input_tokens,
-            output_tokens=output.usage.output_tokens,
-            reasoning_tokens=output.usage.reasoning_tokens,
+            input_tokens=output_usage["input_tokens"],
+            output_tokens=output_usage["output_tokens"],
+            reasoning_tokens=output_usage["reasoning_tokens"],
         )
     return LLMTrace(
         messages=messages,
-        model=output.model or "",
-        total_time_seconds=output.time or 0.0,
+        model=output.get("model", ""),
+        total_time_seconds=output.get("time") or 0.0,
         usage=usage,
     )
 
@@ -171,7 +130,7 @@ def make_live_trace_path(stage_id: str) -> Path:
 
 
 def _persist_partial_trace(
-    messages: list["ChatMessage"],
+    messages: list[dict[str, Any]],
     trace_path: Path,
     label: str,
     turn: int,
@@ -228,29 +187,24 @@ def get_generate_config() -> GenerateConfig:
     return GenerateConfig(
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
-        reasoning_effort=cast(
-            "Literal['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] | None",
-            llm.reasoning_effort,
-        ),
+        reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
     )
 
 
-def dict_messages_to_chat(messages: list[dict]) -> list["ChatMessage"]:
-    """Convert dict messages to ChatMessage objects.
+def dict_messages_to_chat(messages: list[dict]) -> list[dict[str, Any]]:
+    """Normalize dict messages for LiteLLM/OpenAI chat format.
 
     Args:
         messages: List of dicts with 'role' and 'content' keys
 
     Returns:
-        List of ChatMessage objects (ChatMessageSystem or ChatMessageUser)
+        Normalized runtime chat messages.
     """
-    chat_messages = []
+    chat_messages: list[dict[str, Any]] = []
     for msg in messages:
-        if msg["role"] == "system":
-            chat_messages.append(ChatMessageSystem(content=msg["content"]))
-        elif msg["role"] == "user":
-            chat_messages.append(ChatMessageUser(content=msg["content"]))
+        if msg.get("role") in {"system", "user", "assistant", "tool"}:
+            chat_messages.append(normalize_message(msg))
     return chat_messages
 
 
@@ -260,7 +214,7 @@ def dict_messages_to_chat(messages: list[dict]) -> list["ChatMessage"]:
 
 
 def make_generate_fn(
-    model: Model,
+    model_name: str,
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
     trace_path: Path | None = None,
@@ -271,7 +225,7 @@ def make_generate_fn(
     Works for both orchestrator stages (with follow_ups) and worker stages (without).
 
     Args:
-        model: The model to use for generation
+        model_name: LiteLLM model identifier
         config: Optional generation config (uses get_generate_config() if None)
         trace_capture: Optional dict for capturing the LLM trace
         trace_path: Optional path for live trace persistence (partial JSON written
@@ -293,15 +247,15 @@ def make_generate_fn(
         if follow_ups or tools:
             return await multi_turn_generate(
                 messages=chat_messages,
-                model=model,
+                model_name=model_name,
                 follow_ups=follow_ups,
                 tools=tools or [],
                 config=config,
                 trace_capture=trace_capture,
                 trace_path=trace_path,
             )
-        response = await model.generate(chat_messages, config=config)
-        return response.completion
+        response = await call_model(model_name, chat_messages, config=config)
+        return response["completion"]
 
     return generate
 
@@ -682,18 +636,20 @@ MAX_TOOL_LOOP_TURNS = 40
 WARN_TOOL_LOOP_TURNS = 10
 
 
-def _summarize_output(output: ModelOutput, elapsed: float) -> str:
-    """One-line summary of a ModelOutput for logging."""
+def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
+    """One-line summary of a normalized response summary for logging."""
     parts = []
-    if output.usage:
-        parts.append(f"tokens(in={output.usage.input_tokens},out={output.usage.output_tokens})")
+    usage = output.get("usage")
+    if usage:
+        parts.append(f"tokens(in={usage['input_tokens']},out={usage['output_tokens']})")
     parts.append(f"time={elapsed:.1f}s")
-    if output.message.tool_calls:
-        names = [tc.function for tc in output.message.tool_calls]
+    tool_calls = output["message"].get("tool_calls") or []
+    if tool_calls:
+        names = [call["name"] for call in tool_calls]
         parts.append(f"tool_calls={names}")
     else:
-        parts.append(f"stop={output.stop_reason or 'end_turn'}")
-    text = output.completion or ""
+        parts.append(f"stop={output.get('stop_reason') or 'end_turn'}")
+    text = output.get("completion", "")
     preview = text[:120].replace("\n", " ")
     if preview:
         parts.append(f'preview="{preview}..."' if len(text) > 120 else f'preview="{preview}"')
@@ -701,15 +657,15 @@ def _summarize_output(output: ModelOutput, elapsed: float) -> str:
 
 
 async def _run_tool_loop(
-    messages: list["ChatMessage"],
-    model: Model,
+    messages: list[dict[str, Any]],
+    model_name: str,
     tools: list[Tool],
     config: GenerateConfig | None,
     label: str = "tool",
     max_turns: int = MAX_TOOL_LOOP_TURNS,
     warn_turns: int = WARN_TOOL_LOOP_TURNS,
     trace_path: Path | None = None,
-) -> tuple[list["ChatMessage"], ModelOutput]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run a tool loop with per-turn logging and an infinite-loop guard.
 
     Replaces model.generate_loop() with identical semantics but adds:
@@ -743,8 +699,8 @@ async def _run_tool_loop(
             )
 
         t_turn = time.monotonic()
-        output = await model.generate(input=messages, tools=tools, config=_config)
-        messages.append(output.message)
+        output = await call_model(model_name, messages, tools=tools, config=_config)
+        messages.append(output["message"])
         elapsed_turn = time.monotonic() - t_turn
 
         logger.info(
@@ -754,20 +710,18 @@ async def _run_tool_loop(
             _summarize_output(output, elapsed_turn),
         )
 
-        if output.message.tool_calls:
-            tool_messages, tool_output = await execute_tools(
-                messages,
+        if output["message"].get("tool_calls"):
+            tool_messages = await execute_tools(
+                output["message"],
                 tools,
                 _config.max_tool_output,
             )
             messages.extend(tool_messages)
-            if tool_output is not None:
-                output = tool_output
 
         if trace_path is not None:
             _persist_partial_trace(messages, trace_path, label, turn, time.monotonic() - t0)
 
-        if not output.message.tool_calls:
+        if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
             logger.info("[%s] completed: %d turns in %.1fs", label, turn, elapsed_total)
             return messages, output
@@ -779,8 +733,8 @@ async def _run_tool_loop(
 
 
 async def multi_turn_generate(
-    messages: list["ChatMessage"],
-    model: Model,
+    messages: list[dict[str, Any]],
+    model_name: str,
     follow_ups: list[str] | None = None,
     tools: list[Tool] | None = None,
     follow_up_tools: list[Tool] | None = None,
@@ -796,7 +750,7 @@ async def multi_turn_generate(
 
     Args:
         messages: Initial messages (typically system + user prompt)
-        model: The model to use for generation
+        model_name: LiteLLM model identifier
         follow_ups: List of follow-up user prompts to send after each response (default: none)
         tools: Optional list of tools the model can use on the first turn
         follow_up_tools: Optional list of tools for follow-up (self-review) turns.
@@ -827,23 +781,23 @@ async def multi_turn_generate(
         # Tool-enabled generation with per-turn logging
         messages, output = await _run_tool_loop(
             messages,
-            model,
+            model_name,
             tools,
             config,
             label="initial",
             trace_path=trace_path,
         )
-        last_nonempty = output.completion
+        last_nonempty = output["completion"]
 
         # Follow-up turns
         for i, prompt in enumerate(follow_ups):
             logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
-            messages.append(ChatMessageUser(content=prompt))
+            messages.append({"role": "user", "content": prompt})
 
             if follow_up_tools:
                 messages, output = await _run_tool_loop(
                     messages,
-                    model,
+                    model_name,
                     follow_up_tools,
                     config,
                     label=f"follow-up-{i + 1}",
@@ -851,8 +805,8 @@ async def multi_turn_generate(
                 )
             else:
                 t_fu = time.monotonic()
-                response = await model.generate(messages, config=_config)
-                messages.append(ChatMessageAssistant(content=response.completion))
+                response = await call_model(model_name, messages, config=_config)
+                messages.append(response["message"])
                 output = response
                 elapsed_fu = time.monotonic() - t_fu
                 logger.info(
@@ -867,8 +821,8 @@ async def multi_turn_generate(
                         messages, trace_path, f"follow-up-{i + 1}", 1, time.monotonic() - t0
                     )
 
-            if output.completion and output.completion.strip():
-                last_nonempty = output.completion
+            if output["completion"] and output["completion"].strip():
+                last_nonempty = output["completion"]
 
         if trace_capture is not None:
             trace_capture["trace"] = _build_trace(messages, output)
@@ -879,18 +833,18 @@ async def multi_turn_generate(
         return last_nonempty
     # Simple generation without tools
     t_gen = time.monotonic()
-    response = await model.generate(messages, config=_config)
-    messages.append(ChatMessageAssistant(content=response.completion))
+    response = await call_model(model_name, messages, config=_config)
+    messages.append(response["message"])
     elapsed_gen = time.monotonic() - t_gen
     logger.info("single-turn | %s", _summarize_output(response, elapsed_gen))
-    last_nonempty = response.completion
+    last_nonempty = response["completion"]
 
     for i, prompt in enumerate(follow_ups):
         logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
-        messages.append(ChatMessageUser(content=prompt))
+        messages.append({"role": "user", "content": prompt})
         t_fu = time.monotonic()
-        response = await model.generate(messages, config=_config)
-        messages.append(ChatMessageAssistant(content=response.completion))
+        response = await call_model(model_name, messages, config=_config)
+        messages.append(response["message"])
         elapsed_fu = time.monotonic() - t_fu
         logger.info(
             "Follow-up %d/%d | %s",
@@ -898,8 +852,8 @@ async def multi_turn_generate(
             len(follow_ups),
             _summarize_output(response, elapsed_fu),
         )
-        if response.completion and response.completion.strip():
-            last_nonempty = response.completion
+        if response["completion"] and response["completion"].strip():
+            last_nonempty = response["completion"]
 
     if trace_capture is not None:
         trace_capture["trace"] = _build_trace(messages, response)

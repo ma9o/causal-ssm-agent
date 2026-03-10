@@ -45,8 +45,6 @@ async def extract_chunk_task(
         Dict with 'dataframe' (as list of dicts for serialization),
         'n_extractions', and 'status'.
     """
-    from inspect_ai.model import get_model
-
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.llm import make_worker_generate_fn
@@ -54,8 +52,7 @@ async def extract_chunk_task(
 
     run_logger = get_run_logger()
     config = get_config()
-    model = get_model(config.stage2_workers.model)
-    generate = make_worker_generate_fn(model)
+    generate = make_worker_generate_fn(config.stage2_workers.model)
     indicator_count = len(get_indicators(causal_spec))
 
     run_logger.info(

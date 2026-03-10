@@ -13,7 +13,6 @@ Orchestrator-Worker architecture with SSM grounding:
 See docs/modeling/functional_spec.md for design rationale.
 """
 
-
 import polars as pl
 from prefect import flow, task
 from prefect.cache_policies import INPUTS
@@ -87,8 +86,6 @@ async def propose_model_task(
     Returns:
         ModelSpec as dict
     """
-    from inspect_ai.model import get_model
-
     from causal_ssm_agent.orchestrator.stage4_orchestrator import (
         propose_model_spec,
     )
@@ -100,10 +97,11 @@ async def propose_model_task(
     )
 
     config = get_config()
-    model = get_model(config.stage4_prior_elicitation.model)
     trace_capture: dict = {}
     generate = make_orchestrator_generate_fn(
-        model, trace_capture=trace_capture, trace_path=make_live_trace_path("stage-4")
+        config.stage4_prior_elicitation.model,
+        trace_capture=trace_capture,
+        trace_path=make_live_trace_path("stage-4"),
     )
 
     data_summary = build_raw_data_summary(raw_data)
@@ -181,8 +179,6 @@ async def elicit_prior_task(
     Returns:
         PriorProposal as dict
     """
-    from inspect_ai.model import get_model
-
     from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.llm import make_worker_generate_fn
@@ -195,8 +191,7 @@ async def elicit_prior_task(
     worker_model = (
         config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
     )
-    model = get_model(worker_model)
-    generate = make_worker_generate_fn(model)
+    generate = make_worker_generate_fn(worker_model)
 
     param = ParameterSpec.model_validate(parameter_spec)
 
@@ -448,7 +443,9 @@ async def stage4_orchestrated_flow(
     # 4. Validation loop
     validation_result = None
     for attempt in range(max_prior_retries + 1):
-        validation_result = validate_priors_task(model_spec, priors, raw_data, causal_spec=causal_spec)
+        validation_result = validate_priors_task(
+            model_spec, priors, raw_data, causal_spec=causal_spec
+        )
 
         if validation_result.get("is_valid", False):
             logger.info("Prior validation passed on attempt %d", attempt + 1)

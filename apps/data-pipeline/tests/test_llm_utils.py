@@ -165,23 +165,18 @@ class TestAttachTrace:
 
 class TestDictMessagesToChat:
     def test_system_message(self):
-        from inspect_ai.model import ChatMessageSystem
-
         from causal_ssm_agent.utils.llm import dict_messages_to_chat
 
         msgs = dict_messages_to_chat([{"role": "system", "content": "Be helpful"}])
         assert len(msgs) == 1
-        assert isinstance(msgs[0], ChatMessageSystem)
-        assert msgs[0].content == "Be helpful"
+        assert msgs[0] == {"role": "system", "content": "Be helpful"}
 
     def test_user_message(self):
-        from inspect_ai.model import ChatMessageUser
-
         from causal_ssm_agent.utils.llm import dict_messages_to_chat
 
         msgs = dict_messages_to_chat([{"role": "user", "content": "Hello"}])
         assert len(msgs) == 1
-        assert isinstance(msgs[0], ChatMessageUser)
+        assert msgs[0] == {"role": "user", "content": "Hello"}
 
     def test_mixed_messages(self):
         from causal_ssm_agent.utils.llm import dict_messages_to_chat
