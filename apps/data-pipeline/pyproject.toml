@@ -22,7 +22,6 @@ dependencies = [
     "polars>=1.35.2",
     "prefect>=3.6.5",
     "python-dotenv>=1.2.1",
-    "sf-hamilton>=1.89.0",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
 ]
 

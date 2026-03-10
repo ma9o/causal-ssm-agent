@@ -33,9 +33,19 @@ Start these three services in separate terminals (or background them). **Order m
 
 | # | Service | Port | Start command | What it does |
 |---|---------|------|---------------|--------------|
-| 1 | Prefect server | 4200 | `cd apps/data-pipeline && uv run prefect server start` | Central API coordinator |
+| 1 | Prefect server | 4200 | See below | Central API coordinator |
 | 2 | Pipeline deployment | — | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
 | 3 | Next.js frontend | 3001 | `cd apps/web && bun run dev -p 3001` | Web UI for session resume and stage visualization |
+
+#### Prefect server (ephemeral, no persistence)
+
+By default, Prefect writes its SQLite database to `~/.prefect/`. To run a fully ephemeral server that loses all state when stopped, use an in-memory SQLite URL:
+
+```bash
+cd apps/data-pipeline && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlite://" uv run prefect server start
+```
+
+This is recommended for integration testing — you get the full server/UI on `:4200` with zero leftover state between runs.
 
 ### 3. Health-check all three
 
@@ -61,14 +71,18 @@ The `.mcp.json` at the worktree root must configure `next-devtools-mcp` for `bro
 
 ### 1. Place data
 
-Copy test data into a session-code-named directory:
+Copy a Google Takeout zip into a session-code-named directory:
 
 ```bash
 CODE="T3ST42"
 mkdir -p apps/data-pipeline/data/raw/$CODE
-cp apps/data-pipeline/data/raw/test_user/MyActivity.json \
+cp apps/data-pipeline/data/raw/T3ST42/takeout-20230817T122334Z-001.zip \
    apps/data-pipeline/data/raw/$CODE/
 ```
+
+The pipeline's stage-0 preprocess step scans `data/raw/{code}/` for uploadable files
+and currently uses the most recent `.zip` in that directory. A bare `MyActivity.json`
+file will not be picked up in this worktree.
 
 ### 2. Trigger pipeline via Prefect API
 
