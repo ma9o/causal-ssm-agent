@@ -24,9 +24,11 @@ import random
 
 from evals.common import (
     discover_questions,
+    get_generate_config,
     get_questions_with_causal_spec,
     get_sample_chunks_worker,
     load_eval_config,
+    make_worker_generate_fn,
     select_question,
 )
 from inspect_ai import Task, task
@@ -35,11 +37,7 @@ from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
-from causal_ssm_agent.utils.llm import (
-    get_generate_config,
-    make_worker_generate_fn,
-    parse_json_response,
-)
+from causal_ssm_agent.utils.llm import parse_json_response
 from causal_ssm_agent.workers.core import (
     _format_indicators,
     _get_outcome_description,

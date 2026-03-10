@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from evals.common import (
     get_questions_with_causal_spec,
+    make_orchestrator_generate_fn,
     select_question,
     select_questions,
 )
@@ -36,7 +37,6 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     VALID_LINKS_FOR_DISTRIBUTION,
 )
 from causal_ssm_agent.orchestrator.stage4_orchestrator import propose_model_spec
-from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Dataset

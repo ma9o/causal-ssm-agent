@@ -3,9 +3,18 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
-from inspect_ai.model import get_model
+from inspect_ai.model import (
+    ChatMessageAssistant,
+    ChatMessageSystem,
+    ChatMessageUser,
+    GenerateConfig,
+    Model,
+    execute_tools,
+    get_model,
+)
 from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
@@ -17,7 +26,6 @@ from causal_ssm_agent.utils.data import (
     get_worker_chunk_size,
     sample_chunks,
 )
-from causal_ssm_agent.utils.llm import get_generate_config, multi_turn_generate
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Eval config (non-question settings)
@@ -174,6 +182,103 @@ def select_questions(questions: list[EvalQuestion], selectors: str) -> list[Eval
 # ══════════════════════════════════════════════════════════════════════════════
 # Solvers & utilities
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+def get_generate_config() -> GenerateConfig:
+    """Build the standard Inspect GenerateConfig from project config."""
+    from causal_ssm_agent.utils.config import get_config
+
+    llm = get_config().llm
+    return GenerateConfig(
+        max_tokens=llm.max_tokens,
+        timeout=llm.timeout,
+        reasoning_effort=llm.reasoning_effort,
+        reasoning_history="all",
+    )
+
+
+def _dict_messages_to_chat(messages: list[dict[str, Any]]) -> list[Any]:
+    chat_messages = []
+    for msg in messages:
+        if msg["role"] == "system":
+            chat_messages.append(ChatMessageSystem(content=msg["content"]))
+        elif msg["role"] == "user":
+            chat_messages.append(ChatMessageUser(content=msg["content"]))
+    return chat_messages
+
+
+async def multi_turn_generate(
+    messages: list[Any],
+    model: Model,
+    follow_ups: list[str] | None = None,
+    tools: list[Tool] | None = None,
+    config: GenerateConfig | None = None,
+) -> str:
+    """Inspect-backed multi-turn generation for eval-only usage."""
+    _config = config or GenerateConfig()
+    working_messages = list(messages)
+    follow_ups = follow_ups or []
+
+    if tools:
+        while True:
+            output = await model.generate(input=working_messages, tools=tools, config=_config)
+            working_messages.append(output.message)
+            if output.message.tool_calls:
+                tool_messages, tool_output = await execute_tools(
+                    working_messages,
+                    tools,
+                    _config.max_tool_output,
+                )
+                working_messages.extend(tool_messages)
+                if tool_output is not None:
+                    output = tool_output
+            if not output.message.tool_calls:
+                break
+        last_nonempty = output.completion
+    else:
+        output = await model.generate(working_messages, config=_config)
+        working_messages.append(ChatMessageAssistant(content=output.completion))
+        last_nonempty = output.completion
+
+    for prompt in follow_ups:
+        working_messages.append(ChatMessageUser(content=prompt))
+        response = await model.generate(working_messages, config=_config)
+        working_messages.append(ChatMessageAssistant(content=response.completion))
+        if response.completion and response.completion.strip():
+            last_nonempty = response.completion
+
+    return last_nonempty
+
+
+def make_generate_fn(
+    model: Model,
+    config: GenerateConfig | None = None,
+):
+    """Create an Inspect-backed generate function for core runtime logic."""
+    _config = config or get_generate_config()
+
+    async def generate(
+        messages: list[dict[str, Any]],
+        tools: list[Tool] | None = None,
+        follow_ups: list[str] | None = None,
+    ) -> str:
+        chat_messages = _dict_messages_to_chat(messages)
+        if follow_ups or tools:
+            return await multi_turn_generate(
+                messages=chat_messages,
+                model=model,
+                follow_ups=follow_ups,
+                tools=tools,
+                config=_config,
+            )
+        response = await model.generate(chat_messages, config=_config)
+        return response.completion
+
+    return generate
+
+
+make_orchestrator_generate_fn = make_generate_fn
+make_worker_generate_fn = make_generate_fn
 
 
 def tool_assisted_generate(

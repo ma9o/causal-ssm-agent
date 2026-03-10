@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from evals.common import (
     get_questions_with_model_spec_and_causal_spec,
+    make_worker_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -42,7 +43,6 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     ParameterRole,
     ParameterSpec,
 )
-from causal_ssm_agent.utils.llm import make_worker_generate_fn
 from causal_ssm_agent.workers.prior_research import (
     elicit_prior,
     get_default_prior,
@@ -294,7 +294,7 @@ def prior_elicitation_solver():
             priors = _build_priors()
 
             # Phase 3: Validate prior predictive
-            is_valid, validation_results, pp_samples = validate_prior_predictive(
+            is_valid, validation_results, _pp_samples = validate_prior_predictive(
                 model_spec=model_spec_dict,
                 priors=priors,
                 raw_data=raw_data,
@@ -341,7 +341,7 @@ def prior_elicitation_solver():
 
                 # Rebuild and re-validate
                 priors = _build_priors()
-                is_valid, validation_results, pp_samples = validate_prior_predictive(
+                is_valid, validation_results, _pp_samples = validate_prior_predictive(
                     model_spec=model_spec_dict,
                     priors=priors,
                     raw_data=raw_data,
@@ -363,11 +363,7 @@ def prior_elicitation_solver():
 
             # Store pipeline-compatible priors dict for persistence
             state.metadata["priors"] = {
-                name: (
-                    res.proposal.model_dump()
-                    if hasattr(res, "proposal")
-                    else res.model_dump()
-                )
+                name: (res.proposal.model_dump() if hasattr(res, "proposal") else res.model_dump())
                 for name, res in prior_results.items()
             }
             for name, proposal in default_priors.items():
@@ -403,7 +399,6 @@ def _try_build_model(
 
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
         from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
-        from causal_ssm_agent.utils.data import pivot_to_wide
 
         # Serialize priors to dicts
         priors_dict = {}

@@ -24,6 +24,7 @@ import json
 from evals.common import (
     discover_questions,
     load_eval_config,
+    make_orchestrator_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -36,7 +37,6 @@ from causal_ssm_agent.orchestrator.prompts import latent_model
 from causal_ssm_agent.orchestrator.schemas import LatentModel
 from causal_ssm_agent.orchestrator.scoring import _count_rule_points
 from causal_ssm_agent.orchestrator.stage1a import Stage1aResult, run_stage1a
-from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 
 # Load config for models
 _CONFIG = load_eval_config()
