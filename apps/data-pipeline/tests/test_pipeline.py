@@ -401,6 +401,101 @@ def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatc
     assert state["result"]["ppc_result"]["checked"] is True
 
 
+def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("prefect.artifacts.create_markdown_artifact", _noop_artifact)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.persist_web_result",
+        lambda _stage_id, data, _run_id: data,
+    )
+
+    causal_spec = {
+        "latent": {
+            "constructs": [
+                {
+                    "name": "stress",
+                    "role": "endogenous",
+                    "description": "Stress state",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "daily",
+                }
+            ],
+            "edges": [],
+        },
+        "measurement": {
+            "indicators": [
+                {
+                    "name": "stress_score",
+                    "construct_name": "stress",
+                    "how_to_measure": "Stress rating",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                }
+            ]
+        },
+    }
+    data_for_model = pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+    )
+    data_path = tmp_path / "stage2-data.parquet"
+    data_for_model.write_parquet(data_path)
+
+    override_payload = {
+        "model_spec": {
+            "likelihoods": [
+                {
+                    "variable": "stress_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "continuous stress rating",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "AR coefficient",
+                    "search_context": "stress autocorrelation",
+                },
+                {
+                    "name": "sigma_stress_score",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "Measurement noise",
+                    "search_context": "stress score measurement error",
+                },
+            ],
+        },
+        "priors": {
+            "rho_stress": {
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+            },
+            "sigma_stress_score": {
+                "distribution": "HalfNormal",
+                "params": {"sigma": 1.0},
+            },
+        },
+    }
+
+    stage_state = asyncio.run(
+        dag.stage4_flow.fn(
+            "why is this happening?",
+            {"causal_spec": causal_spec},
+            {"_data_for_model_path": str(data_path)},
+            True,
+            "run-123",
+            override_payload=override_payload,
+        )
+    )
+
+    stage4_result = stage_state["result"]
+    assert stage4_result["causal_spec"] == causal_spec
+    assert stage4_result["model_info"]["model_built"] is True
+    assert "_compiled_ssm" in stage4_result
+
+
 class _AsyncSubflowStub:
     def __init__(self, result: dict):
         self.result = result

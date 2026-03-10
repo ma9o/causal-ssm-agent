@@ -391,6 +391,8 @@ def daily_data(causal_spec, worker_dfs):
 @pytest.fixture(scope="class")
 def stage4_result(model_spec, priors, daily_data):
     """Assembled dict for stages 4b and 5 (with fast SVI config)."""
+    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+
     return {
         "model_spec": model_spec,
         "priors": priors,
@@ -398,6 +400,7 @@ def stage4_result(model_spec, priors, daily_data):
         "model_info": {"model_built": True, "model_type": "SSM", "version": "0.1.0"},
         "is_valid": True,
         "raw_data": daily_data,
+        "_compiled_ssm": compile_ssm_artifact(model_spec, priors),
     }
 
 

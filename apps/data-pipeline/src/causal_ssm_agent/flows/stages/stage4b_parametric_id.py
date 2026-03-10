@@ -24,12 +24,13 @@ logger = get_prefect_logger(__name__)
 
 @task(task_run_name="parametric-id-check")
 def parametric_id_task(
-    model_spec: dict,
-    priors: dict[str, dict],
+    _model_spec: dict,
+    _priors: dict[str, dict],
     raw_data: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
-    causal_spec: dict | None = None,
+    _causal_spec: dict | None = None,
+    compiled_ssm: dict | None = None,
     builder: Any = None,
 ) -> dict:
     """Run parametric identifiability checks via profile likelihood.
@@ -40,12 +41,13 @@ def parametric_id_task(
     4. Return result summary
 
     Args:
-        model_spec: Model specification dict
-        priors: Prior proposals by parameter name
+        _model_spec: Model specification dict
+        _priors: Prior proposals by parameter name
         raw_data: Raw timestamped data (indicator, value, timestamp)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
-        causal_spec: CausalSpec dict for DAG-constrained masks
+        _causal_spec: CausalSpec dict for DAG-constrained masks
+        compiled_ssm: Serialized executable artifact from stage 4
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:
@@ -58,11 +60,11 @@ def parametric_id_task(
 
     try:
         if builder is None:
+            if compiled_ssm is None:
+                raise ValueError("Stage 4 result is missing the compiled SSM artifact")
             builder = build_ssm_builder(
-                model_spec=model_spec,
-                priors=priors,
                 raw_data=raw_data,
-                causal_spec=causal_spec,
+                compiled_ssm=compiled_ssm,
             )
         assert builder._model is not None
         ssm_model = builder._model
@@ -242,12 +244,18 @@ def stage4b_parametric_id_flow(
     model_spec = stage4_result["model_spec"]
     priors = stage4_result["priors"]
     causal_spec = stage4_result.get("causal_spec")
+    compiled_ssm = stage4_result.get("_compiled_ssm")
 
     # Compute RB partition once — reused for profile filtering and UI
     rb_partition = _compute_rb_partition_payload(builder) if builder is not None else None
 
     id_result = parametric_id_task(
-        model_spec, priors, raw_data, causal_spec=causal_spec, builder=builder
+        model_spec,
+        priors,
+        raw_data,
+        causal_spec=causal_spec,
+        compiled_ssm=compiled_ssm,
+        builder=builder,
     )
 
     return {
