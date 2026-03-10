@@ -95,6 +95,14 @@ def projected_normal_model():
     numpyro.sample("obs", dist.Normal(jnp.sum(x), 0.1), obs=jnp.array(0.5))
 
 
+def observed_projected_normal_model():
+    numpyro.sample(
+        "x",
+        dist.ProjectedNormal(jnp.zeros(3)),
+        obs=jnp.array([1.0, 0.0, 0.0]),
+    )
+
+
 def truncated_normal_model():
     """TruncatedNormal: has loc/scale but constrained support. Should NOT be reparameterized."""
     x = numpyro.sample("x", dist.TruncatedNormal(0.0, 1.0, low=-2.0, high=2.0))
@@ -185,6 +193,9 @@ class TestMinimalReparamHelper:
     def test_transformed_with_normal_base(self):
         td = dist.TransformedDistribution(dist.Normal(0.0, 1.0), dist.transforms.ExpTransform())
         assert _minimal_reparam(td, is_observed=False) is None
+
+    def test_observed_projected_normal_returns_none(self):
+        assert _minimal_reparam(dist.ProjectedNormal(jnp.zeros(3)), is_observed=True) is None
 
 
 class TestAutoReparamValidation:
@@ -288,6 +299,15 @@ class TestTraceStructure:
             ("obs", "sample"),
         ]
         assert actual == expected
+
+    @pytest.mark.parametrize(
+        ("strategy_factory"),
+        [MinimalReparam, lambda: AutoReparam(centered=0.0)],
+    )
+    def test_observed_projected_normal_not_reparameterized(self, strategy_factory):
+        model = strategy_factory()(observed_projected_normal_model)
+        actual = trace_name_type(model)
+        assert actual == [("x", "sample")]
 
     def test_truncated_normal_not_reparameterized(self):
         """TruncatedNormal has constrained support — should be left alone."""
