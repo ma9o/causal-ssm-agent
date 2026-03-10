@@ -21,6 +21,7 @@ import math
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
+import polars as pl
 import pytest
 
 from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
@@ -289,6 +290,225 @@ class TestE2ESpecToDiscretization:
         assert spec.latent_names is not None
         stress_latent_idx = spec.latent_names.index("stress")
         assert spec.lambda_mask[stress_cortisol_idx, stress_latent_idx]
+
+    def test_causal_spec_owns_latent_identity(self):
+        """Latent identity comes from causal_spec, not from AR parameter count."""
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "mood",
+                        "description": "Daily mood",
+                        "role": "endogenous",
+                        "is_outcome": True,
+                        "temporal_status": "time_varying",
+                        "temporal_scale": "daily",
+                    },
+                    {
+                        "name": "stress",
+                        "description": "Daily stress",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                        "temporal_scale": "daily",
+                    },
+                    {
+                        "name": "trait_vulnerability",
+                        "description": "Stable vulnerability factor",
+                        "role": "exogenous",
+                        "temporal_status": "time_invariant",
+                    },
+                ],
+                "edges": [
+                    {
+                        "cause": "stress",
+                        "effect": "mood",
+                        "description": "Stress impairs mood",
+                        "lagged": True,
+                    }
+                ],
+            },
+            "measurement": {
+                "indicators": [
+                    {
+                        "name": "mood_rating",
+                        "construct_name": "mood",
+                        "how_to_measure": "Mood rating",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "stress_rating",
+                        "construct_name": "stress",
+                        "how_to_measure": "Stress rating",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ]
+            },
+        }
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "",
+                    "search_context": "",
+                },
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "",
+                    "search_context": "",
+                },
+                {
+                    "name": "beta_stress_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                    "search_context": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
+        }
+
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
+        spec = builder._convert_spec_to_ssm(model_spec)
+        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
+
+        assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
+        assert spec.n_latent == 3
+        assert spec.time_invariant_mask is not None
+        np.testing.assert_array_equal(spec.time_invariant_mask, [False, False, True])
+        assert isinstance(ssm_priors.drift_diag["mu"], list)
+        assert len(ssm_priors.drift_diag["mu"]) == 3
+
+    def test_builder_rejects_parameter_names_not_grounded_in_causal_spec(
+        self, two_construct_causal_spec
+    ):
+        """Bad parameter names should fail instead of compiling a different model."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress_self_report",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_affect",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "",
+                    "search_context": "",
+                },
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "",
+                    "search_context": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_affect": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+        }
+
+        builder = SSMModelBuilder(
+            model_spec=model_spec,
+            priors=priors,
+            causal_spec=two_construct_causal_spec,
+        )
+        spec = builder._convert_spec_to_ssm(model_spec)
+
+        with pytest.raises(ValueError, match="AR parameter does not reference a construct"):
+            builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
+
+    def test_compiled_artifact_roundtrips_grounded_structure(
+        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+    ):
+        """Compiled artifacts preserve the grounded latent and measurement layout."""
+        from causal_ssm_agent.models.ssm_compiler import (
+            build_compiled_ssm_builder,
+            compile_ssm_artifact,
+        )
+
+        compiled = compile_ssm_artifact(
+            two_construct_model_spec,
+            weekly_study_priors,
+            causal_spec=two_construct_causal_spec,
+        )
+
+        assert compiled["schema_version"] == 1
+        assert compiled["spec"]["latent_names"] == ["mood", "stress"]
+        assert compiled["spec"]["manifest_names"] == [
+            "mood_rating",
+            "stress_self_report",
+            "stress_cortisol",
+        ]
+
+        raw_data = pl.DataFrame(
+            {
+                "indicator": [
+                    "mood_rating",
+                    "stress_self_report",
+                    "stress_cortisol",
+                    "mood_rating",
+                    "stress_self_report",
+                    "stress_cortisol",
+                ],
+                "value": [6.0, 4.0, 10.0, 7.0, 5.0, 11.0],
+                "timestamp": [
+                    "2024-01-01T00:00:00",
+                    "2024-01-01T00:00:00",
+                    "2024-01-01T00:00:00",
+                    "2024-01-02T00:00:00",
+                    "2024-01-02T00:00:00",
+                    "2024-01-02T00:00:00",
+                ],
+            }
+        )
+
+        builder = build_compiled_ssm_builder(compiled, raw_data)
+        assert builder._spec is not None
+        assert builder._spec.latent_names == ["mood", "stress"]
+        assert builder._spec.drift_mask is not None
+        assert builder._spec.drift_mask[0, 1]
+        assert not builder._spec.drift_mask[1, 0]
+        assert builder._spec.lambda_mask is not None
+        assert builder._spec.lambda_mask[2, 1]
+        assert builder._model is not None
+        assert isinstance(builder._model.priors.drift_diag["mu"], list)
+        assert len(builder._model.priors.drift_diag["mu"]) == 2
 
     def test_dt_to_ct_uses_reference_interval_days(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
