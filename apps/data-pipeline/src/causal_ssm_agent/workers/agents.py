@@ -1,10 +1,9 @@
-"""Worker agents using Inspect AI with OpenRouter."""
+"""Worker agents using LiteLLM-backed runtime clients."""
 
 import asyncio
 import logging
 
 import polars as pl
-from inspect_ai.model import get_model
 
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import make_worker_generate_fn
@@ -33,8 +32,7 @@ async def process_chunk_async(
     Returns:
         WorkerResult with validated output and Polars dataframe
     """
-    model = get_model(get_config().stage2_workers.model)
-    generate = make_worker_generate_fn(model)
+    generate = make_worker_generate_fn(get_config().stage2_workers.model)
     return await run_worker_extraction(
         chunk_df=chunk_df,
         question=question,

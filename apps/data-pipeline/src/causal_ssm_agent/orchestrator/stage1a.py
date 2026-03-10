@@ -1,6 +1,6 @@
 """Stage 1a: Latent Model Proposal.
 
-Core logic for Stage 1a, decoupled from Prefect/Inspect frameworks.
+Core logic for Stage 1a, decoupled from Prefect and model-client frameworks.
 Uses dependency injection for the LLM generate function.
 """
 

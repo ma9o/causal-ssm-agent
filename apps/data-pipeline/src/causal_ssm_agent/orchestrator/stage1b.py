@@ -1,6 +1,6 @@
 """Stage 1b: Measurement Model with Identifiability Fix.
 
-Core logic for Stage 1b, decoupled from Prefect/Inspect frameworks.
+Core logic for Stage 1b, decoupled from Prefect and model-client frameworks.
 Uses dependency injection for the LLM generate function.
 """
 

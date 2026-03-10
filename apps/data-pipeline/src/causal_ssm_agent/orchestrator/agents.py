@@ -1,4 +1,4 @@
-"""Orchestrator agents using Inspect AI with OpenRouter.
+"""Orchestrator agents using LiteLLM-backed runtime clients.
 
 Two-stage approach following Anderson & Gerbing (1988):
 1. Latent Model (Stage 1a) - theoretical constructs + causal edges, NO DATA
@@ -6,8 +6,6 @@ Two-stage approach following Anderson & Gerbing (1988):
 """
 
 import asyncio
-
-from inspect_ai.model import get_model
 
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
@@ -37,8 +35,7 @@ async def propose_latent_model_async(question: str) -> dict:
     Returns:
         LatentModel as a dictionary
     """
-    model = get_model(get_config().stage1_structure_proposal.model)
-    generate = make_orchestrator_generate_fn(model)
+    generate = make_orchestrator_generate_fn(get_config().stage1_structure_proposal.model)
     result = await run_stage1a(question=question, generate=generate)
     return result.latent_model
 
@@ -85,8 +82,7 @@ async def propose_measurement_model_async(
     Returns:
         MeasurementModel as a dictionary
     """
-    model = get_model(get_config().stage1_structure_proposal.model)
-    generate = make_orchestrator_generate_fn(model)
+    generate = make_orchestrator_generate_fn(get_config().stage1_structure_proposal.model)
     result = await run_stage1b(
         question=question,
         latent_model=latent_model,

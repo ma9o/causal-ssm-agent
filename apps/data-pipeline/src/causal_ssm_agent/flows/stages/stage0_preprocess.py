@@ -8,7 +8,6 @@ import tempfile
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
-from inspect_ai.model import get_model
 from prefect import task
 from prefect.cache_policies import INPUTS
 
@@ -76,10 +75,9 @@ async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     logger.info("Ingesting %s from %s/", raw_path.name, raw_path.parent.name)
 
     config = get_config()
-    model = get_model(config.stage0_ingestion.model)
     trace_capture: dict = {}
     generate = make_generate_fn(
-        model,
+        config.stage0_ingestion.model,
         trace_capture=trace_capture,
         trace_path=make_live_trace_path("stage-0"),
     )

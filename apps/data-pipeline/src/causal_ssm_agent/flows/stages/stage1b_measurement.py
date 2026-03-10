@@ -3,7 +3,6 @@
 Wraps the core Stage 1b logic for use in Prefect pipelines.
 """
 
-from inspect_ai.model import get_model
 from prefect import task
 from prefect.cache_policies import INPUTS
 
@@ -50,10 +49,11 @@ async def propose_measurement_with_identifiability_fix(
     Returns:
         Stage1bData dict matching the web frontend contract.
     """
-    model = get_model(get_config().stage1_structure_proposal.model)
     trace_capture: dict = {}
     generate = make_orchestrator_generate_fn(
-        model, trace_capture=trace_capture, trace_path=make_live_trace_path("stage-1b")
+        get_config().stage1_structure_proposal.model,
+        trace_capture=trace_capture,
+        trace_path=make_live_trace_path("stage-1b"),
     )
     result = await run_stage1b(
         question=question,
