@@ -5,6 +5,7 @@ run_worker_extraction.
 """
 
 import asyncio
+import json
 import logging
 
 import polars as pl
@@ -117,11 +118,13 @@ class TestGetOutcomeDescription:
 
 class TestWorkerMessages:
     def _sample_df(self):
-        return pl.DataFrame({
-            "date": ["Day 1", "Day 2"],
-            "pss_score": [25, 18],
-            "sleep_hours": [6.5, 7.2],
-        })
+        return pl.DataFrame(
+            {
+                "date": ["Day 1", "Day 2"],
+                "pss_score": [25, 18],
+                "sleep_hours": [6.5, 7.2],
+            }
+        )
 
     def test_extraction_messages_structure(self):
         wm = WorkerMessages(
@@ -166,12 +169,14 @@ class TestWorkerMessages:
 
 class TestRunWorkerExtraction:
     def _sample_df(self):
-        return pl.DataFrame({
-            "timestamp": ["2024-01-01T00:00:00Z"],
-            "activity_type": ["Search"],
-            "full_title": ["Searched for sleep hygiene"],
-            "url": ["https://example.com"],
-        })
+        return pl.DataFrame(
+            {
+                "timestamp": ["2024-01-01T00:00:00Z"],
+                "activity_type": ["Search"],
+                "full_title": ["Searched for sleep hygiene"],
+                "url": ["https://example.com"],
+            }
+        )
 
     def test_empty_completion_raises_parse_error(self, caplog):
         async def fake_generate(messages, tools=None, follow_ups=None):
@@ -179,8 +184,9 @@ class TestRunWorkerExtraction:
 
         logger = logging.getLogger("test_worker_core")
 
-        with caplog.at_level(logging.INFO, logger=logger.name), pytest.raises(
-            ValueError, match="Failed to parse model response as JSON"
+        with (
+            caplog.at_level(logging.INFO, logger=logger.name),
+            pytest.raises(ValueError, match="Failed to parse model response as JSON"),
         ):
             _run(
                 run_worker_extraction(
@@ -194,3 +200,65 @@ class TestRunWorkerExtraction:
 
         assert "Model call returned 0 characters" in caplog.text
         assert "falling back to completion parsing" in caplog.text
+
+    def test_call_label_passed_when_generate_supports_it(self, caplog):
+        captured: dict[str, str | None] = {}
+
+        async def fake_generate(messages, tools=None, follow_ups=None, label=None):
+            captured["label"] = label
+            return json.dumps(
+                {
+                    "extractions": [
+                        {
+                            "indicator": "pss_score",
+                            "value": 12.0,
+                            "timestamp": "2024-01-01T00:00:00Z",
+                        }
+                    ]
+                }
+            )
+
+        logger = logging.getLogger("test_worker_core")
+
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            result = _run(
+                run_worker_extraction(
+                    chunk_df=self._sample_df(),
+                    question="How does screen time affect sleep?",
+                    causal_spec=_causal_spec(),
+                    generate=fake_generate,
+                    logger=logger,
+                    call_label="stage2 chunk=3 rows=1 cols=4",
+                )
+            )
+
+        assert captured["label"] == "stage2 chunk=3 rows=1 cols=4"
+        assert result.dataframe.height == 1
+        assert "[stage2 chunk=3 rows=1 cols=4] Calling extraction model" in caplog.text
+
+    def test_call_label_is_optional_for_legacy_generate_functions(self):
+        async def fake_generate(messages, tools=None, follow_ups=None):
+            return json.dumps(
+                {
+                    "extractions": [
+                        {
+                            "indicator": "sleep_hours",
+                            "value": 7.5,
+                            "timestamp": "2024-01-01T00:00:00Z",
+                        }
+                    ]
+                }
+            )
+
+        result = _run(
+            run_worker_extraction(
+                chunk_df=self._sample_df(),
+                question="How does screen time affect sleep?",
+                causal_spec=_causal_spec(),
+                generate=fake_generate,
+                call_label="stage2 chunk=4 rows=1 cols=4",
+            )
+        )
+
+        assert result.dataframe.height == 1
+        assert result.dataframe["indicator"].to_list() == ["sleep_hours"]

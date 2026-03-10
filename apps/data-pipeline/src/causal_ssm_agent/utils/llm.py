@@ -1,7 +1,6 @@
 """Shared LLM utilities for multi-turn generation."""
 
 import json
-import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.litellm_client import (
     GenerateConfig,
     Tool,
@@ -18,7 +18,7 @@ from causal_ssm_agent.utils.litellm_client import (
     tool,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.orchestrator.schemas import LatentModel
@@ -176,6 +176,27 @@ OrchestratorGenerateFn = GenerateFn
 WorkerGenerateFn = GenerateFn
 
 
+def _combine_log_label(*parts: str | None) -> str | None:
+    """Join non-empty label fragments into a stable log scope."""
+    labels = [part for part in parts if part]
+    if not labels:
+        return None
+    return " / ".join(labels)
+
+
+def _log_with_optional_label(
+    log_fn: Callable[..., None],
+    label: str | None,
+    message: str,
+    *args: Any,
+) -> None:
+    """Emit a log line, prefixing it with ``[label]`` when provided."""
+    if label:
+        log_fn("[%s] " + message, label, *args)
+    else:
+        log_fn(message, *args)
+
+
 def get_generate_config() -> GenerateConfig:
     """Get standard GenerateConfig for all model calls.
 
@@ -189,6 +210,9 @@ def get_generate_config() -> GenerateConfig:
         timeout=llm.timeout,
         reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
+        verbose_logging=llm.verbose_logging,
+        log_reasoning=llm.log_reasoning,
+        log_output_char_limit=llm.log_output_char_limit,
     )
 
 
@@ -241,6 +265,7 @@ def make_generate_fn(
         messages: list,
         tools: list | None = None,
         follow_ups: list[str] | None = None,
+        label: str | None = None,
     ) -> str:
         chat_messages = dict_messages_to_chat(messages)
 
@@ -253,8 +278,9 @@ def make_generate_fn(
                 config=config,
                 trace_capture=trace_capture,
                 trace_path=trace_path,
+                log_label=label,
             )
-        response = await call_model(model_name, chat_messages, config=config)
+        response = await call_model(model_name, chat_messages, config=config, log_label=label)
         return response["completion"]
 
     return generate
@@ -662,6 +688,7 @@ async def _run_tool_loop(
     tools: list[Tool],
     config: GenerateConfig | None,
     label: str = "tool",
+    log_label: str | None = None,
     max_turns: int = MAX_TOOL_LOOP_TURNS,
     warn_turns: int = WARN_TOOL_LOOP_TURNS,
     trace_path: Path | None = None,
@@ -677,35 +704,45 @@ async def _run_tool_loop(
     _config = config or GenerateConfig()
     t0 = time.monotonic()
     turn = 0
+    scoped_label = _combine_log_label(log_label, label)
 
     while True:
         turn += 1
         if turn > max_turns:
             elapsed = time.monotonic() - t0
-            logger.error(
-                "[%s] exceeded %d turns (elapsed=%.1fs). Terminating.",
-                label,
+            _log_with_optional_label(
+                logger.error,
+                scoped_label,
+                "exceeded %d turns (elapsed=%.1fs). Terminating.",
                 max_turns,
                 elapsed,
             )
             raise RuntimeError(f"LLM {label} loop exceeded {max_turns} turns without converging.")
         if turn == warn_turns:
             elapsed = time.monotonic() - t0
-            logger.warning(
-                "[%s] reached %d turns (elapsed=%.1fs). Possible infinite loop.",
-                label,
+            _log_with_optional_label(
+                logger.warning,
+                scoped_label,
+                "reached %d turns (elapsed=%.1fs). Possible infinite loop.",
                 warn_turns,
                 elapsed,
             )
 
         t_turn = time.monotonic()
-        output = await call_model(model_name, messages, tools=tools, config=_config)
+        output = await call_model(
+            model_name,
+            messages,
+            tools=tools,
+            config=_config,
+            log_label=_combine_log_label(scoped_label, f"turn-{turn}", "llm"),
+        )
         messages.append(output["message"])
         elapsed_turn = time.monotonic() - t_turn
 
-        logger.info(
-            "[%s] turn=%d | %s",
-            label,
+        _log_with_optional_label(
+            logger.info,
+            scoped_label,
+            "turn=%d | %s",
             turn,
             _summarize_output(output, elapsed_turn),
         )
@@ -715,6 +752,7 @@ async def _run_tool_loop(
                 output["message"],
                 tools,
                 _config.max_tool_output,
+                log_label=_combine_log_label(scoped_label, f"turn-{turn}", "tools"),
             )
             messages.extend(tool_messages)
 
@@ -723,7 +761,13 @@ async def _run_tool_loop(
 
         if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
-            logger.info("[%s] completed: %d turns in %.1fs", label, turn, elapsed_total)
+            _log_with_optional_label(
+                logger.info,
+                scoped_label,
+                "completed: %d turns in %.1fs",
+                turn,
+                elapsed_total,
+            )
             return messages, output
 
 
@@ -741,6 +785,7 @@ async def multi_turn_generate(
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
     trace_path: Path | None = None,
+    log_label: str | None = None,
 ) -> str:
     """
     Run a multi-turn conversation with optional tool use.
@@ -771,7 +816,9 @@ async def multi_turn_generate(
     follow_ups = follow_ups or []
     _config = config or GenerateConfig()
 
-    logger.info(
+    _log_with_optional_label(
+        logger.info,
+        log_label,
         "multi_turn_generate starting (tools=%d, follow_ups=%d)",
         len(tools or []),
         len(follow_ups),
@@ -785,13 +832,21 @@ async def multi_turn_generate(
             tools,
             config,
             label="initial",
+            log_label=log_label,
             trace_path=trace_path,
         )
         last_nonempty = output["completion"]
 
         # Follow-up turns
         for i, prompt in enumerate(follow_ups):
-            logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
+            follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
+            _log_with_optional_label(
+                logger.info,
+                follow_up_label,
+                "starting (%d/%d)",
+                i + 1,
+                len(follow_ups),
+            )
             messages.append({"role": "user", "content": prompt})
 
             if follow_up_tools:
@@ -801,16 +856,24 @@ async def multi_turn_generate(
                     follow_up_tools,
                     config,
                     label=f"follow-up-{i + 1}",
+                    log_label=log_label,
                     trace_path=trace_path,
                 )
             else:
                 t_fu = time.monotonic()
-                response = await call_model(model_name, messages, config=_config)
+                response = await call_model(
+                    model_name,
+                    messages,
+                    config=_config,
+                    log_label=_combine_log_label(follow_up_label, "llm"),
+                )
                 messages.append(response["message"])
                 output = response
                 elapsed_fu = time.monotonic() - t_fu
-                logger.info(
-                    "Follow-up %d/%d | %s",
+                _log_with_optional_label(
+                    logger.info,
+                    follow_up_label,
+                    "%d/%d | %s",
                     i + 1,
                     len(follow_ups),
                     _summarize_output(output, elapsed_fu),
@@ -828,26 +891,55 @@ async def multi_turn_generate(
             trace_capture["trace"] = _build_trace(messages, output)
 
         elapsed_total = time.monotonic() - t0
-        logger.info("multi_turn_generate completed in %.1fs", elapsed_total)
+        _log_with_optional_label(
+            logger.info,
+            log_label,
+            "multi_turn_generate completed in %.1fs",
+            elapsed_total,
+        )
         # No finalization needed — persist_web_result overwrites with full stage output
         return last_nonempty
     # Simple generation without tools
     t_gen = time.monotonic()
-    response = await call_model(model_name, messages, config=_config)
+    response = await call_model(
+        model_name,
+        messages,
+        config=_config,
+        log_label=_combine_log_label(log_label, "initial", "llm"),
+    )
     messages.append(response["message"])
     elapsed_gen = time.monotonic() - t_gen
-    logger.info("single-turn | %s", _summarize_output(response, elapsed_gen))
+    _log_with_optional_label(
+        logger.info,
+        log_label,
+        "single-turn | %s",
+        _summarize_output(response, elapsed_gen),
+    )
     last_nonempty = response["completion"]
 
     for i, prompt in enumerate(follow_ups):
-        logger.info("Follow-up %d/%d starting", i + 1, len(follow_ups))
+        follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
+        _log_with_optional_label(
+            logger.info,
+            follow_up_label,
+            "starting (%d/%d)",
+            i + 1,
+            len(follow_ups),
+        )
         messages.append({"role": "user", "content": prompt})
         t_fu = time.monotonic()
-        response = await call_model(model_name, messages, config=_config)
+        response = await call_model(
+            model_name,
+            messages,
+            config=_config,
+            log_label=_combine_log_label(follow_up_label, "llm"),
+        )
         messages.append(response["message"])
         elapsed_fu = time.monotonic() - t_fu
-        logger.info(
-            "Follow-up %d/%d | %s",
+        _log_with_optional_label(
+            logger.info,
+            follow_up_label,
+            "%d/%d | %s",
             i + 1,
             len(follow_ups),
             _summarize_output(response, elapsed_fu),
@@ -859,7 +951,12 @@ async def multi_turn_generate(
         trace_capture["trace"] = _build_trace(messages, response)
 
     elapsed_total = time.monotonic() - t0
-    logger.info("multi_turn_generate completed in %.1fs", elapsed_total)
+    _log_with_optional_label(
+        logger.info,
+        log_label,
+        "multi_turn_generate completed in %.1fs",
+        elapsed_total,
+    )
     # No finalization needed — persist_web_result overwrites with full stage output
     return last_nonempty
 

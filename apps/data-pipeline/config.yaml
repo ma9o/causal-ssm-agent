@@ -58,6 +58,9 @@ llm:
   max_tokens: 65536
   timeout: 900
   reasoning_effort: high
+  verbose_logging: false      # Development only: log full assistant outputs and tool-call payloads
+  log_reasoning: false        # When verbose_logging=true, also log reasoning text/details
+  log_output_char_limit: 8000  # Per payload; set 0 to disable truncation
 
 # Pipeline-level behavior
 pipeline:

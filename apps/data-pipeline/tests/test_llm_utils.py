@@ -5,7 +5,9 @@ Covers: parse_json_response, _validate_json_and_format, attach_trace,
 """
 
 import asyncio
+import logging
 
+import litellm
 import pytest
 
 from causal_ssm_agent.utils.llm import (
@@ -156,6 +158,177 @@ class TestAttachTrace:
         output = {}
         attach_trace(output, capture)
         assert "llm_trace" not in output
+
+
+class TestLiteLLMAsyncLoggingPatch:
+    def test_skips_async_success_logging_without_callbacks(self, monkeypatch):
+        from causal_ssm_agent.utils import litellm_client
+
+        called = False
+
+        async def fake_original(*args, **kwargs):
+            nonlocal called
+            called = True
+
+        class DummyLoggingObj:
+            dynamic_async_success_callbacks = None
+
+        monkeypatch.setattr(litellm_client, "_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER", fake_original)
+        monkeypatch.setattr(litellm, "_async_success_callback", [])
+
+        _run(
+            litellm_client._quiet_client_async_logging_helper(
+                logging_obj=DummyLoggingObj(),
+                result=None,
+                start_time=None,
+                end_time=None,
+                is_completion_with_fallbacks=False,
+            )
+        )
+
+        assert called is False
+
+    def test_preserves_async_success_logging_when_callbacks_exist(self, monkeypatch):
+        from causal_ssm_agent.utils import litellm_client
+
+        seen = {}
+
+        async def fake_original(*args, **kwargs):
+            seen["called"] = True
+            seen["kwargs"] = kwargs
+
+        class DummyLoggingObj:
+            dynamic_async_success_callbacks = ("callback",)
+
+        monkeypatch.setattr(litellm_client, "_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER", fake_original)
+        monkeypatch.setattr(litellm, "_async_success_callback", [])
+
+        _run(
+            litellm_client._quiet_client_async_logging_helper(
+                logging_obj=DummyLoggingObj(),
+                result="ok",
+                start_time=1,
+                end_time=2,
+                is_completion_with_fallbacks=False,
+            )
+        )
+
+        assert seen["called"] is True
+        assert seen["kwargs"]["result"] == "ok"
+
+
+class TestVerboseResponseLogging:
+    def test_call_model_logs_completion_tool_calls_and_reasoning(self, monkeypatch, caplog):
+        from causal_ssm_agent.utils import litellm_client
+
+        async def fake_acompletion(**kwargs):
+            return {
+                "model": "test-model",
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "content": "final answer",
+                            "reasoning": "thought process",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "function": {
+                                        "name": "validate_extractions",
+                                        "arguments": {"ok": True},
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+
+        with caplog.at_level(logging.INFO):
+            _run(
+                litellm_client.call_model(
+                    "test-model",
+                    [{"role": "user", "content": "hello"}],
+                    config=litellm_client.GenerateConfig(
+                        verbose_logging=True,
+                        log_reasoning=True,
+                        log_output_char_limit=1000,
+                    ),
+                    log_label="stage2 chunk=1",
+                )
+            )
+
+        assert "call_model completion:\nfinal answer" in caplog.text
+        assert '"name": "validate_extractions"' in caplog.text
+        assert "call_model reasoning:\nthought process" in caplog.text
+
+    def test_call_model_logs_completion_without_label(self, monkeypatch, caplog):
+        from causal_ssm_agent.utils import litellm_client
+
+        async def fake_acompletion(**kwargs):
+            return {
+                "model": "test-model",
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "unlabeled completion",
+                        },
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+
+        with caplog.at_level(logging.INFO):
+            _run(
+                litellm_client.call_model(
+                    "test-model",
+                    [{"role": "user", "content": "hello"}],
+                    config=litellm_client.GenerateConfig(verbose_logging=True),
+                )
+            )
+
+        assert "call_model completion:\nunlabeled completion" in caplog.text
+
+    def test_call_model_verbose_logs_respect_char_limit(self, monkeypatch, caplog):
+        from causal_ssm_agent.utils import litellm_client
+
+        async def fake_acompletion(**kwargs):
+            return {
+                "model": "test-model",
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "abcdefghijklmnopqrstuvwxyz",
+                        },
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+
+        with caplog.at_level(logging.INFO):
+            _run(
+                litellm_client.call_model(
+                    "test-model",
+                    [{"role": "user", "content": "hello"}],
+                    config=litellm_client.GenerateConfig(
+                        verbose_logging=True,
+                        log_output_char_limit=10,
+                    ),
+                    log_label="stage2 chunk=2",
+                )
+            )
+
+        assert "abcdefghij" in caplog.text
+        assert "[truncated 16 chars]" in caplog.text
 
 
 # =============================================================================

@@ -128,6 +128,9 @@ FULL_CONFIG = textwrap.dedent("""\
       max_tokens: 4096
       timeout: 120
       reasoning_effort: low
+      verbose_logging: true
+      log_reasoning: true
+      log_output_char_limit: 1234
     pipeline:
       max_prior_retries: 5
       override_gates: true
@@ -155,6 +158,9 @@ class TestLoadConfig:
         # Defaults for optional sections
         assert cfg.inference.method == "svi"
         assert cfg.llm.max_tokens == 65536
+        assert cfg.llm.verbose_logging is False
+        assert cfg.llm.log_reasoning is False
+        assert cfg.llm.log_output_char_limit == 8000
         assert cfg.pipeline.override_gates is False
 
         load_config.cache_clear()
@@ -186,6 +192,9 @@ class TestLoadConfig:
         assert cfg.inference.nuts.max_tree_depth == 10
         assert cfg.llm.max_tokens == 4096
         assert cfg.llm.reasoning_effort == "low"
+        assert cfg.llm.verbose_logging is True
+        assert cfg.llm.log_reasoning is True
+        assert cfg.llm.log_output_char_limit == 1234
         assert cfg.pipeline.max_prior_retries == 5
         assert cfg.pipeline.override_gates is True
 
@@ -207,6 +216,26 @@ class TestLoadConfig:
         assert sampler["method"] == "nuts"
         assert sampler["num_warmup"] == 500
         assert sampler["target_accept_prob"] == 0.9
+
+        load_config.cache_clear()
+
+    def test_llm_env_overrides(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(MINIMAL_CONFIG)
+
+        load_config.cache_clear()
+
+        import causal_ssm_agent.utils.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
+        monkeypatch.setenv("CAUSAL_SSM_LLM_VERBOSE_LOGGING", "1")
+        monkeypatch.setenv("CAUSAL_SSM_LLM_LOG_REASONING", "true")
+        monkeypatch.setenv("CAUSAL_SSM_LLM_LOG_OUTPUT_CHAR_LIMIT", "42")
+
+        cfg = load_config()
+        assert cfg.llm.verbose_logging is True
+        assert cfg.llm.log_reasoning is True
+        assert cfg.llm.log_output_char_limit == 42
 
         load_config.cache_clear()
 

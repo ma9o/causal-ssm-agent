@@ -57,7 +57,8 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   ├── evals/                 # Inspect AI evals
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
-│   │   │   └── test_pipeline.py   # Flow orchestration and replay contract coverage
+│   │   │   ├── test_pipeline.py   # Flow orchestration and replay contract coverage
+│   │   │   └── test_stage2_extract.py  # Stage 2 worker collection and progress logging coverage
 │   │   └── tools/                 # CLI tools + UIs
 │   └── web/                       # Next.js frontend
 │       └── src/
