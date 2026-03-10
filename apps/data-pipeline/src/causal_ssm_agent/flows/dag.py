@@ -625,7 +625,7 @@ async def stage4(
     """Propose model spec, elicit priors, validate.
 
     Returns: {model_spec, priors, validation, model_info, causal_spec,
-              prior_predictive_samples, llm_trace?}
+              prior_predictive_samples, _compiled_ssm, llm_trace?}
     """
     from .stages import stage4_orchestrated_flow
 
@@ -645,16 +645,14 @@ async def stage4(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def ssm_builder(stage4: dict, stage1b: dict, stage2: dict) -> Any:
+def ssm_builder(stage4: dict, _stage1b: dict, stage2: dict) -> Any:
     """Pre-build SSMModelBuilder once for downstream stages."""
     from causal_ssm_agent.models.ssm_builder import build_ssm_builder
 
     try:
         return build_ssm_builder(
-            model_spec=stage4["model_spec"],
-            priors=stage4["priors"],
             raw_data=_load_parquet(stage2["_data_for_model_path"]),
-            causal_spec=stage1b["causal_spec"],
+            compiled_ssm=stage4["_compiled_ssm"],
         )
     except Exception:
         logger.warning(
@@ -1138,12 +1136,26 @@ async def stage4_flow(
 ) -> dict:
     from prefect.artifacts import create_markdown_artifact
 
+    from .stages.stage4_model import compile_model_task
+
     logger.info("Stage 4 starting: building model specification and priors")
     if override_payload is None:
         stage4_result = await stage4(question, stage1b_result, stage2_result, enable_literature)
     else:
         stage4_result = dict(override_payload)
         stage4_result.setdefault("causal_spec", stage1b_result["causal_spec"])
+        if "_compiled_ssm" not in stage4_result:
+            compile_task = compile_model_task(
+                stage4_result.get("model_spec", {}),
+                stage4_result.get("priors", {}),
+                _load_parquet(stage2_result["_data_for_model_path"]),
+                causal_spec=stage4_result["causal_spec"],
+            )
+            compile_result = compile_task.result() if hasattr(compile_task, "result") else compile_task
+            compiled_ssm = compile_result.pop("compiled_ssm", None)
+            stage4_result.setdefault("model_info", compile_result)
+            if compiled_ssm is not None:
+                stage4_result["_compiled_ssm"] = compiled_ssm
     model_spec = stage4_result.get("model_spec", {})
     validation = stage4_result.get("validation", {})
     model_info = stage4_result.get("model_info", {})

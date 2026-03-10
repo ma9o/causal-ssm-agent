@@ -75,6 +75,7 @@ async def propose_model_task(
     causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
+    feedback: str | None = None,
 ) -> dict:
     """Orchestrator proposes model specification.
 
@@ -82,6 +83,7 @@ async def propose_model_task(
         causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data (indicator, value, timestamp)
+        feedback: Optional compiler error feedback from a previous attempt
 
     Returns:
         ModelSpec as dict
@@ -111,6 +113,7 @@ async def propose_model_task(
         data_summary=data_summary,
         question=question,
         generate=generate,
+        feedback=feedback,
     )
 
     out = result.model_spec.model_dump()
@@ -289,14 +292,14 @@ def validate_priors_task(
         }
 
 
-@task(task_run_name="build-ssm-model")
-def build_model_task(
+@task(task_run_name="compile-ssm-model")
+def compile_model_task(
     model_spec: dict,
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
     causal_spec: dict | None = None,
 ) -> dict:
-    """Build SSMModelBuilder from spec and priors.
+    """Compile and verify an executable SSM artifact.
 
     Args:
         model_spec: Model specification
@@ -305,22 +308,23 @@ def build_model_task(
         causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
-        Dict with model_built status and builder info
+        Dict with compile/build status and serialized artifact
     """
     from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
 
     try:
+        compiled_ssm = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
         builder = build_ssm_builder(
-            model_spec=model_spec,
-            priors=priors,
             raw_data=raw_data,
-            causal_spec=causal_spec,
+            compiled_ssm=compiled_ssm,
         )
 
         return {
             "model_built": True,
             "model_type": builder._model_type,
             "version": builder.version,
+            "compiled_ssm": compiled_ssm,
         }
 
     except NotImplementedError:
@@ -353,7 +357,7 @@ async def stage4_orchestrated_flow(
        - On failure, re-elicit only failed parameters in parallel
        - Feed validation issues + data scale back to LLM
        - Max N retries, reusing cached Exa results
-    5. Build SSMModel (only when validation passes or retries exhausted)
+    5. Compile the executable SSM artifact (only when validation passes or retries exhausted)
 
     Args:
         causal_spec: Full CausalSpec dict
@@ -381,18 +385,42 @@ async def stage4_orchestrated_flow(
     paraphrasing = config.stage4_prior_elicitation.paraphrasing
     n_paraphrases = paraphrasing.n_paraphrases if paraphrasing.enabled else 1
 
-    # 1. Orchestrator proposes model specification
-    model_spec = await propose_model_task(causal_spec, question, raw_data)
-    llm_trace = model_spec.pop("llm_trace", None)
-    parameter_specs = model_spec.get("parameters", [])
-
-    # Auto-add correlation parameters for marginalized confounders.
-    # When an unobserved confounder is marginalized (handled by the ID strategy),
-    # its observed children have correlated innovations in the SSM. We add
-    # correlation parameters so the noise covariance is correctly specified.
+    # 1. Orchestrator proposes model specification (with compiler validation loop)
+    from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
     from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
 
-    inject_marginalized_correlations(model_spec, causal_spec)
+    max_spec_retries = 2
+    spec_feedback: str | None = None
+    llm_trace = None
+
+    for spec_attempt in range(max_spec_retries + 1):
+        model_spec = await propose_model_task(
+            causal_spec, question, raw_data, feedback=spec_feedback
+        )
+        llm_trace = model_spec.pop("llm_trace", None)
+
+        # Auto-add correlation parameters for marginalized confounders.
+        inject_marginalized_correlations(model_spec, causal_spec)
+
+        compile_error = trial_compile_model_spec(model_spec, causal_spec)
+        if compile_error is None:
+            break
+
+        if spec_attempt < max_spec_retries:
+            spec_feedback = compile_error
+            logger.warning(
+                "Model spec failed compilation (attempt %d/%d): %s",
+                spec_attempt + 1,
+                max_spec_retries + 1,
+                compile_error,
+            )
+        else:
+            logger.warning(
+                "Model spec still fails compilation after %d attempts, proceeding: %s",
+                max_spec_retries + 1,
+                compile_error,
+            )
+
     parameter_specs = model_spec.get("parameters", [])
 
     logger.info("Stage 4: %d parameters", len(parameter_specs))
@@ -514,8 +542,10 @@ async def stage4_orchestrated_flow(
         for name, result in zip(failed_param_names, re_results):
             priors[name] = result
 
-    # 5. Build SSMModel (only after validation loop)
-    model_result = build_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
+    # 5. Compile the executable artifact (only after validation loop)
+    compile_task = compile_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
+    model_result = compile_task.result() if hasattr(compile_task, "result") else compile_task
+    compiled_ssm = model_result.pop("compiled_ssm", None)
 
     result = {
         "model_spec": model_spec,
@@ -526,6 +556,8 @@ async def stage4_orchestrated_flow(
         "causal_spec": causal_spec,
         "prior_predictive_samples": (validation_result or {}).get("prior_predictive_samples", {}),
     }
+    if compiled_ssm is not None:
+        result["_compiled_ssm"] = compiled_ssm
     if llm_trace is not None:
         result["llm_trace"] = llm_trace
     return result

@@ -312,7 +312,11 @@ def validate_prior_predictive(
         The samples dict can be passed to simulate_posterior_predictive() to
         generate per-variable observation samples for visualization.
     """
-    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, build_ssm_builder
+    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+    from causal_ssm_agent.models.ssm_compiler import (
+        compile_ssm_artifact,
+        make_builder_from_compiled_artifact,
+    )
 
     priors_dict = {}
     for name, prior in priors.items():
@@ -331,21 +335,18 @@ def validate_prior_predictive(
 
     # 1. Build model
     try:
+        compiled_ssm = compile_ssm_artifact(model_spec, priors_dict, causal_spec=causal_spec)
         if raw_data is not None and not raw_data.is_empty():
             builder = build_ssm_builder(
-                model_spec=model_spec,
-                priors=priors_dict,
                 raw_data=raw_data,
-                causal_spec=causal_spec,
+                compiled_ssm=compiled_ssm,
             )
         else:
             # No raw data: create minimal dummy data for building
             cols = {name: [0.0] * 10 for name in manifest_names}
             cols["time"] = list(range(10))
             X_wide = pl.DataFrame(cols).cast(dict.fromkeys(manifest_names, pl.Float64))
-            builder = SSMModelBuilder(
-                model_spec=model_spec, priors=priors_dict, causal_spec=causal_spec
-            )
+            builder = make_builder_from_compiled_artifact(compiled_ssm)
             builder.build_model(X_wide)
     except Exception as e:
         return (

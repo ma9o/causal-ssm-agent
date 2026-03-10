@@ -40,8 +40,7 @@ def fit_model(
     from causal_ssm_agent.models.ssm_builder import build_ssm_builder
 
     model_spec = stage4_result.get("model_spec", {})
-    priors = stage4_result.get("priors", {})
-    causal_spec = stage4_result.get("causal_spec")
+    compiled_ssm = stage4_result.get("_compiled_ssm")
     logger.info(
         "Fitting model: rows=%d indicators=%d parameters=%d sampler=%s builder_reused=%s",
         len(raw_data),
@@ -53,12 +52,12 @@ def fit_model(
 
     try:
         if builder is None:
+            if compiled_ssm is None:
+                raise ValueError("Stage 4 result is missing the compiled SSM artifact")
             builder = build_ssm_builder(
-                model_spec=model_spec,
-                priors=priors,
                 raw_data=raw_data,
-                causal_spec=causal_spec,
                 sampler_config=sampler_config,
+                compiled_ssm=compiled_ssm,
             )
 
         X = pivot_to_wide(raw_data)

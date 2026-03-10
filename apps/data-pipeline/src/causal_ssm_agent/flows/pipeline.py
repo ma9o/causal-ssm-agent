@@ -171,7 +171,7 @@ async def causal_inference_pipeline(
     Args:
         query_file: Filename in data/queries/ (e.g., 'procrastination-patterns')
         user_id: User subdirectory under data/raw/ (default: test_user)
-        inference_method: Override inference method ("svi" or "nuts")
+        inference_method: Override inference method (e.g. "auto", "svi", "nuts")
         enable_literature: Override literature search
         override_gates: Continue past stage failures instead of halting
         query: Raw query text (used by web UI). Takes precedence over query_file.
