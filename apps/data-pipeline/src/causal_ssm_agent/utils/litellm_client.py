@@ -13,8 +13,52 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Literal, cast
 
+import litellm
+import litellm.utils as litellm_utils
 from litellm import acompletion
 from pydantic import Field, create_model
+
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
+
+# LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
+# They drown out the stage-level logs we rely on during Prefect runs.
+litellm.suppress_debug_info = True
+litellm.turn_off_message_logging = True
+
+_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER = getattr(
+    litellm_utils,
+    "_client_async_logging_helper",
+    None,
+)
+
+
+async def _quiet_client_async_logging_helper(*args: Any, **kwargs: Any) -> None:
+    """Skip LiteLLM async success logging when no async callbacks are configured.
+
+    Prefect executes worker tasks on short-lived event loops. LiteLLM starts a
+    background logging worker for every async completion even when the app has no
+    callbacks configured, which produces noisy "Task was destroyed but it is pending!"
+    errors as loops are torn down. We do not rely on LiteLLM's async callback path,
+    so bypass it unless a caller actually registered async success callbacks.
+    """
+
+    logging_obj = kwargs.get("logging_obj")
+    if logging_obj is None and args:
+        logging_obj = args[0]
+
+    dynamic_callbacks = getattr(logging_obj, "dynamic_async_success_callbacks", None) or []
+    global_callbacks = getattr(litellm, "_async_success_callback", None) or []
+    if not dynamic_callbacks and not global_callbacks:
+        return
+    if _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER is None:
+        return
+    await _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER(*args, **kwargs)
+
+
+if _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER is not None:
+    litellm_utils._client_async_logging_helper = _quiet_client_async_logging_helper
 
 
 @dataclass(frozen=True)
@@ -26,6 +70,9 @@ class GenerateConfig:
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
     reasoning_history: str | None = None
     max_tool_output: int = 16_000
+    verbose_logging: bool = False
+    log_reasoning: bool = False
+    log_output_char_limit: int = 8000
 
 
 @dataclass
@@ -236,11 +283,71 @@ def _usage_from_response(response: Any) -> dict[str, int | None] | None:
     }
 
 
+def _truncate_log_text(text: str, limit: int) -> str:
+    """Bound verbose log payloads so a single completion cannot flood the log stream."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    trimmed = text[:limit]
+    remaining = len(text) - limit
+    return f"{trimmed}\n...[truncated {remaining} chars]"
+
+
+def _log_verbose_response_details(
+    *,
+    log_label: str | None,
+    request: GenerateConfig,
+    message: dict[str, Any],
+    completion_text: str,
+) -> None:
+    """Log raw assistant outputs for development debugging when explicitly enabled."""
+    if not request.verbose_logging:
+        return
+
+    prefix = f"[{log_label}] " if log_label else ""
+
+    logger.info(
+        "%scall_model completion:\n%s",
+        prefix,
+        _truncate_log_text(completion_text or "<empty>", request.log_output_char_limit),
+    )
+
+    tool_calls = message.get("tool_calls") or []
+    if tool_calls:
+        logger.info(
+            "%scall_model tool_calls:\n%s",
+            prefix,
+            _truncate_log_text(
+                json.dumps(tool_calls, indent=2, sort_keys=True),
+                request.log_output_char_limit,
+            ),
+        )
+
+    if request.log_reasoning:
+        reasoning = message.get("reasoning")
+        if isinstance(reasoning, str) and reasoning:
+            logger.info(
+                "%scall_model reasoning:\n%s",
+                prefix,
+                _truncate_log_text(reasoning, request.log_output_char_limit),
+            )
+        reasoning_details = message.get("reasoning_details")
+        if reasoning_details is not None:
+            logger.info(
+                "%scall_model reasoning_details:\n%s",
+                prefix,
+                _truncate_log_text(
+                    json.dumps(reasoning_details, indent=2, sort_keys=True, default=str),
+                    request.log_output_char_limit,
+                ),
+            )
+
+
 async def call_model(
     model_name: str,
     messages: list[dict[str, Any]],
     tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
+    log_label: str | None = None,
 ) -> dict[str, Any]:
     """Call LiteLLM and normalize the first choice into a plain dict."""
 
@@ -259,6 +366,17 @@ async def call_model(
     if tools:
         kwargs["tools"] = [_tool_schema(tool_obj) for tool_obj in tools]
 
+    if log_label:
+        logger.info(
+            "[%s] call_model request: model=%s messages=%d tools=%d timeout=%s max_tokens=%s",
+            log_label,
+            model_name,
+            len(messages),
+            len(tools or []),
+            request.timeout,
+            request.max_tokens,
+        )
+
     started_at = perf_counter()
     response = await acompletion(**kwargs)
     elapsed = perf_counter() - started_at
@@ -269,14 +387,34 @@ async def call_model(
 
     choice = choices[0]
     message = _assistant_message(_get_attr(choice, "message"))
+    completion_text = str(message.get("content", ""))
+    tool_call_count = len(message.get("tool_calls") or [])
+    stop_reason = _get_attr(choice, "finish_reason")
+
+    if log_label:
+        logger.info(
+            "[%s] call_model response: model=%s stop=%s time=%.1fs tool_calls=%d completion_chars=%d",
+            log_label,
+            str(_get_attr(response, "model", model_name)),
+            stop_reason or "end_turn",
+            elapsed,
+            tool_call_count,
+            len(completion_text),
+        )
+    _log_verbose_response_details(
+        log_label=log_label,
+        request=request,
+        message=message,
+        completion_text=completion_text,
+    )
 
     return {
         "message": message,
-        "completion": message.get("content", ""),
+        "completion": completion_text,
         "usage": _usage_from_response(response),
         "model": str(_get_attr(response, "model", model_name)),
         "time": elapsed,
-        "stop_reason": _get_attr(choice, "finish_reason"),
+        "stop_reason": stop_reason,
     }
 
 
@@ -284,6 +422,7 @@ async def execute_tools(
     assistant_message: dict[str, Any],
     tools: list[Tool],
     max_tool_output: int | None = None,
+    log_label: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute tool calls from a normalized assistant message."""
 
@@ -294,11 +433,15 @@ async def execute_tools(
     tool_map = {tool_obj.name: tool_obj for tool_obj in tools}
     tool_messages: list[dict[str, Any]] = []
 
+    if log_label:
+        logger.info("[%s] executing %d tool call(s)", log_label, len(tool_calls))
+
     for tool_call in tool_calls:
         tool_name = str(tool_call.get("name", ""))
         result_text: str
         error_text: str | None = None
         tool_obj = tool_map.get(tool_name)
+        started_at = perf_counter()
 
         if tool_obj is None:
             result_text = f"Unknown tool: {tool_name}"
@@ -316,6 +459,16 @@ async def execute_tools(
 
         if max_tool_output is not None and len(result_text) > max_tool_output:
             result_text = result_text[:max_tool_output] + "\n...[truncated]"
+
+        if log_label:
+            logger.info(
+                "[%s] tool %s finished: status=%s time=%.1fs output_chars=%d",
+                log_label,
+                tool_name,
+                "error" if error_text else "ok",
+                perf_counter() - started_at,
+                len(result_text),
+            )
 
         tool_messages.append(
             {

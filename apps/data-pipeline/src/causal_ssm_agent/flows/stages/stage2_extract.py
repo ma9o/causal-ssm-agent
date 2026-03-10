@@ -8,15 +8,113 @@ extract indicator measurements.
 Uses task.map() for fan-out with batched submission to avoid overwhelming Prefect.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 import polars as pl
 from prefect import flow, get_run_logger, task
+from prefect.futures import as_completed
 
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
+
+
+def _chunk_log_label(chunk_idx: int, chunk_df: pl.DataFrame) -> str:
+    """Build a stable log label for a worker chunk."""
+    return f"stage2 chunk={chunk_idx} rows={len(chunk_df)} cols={len(chunk_df.columns)}"
+
+
+def _collect_batch_results(
+    *,
+    futures: Sequence[Any],
+    batch_indices: Sequence[int],
+    batch_chunks: Sequence[pl.DataFrame],
+    logger: Any,
+    completed_before: int,
+    total_chunks: int,
+) -> tuple[list[dict], list[dict], int]:
+    """Collect mapped worker futures in completion order while preserving output order."""
+    batch_meta = {
+        future: {
+            "worker_id": worker_id,
+            "chunk_size": len(chunk_df),
+        }
+        for worker_id, chunk_df, future in zip(batch_indices, batch_chunks, futures, strict=True)
+    }
+    batch_total = len(batch_meta)
+    rows_by_worker: dict[int, list[dict]] = {}
+    statuses_by_worker: dict[int, dict] = {}
+    n_total = 0
+
+    logger.info(
+        "Stage 2: waiting for %d worker results (already complete=%d/%d)",
+        batch_total,
+        completed_before,
+        total_chunks,
+    )
+
+    for batch_completed, future in enumerate(as_completed(list(batch_meta)), start=1):
+        meta = batch_meta[future]
+        worker_id = meta["worker_id"]
+        chunk_size = meta["chunk_size"]
+        overall_completed = completed_before + batch_completed
+
+        try:
+            result = future.result()
+        except Exception as exc:
+            logger.warning(
+                "Stage 2: worker %d failed (progress=%d/%d, batch=%d/%d, chunk_size=%d): %s",
+                worker_id,
+                overall_completed,
+                total_chunks,
+                batch_completed,
+                batch_total,
+                chunk_size,
+                exc,
+            )
+            statuses_by_worker[worker_id] = {
+                "worker_id": worker_id,
+                "status": "failed",
+                "n_extractions": 0,
+                "chunk_size": chunk_size,
+                "error": str(exc),
+            }
+            continue
+
+        n_ext = result.get("n_extractions", 0)
+        output_rows = result.get("dataframe", [])
+        status = result.get("status", "completed")
+        n_total += n_ext
+        rows_by_worker[worker_id] = output_rows
+        statuses_by_worker[worker_id] = {
+            "worker_id": worker_id,
+            "status": status,
+            "n_extractions": n_ext,
+            "chunk_size": chunk_size,
+        }
+        logger.info(
+            "Stage 2: worker %d %s (progress=%d/%d, batch=%d/%d, chunk_size=%d, extractions=%d, output_rows=%d)",
+            worker_id,
+            status,
+            overall_completed,
+            total_chunks,
+            batch_completed,
+            batch_total,
+            chunk_size,
+            n_ext,
+            len(output_rows),
+        )
+
+    ordered_rows = [row for worker_id in batch_indices for row in rows_by_worker.get(worker_id, [])]
+    ordered_statuses = [
+        statuses_by_worker[worker_id]
+        for worker_id in batch_indices
+        if worker_id in statuses_by_worker
+    ]
+    return ordered_rows, ordered_statuses, n_total
 
 
 @task(
@@ -54,12 +152,12 @@ async def extract_chunk_task(
     config = get_config()
     generate = make_worker_generate_fn(config.stage2_workers.model)
     indicator_count = len(get_indicators(causal_spec))
+    chunk_label = _chunk_log_label(chunk_idx, chunk_df)
 
     run_logger.info(
-        "Starting chunk %d with %d rows, %d columns, %d indicators using model %s",
-        chunk_idx,
+        "[%s] Starting extraction with %d rows, %d indicators using model %s",
+        chunk_label,
         len(chunk_df),
-        len(chunk_df.columns),
         indicator_count,
         config.stage2_workers.model,
     )
@@ -72,19 +170,20 @@ async def extract_chunk_task(
             causal_spec=causal_spec,
             generate=generate,
             logger=run_logger,
+            call_label=chunk_label,
         )
     except Exception:
         run_logger.exception(
-            "Chunk %d failed after %.1fs",
-            chunk_idx,
+            "[%s] Failed after %.1fs",
+            chunk_label,
             perf_counter() - started_at,
         )
         raise
 
     elapsed = perf_counter() - started_at
     run_logger.info(
-        "Finished chunk %d in %.1fs with %d extractions and %d output rows",
-        chunk_idx,
+        "[%s] Finished in %.1fs with %d extractions and %d output rows",
+        chunk_label,
         elapsed,
         len(result.output.extractions),
         result.dataframe.height,
@@ -158,6 +257,7 @@ async def stage2_extraction_flow(
     all_dicts: list[dict] = []
     worker_statuses: list[dict] = []
     n_total = 0
+    n_finished = 0
 
     # Batch mapped task creation so Prefect is not asked to register thousands
     # of task runs in a single burst for large datasets.
@@ -165,10 +265,12 @@ async def stage2_extraction_flow(
         batch_chunks = chunks[batch_start : batch_start + submission_batch_size]
         batch_indices = list(range(batch_start, batch_start + len(batch_chunks)))
         logger.info(
-            "Stage 2: submitting chunk batch %d-%d (%d tasks)",
+            "Stage 2: submitting chunk batch %d-%d (%d tasks, submitted=%d/%d)",
             batch_indices[0],
             batch_indices[-1],
             len(batch_chunks),
+            batch_indices[-1] + 1,
+            len(chunks),
         )
         results = extract_chunk_task.map(
             batch_chunks,
@@ -176,35 +278,27 @@ async def stage2_extraction_flow(
             question=unmapped(question),
             causal_spec=unmapped(causal_spec),
         )
-
-        for worker_id, chunk_df, future in zip(batch_indices, batch_chunks, results, strict=True):
-            try:
-                result = future.result()
-            except Exception as e:
-                logger.warning("Chunk %d failed: %s", worker_id, e)
-                worker_statuses.append(
-                    {
-                        "worker_id": worker_id,
-                        "status": "failed",
-                        "n_extractions": 0,
-                        "chunk_size": len(chunk_df),
-                        "error": str(e),
-                    }
-                )
-                continue
-
-            n_ext = result.get("n_extractions", 0)
-            n_total += n_ext
-            all_dicts.extend(result.get("dataframe", []))
-            logger.info("Chunk %d completed with %d extractions", worker_id, n_ext)
-            worker_statuses.append(
-                {
-                    "worker_id": worker_id,
-                    "status": result.get("status", "completed"),
-                    "n_extractions": n_ext,
-                    "chunk_size": len(chunk_df),
-                }
-            )
+        batch_rows, batch_statuses, batch_total = _collect_batch_results(
+            futures=results,
+            batch_indices=batch_indices,
+            batch_chunks=batch_chunks,
+            logger=logger,
+            completed_before=n_finished,
+            total_chunks=len(chunks),
+        )
+        n_finished += len(batch_statuses)
+        n_total += batch_total
+        all_dicts.extend(batch_rows)
+        worker_statuses.extend(batch_statuses)
+        batch_failed = sum(1 for status in batch_statuses if status["status"] == "failed")
+        logger.info(
+            "Stage 2: batch %d-%d finished (completed=%d, failed=%d, cumulative_extractions=%d)",
+            batch_indices[0],
+            batch_indices[-1],
+            len(batch_statuses) - batch_failed,
+            batch_failed,
+            n_total,
+        )
 
     logger.info("Stage 2: %d total extractions from %d workers", n_total, len(chunks))
 
