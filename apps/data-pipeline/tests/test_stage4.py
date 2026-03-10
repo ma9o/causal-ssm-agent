@@ -1184,3 +1184,48 @@ class TestSparsityValidation:
             pivot_to_wide(raw)
 
         assert not any("Sparse" in msg for msg in caplog.messages)
+
+
+# --- Trial Compile Tests ---
+
+
+class TestTrialCompile:
+    """Test trial_compile_model_spec catches structural errors early."""
+
+    def test_valid_spec_returns_none(self, simple_model_spec):
+        """A well-formed spec compiles successfully with default priors."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        result = trial_compile_model_spec(simple_model_spec)
+        assert result is None
+
+    def test_compile_failure_returns_error(self):
+        """When compilation raises, trial_compile returns the error string."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        spec = {
+            "likelihoods": [
+                {
+                    "variable": "x",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_x",
+                    "role": "ar_coefficient",
+                    "constraint": "correlation",
+                    "description": "test",
+                    "search_context": "",
+                }
+            ],
+        }
+        with patch(
+            "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+            side_effect=ValueError("dimension mismatch in drift matrix"),
+        ):
+            result = trial_compile_model_spec(spec)
+        assert result is not None
+        assert "dimension mismatch" in result

@@ -151,6 +151,7 @@ class SSMModelBuilder:
         model_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         ssm_spec: SSMSpec | None = None,
+        ssm_priors: SSMPriors | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
         causal_spec: dict | None = None,
@@ -161,6 +162,7 @@ class SSMModelBuilder:
             model_spec: Model specification from orchestrator (will be converted)
             priors: Prior proposals for each parameter
             ssm_spec: Direct SSMSpec (overrides model_spec conversion)
+            ssm_priors: Direct SSMPriors paired with ssm_spec
             model_config: Override model configuration (n_particles, pf_seed)
             sampler_config: Override sampler configuration
             causal_spec: CausalSpec dict with latent model edges and measurement
@@ -170,6 +172,7 @@ class SSMModelBuilder:
         self._model_spec = model_spec
         self._priors = priors or {}
         self._ssm_spec = ssm_spec
+        self._ssm_priors = ssm_priors
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
         self._causal_spec = causal_spec
@@ -178,6 +181,26 @@ class SSMModelBuilder:
         self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
         self._edge_lag_days: dict[tuple[int, int], float] = {}
+
+    def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
+        """Compile user-facing specs into executable SSM inputs."""
+        if self._ssm_spec is not None:
+            spec = self._ssm_spec
+        elif self._model_spec is not None:
+            spec = self._convert_spec_to_ssm(self._model_spec)
+        else:
+            raise ValueError("Cannot compile SSM inputs without model_spec or ssm_spec")
+
+        if self._ssm_priors is not None:
+            priors = self._ssm_priors
+        else:
+            raw_priors: dict[str, dict] = {
+                k: v.model_dump() if isinstance(v, PriorProposal) else v
+                for k, v in self._priors.items()
+            }
+            priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+
+        return spec, priors
 
     @staticmethod
     def get_default_sampler_config() -> dict:
@@ -205,6 +228,80 @@ class SSMModelBuilder:
                     return GRANULARITY_HOURS[gran] / 24.0
         return 1.0
 
+    def _get_structural_latent_layout(self) -> tuple[list[str], np.ndarray | None] | None:
+        """Build canonical latent ordering from CausalSpec when available.
+
+        The causal structure owns latent identity. Time-varying constructs define
+        the dynamic state, and time-invariant constructs are appended as
+        quasi-constant latents.
+        """
+        if self._causal_spec is None:
+            return None
+
+        constructs = get_constructs(self._causal_spec)
+        if not constructs:
+            raise ValueError("causal_spec.latent.constructs is empty")
+
+        time_varying: list[str] = []
+        time_invariant: list[str] = []
+        seen: set[str] = set()
+
+        for construct in constructs:
+            name = construct.get("name") if isinstance(construct, dict) else construct.name
+            temporal = (
+                construct.get("temporal_status")
+                if isinstance(construct, dict)
+                else construct.temporal_status
+            )
+            if name in seen:
+                raise ValueError(f"Duplicate construct name in causal_spec: {name!r}")
+            seen.add(name)
+            if temporal == "time_invariant":
+                time_invariant.append(name)
+            else:
+                time_varying.append(name)
+
+        latent_names = time_varying + time_invariant
+        time_invariant_mask = None
+        if time_invariant:
+            time_invariant_mask = np.array(
+                [False] * len(time_varying) + [True] * len(time_invariant),
+                dtype=bool,
+            )
+        return latent_names, time_invariant_mask
+
+    @staticmethod
+    def _expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
+        """Return the structural size for an array-valued prior field."""
+        if ssm_spec is None:
+            return None
+
+        if attr == "drift_diag":
+            return ssm_spec.n_latent
+
+        if attr == "drift_offdiag":
+            if ssm_spec.drift_mask is None:
+                return ssm_spec.n_latent * (ssm_spec.n_latent - 1)
+            count = 0
+            for i in range(ssm_spec.n_latent):
+                for j in range(ssm_spec.n_latent):
+                    if i != j and ssm_spec.drift_mask[i, j]:
+                        count += 1
+            return count
+
+        if attr == "lambda_free":
+            if ssm_spec.lambda_mask is None:
+                return None
+            return int(np.asarray(ssm_spec.lambda_mask).sum())
+
+        if attr == "diffusion_offdiag":
+            if ssm_spec.diffusion != "free":
+                return 0
+            n = ssm_spec.n_latent
+            return n * (n - 1) // 2
+
+        return None
+
     def _convert_spec_to_ssm(self, model_spec: ModelSpec | dict) -> SSMSpec:
         """Convert ModelSpec to SSMSpec.
 
@@ -222,7 +319,8 @@ class SSMModelBuilder:
 
             model_spec = ModelSpec.model_validate(model_spec)
 
-        issues = validate_model_spec(model_spec)
+        indicators = get_indicators(self._causal_spec) if self._causal_spec is not None else None
+        issues = validate_model_spec(model_spec, indicators=indicators)
         for issue in issues:
             logger.warning(
                 "ModelSpec %s: %s — %s", issue["severity"], issue["name"], issue["issue"]
@@ -232,16 +330,22 @@ class SSMModelBuilder:
         manifest_cols = [lik.variable for lik in model_spec.likelihoods]
         n_manifest = len(manifest_cols)
 
-        # Infer latent structure from parameters
-        # Look for AR coefficients to determine number of latent processes
-        ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
-        n_latent = max(len(ar_params), 1)
+        structural_layout = self._get_structural_latent_layout()
+        if structural_layout is not None:
+            latent_names, time_invariant_mask = structural_layout
+            n_latent = len(latent_names)
+        else:
+            # Infer latent structure from parameters only when no causal structure exists.
+            ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
+            n_latent = max(len(ar_params), 1)
 
-        if not ar_params:
-            logger.warning(
-                "No AR_COEFFICIENT parameters found in ModelSpec; falling back to n_latent=1. "
-                "Set AR coefficients explicitly for multi-latent models."
-            )
+            if not ar_params:
+                logger.warning(
+                    "No AR_COEFFICIENT parameters found in ModelSpec; falling back to n_latent=1. "
+                    "Set AR coefficients explicitly for multi-latent models."
+                )
+            latent_names = [p.name.removeprefix("rho_") for p in ar_params] if ar_params else None
+            time_invariant_mask = None
 
         if n_manifest < n_latent:
             logger.warning(
@@ -278,31 +382,6 @@ class SSMModelBuilder:
             if lk != LinkFunction.IDENTITY:
                 manifest_link = lk
                 break
-
-        # Derive latent names from AR parameter names (e.g. rho_X → X)
-        latent_names = [p.name.removeprefix("rho_") for p in ar_params] if ar_params else None
-
-        # Include time-invariant constructs from causal_spec as additional latents.
-        # They get near-zero drift/diffusion (quasi-constant, determined by initial state).
-        time_invariant_mask = None
-        if latent_names is not None and self._causal_spec is not None:
-            constructs = get_constructs(self._causal_spec)
-            tv_set = set(latent_names)
-            ti_names = []
-            for c in constructs:
-                name = c.get("name") if isinstance(c, dict) else c.name
-                temporal = c.get("temporal_status") if isinstance(c, dict) else c.temporal_status
-                if temporal == "time_invariant" and name not in tv_set:
-                    ti_names.append(name)
-            if ti_names:
-                logger.info(
-                    "Including %d time-invariant constructs as quasi-constant latents: %s",
-                    len(ti_names),
-                    ti_names,
-                )
-                time_invariant_mask = np.array([False] * len(latent_names) + [True] * len(ti_names))
-                latent_names = latent_names + ti_names
-                n_latent = len(latent_names)
 
         # Build masks from causal_spec if available
         drift_mask, lambda_mat, lambda_mask = self._build_masks_from_causal_spec(
@@ -362,6 +441,17 @@ class SSMModelBuilder:
         edges = get_edges(causal_spec)
         indicators = get_indicators(causal_spec)
 
+        indicator_names = {
+            (indicator.get("name") if isinstance(indicator, dict) else indicator.name)
+            for indicator in indicators
+        }
+        unknown_likelihoods = sorted(set(manifest_cols) - indicator_names)
+        if unknown_likelihoods:
+            raise ValueError(
+                "ModelSpec likelihoods reference indicators absent from causal_spec measurement: "
+                f"{unknown_likelihoods}"
+            )
+
         # Build name-to-index maps
         latent_idx = {name: i for i, name in enumerate(latent_names)}
 
@@ -414,6 +504,7 @@ class SSMModelBuilder:
 
         # Track which constructs already have a reference indicator
         reference_set: set[str] = set()
+        matched_manifests: set[str] = set()
 
         for indicator in indicators:
             ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
@@ -423,11 +514,17 @@ class SSMModelBuilder:
                 else indicator.construct_name
             )
 
-            if ind_name not in manifest_idx or construct not in latent_idx:
+            if ind_name not in manifest_idx:
                 continue
+            if construct not in latent_idx:
+                raise ValueError(
+                    "CausalSpec measurement indicator references unknown construct: "
+                    f"{ind_name!r} -> {construct!r}"
+                )
 
             mi = manifest_idx[ind_name]
             li = latent_idx[construct]
+            matched_manifests.add(ind_name)
 
             if construct not in reference_set:
                 # First indicator for this construct: fixed reference
@@ -439,9 +536,12 @@ class SSMModelBuilder:
 
         lambda_mat = jnp.array(lambda_mat_np)
 
-        # If no measurement model indicators matched, fall back to identity
-        if not reference_set:
-            return drift_mask, jnp.eye(n_manifest, n_latent), None
+        unmatched_manifests = sorted(set(manifest_cols) - matched_manifests)
+        if unmatched_manifests:
+            raise ValueError(
+                "ModelSpec likelihoods could not be mapped to causal_spec measurement indicators: "
+                f"{unmatched_manifests}"
+            )
 
         return drift_mask, lambda_mat, lambda_mask
 
@@ -607,7 +707,10 @@ class SSMModelBuilder:
         # Build array-valued priors from per-element entries
         for attr, entries in per_element.items():
             current = getattr(ssm_priors, attr)
+            expected_size = self._expected_prior_size(attr, ssm_spec)
             n_total = max(idx for idx, _ in entries) + 1
+            if expected_size is not None:
+                n_total = max(n_total, expected_size)
 
             # Build arrays from defaults + positioned entries
             mu_default = current.get("mu", 0.0)
@@ -627,8 +730,11 @@ class SSMModelBuilder:
             # Propagate bounds if any entry has them
             has_bounds = any("lower" in n for _, n in entries)
             if has_bounds:
-                lower_arr = [float(normed.get("lower", -1e6)) for _, normed in entries]
-                upper_arr = [float(normed.get("upper", 1e6)) for _, normed in entries]
+                lower_arr = [-1e6] * n_total
+                upper_arr = [1e6] * n_total
+                for idx, normed in entries:
+                    lower_arr[idx] = float(normed.get("lower", -1e6))
+                    upper_arr[idx] = float(normed.get("upper", 1e6))
                 result["lower"] = lower_arr
                 result["upper"] = upper_arr
 
@@ -961,6 +1067,7 @@ class SSMModelBuilder:
 
         latent_names = ssm_spec.latent_names or []
         latent_idx_map = {name: i for i, name in enumerate(latent_names)}
+        strict_structure = self._causal_spec is not None
 
         # --- Drift diagonal index (AR coefficients) ---
         for p in spec_obj.parameters:
@@ -970,6 +1077,11 @@ class SSMModelBuilder:
             construct = p.name.removeprefix("rho_").removeprefix("ar_")
             if construct in latent_idx_map:
                 diag_index[p.name] = ("drift_diag", latent_idx_map[construct])
+            elif strict_structure:
+                raise ValueError(
+                    "AR parameter does not reference a construct in causal_spec: "
+                    f"{p.name!r} not in {sorted(latent_idx_map)}"
+                )
 
         # --- Drift off-diagonal index ---
         if ssm_spec.drift_mask is not None:
@@ -990,17 +1102,24 @@ class SSMModelBuilder:
                 compound = p.name.removeprefix("beta_")
                 result = _split_compound_name(compound, latent_name_set, latent_name_set)
                 if result is None:
-                    logger.warning(
-                        "Could not parse FIXED_EFFECT parameter '%s' into "
-                        "(cause, effect) from known latents %s",
-                        p.name,
-                        sorted(latent_name_set),
+                    message = (
+                        "Could not parse FIXED_EFFECT parameter "
+                        f"{p.name!r} into (cause, effect) from known latents "
+                        f"{sorted(latent_name_set)}"
                     )
+                    if strict_structure:
+                        raise ValueError(message)
+                    logger.warning("%s", message)
                     continue
                 cause_name, effect_name = result
                 pos = (latent_idx_map[effect_name], latent_idx_map[cause_name])
                 if pos in positions:
                     offdiag_index[p.name] = ("drift_offdiag", positions.index(pos))
+                elif strict_structure:
+                    raise ValueError(
+                        "FIXED_EFFECT parameter does not correspond to an edge in causal_spec: "
+                        f"{p.name!r}"
+                    )
 
         # --- Lambda free index ---
         if ssm_spec.lambda_mask is not None:
@@ -1022,18 +1141,24 @@ class SSMModelBuilder:
                 compound = p.name.removeprefix("lambda_")
                 result = _split_compound_name(compound, manifest_name_set, latent_name_set)
                 if result is None:
-                    logger.warning(
-                        "Could not parse LOADING parameter '%s' into "
-                        "(indicator, construct) from known manifests %s / latents %s",
-                        p.name,
-                        sorted(manifest_name_set),
-                        sorted(latent_name_set),
+                    message = (
+                        "Could not parse LOADING parameter "
+                        f"{p.name!r} into (indicator, construct) from known "
+                        f"manifests {sorted(manifest_name_set)} / latents {sorted(latent_name_set)}"
                     )
+                    if strict_structure:
+                        raise ValueError(message)
+                    logger.warning("%s", message)
                     continue
                 ind_name, construct_name = result
                 pos = (manifest_idx_map[ind_name], latent_idx_map[construct_name])
                 if pos in positions:
                     lambda_index[p.name] = ("lambda_free", positions.index(pos))
+                elif strict_structure:
+                    raise ValueError(
+                        "LOADING parameter does not correspond to a free loading in causal_spec: "
+                        f"{p.name!r}"
+                    )
 
         # --- Diffusion off-diagonal index (correlation parameters) ---
         # Lower-triangular positions matching _sample_diffusion ordering:
@@ -1053,12 +1178,14 @@ class SSMModelBuilder:
                 compound = p.name.removeprefix("cor_")
                 result = _split_compound_name(compound, latent_name_set, latent_name_set)
                 if result is None:
-                    logger.warning(
-                        "Could not parse CORRELATION parameter '%s' into "
-                        "(state1, state2) from known latents %s",
-                        p.name,
-                        sorted(latent_name_set),
+                    message = (
+                        "Could not parse CORRELATION parameter "
+                        f"{p.name!r} into (state1, state2) from known latents "
+                        f"{sorted(latent_name_set)}"
                     )
+                    if strict_structure:
+                        raise ValueError(message)
+                    logger.warning("%s", message)
                     continue
                 s1_name, s2_name = result
                 idx1, idx2 = latent_idx_map[s1_name], latent_idx_map[s2_name]
@@ -1068,6 +1195,11 @@ class SSMModelBuilder:
                     diffusion_offdiag_index[p.name] = (
                         "diffusion_offdiag",
                         lower_positions.index(pos),
+                    )
+                elif strict_structure:
+                    raise ValueError(
+                        "CORRELATION parameter does not correspond to a modeled latent pair: "
+                        f"{p.name!r}"
                     )
 
         return offdiag_index, lambda_index, diag_index, diffusion_offdiag_index
@@ -1088,11 +1220,7 @@ class SSMModelBuilder:
             The constructed SSMModel
         """
         # Determine specification
-        if self._ssm_spec is not None:
-            spec = self._ssm_spec
-        elif self._model_spec is not None:
-            spec = self._convert_spec_to_ssm(self._model_spec)
-        else:
+        if self._ssm_spec is None and self._model_spec is None:
             # Auto-detect from data
             manifest_cols = [
                 c for c in X.columns if c not in ["time", "time_bucket"] and not c.endswith("_lag1")
@@ -1102,14 +1230,13 @@ class SSMModelBuilder:
                 n_manifest=len(manifest_cols),
                 lambda_mat=jnp.eye(len(manifest_cols)),
             )
-
-        # Convert priors (pass ssm_spec for per-element positioning)
-        # Normalize PriorProposal instances to plain dicts before passing
-        raw_priors: dict[str, dict] = {
-            k: v.model_dump() if isinstance(v, PriorProposal) else v
-            for k, v in self._priors.items()
-        }
-        priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+            raw_priors: dict[str, dict] = {
+                k: v.model_dump() if isinstance(v, PriorProposal) else v
+                for k, v in self._priors.items()
+            }
+            priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+        else:
+            spec, priors = self.compile_inputs()
 
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
@@ -1252,11 +1379,12 @@ class SSMModelBuilder:
 
 
 def build_ssm_builder(
-    model_spec: ModelSpec | dict,
-    priors: dict[str, PriorProposal] | dict[str, dict],
     raw_data: pl.DataFrame,
+    model_spec: ModelSpec | dict | None = None,
+    priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
     causal_spec: dict | None = None,
     sampler_config: dict | None = None,
+    compiled_ssm: dict | None = None,
 ) -> SSMModelBuilder:
     """Single canonical entry point for constructing a ready-to-use SSMModelBuilder.
 
@@ -1271,6 +1399,7 @@ def build_ssm_builder(
         raw_data: Raw timestamped data (long format)
         causal_spec: CausalSpec dict for DAG-constrained masks
         sampler_config: Override sampler configuration
+        compiled_ssm: Serialized compiled artifact from stage 4
 
     Returns:
         A fully built SSMModelBuilder (model constructed, ready for fit/sample)
@@ -1278,6 +1407,15 @@ def build_ssm_builder(
     Raises:
         ValueError: If raw_data is empty
     """
+    if compiled_ssm is not None:
+        from causal_ssm_agent.models.ssm_compiler import build_compiled_ssm_builder
+
+        return build_compiled_ssm_builder(
+            compiled_ssm,
+            raw_data,
+            sampler_config=sampler_config,
+        )
+
     from causal_ssm_agent.utils.data import pivot_to_wide
 
     if raw_data.is_empty():
