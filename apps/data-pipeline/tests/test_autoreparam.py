@@ -600,3 +600,118 @@ class TestAutoReparamSSM:
         assert len(samples) > 0
         for v in samples.values():
             assert jnp.all(jnp.isfinite(v))
+
+    def test_fit_nuts_filters_auxiliary_sites(self):
+        """NUTS results and diagnostics should expose original sites only."""
+        from causal_ssm_agent.models.ssm.inference import fit
+
+        model = self._make_simple_ssm()
+        observations = jnp.zeros((8, 2))
+        times = jnp.linspace(0, 1, 8)
+
+        result = fit(
+            model,
+            observations,
+            times,
+            method="nuts",
+            num_warmup=10,
+            num_samples=10,
+            num_chains=1,
+            seed=0,
+        )
+
+        sample_names = set(result.get_samples())
+        assert "drift_diag_pop" in sample_names
+        assert "diffusion_diag_pop" in sample_names
+        assert all("_decentered" not in name for name in sample_names)
+
+        diag = result.get_mcmc_diagnostics()
+        assert diag is not None
+        diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
+        assert all("_decentered" not in name for name in diag_names)
+
+    def test_extract_constrained_samples_filters_auxiliary_sites(self):
+        """Replay-based extraction should drop internal reparam auxiliaries."""
+        from jax.flatten_util import ravel_pytree
+
+        from causal_ssm_agent.models.ssm.utils import _discover_sites, extract_constrained_samples
+
+        model = self._make_simple_ssm()
+        strategy = AutoReparam(centered=0.0)
+        observations = jnp.zeros((5, 2))
+        times = jnp.linspace(0, 1, 5)
+        backend = model.make_likelihood_backend()
+        site_info = _discover_sites(
+            model,
+            observations,
+            times,
+            jax.random.PRNGKey(0),
+            backend,
+            reparam=strategy,
+        )
+        example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+        flat, unravel_fn = ravel_pytree(example_unc)
+
+        samples = extract_constrained_samples(
+            flat[None, :],
+            site_info,
+            unravel_fn,
+            model.spec,
+            reparam=strategy,
+            model=model,
+            observations=observations,
+            times=times,
+        )
+
+        assert "drift_diag_pop" in samples
+        assert "diffusion_diag_pop" in samples
+        assert all("_decentered" not in name for name in samples)
+
+    def test_fit_nuts_da_noncentered_with_reparam(self):
+        """Default reparam should not break the non-centered DA state path."""
+        from causal_ssm_agent.models.ssm.inference import fit
+
+        model = self._make_simple_ssm()
+        observations = jnp.zeros((4, 2))
+        times = jnp.linspace(0, 1, 4)
+
+        result = fit(
+            model,
+            observations,
+            times,
+            method="nuts_da",
+            centered=False,
+            num_warmup=1,
+            num_samples=1,
+            num_chains=1,
+            svi_warmstart=False,
+            seed=0,
+        )
+
+        sample_names = set(result.get_samples())
+        assert "drift_diag_pop" in sample_names
+        assert "eps" not in sample_names
+        assert "eps_0" not in sample_names
+        assert all("_decentered" not in name for name in sample_names)
+
+    def test_fit_pgas_rejects_reparam(self):
+        """PGAS should fail explicitly rather than silently ignore reparam."""
+        from causal_ssm_agent.models.ssm.inference import fit
+
+        model = self._make_simple_ssm()
+        observations = jnp.zeros((4, 2))
+        times = jnp.linspace(0, 1, 4)
+
+        with pytest.raises(ValueError, match="PGAS does not support reparameterization"):
+            fit(
+                model,
+                observations,
+                times,
+                method="pgas",
+                reparam=AutoReparam(centered=0.0),
+                n_outer=1,
+                n_csmc_particles=4,
+                n_mh_steps=1,
+                svi_warmstart=False,
+                seed=0,
+            )

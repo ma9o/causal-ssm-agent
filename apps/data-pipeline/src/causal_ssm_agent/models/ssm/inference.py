@@ -99,6 +99,9 @@ class InferenceResult:
         # Per-parameter convergence diagnostics via numpyro.diagnostics.summary
         try:
             chain_samples = mcmc.get_samples(group_by_chain=True)
+            public_sites = self.diagnostics.get("public_sites")
+            if public_sites is not None:
+                chain_samples = _filter_public_samples(chain_samples, set(public_sites))
             summ = numpyro_summary(chain_samples)
             per_param: list[dict[str, Any]] = []
             for name, stats in summ.items():
@@ -222,6 +225,9 @@ class InferenceResult:
             import arviz as az
 
             flat_samples = mcmc.get_samples()
+            public_sites = self.diagnostics.get("public_sites")
+            if public_sites is not None:
+                flat_samples = _filter_public_samples(flat_samples, set(public_sites))
             n_draws = next(iter(flat_samples.values())).shape[0]
             n_chains = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else 1
             n_per_chain = n_draws // n_chains
@@ -650,6 +656,39 @@ def select_default_method(spec: SSMSpec) -> InferenceMethod:
     return "laplace_em"
 
 
+def _trace_public_sites(
+    model_fn,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    exclude: set[str] | None = None,
+) -> set[str]:
+    """Trace a model once and return user-facing sample/deterministic site names."""
+    excluded = {"log_likelihood"}
+    if exclude is not None:
+        excluded.update(exclude)
+
+    with handlers.seed(rng_seed=0):
+        trace = handlers.trace(model_fn).get_trace(observations, times)
+
+    return {
+        name
+        for name, site in trace.items()
+        if site["type"] in ("sample", "deterministic")
+        and not site.get("is_observed", False)
+        and name not in excluded
+    }
+
+
+def _filter_public_samples(
+    samples: dict[str, jnp.ndarray], public_sites: set[str] | None
+) -> dict[str, jnp.ndarray]:
+    """Drop internal handler sites, keeping only original model outputs."""
+    if public_sites is None:
+        return samples
+    return {name: values for name, values in samples.items() if name in public_sites}
+
+
 def _apply_reparam(model_fn, reparam_config):
     """Wrap a model function with reparameterization if config is provided.
 
@@ -672,6 +711,8 @@ def _resolve_reparam(reparam, method: InferenceMethod):
     # SVI benefits from learnable centering; all other methods use fixed NCP.
     if method == "svi":
         return AutoReparam()  # centered=None → learnable via numpyro.param
+    if method == "pgas":
+        return None
     return AutoReparam(centered=0.0)  # fully decentered
 
 
@@ -707,6 +748,8 @@ def fit(
         method = select_default_method(model.spec)
 
     reparam = _resolve_reparam(reparam, method)
+    if method == "pgas" and reparam is not None:
+        raise ValueError("PGAS does not support reparameterization.")
     if method == "nuts":
         return _fit_nuts(model, observations, times, reparam=reparam, **kwargs)
     if method == "nuts_da":
@@ -807,8 +850,9 @@ def _fit_nuts(
     Returns:
         InferenceResult with NUTS samples
     """
-    model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
-    model_fn = _apply_reparam(model_fn, reparam)
+    base_model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    public_sites = _trace_public_sites(base_model_fn, observations, times)
+    model_fn = _apply_reparam(base_model_fn, reparam)
     kernel = NUTS(
         model_fn,
         init_strategy=init_to_median(num_samples=15),
@@ -833,10 +877,12 @@ def _fit_nuts(
         extra_fields=("diverging", "num_steps", "accept_prob", "energy"),
     )
 
+    samples = _filter_public_samples(mcmc.get_samples(), public_sites)
+
     return InferenceResult(
-        _samples=mcmc.get_samples(),
+        _samples=samples,
         method="nuts",
-        diagnostics={"mcmc": mcmc},
+        diagnostics={"mcmc": mcmc, "public_sites": sorted(public_sites)},
     )
 
 
@@ -872,8 +918,9 @@ def _fit_svi(
     Returns:
         InferenceResult with approximate posterior samples
     """
-    model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
-    model_fn = _apply_reparam(model_fn, reparam)
+    base_model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    public_sites = _trace_public_sites(base_model_fn, observations, times)
+    model_fn = _apply_reparam(base_model_fn, reparam)
     guide_cls = {
         "normal": AutoNormal,
         "mvn": AutoMultivariateNormal,
@@ -897,8 +944,7 @@ def _fit_svi(
     )
     raw_samples = predictive(sample_key, observations, times)
 
-    # Filter out the log_likelihood factor site (observed)
-    samples = {name: values for name, values in raw_samples.items() if name != "log_likelihood"}
+    samples = _filter_public_samples(raw_samples, public_sites)
 
     return InferenceResult(
         _samples=samples,

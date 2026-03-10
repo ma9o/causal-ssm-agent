@@ -43,10 +43,16 @@ from numpyro.optim import ClippedAdam
 
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference import InferenceResult
+from causal_ssm_agent.models.ssm.inference import (
+    InferenceResult,
+    _filter_public_samples,
+    _trace_public_sites,
+)
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 logger = logging.getLogger(__name__)
+
+_DA_INTERNAL_SITES = {"eta_0", "eta", "eps_0", "eps", "obs_0", "obs"}
 
 if TYPE_CHECKING:
     from cuthbert.gaussian.types import LinearizedKalmanFilterState
@@ -570,6 +576,25 @@ def _check_init_log_density(model_fn, init_values, observations, times, seed):
         logger.warning("DIAG check failed: %s", e)
 
 
+def _exclude_da_internal_sites(reparam):
+    """Prevent handler-generated auxiliaries for DA state/observation sites."""
+    if reparam is None:
+        return None
+
+    if isinstance(reparam, dict):
+        config = dict(reparam)
+        for site_name in _DA_INTERNAL_SITES:
+            config[site_name] = None
+        return config
+
+    def config(msg):
+        if msg["name"] in _DA_INTERNAL_SITES:
+            return None
+        return reparam(msg)
+
+    return config
+
+
 def fit_nuts_da(
     model: SSMModel,
     observations: jnp.ndarray,
@@ -633,13 +658,20 @@ def fit_nuts_da(
             f"'pgas', or 'tempered_smc'."
         )
 
-    model_fn = functools.partial(_da_model, model, centered=centered)
+    base_model_fn = functools.partial(_da_model, model, centered=centered)
+    public_sites = _trace_public_sites(
+        base_model_fn,
+        observations,
+        times,
+        exclude={"eta_0", "eta", "eps_0", "eps"},
+    )
+    model_fn = base_model_fn
 
     # Apply reparameterization if provided
     if reparam is not None:
         from numpyro import handlers as _handlers
 
-        model_fn = _handlers.reparam(model_fn, config=reparam)
+        model_fn = _handlers.reparam(model_fn, config=_exclude_da_internal_sites(reparam))
 
     # Determine initialization strategy
     init_values = None
@@ -701,12 +733,10 @@ def fit_nuts_da(
     # Get samples, excluding the large per-timestep state arrays
     assert mcmc is not None
     all_samples = mcmc.get_samples()
-    # Exclude latent state sites (both CP and NCP variants)
-    state_sites = {"eta_0", "eta", "eps_0", "eps"}
-    samples = {k: v for k, v in all_samples.items() if k not in state_sites}
+    samples = _filter_public_samples(all_samples, public_sites)
 
     return InferenceResult(
         _samples=samples,
         method="nuts_da",
-        diagnostics={"mcmc": mcmc},
+        diagnostics={"mcmc": mcmc, "public_sites": sorted(public_sites)},
     )
