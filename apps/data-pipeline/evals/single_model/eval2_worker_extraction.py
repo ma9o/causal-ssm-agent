@@ -24,6 +24,7 @@ from evals.common import (
     get_questions_with_causal_spec,
     get_sample_chunks_worker,
     load_eval_config,
+    make_worker_generate_fn,
     select_question,
 )
 from inspect_ai import Task, task
@@ -32,7 +33,6 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from causal_ssm_agent.utils.llm import make_worker_generate_fn
 from causal_ssm_agent.workers.core import WorkerResult, run_worker_extraction
 from causal_ssm_agent.workers.prompts.extraction import SYSTEM
 from causal_ssm_agent.workers.schemas import _check_dtype_match, _get_indicator_info

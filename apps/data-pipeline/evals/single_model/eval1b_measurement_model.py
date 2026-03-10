@@ -25,6 +25,7 @@ from evals.common import (
     get_questions_with_latent_model,
     get_sample_chunks_orchestrator,
     load_eval_config,
+    make_orchestrator_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -37,7 +38,6 @@ from causal_ssm_agent.orchestrator.prompts import measurement_model
 from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
 from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
 from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
-from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
 
 # Load config for models
 _CONFIG = load_eval_config()
