@@ -649,7 +649,9 @@ class TestAutoReparamSSM:
             backend,
             reparam=strategy,
         )
-        example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+        example_unc = {
+            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
+        }
         flat, unravel_fn = ravel_pytree(example_unc)
 
         samples = extract_constrained_samples(
