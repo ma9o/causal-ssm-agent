@@ -521,11 +521,14 @@ class SSMModel:
                     n_manifest=spec.n_manifest,
                 )
 
-            # Only create ComposedLikelihood when the Kalman block has
-            # exclusive observations — otherwise it can't contribute to LL.
+            # Only create ComposedLikelihood when:
+            # 1. Both Kalman and particle latent blocks exist
+            # 2. The Kalman block has exclusive observations (otherwise can't contribute to LL)
+            # When particle_idx is empty but obs_particle_idx is non-empty
+            # (e.g. non-Gaussian zero-dep channels), fall through to full PF.
             if (
                 partition.has_kalman_block
-                and partition.has_particle_block
+                and len(partition.particle_idx) > 0
                 and len(partition.obs_kalman_idx) > 0
             ):
                 from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
