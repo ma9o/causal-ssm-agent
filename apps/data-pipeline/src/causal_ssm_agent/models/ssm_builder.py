@@ -26,7 +26,6 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     LinkFunction,
     ModelSpec,
     ParameterRole,
-    validate_model_spec,
 )
 from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
 from causal_ssm_agent.workers.schemas_prior import PriorProposal
@@ -319,12 +318,15 @@ class SSMModelBuilder:
 
             model_spec = ModelSpec.model_validate(model_spec)
 
-        indicators = get_indicators(self._causal_spec) if self._causal_spec is not None else None
-        issues = validate_model_spec(model_spec, indicators=indicators)
-        for issue in issues:
-            logger.warning(
-                "ModelSpec %s: %s — %s", issue["severity"], issue["name"], issue["issue"]
-            )
+        from causal_ssm_agent.models.ssm_compiler import validate_model_spec_for_compilation
+
+        validated_model_spec, errors = validate_model_spec_for_compilation(
+            model_spec, causal_spec=self._causal_spec
+        )
+        if errors:
+            raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+        assert validated_model_spec is not None
+        model_spec = validated_model_spec
 
         # Extract dimensions from data
         manifest_cols = [lik.variable for lik in model_spec.likelihoods]
@@ -337,22 +339,14 @@ class SSMModelBuilder:
         else:
             # Infer latent structure from parameters only when no causal structure exists.
             ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
-            n_latent = max(len(ar_params), 1)
-
             if not ar_params:
-                logger.warning(
-                    "No AR_COEFFICIENT parameters found in ModelSpec; falling back to n_latent=1. "
-                    "Set AR coefficients explicitly for multi-latent models."
+                raise ValueError(
+                    "No AR_COEFFICIENT parameters found in ModelSpec; "
+                    "cannot infer latent dimensionality without causal_spec."
                 )
+            n_latent = len(ar_params)
             latent_names = [p.name.removeprefix("rho_") for p in ar_params] if ar_params else None
             time_invariant_mask = None
-
-        if n_manifest < n_latent:
-            logger.warning(
-                "n_manifest (%d) < n_latent (%d): lambda matrix may be rank-deficient",
-                n_manifest,
-                n_latent,
-            )
 
         # Determine per-indicator noise families from likelihoods.
         # Distributions are passed through directly — no approximation.
