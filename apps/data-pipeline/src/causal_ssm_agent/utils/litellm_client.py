@@ -83,6 +83,8 @@ class Tool:
     description: str
     parameters: dict[str, Any]
     execute: Any
+    stop_on_success: bool = False
+    success_output: str | None = None
 
     async def __call__(self, *args: Any, **kwargs: Any) -> str:
         return cast("str", await self.execute(*args, **kwargs))

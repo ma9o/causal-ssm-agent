@@ -6,7 +6,7 @@ import logging
 import polars as pl
 
 from causal_ssm_agent.utils.config import get_config  # also loads .env
-from causal_ssm_agent.utils.llm import make_worker_generate_fn
+from causal_ssm_agent.utils.llm import get_stage2_generate_config, make_generate_fn
 
 from .core import (
     WorkerResult,
@@ -32,7 +32,11 @@ async def process_chunk_async(
     Returns:
         WorkerResult with validated output and Polars dataframe
     """
-    generate = make_worker_generate_fn(get_config().stage2_workers.model)
+    config = get_config()
+    generate = make_generate_fn(
+        config.stage2_workers.model,
+        config=get_stage2_generate_config(),
+    )
     return await run_worker_extraction(
         chunk_df=chunk_df,
         question=question,
