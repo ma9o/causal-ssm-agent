@@ -39,10 +39,9 @@ def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     For a stable system (eigenvalues of A have negative real parts),
     this gives the stationary covariance of the process.
 
-    Forward pass uses Bartels-Stewart (Schur decomposition) via JAX's
-    Sylvester solver for numerical stability. Backward pass uses implicit
-    differentiation with Kronecker vectorization, since JAX lacks a
-    differentiation rule for 'schur'.
+    Uses Kronecker vectorization: (I⊗A + A⊗I) vec(X) = vec(-Q).
+    O(n^6) but GPU-compatible (jla.solve_sylvester uses Schur which has
+    no CUDA XLA implementation). Backward pass uses implicit differentiation.
 
     Args:
         A: n x n drift matrix (must be stable for unique solution)
@@ -51,7 +50,7 @@ def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     Returns:
         X: n x n solution matrix (asymptotic covariance)
     """
-    return jla.solve_sylvester(A, A.T, -Q)
+    return _kron_lyapunov_solve(A, Q)
 
 
 def _solve_lyapunov_fwd(A, Q):
