@@ -54,7 +54,7 @@ def _ieks_smooth(
     R,
     init_mean,
     init_cov,
-    emission_log_prob_fn,
+    obs_kernel,
     n_ieks_iters=5,
 ):
     """Run the Iterated Extended Kalman Smoother to find the MAP state trajectory.
@@ -70,7 +70,7 @@ def _ieks_smooth(
         R: (n_manifest, n_manifest) measurement noise covariance
         init_mean: (D,) initial state mean
         init_cov: (D, D) initial state covariance
-        emission_log_prob_fn: callable(y_t, z_t, H, d, R, mask_t) -> scalar
+        obs_kernel: ObservationKernel with emission_fn and emission_grad_hess_fn
         n_ieks_iters: number of IEKS iterations
 
     Returns:
@@ -84,21 +84,7 @@ def _ieks_smooth(
 
     # Compute gradient and Hessian of emission log-prob w.r.t. z_t
     def _emission_grad_hess(y_t, z_t, mask_t):
-        """Compute gradient and negative Hessian of log p(y_t|z_t) w.r.t. z_t."""
-
-        def _log_prob(z):
-            return emission_log_prob_fn(y_t, z, H, d, R, mask_t)
-
-        grad_fn = jax.grad(_log_prob)
-        hess_fn = jax.hessian(_log_prob)
-        g = grad_fn(z_t)
-        neg_H = -hess_fn(z_t)
-        # Ensure neg_H is symmetric PSD (it should be for exp-family with canonical link)
-        neg_H = 0.5 * (neg_H + neg_H.T)
-        # Clamp eigenvalues to be non-negative
-        eigvals, eigvecs = jnp.linalg.eigh(neg_H)
-        neg_H = eigvecs @ jnp.diag(jnp.maximum(eigvals, 0.0)) @ eigvecs.T
-        return g, neg_H
+        return obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
 
     # Initialize state estimates (zeros or prior mean)
     z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
@@ -242,7 +228,7 @@ def _ieks_smooth(
         cd_scan,
         init_mean,
         init_cov,
-        emission_log_prob_fn,
+        obs_kernel,
         H,
         d,
         R,
@@ -261,7 +247,7 @@ def _compute_laplace_log_lik(
     cd,
     init_mean,
     init_cov,
-    emission_log_prob_fn,
+    obs_kernel,
     H,
     d,
     R,
@@ -285,15 +271,7 @@ def _compute_laplace_log_lik(
 
     # Compute emission gradients and Hessians at the smoothed states (linearization point)
     def _emission_grad_hess(y_t, z_t, mask_t):
-        def _log_prob(z):
-            return emission_log_prob_fn(y_t, z, H, d, R, mask_t)
-
-        g = jax.grad(_log_prob)(z_t)
-        neg_H = -jax.hessian(_log_prob)(z_t)
-        neg_H = 0.5 * (neg_H + neg_H.T)
-        eigvals, eigvecs = jnp.linalg.eigh(neg_H)
-        neg_H = eigvecs @ jnp.diag(jnp.maximum(eigvals, 0.0)) @ eigvecs.T
-        return g, neg_H
+        return obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
 
     all_grads_hess = jax.vmap(_emission_grad_hess)(observations, z_smooth, mask_float)
     grads = all_grads_hess[0]  # (T, D)
@@ -317,7 +295,7 @@ def _compute_laplace_log_lik(
         z_filt = P_filt @ (P_pred_inv @ z_pred + tilde_y)
 
         # Emission log-prob at the filter mode z_filt (the correct z* for one-step Laplace)
-        emission_ll = emission_log_prob_fn(y_t, z_filt, H, d, R, mask_t)
+        emission_ll = obs_kernel.emission_fn(y_t, z_filt, H, d, R, mask_t)
 
         # Log-determinant ratio: log(det P_filt / det P_pred)
         _, ld_filt = jnp.linalg.slogdet(P_filt)
@@ -444,7 +422,7 @@ class LaplaceLikelihood:
             measurement_params.manifest_cov,
             initial_state.mean,
             initial_state.cov,
-            obs_kernel.emission_fn,
+            obs_kernel,
             n_ieks_iters=self.n_ieks_iters,
         )
 

@@ -17,9 +17,13 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
-from causal_ssm_agent.models.likelihoods.emissions import get_emission_fn
+from causal_ssm_agent.models.likelihoods.emissions import (
+    get_emission_fn,
+    get_emission_score_weight_fn,
+)
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
@@ -53,6 +57,7 @@ class ObservationKernel:
     response_fn: Callable
     variance_fn: Callable
     is_gaussian: bool
+    emission_grad_hess_fn: Callable  # (y, z, H, d, R, mask) → (g_z: (D,), neg_H_z: (D,D))
 
 
 @dataclass(frozen=True)
@@ -184,6 +189,66 @@ def _make_variance_identity(manifest_cov: jnp.ndarray) -> Callable:
 
 
 # =============================================================================
+# Emission gradient/Hessian factories for IEKS (analytical, GPU-compatible)
+# =============================================================================
+
+
+def _make_glm_grad_hess(score_weight_fn: Callable) -> Callable:
+    """Build emission_grad_hess_fn for GLM families (diagonal Hessian in η-space).
+
+    For dist with element-wise log p(y_j | η_j), the chain rule gives:
+        g_z = H^T g_eta,   neg_H_z = H^T diag(w_eta) H
+    which is always PSD when w_eta >= 0.
+    """
+
+    def emission_grad_hess_fn(y_t, z_t, H, d, _R, mask_t):
+        eta = H @ z_t + d
+        g_eta, w_eta = score_weight_fn(y_t, eta, mask_t)
+        g_z = H.T @ g_eta
+        neg_H_z = H.T @ (w_eta[:, None] * H)
+        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+
+    return emission_grad_hess_fn
+
+
+def _make_student_t_grad_hess(df: float) -> Callable:
+    """Build emission_grad_hess_fn for Student-t (scale extracted from diag(R))."""
+
+    def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+        eta = H @ z_t + d
+        scale_diag = jnp.sqrt(jnp.diag(R))
+        residual = y_t - eta
+        sig2 = scale_diag**2
+        denom = df * sig2 + residual**2
+        g_eta = (df + 1.0) * residual / denom * mask_t
+        w_eta = (
+            jnp.maximum((df + 1.0) * (df * sig2 - residual**2) / (denom**2), 0.0) * mask_t
+        )
+        g_z = H.T @ g_eta
+        neg_H_z = H.T @ (w_eta[:, None] * H)
+        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+
+    return emission_grad_hess_fn
+
+
+def _make_gaussian_grad_hess() -> Callable:
+    """Build emission_grad_hess_fn for Gaussian (full R, exact analytical form)."""
+    from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
+
+    def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+        eta = H @ z_t + d
+        residual = (y_t - eta) * mask_t
+        n = R.shape[0]
+        R_adj = R + jnp.diag((1.0 - mask_t) * MISSING_DATA_LARGE_VAR)
+        R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(n) * CHOL_JITTER
+        g_z = H.T @ jla.solve(R_adj, residual, assume_a="pos")
+        neg_H_z = H.T @ jla.solve(R_adj, H, assume_a="pos")
+        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+
+    return emission_grad_hess_fn
+
+
+# =============================================================================
 # ObservationKernel factory
 # =============================================================================
 
@@ -255,11 +320,23 @@ def build_observation_kernel(
             f"gamma, bernoulli, beta."
         )
 
+    # Build emission_grad_hess_fn (analytical, avoids jax.hessian on GPU)
+    if dist == DistributionFamily.GAUSSIAN:
+        emission_grad_hess_fn = _make_gaussian_grad_hess()
+    elif dist == DistributionFamily.STUDENT_T:
+        df_val = extra_params.get("obs_df", 5.0)
+        emission_grad_hess_fn = _make_student_t_grad_hess(df_val)
+    else:
+        sw_fn = get_emission_score_weight_fn(dist, extra_params, link=link)
+        assert sw_fn is not None, f"No analytical score/weight fn for dist={dist!r}"
+        emission_grad_hess_fn = _make_glm_grad_hess(sw_fn)
+
     return ObservationKernel(
         emission_fn=emission_fn,
         response_fn=response_fn,
         variance_fn=variance_fn,
         is_gaussian=is_gaussian,
+        emission_grad_hess_fn=emission_grad_hess_fn,
     )
 
 
