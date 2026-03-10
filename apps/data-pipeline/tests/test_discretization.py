@@ -133,7 +133,7 @@ class TestDiscreteDiffusion:
         assert Q_large[0, 0] > Q_small[0, 0]
 
     def test_reuses_precomputed_drift(self):
-        """Pre-computed discrete drift should give same result."""
+        """Passing discrete_drift should preserve results."""
         A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5
@@ -141,6 +141,31 @@ class TestDiscreteDiffusion:
         Q_dt_1 = compute_discrete_diffusion(A, Q, dt)
         Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_drift=Ad)
         assert jnp.allclose(Q_dt_1, Q_dt_2, atol=1e-10)
+
+    def test_matches_lyapunov_reference(self):
+        """Van Loan discretization should match the stationary-covariance identity."""
+        A = jnp.array([[-1.0, 0.3], [0.2, -1.5]])
+        Q = jnp.array([[1.0, 0.4], [0.4, 0.8]])
+        dt = 0.75
+        Ad = jla.expm(A * dt)
+        Q_inf = solve_lyapunov(A, Q)
+        expected = Q_inf - Ad @ Q_inf @ Ad.T
+        actual = compute_discrete_diffusion(A, Q, dt)
+        assert jnp.allclose(actual, expected, atol=1e-6)
+
+    def test_does_not_depend_on_lyapunov_solver(self, monkeypatch):
+        """Per-step discretization should not call solve_lyapunov."""
+        import causal_ssm_agent.models.ssm.discretization as disc
+
+        def _raise(*_args, **_kwargs):
+            raise AssertionError("solve_lyapunov should not be called")
+
+        monkeypatch.setattr(disc, "solve_lyapunov", _raise)
+        A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
+        Q = jnp.eye(2)
+        dt = 0.5
+        Q_dt = disc.compute_discrete_diffusion(A, Q, dt)
+        assert jnp.all(jnp.isfinite(Q_dt))
 
 
 # =============================================================================
