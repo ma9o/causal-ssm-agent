@@ -38,6 +38,8 @@ class Stage2Config:
 
     model: str
     chunk_size: int
+    max_concurrent_workers: int = 4
+    submission_batch_size: int = 50
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,6 @@ class PipelineBehaviorConfig:
 
     max_prior_retries: int = 3
     override_gates: bool = False
-    max_parallel_tasks: int = 50
 
 
 @dataclass(frozen=True)

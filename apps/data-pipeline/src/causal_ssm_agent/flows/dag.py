@@ -118,6 +118,7 @@ async def stage0(user_id: str) -> dict:
         "_column_descriptions": result.column_descriptions,
     }
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 1a: Latent model proposal
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -131,6 +132,7 @@ async def stage1a(question: str) -> dict:
     from .stages import propose_latent_model
 
     return await propose_latent_model(question)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 1b: Measurement model + identifiability
@@ -203,6 +205,7 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
         "non_identifiable": non_identifiable,
     }
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 2: Worker extraction (parallel, concurrency-limited)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -218,18 +221,23 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
     - plus web-serializable fields
     """
     import polars as pl
+    from prefect.task_runners import ThreadPoolTaskRunner
 
     from causal_ssm_agent.utils.aggregations import (
         aggregate_worker_measurements,
         flatten_aggregated_data,
     )
+    from causal_ssm_agent.utils.config import get_config
 
     from .stages import stage2_extraction_flow
 
+    config = get_config()
     causal_spec = stage1b["causal_spec"]
     raw_df_path = Path(stage0["_df_path"])
-
-    stage2_result = await stage2_extraction_flow.fn(
+    stage2_subflow = stage2_extraction_flow.with_options(
+        task_runner=ThreadPoolTaskRunner(max_workers=config.stage2_workers.max_concurrent_workers)
+    )
+    stage2_result = await stage2_subflow(
         raw_df_path=str(raw_df_path),
         question=question,
         causal_spec=causal_spec,
@@ -291,6 +299,7 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
         "combined_extractions_sample": combined_extractions_sample,
         "per_indicator_counts": per_ind_counts,
     }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 3: Extraction validation
@@ -366,6 +375,7 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
 
     return {"validation_report": report, "outcome": outcome}
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 4: Model specification + prior elicitation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -387,12 +397,13 @@ async def stage4(
     causal_spec = stage1b["causal_spec"]
     data_for_model = _load_parquet(stage2["_data_for_model_path"])
 
-    return await stage4_orchestrated_flow.fn(
+    return await stage4_orchestrated_flow(
         causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,
         enable_literature=enable_literature,
     )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SSM builder (shared between stage 4b, 5)
@@ -429,7 +440,7 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     """
     from .stages import stage4b_parametric_id_flow
 
-    return stage4b_parametric_id_flow.fn(
+    return stage4b_parametric_id_flow(
         stage4,
         raw_data=_load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
@@ -490,6 +501,7 @@ def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
         "t_rule": t_rule,
     }
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 5: Inference + diagnostics
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -548,9 +560,7 @@ def stage5(
             else "unknown"
         )
     else:
-        fitted = fit_model(
-            stage4, data_for_model, sampler_config=sampler_config, builder=None
-        )
+        fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
         fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
 
         power_scaling = run_power_scaling(fitted_result, data_for_model)
@@ -636,6 +646,7 @@ def stage5(
         "outcome": outcome,
     }
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 6: Intervention analysis
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -716,6 +727,7 @@ def stage6(
         "intervention_results": intervention_results,
         "outcome": "warn" if has_warnings else "success",
     }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # User-facing stage wrapper flows

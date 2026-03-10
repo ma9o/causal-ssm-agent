@@ -168,9 +168,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     assert len(stage1b_calls) == 1
     assert stage1b_calls[0][3] == override_payload
     assert any(
-        entry[0] == "persist_web_result"
-        and entry[1] == "stage-1a"
-        and entry[2] == override_payload
+        entry[0] == "persist_web_result" and entry[1] == "stage-1a" and entry[2] == override_payload
         for entry in calls
     )
     assert result == {"stage5": True, "stage6": True}
@@ -231,7 +229,132 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         )
     )
 
-    assert any(
-        entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls
-    )
+    assert any(entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls)
     assert result == {"stage5": True, "stage6": True}
+
+
+class _AsyncSubflowStub:
+    def __init__(self, result: dict):
+        self.result = result
+        self.calls: list[tuple[tuple, dict]] = []
+        self.fn_calls: list[tuple[tuple, dict]] = []
+        self.with_options_calls: list[dict] = []
+
+    def with_options(self, **kwargs):
+        self.with_options_calls.append(kwargs)
+        return self
+
+    async def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.result
+
+    async def fn(self, *args, **kwargs):
+        self.fn_calls.append((args, kwargs))
+        raise AssertionError("subflow should be invoked directly, not via .fn")
+
+
+class _SyncSubflowStub:
+    def __init__(self, result: dict):
+        self.result = result
+        self.calls: list[tuple[tuple, dict]] = []
+        self.fn_calls: list[tuple[tuple, dict]] = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.result
+
+    def fn(self, *args, **kwargs):
+        self.fn_calls.append((args, kwargs))
+        raise AssertionError("subflow should be invoked directly, not via .fn")
+
+
+def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
+    stub = _AsyncSubflowStub(
+        {
+            "raw_data": [
+                {
+                    "indicator": "stress_score",
+                    "value": "1.0",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                }
+            ],
+            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+            "n_total_extractions": 1,
+        }
+    )
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.aggregations.aggregate_worker_measurements",
+        lambda worker_dfs, _causal_spec: {"daily": worker_dfs[0]},
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.aggregations.flatten_aggregated_data",
+        lambda aggregated_result: aggregated_result["daily"],
+    )
+
+    result = asyncio.run(
+        dag.stage2(
+            "why is this happening?",
+            {"_df_path": str(tmp_path / "input.parquet")},
+            {"causal_spec": {"measurement": {"indicators": []}}},
+        )
+    )
+
+    assert len(stub.with_options_calls) == 1
+    assert stub.with_options_calls[0]["task_runner"]._max_workers == 6
+    assert len(stub.calls) == 1
+    assert stub.fn_calls == []
+    assert result["_raw_data"].height == 1
+    assert result["workers"] == [{"worker_id": 0, "status": "completed", "n_extractions": 1}]
+
+
+def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
+    data_path = tmp_path / "stage2-model-data.parquet"
+    pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+    ).write_parquet(data_path)
+
+    stub = _AsyncSubflowStub(
+        {
+            "model_spec": {"parameters": []},
+            "priors": {},
+            "causal_spec": {"latent": {"constructs": []}, "measurement": {"indicators": []}},
+        }
+    )
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_orchestrated_flow", stub)
+
+    result = asyncio.run(
+        dag.stage4(
+            "why is this happening?",
+            {"causal_spec": {"latent": {"constructs": []}, "measurement": {"indicators": []}}},
+            {"_data_for_model_path": str(data_path)},
+            enable_literature=True,
+        )
+    )
+
+    assert len(stub.calls) == 1
+    assert stub.fn_calls == []
+    assert result["model_spec"] == {"parameters": []}
+
+
+def test_stage4b_calls_subflow_directly(monkeypatch, tmp_path):
+    data_path = tmp_path / "stage2-model-data.parquet"
+    pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+    ).write_parquet(data_path)
+
+    stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4b_parametric_id_flow", stub)
+
+    result = dag.stage4b(
+        {"model_spec": {"parameters": []}},
+        {"_data_for_model_path": str(data_path)},
+    )
+
+    assert len(stub.calls) == 1
+    assert stub.fn_calls == []
+    assert result == {"parametric_id": {"checked": True}}
