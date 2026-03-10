@@ -291,6 +291,71 @@ class TestAnalyzeFirstPassRB:
         assert not p_full_pf.has_kalman_block
         assert p_full_pf.has_particle_block
 
+    def test_has_particle_block_obs_only(self):
+        """has_particle_block is True when obs_particle_idx is non-empty, even if particle_idx is empty."""
+        p = RBPartition(
+            kalman_idx=np.array([0, 1]),
+            particle_idx=np.array([], dtype=np.int32),
+            obs_kalman_idx=np.array([0]),
+            obs_particle_idx=np.array([1]),
+        )
+        assert p.has_kalman_block
+        assert p.has_particle_block
+
+    def test_zero_dep_gaussian_channel_goes_to_kalman(self):
+        """Zero-dependency Gaussian+identity obs channel is assigned to Kalman."""
+        # 2 latents, 3 obs: obs 2 has zero loadings (no deps)
+        H = jnp.array([
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],  # zero-dep channel
+        ])
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=3,
+            lambda_mat=H,
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1])
+        assert len(partition.particle_idx) == 0
+        # All three obs channels should be Kalman (including the zero-dep one)
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1, 2])
+        assert len(partition.obs_particle_idx) == 0
+        assert not partition.has_particle_block
+
+    def test_zero_dep_nongaussian_channel_goes_to_particle(self):
+        """Zero-dependency non-Gaussian obs channel is assigned to particle."""
+        # 2 latents, 3 obs: obs 2 has zero loadings but Poisson noise
+        H = jnp.array([
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],  # zero-dep channel
+        ])
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=3,
+            lambda_mat=H,
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+            manifest_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.POISSON,
+            ],
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY, LinkFunction.LOG],
+        )
+        partition = analyze_first_pass_rb(spec)
+
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1])
+        assert len(partition.particle_idx) == 0
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.obs_particle_idx, [2])
+        # has_particle_block should be True due to the non-Kalman obs channel
+        assert partition.has_particle_block
+
     def test_free_drift_without_mask_couples_all(self):
         """Free drift without mask → full coupling → no Kalman block if any non-Gaussian."""
         spec = _make_spec(
@@ -465,3 +530,41 @@ class TestSelectDefaultMethod:
             drift_mask=np.eye(n, dtype=bool),
         )
         assert select_default_method(spec) == "nuts"
+
+    def test_zero_dep_gaussian_channel_still_routes_nuts(self):
+        """Gaussian zero-dep channel doesn't break pure-Kalman routing → nuts."""
+        H = jnp.array([
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],  # zero-dep Gaussian+identity
+        ])
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=3,
+            lambda_mat=H,
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+        )
+        assert select_default_method(spec) == "nuts"
+
+    def test_zero_dep_nongaussian_channel_routes_to_laplace_em(self):
+        """Non-Gaussian zero-dep channel prevents pure-Kalman → laplace_em."""
+        H = jnp.array([
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],  # zero-dep Poisson
+        ])
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=3,
+            lambda_mat=H,
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+            manifest_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.POISSON,
+            ],
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY, LinkFunction.LOG],
+        )
+        assert select_default_method(spec) == "laplace_em"

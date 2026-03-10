@@ -46,7 +46,8 @@ class RBPartition:
 
     @property
     def has_particle_block(self) -> bool:
-        return len(self.particle_idx) > 0
+        """True when any component (latent or observation) is non-Kalman."""
+        return len(self.particle_idx) > 0 or len(self.obs_particle_idx) > 0
 
 
 def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
@@ -181,15 +182,25 @@ def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
             candidates |= component
 
     # Step 3: Assign observation channels.
-    # An obs channel goes to Kalman only if it depends exclusively on Kalman variables.
+    # An obs channel goes to Kalman only if it depends exclusively on Kalman
+    # variables. Zero-dependency channels (empty loading row) are Kalman-safe
+    # only when their own noise family is Gaussian with identity link;
+    # otherwise they need the particle/non-Kalman observation bucket.
     obs_kalman = []
     obs_particle = []
     for k in range(spec.n_manifest):
         deps = set(np.where(obs_dep[k, :])[0])
-        if deps and deps.issubset(candidates):
-            obs_kalman.append(k)
+        if deps:
+            if deps.issubset(candidates):
+                obs_kalman.append(k)
+            else:
+                obs_particle.append(k)
         else:
-            obs_particle.append(k)
+            # Zero-dependency channel: Kalman-compatible only if Gaussian+identity
+            if per_obs[k] == "gaussian" and per_links[k] == "identity":
+                obs_kalman.append(k)
+            else:
+                obs_particle.append(k)
 
     # Build partition
     kalman_idx = np.array(sorted(candidates), dtype=np.int32)
