@@ -231,7 +231,6 @@ class TestIngestionTools:
         assert "No DataFrame available" in result
 
 
-
 class TestFindRawInput:
     def test_finds_zip(self, tmp_path):
         import causal_ssm_agent.flows.stages.stage0_preprocess as mod

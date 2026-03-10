@@ -850,7 +850,9 @@ def _fit_nuts(
     Returns:
         InferenceResult with NUTS samples
     """
-    base_model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    base_model_fn = functools.partial(
+        model.model, likelihood_backend=model.make_likelihood_backend()
+    )
     public_sites = _trace_public_sites(base_model_fn, observations, times)
     model_fn = _apply_reparam(base_model_fn, reparam)
     kernel = NUTS(
@@ -918,7 +920,9 @@ def _fit_svi(
     Returns:
         InferenceResult with approximate posterior samples
     """
-    base_model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
+    base_model_fn = functools.partial(
+        model.model, likelihood_backend=model.make_likelihood_backend()
+    )
     public_sites = _trace_public_sites(base_model_fn, observations, times)
     model_fn = _apply_reparam(base_model_fn, reparam)
     guide_cls = {
