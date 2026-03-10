@@ -1,26 +1,96 @@
-"""Hamilton DAG definition for the causal inference pipeline.
+"""Stage helpers and wrapper flows for the causal inference pipeline.
 
-Each function is a Hamilton node. The function name IS the node name, and
-function parameters whose names match other node names are DAG edges
-(Hamilton resolves them automatically).
-
-Node naming convention:
-- ``stageN``: main computation node for stage N
-- ``stageN_web``: web persistence side-effect node
-- ``stageN_gate``: gate/filtering logic that can halt the pipeline
-
-Overridable nodes (human-in-the-loop via replay):
-- ``stage1a``: Latent model proposal
-- ``stage1b``: Measurement model + identifiability
-- ``stage4``: Model specification + prior elicitation
+This module keeps the stage-level computation, stage result persistence, and
+user-facing stage subflows in one place. The top-level pipeline flow invokes
+the stage wrapper flows so the UI can track canonical stage executions instead
+of persistence-only plumbing tasks.
 """
 
 from __future__ import annotations
 
-import logging
+import inspect
+from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+import cloudpickle
+from prefect import flow
+
+from . import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
+
+RESULT_STORAGE = Path("results")
+
+
+def _run_dir(run_id: str) -> Path:
+    path = RESULT_STORAGE / run_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_parquet(df: Any, run_id: str, filename: str) -> str:
+    path = _run_dir(run_id) / filename
+    df.write_parquet(path)
+    return str(path)
+
+
+def _load_parquet(path: str) -> Any:
+    import polars as pl
+
+    return pl.read_parquet(path)
+
+
+def _save_pickle(value: Any, run_id: str, filename: str) -> str:
+    path = _run_dir(run_id) / filename
+    with path.open("wb") as f:
+        cloudpickle.dump(value, f)
+    return str(path)
+
+
+def _load_pickle(path: str) -> Any:
+    with Path(path).open("rb") as f:
+        return cloudpickle.load(f)
+
+
+def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
+    issues = report.get("issues", []) or []
+    error_count = sum(1 for issue in issues if issue.get("severity") == "error")
+    warning_count = sum(1 for issue in issues if issue.get("severity") == "warning")
+    return error_count, warning_count
+
+
+def _public_stage_payload(stage_result: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in stage_result.items() if not k.startswith("_")}
+
+
+def _public_web(stage_id: str, stage_result: dict[str, Any], run_id: str) -> dict[str, Any]:
+    return _persist_stage_payload(stage_id, _public_stage_payload(stage_result), run_id)
+
+
+def _build_web_payload(source: dict[str, Any], **field_map: str) -> dict[str, Any]:
+    return {target: source.get(source_key) for target, source_key in field_map.items()}
+
+
+def _persist_stage_payload(stage_id: str, web_data: dict[str, Any], run_id: str) -> dict[str, Any]:
+    from .stages import persist_web_result
+
+    return persist_web_result(stage_id, web_data, run_id)
+
+
+def _stage_state(
+    result: dict[str, Any],
+    web: dict[str, Any],
+    gate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    state = {"result": result, "web": web}
+    if gate is not None:
+        state["gate"] = gate
+    return state
+
+
+def _raise_if_gate_failed(gate_result: dict[str, Any], message: str) -> None:
+    if gate_result["gate_failed"] and not gate_result["gate_overridden"]:
+        raise RuntimeError(message)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -38,7 +108,7 @@ async def stage0(user_id: str) -> dict:
     from .pipeline_helpers import build_stage0_payload
     from .stages import agentic_ingest
 
-    result = await agentic_ingest.fn(user_id)
+    result = await agentic_ingest(user_id)
     df = result.dataframe
 
     payload = build_stage0_payload(result, df)
@@ -47,16 +117,6 @@ async def stage0(user_id: str) -> dict:
         "_df": df,
         "_column_descriptions": result.column_descriptions,
     }
-
-
-def stage0_web(stage0: dict) -> dict:
-    """Persist stage 0 result to web layer."""
-    from .stages import persist_web_result
-
-    web = {k: v for k, v in stage0.items() if not k.startswith("_")}
-    persist_web_result("stage-0", web)
-    return web
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 1a: Latent model proposal
@@ -70,16 +130,7 @@ async def stage1a(question: str) -> dict:
     """
     from .stages import propose_latent_model
 
-    return await propose_latent_model.fn(question)
-
-
-def stage1a_web(stage1a: dict) -> dict:
-    """Persist stage 1a result to web layer."""
-    from .stages import persist_web_result
-
-    persist_web_result("stage-1a", stage1a)
-    return stage1a
-
+    return await propose_latent_model(question)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 1b: Measurement model + identifiability
@@ -94,12 +145,12 @@ async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
     from .pipeline_helpers import format_schema_for_llm
     from .stages import propose_measurement_with_identifiability_fix
 
-    ingested_df = stage0["_df"]
+    ingested_df = _load_parquet(stage0["_df_path"])
     column_descriptions = stage0["_column_descriptions"]
     latent_model = stage1a["latent_model"]
 
     dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
-    return await propose_measurement_with_identifiability_fix.fn(
+    return await propose_measurement_with_identifiability_fix(
         question,
         latent_model,
         [dataset_schema],
@@ -152,32 +203,6 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
         "non_identifiable": non_identifiable,
     }
 
-
-def stage1b_web(stage1b: dict, stage1b_gate: dict) -> dict:
-    """Persist stage 1b result to web layer (before potential halt)."""
-    from .stages import persist_web_result
-
-    web_data: dict = {
-        "causal_spec": stage1b["causal_spec"],
-        "llm_trace": stage1b.get("llm_trace"),
-        "outcome": stage1b_gate["web_outcome"],
-    }
-    if stage1b_gate["gate_overridden"]:
-        web_data["gate_overridden"] = {
-            "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
-        }
-    persist_web_result("stage-1b", web_data)
-
-    # Halt pipeline if gate failed and not overridden
-    if stage1b_gate["gate_failed"] and not stage1b_gate["gate_overridden"]:
-        raise RuntimeError(
-            "No identifiable treatment effects remain after filtering. "
-            "All treatments are blocked by unobserved confounders."
-        )
-
-    return web_data
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 2: Worker extraction (parallel, concurrency-limited)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -201,11 +226,11 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
 
     from .stages import stage2_extraction_flow
 
-    ingested_df = stage0["_df"]
     causal_spec = stage1b["causal_spec"]
+    raw_df_path = Path(stage0["_df_path"])
 
-    stage2_result = await stage2_extraction_flow(
-        raw_df=ingested_df,
+    stage2_result = await stage2_extraction_flow.fn(
+        raw_df_path=str(raw_df_path),
         question=question,
         causal_spec=causal_spec,
     )
@@ -267,18 +292,6 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
         "per_indicator_counts": per_ind_counts,
     }
 
-
-def stage2_web(stage2: dict) -> dict:
-    """Persist stage 2 result to web layer."""
-    from .stages import persist_web_result
-
-    web = {k: v for k, v in stage2.items() if not k.startswith("_")}
-    n_observations = len(stage2.get("_raw_data", []))
-    web["outcome"] = "success" if n_observations > 0 else "fail"
-    persist_web_result("stage-2", web)
-    return web
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 3: Extraction validation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -294,7 +307,7 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
     from .stages import validate_extraction
 
     causal_spec = stage1b["causal_spec"]
-    raw_data = stage2["_raw_data"]
+    raw_data = _load_parquet(stage2["_raw_data_path"])
 
     validation_task = validate_extraction(causal_spec, [raw_data])
     validation_report = (
@@ -353,17 +366,6 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
 
     return {"validation_report": report, "outcome": outcome}
 
-
-def stage3_web(stage3: dict) -> dict:
-    """Persist stage 3 result to web layer."""
-    from .stages import persist_web_result
-
-    persist_web_result(
-        "stage-3", {"outcome": stage3["outcome"], "validation_report": stage3["validation_report"]}
-    )
-    return stage3
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 4: Model specification + prior elicitation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -383,47 +385,14 @@ async def stage4(
     from .stages import stage4_orchestrated_flow
 
     causal_spec = stage1b["causal_spec"]
-    data_for_model = stage2["_data_for_model"]
+    data_for_model = _load_parquet(stage2["_data_for_model_path"])
 
-    return await stage4_orchestrated_flow(
+    return await stage4_orchestrated_flow.fn(
         causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,
         enable_literature=enable_literature,
     )
-
-
-def stage4_web(stage4: dict) -> dict:
-    """Persist stage 4 result to web layer."""
-    from prefect.artifacts import create_markdown_artifact
-
-    from .stages import persist_web_result
-
-    model_spec = stage4.get("model_spec", {})
-    validation = stage4.get("validation", {})
-    model_info = stage4.get("model_info", {})
-
-    create_markdown_artifact(
-        key="model-spec",
-        markdown=(
-            f"## Model Specification\n\n"
-            f"- **Parameters**: {len(model_spec.get('parameters', []))}\n"
-            f"- **Priors valid**: {validation.get('is_valid', 'unknown')}\n"
-            f"- **Model built**: {model_info.get('model_built', 'unknown')}\n"
-        ),
-    )
-
-    persist_web_result(
-        "stage-4",
-        {
-            "model_spec": model_spec,
-            "priors": stage4.get("priors", {}),
-            "llm_trace": stage4.get("llm_trace"),
-            "prior_predictive_samples": stage4.get("prior_predictive_samples"),
-        },
-    )
-    return stage4
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SSM builder (shared between stage 4b, 5)
@@ -438,7 +407,7 @@ def ssm_builder(stage4: dict, stage1b: dict, stage2: dict) -> Any:
         return build_ssm_builder(
             model_spec=stage4["model_spec"],
             priors=stage4["priors"],
-            raw_data=stage2["_data_for_model"],
+            raw_data=_load_parquet(stage2["_data_for_model_path"]),
             causal_spec=stage1b["causal_spec"],
         )
     except Exception:
@@ -453,15 +422,17 @@ def ssm_builder(stage4: dict, stage1b: dict, stage2: dict) -> Any:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def stage4b(stage4: dict, stage2: dict, ssm_builder: Any) -> dict:
+def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     """Parametric identifiability diagnostics.
 
     Returns: {parametric_id, rb_partition, ...stage4 passthrough}
     """
     from .stages import stage4b_parametric_id_flow
 
-    return stage4b_parametric_id_flow(
-        stage4, raw_data=stage2["_data_for_model"], builder=ssm_builder
+    return stage4b_parametric_id_flow.fn(
+        stage4,
+        raw_data=_load_parquet(stage2["_data_for_model_path"]),
+        builder=ssm_builder,
     )
 
 
@@ -519,37 +490,6 @@ def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
         "t_rule": t_rule,
     }
 
-
-def stage4b_web(stage4b: dict, stage4b_gate: dict) -> dict:
-    """Persist stage 4b result to web layer."""
-    from .stages import persist_web_result
-
-    web_data: dict = {
-        "outcome": stage4b_gate["outcome"],
-        "parametric_id": stage4b.get("parametric_id", {}),
-    }
-    if stage4b_gate["gate_overridden"]:
-        t_rule = stage4b_gate["t_rule"]
-        web_data["gate_overridden"] = {
-            "reason": (
-                f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
-                f"> {t_rule.get('n_moments')} moment conditions"
-            )
-        }
-    persist_web_result("stage-4b", web_data)
-
-    # Halt pipeline if gate failed and not overridden
-    if stage4b_gate["gate_failed"] and not stage4b_gate["gate_overridden"]:
-        t_rule = stage4b_gate["t_rule"]
-        raise RuntimeError(
-            f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
-            f"> {t_rule.get('n_moments')} moment conditions. "
-            "Model is provably non-identified. Halting pipeline."
-        )
-
-    return web_data
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 5: Inference + diagnostics
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -559,7 +499,6 @@ def stage5(
     stage4: dict,
     stage1b: dict,
     stage2: dict,
-    ssm_builder: Any,
     inference_method: str | None,
 ) -> dict:
     """Fit model, run power-scaling and posterior predictive checks.
@@ -573,7 +512,7 @@ def stage5(
     from .stages import fit_model, run_power_scaling, run_ppc
 
     config = get_config()
-    data_for_model = stage2["_data_for_model"]
+    data_for_model = _load_parquet(stage2["_data_for_model_path"])
     causal_spec = stage1b["causal_spec"]
 
     sampler_config = (
@@ -610,7 +549,7 @@ def stage5(
         )
     else:
         fitted = fit_model(
-            stage4, data_for_model, sampler_config=sampler_config, builder=ssm_builder
+            stage4, data_for_model, sampler_config=sampler_config, builder=None
         )
         fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
 
@@ -697,26 +636,6 @@ def stage5(
         "outcome": outcome,
     }
 
-
-def stage5_web(stage5: dict) -> dict:
-    """Persist stage 5 result to web layer."""
-    from .stages import persist_web_result
-
-    web_data = {
-        "outcome": stage5["outcome"],
-        "power_scaling": stage5["ps_list"],
-        "ppc": stage5["ppc_result"],
-        "inference_metadata": stage5["inference_metadata"],
-        "mcmc_diagnostics": stage5["mcmc_diagnostics"],
-        "svi_diagnostics": stage5["svi_diagnostics"],
-        "loo_diagnostics": stage5["loo_diagnostics"],
-        "posterior_marginals": stage5["posterior_marginals"],
-        "posterior_pairs": stage5["posterior_pairs"],
-    }
-    persist_web_result("stage-5", web_data)
-    return web_data
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 6: Intervention analysis
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -736,7 +655,7 @@ def stage6(
 
     from .stages import run_interventions
 
-    fitted_result = stage5["_fitted_result"]
+    fitted_result = _load_pickle(stage5["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
@@ -798,14 +717,342 @@ def stage6(
         "outcome": "warn" if has_warnings else "success",
     }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# User-facing stage wrapper flows
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def stage6_web(stage6: dict) -> dict:
-    """Persist stage 6 result to web layer."""
-    from .stages import persist_web_result
 
-    web_data = {
-        "outcome": stage6["outcome"],
-        "intervention_results": stage6["intervention_results"],
+@flow(name="stage-0-flow", persist_result=False)
+async def stage0_flow(user_id: str, run_id: str) -> dict:
+    logger.info("Stage 0 starting: ingesting raw input for user_id=%s", user_id)
+    stage0_result = await stage0(user_id)
+    raw_df = stage0_result.pop("_df")
+    stage0_result["_df_path"] = _save_parquet(raw_df, run_id, "stage0-raw-input.parquet")
+    web = _public_web("stage-0", stage0_result, run_id)
+    date_range = web.get("date_range", {})
+    logger.info(
+        "Stage 0 complete: source=%s records=%d columns=%d date_range=%s..%s",
+        web.get("source_label", "unknown"),
+        web.get("n_records", 0),
+        web.get("n_columns", 0),
+        date_range.get("start") or "?",
+        date_range.get("end") or "?",
+    )
+    return _stage_state(stage0_result, web)
+
+
+@flow(name="stage-1a-flow", persist_result=False)
+async def stage1a_flow(
+    question: str,
+    run_id: str,
+    override_payload: dict[str, Any] | None = None,
+) -> dict:
+    logger.info("Stage 1a starting: proposing latent model")
+    stage1a_result = override_payload if override_payload is not None else await stage1a(question)
+    web = _public_web("stage-1a", stage1a_result, run_id)
+    latent_model = web.get("latent_model", {})
+    logger.info(
+        "Stage 1a complete: constructs=%d edges=%d treatments=%d outcome=%s",
+        len(latent_model.get("constructs", [])),
+        len(latent_model.get("edges", [])),
+        len(web.get("treatments", [])),
+        web.get("outcome_name", "") or "unknown",
+    )
+    return _stage_state(stage1a_result, web)
+
+
+@flow(name="stage-1b-flow", persist_result=False)
+async def stage1b_flow(
+    question: str,
+    stage0_result: dict,
+    stage1a_result: dict,
+    override_gates: bool,
+    run_id: str,
+    override_payload: dict[str, Any] | None = None,
+) -> dict:
+    logger.info("Stage 1b starting: proposing measurement model and checking identifiability")
+    stage1b_result = (
+        override_payload
+        if override_payload is not None
+        else await stage1b(question, stage0_result, stage1a_result)
+    )
+    stage1b_gate_result = stage1b_gate(stage1a_result, stage1b_result, override_gates)
+    web_data = _build_web_payload(
+        stage1b_result,
+        causal_spec="causal_spec",
+        llm_trace="llm_trace",
+    ) | {
+        "outcome": stage1b_gate_result["web_outcome"],
     }
-    persist_web_result("stage-6", web_data)
-    return web_data
+    if stage1b_gate_result["gate_overridden"]:
+        web_data["gate_overridden"] = {
+            "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
+        }
+    web = _persist_stage_payload("stage-1b", web_data, run_id)
+    _raise_if_gate_failed(
+        stage1b_gate_result,
+        "No identifiable treatment effects remain after filtering. "
+        "All treatments are blocked by unobserved confounders.",
+    )
+
+    causal_spec = stage1b_result.get("causal_spec", {})
+    latent = causal_spec.get("latent", {})
+    measurement = causal_spec.get("measurement", {})
+    non_identifiable = stage1b_gate_result.get("non_identifiable", {})
+    logger.info(
+        "Stage 1b complete: constructs=%d indicators=%d identifiable_treatments=%d filtered_out=%d outcome=%s",
+        len(latent.get("constructs", [])),
+        len(measurement.get("indicators", [])),
+        len(stage1b_gate_result.get("treatments", [])),
+        len(non_identifiable),
+        stage1b_gate_result.get("web_outcome", "success"),
+    )
+    if stage1b_gate_result["gate_overridden"]:
+        logger.warning("Stage 1b gate overridden: continuing with no identifiable treatments")
+    return _stage_state(stage1b_result, web, gate=stage1b_gate_result)
+
+
+@flow(name="stage-2-flow", persist_result=False)
+async def stage2_flow(
+    question: str,
+    stage0_result: dict,
+    stage1b_result: dict,
+    run_id: str,
+) -> dict:
+    logger.info("Stage 2 starting: extracting measurements from raw data")
+    stage2_result = await stage2(question, stage0_result, stage1b_result)
+    raw_data = stage2_result.pop("_raw_data")
+    data_for_model = stage2_result.pop("_data_for_model")
+    stage2_result["_raw_data_path"] = _save_parquet(raw_data, run_id, "stage2-raw-data.parquet")
+    stage2_result["_data_for_model_path"] = _save_parquet(
+        data_for_model, run_id, "stage2-model-data.parquet"
+    )
+    web = _public_stage_payload(stage2_result) | {
+        "outcome": "success" if len(raw_data) > 0 else "fail"
+    }
+    web = _persist_stage_payload("stage-2", web, run_id)
+    worker_statuses = stage2_result.get("_worker_statuses", [])
+    worker_counts: dict[str, int] = {}
+    for worker in worker_statuses:
+        status = str(worker.get("status", "unknown"))
+        worker_counts[status] = worker_counts.get(status, 0) + 1
+    logger.info(
+        "Stage 2 complete: extracted_rows=%d modeled_rows=%d workers=%d worker_statuses=%s outcome=%s",
+        len(raw_data),
+        len(data_for_model),
+        len(worker_statuses),
+        worker_counts,
+        web.get("outcome", "success"),
+    )
+    return _stage_state(stage2_result, web)
+
+
+@flow(name="stage-3-flow", persist_result=False)
+def stage3_flow(stage1b_result: dict, stage2_result: dict, run_id: str) -> dict:
+    logger.info("Stage 3 starting: validating extracted measurements")
+    stage3_result = stage3(stage1b_result, stage2_result)
+    web = _persist_stage_payload(
+        "stage-3",
+        _build_web_payload(
+            stage3_result,
+            outcome="outcome",
+            validation_report="validation_report",
+        ),
+        run_id,
+    )
+    report = web.get("validation_report", {})
+    error_count, warning_count = _validation_issue_counts(report)
+    logger.info(
+        "Stage 3 complete: is_valid=%s issues=%d errors=%d warnings=%d outcome=%s",
+        report.get("is_valid", False),
+        len(report.get("issues", []) or []),
+        error_count,
+        warning_count,
+        web.get("outcome", "success"),
+    )
+    return _stage_state(stage3_result, web)
+
+
+@flow(name="stage-4-flow", persist_result=False)
+async def stage4_flow(
+    question: str,
+    stage1b_result: dict,
+    stage2_result: dict,
+    enable_literature: bool,
+    run_id: str,
+    override_payload: dict[str, Any] | None = None,
+) -> dict:
+    from prefect.artifacts import create_markdown_artifact
+
+    logger.info("Stage 4 starting: building model specification and priors")
+    if override_payload is None:
+        stage4_result = await stage4(question, stage1b_result, stage2_result, enable_literature)
+    else:
+        stage4_result = dict(override_payload)
+        stage4_result.setdefault("causal_spec", stage1b_result["causal_spec"])
+    model_spec = stage4_result.get("model_spec", {})
+    validation = stage4_result.get("validation", {})
+    model_info = stage4_result.get("model_info", {})
+    artifact_result = create_markdown_artifact(
+        key="model-spec",
+        markdown=(
+            f"## Model Specification\n\n"
+            f"- **Parameters**: {len(model_spec.get('parameters', []))}\n"
+            f"- **Priors valid**: {validation.get('is_valid', 'unknown')}\n"
+            f"- **Model built**: {model_info.get('model_built', 'unknown')}\n"
+        ),
+    )
+    if inspect.isawaitable(artifact_result):
+        await artifact_result
+    web = _persist_stage_payload(
+        "stage-4",
+        _build_web_payload(
+            stage4_result,
+            model_spec="model_spec",
+            priors="priors",
+            llm_trace="llm_trace",
+            prior_predictive_samples="prior_predictive_samples",
+        ),
+        run_id,
+    )
+    logger.info(
+        "Stage 4 complete: parameters=%d likelihoods=%d priors=%d validation_ok=%s model_built=%s",
+        len(model_spec.get("parameters", [])),
+        len(model_spec.get("likelihoods", [])),
+        len(stage4_result.get("priors", {})),
+        validation.get("is_valid", False),
+        model_info.get("model_built", False),
+    )
+    return _stage_state(stage4_result, web)
+
+
+@flow(name="stage-4b-flow", persist_result=False)
+def stage4b_flow(
+    stage4_result: dict,
+    stage2_result: dict,
+    override_gates: bool,
+    run_id: str,
+) -> dict:
+    logger.info("Stage 4b starting: checking parametric identifiability")
+    stage4b_result = stage4b(stage4_result, stage2_result, None)
+    stage4b_gate_result = stage4b_gate(stage4b_result, override_gates)
+    web_data = _build_web_payload(stage4b_result, parametric_id="parametric_id") | {
+        "outcome": stage4b_gate_result["outcome"]
+    }
+    if stage4b_gate_result["gate_overridden"]:
+        t_rule = stage4b_gate_result["t_rule"]
+        web_data["gate_overridden"] = {
+            "reason": (
+                f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
+                f"> {t_rule.get('n_moments')} moment conditions"
+            )
+        }
+    web = _persist_stage_payload("stage-4b", web_data, run_id)
+    t_rule = stage4b_gate_result["t_rule"]
+    _raise_if_gate_failed(
+        stage4b_gate_result,
+        f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
+        f"> {t_rule.get('n_moments')} moment conditions. "
+        "Model is provably non-identified. Halting pipeline.",
+    )
+
+    parametric_id = stage4b_result.get("parametric_id", {})
+    summary = parametric_id.get("summary", {})
+    t_rule = parametric_id.get("t_rule", {})
+    logger.info(
+        "Stage 4b complete: checked=%s t_rule=%s(%s/%s) structural_issues=%d boundary_issues=%d weak_params=%d outcome=%s",
+        parametric_id.get("checked", False),
+        "pass" if t_rule.get("satisfies", True) else "fail",
+        t_rule.get("n_free_params", "?"),
+        t_rule.get("n_moments", "?"),
+        len(summary.get("structural_issues", []) or []),
+        len(summary.get("boundary_issues", []) or []),
+        len(summary.get("weak_params", []) or []),
+        stage4b_gate_result.get("outcome", "success"),
+    )
+    if stage4b_gate_result["gate_overridden"]:
+        logger.warning("Stage 4b gate overridden: continuing despite T-rule violation")
+    return _stage_state(stage4b_result, web, gate=stage4b_gate_result)
+
+
+@flow(name="stage-5-flow", persist_result=False)
+def stage5_flow(
+    stage4_result: dict,
+    stage1b_result: dict,
+    stage2_result: dict,
+    inference_method: str | None,
+    run_id: str,
+) -> dict:
+    logger.info("Stage 5 starting: fitting model and running diagnostics")
+    stage5_result = stage5(stage4_result, stage1b_result, stage2_result, inference_method)
+    fitted_result = stage5_result.pop("_fitted_result")
+    stage5_result["_fitted_result_path"] = _save_pickle(
+        fitted_result, run_id, "stage5-fitted-result.pkl"
+    )
+    web = _persist_stage_payload(
+        "stage-5",
+        _build_web_payload(
+            stage5_result,
+            outcome="outcome",
+            power_scaling="ps_list",
+            ppc="ppc_result",
+            inference_metadata="inference_metadata",
+            mcmc_diagnostics="mcmc_diagnostics",
+            svi_diagnostics="svi_diagnostics",
+            loo_diagnostics="loo_diagnostics",
+            posterior_marginals="posterior_marginals",
+            posterior_pairs="posterior_pairs",
+        ),
+        run_id,
+    )
+    ps_list = web.get("power_scaling", [])
+    ps_issues = sum(
+        1
+        for entry in ps_list
+        if entry.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
+    )
+    ppc_warnings = len(web.get("ppc", {}).get("per_variable_warnings", []) or [])
+    logger.info(
+        "Stage 5 complete: method=%s power_scaling_issues=%d ppc_warnings=%d outcome=%s",
+        web.get("inference_metadata", {}).get("method", "unknown"),
+        ps_issues,
+        ppc_warnings,
+        web.get("outcome", "success"),
+    )
+    return _stage_state(stage5_result, web)
+
+
+@flow(name="stage-6-flow", persist_result=False)
+def stage6_flow(
+    stage5_result: dict,
+    stage1a_result: dict,
+    stage1b_result: dict,
+    stage1b_gate_result: dict,
+    run_id: str,
+) -> dict:
+    logger.info("Stage 6 starting: estimating intervention effects")
+    stage6_result = stage6(stage5_result, stage1a_result, stage1b_result, stage1b_gate_result)
+    web = _persist_stage_payload(
+        "stage-6",
+        _build_web_payload(
+            stage6_result,
+            outcome="outcome",
+            intervention_results="intervention_results",
+        ),
+        run_id,
+    )
+    intervention_results = web.get("intervention_results", [])
+    warning_count = sum(
+        1
+        for result in intervention_results
+        if result.get("warning")
+        or result.get("ppc_warnings")
+        or result.get("prior_sensitivity_warning")
+    )
+    logger.info(
+        "Stage 6 complete: treatments_ranked=%d warnings=%d outcome=%s",
+        len(intervention_results),
+        warning_count,
+        web.get("outcome", "success"),
+    )
+    return _stage_state(stage6_result, web)

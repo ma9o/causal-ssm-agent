@@ -1,46 +1,58 @@
 "use client";
 
-import type { StageId, StageOutcome, StageStatus } from "@causal-ssm/api-types";
+import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import ReconnectingWebSocket from "reconnecting-websocket";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
+import { getStageForPrefectRunName } from "../constants/stages";
+import {
+  applyStageUpdate,
+  initialProgress,
+  mapPrefectTaskState,
+  type PipelineProgress,
+  type StageRunStatus,
+} from "./pipeline-progress";
 
-export type StageRunStatus = Exclude<StageStatus, "blocked">;
+export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
 
-export interface StageTiming {
-  startedAt: number;
-  completedAt?: number;
-}
-
-export interface PipelineProgress {
-  stages: Record<StageId, StageRunStatus>;
-  timings: Partial<Record<StageId, StageTiming>>;
-  stageOutcomes: Partial<Record<StageId, StageOutcome>>;
-  currentStage: StageId | null;
-  isComplete: boolean;
-  isFailed: boolean;
-}
-
-function initialProgress(): PipelineProgress {
-  const stages = {} as Record<StageId, StageRunStatus>;
-  for (const s of STAGES) stages[s.id] = "pending";
-  return {
-    stages,
-    timings: {},
-    stageOutcomes: {},
-    currentStage: null,
-    isComplete: false,
-    isFailed: false,
-  };
-}
+const EVENT_LOOKBACK_MS = 60_000;
+const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
 interface PrefectTaskRun {
   name: string;
   state_type: string;
   start_time: string | null;
   end_time: string | null;
+}
+
+interface PrefectEventSocketMessage {
+  type?: string;
+  event?: {
+    event?: string;
+    occurred?: string;
+    resource?: Record<string, string>;
+  };
+}
+
+export function buildPrefectEventFilterMessage(runId: string, now = new Date()) {
+  return {
+    type: "filter",
+    filter: {
+      event: { prefix: ["prefect.task-run."] },
+      related: {
+        resources_in_roles: [[`prefect.flow-run.${runId}`, "flow-run"]],
+      },
+      // Prefect's websocket filter defaults `occurred.until` to "now".
+      // Without an explicit future upper bound, the socket only backfills
+      // historical events and drops all subsequent live task transitions.
+      occurred: {
+        since: new Date(now.getTime() - EVENT_LOOKBACK_MS).toISOString(),
+        until: new Date(now.getTime() + EVENT_LOOKAHEAD_MS).toISOString(),
+      },
+    },
+  };
 }
 
 /**
@@ -67,22 +79,23 @@ async function hydrateFromPrefect(
     const taskRuns: PrefectTaskRun[] = await res.json();
 
     for (const tr of taskRuns) {
-      const stage = STAGES.find((s) => tr.name.startsWith(s.prefectTaskName));
+      const stage = getStageForPrefectRunName(tr.name);
       if (!stage) continue;
 
-      const stateType = tr.state_type.toUpperCase();
+      const status = mapPrefectTaskState(tr.state_type);
+      if (!status) continue;
       const startTime = tr.start_time ? new Date(tr.start_time).getTime() : undefined;
       const endTime = tr.end_time ? new Date(tr.end_time).getTime() : undefined;
 
-      if (stateType === "COMPLETED") {
+      if (status === "completed") {
         if (startTime) updateStage(stage.id, "running", startTime);
-        updateStage(stage.id, "completed", endTime);
+        updateStage(stage.id, "completed", endTime ?? startTime);
         queryClient.invalidateQueries({ queryKey: ["pipeline", runId, "stage", stage.id] });
-      } else if (stateType === "RUNNING") {
+      } else if (status === "running") {
         updateStage(stage.id, "running", startTime);
-      } else if (stateType === "FAILED") {
+      } else if (status === "failed") {
         if (startTime) updateStage(stage.id, "running", startTime);
-        updateStage(stage.id, "failed", endTime);
+        updateStage(stage.id, "failed", endTime ?? startTime);
       }
     }
   } catch {
@@ -99,63 +112,9 @@ export function useRunEvents(runId: string | null) {
 
   const updateStage = useCallback(
     (stageId: StageId, status: StageRunStatus, eventTime?: number) => {
-      queryClient.setQueryData<PipelineProgress>(["pipeline", runId, "status"], (old) => {
-        const prev = old ?? initialProgress();
-        const stages = { ...prev.stages, [stageId]: status };
-        const completedAll = STAGES.every((s) => stages[s.id] === "completed");
-        const anyFailed = STAGES.some((s) => stages[s.id] === "failed");
-
-        // Use server event timestamp if available, otherwise fall back to client time
-        const ts = eventTime ?? Date.now();
-        const timings = { ...prev.timings };
-        if (status === "running") {
-          timings[stageId] = { startedAt: ts };
-        } else if ((status === "completed" || status === "failed") && timings[stageId]) {
-          const existing = timings[stageId];
-          timings[stageId] = { ...existing, completedAt: ts };
-        }
-
-        // Advance currentStage without regressing: when a stage completes,
-        // point to the next stage so the loading indicator stays current
-        // even before the next persist task starts.
-        const stageIdx = STAGES.findIndex((s) => s.id === stageId);
-        const curIdx = prev.currentStage
-          ? STAGES.findIndex((s) => s.id === prev.currentStage)
-          : -1;
-        let currentStage: StageId | null;
-        if (status === "running" && stageIdx >= curIdx) {
-          currentStage = stageId;
-        } else if (
-          status === "completed" &&
-          !completedAll &&
-          stageIdx + 1 < STAGES.length &&
-          stageIdx + 1 > curIdx
-        ) {
-          currentStage = STAGES[stageIdx + 1].id;
-        } else {
-          currentStage = prev.currentStage;
-        }
-
-        // When currentStage advances, the next stage is already being
-        // processed — mark it running so it becomes visible immediately.
-        if (
-          currentStage &&
-          currentStage !== prev.currentStage &&
-          stages[currentStage] === "pending"
-        ) {
-          stages[currentStage] = "running";
-          timings[currentStage] = { startedAt: ts };
-        }
-
-        return {
-          stages,
-          timings,
-          stageOutcomes: prev.stageOutcomes,
-          currentStage,
-          isComplete: completedAll,
-          isFailed: anyFailed || prev.isFailed,
-        };
-      });
+      queryClient.setQueryData<PipelineProgress>(["pipeline", runId, "status"], (old) =>
+        applyStageUpdate(old, stageId, status, eventTime),
+      );
     },
     [queryClient, runId],
   );
@@ -181,7 +140,7 @@ export function useRunEvents(runId: string | null) {
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4200";
     const wsUrl = `${apiBase.replace(/^http/, "ws")}/api/events/out`;
-    const ws = new ReconnectingWebSocket(wsUrl, [], {
+    const ws = new ReconnectingWebSocket(wsUrl, ["prefect"], {
       maxRetries: MAX_RECONNECT_ATTEMPTS,
       minReconnectionDelay: BASE_DELAY_MS,
       maxReconnectionDelay: BASE_DELAY_MS * 2 ** MAX_RECONNECT_ATTEMPTS,
@@ -190,29 +149,24 @@ export function useRunEvents(runId: string | null) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Prefect's /api/events/out requires a filter message before it streams events.
-      // Without this, the server waits indefinitely and sends nothing.
-      ws.send(
-        JSON.stringify({
-          type: "filter",
-          filter: {
-            event: { prefix: ["prefect.task-run."] },
-            related: {
-              resources_in_roles: [[`prefect.flow-run.${runId}`, "flow-run"]],
-            },
-          },
-        }),
-      );
+      ws.send(JSON.stringify({ type: "auth", token: null }));
     };
 
     ws.onmessage = (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data);
+        const message = JSON.parse(event.data) as PrefectEventSocketMessage;
+        if (message.type === "auth_success") {
+          ws.send(JSON.stringify(buildPrefectEventFilterMessage(runId)));
+          return;
+        }
 
-        const taskName = data.resource?.["prefect.task-run.name"];
+        const data = message.event;
+        if (!data) return;
+
+        const taskName = data.resource?.["prefect.resource.name"];
         if (!taskName) return;
 
-        const stage = STAGES.find((s) => taskName.startsWith(s.prefectTaskName));
+        const stage = getStageForPrefectRunName(taskName);
         if (!stage) return;
 
         // Prefer server-side event timestamp over client-side Date.now()

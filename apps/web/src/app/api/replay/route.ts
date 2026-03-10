@@ -20,9 +20,8 @@ const STAGE_ORDER = [
  *
  * Triggers a new pipeline run with the same parameters as the original,
  * plus a stage_overrides entry for the refined stage. The pipeline
- * translates stage_overrides into Hamilton DAG overrides, which skip
- * the overridden node's computation and re-run all downstream nodes
- * with the new data.
+ * treats that override as the stage output, skips the overridden stage's
+ * computation, and re-runs all downstream stages with the new data.
  *
  * Body: { runId: string, stageId: string, stageData: object }
  */

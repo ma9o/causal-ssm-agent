@@ -16,9 +16,9 @@ mock.module(resolve(__dirname, "../services/prefect"), () => ({
     parameters: { query: "test question", user_id: "TEST01" },
   }),
   getTaskRuns: async () => [
-    { id: "t1", name: "preprocess_raw_input", state: { type: "COMPLETED", name: "Completed" } },
-    { id: "t2", name: "propose_latent_model", state: { type: "COMPLETED", name: "Completed" } },
-    { id: "t3", name: "propose_measurement_with_identifiability_fix", state: { type: "RUNNING", name: "Running" } },
+    { id: "t1", name: "stage-0-flow", state: { type: "COMPLETED", name: "Completed" } },
+    { id: "t2", name: "stage-1a-flow", state: { type: "COMPLETED", name: "Completed" } },
+    { id: "t3", name: "stage-1b-flow-retry-1", state: { type: "RUNNING", name: "Running" } },
   ],
   getDeploymentId: async () => "test-deployment-id",
   triggerRun: async () => "new-test-run-id",

@@ -10,7 +10,6 @@ Detects:
 - Well-identified parameters (profile crosses threshold on both sides)
 """
 
-import logging
 from typing import Any
 
 import polars as pl
@@ -18,7 +17,9 @@ from prefect import flow, task
 
 from causal_ssm_agent.utils.data import pivot_to_wide
 
-logger = logging.getLogger(__name__)
+from .. import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 
 @task(task_run_name="parametric-id-check")

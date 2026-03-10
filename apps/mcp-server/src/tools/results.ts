@@ -1,24 +1,35 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { STAGES } from "@causal-ssm/api-types";
 import { z } from "zod";
 import { defineTool } from "../define-tool";
 import { STAGE_IDS, type StageId } from "../generated/stage-config";
 import { getFlowRun, getTaskRuns } from "../services/prefect";
 import { readStageResult } from "../services/stage-reader";
 
-/** Map Prefect task names to stage IDs. */
-const TASK_TO_STAGE: Record<string, StageId> = {
-  preprocess_raw_input: "stage-0",
-  propose_latent_model: "stage-1a",
-  propose_measurement_with_identifiability_fix: "stage-1b",
-  populate_indicators: "stage-2",
-  validate_extraction: "stage-3",
-  stage4_orchestrated_flow: "stage-4",
-  stage4b_parametric_id_flow: "stage-4b",
-  fit_model: "stage-5",
-  run_interventions: "stage-6",
-};
-
 type FlowStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+function getStageIdForPrefectRunName(runName: string): StageId | undefined {
+  let bestMatch:
+    | {
+        id: StageId;
+        prefectFlowName: string;
+      }
+    | undefined;
+
+  for (const stage of STAGES) {
+    if (!runName.startsWith(stage.prefectFlowName)) {
+      continue;
+    }
+    if (!bestMatch || stage.prefectFlowName.length > bestMatch.prefectFlowName.length) {
+      bestMatch = {
+        id: stage.id as StageId,
+        prefectFlowName: stage.prefectFlowName,
+      };
+    }
+  }
+
+  return bestMatch?.id;
+}
 
 function mapPrefectState(stateType: string): FlowStatus {
   switch (stateType.toUpperCase()) {
@@ -87,7 +98,7 @@ export function registerResultsTool(server: McpServer) {
       const failed: string[] = [];
 
       for (const task of taskRuns) {
-        const stageId = TASK_TO_STAGE[task.name];
+        const stageId = getStageIdForPrefectRunName(task.name);
         if (!stageId) continue;
 
         const taskStatus = mapPrefectState(task.state.type);

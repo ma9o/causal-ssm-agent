@@ -6,14 +6,15 @@ Modal GPU container so JAX arrays never cross the serialization boundary.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from . import get_prefect_logger
 
 if TYPE_CHECKING:
     import polars as pl
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[3]  # project root
 
