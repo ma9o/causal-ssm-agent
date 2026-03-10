@@ -231,7 +231,7 @@ def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     # datetime→fractional-days conversion below always triggers.
     if raw_data.schema.get(time_col) == pl.Utf8:
         raw_data = raw_data.with_columns(
-            pl.col(time_col).str.to_datetime(strict=False).alias(time_col)
+            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
         )
 
     wide_data = (

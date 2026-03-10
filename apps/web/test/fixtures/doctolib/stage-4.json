@@ -127,14 +127,14 @@
       {
         "name": "rho_lipid",
         "role": "ar_coefficient",
-        "constraint": "unit_interval",
+        "constraint": "correlation",
         "description": "Autoregressive coefficient for lipid burden",
         "search_context": "LDL cholesterol temporal autocorrelation"
       },
       {
         "name": "rho_pressure",
         "role": "ar_coefficient",
-        "constraint": "unit_interval",
+        "constraint": "correlation",
         "description": "Autoregressive coefficient for arterial pressure",
         "search_context": "blood pressure day-to-day autocorrelation"
       },
@@ -155,7 +155,7 @@
       {
         "name": "rho_inflammation",
         "role": "ar_coefficient",
-        "constraint": "unit_interval",
+        "constraint": "correlation",
         "description": "Autoregressive coefficient for vascular inflammation",
         "search_context": "CRP temporal autocorrelation inflammatory persistence"
       },

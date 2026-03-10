@@ -384,3 +384,23 @@ class TestPivotToWide:
         assert wide.height == 1
         assert "x" in wide.columns
         assert wide["x"][0] == 42.0
+
+
+class TestPivotToWideTimezoneStrings:
+    def test_utc_string_timestamps_parsed(self):
+        """UTC timestamps with timezone suffix should parse to fractional days."""
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        df = pl.DataFrame(
+            {
+                "timestamp": ["2024-01-01T00:00:00Z", "2024-01-02T12:00:00Z"],
+                "indicator": ["x", "x"],
+                "value": [1.0, 2.0],
+            }
+        )
+        wide = pivot_to_wide(df)
+
+        assert wide.schema["time"] == pl.Float64
+        times = wide["time"].to_list()
+        assert abs(times[0]) < 0.001
+        assert abs(times[1] - 1.5) < 0.001

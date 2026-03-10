@@ -6,11 +6,25 @@ Recovery tests verify parameter recovery within 90% CIs (slow).
 All tests share the lgss_data fixture from conftest.py.
 """
 
+import json
+from pathlib import Path
+
 import jax.numpy as jnp
+import polars as pl
 import pytest
 
 from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
 from tests.helpers import assert_recovery_ci
+
+DOCTOLIB_FIXTURE_DIR = (
+    Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "doctolib"
+)
+
+
+def _load_doctolib_fixture(name: str) -> dict:
+    """Load the shared Doctolib mock fixture used by the web app."""
+    return json.loads((DOCTOLIB_FIXTURE_DIR / name).read_text())
+
 
 # =============================================================================
 # Laplace-EM
@@ -316,3 +330,222 @@ class TestDPF:
             lgss_data["true_obs_sd"],
             "Obs SD",
         )
+
+
+def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFrame]:
+    """Normalize the shared Doctolib web fixture into an executable pipeline artifact.
+
+    The shared web fixture predates the stricter compiler contract: it uses
+    shorthand parameter names and a latent graph that is not directly executable
+    under the current builder. For inference smoke tests we normalize the
+    parameter names into the compiler naming convention and use the latent graph
+    implied by the stage-4 fixed effects.
+    """
+    stage4 = _load_doctolib_fixture("stage-4.json")
+    stage1b = _load_doctolib_fixture("stage-1b.json")["causal_spec"]
+    raw_data = pl.DataFrame(_load_doctolib_fixture("stage-2.json")["combined_extractions_sample"])
+
+    name_map = {
+        "beta_lipid_cv": "beta_lipid_burden_cardiovascular_risk",
+        "beta_pressure_cv": "beta_arterial_pressure_cardiovascular_risk",
+        "beta_glycemic_cv": "beta_glycemic_control_cardiovascular_risk",
+        "beta_lipid_inflammation": "beta_lipid_burden_vascular_inflammation",
+        "beta_inflammation_cv": "beta_vascular_inflammation_cardiovascular_risk",
+        "beta_adherence_lipid": "beta_medication_adherence_lipid_burden",
+        "beta_adherence_pressure": "beta_medication_adherence_arterial_pressure",
+        "rho_lipid": "rho_lipid_burden",
+        "rho_pressure": "rho_arterial_pressure",
+        "sigma_lipid": "sigma_lipid_burden",
+        "sigma_pressure": "sigma_arterial_pressure",
+        "rho_inflammation": "rho_vascular_inflammation",
+    }
+
+    model_spec = json.loads(json.dumps(stage4["model_spec"]))
+    for parameter in model_spec["parameters"]:
+        parameter["name"] = name_map.get(parameter["name"], parameter["name"])
+        if parameter["role"] == "ar_coefficient":
+            parameter["constraint"] = "correlation"
+
+    priors = json.loads(json.dumps(stage4["priors"]))
+    for old_name, new_name in name_map.items():
+        if old_name in priors:
+            priors[new_name] = priors.pop(old_name)
+
+    stage4_construct_names = {
+        "medication_adherence",
+        "lipid_burden",
+        "vascular_inflammation",
+        "glycemic_control",
+        "arterial_pressure",
+        "cardiovascular_risk",
+    }
+    measurement = {
+        "indicators": [
+            indicator
+            for indicator in stage1b["measurement"]["indicators"]
+            if indicator["construct_name"] in stage4_construct_names
+        ]
+    }
+    causal_spec = {
+        "latent": {
+            "constructs": [
+                {
+                    "name": "medication_adherence",
+                    "description": "Prescription refill and appointment follow-through.",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "lipid_burden",
+                    "description": "Atherogenic lipid profile.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "vascular_inflammation",
+                    "description": "Inflammatory state relevant to cardiovascular risk.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "glycemic_control",
+                    "description": "Blood-glucose regulation quality.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "arterial_pressure",
+                    "description": "Blood-pressure burden.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "cardiovascular_risk",
+                    "description": "Overall cardiovascular risk trajectory.",
+                    "role": "endogenous",
+                    "is_outcome": True,
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+            ],
+            "edges": [
+                {
+                    "cause": "medication_adherence",
+                    "effect": "lipid_burden",
+                    "description": "Medication adherence improves lipid control.",
+                },
+                {
+                    "cause": "medication_adherence",
+                    "effect": "arterial_pressure",
+                    "description": "Medication adherence improves blood-pressure control.",
+                },
+                {
+                    "cause": "lipid_burden",
+                    "effect": "vascular_inflammation",
+                    "description": "Higher lipid burden raises vascular inflammation.",
+                },
+                {
+                    "cause": "lipid_burden",
+                    "effect": "cardiovascular_risk",
+                    "description": "Higher lipid burden raises cardiovascular risk.",
+                },
+                {
+                    "cause": "vascular_inflammation",
+                    "effect": "cardiovascular_risk",
+                    "description": "Higher vascular inflammation raises cardiovascular risk.",
+                },
+                {
+                    "cause": "glycemic_control",
+                    "effect": "cardiovascular_risk",
+                    "description": "Poorer glycemic control raises cardiovascular risk.",
+                },
+                {
+                    "cause": "arterial_pressure",
+                    "effect": "cardiovascular_risk",
+                    "description": "Higher arterial pressure raises cardiovascular risk.",
+                },
+            ],
+        },
+        "measurement": measurement,
+    }
+    return causal_spec, model_spec, priors, raw_data
+
+
+class TestLaplaceEMDoctolib:
+    """Fixture-backed Laplace-EM smoke tests on the Doctolib mock data."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(180)
+    def test_laplace_em_doctolib_fixture_smoke(self):
+        """Laplace-EM fits the executable Doctolib fixture end-to-end."""
+        import time
+
+        from causal_ssm_agent.models.ssm.inference import select_default_method
+        from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        t0 = time.perf_counter()
+
+        causal_spec, model_spec, priors, raw_data = _build_executable_doctolib_fixture_v2()
+
+        assert raw_data.schema["timestamp"] == pl.String
+
+        compiled = compile_ssm_artifact(
+            model_spec,
+            priors,
+            causal_spec=causal_spec,
+        )
+        builder = build_ssm_builder(
+            raw_data=raw_data,
+            compiled_ssm=compiled,
+            sampler_config={
+                "method": "laplace_em",
+                "n_outer": 6,
+                "n_csmc_particles": 8,
+                "n_mh_steps": 3,
+                "param_step_size": 0.05,
+                "n_warmup": 3,
+                "n_ieks_iters": 3,
+                "adaptive_tempering": False,
+                "seed": 0,
+            },
+        )
+
+        assert builder._spec is not None
+        assert builder._spec.manifest_dists is not None
+        assert DistributionFamily.BETA in builder._spec.manifest_dists
+        assert select_default_method(builder._spec) == "laplace_em"
+
+        wide = pivot_to_wide(raw_data)
+        assert wide.schema["time"] == pl.Float64
+
+        result = builder.fit(wide)
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "laplace_em"
+
+        samples = result.get_samples()
+        assert "drift_diag_pop" in samples
+        assert "diffusion_diag_pop" in samples
+        assert "manifest_var_diag" in samples
+        assert samples["drift_diag_pop"].shape == (3, builder._spec.n_latent)
+        assert samples["diffusion_diag_pop"].shape == (3, builder._spec.n_latent)
+        assert samples["manifest_var_diag"].shape == (3, builder._spec.n_manifest)
+        assert bool(jnp.isfinite(samples["drift_diag_pop"]).all())
+        assert bool(jnp.isfinite(samples["diffusion_diag_pop"]).all())
+        assert bool(jnp.isfinite(samples["manifest_var_diag"]).all())
+
+        assert "accept_rates" in result.diagnostics
+        assert "n_ieks_iters" in result.diagnostics
+        assert result.diagnostics["n_ieks_iters"] == 3
+        assert len(result.diagnostics["accept_rates"]) == 6
+
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 180.0, f"Doctolib Laplace-EM smoke took {elapsed:.1f}s, must be under 180s"
