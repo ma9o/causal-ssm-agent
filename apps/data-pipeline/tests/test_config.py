@@ -17,17 +17,17 @@ from causal_ssm_agent.utils.config import (
 
 
 class TestToSamplerConfig:
-    def test_svi_defaults(self):
+    def test_auto_defaults(self):
         cfg = InferenceConfig()
         result = cfg.to_sampler_config()
-        assert result["method"] == "svi"
+        assert result["method"] == "auto"
         assert result["num_warmup"] == 1000
         assert result["num_samples"] == 1000
         assert result["num_chains"] == 4
         assert result["seed"] == 0
-        assert result["num_steps"] == 5000
-        assert result["learning_rate"] == 0.01
-        assert result["guide_type"] == "mvn"
+        assert "num_steps" not in result
+        assert "learning_rate" not in result
+        assert "guide_type" not in result
 
     def test_nuts_defaults(self):
         cfg = InferenceConfig(method="nuts")
@@ -47,6 +47,7 @@ class TestToSamplerConfig:
 
     def test_custom_svi_settings(self):
         cfg = InferenceConfig(
+            method="svi",
             svi=SVIConfig(num_steps=10000, learning_rate=0.001, guide_type="diagonal"),
         )
         result = cfg.to_sampler_config()
@@ -156,7 +157,7 @@ class TestLoadConfig:
         assert cfg.stage2_workers.submission_batch_size == 50
         assert cfg.stage4_prior_elicitation.model == "gpt-4"
         # Defaults for optional sections
-        assert cfg.inference.method == "svi"
+        assert cfg.inference.method == "auto"
         assert cfg.llm.max_tokens == 65536
         assert cfg.llm.verbose_logging is False
         assert cfg.llm.log_reasoning is False

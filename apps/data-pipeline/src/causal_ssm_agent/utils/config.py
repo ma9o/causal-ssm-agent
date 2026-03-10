@@ -88,7 +88,7 @@ class NUTSConfig:
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: str = "svi"
+    method: str = "auto"
     num_warmup: int = 1000
     num_samples: int = 1000
     num_chains: int = 4
