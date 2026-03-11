@@ -258,6 +258,10 @@ export interface Indicator {
    * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
    */
   ordinal_levels?: string[] | null;
+  /**
+   * Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
+   */
+  source_columns?: string[];
 }
 /**
  * Status of causal effect identifiability.

@@ -46,7 +46,7 @@ def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
     logger = logging.getLogger("test_stage2_extract")
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        rows, statuses, n_total = stage2_extract._collect_batch_results(
+        rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
             futures=[future0, future1],
             batch_indices=[0, 1],
             batch_chunks=[_chunk("first"), _chunk("second")],
@@ -61,6 +61,7 @@ def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
         {"worker_id": 1, "status": "completed", "n_extractions": 2, "chunk_size": 1},
     ]
     assert n_total == 3
+    assert sampled_trace is None
     assert "worker 1 completed (progress=6/7" in caplog.text
     assert "worker 0 completed (progress=7/7" in caplog.text
 
@@ -75,7 +76,7 @@ def test_collect_batch_results_records_failures(monkeypatch):
 
     monkeypatch.setattr(stage2_extract, "as_completed", _as_completed)
 
-    rows, statuses, n_total = stage2_extract._collect_batch_results(
+    rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
         futures=[future0, future1],
         batch_indices=[0, 1],
         batch_chunks=[_chunk("first"), _chunk("second")],
@@ -96,6 +97,7 @@ def test_collect_batch_results_records_failures(monkeypatch):
         {"worker_id": 1, "status": "completed", "n_extractions": 0, "chunk_size": 1},
     ]
     assert n_total == 0
+    assert sampled_trace is None
 
 
 def test_extract_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
@@ -171,3 +173,43 @@ def test_extract_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
     assert worker_kwargs["call_label"] == "stage2 chunk=3 rows=2 cols=1"
     assert "max_tokens=1234" in caplog.text
     assert "reasoning_effort=medium" in caplog.text
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _project_to_source_columns tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_project_keeps_only_source_columns():
+    df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-01", "2024-01-02"],
+            "heart_rate": [70, 75],
+            "steps": [5000, 8000],
+            "mood": ["good", "bad"],
+            "irrelevant": [1, 2],
+        }
+    )
+    indicators = [
+        {"name": "hr", "source_columns": ["heart_rate", "timestamp"]},
+        {"name": "activity", "source_columns": ["steps"]},
+    ]
+    result = stage2_extract._project_to_source_columns(df, indicators)
+    assert set(result.columns) == {"timestamp", "heart_rate", "steps"}
+
+
+def test_project_no_source_columns_returns_full_df():
+    df = pl.DataFrame({"a": [1], "b": [2], "c": [3]})
+    indicators = [{"name": "x"}]
+    result = stage2_extract._project_to_source_columns(df, indicators)
+    assert result.columns == df.columns
+
+
+def test_project_missing_columns_warns(caplog):
+    df = pl.DataFrame({"a": [1], "b": [2]})
+    indicators = [{"name": "x", "source_columns": ["a", "nonexistent"]}]
+    with caplog.at_level(logging.WARNING):
+        result = stage2_extract._project_to_source_columns(df, indicators)
+    assert "a" in result.columns
+    assert "nonexistent" not in result.columns
+    assert "nonexistent" in caplog.text

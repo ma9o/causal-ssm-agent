@@ -38,6 +38,7 @@ Each indicator needs:
 | **how_to_measure** | Precise instructions for how to derive this value from the raw data columns. Workers will follow these instructions. Reference specific column names. |
 | **measurement_dtype** | 'continuous', 'binary', 'count', 'ordinal', 'categorical' |
 | **aggregation** | How to collapse within aggregation window |
+| **source_columns** | List of raw data column names referenced by how_to_measure (e.g. `["systolic_bp", "diastolic_bp"]`). Must be actual column names from the dataset. If a time/date column is needed for temporal context, include it here for at least one indicator. |
 
 ### measurement_dtype
 
@@ -101,7 +102,8 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
       "how_to_measure": "worker instructions for extraction",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
       "aggregation": "<aggregation_function>",
-      "ordinal_levels": ["low", "medium", "high"]  // required when measurement_dtype is "ordinal", ordered low→high
+      "ordinal_levels": ["low", "medium", "high"],  // required when measurement_dtype is "ordinal", ordered low→high
+      "source_columns": ["col_a", "col_b"]  // raw data columns referenced by how_to_measure
     }
   ]
 }

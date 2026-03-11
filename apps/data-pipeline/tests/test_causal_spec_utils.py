@@ -11,6 +11,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_indicator_info,
     get_indicators,
     get_outcome_construct,
+    make_extraction_context,
 )
 
 
@@ -207,3 +208,44 @@ class TestGetOutcomeConstruct:
             }
         }
         assert get_outcome_construct(spec) is None
+
+
+# =============================================================================
+# make_extraction_context
+# =============================================================================
+
+
+class TestMakeExtractionContext:
+    def test_strips_to_worker_fields(self):
+        spec = _full_spec()
+        # Add extra fields that workers don't need
+        spec["measurement"]["indicators"][0]["aggregation"] = "mean"
+        spec["measurement"]["indicators"][0]["construct_name"] = "stress"
+        spec["measurement"]["indicators"][0]["source_columns"] = ["pss_col"]
+        ctx = make_extraction_context(spec)
+        ind = ctx["measurement"]["indicators"][0]
+        assert set(ind.keys()) == {"name", "measurement_dtype", "how_to_measure", "source_columns"}
+        assert "aggregation" not in ind
+        assert "construct_name" not in ind
+
+    def test_outcome_slimmed_to_name_and_description(self):
+        spec = _full_spec()
+        ctx = make_extraction_context(spec)
+        constructs = ctx["latent"]["constructs"]
+        assert len(constructs) == 1
+        outcome = constructs[0]
+        assert set(outcome.keys()) == {"name", "description"}
+
+    def test_no_outcome_gives_empty_constructs(self):
+        spec = {
+            "latent": {"constructs": [{"name": "x", "role": "exogenous"}]},
+            "measurement": {"indicators": [{"name": "ind", "measurement_dtype": "continuous"}]},
+        }
+        ctx = make_extraction_context(spec)
+        assert ctx["latent"]["constructs"] == []
+
+    def test_source_columns_included_when_present(self):
+        spec = _full_spec()
+        spec["measurement"]["indicators"][0]["source_columns"] = ["col_a", "col_b"]
+        ctx = make_extraction_context(spec)
+        assert ctx["measurement"]["indicators"][0]["source_columns"] == ["col_a", "col_b"]
