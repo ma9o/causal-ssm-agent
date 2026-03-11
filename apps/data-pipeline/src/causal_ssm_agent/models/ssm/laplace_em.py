@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
+import numpy as np
 
 from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -41,6 +42,143 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Iterated Extended Kalman Smoother (IEKS)
 # ---------------------------------------------------------------------------
+
+
+def _symmetrize_psd(mats: jnp.ndarray, jitter: float = 0.0) -> jnp.ndarray:
+    """Symmetrize square matrices and optionally add diagonal jitter."""
+    eye = jnp.eye(mats.shape[-1], dtype=mats.dtype)
+    return 0.5 * (mats + jnp.swapaxes(mats, -1, -2)) + jitter * eye
+
+
+def _batched_spd_solve(mats: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
+    """Solve a batch of SPD linear systems with matching right-hand sides."""
+    return jax.vmap(lambda mat, b: jla.solve(mat, b, assume_a="pos"))(mats, rhs)
+
+
+def _build_ieks_system(
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    J_t: jnp.ndarray,
+    tilde_y: jnp.ndarray,
+    jitter: float = 1e-6,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Assemble the block-tridiagonal IEKS normal equations."""
+    T, D = J_t.shape[:2]
+    eye = jnp.eye(D, dtype=J_t.dtype)
+
+    diag_blocks = J_t
+    rhs = tilde_y
+    lower = jnp.zeros((T, D, D), dtype=J_t.dtype)
+    upper = jnp.zeros((T, D, D), dtype=J_t.dtype)
+
+    prior_mean = Ad[0] @ init_mean + cd[0]
+    prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
+    prior_inv = jla.solve(prior_cov, eye, assume_a="pos")
+
+    diag_blocks = diag_blocks.at[0].add(prior_inv)
+    rhs = rhs.at[0].add(prior_inv @ prior_mean)
+
+    if T == 1:
+        return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
+
+    q_reg = _symmetrize_psd(Qd[1:], jitter=jitter)
+    eye_batch = jnp.broadcast_to(eye, q_reg.shape)
+    q_inv = _batched_spd_solve(q_reg, eye_batch)
+    q_inv_a = _batched_spd_solve(q_reg, Ad[1:])
+    q_inv_c = _batched_spd_solve(q_reg, cd[1:])
+
+    lower = lower.at[1:].set(-q_inv_a)
+    upper = upper.at[:-1].set(-jnp.swapaxes(q_inv_a, -1, -2))
+    diag_blocks = diag_blocks.at[1:].add(q_inv)
+    diag_blocks = diag_blocks.at[:-1].add(jnp.swapaxes(Ad[1:], -1, -2) @ q_inv_a)
+    rhs = rhs.at[1:].add(q_inv_c)
+    rhs = rhs.at[:-1].add(-jnp.einsum("tij,tj->ti", jnp.swapaxes(Ad[1:], -1, -2), q_inv_c))
+
+    return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
+
+
+def _solve_block_tridiagonal(
+    lower: jnp.ndarray,
+    diag: jnp.ndarray,
+    upper: jnp.ndarray,
+    rhs: jnp.ndarray,
+) -> jnp.ndarray:
+    """Solve a block-tridiagonal linear system via recursive cyclic reduction."""
+    n = diag.shape[0]
+    if n == 1:
+        base_diag = _symmetrize_psd(diag[0], jitter=1e-6)
+        return jla.solve(base_diag, rhs[0], assume_a="pos")[None]
+
+    D = diag.shape[-1]
+    keep_np = np.arange(0, n, 2)
+    odd_np = np.arange(1, n, 2)
+    keep = jnp.asarray(keep_np)
+    odd = jnp.asarray(odd_np)
+
+    diag_keep = diag[keep]
+    rhs_keep = rhs[keep]
+    lower_keep = jnp.zeros_like(diag_keep)
+    upper_keep = jnp.zeros_like(diag_keep)
+
+    if keep_np.size > 1:
+        left_rows = keep_np[1:]
+        left_neighbors = left_rows - 1
+        left_rhs = jnp.concatenate(
+            [
+                upper[left_neighbors],
+                lower[left_neighbors],
+                rhs[left_neighbors][..., None],
+            ],
+            axis=-1,
+        )
+        left_sol = _batched_spd_solve(diag[left_neighbors], left_rhs)
+        left_to_upper = left_sol[:, :, :D]
+        left_to_lower = left_sol[:, :, D : 2 * D]
+        left_to_rhs = left_sol[:, :, 2 * D :].squeeze(-1)
+        lower_i = lower[left_rows]
+        diag_keep = diag_keep.at[1:].add(-lower_i @ left_to_upper)
+        lower_keep = lower_keep.at[1:].set(-lower_i @ left_to_lower)
+        rhs_keep = rhs_keep.at[1:].add(-jnp.einsum("tij,tj->ti", lower_i, left_to_rhs))
+
+    if np.any(keep_np + 1 < n):
+        right_rows = keep_np[keep_np + 1 < n]
+        right_neighbors = right_rows + 1
+        right_rhs = jnp.concatenate(
+            [
+                lower[right_neighbors],
+                upper[right_neighbors],
+                rhs[right_neighbors][..., None],
+            ],
+            axis=-1,
+        )
+        right_sol = _batched_spd_solve(diag[right_neighbors], right_rhs)
+        right_to_lower = right_sol[:, :, :D]
+        right_to_upper = right_sol[:, :, D : 2 * D]
+        right_to_rhs = right_sol[:, :, 2 * D :].squeeze(-1)
+        upper_i = upper[right_rows]
+        n_right = right_rows.size
+        diag_keep = diag_keep.at[:n_right].add(-upper_i @ right_to_lower)
+        upper_keep = upper_keep.at[:n_right].set(-upper_i @ right_to_upper)
+        rhs_keep = rhs_keep.at[:n_right].add(-jnp.einsum("tij,tj->ti", upper_i, right_to_rhs))
+
+    diag_keep = _symmetrize_psd(diag_keep, jitter=1e-6)
+    x_keep = _solve_block_tridiagonal(lower_keep, diag_keep, upper_keep, rhs_keep)
+
+    solution = jnp.zeros((n, D), dtype=rhs.dtype).at[keep].set(x_keep)
+    if odd_np.size == 0:
+        return solution
+
+    right_neighbors = np.minimum(odd_np + 1, n - 1)
+    rhs_odd = (
+        rhs[odd]
+        - jnp.einsum("tij,tj->ti", lower[odd], solution[odd - 1])
+        - jnp.einsum("tij,tj->ti", upper[odd], solution[jnp.asarray(right_neighbors)])
+    )
+    x_odd = _batched_spd_solve(_symmetrize_psd(diag[odd], jitter=1e-6), rhs_odd)
+    return solution.at[odd].set(x_odd)
 
 
 def _ieks_smooth(
@@ -75,12 +213,10 @@ def _ieks_smooth(
 
     Returns:
         z_smooth: (T, D) smoothed state means (MAP trajectory)
-        P_smooth: (T, D, D) smoothed state covariances
         log_lik_approx: scalar approximate log-likelihood
     """
     T = observations.shape[0]
     D = init_mean.shape[0]
-    jitter = jnp.eye(D) * 1e-6
 
     # Compute gradient and Hessian of emission log-prob w.r.t. z_t
     def _emission_grad_hess(y_t, z_t, mask_t):
@@ -92,44 +228,8 @@ def _ieks_smooth(
     cd_scan = cd if cd is not None else jnp.zeros((T, D))
     obs_mask_float = obs_mask.astype(jnp.float32)
 
-    # Forward pass body for lax.scan (used inside each IEKS iteration)
-    def _forward_step(carry, inputs):
-        z_f_prev, P_f_prev = carry
-        Ad_t, Qd_t, cd_t, J_tt, ty_t = inputs
-
-        # Predict
-        z_pred = Ad_t @ z_f_prev + cd_t
-        P_pred = Ad_t @ P_f_prev @ Ad_t.T + Qd_t
-        P_pred = 0.5 * (P_pred + P_pred.T) + jitter
-
-        # Update in information form
-        P_pred_inv = jla.solve(P_pred + jitter, jnp.eye(D), assume_a="pos")
-        P_f_inv = P_pred_inv + J_tt
-        P_f = jla.solve(P_f_inv + jitter, jnp.eye(D), assume_a="pos")
-        P_f = 0.5 * (P_f + P_f.T) + jitter
-        z_f = P_f @ (P_pred_inv @ z_pred + ty_t)
-
-        return (z_f, P_f), (z_f, P_f)
-
-    # Backward pass body for lax.scan (RTS smoother)
-    def _backward_step(carry, inputs):
-        z_s_next, P_s_next = carry
-        z_f_t, P_f_t, Ad_tp1, Qd_tp1, cd_tp1 = inputs
-
-        z_pred_tp1 = Ad_tp1 @ z_f_t + cd_tp1
-        P_pred_tp1 = Ad_tp1 @ P_f_t @ Ad_tp1.T + Qd_tp1
-        P_pred_tp1 = 0.5 * (P_pred_tp1 + P_pred_tp1.T) + jitter
-
-        G_t = P_f_t @ Ad_tp1.T @ jla.solve(P_pred_tp1 + jitter, jnp.eye(D), assume_a="pos")
-
-        z_s_t = z_f_t + G_t @ (z_s_next - z_pred_tp1)
-        P_s_t = P_f_t + G_t @ (P_s_next - P_pred_tp1) @ G_t.T
-        P_s_t = 0.5 * (P_s_t + P_s_t.T) + jitter
-
-        return (z_s_t, P_s_t), (z_s_t, P_s_t)
-
     def _ieks_body(_, z_est):
-        """Single IEKS iteration: linearize + forward filter + backward smooth."""
+        """Single IEKS iteration: linearize emissions and solve the normal equations."""
         # Linearize emissions around current state estimates
         grads_and_hess = jax.vmap(_emission_grad_hess)(observations, z_est, obs_mask_float)
         grads = grads_and_hess[0]  # (T, D)
@@ -137,84 +237,19 @@ def _ieks_smooth(
 
         # Pseudo-observations in information form
         tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_est, grads)
-
-        # Time 0: predict from prior
-        z_pred_0 = Ad[0] @ init_mean + cd_scan[0]
-        P_pred_0 = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
-        P_pred_0 = 0.5 * (P_pred_0 + P_pred_0.T) + jitter
-
-        P_pred_inv_0 = jla.solve(P_pred_0 + jitter, jnp.eye(D), assume_a="pos")
-        P_filt_inv_0 = P_pred_inv_0 + J_t[0]
-        P_filt_0 = jla.solve(P_filt_inv_0 + jitter, jnp.eye(D), assume_a="pos")
-        P_filt_0 = 0.5 * (P_filt_0 + P_filt_0.T) + jitter
-        z_filt_0 = P_filt_0 @ (P_pred_inv_0 @ z_pred_0 + tilde_y[0])
-
-        # Forward scan for t=1..T-1
-        _, (z_filt_rest, P_filt_rest) = jax.lax.scan(
-            _forward_step,
-            (z_filt_0, P_filt_0),
-            (Ad[1:], Qd[1:], cd_scan[1:], J_t[1:], tilde_y[1:]),
+        lower, diag, upper, rhs = _build_ieks_system(
+            Ad,
+            Qd,
+            cd_scan,
+            init_mean,
+            init_cov,
+            J_t,
+            tilde_y,
         )
-        z_filt = jnp.concatenate([z_filt_0[None], z_filt_rest], axis=0)
-        P_filt = jnp.concatenate([P_filt_0[None], P_filt_rest], axis=0)
-
-        # Backward scan (RTS smoother)
-        bwd_inputs_rev = (
-            z_filt[: T - 1][::-1],
-            P_filt[: T - 1][::-1],
-            Ad[1:][::-1],
-            Qd[1:][::-1],
-            cd_scan[1:][::-1],
-        )
-        _, (z_smooth_rest_rev, _P_smooth_rest_rev) = jax.lax.scan(
-            _backward_step,
-            (z_filt[T - 1], P_filt[T - 1]),
-            bwd_inputs_rev,
-        )
-        z_smooth = jnp.concatenate([z_smooth_rest_rev[::-1], z_filt[T - 1][None]], axis=0)
-
-        return z_smooth
+        return _solve_block_tridiagonal(lower, diag, upper, rhs)
 
     z_est = jax.lax.fori_loop(0, n_ieks_iters, _ieks_body, z_est)
-
-    # Final iteration to extract P_smooth for log-likelihood computation
-    grads_and_hess = jax.vmap(_emission_grad_hess)(observations, z_est, obs_mask_float)
-    grads_final = grads_and_hess[0]
-    J_t_final = grads_and_hess[1]
-    tilde_y_final = jax.vmap(lambda J, z, g: J @ z + g)(J_t_final, z_est, grads_final)
-
-    z_pred_0 = Ad[0] @ init_mean + cd_scan[0]
-    P_pred_0 = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
-    P_pred_0 = 0.5 * (P_pred_0 + P_pred_0.T) + jitter
-    P_pred_inv_0 = jla.solve(P_pred_0 + jitter, jnp.eye(D), assume_a="pos")
-    P_filt_inv_0 = P_pred_inv_0 + J_t_final[0]
-    P_filt_0 = jla.solve(P_filt_inv_0 + jitter, jnp.eye(D), assume_a="pos")
-    P_filt_0 = 0.5 * (P_filt_0 + P_filt_0.T) + jitter
-
-    z_filt_0 = P_filt_0 @ (P_pred_inv_0 @ z_pred_0 + tilde_y_final[0])
-
-    _, (z_filt_rest, P_filt_rest) = jax.lax.scan(
-        _forward_step,
-        (z_filt_0, P_filt_0),
-        (Ad[1:], Qd[1:], cd_scan[1:], J_t_final[1:], tilde_y_final[1:]),
-    )
-    z_filt = jnp.concatenate([z_filt_0[None], z_filt_rest], axis=0)
-    P_filt = jnp.concatenate([P_filt_0[None], P_filt_rest], axis=0)
-
-    bwd_inputs_rev = (
-        z_filt[: T - 1][::-1],
-        P_filt[: T - 1][::-1],
-        Ad[1:][::-1],
-        Qd[1:][::-1],
-        cd_scan[1:][::-1],
-    )
-    _, (z_smooth_rest_rev, P_smooth_rest_rev) = jax.lax.scan(
-        _backward_step,
-        (z_filt[T - 1], P_filt[T - 1]),
-        bwd_inputs_rev,
-    )
-    z_smooth = jnp.concatenate([z_smooth_rest_rev[::-1], z_filt[T - 1][None]], axis=0)
-    P_smooth = jnp.concatenate([P_smooth_rest_rev[::-1], P_filt[T - 1][None]], axis=0)
+    z_smooth = z_est
 
     # Compute approximate log-likelihood via prediction error decomposition
     # Sum of log p(y_t | y_{1:t-1}, theta) from the final filter pass
@@ -222,7 +257,6 @@ def _ieks_smooth(
         observations,
         obs_mask,
         z_smooth,
-        P_smooth,
         Ad,
         Qd,
         cd_scan,
@@ -234,14 +268,13 @@ def _ieks_smooth(
         R,
     )
 
-    return z_smooth, P_smooth, log_lik
+    return z_smooth, log_lik
 
 
 def _compute_laplace_log_lik(
     observations,
     obs_mask,
     z_smooth,
-    _P_smooth,
     Ad,
     Qd,
     cd,
@@ -411,7 +444,7 @@ class LaplaceLikelihood:
             extra_params,
         )
 
-        _, _, log_lik = _ieks_smooth(
+        _, log_lik = _ieks_smooth(
             clean_obs,
             obs_mask,
             Ad,

@@ -29,13 +29,114 @@ from causal_ssm_agent.models.likelihoods.base import (
     InitialStateParams,
     MeasurementParams,
 )
+from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
+from causal_ssm_agent.models.ssm.laplace_em import (
+    _build_ieks_system,
+    _ieks_smooth,
+    _solve_block_tridiagonal,
+)
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 # =============================================================================
 # ParticleLikelihood: Core Functionality
 # =============================================================================
+
+
+class TestLaplaceEMBlockSolver:
+    """Numerical checks for the block-tridiagonal IEKS rewrite."""
+
+    @staticmethod
+    def _dense_block_matrix(
+        lower: jnp.ndarray, diag: jnp.ndarray, upper: jnp.ndarray
+    ) -> jnp.ndarray:
+        n_blocks, block_dim = diag.shape[:2]
+        mat = np.zeros((n_blocks * block_dim, n_blocks * block_dim), dtype=np.float64)
+        lower_np = np.asarray(lower)
+        diag_np = np.asarray(diag)
+        upper_np = np.asarray(upper)
+        for i in range(n_blocks):
+            row = slice(i * block_dim, (i + 1) * block_dim)
+            mat[row, row] = diag_np[i]
+            if i > 0:
+                prev = slice((i - 1) * block_dim, i * block_dim)
+                mat[row, prev] = lower_np[i]
+            if i + 1 < n_blocks:
+                nxt = slice((i + 1) * block_dim, (i + 2) * block_dim)
+                mat[row, nxt] = upper_np[i]
+        return jnp.asarray(mat)
+
+    def test_block_solver_matches_dense_reference(self):
+        """Recursive block solver should agree with a dense solve on SPD systems."""
+        key = random.PRNGKey(7)
+        n_blocks = 7
+        block_dim = 3
+
+        key, diag_key, lower_key, x_key = random.split(key, 4)
+        raw_diag = random.normal(diag_key, (n_blocks, block_dim, block_dim))
+        diag = jnp.matmul(raw_diag, jnp.swapaxes(raw_diag, -1, -2)) + 4.0 * jnp.eye(block_dim)
+        lower = jnp.zeros((n_blocks, block_dim, block_dim))
+        lower_noise = random.normal(lower_key, (n_blocks - 1, block_dim, block_dim)) * 0.05
+        lower = lower.at[1:].set(lower_noise)
+        upper = jnp.zeros_like(lower).at[:-1].set(jnp.swapaxes(lower[1:], -1, -2))
+
+        dense = self._dense_block_matrix(lower, diag, upper)
+        x_true = random.normal(x_key, (n_blocks, block_dim))
+        rhs = (dense @ x_true.reshape(-1)).reshape(n_blocks, block_dim)
+
+        x_solved = _solve_block_tridiagonal(lower, diag, upper, rhs)
+        np.testing.assert_allclose(x_solved, x_true, atol=1e-5, rtol=1e-5)
+
+    def test_gaussian_ieks_mode_matches_dense_system(self):
+        """For Gaussian observations, one IEKS step should equal the exact mode solve."""
+        key = random.PRNGKey(11)
+        T = 5
+        D = 2
+        M = 2
+
+        observations = random.normal(key, (T, M)) * 0.2
+        obs_mask = jnp.ones((T, M), dtype=bool)
+        Ad = jnp.broadcast_to(jnp.array([[0.92, 0.05], [0.02, 0.88]]), (T, D, D))
+        Qd = jnp.broadcast_to(jnp.array([[0.15, 0.01], [0.01, 0.12]]), (T, D, D))
+        cd = jnp.zeros((T, D))
+        H = jnp.array([[1.0, 0.1], [0.2, 1.0]])
+        d = jnp.array([0.0, 0.1])
+        R = jnp.array([[0.2, 0.02], [0.02, 0.25]])
+        init_mean = jnp.array([0.05, -0.1])
+        init_cov = jnp.array([[0.8, 0.05], [0.05, 0.7]])
+
+        obs_kernel = build_observation_kernel(
+            DistributionFamily.GAUSSIAN,
+            LinkFunction.IDENTITY,
+        )
+
+        z_smooth, log_lik = _ieks_smooth(
+            observations,
+            obs_mask,
+            Ad,
+            Qd,
+            cd,
+            H,
+            d,
+            R,
+            init_mean,
+            init_cov,
+            obs_kernel,
+            n_ieks_iters=1,
+        )
+
+        z_init = jnp.broadcast_to(init_mean, (T, D))
+        grads, J_t = jax.vmap(
+            lambda y_t, z_t, mask_t: obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
+        )(observations, z_init, obs_mask.astype(jnp.float32))
+        tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_init, grads)
+        lower, diag, upper, rhs = _build_ieks_system(Ad, Qd, cd, init_mean, init_cov, J_t, tilde_y)
+        dense = self._dense_block_matrix(lower, diag, upper)
+        z_dense = jnp.linalg.solve(dense, rhs.reshape(-1)).reshape(T, D)
+
+        np.testing.assert_allclose(z_smooth, z_dense, atol=1e-5, rtol=1e-5)
+        assert jnp.isfinite(log_lik)
 
 
 class TestParticleLikelihoodCore:
