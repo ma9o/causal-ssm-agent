@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@causal-ssm/api-types";
-import { REFINABLE_STAGES } from "@causal-ssm/api-types";
+import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { CheckCircle, Clock, Cpu, Loader2, MessageSquare, Play, Send } from "lucide-react";
@@ -64,7 +64,7 @@ export function LLMTracePanel({
   const [applied, setApplied] = useState(false);
 
   const canRefine =
-    interactive && !!runId && !!stageId && REFINABLE_STAGES.includes(stageId);
+    interactive && !!runId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.

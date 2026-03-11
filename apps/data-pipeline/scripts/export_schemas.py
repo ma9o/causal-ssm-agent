@@ -16,7 +16,7 @@ from typing import Any
 
 # Import all stage contracts — this pulls in every nested domain model
 from causal_ssm_agent.flows.stages.contracts import (
-    REFINABLE_STAGES,
+    INTERACTIVE_STAGES,
     STAGE_CONTRACTS,
     STAGE_TOOLS,
     PartialStageResult,
@@ -151,7 +151,7 @@ def export_tool_schemas() -> dict:
             {"name": "validate_latent_model_tool", "description": "...", "parameters": {...}},
           ],
           ...
-          "_refinable": ["stage-1a", "stage-1b", ...]
+          "_interactive": ["stage-1a", "stage-1b", ...]
         }
     """
     result: dict[str, Any] = {}
@@ -164,7 +164,7 @@ def export_tool_schemas() -> dict:
             }
             for tc in tools
         ]
-    result["_refinable"] = sorted(REFINABLE_STAGES)
+    result["_interactive"] = sorted(INTERACTIVE_STAGES)
     return result
 
 
@@ -182,7 +182,7 @@ def main() -> None:
     tools_path = OUTPUT_DIR / "tools.json"
     tools = export_tool_schemas()
     tools_path.write_text(json.dumps(tools, indent=2) + "\n")
-    n_tools = sum(len(v) for k, v in tools.items() if k != "_refinable")
+    n_tools = sum(len(v) for k, v in tools.items() if k != "_interactive")
     print(f"Exported {n_tools} tool definitions to {tools_path}")
 
 

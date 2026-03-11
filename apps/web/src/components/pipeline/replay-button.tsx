@@ -1,11 +1,11 @@
 "use client";
 
-import { REFINABLE_STAGES } from "@causal-ssm/api-types";
+import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
 import { Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useState } from "react";
 
 /**
- * Replay button shown below completed refinable stage outputs.
+ * Replay button shown below completed interactive stage outputs.
  *
  * Click → POST /api/replay with current stage data → pipeline re-runs
  * all downstream stages → frontend navigates to new run.
@@ -19,7 +19,7 @@ export function ReplayButton({
 }) {
   const [replaying, setReplaying] = useState(false);
 
-  const canReplay = REFINABLE_STAGES.includes(stageId);
+  const canReplay = INTERACTIVE_STAGES.includes(stageId);
 
   const handleReplay = useCallback(async () => {
     if (replaying) return;
