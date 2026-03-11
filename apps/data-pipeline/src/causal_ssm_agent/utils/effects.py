@@ -2,6 +2,8 @@
 
 import networkx as nx
 
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
+
 
 def build_digraph(latent_model: dict) -> nx.DiGraph:
     """Build a simple DiGraph from a latent model's edge list.
@@ -21,21 +23,6 @@ def build_digraph(latent_model: dict) -> nx.DiGraph:
     return G
 
 
-def get_outcome_from_latent_model(latent_model: dict) -> str | None:
-    """Get the outcome variable from a latent model.
-
-    Args:
-        latent_model: Dict with 'constructs' list
-
-    Returns:
-        Name of the outcome construct, or None if not found
-    """
-    for construct in latent_model.get("constructs", []):
-        if construct.get("is_outcome", False):
-            return construct["name"]
-    return None
-
-
 def get_all_treatments(latent_model: dict) -> list[str]:
     """Get all potential treatments from latent model.
 
@@ -48,7 +35,7 @@ def get_all_treatments(latent_model: dict) -> list[str]:
     Returns:
         Sorted list of treatment construct names
     """
-    outcome = get_outcome_from_latent_model(latent_model)
+    outcome = get_outcome_name(latent_model)
     if not outcome:
         return []
 

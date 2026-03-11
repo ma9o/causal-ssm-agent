@@ -37,7 +37,8 @@ from inspect_ai.solver import Generate, TaskState, solver, system_message
 from causal_ssm_agent.orchestrator.prompts import measurement_model
 from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
 from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
-from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
+from causal_ssm_agent.utils.effects import get_all_treatments
 
 # Load config for models
 _CONFIG = load_eval_config()
@@ -67,7 +68,7 @@ def create_eval_dataset(
     samples = []
     for q in all_questions:
         latent_model = q.load_latent_model()
-        outcome = get_outcome_from_latent_model(latent_model)
+        outcome = get_outcome_name(latent_model)
         treatments = get_all_treatments(latent_model)
 
         samples.append(

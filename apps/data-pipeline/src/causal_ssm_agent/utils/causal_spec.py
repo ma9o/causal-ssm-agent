@@ -94,3 +94,18 @@ def get_outcome_construct(causal_spec_or_latent: dict) -> dict | None:
         if c.get("is_outcome"):
             return c
     return None
+
+
+def get_outcome_name(causal_spec_or_latent: dict) -> str | None:
+    """Get the outcome construct name from a CausalSpec or latent model dict.
+
+    Convenience wrapper around get_outcome_construct() that returns just the name.
+
+    Args:
+        causal_spec_or_latent: Either a full CausalSpec dict or a bare latent model dict.
+
+    Returns:
+        Name of the outcome construct, or None if not found.
+    """
+    outcome = get_outcome_construct(causal_spec_or_latent)
+    return outcome["name"] if outcome else None

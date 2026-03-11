@@ -32,7 +32,8 @@ from causal_ssm_agent.utils.aggregations import (
     aggregate_worker_measurements,
     flatten_aggregated_data,
 )
-from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
+from causal_ssm_agent.utils.effects import get_all_treatments
 
 # ==============================================================================
 # Constants
@@ -463,7 +464,7 @@ class TestE2EPipeline:
         assert len(spec.latent.constructs) == 4
         assert len(spec.measurement.indicators) == 6
         assert len(spec.latent.edges) == 4
-        outcome = get_outcome_from_latent_model(causal_spec["latent"])
+        outcome = get_outcome_name(causal_spec["latent"])
         assert outcome == "Perf"
 
     def test_latent_model_validates(self, latent_model):
@@ -483,8 +484,8 @@ class TestE2EPipeline:
         assert treatments == ["Fatigue", "Focus", "Stress"]
 
     def test_get_outcome(self, latent_model):
-        """get_outcome_from_latent_model returns Perf."""
-        assert get_outcome_from_latent_model(latent_model) == "Perf"
+        """get_outcome_name returns Perf."""
+        assert get_outcome_name(latent_model) == "Perf"
 
     # ------------------------------------------------------------------
     # Stage 3: validation + aggregation (Polars, fast)
