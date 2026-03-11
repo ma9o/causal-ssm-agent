@@ -2,10 +2,15 @@
 
 These schemas are the single runtime source of truth for stage JSON written by
 ``persist_web_result``. Any contract drift fails immediately at persistence time.
+
+Also defines tool contracts — declarative metadata for every tool available to
+pipeline stages. These feed into TypeScript codegen (Zod schemas + tool defs)
+and the refinement proxy (same tool schemas the pipeline used).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,6 +49,173 @@ StageId = Literal[
     "stage-5",
     "stage-6",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Tool contracts — declarative metadata for pipeline tools
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ToolContract:
+    """Declarative tool definition shared between pipeline, codegen, and refinement proxy.
+
+    The ``input_schema`` Pydantic model mirrors the tool's execute function
+    signature. Codegen uses ``parameters_json_schema()`` to produce matching
+    Zod schemas on the TypeScript side.
+    """
+
+    name: str
+    description: str
+    input_schema: type[BaseModel]
+
+    def parameters_json_schema(self) -> dict[str, Any]:
+        """Generate JSON Schema for the tool's input parameters."""
+        schema = self.input_schema.model_json_schema()
+        schema["additionalProperties"] = False
+        return schema
+
+
+# --- Stage 0 tool inputs ---
+
+
+class ListFilesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(default=".", description="Relative path within the input directory.")
+
+
+class ReadFileSampleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(description="Relative path to the file within the input directory.")
+    n_lines: int = Field(default=50, description="Number of lines to read.")
+
+
+class ExecutePythonInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(description="Python code to execute.")
+
+
+class SubmitTableInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_label: str = Field(
+        description="A short human-readable label for the data source."
+    )
+    column_descriptions_json: str = Field(
+        description="JSON object mapping column names to descriptions."
+    )
+
+
+# --- Stage 1a tool inputs ---
+
+
+class ValidateLatentModelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    structure_json: str = Field(
+        description="The JSON string containing the latent model to validate."
+    )
+
+
+# --- Stage 1b tool inputs ---
+
+
+class ValidateMeasurementModelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    measurement_json: str = Field(
+        description="The JSON string containing the measurement model to validate."
+    )
+
+
+# --- Stage 2 tool inputs ---
+
+
+class ValidateExtractionsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_json: str = Field(
+        description="The JSON string containing the worker output to validate."
+    )
+
+
+# --- Stage 4 tool inputs ---
+
+
+class ValidateModelSpecInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_spec_json: str = Field(
+        description="The JSON string containing the model spec to validate."
+    )
+
+
+# --- Stage tools registry ---
+
+STAGE_TOOLS: dict[str, list[ToolContract]] = {
+    "stage-0": [
+        ToolContract(
+            name="list_files",
+            description="List files in the prepared input directory.",
+            input_schema=ListFilesInput,
+        ),
+        ToolContract(
+            name="read_file_sample",
+            description="Read a sample of lines from a file to understand its format.",
+            input_schema=ReadFileSampleInput,
+        ),
+        ToolContract(
+            name="execute_python",
+            description="Execute Python code in a Modal sandbox to parse files into a Polars DataFrame.",
+            input_schema=ExecutePythonInput,
+        ),
+        ToolContract(
+            name="submit_table",
+            description="Validate and finalize the ingested DataFrame with column descriptions.",
+            input_schema=SubmitTableInput,
+        ),
+    ],
+    "stage-1a": [
+        ToolContract(
+            name="validate_latent_model_tool",
+            description="Tool for validating latent model JSON (Stage 1a).",
+            input_schema=ValidateLatentModelInput,
+        ),
+    ],
+    "stage-1b": [
+        ToolContract(
+            name="validate_measurement_model_tool",
+            description="Tool for validating measurement model JSON plus compiler constraints.",
+            input_schema=ValidateMeasurementModelInput,
+        ),
+    ],
+    "stage-2": [
+        ToolContract(
+            name="validate_extractions",
+            description="Tool for validating worker extraction output JSON.",
+            input_schema=ValidateExtractionsInput,
+        ),
+    ],
+    "stage-4": [
+        ToolContract(
+            name="validate_model_spec_tool",
+            description="Tool for validating model specification JSON (Stage 4).",
+            input_schema=ValidateModelSpecInput,
+        ),
+    ],
+}
+
+# Stages where the refinement proxy can meaningfully re-execute tools.
+# Stage 0 is excluded (tools depend on sandbox/filesystem state).
+REFINABLE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-2", "stage-4"})
+
+
+# ---------------------------------------------------------------------------
+# Stage output contracts
+# ---------------------------------------------------------------------------
 
 
 class GateOverrideContract(BaseModel):

@@ -431,6 +431,14 @@
           "default": null,
           "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
           "title": "Ordinal Levels"
+        },
+        "source_columns": {
+          "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Columns",
+          "type": "array"
         }
       },
       "required": [
@@ -438,7 +446,8 @@
         "construct_name",
         "how_to_measure",
         "measurement_dtype",
-        "name"
+        "name",
+        "source_columns"
       ],
       "title": "Indicator",
       "type": "object"
