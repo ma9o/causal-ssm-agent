@@ -91,7 +91,6 @@ MINIMAL_CONFIG = textwrap.dedent("""\
     stage2_workers:
       model: gpt-4
       chunk_size: 300
-      max_tokens: 2048
     stage4_prior_elicitation:
       model: gpt-4
 """)
@@ -106,8 +105,6 @@ FULL_CONFIG = textwrap.dedent("""\
       chunk_size: 400
       max_concurrent_workers: 6
       submission_batch_size: 25
-      max_tokens: 4096
-      reasoning_effort: low
     stage4_prior_elicitation:
       model: claude-3
       worker_model: claude-3-haiku
@@ -157,8 +154,6 @@ class TestLoadConfig:
         assert cfg.stage2_workers.chunk_size == 300
         assert cfg.stage2_workers.max_concurrent_workers == 4
         assert cfg.stage2_workers.submission_batch_size == 50
-        assert cfg.stage2_workers.max_tokens == 2048
-        assert cfg.stage2_workers.reasoning_effort == "high"
         assert cfg.stage4_prior_elicitation.model == "gpt-4"
         # Defaults for optional sections
         assert cfg.inference.method == "svi"
@@ -183,8 +178,6 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.stage2_workers.max_concurrent_workers == 6
         assert cfg.stage2_workers.submission_batch_size == 25
-        assert cfg.stage2_workers.max_tokens == 4096
-        assert cfg.stage2_workers.reasoning_effort == "low"
         assert cfg.stage4_prior_elicitation.worker_model == "claude-3-haiku"
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True

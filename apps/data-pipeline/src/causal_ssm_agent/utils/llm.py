@@ -184,17 +184,9 @@ def _combine_log_label(*parts: str | None) -> str | None:
     return " / ".join(labels)
 
 
-def _log_with_optional_label(
-    log_fn: Callable[..., None],
-    label: str | None,
-    message: str,
-    *args: Any,
-) -> None:
-    """Emit a log line, prefixing it with ``[label]`` when provided."""
-    if label:
-        log_fn("[%s] " + message, label, *args)
-    else:
-        log_fn(message, *args)
+def _scoped(label: str | None, msg: str) -> str:
+    """Prefix a log format string with ``[label]`` when a label is provided."""
+    return f"[{label}] {msg}" if label else msg
 
 
 def get_generate_config() -> GenerateConfig:
@@ -220,13 +212,11 @@ def get_stage2_generate_config() -> GenerateConfig:
     """Get a Stage-2-tuned GenerateConfig for worker extraction."""
     from causal_ssm_agent.utils.config import get_config
 
-    config = get_config()
-    llm = config.llm
-    stage2 = config.stage2_workers
+    llm = get_config().llm
     return GenerateConfig(
-        max_tokens=stage2.max_tokens,
+        max_tokens=llm.max_tokens,
         timeout=llm.timeout,
-        reasoning_effort=stage2.reasoning_effort,
+        reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool retries when validation fails.
         verbose_logging=llm.verbose_logging,
         log_reasoning=llm.log_reasoning,
@@ -759,20 +749,16 @@ async def _run_tool_loop(
         turn += 1
         if turn > max_turns:
             elapsed = time.monotonic() - t0
-            _log_with_optional_label(
-                logger.error,
-                scoped_label,
-                "exceeded %d turns (elapsed=%.1fs). Terminating.",
+            logger.error(
+                _scoped(scoped_label, "exceeded %d turns (elapsed=%.1fs). Terminating."),
                 max_turns,
                 elapsed,
             )
             raise RuntimeError(f"LLM {label} loop exceeded {max_turns} turns without converging.")
         if turn == warn_turns:
             elapsed = time.monotonic() - t0
-            _log_with_optional_label(
-                logger.warning,
-                scoped_label,
-                "reached %d turns (elapsed=%.1fs). Possible infinite loop.",
+            logger.warning(
+                _scoped(scoped_label, "reached %d turns (elapsed=%.1fs). Possible infinite loop."),
                 warn_turns,
                 elapsed,
             )
@@ -788,12 +774,8 @@ async def _run_tool_loop(
         messages.append(output["message"])
         elapsed_turn = time.monotonic() - t_turn
 
-        _log_with_optional_label(
-            logger.info,
-            scoped_label,
-            "turn=%d | %s",
-            turn,
-            _summarize_output(output, elapsed_turn),
+        logger.info(
+            _scoped(scoped_label, "turn=%d | %s"), turn, _summarize_output(output, elapsed_turn)
         )
 
         tool_messages: list[dict[str, Any]] = []
@@ -813,10 +795,10 @@ async def _run_tool_loop(
         if terminal_tool is not None:
             tool_name, result_text = terminal_tool
             elapsed_total = time.monotonic() - t0
-            _log_with_optional_label(
-                logger.info,
-                scoped_label,
-                "terminal tool %s returned %r; stopping after %d turns in %.1fs",
+            logger.info(
+                _scoped(
+                    scoped_label, "terminal tool %s returned %r; stopping after %d turns in %.1fs"
+                ),
                 tool_name,
                 result_text,
                 turn,
@@ -826,13 +808,7 @@ async def _run_tool_loop(
 
         if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
-            _log_with_optional_label(
-                logger.info,
-                scoped_label,
-                "completed: %d turns in %.1fs",
-                turn,
-                elapsed_total,
-            )
+            logger.info(_scoped(scoped_label, "completed: %d turns in %.1fs"), turn, elapsed_total)
             return messages, output
 
 
@@ -881,10 +857,8 @@ async def multi_turn_generate(
     follow_ups = follow_ups or []
     _config = config or GenerateConfig()
 
-    _log_with_optional_label(
-        logger.info,
-        log_label,
-        "multi_turn_generate starting (tools=%d, follow_ups=%d)",
+    logger.info(
+        _scoped(log_label, "multi_turn_generate starting (tools=%d, follow_ups=%d)"),
         len(tools or []),
         len(follow_ups),
     )
@@ -905,13 +879,7 @@ async def multi_turn_generate(
         # Follow-up turns
         for i, prompt in enumerate(follow_ups):
             follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
-            _log_with_optional_label(
-                logger.info,
-                follow_up_label,
-                "starting (%d/%d)",
-                i + 1,
-                len(follow_ups),
-            )
+            logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
             messages.append({"role": "user", "content": prompt})
 
             if follow_up_tools:
@@ -935,10 +903,8 @@ async def multi_turn_generate(
                 messages.append(response["message"])
                 output = response
                 elapsed_fu = time.monotonic() - t_fu
-                _log_with_optional_label(
-                    logger.info,
-                    follow_up_label,
-                    "%d/%d | %s",
+                logger.info(
+                    _scoped(follow_up_label, "%d/%d | %s"),
                     i + 1,
                     len(follow_ups),
                     _summarize_output(output, elapsed_fu),
@@ -956,12 +922,7 @@ async def multi_turn_generate(
             trace_capture["trace"] = _build_trace(messages, output)
 
         elapsed_total = time.monotonic() - t0
-        _log_with_optional_label(
-            logger.info,
-            log_label,
-            "multi_turn_generate completed in %.1fs",
-            elapsed_total,
-        )
+        logger.info(_scoped(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
         # No finalization needed — persist_web_result overwrites with full stage output
         return last_nonempty
     # Simple generation without tools
@@ -974,23 +935,12 @@ async def multi_turn_generate(
     )
     messages.append(response["message"])
     elapsed_gen = time.monotonic() - t_gen
-    _log_with_optional_label(
-        logger.info,
-        log_label,
-        "single-turn | %s",
-        _summarize_output(response, elapsed_gen),
-    )
+    logger.info(_scoped(log_label, "single-turn | %s"), _summarize_output(response, elapsed_gen))
     last_nonempty = response["completion"]
 
     for i, prompt in enumerate(follow_ups):
         follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
-        _log_with_optional_label(
-            logger.info,
-            follow_up_label,
-            "starting (%d/%d)",
-            i + 1,
-            len(follow_ups),
-        )
+        logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
         messages.append({"role": "user", "content": prompt})
         t_fu = time.monotonic()
         response = await call_model(
@@ -1001,10 +951,8 @@ async def multi_turn_generate(
         )
         messages.append(response["message"])
         elapsed_fu = time.monotonic() - t_fu
-        _log_with_optional_label(
-            logger.info,
-            follow_up_label,
-            "%d/%d | %s",
+        logger.info(
+            _scoped(follow_up_label, "%d/%d | %s"),
             i + 1,
             len(follow_ups),
             _summarize_output(response, elapsed_fu),
@@ -1016,12 +964,7 @@ async def multi_turn_generate(
         trace_capture["trace"] = _build_trace(messages, response)
 
     elapsed_total = time.monotonic() - t0
-    _log_with_optional_label(
-        logger.info,
-        log_label,
-        "multi_turn_generate completed in %.1fs",
-        elapsed_total,
-    )
+    logger.info(_scoped(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
     # No finalization needed — persist_web_result overwrites with full stage output
     return last_nonempty
 
