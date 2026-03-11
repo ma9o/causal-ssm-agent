@@ -22,10 +22,18 @@ import type {
   StageOutcome,
 } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bot, MessageSquare } from "lucide-react";
+import { Bot } from "lucide-react";
 import { motion } from "motion/react";
-import { type ComponentType, type ReactNode, Suspense, lazy, useEffect, useState } from "react";
-import { RefinementPanel } from "./refinement-panel";
+import {
+  type ComponentType,
+  type ReactNode,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { StageSection } from "./stage-section";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
@@ -39,10 +47,6 @@ const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5Content = lazy(() => import("./stage-contents/stage-5-content"));
 const Stage6Content = lazy(() => import("./stage-contents/stage-6-content"));
 
-const REFINABLE_STAGES = new Set<string>(["stage-1a", "stage-1b", "stage-4"]);
-
-type SidePanelMode = "closed" | "trace" | "refine";
-
 function StageWithTrace({
   children,
   trace,
@@ -54,73 +58,69 @@ function StageWithTrace({
   runId: string;
   stageId: string;
 }) {
-  const [mode, setMode] = useState<SidePanelMode>("closed");
-  const isOpen = mode !== "closed";
-  const canRefine = REFINABLE_STAGES.has(stageId);
+  const [isOpen, setIsOpen] = useState(false);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const [leftHeight, setLeftHeight] = useState<number | undefined>(undefined);
+
+  const measureLeft = useCallback(() => {
+    if (leftRef.current) setLeftHeight(leftRef.current.offsetHeight);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || !leftRef.current) return;
+    measureLeft();
+    const ro = new ResizeObserver(measureLeft);
+    ro.observe(leftRef.current);
+    return () => ro.disconnect();
+  }, [isOpen, measureLeft]);
 
   if (!trace) return <>{children}</>;
 
   const transition = { duration: 0.35, ease: [0.4, 0, 0.2, 1] as const };
 
   return (
-    <div className={cn("flex", isOpen && "items-stretch gap-4")}>
+    <div className={cn("flex", isOpen && "items-start gap-4")}>
       <motion.div
+        ref={leftRef}
         className={cn("min-w-0", !isOpen && "max-w-6xl mx-auto w-full")}
         animate={{ flex: isOpen ? 2 : 1 }}
         transition={transition}
       >
         {!isOpen && (
-          <div className="mb-2 flex justify-end gap-2">
+          <div className="mb-2 flex justify-end">
             <button
               type="button"
-              onClick={() => setMode("trace")}
+              onClick={() => setIsOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
             >
               <Bot className="h-3.5 w-3.5" />
               Show LLM Trace
             </button>
-            {canRefine && (
-              <button
-                type="button"
-                onClick={() => setMode("refine")}
-                className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                Refine
-              </button>
-            )}
           </div>
         )}
         {children}
       </motion.div>
       <motion.div
-        className={cn("flex min-w-0 flex-col overflow-hidden", !isOpen && "h-0")}
+        className={cn("min-w-0", !isOpen && "h-0 overflow-hidden")}
+        style={isOpen && leftHeight ? { height: leftHeight } : undefined}
         animate={{ flex: isOpen ? 1 : 0, opacity: isOpen ? 1 : 0 }}
         initial={false}
         transition={transition}
       >
-        {mode === "trace" && (
+        {isOpen && (
           <div className="flex h-full flex-col gap-3">
             <button
               type="button"
-              onClick={() => setMode("closed")}
+              onClick={() => setIsOpen(false)}
               className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors"
             >
               <Bot className="h-3.5 w-3.5" />
               Hide LLM Trace
             </button>
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-muted/30 p-3">
-              <LLMTracePanel trace={trace} />
+            <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
+              <LLMTracePanel trace={trace} runId={runId} stageId={stageId} />
             </div>
           </div>
-        )}
-        {mode === "refine" && (
-          <RefinementPanel
-            trace={trace}
-            runId={runId}
-            stageId={stageId}
-            onClose={() => setMode("closed")}
-          />
         )}
       </motion.div>
     </div>
