@@ -15,7 +15,7 @@ The key insight: never make the browser do the heavy lifting. Use programmatic c
 
 ## Prerequisites
 
-You need three **dedicated** long-running services for integration testing. Do NOT reuse the existing dev server on port 3000 for the frontend test instance — these should be isolated test processes.
+You need three long-running services for integration testing.
 
 ### 1. Check for Next.js dev lock
 
@@ -25,7 +25,7 @@ The Next.js dev server acquires a lock at `apps/web/.next/dev/lock`. You cannot 
 ls apps/web/.next/dev/lock 2>/dev/null && echo "LOCKED" || echo "OK"
 ```
 
-If **LOCKED**: the user already has a dev server running from this worktree. Ask them to switch that terminal to this branch and restart on port 3001, or stop it manually. Do NOT kill the process yourself.
+If **LOCKED**: stop and ask the user to clear the lock or stop the existing process manually. Do NOT kill the process yourself.
 
 ### 2. Start services
 
@@ -73,7 +73,7 @@ All three must succeed before proceeding.
 
 ### 1. Place data
 
-Copy a text file or zip archive into a session-code-named directory:
+Copy an input file into a session-code-named directory:
 
 ```bash
 CODE="T3ST42"
@@ -82,11 +82,13 @@ cp apps/data-pipeline/data/raw/test_user/MyActivity.json \
    apps/data-pipeline/data/raw/$CODE/
 ```
 
-The pipeline's stage-0 preprocess step scans `data/raw/{code}/` for uploadable files
-and uses the most recent file in that directory. If the file is a zip archive,
-it is extracted before ingestion. Otherwise it is staged directly for the
-ingestion agent to inspect. This now works for plain-text inputs such as JSON,
-CSV, TSV, TXT, Markdown, and log files.
+The pipeline's stage-0 preprocess step scans `data/raw/{code}/` for non-hidden
+files and uses the most recent one in that directory. If that file is a zip
+archive, it is extracted before ingestion. Otherwise it is copied unchanged
+into the agent's working directory for inspection. Plain-text inputs such as
+JSON, CSV, TSV, TXT, Markdown, and log files work directly. Other file types
+can also be staged here, but they only succeed if the ingestion agent can parse
+them.
 
 ### 2. Trigger pipeline via Prefect API
 
