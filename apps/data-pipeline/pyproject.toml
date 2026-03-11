@@ -20,6 +20,7 @@ dependencies = [
     "numpyro>=0.16.0",
     "optax>=0.2.0",
     "polars>=1.35.2",
+    "fastapi>=0.115.0",
     "prefect>=3.6.5",
     "python-dotenv>=1.2.1",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
