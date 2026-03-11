@@ -390,121 +390,12 @@ class SSMModel:
     def make_likelihood_backend(self):
         """Construct the default likelihood backend from model configuration.
 
-        Uses self.likelihood to select between Kalman and Particle backends.
-        When first_pass_rb is enabled, analyzes the model structure to identify
-        decoupled linear-Gaussian sub-blocks that can be handled by exact Kalman
-        filtering, composing with a particle filter for the remainder.
-
+        Delegates to the standalone ``make_likelihood_backend`` factory.
         Callers that need a different backend (Laplace, Structured VI, DPF)
         construct it themselves instead of calling this.
         """
-        spec = self.spec
-        if self.likelihood == "kalman":
-            from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
-
-            return KalmanLikelihood(
-                n_latent=spec.n_latent,
-                n_manifest=spec.n_manifest,
-            )
-
-        # Resolve per-variable diffusion dist — passed as-is to ParticleLikelihood
-        # which handles its own list→scalar normalization internally.
-        from causal_ssm_agent.models.likelihoods.graph_analysis import (
-            get_per_channel_links,
-            get_per_channel_manifest,
-            get_per_variable_diffusion,
-        )
-
-        per_var = get_per_variable_diffusion(spec)
-        per_obs = get_per_channel_manifest(spec)
-        per_links = get_per_channel_links(spec)
-
-        # First-pass RB analysis: identify decoupled Gaussian sub-blocks
-        if spec.first_pass_rb:
-            from causal_ssm_agent.models.likelihoods.graph_analysis import (
-                analyze_first_pass_rb,
-            )
-
-            partition = analyze_first_pass_rb(spec)
-
-            if partition.has_kalman_block and not partition.has_particle_block:
-                # Everything is marginalizable — use pure Kalman
-                from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
-
-                return KalmanLikelihood(
-                    n_latent=spec.n_latent,
-                    n_manifest=spec.n_manifest,
-                )
-
-            # Only create ComposedLikelihood when:
-            # 1. Both Kalman and particle latent blocks exist
-            # 2. The Kalman block has exclusive observations (otherwise can't contribute to LL)
-            # When particle_idx is empty but obs_particle_idx is non-empty
-            # (e.g. non-Gaussian zero-dep channels), fall through to full PF.
-            if (
-                partition.has_kalman_block
-                and len(partition.particle_idx) > 0
-                and len(partition.obs_kalman_idx) > 0
-            ):
-                from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
-                from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
-                from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
-
-                n_k = len(partition.kalman_idx)
-                n_obs_k = len(partition.obs_kalman_idx)
-                n_p = len(partition.particle_idx)
-                n_obs_p = len(partition.obs_particle_idx)
-
-                # Per-variable diffusion for the particle sub-block
-                particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
-
-                # Determine manifest_dist for PF channels from per-channel info
-                pf_obs_dists = [per_obs[int(k)] for k in partition.obs_particle_idx]
-                pf_manifest_dist = spec.manifest_dist
-                for d in pf_obs_dists:
-                    if d != DistributionFamily.GAUSSIAN:
-                        pf_manifest_dist = d
-                        break
-
-                # Determine manifest_link for PF channels
-                pf_obs_links = [per_links[int(k)] for k in partition.obs_particle_idx]
-                pf_manifest_link = spec.manifest_link
-                for lk in pf_obs_links:
-                    if lk != LinkFunction.IDENTITY:
-                        pf_manifest_link = lk
-                        break
-
-                return ComposedLikelihood(
-                    partition=partition,
-                    kalman_backend=KalmanLikelihood(
-                        n_latent=n_k,
-                        n_manifest=n_obs_k,
-                    ),
-                    particle_backend=ParticleLikelihood(
-                        n_latent=n_p,
-                        n_manifest=n_obs_p,
-                        n_particles=self.n_particles,
-                        rng_key=self.pf_key,
-                        manifest_dist=pf_manifest_dist,
-                        diffusion_dist=particle_diffs,
-                        block_rb=spec.second_pass_rb,
-                        manifest_link=pf_manifest_link,
-                    ),
-                )
-
-        # Fallthrough: full particle filter (ParticleLikelihood normalizes
-        # the per_var list internally — no need to collapse here)
-        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
-
-        return ParticleLikelihood(
-            n_latent=spec.n_latent,
-            n_manifest=spec.n_manifest,
-            n_particles=self.n_particles,
-            rng_key=self.pf_key,
-            manifest_dist=spec.manifest_dist,
-            diffusion_dist=per_var,
-            block_rb=spec.second_pass_rb,
-            manifest_link=spec.manifest_link,
+        return make_likelihood_backend(
+            self.spec, self.likelihood, self.n_particles, self.pf_key
         )
 
     def model(
@@ -590,3 +481,131 @@ class SSMModel:
             numpyro.factor("log_likelihood", total_ll)
             ll_per_timestep = jnp.diff(lnc, prepend=0.0)
             numpyro.deterministic("ll_per_timestep", ll_per_timestep)
+
+
+# ---------------------------------------------------------------------------
+# Standalone likelihood backend factory
+# ---------------------------------------------------------------------------
+
+
+def make_likelihood_backend(
+    spec: SSMSpec,
+    likelihood: Literal["particle", "kalman"] = "particle",
+    n_particles: int = 200,
+    pf_key: jnp.ndarray | None = None,
+):
+    """Construct a likelihood backend from model configuration.
+
+    Selects between Kalman and Particle backends. When ``first_pass_rb`` is
+    enabled, analyzes the model structure to identify decoupled linear-Gaussian
+    sub-blocks that can use exact Kalman filtering, composing with a particle
+    filter for the remainder.
+
+    Args:
+        spec: SSM specification
+        likelihood: Backend type — "kalman" (exact, linear Gaussian) or
+            "particle" (universal, any noise family)
+        n_particles: Number of particles for bootstrap PF
+        pf_key: Fixed JAX PRNG key for the particle filter
+    """
+    if pf_key is None:
+        pf_key = jax.random.PRNGKey(0)
+
+    if likelihood == "kalman":
+        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+
+        return KalmanLikelihood(
+            n_latent=spec.n_latent,
+            n_manifest=spec.n_manifest,
+        )
+
+    # Resolve per-variable distributions for ParticleLikelihood
+    from causal_ssm_agent.models.likelihoods.graph_analysis import (
+        get_per_channel_links,
+        get_per_channel_manifest,
+        get_per_variable_diffusion,
+    )
+
+    per_var = get_per_variable_diffusion(spec)
+    per_obs = get_per_channel_manifest(spec)
+    per_links = get_per_channel_links(spec)
+
+    # First-pass RB analysis: identify decoupled Gaussian sub-blocks
+    if spec.first_pass_rb:
+        from causal_ssm_agent.models.likelihoods.graph_analysis import (
+            analyze_first_pass_rb,
+        )
+
+        partition = analyze_first_pass_rb(spec)
+
+        if partition.has_kalman_block and not partition.has_particle_block:
+            from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+
+            return KalmanLikelihood(
+                n_latent=spec.n_latent,
+                n_manifest=spec.n_manifest,
+            )
+
+        # ComposedLikelihood when both Kalman and particle blocks exist
+        # and the Kalman block has exclusive observations.
+        if (
+            partition.has_kalman_block
+            and len(partition.particle_idx) > 0
+            and len(partition.obs_kalman_idx) > 0
+        ):
+            from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
+            from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+
+            n_k = len(partition.kalman_idx)
+            n_obs_k = len(partition.obs_kalman_idx)
+            n_p = len(partition.particle_idx)
+            n_obs_p = len(partition.obs_particle_idx)
+
+            particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
+
+            # Determine manifest_dist for PF channels
+            pf_manifest_dist = spec.manifest_dist
+            for k in partition.obs_particle_idx:
+                if per_obs[int(k)] != DistributionFamily.GAUSSIAN:
+                    pf_manifest_dist = per_obs[int(k)]
+                    break
+
+            # Determine manifest_link for PF channels
+            pf_manifest_link = spec.manifest_link
+            for k in partition.obs_particle_idx:
+                if per_links[int(k)] != LinkFunction.IDENTITY:
+                    pf_manifest_link = per_links[int(k)]
+                    break
+
+            return ComposedLikelihood(
+                partition=partition,
+                kalman_backend=KalmanLikelihood(
+                    n_latent=n_k,
+                    n_manifest=n_obs_k,
+                ),
+                particle_backend=ParticleLikelihood(
+                    n_latent=n_p,
+                    n_manifest=n_obs_p,
+                    n_particles=n_particles,
+                    rng_key=pf_key,
+                    manifest_dist=pf_manifest_dist,
+                    diffusion_dist=particle_diffs,
+                    block_rb=spec.second_pass_rb,
+                    manifest_link=pf_manifest_link,
+                ),
+            )
+
+    # Fallthrough: full particle filter
+    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+
+    return ParticleLikelihood(
+        n_latent=spec.n_latent,
+        n_manifest=spec.n_manifest,
+        n_particles=n_particles,
+        rng_key=pf_key,
+        manifest_dist=spec.manifest_dist,
+        diffusion_dist=per_var,
+        block_rb=spec.second_pass_rb,
+        manifest_link=spec.manifest_link,
+    )
