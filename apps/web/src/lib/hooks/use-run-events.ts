@@ -74,9 +74,17 @@ function isStageRunStatus(value: unknown): value is StageRunStatus {
   return value === "running" || value === "completed" || value === "failed";
 }
 
+export interface StageProgressEvent {
+  stageId: StageId;
+  status: StageRunStatus;
+  eventTime?: number;
+  outcome?: string;
+  error?: { type: string; message: string };
+}
+
 export function parsePrefectStageProgressEvent(
   event: PrefectEventSocketMessage["event"],
-): { stageId: StageId; status: StageRunStatus; eventTime?: number } | null {
+): StageProgressEvent | null {
   if (!event?.event?.startsWith(STAGE_PROGRESS_EVENT_PREFIX)) {
     return null;
   }
@@ -92,6 +100,11 @@ export function parsePrefectStageProgressEvent(
     stageId,
     status,
     eventTime: event.occurred ? new Date(event.occurred).getTime() : undefined,
+    outcome: typeof payload?.outcome === "string" ? payload.outcome : undefined,
+    error:
+      payload?.error && typeof payload.error === "object"
+        ? (payload.error as { type: string; message: string })
+        : undefined,
   };
 }
 
@@ -171,7 +184,7 @@ function createRunEventSocket(
       const stageEvent = parsePrefectStageProgressEvent(message.event);
       if (!stageEvent) return;
 
-      updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime);
+      updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime, stageEvent.outcome);
       if (stageEvent.status === "completed") {
         invalidateStageData(queryClient, runId, stageEvent.stageId);
       }
@@ -225,9 +238,9 @@ export function useRunEvents(runId: string | null) {
   const queryClient = useQueryClient();
 
   const updateStage = useCallback(
-    (stageId: StageId, status: StageRunStatus, eventTime?: number) => {
+    (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => {
       queryClient.setQueryData<PipelineProgress>(["pipeline", runId, "status"], (old) =>
-        applyStageUpdate(old, stageId, status, eventTime),
+        applyStageUpdate(old, stageId, status, eventTime, outcome),
       );
     },
     [queryClient, runId],

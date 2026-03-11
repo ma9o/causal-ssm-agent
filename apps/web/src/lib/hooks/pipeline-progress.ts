@@ -73,6 +73,7 @@ export function applyStageUpdate(
   stageId: StageId,
   status: StageRunStatus,
   eventTime?: number,
+  outcome?: string,
 ): PipelineProgress {
   const current = prev ?? initialProgress();
   const previousStatus = current.stages[stageId];
@@ -107,12 +108,17 @@ export function applyStageUpdate(
   const isComplete = STAGES.every((stage) => stages[stage.id] === "completed");
   const hasFailedStage = STAGES.some((stage) => stages[stage.id] === "failed");
 
+  const stageOutcomes = outcome
+    ? { ...current.stageOutcomes, [stageId]: outcome as StageOutcome }
+    : current.stageOutcomes;
+
   return {
     ...current,
     stages,
     timings,
+    stageOutcomes,
     currentStage: getCurrentRunningStage(stages),
     isComplete,
-    isFailed: current.isFailed || hasFailedStage,
+    isFailed: current.isFailed || hasFailedStage || outcome === "fail",
   };
 }
