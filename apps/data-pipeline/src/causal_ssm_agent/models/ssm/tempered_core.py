@@ -64,6 +64,10 @@ def run_tempered_smc(
     structured_vi, and dpf. Each method calls this with different
     method_name and extra_diagnostics.
 
+    The posterior output is all N particles at beta=1.0 (the full posterior
+    temperature), optionally refined with extra MCMC mutation rounds for
+    mixing. This is the standard SMC output convention.
+
     Args:
         model: SSMModel instance
         observations: (T, n_manifest) observed data
@@ -72,7 +76,7 @@ def run_tempered_smc(
         n_csmc_particles: N -- number of parameter particles
         n_mh_steps: number of HMC mutation steps per round
         param_step_size: initial leapfrog step size (epsilon), adapted online
-        n_warmup: tempering levels to discard as warmup (default: half of actual)
+        n_warmup: extra MCMC mutation rounds at beta=1.0 for mixing (default: 5)
         target_accept: target MH acceptance rate (default: 0.44 for MALA, 0.65 for HMC)
         seed: random seed
         adaptive_tempering: use ESS-based bisection for tempering schedule
@@ -266,7 +270,6 @@ def run_tempered_smc(
     ess_history = []
     eps_history = []
     beta_schedule = []
-    chain_samples = []
 
     beta_prev = 0.0
     max_mutation_rounds = 5  # max extra rounds per tempering level (standard mode only)
@@ -362,9 +365,6 @@ def run_tempered_smc(
         # Recompute log-likelihoods for next incremental reweight
         log_liks, _ = batch_lik_val_and_grad(particles)
 
-        # Store one sample (rotate through particles for coverage)
-        chain_samples.append(particles[level % N])
-
         resamp_tag = ""
         if not waste_free and did_resample:
             resamp_tag = " [resampled]"
@@ -386,15 +386,25 @@ def run_tempered_smc(
         beta_prev = beta_k
         level += 1
 
-    # Determine warmup from actual levels used
     actual_levels = level
-    if n_warmup is None:
-        n_warmup = actual_levels // 2
-    # Clamp warmup to leave at least 1 sample
-    n_warmup = min(n_warmup, max(actual_levels - 1, 0))
 
-    # 6. Post-process: discard warmup, transform to constrained space
-    chain_particles = jnp.stack(chain_samples[n_warmup:], axis=0)  # (n_keep, D)
+    # 6. Extra MCMC rounds at beta=1.0 for posterior mixing.
+    # n_warmup controls how many extra rounds to run (default: 5).
+    n_mixing_rounds = n_warmup if n_warmup is not None else 5
+    if n_mixing_rounds > 0 and beta_prev >= 1.0:
+        logger.info("  Running %s extra mixing rounds at beta=1.0...", n_mixing_rounds)
+        for _mix_round in range(n_mixing_rounds):
+            rng_key, mutate_key = random.split(rng_key)
+            particles, n_accepts = _mutate_batch_jit(mutate_key, particles, 1.0, eps, chol_mass)
+            mix_accept = float(jnp.mean(n_accepts) / n_mh_steps)
+            # Adapt step size
+            log_eps = jnp.log(jnp.array(eps))
+            log_eps = log_eps + 0.1 * (mix_accept - target_accept)
+            eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+        logger.info("    mixing done: accept=%.2f eps=%.4f", mix_accept, eps)
+
+    # Posterior = all N particles at beta=1.0
+    chain_particles = particles  # (N, D)
 
     samples = extract_constrained_samples(
         chain_particles,
@@ -418,7 +428,7 @@ def run_tempered_smc(
         "n_mh_steps": n_mh_steps,
         "n_leapfrog": n_leapfrog,
         "param_step_size": param_step_size,
-        "n_warmup": n_warmup,
+        "n_mixing_rounds": n_mixing_rounds,
         "target_accept": target_accept,
         "adaptive_tempering": adaptive_tempering,
         "waste_free": waste_free,
