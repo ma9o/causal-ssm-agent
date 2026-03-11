@@ -179,7 +179,7 @@ class TestRunWorkerExtraction:
         )
 
     def test_empty_completion_raises_parse_error(self, caplog):
-        async def fake_generate(messages, tools=None, follow_ups=None):
+        async def fake_generate(messages, tools=None, follow_ups=None, label=None):
             return ""
 
         logger = logging.getLogger("test_worker_core")
@@ -235,30 +235,3 @@ class TestRunWorkerExtraction:
         assert captured["label"] == "stage2 chunk=3 rows=1 cols=4"
         assert result.dataframe.height == 1
         assert "[stage2 chunk=3 rows=1 cols=4] Calling extraction model" in caplog.text
-
-    def test_call_label_is_optional_for_legacy_generate_functions(self):
-        async def fake_generate(messages, tools=None, follow_ups=None):
-            return json.dumps(
-                {
-                    "extractions": [
-                        {
-                            "indicator": "sleep_hours",
-                            "value": 7.5,
-                            "timestamp": "2024-01-01T00:00:00Z",
-                        }
-                    ]
-                }
-            )
-
-        result = _run(
-            run_worker_extraction(
-                chunk_df=self._sample_df(),
-                question="How does screen time affect sleep?",
-                causal_spec=_causal_spec(),
-                generate=fake_generate,
-                call_label="stage2 chunk=4 rows=1 cols=4",
-            )
-        )
-
-        assert result.dataframe.height == 1
-        assert result.dataframe["indicator"].to_list() == ["sleep_hours"]

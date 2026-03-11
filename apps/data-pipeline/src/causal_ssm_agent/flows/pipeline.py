@@ -6,7 +6,6 @@ can provide edited payloads for selected stages, and the pipeline skips those
 stage computations while re-running downstream stages from the override point.
 """
 
-import inspect
 from pathlib import Path
 from typing import Any
 
@@ -66,32 +65,13 @@ def _resolve_stage_window(
     resume_run_id: str | None,
     start_stage: str | None,
     end_stage: str | None,
-    stage_overrides: dict[str, dict],
 ) -> tuple[str, int, str, int]:
     if start_stage is None:
         if resume_run_id:
-            if stage_overrides:
-                start_stage = min(stage_overrides, key=_stage_idx)
-            else:
-                raise ValueError(
-                    "resume_run_id requires start_stage unless stage_overrides specify one"
-                )
-        else:
-            start_stage = STAGE_SEQUENCE[0]
+            raise ValueError("resume_run_id requires start_stage")
+        start_stage = STAGE_SEQUENCE[0]
 
     start_idx = _stage_idx(start_stage)
-    if stage_overrides:
-        earliest_override_idx = min(_stage_idx(stage_id) for stage_id in stage_overrides)
-        if earliest_override_idx < start_idx:
-            adjusted_stage = STAGE_SEQUENCE[earliest_override_idx]
-            logger.info(
-                "Adjusting start_stage from %s to %s to honor stage_overrides",
-                start_stage,
-                adjusted_stage,
-            )
-            start_stage = adjusted_stage
-            start_idx = earliest_override_idx
-
     if resume_run_id is None and start_idx > 0:
         raise ValueError("start_stage requires resume_run_id when skipping earlier stages")
 
@@ -127,22 +107,11 @@ def _load_question_for_window(
     return None
 
 
-def _get_stage_override(
-    stage_overrides: dict[str, dict],
-    stage_id: str,
-) -> dict[str, Any] | None:
-    payload = stage_overrides.get(stage_id)
-    if payload is None:
-        return None
-    logger.info("Using override payload for %s", stage_id)
-    return payload
-
-
-async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
+def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
     causal_spec = stage1b_web.get("causal_spec", {})
     latent = causal_spec.get("latent", {})
     measurement = causal_spec.get("measurement", {})
-    artifact_result = create_markdown_artifact(
+    create_markdown_artifact(
         key="causal-spec",
         markdown=(
             f"## Causal Specification\n\n"
@@ -151,8 +120,6 @@ async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
             f"- **Indicators**: {len(measurement.get('indicators', []))}\n"
         ),
     )
-    if inspect.isawaitable(artifact_result):
-        await artifact_result
 
 
 def _partial_pipeline_result(run_id: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -212,8 +179,9 @@ async def causal_inference_pipeline(
             replacement payloads. The pipeline skips that stage's computation and
             resumes execution from the overridden output.
         resume_run_id: Prior run id to restore upstream stage snapshots from.
-        start_stage: First stage to execute in this run. Earlier stages are restored
-            from ``resume_run_id`` when provided.
+            Required when start_stage skips earlier stages.
+        start_stage: First stage to execute in this run. Required when resume_run_id
+            is set. Earlier stages are restored from ``resume_run_id``.
         end_stage: Final stage to execute in this run. Useful for stage-specific
             development replays such as rerunning only stage 2.
         openrouter_api_key: User-provided OpenRouter API key (BYOK). Overrides the
@@ -234,7 +202,6 @@ async def causal_inference_pipeline(
         resume_run_id=resume_run_id,
         start_stage=start_stage,
         end_stage=end_stage,
-        stage_overrides=supported_overrides,
     )
     question = _load_question_for_window(
         query=query,
@@ -287,11 +254,11 @@ async def causal_inference_pipeline(
         _raise_if_restored_gate_failed(stage_id, restored)
         return restored
 
-    async def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
+    def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
             return None
         if "stage-1b" in stage_states:
-            await _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
+            _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
         if stage_id == "stage-6":
             logger.info("Pipeline complete: run finished successfully")
             return {**stage_states["stage-5"]["web"], **stage_states["stage-6"]["web"]}
@@ -304,7 +271,7 @@ async def causal_inference_pipeline(
     else:
         stage0_state = await dag.stage0_flow(user_id, root_run_id)
         stage_states["stage-0"] = stage0_state
-    partial = await _maybe_finish("stage-0")
+    partial = _maybe_finish("stage-0")
     if partial is not None:
         return partial
     stage0_result = stage0_state["result"]
@@ -318,10 +285,10 @@ async def causal_inference_pipeline(
         stage1a_state = await dag.stage1a_flow(
             question,
             root_run_id,
-            override_payload=_get_stage_override(supported_overrides, "stage-1a"),
+            override_payload=supported_overrides.get("stage-1a"),
         )
         stage_states["stage-1a"] = stage1a_state
-    partial = await _maybe_finish("stage-1a")
+    partial = _maybe_finish("stage-1a")
     if partial is not None:
         return partial
     stage1a_result = stage1a_state["result"]
@@ -338,10 +305,10 @@ async def causal_inference_pipeline(
             stage1a_result,
             gates_overridden,
             root_run_id,
-            override_payload=_get_stage_override(supported_overrides, "stage-1b"),
+            override_payload=supported_overrides.get("stage-1b"),
         )
         stage_states["stage-1b"] = stage1b_state
-    partial = await _maybe_finish("stage-1b")
+    partial = _maybe_finish("stage-1b")
     if partial is not None:
         return partial
     stage1b_result = stage1b_state["result"]
@@ -355,7 +322,7 @@ async def causal_inference_pipeline(
             raise ValueError("Question is required to execute stage-2")
         stage2_state = await dag.stage2_flow(question, stage0_result, stage1b_result, root_run_id)
         stage_states["stage-2"] = stage2_state
-    partial = await _maybe_finish("stage-2")
+    partial = _maybe_finish("stage-2")
     if partial is not None:
         return partial
     stage2_result = stage2_state["result"]
@@ -366,7 +333,7 @@ async def causal_inference_pipeline(
     else:
         stage3_state = dag.stage3_flow(stage1b_result, stage2_result, root_run_id)
         stage_states["stage-3"] = stage3_state
-    partial = await _maybe_finish("stage-3")
+    partial = _maybe_finish("stage-3")
     if partial is not None:
         return partial
 
@@ -382,10 +349,10 @@ async def causal_inference_pipeline(
             stage2_result,
             lit_enabled,
             root_run_id,
-            override_payload=_get_stage_override(supported_overrides, "stage-4"),
+            override_payload=supported_overrides.get("stage-4"),
         )
         stage_states["stage-4"] = stage4_state
-    partial = await _maybe_finish("stage-4")
+    partial = _maybe_finish("stage-4")
     if partial is not None:
         return partial
     stage4_result = stage4_state["result"]
@@ -398,7 +365,7 @@ async def causal_inference_pipeline(
             stage4_result, stage2_result, gates_overridden, root_run_id
         )
         stage_states["stage-4b"] = stage4b_state
-    partial = await _maybe_finish("stage-4b")
+    partial = _maybe_finish("stage-4b")
     if partial is not None:
         return partial
 
@@ -414,7 +381,7 @@ async def causal_inference_pipeline(
             root_run_id,
         )
         stage_states["stage-5"] = stage5_state
-    partial = await _maybe_finish("stage-5")
+    partial = _maybe_finish("stage-5")
     if partial is not None:
         return partial
     stage5_result = stage5_state["result"]
@@ -427,7 +394,7 @@ async def causal_inference_pipeline(
         root_run_id,
     )
     stage_states["stage-6"] = stage6_state
-    partial = await _maybe_finish("stage-6")
+    partial = _maybe_finish("stage-6")
     if partial is not None:
         return partial
 

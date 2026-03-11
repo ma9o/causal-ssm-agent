@@ -4,7 +4,6 @@ Core logic for worker data extraction, decoupled from Prefect and model-client
 frameworks. Uses dependency injection for the LLM generate function.
 """
 
-import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -31,25 +30,9 @@ class WorkerResult:
     raw_completion: str
 
 
-def _log_message(label: str | None, message: str) -> str:
-    """Prefix worker logs with a chunk label when available."""
-    if not label:
-        return message
-    return f"[{label}] {message}"
-
-
-def _generate_supports_label(generate: WorkerGenerateFn) -> bool:
-    """Check whether the injected generate function accepts a ``label`` kwarg."""
-    try:
-        signature = inspect.signature(generate)
-    except (TypeError, ValueError):
-        return False
-
-    if "label" in signature.parameters:
-        return True
-    return any(
-        param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
-    )
+def _pfx(label: str | None, message: str) -> str:
+    """Prefix a log message with a chunk label when available."""
+    return f"[{label}] {message}" if label else message
 
 
 def _format_indicators(causal_spec: dict) -> str:
@@ -159,7 +142,7 @@ async def run_worker_extraction(
     tool_names = [tool.name for tool in tools]
 
     active_logger.info(
-        _log_message(
+        _pfx(
             call_label,
             "Prepared worker prompt with %d rows, %d columns, %d indicators, %d CSV chars",
         ),
@@ -168,28 +151,19 @@ async def run_worker_extraction(
         len(get_indicators(causal_spec)),
         len(chunk_csv),
     )
-    active_logger.info(
-        _log_message(call_label, "Using worker tools: %s"),
-        tool_names,
-    )
+    active_logger.info(_pfx(call_label, "Using worker tools: %s"), tool_names)
 
     # Generate extraction
-    active_logger.info(_log_message(call_label, "Calling extraction model"))
-    if call_label and _generate_supports_label(generate):
-        completion = await generate(extraction_msgs, tools=tools, label=call_label)
-    else:
-        completion = await generate(extraction_msgs, tools=tools)
-    active_logger.info(
-        _log_message(call_label, "Model call returned %d characters"),
-        len(completion),
-    )
+    active_logger.info(_pfx(call_label, "Calling extraction model"))
+    completion = await generate(extraction_msgs, tools=tools, label=call_label)
+    active_logger.info(_pfx(call_label, "Model call returned %d characters"), len(completion))
 
     # Prefer the captured result from the validation tool
     data = capture.get("output")
     if data is None:
         # Fallback: try parsing the final completion directly
         active_logger.warning(
-            _log_message(
+            _pfx(
                 call_label,
                 "Validation tool did not capture structured output; falling back to completion parsing",
             ),
@@ -198,7 +172,7 @@ async def run_worker_extraction(
     output = WorkerOutput.model_validate(data)
     dataframe = output.to_dataframe()
     active_logger.info(
-        _log_message(call_label, "Validated %d extractions into %d output rows"),
+        _pfx(call_label, "Validated %d extractions into %d output rows"),
         len(output.extractions),
         dataframe.height,
     )
