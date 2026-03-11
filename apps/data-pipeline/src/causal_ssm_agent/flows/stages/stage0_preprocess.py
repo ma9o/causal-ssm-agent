@@ -1,9 +1,10 @@
 """Stage 0: Agentic data ingestion (Prefect wrapper).
 
-Accepts any .zip archive, extracts it, and uses an LLM agent to parse
-the contents into a single Polars DataFrame.
+Accepts the most recent uploaded file for a user. Zip archives are extracted;
+all other files are staged into a temporary directory for the ingestion agent.
 """
 
+import shutil
 import tempfile
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
@@ -28,33 +29,40 @@ logger = get_prefect_logger(__name__)
 def _find_raw_input(user_id: str) -> Path:
     """Find the raw input file for a user.
 
-    Searches data/raw/<user_id>/ for uploadable files.
+    Searches data/raw/<user_id>/ for the most recent uploaded file.
     """
     user_dir = RAW_DIR / user_id
     if not user_dir.is_dir():
         raise FileNotFoundError(f"No raw data directory: {user_dir}")
 
-    for pattern in ("*.zip",):
-        files = sorted(user_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-        if files:
-            return files[0]
+    files = sorted(
+        (path for path in user_dir.iterdir() if path.is_file() and not path.name.startswith(".")),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if files:
+        return files[0]
 
-    raise FileNotFoundError(f"No .zip files in {user_dir}")
+    raise FileNotFoundError(f"No files in {user_dir}")
 
 
-def _extract_zip(archive_path: Path, dest_dir: Path) -> Path:
-    """Extract a zip archive to a destination directory.
+def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
+    """Prepare a raw input file in a directory for the ingestion agent.
+
+    Zip archives are extracted into ``dest_dir``. All other files are copied
+    into ``dest_dir`` unchanged so the agent can inspect them via ``DATA_DIR``.
 
     Returns:
-        Path to the extraction root (dest_dir).
+        Path to the prepared input directory (``dest_dir``).
     """
-    with archive_path.open("rb") as f:
-        if not is_zipfile(f):
-            raise ValueError(f"{archive_path} is not a valid zip archive")
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    with ZipFile(archive_path, "r") as zf:
-        zf.extractall(dest_dir)
+    if is_zipfile(raw_path):
+        with ZipFile(raw_path, "r") as zf:
+            zf.extractall(dest_dir)
+        return dest_dir
 
+    shutil.copy2(raw_path, dest_dir / raw_path.name)
     return dest_dir
 
 
@@ -62,8 +70,9 @@ def _extract_zip(archive_path: Path, dest_dir: Path) -> Path:
 async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     """Ingest raw data using an LLM agent.
 
-    Finds the most recent .zip in data/raw/<user_id>/, extracts it,
-    and runs the agentic ingestion loop to produce a Polars DataFrame.
+    Finds the most recent file in data/raw/<user_id>/, prepares it in a
+    temporary directory, and runs the agentic ingestion loop to produce a
+    Polars DataFrame.
 
     Args:
         user_id: User subdirectory under data/raw/
@@ -83,7 +92,7 @@ async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     )
 
     with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-        extract_dir = _extract_zip(raw_path, Path(tmpdir))
+        extract_dir = _prepare_raw_input(raw_path, Path(tmpdir))
         result = await run_agentic_ingestion(extract_dir, generate)
 
     # Attach trace for web persistence

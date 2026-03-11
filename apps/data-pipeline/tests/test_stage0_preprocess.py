@@ -6,6 +6,7 @@ import datetime
 import io
 import json
 import math
+import os
 import re
 import traceback
 import zipfile
@@ -232,22 +233,28 @@ class TestIngestionTools:
 
 
 class TestFindRawInput:
-    def test_finds_zip(self, tmp_path):
+    def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path):
         import causal_ssm_agent.flows.stages.stage0_preprocess as mod
         from causal_ssm_agent.flows.stages.stage0_preprocess import _find_raw_input
 
         user_dir = tmp_path / "test_user"
         user_dir.mkdir()
-        zip_path = user_dir / "data.zip"
-        with zipfile.ZipFile(zip_path, "w") as zf:
+        older = user_dir / "data.zip"
+        newer = user_dir / "notes.txt"
+
+        with zipfile.ZipFile(older, "w") as zf:
             zf.writestr("test.txt", "hello")
+        newer.write_text("screen time, sleep quality\n")
+
+        os.utime(older, (1_700_000_000, 1_700_000_000))
+        os.utime(newer, (1_700_000_100, 1_700_000_100))
 
         # Monkeypatch RAW_DIR
         original = mod.RAW_DIR
         mod.RAW_DIR = tmp_path
         try:
             result = _find_raw_input("test_user")
-            assert result.name == "data.zip"
+            assert result.name == "notes.txt"
         finally:
             mod.RAW_DIR = original
 
@@ -265,3 +272,106 @@ class TestFindRawInput:
                 _find_raw_input("empty_user")
         finally:
             mod.RAW_DIR = original
+
+
+class TestPrepareRawInput:
+    def test_extracts_zip_archives(self, tmp_path):
+        from causal_ssm_agent.flows.stages.stage0_preprocess import _prepare_raw_input
+
+        raw_zip = tmp_path / "input.zip"
+        with zipfile.ZipFile(raw_zip, "w") as zf:
+            zf.writestr("nested/data.csv", "date,value\n2024-01-01,1\n")
+
+        prepared_dir = tmp_path / "prepared"
+        result = _prepare_raw_input(raw_zip, prepared_dir)
+
+        assert result == prepared_dir
+        assert (prepared_dir / "nested" / "data.csv").read_text() == "date,value\n2024-01-01,1\n"
+
+    def test_copies_non_archive_files(self, tmp_path):
+        from causal_ssm_agent.flows.stages.stage0_preprocess import _prepare_raw_input
+
+        raw_text = tmp_path / "input.txt"
+        raw_text.write_text("line one\nline two\n")
+
+        prepared_dir = tmp_path / "prepared"
+        result = _prepare_raw_input(raw_text, prepared_dir)
+
+        assert result == prepared_dir
+        assert (prepared_dir / "input.txt").read_text() == "line one\nline two\n"
+
+
+class _MockSandboxContext:
+    def __init__(self, extract_dir: Path, **_kwargs):
+        self._sandbox = _MockSandbox(extract_dir)
+
+    def __enter__(self):
+        return self._sandbox
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+
+class TestRunAgenticIngestion:
+    def test_reprompts_for_submit_table_when_dataframe_exists(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("date,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
+
+        monkeypatch.setattr(mod, "ModalCodeSandbox", _MockSandboxContext)
+
+        calls: list[list[str]] = []
+
+        async def generate(messages, tools, *_args, **_kwargs):
+            calls.append([tool.name for tool in tools])
+            tool_map = {tool.name: tool for tool in tools}
+
+            if "execute_python" in tool_map:
+                await tool_map["execute_python"](code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")')
+                return ""
+
+            await tool_map["submit_table"](
+                source_label="CSV upload",
+                column_descriptions_json=json.dumps(
+                    {
+                        "date": "Date of observation",
+                        "value": "Observed numeric value",
+                        "category": "Category label",
+                    }
+                ),
+            )
+            return ""
+
+        result = _run(mod.run_agentic_ingestion(tmp_path, generate))
+
+        assert calls == [
+            ["list_files", "read_file_sample", "execute_python", "submit_table"],
+            ["submit_table"],
+        ]
+        assert result.source_label == "CSV upload"
+        assert result.column_descriptions == {
+            "date": "Date of observation",
+            "value": "Observed numeric value",
+            "category": "Category label",
+        }
+
+    def test_raises_when_agent_never_finalizes_dataframe(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("date,value\n2024-01-01,1.5\n")
+
+        monkeypatch.setattr(mod, "ModalCodeSandbox", _MockSandboxContext)
+
+        async def generate(_messages, tools, *_args, **_kwargs):
+            tool_map = {tool.name: tool for tool in tools}
+            if "execute_python" in tool_map:
+                await tool_map["execute_python"](code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")')
+            return ""
+
+        with pytest.raises(
+            ValueError,
+            match="Ingestion agent produced a DataFrame but did not finalize it",
+        ):
+            _run(mod.run_agentic_ingestion(tmp_path, generate))

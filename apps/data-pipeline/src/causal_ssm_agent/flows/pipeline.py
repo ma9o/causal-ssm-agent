@@ -6,11 +6,14 @@ can provide edited payloads for selected stages, and the pipeline skips those
 stage computations while re-running downstream stages from the override point.
 """
 
+from collections.abc import Callable
+from inspect import isawaitable
 from pathlib import Path
 from typing import Any
 
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact
+from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.data import load_query
@@ -32,6 +35,7 @@ STAGE_SEQUENCE = (
 )
 STAGE_INDEX = {stage_id: index for index, stage_id in enumerate(STAGE_SEQUENCE)}
 QUESTION_STAGES = frozenset({"stage-1a", "stage-1b", "stage-2", "stage-4"})
+STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
 
 
 def _preview(text: str, *, limit: int = 120) -> str:
@@ -119,6 +123,20 @@ def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
             f"- **Edges**: {len(latent.get('edges', []))}\n"
             f"- **Indicators**: {len(measurement.get('indicators', []))}\n"
         ),
+    )
+
+
+def _emit_stage_progress_event(run_id: str, stage_id: str, status: str) -> None:
+    emit_event(
+        event=f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{run_id}",
+            "prefect.resource.name": run_id,
+        },
+        payload={
+            "stage_id": stage_id,
+            "status": status,
+        },
     )
 
 
@@ -251,8 +269,21 @@ async def causal_inference_pipeline(
             root_run_id,
         )
         stage_states[stage_id] = restored
+        _emit_stage_progress_event(root_run_id, stage_id, "completed")
         _raise_if_restored_gate_failed(stage_id, restored)
         return restored
+
+    async def _run_stage(stage_id: str, runner: Callable[[], Any]) -> dict[str, Any]:
+        _emit_stage_progress_event(root_run_id, stage_id, "running")
+        try:
+            stage_state = runner()
+            if isawaitable(stage_state):
+                stage_state = await stage_state
+        except Exception:
+            _emit_stage_progress_event(root_run_id, stage_id, "failed")
+            raise
+        _emit_stage_progress_event(root_run_id, stage_id, "completed")
+        return stage_state
 
     def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
@@ -269,7 +300,7 @@ async def causal_inference_pipeline(
     if start_idx > stage0_idx:
         stage0_state = _restore_stage("stage-0")
     else:
-        stage0_state = await dag.stage0_flow(user_id, root_run_id)
+        stage0_state = await _run_stage("stage-0", lambda: dag.stage0_flow(user_id, root_run_id))
         stage_states["stage-0"] = stage0_state
     partial = _maybe_finish("stage-0")
     if partial is not None:
@@ -282,10 +313,13 @@ async def causal_inference_pipeline(
     else:
         if question is None:
             raise ValueError("Question is required to execute stage-1a")
-        stage1a_state = await dag.stage1a_flow(
-            question,
-            root_run_id,
-            override_payload=supported_overrides.get("stage-1a"),
+        stage1a_state = await _run_stage(
+            "stage-1a",
+            lambda: dag.stage1a_flow(
+                question,
+                root_run_id,
+                override_payload=supported_overrides.get("stage-1a"),
+            ),
         )
         stage_states["stage-1a"] = stage1a_state
     partial = _maybe_finish("stage-1a")
@@ -299,13 +333,16 @@ async def causal_inference_pipeline(
     else:
         if question is None:
             raise ValueError("Question is required to execute stage-1b")
-        stage1b_state = await dag.stage1b_flow(
-            question,
-            stage0_result,
-            stage1a_result,
-            gates_overridden,
-            root_run_id,
-            override_payload=supported_overrides.get("stage-1b"),
+        stage1b_state = await _run_stage(
+            "stage-1b",
+            lambda: dag.stage1b_flow(
+                question,
+                stage0_result,
+                stage1a_result,
+                gates_overridden,
+                root_run_id,
+                override_payload=supported_overrides.get("stage-1b"),
+            ),
         )
         stage_states["stage-1b"] = stage1b_state
     partial = _maybe_finish("stage-1b")
@@ -320,7 +357,10 @@ async def causal_inference_pipeline(
     else:
         if question is None:
             raise ValueError("Question is required to execute stage-2")
-        stage2_state = await dag.stage2_flow(question, stage0_result, stage1b_result, root_run_id)
+        stage2_state = await _run_stage(
+            "stage-2",
+            lambda: dag.stage2_flow(question, stage0_result, stage1b_result, root_run_id),
+        )
         stage_states["stage-2"] = stage2_state
     partial = _maybe_finish("stage-2")
     if partial is not None:
@@ -331,7 +371,10 @@ async def causal_inference_pipeline(
     if start_idx > stage3_idx:
         stage3_state = _restore_stage("stage-3")
     else:
-        stage3_state = dag.stage3_flow(stage1b_result, stage2_result, root_run_id)
+        stage3_state = await _run_stage(
+            "stage-3",
+            lambda: dag.stage3_flow(stage1b_result, stage2_result, root_run_id),
+        )
         stage_states["stage-3"] = stage3_state
     partial = _maybe_finish("stage-3")
     if partial is not None:
@@ -343,13 +386,16 @@ async def causal_inference_pipeline(
     else:
         if question is None:
             raise ValueError("Question is required to execute stage-4")
-        stage4_state = await dag.stage4_flow(
-            question,
-            stage1b_result,
-            stage2_result,
-            lit_enabled,
-            root_run_id,
-            override_payload=supported_overrides.get("stage-4"),
+        stage4_state = await _run_stage(
+            "stage-4",
+            lambda: dag.stage4_flow(
+                question,
+                stage1b_result,
+                stage2_result,
+                lit_enabled,
+                root_run_id,
+                override_payload=supported_overrides.get("stage-4"),
+            ),
         )
         stage_states["stage-4"] = stage4_state
     partial = _maybe_finish("stage-4")

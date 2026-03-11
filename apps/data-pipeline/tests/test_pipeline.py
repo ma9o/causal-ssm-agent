@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import cloudpickle
 import polars as pl
+import pytest
 
 from causal_ssm_agent.flows import dag, pipeline
 
@@ -357,6 +358,92 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
     assert (tmp_path / "results" / result["run_id"] / "stage-1a-state.pkl").exists()
     assert (tmp_path / "results" / result["run_id"] / "stage-1b-state.pkl").exists()
     assert (tmp_path / "results" / result["run_id"] / "stage-2-state.pkl").exists()
+
+
+def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        _stub_config,
+    )
+    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    emitted: list[tuple[str, dict, dict | None]] = []
+    monkeypatch.setattr(
+        pipeline,
+        "emit_event",
+        lambda event, resource, payload=None, **_kwargs: emitted.append((event, resource, payload)),
+    )
+
+    calls: list = []
+    _patch_common_stage_stubs(monkeypatch, calls)
+
+    async def stage1a(question: str) -> dict:
+        calls.append(("stage1a", question))
+        return {
+            "latent_model": {"constructs": []},
+            "outcome_name": "generated-outcome",
+            "treatments": ["generated-treatment"],
+        }
+
+    monkeypatch.setattr(dag, "stage1a", stage1a)
+
+    result = asyncio.run(
+        pipeline.causal_inference_pipeline(
+            query="why is this happening?",
+            end_stage="stage-1a",
+        )
+    )
+
+    assert result["final_stage"] == "stage-1a"
+    assert [(event, payload["stage_id"], payload["status"]) for event, _, payload in emitted] == [
+        ("causal-ssm.pipeline-stage.running", "stage-0", "running"),
+        ("causal-ssm.pipeline-stage.completed", "stage-0", "completed"),
+        ("causal-ssm.pipeline-stage.running", "stage-1a", "running"),
+        ("causal-ssm.pipeline-stage.completed", "stage-1a", "completed"),
+    ]
+    assert all(
+        resource["prefect.resource.id"].startswith("prefect.flow-run.") for _, resource, _ in emitted
+    )
+
+
+def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        _stub_config,
+    )
+    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    emitted: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        pipeline,
+        "emit_event",
+        lambda event, resource, **_kwargs: emitted.append((event, resource)),
+    )
+
+    calls: list = []
+    _patch_common_stage_stubs(monkeypatch, calls)
+
+    async def stage1a(_question: str) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(dag, "stage1a", stage1a)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(
+            pipeline.causal_inference_pipeline(
+                query="why is this happening?",
+                end_stage="stage-1a",
+            )
+        )
+
+    assert [event for event, _ in emitted] == [
+        "causal-ssm.pipeline-stage.running",
+        "causal-ssm.pipeline-stage.completed",
+        "causal-ssm.pipeline-stage.running",
+        "causal-ssm.pipeline-stage.failed",
+    ]
 
 
 def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatch):

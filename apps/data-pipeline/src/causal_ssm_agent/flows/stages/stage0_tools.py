@@ -1,6 +1,6 @@
 """Stage 0: Agentic ingestion tools.
 
-Provides the LLM agent with tools to explore a zip archive and
+Provides the LLM agent with tools to explore staged input files and
 produce a single Polars DataFrame from arbitrary file contents.
 
 Code execution runs inside a Modal CPU sandbox for isolation.
@@ -116,7 +116,7 @@ def _make_sandbox_image():
 class ModalCodeSandbox:
     """Modal CPU sandbox for executing LLM-generated code safely.
 
-    The extracted archive is uploaded once on ``start()``.  Each
+    The prepared input directory is uploaded once on ``start()``. Each
     ``execute()`` call writes the user code into the sandbox and runs
     the runner script, returning feedback text and (optionally) the
     deserialised Polars DataFrame.
@@ -143,7 +143,7 @@ class ModalCodeSandbox:
             block_network=True,
         )
 
-        # Upload the extracted archive as a tarball and unpack it.
+        # Upload the prepared input directory as a tarball and unpack it.
         tar_buf = io.BytesIO()
         with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
             tar.add(str(self._extract_dir), arcname=".")
@@ -271,11 +271,12 @@ def _safe_resolve(base: Path, user_path: str) -> Path:
     return resolved
 
 
-def make_ingestion_tools(extract_dir_raw: Path) -> tuple[list[Tool], dict]:
+def make_ingestion_tools(extract_dir_raw: Path, sandbox: ModalCodeSandbox) -> tuple[list[Tool], dict]:
     """Create the toolset for the agentic ingestion agent.
 
     Args:
-        extract_dir: Root directory of the extracted zip contents.
+        extract_dir_raw: Root directory of the prepared input files.
+        sandbox: Sandbox used to execute model-generated parsing code.
 
     Returns:
         Tuple of (tools_list, capture_dict). After the agent loop,
@@ -288,14 +289,14 @@ def make_ingestion_tools(extract_dir_raw: Path) -> tuple[list[Tool], dict]:
 
     @tool
     def list_files():
-        """List files in the extracted archive."""
+        """List files in the prepared input directory."""
 
         async def execute(path: str = ".") -> str:
             """
-            List files and directories at the given path within the archive.
+            List files and directories at the given path within the input directory.
 
             Args:
-                path: Relative path within the archive (default: root).
+                path: Relative path within the input directory (default: root).
 
             Returns:
                 Formatted directory listing with file sizes and types.
@@ -341,7 +342,7 @@ def make_ingestion_tools(extract_dir_raw: Path) -> tuple[list[Tool], dict]:
             Read the first N lines of a file to understand its structure.
 
             Args:
-                path: Relative path to the file within the archive.
+                path: Relative path to the file within the input directory.
                 n_lines: Number of lines to read (default: 50).
 
             Returns:
@@ -401,7 +402,7 @@ def make_ingestion_tools(extract_dir_raw: Path) -> tuple[list[Tool], dict]:
             The code runs inside an isolated Modal sandbox container.
             Assign your result to a variable named ``result_df``.
             Available in the namespace: polars (as ``pl``), csv, json, Path,
-            datetime, re, math, io.  ``DATA_DIR`` points to the extracted archive.
+            datetime, re, math, io. ``DATA_DIR`` points to the prepared input directory.
 
             Args:
                 code: Python code to execute.
