@@ -357,89 +357,77 @@ def _validate_json_and_format(
 # ---------------------------------------------------------------------------
 
 
-def make_validate_latent_model_tool() -> tuple[Tool, dict]:
-    """Create a validation tool for latent model JSON that captures the last valid result.
+def _make_validation_tool(
+    name: str,
+    description: str,
+    param_name: str,
+    param_description: str,
+    validator: Callable[[dict], tuple[Any, list[str]]],
+    capture_key: str,
+    capture_result: bool = False,
+) -> tuple[Tool, dict]:
+    """Generic factory for JSON-validation tools.
 
-    Returns:
-        Tuple of (tool, capture_dict). After generate_loop, check
-        capture["latent"] for the last validated LatentModel dict (or None).
+    Builds a Tool that parses JSON from the LLM, runs a validator, captures
+    valid results, and returns "VALID" or a formatted error list. All four
+    stage-specific validation tools share this core pattern.
     """
     capture: dict = {}
 
-    @tool
-    def validate_latent_model_tool():
-        """Tool for validating latent model JSON (Stage 1a)."""
+    async def _execute(**kwargs: str) -> str:
+        return _validate_json_and_format(
+            kwargs[param_name],
+            validator,
+            capture=capture,
+            capture_key=capture_key,
+            capture_result=capture_result,
+        )
 
-        async def execute(structure_json: str) -> str:
-            """
-            Validate a latent model and return all validation errors.
+    return Tool(
+        name=name,
+        description=description,
+        parameters={
+            "type": "object",
+            "properties": {
+                param_name: {"type": "string", "description": param_description}
+            },
+            "required": [param_name],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+        stop_on_success=True,
+        success_output="VALID",
+    ), capture
 
-            Args:
-                structure_json: The JSON string containing the latent model to validate.
 
-            Returns:
-                "VALID" if the structure passes validation, otherwise a list of all errors found.
-            """
-            from causal_ssm_agent.orchestrator.schemas import validate_latent_model
+def make_validate_latent_model_tool() -> tuple[Tool, dict]:
+    """Create a validation tool for latent model JSON (Stage 1a)."""
+    from causal_ssm_agent.orchestrator.schemas import validate_latent_model
 
-            return _validate_json_and_format(
-                structure_json,
-                validate_latent_model,
-                capture=capture,
-                capture_key="latent",
-            )
-
-        return execute
-
-    tool_obj = validate_latent_model_tool()
-    tool_obj.stop_on_success = True
-    tool_obj.success_output = "VALID"
-    return tool_obj, capture
+    return _make_validation_tool(
+        name="validate_latent_model_tool",
+        description="Tool for validating latent model JSON (Stage 1a).",
+        param_name="structure_json",
+        param_description="The JSON string containing the latent model to validate.",
+        validator=validate_latent_model,
+        capture_key="latent",
+    )
 
 
 def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[Tool, dict]:
-    """Create a validation tool for measurement model, bound to a latent model.
+    """Create a validation tool for measurement model, bound to a latent model."""
+    from causal_ssm_agent.models.ssm_compiler import (
+        validate_measurement_model_for_compilation,
+    )
 
-    Args:
-        latent_model: The latent model to validate against
-
-    Returns:
-        Tuple of (tool, capture_dict). After generate_loop, check
-        capture["measurement"] for the last validated measurement dict (or None).
-    """
-    capture: dict = {}
-
-    @tool
-    def validate_measurement_model_tool():
-        """Tool for validating measurement model JSON plus compiler constraints."""
-
-        async def execute(measurement_json: str) -> str:
-            """
-            Validate a measurement model and return all validation/compiler errors.
-
-            Args:
-                measurement_json: The JSON string containing the measurement model to validate.
-
-            Returns:
-                "VALID" if the model passes validation, otherwise a list of all errors found.
-            """
-            from causal_ssm_agent.models.ssm_compiler import (
-                validate_measurement_model_for_compilation,
-            )
-
-            return _validate_json_and_format(
-                measurement_json,
-                lambda data: validate_measurement_model_for_compilation(data, latent_model),
-                capture=capture,
-                capture_key="measurement",
-            )
-
-        return execute
-
-    tool_obj = validate_measurement_model_tool()
-    tool_obj.stop_on_success = True
-    tool_obj.success_output = "VALID"
-    return tool_obj, capture
+    return _make_validation_tool(
+        name="validate_measurement_model_tool",
+        description="Tool for validating measurement model JSON plus compiler constraints.",
+        param_name="measurement_json",
+        param_description="The JSON string containing the measurement model to validate.",
+        validator=lambda data: validate_measurement_model_for_compilation(data, latent_model),
+        capture_key="measurement",
+    )
 
 
 def make_validate_model_spec_tool(
@@ -454,131 +442,57 @@ def make_validate_model_spec_tool(
 
     When skeleton parts (resolved_likelihoods, parameters, etc.) are provided,
     validates ModelSpecDecisions and merges with the skeleton. Otherwise falls
-    back to validating a full ModelSpec dict (backward-compatible).
-
-    Args:
-        causal_spec: The full CausalSpec dict (to extract indicators for dtype checking)
-        resolved_likelihoods: Pre-computed deterministic likelihoods
-        ambiguous_indicators: Indicators needing LLM decisions
-        parameters: Pre-computed parameters
-        loading_params: Loading parameters needing constraint decisions
-
-    Returns:
-        Tuple of (tool, capture_dict). After generate_loop, check
-        capture["spec"] for the last validated ModelSpec (or None).
+    back to validating a full ModelSpec dict.
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
 
     indicators = get_indicators(causal_spec)
-    capture: dict = {}
 
-    @tool
-    def validate_model_spec_tool():
-        """Tool for validating model specification JSON (Stage 4)."""
-
-        async def execute(model_spec_json: str) -> str:
-            """
-            Validate a model specification and return all validation errors.
-
-            Args:
-                model_spec_json: The JSON string containing the model spec to validate.
-
-            Returns:
-                "VALID" if the spec passes validation, otherwise a list of all errors found.
-            """
-            if resolved_likelihoods is not None and parameters is not None:
-                from causal_ssm_agent.orchestrator.schemas_model import (
-                    validate_model_spec_decisions_dict,
-                )
-
-                return _validate_json_and_format(
-                    model_spec_json,
-                    lambda data: validate_model_spec_decisions_dict(
-                        data,
-                        resolved_likelihoods=resolved_likelihoods,
-                        ambiguous_indicators=ambiguous_indicators or [],
-                        parameters=parameters,
-                    ),
-                    capture=capture,
-                    capture_key="spec",
-                    capture_result=True,
-                )
-            from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
-
-            return _validate_json_and_format(
-                model_spec_json,
-                lambda data: validate_model_spec_dict(data, indicators=indicators or None),
-                capture=capture,
-                capture_key="spec",
-                capture_result=True,
+    def _validator(data: dict) -> tuple[Any, list[str]]:
+        if resolved_likelihoods is not None and parameters is not None:
+            from causal_ssm_agent.orchestrator.schemas_model import (
+                validate_model_spec_decisions_dict,
             )
 
-        return execute
+            return validate_model_spec_decisions_dict(
+                data,
+                resolved_likelihoods=resolved_likelihoods,
+                ambiguous_indicators=ambiguous_indicators or [],
+                parameters=parameters,
+            )
+        from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
 
-    tool_obj = validate_model_spec_tool()
-    tool_obj.stop_on_success = True
-    tool_obj.success_output = "VALID"
-    return tool_obj, capture
+        return validate_model_spec_dict(data, indicators=indicators or None)
+
+    return _make_validation_tool(
+        name="validate_model_spec_tool",
+        description="Tool for validating model specification JSON (Stage 4).",
+        param_name="model_spec_json",
+        param_description="The JSON string containing the model spec to validate.",
+        validator=_validator,
+        capture_key="spec",
+        capture_result=True,
+    )
 
 
 def make_worker_tools(schema: dict) -> tuple[list[Tool], dict]:
-    """Create the standard toolset for worker agents.
-
-    Workers only get the validation tool. Hidden utility tools caused repeated
-    extra model turns during extraction and materially reduced throughput.
-
-    Args:
-        schema: The model schema dict to validate extractions against
-
-    Returns:
-        Tuple of (tools_list, capture_dict). After generate_loop, check
-        capture["output"] for the last validated worker output dict (or None).
-    """
-    tool, capture = make_validate_worker_output_tool(schema)
-    return [tool], capture
+    """Create the standard toolset for worker agents."""
+    tool_obj, capture = make_validate_worker_output_tool(schema)
+    return [tool_obj], capture
 
 
 def make_validate_worker_output_tool(schema: dict) -> tuple[Tool, dict]:
-    """Create a validation tool for worker output, bound to a specific schema.
+    """Create a validation tool for worker output, bound to a specific schema."""
+    from causal_ssm_agent.workers.schemas import validate_worker_output
 
-    Args:
-        schema: The model schema dict to validate extractions against
-
-    Returns:
-        Tuple of (tool, capture_dict). After generate_loop, check
-        capture["output"] for the last validated worker output dict (or None).
-    """
-    capture: dict = {}
-
-    @tool
-    def validate_extractions():
-        """Tool for validating worker extraction output JSON."""
-
-        async def execute(output_json: str) -> str:
-            """
-            Validate worker extractions and return all validation errors.
-
-            Args:
-                output_json: The JSON string containing the worker output to validate.
-
-            Returns:
-                "VALID" if the output passes validation, otherwise a list of all errors found.
-            """
-            from causal_ssm_agent.workers.schemas import validate_worker_output
-
-            return _validate_json_and_format(
-                output_json,
-                lambda data: validate_worker_output(data, schema),
-                capture=capture,
-                capture_key="output",
-            )
-
-        return execute
-
-    tool_obj = validate_extractions()
-    tool_obj.stop_on_success = True
-    tool_obj.success_output = "VALID"
-    return tool_obj, capture
+    return _make_validation_tool(
+        name="validate_extractions",
+        description="Tool for validating worker extraction output JSON.",
+        param_name="output_json",
+        param_description="The JSON string containing the worker output to validate.",
+        validator=lambda data: validate_worker_output(data, schema),
+        capture_key="output",
+    )
 
 
 @tool
