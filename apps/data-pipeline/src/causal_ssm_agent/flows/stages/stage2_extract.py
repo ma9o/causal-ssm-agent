@@ -35,7 +35,7 @@ def _collect_batch_results(
     logger: Any,
     completed_before: int,
     total_chunks: int,
-) -> tuple[list[dict], list[dict], int]:
+) -> tuple[list[dict], list[dict], int, dict | None]:
     """Collect mapped worker futures in completion order while preserving output order."""
     batch_meta = {
         future: {
@@ -47,6 +47,7 @@ def _collect_batch_results(
     batch_total = len(batch_meta)
     rows_by_worker: dict[int, list[dict]] = {}
     statuses_by_worker: dict[int, dict] = {}
+    sampled_trace: dict | None = None
     n_total = 0
 
     logger.info(
@@ -87,6 +88,8 @@ def _collect_batch_results(
         n_ext = result.get("n_extractions", 0)
         output_rows = result.get("dataframe", [])
         status = result.get("status", "completed")
+        if sampled_trace is None and "llm_trace" in result:
+            sampled_trace = result["llm_trace"]
         n_total += n_ext
         rows_by_worker[worker_id] = output_rows
         statuses_by_worker[worker_id] = {
@@ -114,7 +117,7 @@ def _collect_batch_results(
         for worker_id in batch_indices
         if worker_id in statuses_by_worker
     ]
-    return ordered_rows, ordered_statuses, n_total
+    return ordered_rows, ordered_statuses, n_total, sampled_trace
 
 
 @task(
@@ -145,15 +148,21 @@ async def extract_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import get_stage2_generate_config, make_generate_fn
+    from causal_ssm_agent.utils.llm import (
+        attach_trace,
+        get_stage2_generate_config,
+        make_generate_fn,
+    )
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
     generate_config = get_stage2_generate_config()
+    trace_capture: dict = {}
     generate = make_generate_fn(
         config.stage2_workers.model,
         config=generate_config,
+        trace_capture=trace_capture,
     )
     indicator_count = len(get_indicators(causal_spec))
     chunk_label = _chunk_log_label(chunk_idx, chunk_df)
@@ -195,11 +204,13 @@ async def extract_chunk_task(
         result.dataframe.height,
     )
 
-    return {
+    result_dict: dict = {
         "dataframe": result.dataframe.to_dicts(),
         "n_extractions": len(result.output.extractions),
         "status": "completed",
     }
+    attach_trace(result_dict, trace_capture)
+    return result_dict
 
 
 @flow(
@@ -233,10 +244,14 @@ async def stage2_extraction_flow(
     """
     from prefect.utilities.annotations import unmapped
 
+    from causal_ssm_agent.utils.causal_spec import make_extraction_context
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.data import chunk_dataframe
 
     config = get_config()
+    # Pre-extract only what workers need (indicators + outcome) from the full
+    # CausalSpec so each parallel task doesn't carry edges/all constructs.
+    extraction_ctx = make_extraction_context(causal_spec)
     if chunk_size is None:
         chunk_size = config.stage2_workers.chunk_size
     submission_batch_size = config.stage2_workers.submission_batch_size
@@ -262,6 +277,7 @@ async def stage2_extraction_flow(
     # Collect results
     all_dicts: list[dict] = []
     worker_statuses: list[dict] = []
+    sampled_llm_trace: dict | None = None
     n_total = 0
     n_finished = 0
 
@@ -282,9 +298,9 @@ async def stage2_extraction_flow(
             batch_chunks,
             chunk_idx=batch_indices,
             question=unmapped(question),
-            causal_spec=unmapped(causal_spec),
+            causal_spec=unmapped(extraction_ctx),
         )
-        batch_rows, batch_statuses, batch_total = _collect_batch_results(
+        batch_rows, batch_statuses, batch_total, batch_trace = _collect_batch_results(
             futures=results,
             batch_indices=batch_indices,
             batch_chunks=batch_chunks,
@@ -296,6 +312,8 @@ async def stage2_extraction_flow(
         n_total += batch_total
         all_dicts.extend(batch_rows)
         worker_statuses.extend(batch_statuses)
+        if sampled_llm_trace is None and batch_trace is not None:
+            sampled_llm_trace = batch_trace
         batch_failed = sum(1 for status in batch_statuses if status["status"] == "failed")
         logger.info(
             "Stage 2: batch %d-%d finished (completed=%d, failed=%d, cumulative_extractions=%d)",
@@ -308,8 +326,11 @@ async def stage2_extraction_flow(
 
     logger.info("Stage 2: %d total extractions from %d workers", n_total, len(chunks))
 
-    return {
+    result = {
         "raw_data": all_dicts,
         "worker_statuses": worker_statuses,
         "n_total_extractions": n_total,
     }
+    if sampled_llm_trace is not None:
+        result["llm_trace"] = sampled_llm_trace
+    return result

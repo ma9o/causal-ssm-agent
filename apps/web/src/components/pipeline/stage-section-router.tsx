@@ -52,11 +52,13 @@ function StageWithTrace({
   trace,
   runId,
   stageId,
+  interactive = true,
 }: {
   children: ReactNode;
   trace?: LLMTrace;
   runId: string;
   stageId: string;
+  interactive?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const leftRef = useRef<HTMLDivElement>(null);
@@ -118,7 +120,7 @@ function StageWithTrace({
               Hide LLM Trace
             </button>
             <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
-              <LLMTracePanel trace={trace} runId={runId} stageId={stageId} />
+              <LLMTracePanel trace={trace} runId={runId} stageId={stageId} interactive={interactive} />
             </div>
           </div>
         )}
@@ -203,7 +205,7 @@ export function StageSectionRouter({
 
   if (stageData?.llm_trace) {
     return (
-      <StageWithTrace trace={stageData.llm_trace} runId={runId} stageId={stage.id}>
+      <StageWithTrace trace={stageData.llm_trace} runId={runId} stageId={stage.id} interactive={stage.interactive}>
         {section}
       </StageWithTrace>
     );

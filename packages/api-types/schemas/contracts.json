@@ -2275,6 +2275,17 @@
           },
           "title": "Per Indicator Counts",
           "type": "object"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
