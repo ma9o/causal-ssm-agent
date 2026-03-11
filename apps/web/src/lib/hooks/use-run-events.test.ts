@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildPrefectEventFilterMessage } from "./use-run-events";
+import { buildPrefectEventFilterMessage, parsePrefectStageProgressEvent } from "./use-run-events";
 import { fetchStageFlowRunId } from "./use-stage-logs";
 
 const originalFetch = globalThis.fetch;
@@ -17,15 +17,15 @@ function jsonResponse(data: unknown) {
 }
 
 describe("buildPrefectEventFilterMessage", () => {
-  it("subscribes to the run's task events across a future time window", () => {
+  it("subscribes to the run's custom stage events across a future time window", () => {
     const now = new Date("2026-03-10T08:06:15.000Z");
 
     expect(buildPrefectEventFilterMessage("run-123", now)).toEqual({
       type: "filter",
       filter: {
-        event: { prefix: ["prefect.task-run."] },
-        related: {
-          resources_in_roles: [["prefect.flow-run.run-123", "flow-run"]],
+        event: { prefix: ["causal-ssm.pipeline-stage."] },
+        resource: {
+          id: ["prefect.flow-run.run-123"],
         },
         occurred: {
           since: "2026-03-10T08:05:15.000Z",
@@ -33,6 +33,47 @@ describe("buildPrefectEventFilterMessage", () => {
         },
       },
     });
+  });
+});
+
+describe("parsePrefectStageProgressEvent", () => {
+  it("extracts a valid stage update from a custom Prefect event", () => {
+    expect(
+      parsePrefectStageProgressEvent({
+        event: "causal-ssm.pipeline-stage.completed",
+        occurred: "2026-03-10T08:06:15.000Z",
+        payload: {
+          stage_id: "stage-2",
+          status: "completed",
+        },
+      }),
+    ).toEqual({
+      stageId: "stage-2",
+      status: "completed",
+      eventTime: new Date("2026-03-10T08:06:15.000Z").getTime(),
+    });
+  });
+
+  it("ignores events with an invalid prefix or payload", () => {
+    expect(
+      parsePrefectStageProgressEvent({
+        event: "prefect.task-run.Completed",
+        payload: {
+          stage_id: "stage-2",
+          status: "completed",
+        },
+      }),
+    ).toBeNull();
+
+    expect(
+      parsePrefectStageProgressEvent({
+        event: "causal-ssm.pipeline-stage.completed",
+        payload: {
+          stage_id: "not-a-stage",
+          status: "completed",
+        },
+      }),
+    ).toBeNull();
   });
 });
 

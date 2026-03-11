@@ -83,10 +83,8 @@ export default function LandingPage() {
   const [isResuming, setIsResuming] = useState(false);
 
   const validateFile = useCallback((f: File): string | null => {
-    const validTypes = [".zip"];
-    const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
-    if (!validTypes.includes(ext)) {
-      return `Invalid file type "${ext}". Please upload a .zip file.`;
+    if (!f.name.trim()) {
+      return "Please choose a file to upload.";
     }
     if (f.size > MAX_FILE_SIZE) {
       return `File too large (${prettyBytes(f.size)}). Maximum size is ${prettyBytes(MAX_FILE_SIZE)}.`;
@@ -313,7 +311,9 @@ export default function LandingPage() {
           <Card>
             <CardHeader>
               <CardTitle>Data Upload</CardTitle>
-              <CardDescription>Upload your Google Takeout export (ZIP or JSON)</CardDescription>
+              <CardDescription>
+                Upload your Google Takeout export or any text data file
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div
@@ -359,7 +359,7 @@ export default function LandingPage() {
                       </button>
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground/60">
-                      ZIP or JSON, up to {prettyBytes(MAX_FILE_SIZE)}
+                      ZIP or text file, up to {prettyBytes(MAX_FILE_SIZE)}
                     </p>
                   </>
                 )}
@@ -367,7 +367,6 @@ export default function LandingPage() {
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
-                  accept=".zip"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) handleFileSelect(f);
