@@ -945,8 +945,8 @@ async def multi_turn_generate(
         len(follow_ups),
     )
 
+    # --- Initial turn ---
     if tools:
-        # Tool-enabled generation with per-turn logging
         messages, output = await _run_tool_loop(
             messages,
             model_name,
@@ -956,101 +956,70 @@ async def multi_turn_generate(
             log_label=log_label,
             trace_path=trace_path,
         )
-        last_nonempty = output["completion"]
-
-        # Follow-up turns
-        for i, prompt in enumerate(follow_ups):
-            follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
-            logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
-            messages.append({"role": "user", "content": prompt})
-
-            if follow_up_tools:
-                messages, output = await _run_tool_loop(
-                    messages,
-                    model_name,
-                    follow_up_tools,
-                    config,
-                    label=f"follow-up-{i + 1}",
-                    log_label=log_label,
-                    trace_path=trace_path,
-                )
-            else:
-                t_fu = time.monotonic()
-                response = await _call_model_with_tool_repair(
-                    messages,
-                    model_name,
-                    tools=None,
-                    config=_config,
-                    log_label=_combine_log_label(follow_up_label, "llm"),
-                )
-                messages.append(response["message"])
-                output = response
-                elapsed_fu = time.monotonic() - t_fu
-                logger.info(
-                    _scoped(follow_up_label, "%d/%d | %s"),
-                    i + 1,
-                    len(follow_ups),
-                    _summarize_output(output, elapsed_fu),
-                )
-                # Persist after plain follow-up turns too
-                if trace_path is not None:
-                    _persist_partial_trace(
-                        messages, trace_path, f"follow-up-{i + 1}", 1, time.monotonic() - t0
-                    )
-
-            if output["completion"] and output["completion"].strip():
-                last_nonempty = output["completion"]
-
-        if trace_capture is not None:
-            trace_capture["trace"] = _build_trace(messages, output)
-
-        elapsed_total = time.monotonic() - t0
-        logger.info(_scoped(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
-        # No finalization needed — persist_web_result overwrites with full stage output
-        return last_nonempty
-    # Simple generation without tools
-    t_gen = time.monotonic()
-    response = await _call_model_with_tool_repair(
-        messages,
-        model_name,
-        tools=None,
-        config=_config,
-        log_label=_combine_log_label(log_label, "initial", "llm"),
-    )
-    messages.append(response["message"])
-    elapsed_gen = time.monotonic() - t_gen
-    logger.info(_scoped(log_label, "single-turn | %s"), _summarize_output(response, elapsed_gen))
-    last_nonempty = response["completion"]
-
-    for i, prompt in enumerate(follow_ups):
-        follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
-        logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
-        messages.append({"role": "user", "content": prompt})
-        t_fu = time.monotonic()
-        response = await _call_model_with_tool_repair(
+    else:
+        t_gen = time.monotonic()
+        output = await _call_model_with_tool_repair(
             messages,
             model_name,
             tools=None,
             config=_config,
-            log_label=_combine_log_label(follow_up_label, "llm"),
+            log_label=_combine_log_label(log_label, "initial", "llm"),
         )
-        messages.append(response["message"])
-        elapsed_fu = time.monotonic() - t_fu
+        messages.append(output["message"])
+        elapsed_gen = time.monotonic() - t_gen
         logger.info(
-            _scoped(follow_up_label, "%d/%d | %s"),
-            i + 1,
-            len(follow_ups),
-            _summarize_output(response, elapsed_fu),
+            _scoped(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen)
         )
-        if response["completion"] and response["completion"].strip():
-            last_nonempty = response["completion"]
 
+    last_nonempty = output["completion"]
+
+    # --- Follow-up turns ---
+    for i, prompt in enumerate(follow_ups):
+        follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
+        logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
+        messages.append({"role": "user", "content": prompt})
+
+        if follow_up_tools:
+            messages, output = await _run_tool_loop(
+                messages,
+                model_name,
+                follow_up_tools,
+                config,
+                label=f"follow-up-{i + 1}",
+                log_label=log_label,
+                trace_path=trace_path,
+            )
+        else:
+            t_fu = time.monotonic()
+            output = await _call_model_with_tool_repair(
+                messages,
+                model_name,
+                tools=None,
+                config=_config,
+                log_label=_combine_log_label(follow_up_label, "llm"),
+            )
+            messages.append(output["message"])
+            elapsed_fu = time.monotonic() - t_fu
+            logger.info(
+                _scoped(follow_up_label, "%d/%d | %s"),
+                i + 1,
+                len(follow_ups),
+                _summarize_output(output, elapsed_fu),
+            )
+            if trace_path is not None:
+                _persist_partial_trace(
+                    messages, trace_path, f"follow-up-{i + 1}", 1, time.monotonic() - t0
+                )
+
+        if output["completion"] and output["completion"].strip():
+            last_nonempty = output["completion"]
+
+    # --- Finalize ---
     if trace_capture is not None:
-        trace_capture["trace"] = _build_trace(messages, response)
+        trace_capture["trace"] = _build_trace(messages, output)
 
     elapsed_total = time.monotonic() - t0
     logger.info(_scoped(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
-    # No finalization needed — persist_web_result overwrites with full stage output
     return last_nonempty
 
 
