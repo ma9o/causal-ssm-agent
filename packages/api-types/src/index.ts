@@ -87,6 +87,10 @@ export type { LLMTrace, TraceMessage, TraceUsage } from "./generated/models";
 // Live trace (partial stage result written mid-run)
 export type { PartialStageResult, LiveMetadata } from "./generated/models";
 
+// Tool definitions (codegen'd from Python ToolContract)
+export type { ToolDefinition } from "./generated/tools";
+export { STAGE_TOOLS, REFINABLE_STAGES } from "./generated/tools";
+
 // Inference diagnostic types
 export type { TreatmentEffectContract as TreatmentEffect } from "./generated/models";
 export type { PowerScalingResultContract as PowerScalingResult } from "./generated/models";
