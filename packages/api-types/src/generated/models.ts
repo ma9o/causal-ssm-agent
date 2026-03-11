@@ -261,7 +261,7 @@ export interface Indicator {
   /**
    * Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
    */
-  source_columns?: string[];
+  source_columns: string[];
 }
 /**
  * Status of causal effect identifiability.

@@ -12,7 +12,9 @@ import { resolve, dirname } from "path";
 
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
+const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
 const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
+const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
 
 /**
  * Reduce a schema node to just its `$ref` if it has one.
@@ -100,6 +102,63 @@ function stripFieldTitles(schema: any, isTopLevel = true): any {
   return result;
 }
 
+/**
+ * Generate tools.ts from the tools.json schema exported by Python.
+ *
+ * Produces a typed constant with tool definitions per stage and a
+ * REFINABLE_STAGES set, directly consumable by the refinement route.
+ */
+function generateTools(): void {
+  const toolsSchema = JSON.parse(readFileSync(TOOLS_SCHEMA_PATH, "utf-8"));
+  const refinable: string[] = toolsSchema._refinable ?? [];
+
+  const lines: string[] = [
+    "/* eslint-disable */",
+    "/**",
+    " * AUTO-GENERATED — DO NOT EDIT",
+    " *",
+    " * Generated from Python ToolContract definitions via:",
+    " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
+    " *   cd packages/api-types && bun run scripts/generate.ts",
+    " *",
+    " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py",
+    " */",
+    "",
+    "export interface ToolDefinition {",
+    "  name: string;",
+    "  description: string;",
+    "  /** JSON Schema for the tool's input parameters */",
+    "  parameters: Record<string, unknown>;",
+    "}",
+    "",
+    "export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {",
+  ];
+
+  let totalTools = 0;
+  for (const [stageId, tools] of Object.entries(toolsSchema)) {
+    if (stageId.startsWith("_")) continue;
+    const toolArray = tools as Array<{ name: string; description: string; parameters: unknown }>;
+    lines.push(`  ${JSON.stringify(stageId)}: [`);
+    for (const tool of toolArray) {
+      lines.push("    {");
+      lines.push(`      name: ${JSON.stringify(tool.name)},`);
+      lines.push(`      description: ${JSON.stringify(tool.description)},`);
+      lines.push(`      parameters: ${JSON.stringify(tool.parameters)},`);
+      lines.push("    },");
+      totalTools++;
+    }
+    lines.push("  ],");
+  }
+
+  lines.push("};");
+  lines.push("");
+  lines.push(`export const REFINABLE_STAGES: readonly string[] = ${JSON.stringify(refinable)} as const;`);
+  lines.push("");
+
+  writeFileSync(TOOLS_OUTPUT_PATH, lines.join("\n"));
+  console.log(`Generated ${totalTools} tool definitions → ${TOOLS_OUTPUT_PATH}`);
+}
+
 async function main() {
   const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
   const schema = stripFieldTitles(collapseRefs(rawSchema));
@@ -132,6 +191,9 @@ async function main() {
   // Count interfaces generated
   const count = (ts.match(/export (interface|type)/g) || []).length;
   console.log(`Generated ${count} types/interfaces → ${OUTPUT_PATH}`);
+
+  // Generate tool definitions
+  generateTools();
 }
 
 main().catch((err) => {
