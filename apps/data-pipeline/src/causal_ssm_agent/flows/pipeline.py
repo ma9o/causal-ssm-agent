@@ -16,12 +16,12 @@ from prefect.artifacts import create_markdown_artifact
 from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
 from causal_ssm_agent.utils.data import load_query
 
 logger = get_prefect_logger(__name__)
 
 RESULT_STORAGE = Path("results")
-OVERRIDABLE_STAGES = frozenset({"stage-1a", "stage-1b", "stage-4"})
 STAGE_SEQUENCE = (
     "stage-0",
     "stage-1a",
@@ -57,7 +57,7 @@ def _stage_idx(stage_id: str) -> int:
 def _filter_stage_overrides(stage_overrides: dict[str, dict] | None) -> dict[str, dict]:
     supported: dict[str, dict] = {}
     for stage_id, payload in (stage_overrides or {}).items():
-        if stage_id not in OVERRIDABLE_STAGES:
+        if stage_id not in INTERACTIVE_STAGES:
             logger.warning("Ignoring unsupported stage override: %s", stage_id)
             continue
         supported[stage_id] = payload

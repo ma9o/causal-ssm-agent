@@ -13,7 +13,7 @@ import json
 import shutil
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import cloudpickle
 from prefect import flow
@@ -175,22 +175,27 @@ def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
     return error_count, warning_count
 
 
-def _public_stage_payload(stage_result: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in stage_result.items() if not k.startswith("_")}
+def _web_payload(
+    stage_id: str,
+    result: dict[str, Any],
+    run_id: str,
+    *,
+    extras: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build, validate, and persist the web payload for a stage.
 
-
-def _public_web(stage_id: str, stage_result: dict[str, Any], run_id: str) -> dict[str, Any]:
-    return _persist_stage_payload(stage_id, _public_stage_payload(stage_result), run_id)
-
-
-def _build_web_payload(source: dict[str, Any], **field_map: str) -> dict[str, Any]:
-    return {target: source.get(source_key) for target, source_key in field_map.items()}
-
-
-def _persist_stage_payload(stage_id: str, web_data: dict[str, Any], run_id: str) -> dict[str, Any]:
+    Extracts only fields defined in the stage contract from *result*,
+    merges any *extras* (e.g. gate-derived ``outcome`` / ``gate_overridden``),
+    validates against the contract, and persists to disk.
+    """
     from .stages import persist_web_result
+    from .stages.contracts import STAGE_CONTRACTS, StageId
 
-    return persist_web_result(stage_id, web_data, run_id)
+    contract_fields = set(STAGE_CONTRACTS[cast("StageId", stage_id)].model_fields.keys())
+    web = {k: v for k, v in result.items() if k in contract_fields}
+    if extras:
+        web.update(extras)
+    return persist_web_result(stage_id, web, run_id)
 
 
 def _stage_state(
@@ -277,9 +282,10 @@ def load_stage_state(
         power_scaling = list(web.get("power_scaling", []) or [])
         result = {
             "outcome": web.get("outcome", "success"),
-            "ps_list": power_scaling,
-            "ps_result": _power_scaling_list_to_result(power_scaling),
-            "ppc_result": dict(web.get("ppc", {}) or {}),
+            "power_scaling": power_scaling,
+            "_ps_result": _power_scaling_list_to_result(power_scaling),
+            "_ppc_result": dict(web.get("ppc", {}) or {}),
+            "ppc": dict(web.get("ppc", {}) or {}),
             "inference_metadata": dict(web.get("inference_metadata", {}) or {}),
             "mcmc_diagnostics": web.get("mcmc_diagnostics"),
             "svi_diagnostics": web.get("svi_diagnostics"),
@@ -308,7 +314,9 @@ def restore_stage_state(
         if key.endswith("_path") and isinstance(value, str):
             cloned_result[key] = _copy_artifact_to_run(value, run_id)
 
-    cloned_web = _persist_stage_payload(stage_id, deepcopy(state["web"]), run_id)
+    from .stages import persist_web_result
+
+    cloned_web = persist_web_result(stage_id, deepcopy(state["web"]), run_id)
     gate = deepcopy(state.get("gate")) if state.get("gate") is not None else None
     cloned_state = _stage_state(cloned_result, cloned_web, gate=gate)
     _save_stage_snapshot(stage_id, cloned_state, run_id)
@@ -866,9 +874,10 @@ def stage5(
 
     return {
         "_fitted_result": fitted_result,
-        "ps_result": ps_result,
-        "ppc_result": ppc_result,
-        "ps_list": ps_list,
+        "_ps_result": ps_result,
+        "_ppc_result": ppc_result,
+        "power_scaling": ps_list,
+        "ppc": ppc_result,
         "inference_metadata": {
             "method": inf_method,
             "n_samples": 10000,
@@ -906,8 +915,8 @@ def stage6(
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
-    ppc_result = stage5["ppc_result"]
-    ps_result = stage5["ps_result"]
+    ppc_result = stage5["_ppc_result"]
+    ps_result = stage5["_ps_result"]
 
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
@@ -976,7 +985,7 @@ async def stage0_flow(user_id: str, run_id: str) -> dict:
     stage0_result = await stage0(user_id)
     raw_df = stage0_result.pop("_df")
     stage0_result["_df_path"] = _save_parquet(raw_df, run_id, "stage0-raw-input.parquet")
-    web = _public_web("stage-0", stage0_result, run_id)
+    web = _web_payload("stage-0", stage0_result, run_id)
     date_range = web.get("date_range", {})
     logger.info(
         "Stage 0 complete: source=%s records=%d columns=%d date_range=%s..%s",
@@ -997,7 +1006,7 @@ async def stage1a_flow(
 ) -> dict:
     logger.info("Stage 1a starting: proposing latent model")
     stage1a_result = override_payload if override_payload is not None else await stage1a(question)
-    web = _public_web("stage-1a", stage1a_result, run_id)
+    web = _web_payload("stage-1a", stage1a_result, run_id)
     latent_model = web.get("latent_model", {})
     logger.info(
         "Stage 1a complete: constructs=%d edges=%d treatments=%d outcome=%s",
@@ -1025,18 +1034,12 @@ async def stage1b_flow(
         else await stage1b(question, stage0_result, stage1a_result)
     )
     stage1b_gate_result = stage1b_gate(stage1a_result, stage1b_result, override_gates)
-    web_data = _build_web_payload(
-        stage1b_result,
-        causal_spec="causal_spec",
-        llm_trace="llm_trace",
-    ) | {
-        "outcome": stage1b_gate_result["web_outcome"],
-    }
+    extras: dict[str, Any] = {"outcome": stage1b_gate_result["web_outcome"]}
     if stage1b_gate_result["gate_overridden"]:
-        web_data["gate_overridden"] = {
+        extras["gate_overridden"] = {
             "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
         }
-    web = _persist_stage_payload("stage-1b", web_data, run_id)
+    web = _web_payload("stage-1b", stage1b_result, run_id, extras=extras)
     state = _finalize_stage_state(
         "stage-1b",
         stage1b_result,
@@ -1082,10 +1085,10 @@ async def stage2_flow(
     stage2_result["_data_for_model_path"] = _save_parquet(
         data_for_model, run_id, "stage2-model-data.parquet"
     )
-    web = _public_stage_payload(stage2_result) | {
-        "outcome": "success" if len(raw_data) > 0 else "fail"
-    }
-    web = _persist_stage_payload("stage-2", web, run_id)
+    web = _web_payload(
+        "stage-2", stage2_result, run_id,
+        extras={"outcome": "success" if len(raw_data) > 0 else "fail"},
+    )
     worker_statuses = stage2_result.get("_worker_statuses", [])
     worker_counts: dict[str, int] = {}
     for worker in worker_statuses:
@@ -1106,15 +1109,7 @@ async def stage2_flow(
 def stage3_flow(stage1b_result: dict, stage2_result: dict, run_id: str) -> dict:
     logger.info("Stage 3 starting: validating extracted measurements")
     stage3_result = stage3(stage1b_result, stage2_result)
-    web = _persist_stage_payload(
-        "stage-3",
-        _build_web_payload(
-            stage3_result,
-            outcome="outcome",
-            validation_report="validation_report",
-        ),
-        run_id,
-    )
+    web = _web_payload("stage-3", stage3_result, run_id)
     report = web.get("validation_report", {})
     error_count, warning_count = _validation_issue_counts(report)
     logger.info(
@@ -1173,17 +1168,7 @@ async def stage4_flow(
     )
     if inspect.isawaitable(artifact_result):
         await artifact_result
-    web = _persist_stage_payload(
-        "stage-4",
-        _build_web_payload(
-            stage4_result,
-            model_spec="model_spec",
-            priors="priors",
-            llm_trace="llm_trace",
-            prior_predictive_samples="prior_predictive_samples",
-        ),
-        run_id,
-    )
+    web = _web_payload("stage-4", stage4_result, run_id)
     logger.info(
         "Stage 4 complete: parameters=%d likelihoods=%d priors=%d validation_ok=%s model_built=%s",
         len(model_spec.get("parameters", [])),
@@ -1205,18 +1190,16 @@ def stage4b_flow(
     logger.info("Stage 4b starting: checking parametric identifiability")
     stage4b_result = stage4b(stage4_result, stage2_result, None)
     stage4b_gate_result = stage4b_gate(stage4b_result, override_gates)
-    web_data = _build_web_payload(stage4b_result, parametric_id="parametric_id") | {
-        "outcome": stage4b_gate_result["outcome"]
-    }
+    extras_4b: dict[str, Any] = {"outcome": stage4b_gate_result["outcome"]}
     if stage4b_gate_result["gate_overridden"]:
         t_rule = stage4b_gate_result["t_rule"]
-        web_data["gate_overridden"] = {
+        extras_4b["gate_overridden"] = {
             "reason": (
                 f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
                 f"> {t_rule.get('n_moments')} moment conditions"
             )
         }
-    web = _persist_stage_payload("stage-4b", web_data, run_id)
+    web = _web_payload("stage-4b", stage4b_result, run_id, extras=extras_4b)
     state = _finalize_stage_state(
         "stage-4b",
         stage4b_result,
@@ -1265,22 +1248,7 @@ def stage5_flow(
     stage5_result["_fitted_result_path"] = _save_pickle(
         fitted_result, run_id, "stage5-fitted-result.pkl"
     )
-    web = _persist_stage_payload(
-        "stage-5",
-        _build_web_payload(
-            stage5_result,
-            outcome="outcome",
-            power_scaling="ps_list",
-            ppc="ppc_result",
-            inference_metadata="inference_metadata",
-            mcmc_diagnostics="mcmc_diagnostics",
-            svi_diagnostics="svi_diagnostics",
-            loo_diagnostics="loo_diagnostics",
-            posterior_marginals="posterior_marginals",
-            posterior_pairs="posterior_pairs",
-        ),
-        run_id,
-    )
+    web = _web_payload("stage-5", stage5_result, run_id)
     ps_list = web.get("power_scaling", [])
     ps_issues = sum(
         1
@@ -1308,15 +1276,7 @@ def stage6_flow(
 ) -> dict:
     logger.info("Stage 6 starting: estimating intervention effects")
     stage6_result = stage6(stage5_result, stage1a_result, stage1b_result, stage1b_gate_result)
-    web = _persist_stage_payload(
-        "stage-6",
-        _build_web_payload(
-            stage6_result,
-            outcome="outcome",
-            intervention_results="intervention_results",
-        ),
-        run_id,
-    )
+    web = _web_payload("stage-6", stage6_result, run_id)
     intervention_results = web.get("intervention_results", [])
     warning_count = sum(
         1
