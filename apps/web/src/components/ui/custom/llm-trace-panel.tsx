@@ -4,9 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@causal-ssm/api-types";
+import { REFINABLE_STAGES } from "@causal-ssm/api-types";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { CheckCircle, Clock, Cpu, Loader2, Play, Send } from "lucide-react";
+import { DefaultChatTransport } from "ai";
+import { CheckCircle, Clock, Cpu, Loader2, MessageSquare, Play, Send } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatMessages } from "./chat-messages";
 
@@ -34,6 +35,17 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
   );
 }
 
+/**
+ * LLM Trace Panel — three modes:
+ *
+ * 1. Read-only (no runId/stageId or non-refinable stage): just shows the trace
+ * 2. Completed + refinable: trace (read-only) + refinement chat (interactive)
+ * 3. Refining: trace + ongoing refinement conversation with tools
+ *
+ * Key design: the trace is display-only (top section). Refinement is a
+ * separate chat (bottom section). The server prepends trace as LLM context
+ * via CoreMessages, so the refinement chat starts empty on the client.
+ */
 export function LLMTracePanel({
   trace,
   runId,
@@ -45,14 +57,17 @@ export function LLMTracePanel({
   stageId?: string;
   interactive?: boolean;
 }) {
-  const initialMessages = useMemo(() => traceToUIMessages(trace), [trace]);
+  const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
 
-  const canRefine = interactive && !!runId && !!stageId;
+  const canRefine =
+    interactive && !!runId && !!stageId && REFINABLE_STAGES.includes(stageId);
 
+  // Refinement chat — independent from trace, NOT initialized with trace messages.
+  // The server prepends the trace as CoreMessages for LLM context.
   const transport = useMemo(
     () =>
       canRefine
@@ -61,18 +76,20 @@ export function LLMTracePanel({
     [runId, stageId, canRefine],
   );
 
-  const { messages, sendMessage, status } = useChat({
+  const {
+    messages: refinementMessages,
+    sendMessage,
+    status,
+  } = useChat({
     transport: transport ?? new DefaultChatTransport({ api: "/api/refine" }),
-    messages: initialMessages,
   });
 
-  const displayMessages = canRefine ? messages : initialMessages;
   const isLoading = status === "streaming" || status === "submitted";
-  const hasNewMessages = canRefine && messages.length > initialMessages.length;
+  const hasRefinement = refinementMessages.length > 0;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [displayMessages.length]);
+  }, [traceMessages.length, refinementMessages.length]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -86,7 +103,7 @@ export function LLMTracePanel({
     if (applying || applied || !canRefine) return;
     setApplying(true);
     try {
-      const apiMessages = messages.map((msg: UIMessage) => ({
+      const apiMessages = refinementMessages.map((msg) => ({
         role: msg.role,
         content: msg.parts
           .filter((p) => p.type === "text")
@@ -116,16 +133,33 @@ export function LLMTracePanel({
     } finally {
       setApplying(false);
     }
-  }, [messages, runId, stageId, applying, applied, canRefine]);
+  }, [refinementMessages, runId, stageId, applying, applied, canRefine]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <TraceSummary trace={trace} />
+
+      {/* Trace messages — read-only */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <ChatMessages messages={displayMessages} />
+        <ChatMessages messages={traceMessages} />
+
+        {/* Separator between trace and refinement */}
+        {hasRefinement && (
+          <div className="my-3 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex-1 border-t" />
+            <MessageSquare className="h-3 w-3" />
+            <span>Refinement</span>
+            <div className="flex-1 border-t" />
+          </div>
+        )}
+
+        {/* Refinement messages — interactive */}
+        {hasRefinement && <ChatMessages messages={refinementMessages} />}
+
         <div ref={bottomRef} />
       </div>
 
+      {/* Refinement input */}
       {canRefine && (
         <div className="shrink-0 flex flex-col gap-2">
           <form onSubmit={handleSubmit} className="flex gap-2">
@@ -149,7 +183,8 @@ export function LLMTracePanel({
             </button>
           </form>
 
-          {hasNewMessages && !isLoading && (
+          {/* Apply button — visible after refinement, when not streaming */}
+          {hasRefinement && !isLoading && (
             <button
               type="button"
               onClick={handleApply}
