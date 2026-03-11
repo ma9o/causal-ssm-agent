@@ -1,6 +1,8 @@
 """Tests for stage 2 worker extraction flow helpers."""
 
+import asyncio
 import logging
+from types import SimpleNamespace
 
 import polars as pl
 
@@ -20,6 +22,10 @@ class _FakeFuture:
 
 def _chunk(value: str) -> pl.DataFrame:
     return pl.DataFrame({"value": [value]})
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
@@ -90,3 +96,78 @@ def test_collect_batch_results_records_failures(monkeypatch):
         {"worker_id": 1, "status": "completed", "n_extractions": 0, "chunk_size": 1},
     ]
     assert n_total == 0
+
+
+def test_extract_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
+    import causal_ssm_agent.utils.causal_spec as causal_spec_mod
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.utils.llm as llm_mod
+    import causal_ssm_agent.workers.core as worker_core
+
+    logger = logging.getLogger("test_stage2_extract")
+    generate_config = SimpleNamespace(max_tokens=1234, reasoning_effort="medium")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logger)
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(stage2_workers=SimpleNamespace(model="mock-stage2-model")),
+    )
+    monkeypatch.setattr(
+        causal_spec_mod,
+        "get_indicators",
+        lambda _causal_spec: [{"name": "indicator_a"}, {"name": "indicator_b"}],
+    )
+    monkeypatch.setattr(llm_mod, "get_stage2_generate_config", lambda: generate_config)
+
+    def fake_make_generate_fn(model_name, config=None, **_kwargs):
+        captured["model_name"] = model_name
+        captured["generate_config"] = config
+        return "mock-generate"
+
+    async def fake_run_worker_extraction(**kwargs):
+        captured["worker_kwargs"] = kwargs
+        return SimpleNamespace(
+            output=SimpleNamespace(extractions=[{"indicator": "indicator_a"}]),
+            dataframe=pl.DataFrame(
+                [{"indicator": "indicator_a", "value": "1.0", "timestamp": "2024-01-01 10:00"}]
+            ),
+        )
+
+    monkeypatch.setattr(llm_mod, "make_generate_fn", fake_make_generate_fn)
+    monkeypatch.setattr(worker_core, "run_worker_extraction", fake_run_worker_extraction)
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        result = _run(
+            stage2_extract.extract_chunk_task.fn(
+                chunk_df=pl.DataFrame({"raw_value": [1, 2]}),
+                chunk_idx=3,
+                question="Does treatment affect outcome?",
+                causal_spec={"measurement": {"indicators": []}},
+            )
+        )
+
+    assert result == {
+        "dataframe": [
+            {
+                "indicator": "indicator_a",
+                "value": "1.0",
+                "timestamp": "2024-01-01 10:00",
+            }
+        ],
+        "n_extractions": 1,
+        "status": "completed",
+    }
+    assert captured["model_name"] == "mock-stage2-model"
+    assert captured["generate_config"] is generate_config
+    worker_kwargs = captured["worker_kwargs"]
+    assert isinstance(worker_kwargs, dict)
+    assert worker_kwargs["chunk_df"].to_dicts() == [{"raw_value": 1}, {"raw_value": 2}]
+    assert worker_kwargs["question"] == "Does treatment affect outcome?"
+    assert worker_kwargs["causal_spec"] == {"measurement": {"indicators": []}}
+    assert worker_kwargs["generate"] == "mock-generate"
+    assert worker_kwargs["logger"] is logger
+    assert worker_kwargs["call_label"] == "stage2 chunk=3 rows=2 cols=1"
+    assert "max_tokens=1234" in caplog.text
+    assert "reasoning_effort=medium" in caplog.text

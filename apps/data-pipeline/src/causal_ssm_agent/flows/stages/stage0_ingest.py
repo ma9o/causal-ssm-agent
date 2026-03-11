@@ -1,7 +1,7 @@
 """Stage 0: Agentic ingestion core logic.
 
-An LLM agent explores an extracted zip archive, writes Python code to parse
-the contents, and produces a single Polars DataFrame.  Code execution happens
+An LLM agent explores a prepared input directory, writes Python code to parse
+the contents, and produces a single Polars DataFrame. Code execution happens
 inside a Modal CPU sandbox for isolation.
 """
 
@@ -34,10 +34,11 @@ class IngestionResult:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are a data ingestion specialist. You have been given an archive that has \
-been extracted to a directory. Your task is to explore the contents, understand \
-the data formats, and write Python code to parse everything into a single \
-Polars DataFrame.
+You are a data ingestion specialist. You have been given uploaded input that \
+has been staged in a directory. The directory may contain extracted archive \
+contents or raw files copied directly. Your task is to explore the contents, \
+understand the data formats, and write Python code to parse everything into a \
+single Polars DataFrame.
 
 ## Available Tools
 
@@ -48,7 +49,7 @@ Polars DataFrame.
 
 ## Workflow
 
-1. Start by calling `list_files()` to see the archive structure
+1. Start by calling `list_files()` to see the input structure
 2. Use `read_file_sample()` to understand file formats
 3. Write Python code with `execute_python()` to parse the data
 4. Iterate until `result_df` looks correct
@@ -61,7 +62,7 @@ Available in the namespace:
 - `polars` / `pl` — Polars library
 - `csv`, `json`, `re`, `math`, `io`, `datetime` — standard library
 - `Path` — pathlib.Path
-- `DATA_DIR` — string path to the extracted archive root
+- `DATA_DIR` — string path to the prepared input directory root
 
 Common patterns:
 ```python
@@ -88,15 +89,50 @@ df = pl.DataFrame(data)
 """
 
 USER_PROMPT = """\
-The archive has been extracted and is available via DATA_DIR.
+The uploaded input files have been staged and are available via DATA_DIR.
 
 Explore the contents and parse all relevant data into a single Polars DataFrame.
+"""
+
+FINALIZE_PROMPT = """\
+The dataframe has already been created successfully and is stored in memory.
+
+Do not call `execute_python` again unless the dataframe itself is wrong.
+Call `submit_table()` exactly once with:
+- a concise human-readable `source_label`
+- a JSON object with descriptions for EVERY column in the dataframe
+
+Current schema:
+{schema}
+
+Sample rows:
+{sample}
 """
 
 
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
+
+def _has_submission_metadata(capture: dict) -> bool:
+    df = capture.get("dataframe")
+    if df is None or df.is_empty():
+        return False
+
+    source_label = capture.get("source_label")
+    column_descriptions = capture.get("column_descriptions")
+    return bool(source_label) and isinstance(column_descriptions, dict) and set(
+        column_descriptions
+    ) == set(df.columns)
+
+
+def _format_finalize_prompt(df: pl.DataFrame) -> str:
+    schema_lines = [f"- {col}: {df.schema[col]}" for col in df.columns]
+    return FINALIZE_PROMPT.format(
+        schema="\n".join(schema_lines),
+        sample=df.head(5),
+    )
 
 
 async def run_agentic_ingestion(
@@ -106,10 +142,10 @@ async def run_agentic_ingestion(
     """Run the agentic ingestion loop.
 
     Spins up a Modal CPU sandbox, then lets the LLM agent explore the
-    extracted archive using tools and produce a Polars DataFrame.
+    prepared input directory using tools and produce a Polars DataFrame.
 
     Args:
-        extract_dir: Root directory of the extracted zip contents.
+        extract_dir: Root directory of the prepared input files.
         generate: Async generate function (from make_generate_fn).
 
     Returns:
@@ -120,6 +156,7 @@ async def run_agentic_ingestion(
     """
     with ModalCodeSandbox(extract_dir) as sandbox:
         tools, capture = make_ingestion_tools(extract_dir, sandbox)
+        submit_tool = next(tool for tool in tools if tool.name == "submit_table")
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -128,13 +165,25 @@ async def run_agentic_ingestion(
 
         await generate(messages, tools)
 
+        df = capture.get("dataframe")
+        if df is not None and not df.is_empty() and not _has_submission_metadata(capture):
+            await generate(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": _format_finalize_prompt(df)},
+                ],
+                [submit_tool],
+            )
+
     # Extract result from capture
     df = capture.get("dataframe")
     if df is None or df.is_empty():
         raise ValueError("Ingestion agent did not produce a valid DataFrame")
+    if not _has_submission_metadata(capture):
+        raise ValueError("Ingestion agent produced a DataFrame but did not finalize it")
 
-    source_label = capture.get("source_label", "Unknown data source")
-    column_descriptions = capture.get("column_descriptions", {})
+    source_label = capture["source_label"]
+    column_descriptions = capture["column_descriptions"]
 
     return IngestionResult(
         dataframe=df,

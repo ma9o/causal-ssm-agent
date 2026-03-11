@@ -150,9 +150,10 @@ async def extract_chunk_task(
 
     run_logger = get_run_logger()
     config = get_config()
+    generate_config = get_stage2_generate_config()
     generate = make_generate_fn(
         config.stage2_workers.model,
-        config=get_stage2_generate_config(),
+        config=generate_config,
     )
     indicator_count = len(get_indicators(causal_spec))
     chunk_label = _chunk_log_label(chunk_idx, chunk_df)
@@ -163,8 +164,8 @@ async def extract_chunk_task(
         len(chunk_df),
         indicator_count,
         config.stage2_workers.model,
-        config.stage2_workers.max_tokens,
-        config.stage2_workers.reasoning_effort,
+        generate_config.max_tokens,
+        generate_config.reasoning_effort,
     )
 
     started_at = perf_counter()
