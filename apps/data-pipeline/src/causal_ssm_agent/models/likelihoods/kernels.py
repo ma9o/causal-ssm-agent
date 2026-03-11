@@ -392,3 +392,91 @@ def build_transition_kernel(
     raise ValueError(
         f"No transition kernel for diffusion_dist={dist!r}. Supported: gaussian, student_t."
     )
+
+
+# =============================================================================
+# Composite ObservationKernel for per-channel heterogeneous distributions
+# =============================================================================
+
+
+def build_composite_observation_kernel(
+    dists: list[DistributionFamily],
+    links: list[LinkFunction],
+    extra_params: dict | None = None,
+) -> ObservationKernel:
+    """Build an ObservationKernel that handles per-channel heterogeneous distributions.
+
+    Groups channels by unique (dist, link) combination, builds one kernel per group,
+    and composes their emission_fn and emission_grad_hess_fn by dispatching per group.
+
+    When all channels share the same (dist, link), delegates to the standard
+    build_observation_kernel for zero overhead.
+
+    Args:
+        dists: Per-channel distribution families (length n_manifest).
+        links: Per-channel link functions (length n_manifest).
+        extra_params: Sampled hyperparameters (obs_df, obs_shape, etc.).
+    """
+    n_manifest = len(dists)
+    if n_manifest != len(links):
+        raise ValueError(f"dists ({len(dists)}) and links ({len(links)}) must have same length")
+
+    # Fast path: all channels homogeneous → standard kernel
+    if len(set(zip(dists, links))) == 1:
+        return build_observation_kernel(dists[0], links[0], extra_params)
+
+    # Group channels by (dist, link)
+    from collections import defaultdict
+
+    groups: dict[tuple[DistributionFamily, LinkFunction], list[int]] = defaultdict(list)
+    for ch_idx in range(n_manifest):
+        groups[(dists[ch_idx], links[ch_idx])].append(ch_idx)
+
+    # Build per-group kernels
+    group_kernels: list[tuple[list[int], ObservationKernel]] = []
+    for (dist, link), ch_indices in groups.items():
+        kernel = build_observation_kernel(dist, link, extra_params)
+        group_kernels.append((ch_indices, kernel))
+
+    # Compose emission_fn: sum per-group emission log-probs
+    def composite_emission_fn(y_t, z_t, H, d, R, mask_t):
+        total_ll = 0.0
+        for ch_indices, kernel in group_kernels:
+            idx = jnp.array(ch_indices)
+            y_g = y_t[idx]
+            H_g = H[idx, :]
+            d_g = d[idx]
+            R_g = R[jnp.ix_(idx, idx)]
+            mask_g = mask_t[idx]
+            total_ll = total_ll + kernel.emission_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
+        return total_ll
+
+    # Compose emission_grad_hess_fn: sum per-group gradients and Hessians
+    def composite_emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+        D = z_t.shape[0]
+        total_grad = jnp.zeros(D)
+        total_hess = jnp.zeros((D, D))
+        for ch_indices, kernel in group_kernels:
+            idx = jnp.array(ch_indices)
+            y_g = y_t[idx]
+            H_g = H[idx, :]
+            d_g = d[idx]
+            R_g = R[jnp.ix_(idx, idx)]
+            mask_g = mask_t[idx]
+            g, neg_H = kernel.emission_grad_hess_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
+            total_grad = total_grad + g
+            total_hess = total_hess + neg_H
+        return total_grad, total_hess
+
+    # Use the first group's response/variance as defaults (these are mainly
+    # used by particle filter EKF proposals, not by IEKS which only uses
+    # emission_fn and emission_grad_hess_fn).
+    first_kernel = group_kernels[0][1]
+
+    return ObservationKernel(
+        emission_fn=composite_emission_fn,
+        response_fn=first_kernel.response_fn,
+        variance_fn=first_kernel.variance_fn,
+        is_gaussian=False,  # heterogeneous is never purely Gaussian
+        emission_grad_hess_fn=composite_emission_grad_hess_fn,
+    )
