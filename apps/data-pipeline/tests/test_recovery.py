@@ -288,10 +288,10 @@ class TestTemperedSMCRecovery:
         for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
             assert site in samples, f"Missing sample site: {site}"
 
-        # Post-warmup samples: n_outer - n_warmup = 3
-        assert samples["drift_diag_pop"].shape == (3, 1)
-        assert samples["diffusion_diag_pop"].shape == (3, 1)
-        assert samples["manifest_var_diag"].shape == (3, 1)
+        # All N particles at beta=1.0 are returned
+        assert samples["drift_diag_pop"].shape == (8, 1)
+        assert samples["diffusion_diag_pop"].shape == (8, 1)
+        assert samples["manifest_var_diag"].shape == (8, 1)
 
         # Diagnostics present
         assert "accept_rates" in result.diagnostics
