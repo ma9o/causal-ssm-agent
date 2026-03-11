@@ -124,6 +124,7 @@ class Stage2Contract(BaseModel):
     workers: list[WorkerStatusContract]
     combined_extractions_sample: list[ExtractionContract]
     per_indicator_counts: dict[str, int]
+    llm_trace: LLMTrace | None = None
 
 
 class ValidationIssueContract(BaseModel):

@@ -1071,5 +1071,66 @@
     "deadline_proximity_searches": 182,
     "productive_hours": 26,
     "workload_events": 200
+  },
+  "llm_trace": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a data extraction worker. Extract indicator measurements from raw activity data according to the measurement model specification.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "user",
+        "content": "Research question: What factors drive procrastination in knowledge workers?\n\nOutcome: procrastination\n\nIndicators to extract:\n- youtube_watch_time (continuous): Total minutes of YouTube viewing per day\n- search_count (continuous): Number of web searches per day\n- late_night_activity (binary): Whether activity occurred after 11 PM\n- task_completion_rate (continuous): Fraction of planned tasks completed\n- deadline_proximity_searches (continuous): Count of deadline-related searches\n- productive_hours (continuous): Hours spent on productive activities\n- workload_events (continuous): Number of work-related events per day\n\nSchema:\n| Column | Type |\n|--------|------|\n| datetime | Datetime |\n| activity_type | Utf8 |\n| content | Utf8 |\n| location | Utf8 |\n\nData chunk (100 rows):\ndatetime,activity_type,content,location\n2024-01-01T08:12:00+00:00,search,morning routine optimization,\n2024-01-01T09:30:00+00:00,view,Deep work strategies (25 min),\n...",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "I'll extract indicator measurements from this chunk of activity data.",
+        "reasoning": "This chunk covers early January 2024. I need to aggregate daily values for each indicator. For youtube_watch_time, I'll look for view activities with duration mentions. For search_count, I'll count search-type activities per day. For late_night_activity, I'll check timestamps after 23:00. For task_completion_rate, I'll look for productivity-related content. For deadline_proximity_searches, I'll filter searches mentioning deadlines. For productive_hours, I'll estimate from productive activity types. For workload_events, I'll count work-related entries.",
+        "tool_calls": [
+          {
+            "name": "submit_extractions",
+            "arguments": { "extractions": "[{\"indicator\": \"youtube_watch_time\", \"value\": 45.5, \"timestamp\": \"2024-01-15\"}, ...]" }
+          }
+        ],
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "tool",
+        "content": "Validated 145 extractions across 7 indicators.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": "submit_extractions",
+        "tool_result": "Validated 145 extractions across 7 indicators.",
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "Extracted 145 measurements from this chunk:\n\n- youtube_watch_time: 30 daily observations (range: 15.9–67.2 min)\n- search_count: 30 daily observations (range: 1–16)\n- late_night_activity: 30 binary observations\n- task_completion_rate: 30 daily observations (range: 0.38–0.88)\n- deadline_proximity_searches: 30 daily observations (range: 0–6)\n- productive_hours: 20 daily observations (range: 3.5–7.6 hrs)\n- workload_events: 5 daily observations (range: 1–9)",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      }
+    ],
+    "model": "claude-sonnet-4-20250514",
+    "total_time_seconds": 8.7,
+    "usage": {
+      "input_tokens": 3200,
+      "output_tokens": 1450,
+      "reasoning_tokens": 520
+    }
   }
 }

@@ -22,6 +22,8 @@ export interface StageMeta {
   loadingHint: string;
   /** Static subtitle describing what this stage does (dataset-agnostic). */
   description: string;
+  /** Whether the LLM trace panel allows refinement (chat input + apply). */
+  interactive: boolean;
 }
 
 export const STAGES: StageMeta[] = [
@@ -33,6 +35,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-0-flow",
     loadingHint: "Parsing and preprocessing your data...",
     description: "Parses raw data files and prepares them for downstream analysis.",
+    interactive: true,
   },
   {
     id: "stage-1a",
@@ -42,6 +45,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-1a-flow",
     loadingHint: "LLM is proposing a causal DAG...",
     description: "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
+    interactive: true,
   },
   {
     id: "stage-1b",
@@ -51,6 +55,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-1b-flow",
     loadingHint: "Mapping indicators and checking identifiability...",
     description: "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
+    interactive: true,
   },
   {
     id: "stage-2",
@@ -60,6 +65,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-2-flow",
     loadingHint: "Extracting indicator values from your data...",
     description: "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
+    interactive: false,
   },
   {
     id: "stage-3",
@@ -69,6 +75,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-3-flow",
     loadingHint: "Validating extraction quality...",
     description: "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
+    interactive: false,
   },
   {
     id: "stage-4",
@@ -78,6 +85,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-4-flow",
     loadingHint: "LLM is specifying priors and model parameters...",
     description: "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
+    interactive: true,
   },
   {
     id: "stage-4b",
@@ -87,6 +95,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-4b-flow",
     loadingHint: "Checking parametric identifiability...",
     description: "Checks whether the specified model parameters are identifiable from the available data.",
+    interactive: false,
   },
   {
     id: "stage-5",
@@ -96,6 +105,7 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-5-flow",
     loadingHint: "Running Bayesian inference...",
     description: "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
+    interactive: false,
   },
   {
     id: "stage-6",
@@ -105,5 +115,6 @@ export const STAGES: StageMeta[] = [
     prefectFlowName: "stage-6-flow",
     loadingHint: "Computing interventional effects...",
     description: "Computes interventional treatment effects and ranks them by magnitude and certainty.",
+    interactive: false,
   },
 ];

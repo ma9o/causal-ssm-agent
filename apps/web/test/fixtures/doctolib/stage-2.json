@@ -965,5 +965,66 @@
     "prescription_renewals": 13,
     "hdl_cholesterol": 13,
     "appointment_attendance": 13
+  },
+  "llm_trace": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a data extraction worker. Extract indicator measurements from raw medical records according to the measurement model specification.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "user",
+        "content": "Research question: How do cardiovascular medications affect cardiac risk markers?\n\nOutcome: cardiac_risk\n\nIndicators to extract:\n- ldl_cholesterol (continuous): LDL cholesterol in mmol/L\n- triglycerides (continuous): Triglyceride levels in mmol/L\n- hba1c (continuous): Glycated hemoglobin percentage\n- fasting_glucose (continuous): Fasting blood glucose in mmol/L\n- systolic_bp (continuous): Systolic blood pressure in mmHg\n- diastolic_bp (continuous): Diastolic blood pressure in mmHg\n- resting_heart_rate (continuous): Resting heart rate in bpm\n- crp (continuous): C-reactive protein in mg/L\n- fibrinogen (continuous): Fibrinogen level in g/L\n- prescription_renewals (continuous): Prescription adherence ratio\n- hdl_cholesterol (continuous): HDL cholesterol in mmol/L\n- appointment_attendance (continuous): Appointment attendance ratio\n\nData chunk (25 rows):\ndatetime,activity_type,content,location\n2021-09-15T09:30:00+02:00,consultation,Consultation Dr. Laurent...",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "I'll extract clinical measurements from these medical records.",
+        "reasoning": "The records contain structured lab values and vital signs embedded in French clinical notes. I need to parse numeric values for each indicator from the content field. Lab results explicitly contain LDL, HDL, triglycerides, HbA1c, fasting glucose, CRP, and fibrinogen values. Vital signs contain blood pressure and heart rate. Prescription adherence and appointment attendance need to be inferred from the event patterns.",
+        "tool_calls": [
+          {
+            "name": "submit_extractions",
+            "arguments": { "extractions": "[{\"indicator\": \"ldl_cholesterol\", \"value\": 4.1, \"timestamp\": \"2021-10-15\"}, ...]" }
+          }
+        ],
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      },
+      {
+        "role": "tool",
+        "content": "Validated 50 extractions across 12 indicators.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": "submit_extractions",
+        "tool_result": "Validated 50 extractions across 12 indicators.",
+        "tool_is_error": false
+      },
+      {
+        "role": "assistant",
+        "content": "Extracted 50 measurements from this chunk across 12 cardiovascular indicators including lipid panels, glycemic markers, blood pressure readings, inflammatory markers, and adherence metrics.",
+        "reasoning": null,
+        "tool_calls": null,
+        "tool_name": null,
+        "tool_result": null,
+        "tool_is_error": false
+      }
+    ],
+    "model": "claude-sonnet-4-20250514",
+    "total_time_seconds": 6.3,
+    "usage": {
+      "input_tokens": 2800,
+      "output_tokens": 1200,
+      "reasoning_tokens": 440
+    }
   }
 }

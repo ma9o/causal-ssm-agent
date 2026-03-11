@@ -682,6 +682,8 @@ def parse_date():
 
 MAX_TOOL_LOOP_TURNS = 40
 WARN_TOOL_LOOP_TURNS = 10
+MAX_TOOL_REPAIR_RETRIES = 1
+MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
 
 def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
@@ -721,6 +723,84 @@ def _terminal_tool_success(
         if tool_obj.success_output is None or result_text == tool_obj.success_output:
             return tool_name, result_text
     return None
+
+
+def _has_tool_context(messages: list[dict[str, Any]], tools: list[Tool] | None = None) -> bool:
+    """Whether the current conversation is in a tool-using phase."""
+
+    if tools:
+        return True
+    return any(message.get("role") == "tool" or message.get("tool_calls") for message in messages)
+
+
+def _truncate_tool_error(error_text: str, limit: int = MAX_TOOL_REPAIR_ERROR_CHARS) -> str:
+    """Trim provider error payloads before echoing them back to the model."""
+
+    if len(error_text) <= limit:
+        return error_text
+    return error_text[:limit] + "\n...[truncated]"
+
+
+def _tool_retry_message(error_text: str, tools: list[Tool] | None) -> dict[str, str]:
+    """Build a repair instruction after a malformed or failed tool-call response."""
+
+    guidance = (
+        "Retry the same step. If you need a tool, emit a valid tool call with a JSON object "
+        f"for arguments and use only these tools: {', '.join(tool.name for tool in tools)}."
+        if tools
+        else "Retry the same step in plain text only. No tools are available on this turn, "
+        "so do not emit any tool calls."
+    )
+    return {
+        "role": "user",
+        "content": (
+            "Your previous response could not be processed.\n\n"
+            "Error:\n"
+            f"{_truncate_tool_error(error_text)}\n\n"
+            f"{guidance}"
+        ),
+    }
+
+
+async def _call_model_with_tool_repair(
+    messages: list[dict[str, Any]],
+    model_name: str,
+    tools: list[Tool] | None,
+    config: GenerateConfig,
+    log_label: str | None,
+    max_retries: int = MAX_TOOL_REPAIR_RETRIES,
+) -> dict[str, Any]:
+    """Call the model and repair malformed tool-call turns by prompting a retry."""
+
+    tool_context = _has_tool_context(messages, tools)
+    attempt = 0
+
+    while True:
+        attempt_label = log_label if attempt == 0 else _combine_log_label(log_label, f"repair-{attempt}")
+        try:
+            return await call_model(
+                model_name,
+                messages,
+                tools=tools,
+                config=config,
+                log_label=attempt_label,
+            )
+        except Exception as exc:
+            if not tool_context or attempt >= max_retries:
+                raise
+            attempt += 1
+            error_text = str(exc) or exc.__class__.__name__
+            logger.warning(
+                _scoped(
+                    log_label,
+                    "call_model failed during tool-context turn; retrying with repair prompt "
+                    "(attempt %d/%d): %s",
+                ),
+                attempt,
+                max_retries,
+                _truncate_tool_error(error_text, limit=240).replace("\n", " "),
+            )
+            messages.append(_tool_retry_message(error_text, tools))
 
 
 async def _run_tool_loop(
@@ -766,9 +846,9 @@ async def _run_tool_loop(
             )
 
         t_turn = time.monotonic()
-        output = await call_model(
-            model_name,
+        output = await _call_model_with_tool_repair(
             messages,
+            model_name,
             tools=tools,
             config=_config,
             log_label=_combine_log_label(scoped_label, f"turn-{turn}", "llm"),
@@ -896,9 +976,10 @@ async def multi_turn_generate(
                 )
             else:
                 t_fu = time.monotonic()
-                response = await call_model(
-                    model_name,
+                response = await _call_model_with_tool_repair(
                     messages,
+                    model_name,
+                    tools=None,
                     config=_config,
                     log_label=_combine_log_label(follow_up_label, "llm"),
                 )
@@ -929,9 +1010,10 @@ async def multi_turn_generate(
         return last_nonempty
     # Simple generation without tools
     t_gen = time.monotonic()
-    response = await call_model(
-        model_name,
+    response = await _call_model_with_tool_repair(
         messages,
+        model_name,
+        tools=None,
         config=_config,
         log_label=_combine_log_label(log_label, "initial", "llm"),
     )
@@ -945,9 +1027,10 @@ async def multi_turn_generate(
         logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
         messages.append({"role": "user", "content": prompt})
         t_fu = time.monotonic()
-        response = await call_model(
-            model_name,
+        response = await _call_model_with_tool_repair(
             messages,
+            model_name,
+            tools=None,
             config=_config,
             log_label=_combine_log_label(follow_up_label, "llm"),
         )

@@ -526,7 +526,7 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
 
     worker_statuses = stage2_result.get("worker_statuses", [])
 
-    return {
+    result = {
         "_raw_data": raw_data,
         "_data_for_model": data_for_model,
         "_worker_statuses": worker_statuses,
@@ -534,6 +534,9 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
         "combined_extractions_sample": combined_extractions_sample,
         "per_indicator_counts": per_ind_counts,
     }
+    if "llm_trace" in stage2_result:
+        result["llm_trace"] = stage2_result["llm_trace"]
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

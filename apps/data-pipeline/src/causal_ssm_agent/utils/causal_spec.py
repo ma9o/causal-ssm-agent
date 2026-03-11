@@ -47,6 +47,19 @@ def get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
     }
 
 
+def make_extraction_context(causal_spec: dict) -> dict:
+    """Build minimal context needed by Stage 2 extraction workers.
+
+    Extracts only indicators and the outcome construct from the full CausalSpec,
+    avoiding passing edges and all latent constructs to each worker.
+    """
+    outcome = get_outcome_construct(causal_spec)
+    return {
+        "measurement": {"indicators": get_indicators(causal_spec)},
+        "latent": {"constructs": [outcome] if outcome else []},
+    }
+
+
 def get_outcome_construct(causal_spec_or_latent: dict) -> dict | None:
     """Get the outcome construct dict from a CausalSpec or latent model dict.
 

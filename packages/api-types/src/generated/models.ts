@@ -320,6 +320,7 @@ export interface Stage2Contract {
   per_indicator_counts: {
     [k: string]: number | undefined;
   };
+  llm_trace?: LLMTrace | null;
 }
 export interface WorkerStatusContract {
   worker_id: number;

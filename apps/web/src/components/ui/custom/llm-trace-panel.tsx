@@ -38,10 +38,12 @@ export function LLMTracePanel({
   trace,
   runId,
   stageId,
+  interactive = true,
 }: {
   trace: LLMTrace;
   runId?: string;
   stageId?: string;
+  interactive?: boolean;
 }) {
   const initialMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export function LLMTracePanel({
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
 
-  const canRefine = !!runId && !!stageId;
+  const canRefine = interactive && !!runId && !!stageId;
 
   const transport = useMemo(
     () =>

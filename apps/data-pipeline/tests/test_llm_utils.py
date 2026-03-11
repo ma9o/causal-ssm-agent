@@ -208,6 +208,123 @@ class TestWorkerValidationTools:
         assert call_count == 1
         assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
+    def test_multi_turn_generate_retries_tool_turn_after_call_model_error(self, monkeypatch):
+        call_count = 0
+        seen_retry_prompt = {}
+        tool, capture = make_validate_worker_output_tool(_worker_schema())
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = args[1]
+            tools = kwargs.get("tools")
+            if call_count == 1:
+                assert tools is not None
+                raise RuntimeError("MALFORMED_FUNCTION_CALL: invalid tool payload")
+
+            seen_retry_prompt["content"] = messages[-1]["content"]
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "validate_extractions",
+                            "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Extract sleep hours"}],
+                model_name="test-model",
+                tools=[tool],
+            )
+        )
+
+        assert result == ""
+        assert call_count == 2
+        assert "MALFORMED_FUNCTION_CALL" in seen_retry_prompt["content"]
+        assert "validate_extractions" in seen_retry_prompt["content"]
+        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
+
+    def test_multi_turn_generate_retries_plain_follow_up_after_tool_error(self, monkeypatch):
+        call_count = 0
+        seen_retry_prompt = {}
+        tool, capture = make_validate_worker_output_tool(_worker_schema())
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = args[1]
+            tools = kwargs.get("tools")
+
+            if call_count == 1:
+                assert tools is not None
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "name": "validate_extractions",
+                                "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                            }
+                        ],
+                    },
+                    "completion": "",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "tool_calls",
+                }
+
+            if call_count == 2:
+                assert tools is None
+                raise RuntimeError("MALFORMED_FUNCTION_CALL: follow-up emitted a bad tool call")
+
+            seen_retry_prompt["content"] = messages[-1]["content"]
+            assert tools is None
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "confirmed",
+                },
+                "completion": "confirmed",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "stop",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Extract sleep hours"}],
+                model_name="test-model",
+                tools=[tool],
+                follow_ups=["Review the extraction."],
+            )
+        )
+
+        assert result == "confirmed"
+        assert call_count == 3
+        assert "No tools are available on this turn" in seen_retry_prompt["content"]
+        assert "MALFORMED_FUNCTION_CALL" in seen_retry_prompt["content"]
+        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
+
 
 # =============================================================================
 # attach_trace
