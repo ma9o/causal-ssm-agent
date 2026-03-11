@@ -17,6 +17,7 @@ import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree  # noqa: F401 — re-exported for callers
 from numpyro import handlers
 
+from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.inference import _eval_model
 
 if TYPE_CHECKING:
@@ -64,144 +65,51 @@ def _assemble_deterministics(
     """Assemble deterministic sites from constrained samples, bypassing numpyro.
 
     Each deterministic site is a matrix assembled from the raw sample sites
-    (e.g. drift_diag_pop, drift_offdiag_pop → drift matrix). This mirrors the
-    assembly logic in SSMModel._sample_* but operates directly on the (N, ...)
-    sample arrays, avoiding N sequential numpyro trace calls.
+    (e.g. drift_diag_pop, drift_offdiag_pop → drift matrix). Uses SSMAssembler
+    as the single source of truth for matrix construction (shared with
+    SSMModel._sample_*).
     """
     N = next(iter(samples.values())).shape[0]
     n_l, n_m = spec.n_latent, spec.n_manifest
+    asm = SSMAssembler(spec)
     det = {}
 
-    # -- drift: diag(-|drift_diag_pop|) + offdiag entries --
-    # Mirrors SSMModel._sample_drift: applies drift_mask for sparsity and
-    # time_invariant_mask for quasi-constant latents.
     if "drift_diag_pop" in samples:
-        # Build offdiag positions from mask (matching model.py exactly)
-        offdiag_positions: list[tuple[int, int]] = []
-        if spec.drift_mask is not None:
-            for i in range(n_l):
-                for j in range(n_l):
-                    if i != j and spec.drift_mask[i, j]:
-                        offdiag_positions.append((i, j))
-        else:
-            for i in range(n_l):
-                for j in range(n_l):
-                    if i != j:
-                        offdiag_positions.append((i, j))
-
-        ti_mask = jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
-
-        def _assemble_drift(drift_diag_pop, drift_offdiag_pop):
-            drift_diag = -jnp.abs(drift_diag_pop)
-            # Apply time-invariant mask: near-zero drift for quasi-constant latents
-            if ti_mask is not None:
-                drift_diag = jnp.where(ti_mask, -1e-6, drift_diag)
-            drift = jnp.diag(drift_diag)
-            for idx, (i, j) in enumerate(offdiag_positions):
-                drift = drift.at[i, j].set(drift_offdiag_pop[idx])
-            return drift
-
-        offdiag = samples.get("drift_offdiag_pop", jnp.zeros((N, max(len(offdiag_positions), 0))))
-        det["drift"] = jax.vmap(_assemble_drift)(samples["drift_diag_pop"], offdiag)
-
-    # -- diffusion: diag or full lower-triangular Cholesky --
-    # Mirrors SSMModel._sample_diffusion: applies time_invariant_mask.
-    if "diffusion_diag_pop" in samples:
-        ti_mask_diff = (
-            jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
+        offdiag = samples.get(
+            "drift_offdiag_pop",
+            jnp.zeros((N, max(len(asm.offdiag_positions), 0))),
         )
+        det["drift"] = jax.vmap(asm.assemble_drift)(samples["drift_diag_pop"], offdiag)
 
-        def _assemble_diffusion_diag(diff_diag):
-            diffusion = jnp.diag(diff_diag)
-            if ti_mask_diff is not None:
-                diag_vals = jnp.diag(diffusion)
-                new_diag = jnp.where(ti_mask_diff, 1e-6, diag_vals)
-                diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
-            return diffusion
-
-        def _assemble_diffusion_full(diff_diag, diff_lower):
-            diffusion = jnp.diag(diff_diag)
-            lower_idx = 0
-            for i in range(n_l):
-                for j in range(i):
-                    diffusion = diffusion.at[i, j].set(diff_lower[lower_idx])
-                    lower_idx += 1
-            if ti_mask_diff is not None:
-                diag_vals = jnp.diag(diffusion)
-                new_diag = jnp.where(ti_mask_diff, 1e-6, diag_vals)
-                diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
-            return diffusion
-
+    if "diffusion_diag_pop" in samples:
         if "diffusion_lower" in samples:
-            det["diffusion"] = jax.vmap(_assemble_diffusion_full)(
+            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(
                 samples["diffusion_diag_pop"], samples["diffusion_lower"]
             )
         else:
-            det["diffusion"] = jax.vmap(_assemble_diffusion_diag)(samples["diffusion_diag_pop"])
+            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(
+                samples["diffusion_diag_pop"]
+            )
 
-    # -- cint: passthrough --
     if "cint_pop" in samples:
         det["cint"] = samples["cint_pop"]
 
-    # -- lambda: three modes matching SSMModel._sample_lambda --
-    # 1. Template+mask: spec.lambda_mat is array AND lambda_mask is set
-    # 2. Fully fixed: spec.lambda_mat is array, no mask
-    # 3. Legacy: spec.lambda_mat is "free" → identity + extra rows
-    if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is not None:
-        # Template+mask mode: start from template, overwrite free positions
-        free_positions: list[tuple[int, int]] = [
-            (i, j)
-            for i in range(n_m)
-            for j in range(n_l)
-            if spec.lambda_mask[i, j]
-        ]
-        template = jnp.array(spec.lambda_mat)
-
-        if "lambda_free" in samples and len(free_positions) > 0:
-            def _assemble_lambda_template(free_loadings):
-                lam = template
-                for idx, (i, j) in enumerate(free_positions):
-                    lam = lam.at[i, j].set(free_loadings[idx])
-                return lam
-
-            det["lambda"] = jax.vmap(_assemble_lambda_template)(samples["lambda_free"])
-        else:
-            det["lambda"] = jnp.broadcast_to(template, (N, n_m, n_l))
-
-    elif isinstance(spec.lambda_mat, jnp.ndarray):
-        # Fully fixed lambda
-        det["lambda"] = jnp.broadcast_to(jnp.array(spec.lambda_mat), (N, n_m, n_l))
-
-    elif "lambda_free" in samples:
-        # Legacy identity + extra rows mode
-        def _assemble_lambda_legacy(free_loadings):
-            lam = jnp.eye(n_m, n_l)
-            idx = 0
-            for i in range(n_l, n_m):
-                for j in range(n_l):
-                    lam = lam.at[i, j].set(free_loadings[idx])
-                    idx += 1
-            return lam
-
-        det["lambda"] = jax.vmap(_assemble_lambda_legacy)(samples["lambda_free"])
+    if "lambda_free" in samples and len(asm.lambda_free_positions) > 0:
+        det["lambda"] = jax.vmap(asm.assemble_lambda)(samples["lambda_free"])
     else:
-        # n_m == n_l: lambda is just identity, no free params
-        det["lambda"] = jnp.broadcast_to(jnp.eye(n_m, n_l), (N, n_m, n_l))
+        det["lambda"] = jnp.broadcast_to(asm.lambda_template, (N, n_m, n_l))
 
-    # -- manifest_cov: diag(d) @ diag(d).T = diag(d²) --
     if "manifest_var_diag" in samples:
         det["manifest_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples["manifest_var_diag"])
     elif isinstance(spec.manifest_var, jnp.ndarray):
         fixed_cov = spec.manifest_var @ spec.manifest_var.T
         det["manifest_cov"] = jnp.broadcast_to(fixed_cov, (N, n_m, n_m))
 
-    # -- t0_means: passthrough or broadcast fixed --
     if "t0_means_pop" in samples:
         det["t0_means"] = samples["t0_means_pop"]
     elif isinstance(spec.t0_means, jnp.ndarray):
         det["t0_means"] = jnp.broadcast_to(spec.t0_means, (N, n_l))
 
-    # -- t0_cov: diag(d²) or broadcast fixed --
     if "t0_var_diag" in samples:
         det["t0_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples["t0_var_diag"])
     elif isinstance(spec.t0_var, jnp.ndarray):

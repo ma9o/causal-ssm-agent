@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
+from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
@@ -211,49 +212,23 @@ class SSMModel:
         self.n_particles = n_particles
         self.pf_key = jax.random.PRNGKey(pf_seed)
         self.likelihood = likelihood
+        self._assembler = SSMAssembler(spec)
 
     def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
-        """Sample drift matrix with stability constraints.
-
-        When spec.drift_mask is set, only off-diagonal entries where the mask
-        is True are sampled; the rest stay zero. This enforces DAG-constrained
-        sparsity. When drift_mask is None, all off-diagonal entries are free
-        (backward-compatible).
-
-        Args:
-            spec: Model specification
-
-        Returns:
-            drift: (n_latent, n_latent)
-        """
+        """Sample drift matrix with stability constraints."""
         n = spec.n_latent
 
         if isinstance(spec.drift, jnp.ndarray):
             return spec.drift
 
-        # Build off-diagonal positions list from mask (static, unrolled by XLA)
-        offdiag_positions: list[tuple[int, int]] = []
-        if spec.drift_mask is not None:
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        offdiag_positions.append((i, j))
-        else:
-            # No mask: all off-diagonal entries are free
-            for i in range(n):
-                for j in range(n):
-                    if i != j:
-                        offdiag_positions.append((i, j))
+        asm = self._assembler
+        n_offdiag = len(asm.offdiag_positions)
 
-        n_offdiag = len(offdiag_positions)
-
-        # Diagonal (auto-effects)
         drift_diag_pop = numpyro.sample(
             "drift_diag_pop",
             _make_prior_batch(self.priors.drift_diag, n),
         )
 
-        # Off-diagonal (cross-effects)
         if n_offdiag > 0:
             drift_offdiag_pop = jnp.asarray(
                 numpyro.sample(
@@ -264,16 +239,7 @@ class SSMModel:
         else:
             drift_offdiag_pop = jnp.array([])
 
-        drift_diag = -jnp.abs(drift_diag_pop)
-
-        # Time-invariant latents: near-zero drift diagonal (quasi-constant)
-        if spec.time_invariant_mask is not None:
-            ti_mask = jnp.array(spec.time_invariant_mask)
-            drift_diag = jnp.where(ti_mask, -1e-6, drift_diag)
-
-        drift = jnp.diag(drift_diag)
-        for idx, (i, j) in enumerate(offdiag_positions):
-            drift = drift.at[i, j].set(drift_offdiag_pop[idx])
+        drift = asm.assemble_drift(drift_diag_pop, drift_offdiag_pop)
 
         # Stability guard: penalise drift matrices whose max real eigenvalue
         # approaches zero (i.e. the system is near-unstable).  Only needed
@@ -299,16 +265,13 @@ class SSMModel:
         if isinstance(spec.diffusion, jnp.ndarray):
             return spec.diffusion
 
-        # Diagonal
         diff_diag_pop = numpyro.sample(
             "diffusion_diag_pop",
             dist.HalfNormal(self.priors.diffusion_diag["sigma"]).expand((n,)),
         )
 
-        if spec.diffusion == "diag":
-            diffusion = jnp.diag(diff_diag_pop)
-        else:
-            # Full lower triangular
+        diff_lower = None
+        if spec.diffusion != "diag":
             n_lower = n * (n - 1) // 2
             if n_lower > 0:
                 diff_lower = jnp.asarray(
@@ -317,22 +280,8 @@ class SSMModel:
                         _make_prior_batch(self.priors.diffusion_offdiag, n_lower),
                     )
                 )
-            else:
-                diff_lower = jnp.array([])
 
-            diffusion = jnp.diag(diff_diag_pop)
-            lower_idx = 0
-            for i in range(n):
-                for j in range(i):
-                    diffusion = diffusion.at[i, j].set(diff_lower[lower_idx])
-                    lower_idx += 1
-
-        # Time-invariant latents: near-zero diffusion (quasi-constant)
-        if spec.time_invariant_mask is not None:
-            ti_mask = jnp.array(spec.time_invariant_mask)
-            diag_vals = jnp.diag(diffusion)
-            new_diag = jnp.where(ti_mask, 1e-6, diag_vals)
-            diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
+        diffusion = self._assembler.assemble_diffusion(diff_diag_pop, diff_lower)
 
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
@@ -358,62 +307,28 @@ class SSMModel:
     def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix (shared across subjects).
 
-        Three modes:
-        1. lambda_mat is array AND lambda_mask is not None: template+mask mode.
-           Start from the fixed template (with 1.0 for reference indicators),
-           sample free loadings at positions where lambda_mask is True.
-        2. lambda_mat is array, lambda_mask is None: fully fixed (return as-is).
-        3. lambda_mat is "free": legacy identity + extra rows mode.
+        Three modes (determined by SSMAssembler from spec):
+        1. Template+mask: sample free loadings at masked positions.
+        2. Fixed: return template as-is (no sampling).
+        3. Legacy: identity + extra rows filled with sampled loadings.
         """
-        if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is not None:
-            # Template+mask mode: sample free positions from mask
-            lambda_mat = jnp.array(spec.lambda_mat)
-
-            # Build free positions list from mask (static for XLA)
-            free_positions: list[tuple[int, int]] = []
-            for i in range(spec.n_manifest):
-                for j in range(spec.n_latent):
-                    if spec.lambda_mask[i, j]:
-                        free_positions.append((i, j))
-
-            n_free = len(free_positions)
-            if n_free > 0:
-                free_loadings = jnp.asarray(
-                    numpyro.sample(
-                        "lambda_free",
-                        _make_prior_batch(self.priors.lambda_free, n_free),
-                    )
-                )
-                for idx, (i, j) in enumerate(free_positions):
-                    lambda_mat = lambda_mat.at[i, j].set(free_loadings[idx])
-
-            numpyro.deterministic("lambda", lambda_mat)
-            return lambda_mat
-
-        if isinstance(spec.lambda_mat, jnp.ndarray):
+        # Fully fixed (array with no mask): return as-is
+        if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is None:
             return spec.lambda_mat
 
-        n_m, n_l = spec.n_manifest, spec.n_latent
+        asm = self._assembler
+        n_free = len(asm.lambda_free_positions)
 
-        # Start with identity mapping for first n_latent manifests
-        lambda_mat = jnp.eye(n_m, n_l)
-
-        # Sample additional loadings if needed
-        if n_m > n_l:
-            n_free = (n_m - n_l) * n_l
+        free_loadings = None
+        if n_free > 0:
             free_loadings = jnp.asarray(
                 numpyro.sample(
                     "lambda_free",
-                    _make_prior_dist(self.priors.lambda_free).expand((n_free,)),
+                    _make_prior_batch(self.priors.lambda_free, n_free),
                 )
             )
 
-            idx = 0
-            for i in range(n_l, n_m):
-                for j in range(n_l):
-                    lambda_mat = lambda_mat.at[i, j].set(free_loadings[idx])
-                    idx += 1
-
+        lambda_mat = asm.assemble_lambda(free_loadings)
         numpyro.deterministic("lambda", lambda_mat)
         return lambda_mat
 
