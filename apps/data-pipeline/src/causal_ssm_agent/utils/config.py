@@ -85,6 +85,22 @@ class NUTSConfig:
 
 
 @dataclass(frozen=True)
+class SMCConfig:
+    """Tempered SMC / Laplace-EM / Structured VI / DPF inference settings."""
+
+    n_outer: int = 100
+    n_csmc_particles: int = 20
+    n_mh_steps: int = 10
+    param_step_size: float = 0.1
+    n_warmup: int | None = None
+    n_leapfrog: int = 5
+    adaptive_tempering: bool = True
+    target_ess_ratio: float = 0.5
+    waste_free: bool = False
+    n_ieks_iters: int = 5
+
+
+@dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
@@ -96,6 +112,7 @@ class InferenceConfig:
     gpu: str | None = None
     svi: SVIConfig = SVIConfig()
     nuts: NUTSConfig = NUTSConfig()
+    smc: SMCConfig = SMCConfig()
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSMModelBuilder.
@@ -121,6 +138,19 @@ class InferenceConfig:
         elif method == "nuts":
             config["target_accept_prob"] = self.nuts.target_accept_prob
             config["max_tree_depth"] = self.nuts.max_tree_depth
+        elif method in ("laplace_em", "tempered_smc", "structured_vi", "dpf"):
+            config["n_outer"] = self.smc.n_outer
+            config["n_csmc_particles"] = self.smc.n_csmc_particles
+            config["n_mh_steps"] = self.smc.n_mh_steps
+            config["param_step_size"] = self.smc.param_step_size
+            config["n_leapfrog"] = self.smc.n_leapfrog
+            config["adaptive_tempering"] = self.smc.adaptive_tempering
+            config["target_ess_ratio"] = self.smc.target_ess_ratio
+            config["waste_free"] = self.smc.waste_free
+            if self.smc.n_warmup is not None:
+                config["n_warmup"] = self.smc.n_warmup
+            if method == "laplace_em":
+                config["n_ieks_iters"] = self.smc.n_ieks_iters
         return config
 
 
@@ -244,10 +274,12 @@ def load_config() -> PipelineConfig:
     inference_raw = raw.get("inference", {})
     svi_raw = inference_raw.pop("svi", {})
     nuts_raw = inference_raw.pop("nuts", {})
+    smc_raw = inference_raw.pop("smc", {})
     inference_config = InferenceConfig(
         **inference_raw,
         svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
         nuts=NUTSConfig(**nuts_raw) if nuts_raw else NUTSConfig(),
+        smc=SMCConfig(**smc_raw) if smc_raw else SMCConfig(),
     )
 
     # Parse llm section (optional)
