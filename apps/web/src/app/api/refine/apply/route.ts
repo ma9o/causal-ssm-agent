@@ -1,6 +1,11 @@
+import type { LLMTrace } from "@causal-ssm/api-types";
 import { openrouter } from "@openrouter/ai-sdk-provider";
-import { generateText } from "ai";
+import { generateText, jsonSchema, tool } from "ai";
+import { readFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
+
+import { traceToCoreMessages } from "@/lib/utils/trace-to-core";
 
 const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
 
@@ -8,8 +13,10 @@ const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
  * POST /api/refine/apply
  *
  * Takes the refinement conversation and asks the LLM to produce
- * the updated stage data as structured JSON. Then sends it to
- * /api/replay to overwrite and trigger downstream re-execution.
+ * the updated stage data using structured tool_use extraction.
+ * Then sends it to /api/replay to overwrite and trigger downstream re-execution.
+ *
+ * Body: { messages, runId, stageId }
  */
 export async function POST(request: Request) {
   const { messages, runId, stageId } = await request.json();
@@ -20,10 +27,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-
-  // Read the current stage data to understand the schema
-  const { readFile } = await import("node:fs/promises");
-  const { basename, join, resolve } = await import("node:path");
 
   const safeRunId = basename(runId);
   const safeStageId = basename(stageId);
@@ -37,38 +40,72 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not read current stage data" }, { status: 404 });
   }
 
-  // Ask the LLM to produce the updated stage data
-  const extractionMessages = [
-    ...messages,
-    {
-      role: "user" as const,
-      content: `Based on our conversation above, produce the COMPLETE updated stage output as a single JSON object. The current output has these top-level keys: ${Object.keys(currentData).join(", ")}. Return the full object with all fields, incorporating all changes we discussed. Only include the JSON, no explanation.`,
+  // Build trace context for the extraction LLM
+  let traceContext: ReturnType<typeof traceToCoreMessages> = [];
+  if (currentData.llm_trace) {
+    const trace = currentData.llm_trace as LLMTrace;
+    traceContext = traceToCoreMessages(trace.messages);
+  }
+
+  // Build a JSON Schema for the update_stage tool from the current data's structure.
+  // This guides the LLM to produce output matching the stage contract shape.
+  const { llm_trace: _trace, outcome: _outcome, ...domainFields } = currentData;
+  const properties: Record<string, unknown> = {};
+  for (const key of Object.keys(domainFields)) {
+    properties[key] = {}; // any type — the Python contract validates on the other end
+  }
+
+  const updateSchema = {
+    type: "object" as const,
+    properties: {
+      stage_data: {
+        type: "object" as const,
+        description: `Complete updated stage output with keys: ${Object.keys(domainFields).join(", ")}`,
+        properties,
+        required: Object.keys(domainFields),
+      },
     },
-  ];
+    required: ["stage_data"],
+  };
 
   try {
-    const { text } = await generateText({
+    const result = await generateText({
       model: openrouter("anthropic/claude-sonnet-4"),
-      messages: extractionMessages,
+      system: [
+        `You are updating stage "${safeStageId}" output based on a refinement conversation.`,
+        `Current data:\n${JSON.stringify(domainFields, null, 2)}`,
+        "Call update_stage with the COMPLETE updated output, preserving all fields.",
+      ].join("\n\n"),
+      messages: [
+        ...traceContext,
+        ...messages,
+        {
+          role: "user" as const,
+          content: "Call update_stage with the complete updated stage output incorporating all changes discussed.",
+        },
+      ],
+      tools: {
+        update_stage: tool({
+          description: "Produce the complete updated stage output",
+          parameters: jsonSchema(updateSchema),
+        }),
+      },
+      maxSteps: 1,
     });
 
-    // Extract JSON from the response (may be wrapped in ```json blocks)
-    const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, text];
-    const jsonStr = (jsonMatch[1] ?? text).trim();
-    let updatedData: Record<string, unknown>;
-    try {
-      updatedData = JSON.parse(jsonStr);
-    } catch {
+    // Extract from tool call
+    const toolCall = result.toolCalls?.[0];
+    if (!toolCall) {
       return NextResponse.json(
-        { error: "Failed to parse LLM output as JSON", raw: text },
+        { error: "LLM did not call update_stage tool" },
         { status: 422 },
       );
     }
 
+    const updatedData = (toolCall.args as { stage_data: Record<string, unknown> }).stage_data;
+
     // Merge: keep fields the LLM didn't touch, update the ones it did
-    // Remove internal fields that shouldn't be overwritten
-    const { llm_trace, outcome, ...existingFields } = currentData;
-    const merged = { ...existingFields, ...updatedData };
+    const merged = { ...domainFields, ...updatedData };
 
     // Call the replay endpoint
     const replayRes = await fetch(new URL("/api/replay", request.url), {
@@ -89,7 +126,7 @@ export async function POST(request: Request) {
     const replayResult = await replayRes.json();
     return NextResponse.json({
       ok: true,
-      updatedFields: Object.keys(updatedData as Record<string, unknown>),
+      updatedFields: Object.keys(updatedData),
       ...replayResult,
     });
   } catch (err) {
