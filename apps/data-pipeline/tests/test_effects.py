@@ -1,12 +1,12 @@
 """Tests for utils/effects.py graph utilities.
 
-Covers: build_digraph, get_outcome_from_latent_model, get_all_treatments.
+Covers: build_digraph, get_outcome_name, get_all_treatments.
 """
 
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.effects import (
     build_digraph,
     get_all_treatments,
-    get_outcome_from_latent_model,
 )
 
 # =============================================================================
@@ -73,7 +73,7 @@ class TestBuildDigraph:
 
 
 # =============================================================================
-# get_outcome_from_latent_model
+# get_outcome_name
 # =============================================================================
 
 
@@ -85,7 +85,7 @@ class TestGetOutcome:
                 {"name": "Y", "is_outcome": True},
             ]
         }
-        assert get_outcome_from_latent_model(model) == "Y"
+        assert get_outcome_name(model) == "Y"
 
     def test_no_outcome(self):
         model = {
@@ -94,13 +94,13 @@ class TestGetOutcome:
                 {"name": "Z"},
             ]
         }
-        assert get_outcome_from_latent_model(model) is None
+        assert get_outcome_name(model) is None
 
     def test_empty_constructs(self):
-        assert get_outcome_from_latent_model({"constructs": []}) is None
+        assert get_outcome_name({"constructs": []}) is None
 
     def test_missing_constructs_key(self):
-        assert get_outcome_from_latent_model({}) is None
+        assert get_outcome_name({}) is None
 
 
 # =============================================================================

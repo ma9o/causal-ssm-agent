@@ -23,10 +23,10 @@ from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.effects import (
     build_digraph,
     get_all_treatments,
-    get_outcome_from_latent_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def check_identifiability(
                 * notes: Optional explanation when confounders cannot be enumerated
             - graph_info: Debug info about the graph structure
     """
-    outcome = get_outcome_from_latent_model(latent_model)
+    outcome = get_outcome_name(latent_model)
     if not outcome:
         raise ValueError("No outcome found in latent model (missing is_outcome=true)")
 

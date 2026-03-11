@@ -267,7 +267,7 @@ def _(mo):
 
 @app.cell
 def _(causal_spec, mo):
-    from causal_ssm_agent.utils.effects import get_outcome_from_latent_model as _get_outcome
+    from causal_ssm_agent.utils.causal_spec import get_outcome_name as _get_outcome
     from causal_ssm_agent.utils.identifiability import (
         analyze_unobserved_constructs as _analyze,
     )

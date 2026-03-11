@@ -9,7 +9,7 @@ from typing import Any
 
 from commons import parse_dag_json
 
-from causal_ssm_agent.utils.effects import get_outcome_from_latent_model
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
@@ -70,7 +70,7 @@ def run_diagnostics(data: dict[str, Any]) -> DagDiagnostics:
         id_result,
     )
 
-    outcome = get_outcome_from_latent_model(latent_model) or "unknown"
+    outcome = get_outcome_name(latent_model) or "unknown"
     graph_summary = _build_graph_summary(data, measurement_model, outcome)
     measurement_summary = _summarize_measurement(data["indicators"])
 
