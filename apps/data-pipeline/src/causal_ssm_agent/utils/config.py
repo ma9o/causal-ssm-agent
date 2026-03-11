@@ -1,5 +1,6 @@
 """Configuration loader for the causal agent pipeline."""
 
+import dataclasses
 import logging
 import os
 from dataclasses import dataclass
@@ -117,6 +118,9 @@ class InferenceConfig:
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSMModelBuilder.
 
+        Uses ``dataclasses.asdict`` on the relevant sub-config so that new
+        fields are automatically included without manual enumeration.
+
         Args:
             method_override: Override the configured method (e.g. "nuts")
 
@@ -132,25 +136,15 @@ class InferenceConfig:
             "seed": self.seed,
         }
         if method == "svi":
-            config["num_steps"] = self.svi.num_steps
-            config["learning_rate"] = self.svi.learning_rate
-            config["guide_type"] = self.svi.guide_type
+            config.update(dataclasses.asdict(self.svi))
         elif method == "nuts":
-            config["target_accept_prob"] = self.nuts.target_accept_prob
-            config["max_tree_depth"] = self.nuts.max_tree_depth
+            config.update(dataclasses.asdict(self.nuts))
         elif method in ("laplace_em", "tempered_smc", "structured_vi", "dpf"):
-            config["n_outer"] = self.smc.n_outer
-            config["n_csmc_particles"] = self.smc.n_csmc_particles
-            config["n_mh_steps"] = self.smc.n_mh_steps
-            config["param_step_size"] = self.smc.param_step_size
-            config["n_leapfrog"] = self.smc.n_leapfrog
-            config["adaptive_tempering"] = self.smc.adaptive_tempering
-            config["target_ess_ratio"] = self.smc.target_ess_ratio
-            config["waste_free"] = self.smc.waste_free
-            if self.smc.n_warmup is not None:
-                config["n_warmup"] = self.smc.n_warmup
-            if method == "laplace_em":
-                config["n_ieks_iters"] = self.smc.n_ieks_iters
+            smc = dataclasses.asdict(self.smc)
+            if method != "laplace_em":
+                smc.pop("n_ieks_iters", None)
+            # Omit None values so receivers use their defaults
+            config.update({k: v for k, v in smc.items() if v is not None})
         return config
 
 
