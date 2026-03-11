@@ -126,17 +126,29 @@ def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
     )
 
 
-def _emit_stage_progress_event(run_id: str, stage_id: str, status: str) -> None:
+def _emit_stage_progress_event(
+    run_id: str,
+    stage_id: str,
+    status: str,
+    *,
+    outcome: str | None = None,
+    error: dict[str, Any] | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "stage_id": stage_id,
+        "status": status,
+    }
+    if outcome is not None:
+        payload["outcome"] = outcome
+    if error is not None:
+        payload["error"] = error
     emit_event(
         event=f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}",
         resource={
             "prefect.resource.id": f"prefect.flow-run.{run_id}",
             "prefect.resource.name": run_id,
         },
-        payload={
-            "stage_id": stage_id,
-            "status": status,
-        },
+        payload=payload,
     )
 
 
@@ -279,10 +291,20 @@ async def causal_inference_pipeline(
             stage_state = runner()
             if isawaitable(stage_state):
                 stage_state = await stage_state
-        except Exception:
-            _emit_stage_progress_event(root_run_id, stage_id, "failed")
+        except Exception as exc:
+            _emit_stage_progress_event(
+                root_run_id,
+                stage_id,
+                "failed",
+                error={"type": "execution_error", "message": str(exc)},
+            )
             raise
-        _emit_stage_progress_event(root_run_id, stage_id, "completed")
+        # Include outcome from stage result if available
+        web_data = stage_state.get("web", {}) if isinstance(stage_state, dict) else {}
+        stage_outcome = web_data.get("outcome")
+        _emit_stage_progress_event(
+            root_run_id, stage_id, "completed", outcome=stage_outcome
+        )
         return stage_state
 
     def _maybe_finish(stage_id: str) -> dict[str, Any] | None:

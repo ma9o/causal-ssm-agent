@@ -185,22 +185,14 @@ async def extract_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import (
-        attach_trace,
-        get_stage2_generate_config,
-        make_generate_fn,
-    )
+    from causal_ssm_agent.utils.llm import StageContext, get_stage2_generate_config
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
     generate_config = get_stage2_generate_config()
-    trace_capture: dict = {}
-    generate = make_generate_fn(
-        config.stage2_workers.model,
-        config=generate_config,
-        trace_capture=trace_capture,
-    )
+    ctx = StageContext("stage-2", live_trace=False)
+    generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
     indicator_count = len(get_indicators(causal_spec))
     chunk_label = _chunk_log_label(chunk_idx, chunk_df)
 
@@ -246,8 +238,7 @@ async def extract_chunk_task(
         "n_extractions": len(result.output.extractions),
         "status": "completed",
     }
-    attach_trace(result_dict, trace_capture)
-    return result_dict
+    return ctx.finalize(result_dict)
 
 
 @flow(
