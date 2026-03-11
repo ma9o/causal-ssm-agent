@@ -1,0 +1,180 @@
+{
+  "stage-0": [
+    {
+      "name": "list_files",
+      "description": "List files in the prepared input directory.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "default": ".",
+            "description": "Relative path within the input directory.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "title": "ListFilesInput",
+        "type": "object"
+      }
+    },
+    {
+      "name": "read_file_sample",
+      "description": "Read a sample of lines from a file to understand its format.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Relative path to the file within the input directory.",
+            "title": "Path",
+            "type": "string"
+          },
+          "n_lines": {
+            "default": 50,
+            "description": "Number of lines to read.",
+            "title": "N Lines",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ReadFileSampleInput",
+        "type": "object"
+      }
+    },
+    {
+      "name": "execute_python",
+      "description": "Execute Python code in a Modal sandbox to parse files into a Polars DataFrame.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Python code to execute.",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ExecutePythonInput",
+        "type": "object"
+      }
+    },
+    {
+      "name": "submit_table",
+      "description": "Validate and finalize the ingested DataFrame with column descriptions.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "source_label": {
+            "description": "A short human-readable label for the data source.",
+            "title": "Source Label",
+            "type": "string"
+          },
+          "column_descriptions_json": {
+            "description": "JSON object mapping column names to descriptions.",
+            "title": "Column Descriptions Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_label",
+          "column_descriptions_json"
+        ],
+        "title": "SubmitTableInput",
+        "type": "object"
+      }
+    }
+  ],
+  "stage-1a": [
+    {
+      "name": "validate_latent_model_tool",
+      "description": "Tool for validating latent model JSON (Stage 1a).",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "structure_json": {
+            "description": "The JSON string containing the latent model to validate.",
+            "title": "Structure Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "structure_json"
+        ],
+        "title": "ValidateLatentModelInput",
+        "type": "object"
+      }
+    }
+  ],
+  "stage-1b": [
+    {
+      "name": "validate_measurement_model_tool",
+      "description": "Tool for validating measurement model JSON plus compiler constraints.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "measurement_json": {
+            "description": "The JSON string containing the measurement model to validate.",
+            "title": "Measurement Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measurement_json"
+        ],
+        "title": "ValidateMeasurementModelInput",
+        "type": "object"
+      }
+    }
+  ],
+  "stage-2": [
+    {
+      "name": "validate_extractions",
+      "description": "Tool for validating worker extraction output JSON.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "output_json": {
+            "description": "The JSON string containing the worker output to validate.",
+            "title": "Output Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_json"
+        ],
+        "title": "ValidateExtractionsInput",
+        "type": "object"
+      }
+    }
+  ],
+  "stage-4": [
+    {
+      "name": "validate_model_spec_tool",
+      "description": "Tool for validating model specification JSON (Stage 4).",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "model_spec_json": {
+            "description": "The JSON string containing the model spec to validate.",
+            "title": "Model Spec Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_spec_json"
+        ],
+        "title": "ValidateModelSpecInput",
+        "type": "object"
+      }
+    }
+  ],
+  "_refinable": [
+    "stage-1a",
+    "stage-1b",
+    "stage-2",
+    "stage-4"
+  ]
+}
