@@ -208,9 +208,10 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
     ],
 }
 
-# Stages where the refinement proxy can meaningfully re-execute tools.
+# Stages with an interactive LLM trace panel (refinement chat + replay).
 # Stage 0 is excluded (tools depend on sandbox/filesystem state).
-REFINABLE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-2", "stage-4"})
+# Stage 2 is excluded (parallel worker extraction, not a single LLM conversation).
+INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4"})
 
 
 # ---------------------------------------------------------------------------

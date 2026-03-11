@@ -171,10 +171,9 @@
       }
     }
   ],
-  "_refinable": [
+  "_interactive": [
     "stage-1a",
     "stage-1b",
-    "stage-2",
     "stage-4"
   ]
 }

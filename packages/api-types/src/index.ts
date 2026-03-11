@@ -89,7 +89,7 @@ export type { PartialStageResult, LiveMetadata } from "./generated/models";
 
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
-export { STAGE_TOOLS, REFINABLE_STAGES } from "./generated/tools";
+export { STAGE_TOOLS, INTERACTIVE_STAGES } from "./generated/tools";
 
 // Inference diagnostic types
 export type { TreatmentEffectContract as TreatmentEffect } from "./generated/models";

@@ -69,4 +69,4 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   ],
 };
 
-export const REFINABLE_STAGES: readonly string[] = ["stage-1a","stage-1b","stage-2","stage-4"] as const;
+export const INTERACTIVE_STAGES: readonly string[] = ["stage-1a","stage-1b","stage-4"] as const;

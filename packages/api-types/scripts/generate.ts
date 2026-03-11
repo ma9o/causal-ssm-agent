@@ -106,11 +106,11 @@ function stripFieldTitles(schema: any, isTopLevel = true): any {
  * Generate tools.ts from the tools.json schema exported by Python.
  *
  * Produces a typed constant with tool definitions per stage and a
- * REFINABLE_STAGES set, directly consumable by the refinement route.
+ * INTERACTIVE_STAGES set, directly consumable by the refinement route.
  */
 function generateTools(): void {
   const toolsSchema = JSON.parse(readFileSync(TOOLS_SCHEMA_PATH, "utf-8"));
-  const refinable: string[] = toolsSchema._refinable ?? [];
+  const interactive: string[] = toolsSchema._interactive ?? [];
 
   const lines: string[] = [
     "/* eslint-disable */",
@@ -152,7 +152,7 @@ function generateTools(): void {
 
   lines.push("};");
   lines.push("");
-  lines.push(`export const REFINABLE_STAGES: readonly string[] = ${JSON.stringify(refinable)} as const;`);
+  lines.push(`export const INTERACTIVE_STAGES: readonly string[] = ${JSON.stringify(interactive)} as const;`);
   lines.push("");
 
   writeFileSync(TOOLS_OUTPUT_PATH, lines.join("\n"));

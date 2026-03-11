@@ -1,4 +1,4 @@
-import { REFINABLE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
+import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { jsonSchema, streamText, tool } from "ai";
@@ -42,9 +42,9 @@ export async function POST(req: Request) {
     }
   }
 
-  // Build tools if this stage has refinable tools
+  // Build tools if this is an interactive stage
   const toolDefs =
-    stageId && REFINABLE_STAGES.includes(stageId)
+    stageId && INTERACTIVE_STAGES.includes(stageId)
       ? STAGE_TOOLS[stageId] ?? []
       : [];
 
