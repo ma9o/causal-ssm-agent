@@ -67,7 +67,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │           └── lib/               # API clients, hooks, types, utilities
 │               └── hooks/         # Prefect progress state, event streaming, stage telemetry
 ├── packages/
-│   ├── api-types/                 # Generated TypeScript types (from pipeline schemas)
+│   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
 │   └── typescript-config/         # Shared TS config
 ├── docs/                          # Project documentation
 │   ├── modeling/                  # Theoretical foundations
