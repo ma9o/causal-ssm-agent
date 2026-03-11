@@ -40,8 +40,6 @@ class Stage2Config:
     chunk_size: int
     max_concurrent_workers: int = 4
     submission_batch_size: int = 50
-    max_tokens: int = 65536
-    reasoning_effort: str = "high"
 
 
 @dataclass(frozen=True)
