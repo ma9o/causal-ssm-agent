@@ -95,11 +95,12 @@ class TestGateOverrideContract:
 def _stage0_data():
     """Minimal valid Stage0 payload."""
     return {
-        "source_type": "google_takeout",
         "source_label": "My Takeout",
         "n_records": 100,
+        "n_columns": 5,
         "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
         "sample": [{"col": "val"}],
+        "column_descriptions": [{"name": "col", "dtype": "str", "description": "A column"}],
     }
 
 
@@ -368,7 +369,7 @@ class TestTreatmentEffectContract:
             treatment="unknown_tx",
             effect_size=None,
             identifiable=False,
-            warning="Not identifiable from data",
+            prior_sensitivity_warning="Not identifiable from data",
         )
         assert t.identifiable is False
         assert t.effect_size is None
