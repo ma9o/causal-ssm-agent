@@ -703,7 +703,7 @@ class TestPowerScalingResult:
         """print_report should not crash."""
         import logging
 
-        from causal_ssm_agent.utils.parametric_id import PowerScalingResult
+        from causal_ssm_agent.utils.parametric_id_postfit import PowerScalingResult
 
         result = PowerScalingResult(
             prior_sensitivity={"drift_diag_pop": 0.02, "diffusion_diag_pop": 0.08},
@@ -729,7 +729,7 @@ class TestPowerScalingSensitivity:
     def test_power_scaling_basic(self):
         """After fitting with simple data, power scaling should produce valid output."""
         from causal_ssm_agent.models.ssm.inference import InferenceResult
-        from causal_ssm_agent.utils.parametric_id import power_scaling_sensitivity
+        from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
 
         model = _make_identified_model()
         T = 20

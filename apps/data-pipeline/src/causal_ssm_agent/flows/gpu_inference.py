@@ -57,7 +57,7 @@ def _stage5_on_gpu(
 
     from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-    from causal_ssm_agent.utils.parametric_id import power_scaling_sensitivity
+    from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
 
     # ---------- reconstruct data ----------
     raw_data = pl_inner.read_ipc(io.BytesIO(data_bytes))

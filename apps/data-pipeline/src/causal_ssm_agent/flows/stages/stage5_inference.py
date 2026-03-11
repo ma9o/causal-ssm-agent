@@ -142,7 +142,7 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
     """
     import jax.numpy as jnp
 
-    from causal_ssm_agent.utils.parametric_id import power_scaling_sensitivity
+    from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
 
     if not fitted_result.get("fitted", False):
         return {"checked": False, "error": "Model not fitted"}
