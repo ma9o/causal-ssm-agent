@@ -8,39 +8,17 @@ Separates:
 import logging
 import re
 from enum import StrEnum
+from typing import get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from causal_ssm_agent.models.ssm.schemas_inference import AggregationFunction, MeasurementDtype
+
 logger = logging.getLogger(__name__)
 
-# Valid aggregation functions for indicator specifications
-# Aggregation functions applied when bucketing raw extractions to aggregation window.
-VALID_AGGREGATIONS = {
-    "mean",
-    "sum",
-    "min",
-    "max",
-    "std",
-    "var",
-    "last",
-    "first",
-    "count",
-    "median",
-    "p10",
-    "p25",
-    "p75",
-    "p90",
-    "p99",
-    "skew",
-    "kurtosis",
-    "iqr",
-    "range",
-    "cv",
-    "entropy",
-    "instability",
-    "trend",
-    "n_unique",
-}
+# Derived from the canonical Literal types in schemas_inference.py
+VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))
+VALID_MEASUREMENT_DTYPES: set[str] = set(get_args(MeasurementDtype))
 
 
 class ObservationKind(StrEnum):
@@ -425,10 +403,9 @@ class Indicator(BaseModel):
     @field_validator("measurement_dtype")
     @classmethod
     def validate_measurement_dtype(cls, v: str) -> str:
-        valid = {"continuous", "binary", "count", "ordinal", "categorical"}
-        if v not in valid:
+        if v not in VALID_MEASUREMENT_DTYPES:
             raise ValueError(
-                f"Invalid measurement_dtype '{v}'. Must be one of: {', '.join(sorted(valid))}"
+                f"Invalid measurement_dtype '{v}'. Must be one of: {', '.join(sorted(VALID_MEASUREMENT_DTYPES))}"
             )
         return v
 
