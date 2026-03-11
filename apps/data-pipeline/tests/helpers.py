@@ -19,6 +19,11 @@ class MockPrediction:
 def make_mock_generate(responses: list[str]):
     """Create a mock generate function that returns predefined responses.
 
+    When tools are provided, the mock simulates the real generate loop by
+    calling the first tool with the canned response (as if the LLM produced
+    a tool call). This populates tool capture dicts so callers that rely on
+    captured results (e.g. proxy validation) work correctly in tests.
+
     Args:
         responses: List of JSON strings to return in order
 
@@ -32,7 +37,22 @@ def make_mock_generate(responses: list[str]):
     ) -> str:
         idx = min(call_count[0], len(responses) - 1)
         call_count[0] += 1
-        return responses[idx]
+        response = responses[idx]
+
+        # When tools are provided, call the first tool with the response
+        # to populate its capture dict (mirrors the real generate loop).
+        if tools:
+            tool = tools[0]
+            # Find the first required parameter name from the tool's schema
+            props = tool.parameters.get("properties", {})
+            required = tool.parameters.get("required", [])
+            param_name = required[0] if required else next(iter(props), None)
+            if param_name:
+                await tool(**{param_name: response})
+            else:
+                await tool(response)
+
+        return response
 
     return mock_generate
 

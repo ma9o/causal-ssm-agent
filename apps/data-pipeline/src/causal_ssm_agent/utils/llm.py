@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -20,8 +20,7 @@ from causal_ssm_agent.utils.litellm_client import (
 
 logger = get_prefect_logger(__name__)
 
-if TYPE_CHECKING:
-    from causal_ssm_agent.orchestrator.schemas import LatentModel
+
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +356,7 @@ def _validate_json_and_format(
 # ---------------------------------------------------------------------------
 
 
-def _make_validation_tool(
+def make_validation_tool(
     name: str,
     description: str,
     param_name: str,
@@ -398,101 +397,6 @@ def _make_validation_tool(
         stop_on_success=True,
         success_output="VALID",
     ), capture
-
-
-def make_validate_latent_model_tool() -> tuple[Tool, dict]:
-    """Create a validation tool for latent model JSON (Stage 1a)."""
-    from causal_ssm_agent.orchestrator.schemas import validate_latent_model
-
-    return _make_validation_tool(
-        name="validate_latent_model_tool",
-        description="Tool for validating latent model JSON (Stage 1a).",
-        param_name="structure_json",
-        param_description="The JSON string containing the latent model to validate.",
-        validator=validate_latent_model,
-        capture_key="latent",
-    )
-
-
-def make_validate_measurement_model_tool(latent_model: "LatentModel") -> tuple[Tool, dict]:
-    """Create a validation tool for measurement model, bound to a latent model."""
-    from causal_ssm_agent.models.ssm_compiler import (
-        validate_measurement_model_for_compilation,
-    )
-
-    return _make_validation_tool(
-        name="validate_measurement_model_tool",
-        description="Tool for validating measurement model JSON plus compiler constraints.",
-        param_name="measurement_json",
-        param_description="The JSON string containing the measurement model to validate.",
-        validator=lambda data: validate_measurement_model_for_compilation(data, latent_model),
-        capture_key="measurement",
-    )
-
-
-def make_validate_model_spec_tool(
-    causal_spec: dict,
-    *,
-    resolved_likelihoods: list[dict] | None = None,
-    ambiguous_indicators: list[dict] | None = None,
-    parameters: list[dict] | None = None,
-    loading_params: list[dict] | None = None,  # noqa: ARG001
-) -> tuple[Tool, dict]:
-    """Create a validation tool for model spec, bound to a causal spec.
-
-    When skeleton parts (resolved_likelihoods, parameters, etc.) are provided,
-    validates ModelSpecDecisions and merges with the skeleton. Otherwise falls
-    back to validating a full ModelSpec dict.
-    """
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-
-    indicators = get_indicators(causal_spec)
-
-    def _validator(data: dict) -> tuple[Any, list[str]]:
-        if resolved_likelihoods is not None and parameters is not None:
-            from causal_ssm_agent.orchestrator.schemas_model import (
-                validate_model_spec_decisions_dict,
-            )
-
-            return validate_model_spec_decisions_dict(
-                data,
-                resolved_likelihoods=resolved_likelihoods,
-                ambiguous_indicators=ambiguous_indicators or [],
-                parameters=parameters,
-            )
-        from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
-
-        return validate_model_spec_dict(data, indicators=indicators or None)
-
-    return _make_validation_tool(
-        name="validate_model_spec_tool",
-        description="Tool for validating model specification JSON (Stage 4).",
-        param_name="model_spec_json",
-        param_description="The JSON string containing the model spec to validate.",
-        validator=_validator,
-        capture_key="spec",
-        capture_result=True,
-    )
-
-
-def make_worker_tools(schema: dict) -> tuple[list[Tool], dict]:
-    """Create the standard toolset for worker agents."""
-    tool_obj, capture = make_validate_worker_output_tool(schema)
-    return [tool_obj], capture
-
-
-def make_validate_worker_output_tool(schema: dict) -> tuple[Tool, dict]:
-    """Create a validation tool for worker output, bound to a specific schema."""
-    from causal_ssm_agent.workers.schemas import validate_worker_output
-
-    return _make_validation_tool(
-        name="validate_extractions",
-        description="Tool for validating worker extraction output JSON.",
-        param_name="output_json",
-        param_description="The JSON string containing the worker output to validate.",
-        validator=lambda data: validate_worker_output(data, schema),
-        capture_key="output",
-    )
 
 
 @tool
@@ -836,9 +740,9 @@ async def multi_turn_generate(
         follow_ups: List of follow-up user prompts to send after each response (default: none)
         tools: Optional list of tools the model can use on the first turn
         follow_up_tools: Optional list of tools for follow-up (self-review) turns.
-            Defaults to None, meaning follow-up turns use no tools (plain generation).
-            This prevents the LLM from re-invoking validation tools during self-review
-            and potentially overwriting a previously captured valid model.
+            Defaults to the same tools as the initial turn, so every LLM
+            invocation within a stage is grounded by the same validation tool.
+            Pass an explicit empty list to disable tools on follow-ups.
         config: Optional generation config
         trace_capture: Optional dict; when provided, the full LLMTrace is stored
             under ``trace_capture["trace"]`` before returning.
@@ -852,6 +756,12 @@ async def multi_turn_generate(
     messages = list(messages)  # Don't mutate original
     follow_ups = follow_ups or []
     _config = config or GenerateConfig()
+
+    # Default: follow-up turns use the same tools as the initial turn so
+    # every LLM output within a stage is grounded by the validation tool.
+    # Pass follow_up_tools=[] explicitly to opt out.
+    if follow_up_tools is None:
+        follow_up_tools = tools or None
 
     logger.info(
         _scoped(log_label, "multi_turn_generate starting (tools=%d, follow_ups=%d)"),

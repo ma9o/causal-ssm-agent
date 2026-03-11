@@ -429,6 +429,16 @@ async def stage4_orchestrated_flow(
         name = ps.get("name", f"param_{i}")
         priors[name] = result
 
+    # Smoke-test: compile with actual (not default) priors before the expensive
+    # prior predictive sampling.  Catches structural issues early (unrecognized
+    # distributions, param mismatches, constraint violations).
+    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact as _compile
+
+    try:
+        _compile(model_spec, priors, causal_spec=causal_spec)
+    except Exception as e:
+        logger.warning("Post-elicitation compile check failed: %s", e)
+
     # Compute data stats once for feedback messages
     data_stats = (
         _compute_data_stats(raw_data) if raw_data is not None and not raw_data.is_empty() else {}

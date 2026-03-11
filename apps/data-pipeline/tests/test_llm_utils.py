@@ -15,11 +15,11 @@ from causal_ssm_agent.utils.llm import (
     TraceMessage,
     _validate_json_and_format,
     attach_trace,
-    make_validate_worker_output_tool,
-    make_worker_tools,
+    make_validation_tool,
     multi_turn_generate,
     parse_json_response,
 )
+from causal_ssm_agent.workers.schemas import validate_worker_output
 
 # =============================================================================
 # parse_json_response
@@ -158,19 +158,29 @@ def _worker_schema():
     }
 
 
-class TestWorkerValidationTools:
-    def test_make_worker_tools_exposes_only_validation_tool(self):
-        tools, _capture = make_worker_tools(_worker_schema())
-        assert [tool.name for tool in tools] == ["validate_extractions"]
+def _make_worker_tool(schema=None):
+    """Create a worker extraction validation tool for tests."""
+    if schema is None:
+        schema = _worker_schema()
+    return make_validation_tool(
+        name="validate_extractions",
+        description="Validate worker extraction output JSON.",
+        param_name="output_json",
+        param_description="The JSON string containing the worker output.",
+        validator=lambda data: validate_worker_output(data, schema),
+        capture_key="output",
+    )
 
+
+class TestWorkerValidationTools:
     def test_validate_worker_tool_stops_on_valid_output(self):
-        tool, _capture = make_validate_worker_output_tool(_worker_schema())
+        tool, _capture = _make_worker_tool()
         assert tool.stop_on_success is True
         assert tool.success_output == "VALID"
 
     def test_multi_turn_generate_stops_after_valid_terminal_tool(self, monkeypatch):
         call_count = 0
-        tool, capture = make_validate_worker_output_tool(_worker_schema())
+        tool, capture = _make_worker_tool()
 
         async def fake_call_model(*args, **kwargs):
             nonlocal call_count
@@ -211,7 +221,7 @@ class TestWorkerValidationTools:
     def test_multi_turn_generate_retries_tool_turn_after_call_model_error(self, monkeypatch):
         call_count = 0
         seen_retry_prompt = {}
-        tool, capture = make_validate_worker_output_tool(_worker_schema())
+        tool, capture = _make_worker_tool()
 
         async def fake_call_model(*args, **kwargs):
             nonlocal call_count
@@ -258,15 +268,78 @@ class TestWorkerValidationTools:
         assert "validate_extractions" in seen_retry_prompt["content"]
         assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
-    def test_multi_turn_generate_retries_plain_follow_up_after_tool_error(self, monkeypatch):
+    def test_multi_turn_generate_follow_up_gets_same_tools(self, monkeypatch):
+        """Follow-up turns receive the same validation tool as the initial turn."""
         call_count = 0
-        seen_retry_prompt = {}
-        tool, capture = make_validate_worker_output_tool(_worker_schema())
+        tool, capture = _make_worker_tool()
 
         async def fake_call_model(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            messages = args[1]
+            tools = kwargs.get("tools")
+
+            if call_count == 1:
+                # Initial turn: tool present
+                assert tools is not None
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "name": "validate_extractions",
+                                "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                            }
+                        ],
+                    },
+                    "completion": "",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "tool_calls",
+                }
+
+            if call_count == 2:
+                # Follow-up turn: same tool should be present
+                assert tools is not None, "follow-up turn must receive the same tools"
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "confirmed",
+                    },
+                    "completion": "confirmed",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "stop",
+                }
+
+            raise AssertionError("unexpected call")
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Extract sleep hours"}],
+                model_name="test-model",
+                tools=[tool],
+                follow_ups=["Review the extraction."],
+            )
+        )
+
+        assert result == "confirmed"
+        assert call_count == 2
+        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
+
+    def test_multi_turn_generate_follow_up_tools_opt_out(self, monkeypatch):
+        """Passing follow_up_tools=[] explicitly disables tools on follow-ups."""
+        call_count = 0
+        tool, _capture = _make_worker_tool()
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
             tools = kwargs.get("tools")
 
             if call_count == 1:
@@ -291,22 +364,21 @@ class TestWorkerValidationTools:
                 }
 
             if call_count == 2:
+                # Explicit opt-out: no tools on follow-up
                 assert tools is None
-                raise RuntimeError("MALFORMED_FUNCTION_CALL: follow-up emitted a bad tool call")
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "no-tool review",
+                    },
+                    "completion": "no-tool review",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "stop",
+                }
 
-            seen_retry_prompt["content"] = messages[-1]["content"]
-            assert tools is None
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "confirmed",
-                },
-                "completion": "confirmed",
-                "usage": None,
-                "model": "test-model",
-                "time": 0.1,
-                "stop_reason": "stop",
-            }
+            raise AssertionError("unexpected call")
 
         monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
 
@@ -315,15 +387,13 @@ class TestWorkerValidationTools:
                 messages=[{"role": "user", "content": "Extract sleep hours"}],
                 model_name="test-model",
                 tools=[tool],
+                follow_up_tools=[],
                 follow_ups=["Review the extraction."],
             )
         )
 
-        assert result == "confirmed"
-        assert call_count == 3
-        assert "No tools are available on this turn" in seen_retry_prompt["content"]
-        assert "MALFORMED_FUNCTION_CALL" in seen_retry_prompt["content"]
-        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
+        assert result == "no-tool review"
+        assert call_count == 2
 
 
 # =============================================================================

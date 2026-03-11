@@ -31,7 +31,7 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
 from causal_ssm_agent.utils.llm import (
     OrchestratorGenerateFn,
-    make_validate_model_spec_tool,
+    make_validation_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,12 +237,26 @@ async def propose_model_spec(
     ]
 
     # Generate with validation feedback loop
-    tool, capture = make_validate_model_spec_tool(
-        causal_spec,
-        resolved_likelihoods=resolved_likelihoods,
-        ambiguous_indicators=ambiguous_indicators,
-        parameters=all_params,
-        loading_params=loading_params,
+    from causal_ssm_agent.orchestrator.schemas_model import (
+        validate_model_spec_decisions_dict,
+    )
+
+    def _validator(data: dict) -> tuple[object, list[str]]:
+        return validate_model_spec_decisions_dict(
+            data,
+            resolved_likelihoods=resolved_likelihoods,
+            ambiguous_indicators=ambiguous_indicators or [],
+            parameters=all_params,
+        )
+
+    tool, capture = make_validation_tool(
+        name="validate_model_spec",
+        description="Validate model specification JSON.",
+        param_name="model_spec_json",
+        param_description="The JSON string containing the model spec.",
+        validator=_validator,
+        capture_key="spec",
+        capture_result=True,
     )
     completion = await generate(messages, [tool], None)
 
