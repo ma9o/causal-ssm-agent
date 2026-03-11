@@ -84,9 +84,10 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         calls.append(("stage5", stage4_result, stage1b_result, stage2_result, inference_method))
         return {
             "_fitted_result": {"fitted": True},
-            "ps_result": {},
-            "ppc_result": {},
-            "ps_list": [],
+            "_ps_result": {},
+            "_ppc_result": {},
+            "power_scaling": [],
+            "ppc": {},
             "inference_metadata": {},
             "mcmc_diagnostics": None,
             "svi_diagnostics": None,
@@ -483,9 +484,9 @@ def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatc
     state = dag.load_stage_state(run_id, "stage-5")
 
     assert state["result"]["_fitted_result_path"].endswith("stage5-fitted-result.pkl")
-    assert state["result"]["ps_result"]["checked"] is True
-    assert state["result"]["ps_result"]["diagnosis"] == {"beta_x": "prior_dominated"}
-    assert state["result"]["ppc_result"]["checked"] is True
+    assert state["result"]["_ps_result"]["checked"] is True
+    assert state["result"]["_ps_result"]["diagnosis"] == {"beta_x": "prior_dominated"}
+    assert state["result"]["_ppc_result"]["checked"] is True
 
 
 def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
