@@ -2,6 +2,7 @@
 
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ReplayButton } from "./replay-button";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import { cn } from "@/lib/utils/cn";
@@ -194,11 +195,14 @@ export function StageSectionRouter({
       stageId={stage.id}
     >
       {isCompleted && (
-        <ErrorBoundary>
-          <Suspense fallback={null}>
-            <StageContent stageId={stage.id} runId={runId} />
-          </Suspense>
-        </ErrorBoundary>
+        <>
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <StageContent stageId={stage.id} runId={runId} />
+            </Suspense>
+          </ErrorBoundary>
+          <ReplayButton runId={runId} stageId={stage.id} />
+        </>
       )}
     </StageSection>
   );
