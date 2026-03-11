@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { NextResponse } from "next/server";
 import { SESSIONS_PATH, readSessions } from "./_shared";
 
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     createdAt: new Date().toISOString(),
   };
 
+  await mkdir(dirname(SESSIONS_PATH), { recursive: true });
   await writeFile(SESSIONS_PATH, JSON.stringify(sessions, null, 2));
   return NextResponse.json({ ok: true });
 }
