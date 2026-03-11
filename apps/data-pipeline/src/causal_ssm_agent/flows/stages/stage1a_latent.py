@@ -9,11 +9,7 @@ from prefect.cache_policies import INPUTS
 from causal_ssm_agent.orchestrator.stage1a import run_stage1a
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.effects import get_all_treatments, get_outcome_from_latent_model
-from causal_ssm_agent.utils.llm import (
-    attach_trace,
-    make_live_trace_path,
-    make_orchestrator_generate_fn,
-)
+from causal_ssm_agent.utils.llm import StageContext
 
 
 @task(
@@ -33,22 +29,16 @@ async def propose_latent_model(question: str) -> dict:
     Returns:
         Stage1aData dict matching the web frontend contract.
     """
-    trace_capture: dict = {}
-    generate = make_orchestrator_generate_fn(
-        get_config().stage1_structure_proposal.model,
-        trace_capture=trace_capture,
-        trace_path=make_live_trace_path("stage-1a"),
-    )
+    ctx = StageContext("stage-1a")
+    generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
     result = await run_stage1a(question=question, generate=generate)
     latent_model = result.latent_model
 
     outcome = get_outcome_from_latent_model(latent_model)
     treatments = get_all_treatments(latent_model)
 
-    out: dict = {
+    return ctx.finalize({
         "latent_model": latent_model,
         "outcome_name": outcome or "",
         "treatments": treatments,
-    }
-    attach_trace(out, trace_capture)
-    return out
+    })

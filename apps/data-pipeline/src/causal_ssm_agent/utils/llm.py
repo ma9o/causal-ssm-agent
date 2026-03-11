@@ -1055,6 +1055,57 @@ async def multi_turn_generate(
 
 
 # ---------------------------------------------------------------------------
+# StageContext — eliminates per-stage trace boilerplate
+# ---------------------------------------------------------------------------
+
+
+class StageContext:
+    """Encapsulates trace capture and generate function creation for a stage.
+
+    Replaces the repeated boilerplate of:
+        trace_capture = {}
+        generate = make_generate_fn(model, trace_capture=trace_capture,
+                                     trace_path=make_live_trace_path(stage_id))
+        ...
+        attach_trace(output, trace_capture)
+
+    Usage::
+
+        ctx = StageContext("stage-1a")
+        generate = ctx.generate(model_name)
+        # ... run stage logic ...
+        output = ctx.finalize({"latent_model": ..., "treatments": ...})
+        # output now has llm_trace attached
+    """
+
+    def __init__(self, stage_id: str, *, live_trace: bool = True) -> None:
+        self.stage_id = stage_id
+        self._trace_capture: dict = {}
+        self._trace_path = make_live_trace_path(stage_id) if live_trace else None
+
+    @property
+    def trace_capture(self) -> dict:
+        """Direct access to the trace capture dict (for advanced use)."""
+        return self._trace_capture
+
+    def make_generate(
+        self, model_name: str, config: GenerateConfig | None = None
+    ) -> GenerateFn:
+        """Create a generate function wired to this context's trace capture."""
+        return make_generate_fn(
+            model_name,
+            config=config,
+            trace_capture=self._trace_capture,
+            trace_path=self._trace_path,
+        )
+
+    def finalize(self, output: dict) -> dict:
+        """Attach the captured LLM trace to the output dict and return it."""
+        attach_trace(output, self._trace_capture)
+        return output
+
+
+# ---------------------------------------------------------------------------
 # Trace capture helper
 # ---------------------------------------------------------------------------
 
