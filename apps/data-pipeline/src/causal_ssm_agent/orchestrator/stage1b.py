@@ -12,9 +12,10 @@ from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
 )
+from causal_ssm_agent.utils.litellm_client import tool
 from causal_ssm_agent.utils.llm import (
     OrchestratorGenerateFn,
-    make_validate_measurement_model_tool,
+    make_validation_tool,
     parse_json_response,
 )
 
@@ -213,6 +214,68 @@ def _validate_measurement_compilation(measurement: dict, latent: LatentModel) ->
     return validated_measurement.model_dump(mode="json")
 
 
+def _make_validate_proxy_tool(
+    measurement: dict, latent: LatentModel
+) -> tuple[object, dict]:
+    """Create a validation tool for proxy indicators.
+
+    The tool merges proposed proxies into the existing measurement model,
+    then runs the full compiler validation on the merged result.
+
+    Returns:
+        Tuple of (tool, capture_dict). After the generate loop, check
+        capture["measurement"] for the validated merged measurement dict.
+    """
+    from causal_ssm_agent.models.ssm_compiler import validate_measurement_model_for_compilation
+
+    capture: dict = {}
+
+    @tool
+    def validate_proxy_indicators_tool():
+        """Tool for validating proxy indicator proposals against the full measurement model."""
+
+        async def execute(proxy_json: str) -> str:
+            """
+            Validate proxy indicators by merging with the existing measurement model and running compiler checks.
+
+            Args:
+                proxy_json: JSON string with proxy indicators in the format: {"new_proxies": [{"construct": "...", "justification": "...", "indicators": [...]}]}
+
+            Returns:
+                "VALID" if the merged model passes all checks, otherwise a list of validation errors.
+            """
+            try:
+                data = json.loads(proxy_json)
+            except json.JSONDecodeError as e:
+                return f"JSON parse error: {e}"
+
+            if not isinstance(data, dict) or not data.get("new_proxies"):
+                return (
+                    "VALIDATION ERRORS:\n"
+                    "- Response must be a JSON object with a 'new_proxies' list"
+                )
+
+            merged = _merge_proxies(measurement, data)
+            validated, errors = validate_measurement_model_for_compilation(
+                merged, latent
+            )
+
+            if errors:
+                return "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
+
+            assert validated is not None
+            capture["measurement"] = validated.model_dump(mode="json")
+            capture["proxy"] = data
+            return "VALID"
+
+        return execute
+
+    tool_obj = validate_proxy_indicators_tool()
+    tool_obj.stop_on_success = True
+    tool_obj.success_output = "VALID"
+    return tool_obj, capture
+
+
 async def run_stage1b(
     question: str,
     latent_model: dict,
@@ -244,7 +307,16 @@ async def run_stage1b(
     # on the final completion being valid JSON (the review follow-up
     # may return prose or empty).
     proposal_msgs = msgs.proposal_messages()
-    tool, capture = make_validate_measurement_model_tool(latent)
+    from causal_ssm_agent.models.ssm_compiler import validate_measurement_model_for_compilation
+
+    tool, capture = make_validation_tool(
+        name="validate_measurement_model",
+        description="Validate measurement model JSON plus compiler constraints.",
+        param_name="measurement_json",
+        param_description="The JSON string containing the measurement model.",
+        validator=lambda data: validate_measurement_model_for_compilation(data, latent),
+        capture_key="measurement",
+    )
 
     completion = await generate(proposal_msgs, [tool], [measurement_model.REVIEW])
 
@@ -258,26 +330,25 @@ async def run_stage1b(
     # Step 2: Check identifiability
     initial_id = check_identifiability(latent_model, measurement)
 
-    # Step 3: If non-identifiable, request proxies (one-shot)
+    # Step 3: If non-identifiable, request proxies with validation tool
     proxy_response = None
     if initial_id["non_identifiable_treatments"]:
         blocking_info, confounders_to_fix = _get_confounders_to_fix(initial_id, latent_model)
 
         if confounders_to_fix:
             proxy_msgs = msgs.proxy_messages(blocking_info, confounders_to_fix, measurement)
+            proxy_tool, proxy_capture = _make_validate_proxy_tool(measurement, latent)
 
-            # Proxy request is single-turn, no tools or follow-ups
-            proxy_completion = await generate(proxy_msgs, None, None)
+            await generate(proxy_msgs, [proxy_tool], None)
 
-            try:
-                proxy_response = parse_json_response(proxy_completion)
-            except Exception:
-                logger.debug("Failed to parse proxy completion as JSON", exc_info=True)
-                proxy_response = None
-
-            if proxy_response and proxy_response.get("new_proxies"):
-                measurement = _merge_proxies(measurement, proxy_response)
-                measurement = _validate_measurement_compilation(measurement, latent)
+            if proxy_capture.get("measurement"):
+                measurement = proxy_capture["measurement"]
+                proxy_response = proxy_capture.get("proxy")
+            else:
+                logger.warning(
+                    "Proxy tool never produced a valid result; "
+                    "proceeding with original measurement model"
+                )
 
     # Step 4: Final identifiability check
     final_id = check_identifiability(latent_model, measurement)

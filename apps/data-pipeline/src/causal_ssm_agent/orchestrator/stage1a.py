@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 from causal_ssm_agent.utils.llm import (
     OrchestratorGenerateFn,
-    make_validate_latent_model_tool,
+    make_validation_tool,
     parse_json_response,
 )
 
 from .prompts import latent_model
-from .schemas import LatentModel
+from .schemas import LatentModel, validate_latent_model
 
 
 @dataclass
@@ -71,7 +71,14 @@ async def run_stage1a(
     # on the final completion being valid JSON (the review follow-up
     # may return prose or empty).
     proposal_msgs = msgs.proposal_messages()
-    tool, capture = make_validate_latent_model_tool()
+    tool, capture = make_validation_tool(
+        name="validate_latent_model",
+        description="Validate latent model JSON.",
+        param_name="structure_json",
+        param_description="The JSON string containing the latent model.",
+        validator=validate_latent_model,
+        capture_key="latent",
+    )
 
     completion = await generate(proposal_msgs, [tool], [latent_model.REVIEW])
 

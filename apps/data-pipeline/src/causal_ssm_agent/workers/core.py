@@ -13,7 +13,7 @@ import polars as pl
 from causal_ssm_agent.utils.causal_spec import get_indicators, get_outcome_construct
 from causal_ssm_agent.utils.llm import (
     WorkerGenerateFn,
-    make_worker_tools,
+    make_validation_tool,
     parse_json_response,
 )
 
@@ -137,7 +137,17 @@ async def run_worker_extraction(
     # The validation tool captures the last valid output so we don't depend
     # on the final completion being valid JSON.
     extraction_msgs = msgs.extraction_messages()
-    tools, capture = make_worker_tools(causal_spec)
+    from causal_ssm_agent.workers.schemas import validate_worker_output
+
+    tool, capture = make_validation_tool(
+        name="validate_extractions",
+        description="Validate worker extraction output JSON.",
+        param_name="output_json",
+        param_description="The JSON string containing the worker output.",
+        validator=lambda data: validate_worker_output(data, causal_spec),
+        capture_key="output",
+    )
+    tools = [tool]
     chunk_csv = _format_dataframe_chunk(chunk_df)
     tool_names = [tool.name for tool in tools]
 

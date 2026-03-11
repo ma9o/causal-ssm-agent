@@ -12,7 +12,11 @@ import logging
 import numpy as np
 
 from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
-from causal_ssm_agent.utils.llm import WorkerGenerateFn, parse_json_response
+from causal_ssm_agent.utils.llm import (
+    WorkerGenerateFn,
+    make_validation_tool,
+    parse_json_response,
+)
 from causal_ssm_agent.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
 )
@@ -27,11 +31,31 @@ from causal_ssm_agent.workers.schemas_prior import (
     AggregatedPrior,
     PriorProposal,
     PriorResearchResult,
-    PriorSource,
     RawPriorSample,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _make_prior_tool() -> tuple[object, dict]:
+    """Create a validation tool for prior proposals using PriorProposal schema."""
+
+    def _validate(data: dict) -> tuple[object, list[str]]:
+        try:
+            validated = PriorProposal.model_validate(data)
+            return validated.model_dump(), []
+        except Exception as e:
+            return None, [str(e)]
+
+    return make_validation_tool(
+        name="validate_prior_proposal",
+        description="Validate prior distribution proposal JSON.",
+        param_name="prior_json",
+        param_description="The JSON string containing the prior proposal.",
+        validator=_validate,
+        capture_key="prior",
+        capture_result=True,
+    )
 
 
 async def search_parameter_literature(
@@ -129,8 +153,12 @@ async def _elicit_single_paraphrase(
     ]
 
     try:
-        completion = await generate(messages, None)
-        prior_data = parse_json_response(completion)
+        tool, capture = _make_prior_tool()
+        completion = await generate(messages, [tool])
+
+        prior_data = capture.get("prior")
+        if prior_data is None:
+            prior_data = parse_json_response(completion)
 
         # Extract mu/sigma from params
         params = prior_data.get("params", {})
@@ -371,49 +399,18 @@ async def _research_single_prior_single_shot(
         {"role": "user", "content": user_content},
     ]
 
-    # Generate prior proposal
-    completion = await generate(messages, None)
+    # Generate prior proposal with validation tool
+    tool, capture = _make_prior_tool()
+    completion = await generate(messages, [tool])
 
-    # Parse JSON response
-    prior_data = parse_json_response(completion)
-
-    # Build sources from literature + LLM response
-    sources = []
-    for src in prior_data.get("sources", []):
-        sources.append(
-            PriorSource(
-                title=src.get("title", "Unknown"),
-                url=src.get("url"),
-                snippet=src.get("snippet", ""),
-                effect_size=src.get("effect_size"),
-            )
-        )
-
-    # Warn if LLM response is missing key fields before falling back to defaults
-    if "distribution" not in prior_data:
-        logger.warning(
-            "Prior elicitation for '%s': LLM response missing 'distribution', defaulting to Normal",
-            parameter.name,
-        )
-    if "params" not in prior_data:
-        logger.warning(
-            "Prior elicitation for '%s': LLM response missing 'params', "
-            "defaulting to {'mu': 0.0, 'sigma': 1.0}",
-            parameter.name,
-        )
-
-    # Build prior proposal
-    proposal = PriorProposal(
-        parameter=parameter.name,
-        distribution=prior_data.get("distribution", "Normal"),
-        params=prior_data.get("params", {"mu": 0.0, "sigma": 1.0}),
-        sources=sources,
-        reasoning=prior_data.get("reasoning", ""),
-    )
+    # Prefer captured result from the validation tool
+    prior_data = capture.get("prior")
+    if prior_data is None:
+        prior_data = parse_json_response(completion)
 
     return PriorResearchResult(
         parameter=parameter.name,
-        proposal=proposal,
+        proposal=PriorProposal.model_validate({**prior_data, "parameter": parameter.name}),
         literature_found=len(literature_sources) > 0,
         raw_response=completion,
     )
