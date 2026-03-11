@@ -73,27 +73,51 @@ def _assemble_deterministics(
     det = {}
 
     # -- drift: diag(-|drift_diag_pop|) + offdiag entries --
+    # Mirrors SSMModel._sample_drift: applies drift_mask for sparsity and
+    # time_invariant_mask for quasi-constant latents.
     if "drift_diag_pop" in samples:
-
-        def _assemble_drift(drift_diag_pop, drift_offdiag_pop):
-            drift_diag = -jnp.abs(drift_diag_pop)
-            drift = jnp.diag(drift_diag)
-            offdiag_idx = 0
+        # Build offdiag positions from mask (matching model.py exactly)
+        offdiag_positions: list[tuple[int, int]] = []
+        if spec.drift_mask is not None:
+            for i in range(n_l):
+                for j in range(n_l):
+                    if i != j and spec.drift_mask[i, j]:
+                        offdiag_positions.append((i, j))
+        else:
             for i in range(n_l):
                 for j in range(n_l):
                     if i != j:
-                        drift = drift.at[i, j].set(drift_offdiag_pop[offdiag_idx])
-                        offdiag_idx += 1
+                        offdiag_positions.append((i, j))
+
+        ti_mask = jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
+
+        def _assemble_drift(drift_diag_pop, drift_offdiag_pop):
+            drift_diag = -jnp.abs(drift_diag_pop)
+            # Apply time-invariant mask: near-zero drift for quasi-constant latents
+            if ti_mask is not None:
+                drift_diag = jnp.where(ti_mask, -1e-6, drift_diag)
+            drift = jnp.diag(drift_diag)
+            for idx, (i, j) in enumerate(offdiag_positions):
+                drift = drift.at[i, j].set(drift_offdiag_pop[idx])
             return drift
 
-        offdiag = samples.get("drift_offdiag_pop", jnp.zeros((N, 0)))
+        offdiag = samples.get("drift_offdiag_pop", jnp.zeros((N, max(len(offdiag_positions), 0))))
         det["drift"] = jax.vmap(_assemble_drift)(samples["drift_diag_pop"], offdiag)
 
     # -- diffusion: diag or full lower-triangular Cholesky --
+    # Mirrors SSMModel._sample_diffusion: applies time_invariant_mask.
     if "diffusion_diag_pop" in samples:
+        ti_mask_diff = (
+            jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
+        )
 
         def _assemble_diffusion_diag(diff_diag):
-            return jnp.diag(diff_diag)
+            diffusion = jnp.diag(diff_diag)
+            if ti_mask_diff is not None:
+                diag_vals = jnp.diag(diffusion)
+                new_diag = jnp.where(ti_mask_diff, 1e-6, diag_vals)
+                diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
+            return diffusion
 
         def _assemble_diffusion_full(diff_diag, diff_lower):
             diffusion = jnp.diag(diff_diag)
@@ -102,6 +126,10 @@ def _assemble_deterministics(
                 for j in range(i):
                     diffusion = diffusion.at[i, j].set(diff_lower[lower_idx])
                     lower_idx += 1
+            if ti_mask_diff is not None:
+                diag_vals = jnp.diag(diffusion)
+                new_diag = jnp.where(ti_mask_diff, 1e-6, diag_vals)
+                diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
             return diffusion
 
         if "diffusion_lower" in samples:
@@ -115,23 +143,50 @@ def _assemble_deterministics(
     if "cint_pop" in samples:
         det["cint"] = samples["cint_pop"]
 
-    # -- lambda: eye(n_m, n_l) + free loadings in rows n_l: --
-    if not isinstance(spec.lambda_mat, jnp.ndarray):
-        if "lambda_free" in samples:
+    # -- lambda: three modes matching SSMModel._sample_lambda --
+    # 1. Template+mask: spec.lambda_mat is array AND lambda_mask is set
+    # 2. Fully fixed: spec.lambda_mat is array, no mask
+    # 3. Legacy: spec.lambda_mat is "free" → identity + extra rows
+    if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is not None:
+        # Template+mask mode: start from template, overwrite free positions
+        free_positions: list[tuple[int, int]] = [
+            (i, j)
+            for i in range(n_m)
+            for j in range(n_l)
+            if spec.lambda_mask[i, j]
+        ]
+        template = jnp.array(spec.lambda_mat)
 
-            def _assemble_lambda(free_loadings):
-                lam = jnp.eye(n_m, n_l)
-                idx = 0
-                for i in range(n_l, n_m):
-                    for j in range(n_l):
-                        lam = lam.at[i, j].set(free_loadings[idx])
-                        idx += 1
+        if "lambda_free" in samples and len(free_positions) > 0:
+            def _assemble_lambda_template(free_loadings):
+                lam = template
+                for idx, (i, j) in enumerate(free_positions):
+                    lam = lam.at[i, j].set(free_loadings[idx])
                 return lam
 
-            det["lambda"] = jax.vmap(_assemble_lambda)(samples["lambda_free"])
+            det["lambda"] = jax.vmap(_assemble_lambda_template)(samples["lambda_free"])
         else:
-            # n_m == n_l: lambda is just identity, no free params
-            det["lambda"] = jnp.broadcast_to(jnp.eye(n_m, n_l), (N, n_m, n_l))
+            det["lambda"] = jnp.broadcast_to(template, (N, n_m, n_l))
+
+    elif isinstance(spec.lambda_mat, jnp.ndarray):
+        # Fully fixed lambda
+        det["lambda"] = jnp.broadcast_to(jnp.array(spec.lambda_mat), (N, n_m, n_l))
+
+    elif "lambda_free" in samples:
+        # Legacy identity + extra rows mode
+        def _assemble_lambda_legacy(free_loadings):
+            lam = jnp.eye(n_m, n_l)
+            idx = 0
+            for i in range(n_l, n_m):
+                for j in range(n_l):
+                    lam = lam.at[i, j].set(free_loadings[idx])
+                    idx += 1
+            return lam
+
+        det["lambda"] = jax.vmap(_assemble_lambda_legacy)(samples["lambda_free"])
+    else:
+        # n_m == n_l: lambda is just identity, no free params
+        det["lambda"] = jnp.broadcast_to(jnp.eye(n_m, n_l), (N, n_m, n_l))
 
     # -- manifest_cov: diag(d) @ diag(d).T = diag(d²) --
     if "manifest_var_diag" in samples:
@@ -215,35 +270,49 @@ def extract_constrained_samples(
         samples.update(det_samples)
         return samples
 
-    # Reparam path: replay model to recover original parameter names.
-    # The model's deterministic sites produce assembled matrices; the reparam
-    # handler creates deterministic sites for original parameter names.
+    # Reparam path: recover original parameter names + assemble deterministics.
+    #
+    # For AutoReparam(centered=0.0), LocScaleReparam creates auxiliary sample
+    # sites named "{name}_decentered" with N(0,1) prior, and the original value
+    # is: original = prior.loc + prior.scale * decentered.  This is a simple
+    # vectorized op, so we reverse it without N sequential model replays.
+    #
+    # Non-reparameterized sites (HalfNormal, Gamma, TruncatedNormal, etc.)
+    # keep their original names in the trace and are used directly.
+
+    # Trace the non-reparameterized model to get original sample site distributions.
     base_replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
     with handlers.seed(rng_seed=0):
         public_trace = handlers.trace(base_replay_fn).get_trace(observations, times)
-    public_sites = {
-        name
-        for name, site in public_trace.items()
-        if site["type"] in ("sample", "deterministic")
-        and not site.get("is_observed", False)
-        and name not in {"log_likelihood", "ll_per_timestep"}
-    }
 
-    replay_fn = handlers.reparam(base_replay_fn, config=reparam)
+    # Recover original sample site values by reversing LocScaleReparam vectorized.
+    original_samples: dict[str, jnp.ndarray] = {}
+    for site_name, site in public_trace.items():
+        if (
+            site["type"] != "sample"
+            or site.get("is_observed", False)
+            or site_name in {"log_likelihood", "ll_per_timestep"}
+        ):
+            continue
 
-    N = particles.shape[0]
-    all_samples: dict[str, list] = {}
-    for i in range(N):
-        con_i = {name: samples[name][i] for name in samples}
-        with handlers.seed(rng_seed=0), handlers.substitute(data=con_i):
-            trace = handlers.trace(replay_fn).get_trace(observations, times)
-        for site_name, site in trace.items():
-            if site_name in public_sites and site["type"] in ("sample", "deterministic"):
-                if site_name not in all_samples:
-                    all_samples[site_name] = []
-                all_samples[site_name].append(site["value"])
+        decentered_key = f"{site_name}_decentered"
+        if decentered_key in samples:
+            # LocScaleReparam: original = loc + scale * decentered
+            # Unwrap Independent/Expanded/Masked to access loc/scale.
+            d = site["fn"]
+            while isinstance(
+                d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+            ):
+                d = d.base_dist
+            original_samples[site_name] = d.loc + d.scale * samples[decentered_key]
+        elif site_name in samples:
+            # Not reparameterized — use directly
+            original_samples[site_name] = samples[site_name]
 
-    return {name: jnp.stack(vals) for name, vals in all_samples.items()}
+    # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
+    det_samples = _assemble_deterministics(original_samples, spec)
+    original_samples.update(det_samples)
+    return original_samples
 
 
 # ---------------------------------------------------------------------------
