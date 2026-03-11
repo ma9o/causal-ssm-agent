@@ -25,7 +25,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
+from causal_ssm_agent.models.likelihoods.kernels import build_composite_observation_kernel
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 
@@ -352,7 +352,7 @@ def _compute_laplace_log_lik(
     )
 
     if T == 1:
-        return ll_0
+        return jnp.array([ll_0])
 
     # Forward scan for t=1..T-1: predict, then compute ll_t
     def _forward_ll_step(carry, inputs):
@@ -383,7 +383,9 @@ def _compute_laplace_log_lik(
         ),
     )
 
-    return ll_0 + jnp.sum(ll_rest)
+    # Return (T,) cumulative log-normalizing constants matching LikelihoodBackend protocol.
+    ll_all = jnp.concatenate([jnp.array([ll_0]), ll_rest])
+    return jnp.cumsum(ll_all)
 
 
 # ---------------------------------------------------------------------------
@@ -396,20 +398,23 @@ class LaplaceLikelihood:
 
     Computes log p(y|theta) via IEKS + Laplace approximation.
     Drop-in replacement for KalmanLikelihood / ParticleLikelihood.
+
+    Accepts per-channel distribution and link lists to support heterogeneous
+    observation models (e.g., channel 0 Gaussian, channel 1 Poisson).
     """
 
     def __init__(
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dist: DistributionFamily | str = "gaussian",
-        manifest_link: LinkFunction | str = "identity",
+        manifest_dists: list[DistributionFamily],
+        manifest_links: list[LinkFunction],
         n_ieks_iters: int = 5,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
-        self.manifest_dist = manifest_dist
-        self.manifest_link = manifest_link
+        self.manifest_dists = manifest_dists
+        self.manifest_links = manifest_links
         self.n_ieks_iters = n_ieks_iters
 
     def compute_log_likelihood(
@@ -421,8 +426,12 @@ class LaplaceLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
-    ) -> float:
-        """Compute Laplace-approximated log-likelihood."""
+    ) -> jnp.ndarray:
+        """Compute Laplace-approximated log-likelihood.
+
+        Returns:
+            (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
+        """
         n = self.n_latent
 
         if obs_mask is None:
@@ -436,11 +445,9 @@ class LaplaceLikelihood:
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))
 
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-        obs_kernel = build_observation_kernel(
-            DistributionFamily(self.manifest_dist),
-            LinkFunction(self.manifest_link),
+        obs_kernel = build_composite_observation_kernel(
+            self.manifest_dists,
+            self.manifest_links,
             extra_params,
         )
 
@@ -497,11 +504,16 @@ def fit_laplace_em(
     if model.likelihood == "kalman":
         backend = model.make_likelihood_backend()
     else:
+        from causal_ssm_agent.models.likelihoods.graph_analysis import (
+            get_per_channel_links,
+            get_per_channel_manifest,
+        )
+
         backend = LaplaceLikelihood(
             n_latent=model.spec.n_latent,
             n_manifest=model.spec.n_manifest,
-            manifest_dist=model.spec.manifest_dist,
-            manifest_link=model.spec.manifest_link,
+            manifest_dists=get_per_channel_manifest(model.spec),
+            manifest_links=get_per_channel_links(model.spec),
             n_ieks_iters=n_ieks_iters,
         )
     return run_tempered_smc(
