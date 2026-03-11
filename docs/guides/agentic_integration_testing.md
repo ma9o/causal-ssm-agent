@@ -1,6 +1,6 @@
 # Agentic Integration Testing
 
-How to run full end-to-end integration tests of the pipeline + web UI using an AI agent (Claude Code) with `next-devtools-mcp`'s `browser_eval` tool.
+How to run full end-to-end integration tests of the pipeline and web UI using an AI agent (Claude Code) with the `browser_eval` tool.
 
 ## Design Principles
 
@@ -15,7 +15,7 @@ The key insight: never make the browser do the heavy lifting. Use programmatic c
 
 ## Prerequisites
 
-You need three **dedicated** services for integration testing. Do NOT reuse the existing dev server on port 3000 — these are isolated test instances.
+You need three **dedicated** long-running services for integration testing. Do NOT reuse the existing dev server on port 3000 for the frontend test instance — these should be isolated test processes.
 
 ### 1. Check for Next.js dev lock
 
@@ -27,27 +27,31 @@ ls apps/web/.next/dev/lock 2>/dev/null && echo "LOCKED" || echo "OK"
 
 If **LOCKED**: the user already has a dev server running from this worktree. Ask them to switch that terminal to this branch and restart on port 3001, or stop it manually. Do NOT kill the process yourself.
 
-### 2. Start services (in order)
+### 2. Start services
 
-Start these three services in separate terminals (or background them). **Order matters** — Prefect must be up before the pipeline deployment registers.
+Start these processes in separate terminals (or background them). **Order matters** — Prefect must be up before the pipeline deployment registers.
 
-| # | Service | Port | Start command | What it does |
+| # | Process | Port | Start command | What it does |
 |---|---------|------|---------------|--------------|
 | 1 | Prefect server | 4200 | See below | Central API coordinator |
 | 2 | Pipeline deployment | — | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
 | 3 | Next.js frontend | 3001 | `cd apps/web && bun run dev -p 3001` | Web UI for session resume and stage visualization |
 
-#### Prefect server (ephemeral, no persistence)
+#### Prefect server (file-backed SQLite)
 
-By default, Prefect writes its SQLite database to `~/.prefect/`. To run a fully ephemeral server that loses all state when stopped, use an in-memory SQLite URL:
+By default, Prefect writes its SQLite database to `~/.prefect/`. For integration
+testing, use a dedicated file-backed SQLite database. This avoids the transaction
+failures we hit during child-flow state transitions.
 
 ```bash
-cd apps/data-pipeline && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlite://" uv run prefect server start
+rm -f /tmp/causal-ssm-agent-prefect.db /tmp/causal-ssm-agent-prefect.db-shm /tmp/causal-ssm-agent-prefect.db-wal
+cd apps/data-pipeline && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlite:////tmp/causal-ssm-agent-prefect.db" uv run prefect server start
 ```
 
-This is recommended for integration testing — you get the full server/UI on `:4200` with zero leftover state between runs.
+Delete the database files before every restart so each integration run starts from
+a clean Prefect state.
 
-### 3. Health-check all three
+### 3. Health-check the HTTP services
 
 ```bash
 # Prefect server
@@ -65,24 +69,24 @@ curl -sf -o /dev/null http://localhost:3001 && echo "next.js ok"
 
 All three must succeed before proceeding.
 
-The `.mcp.json` at the worktree root must configure `next-devtools-mcp` for `browser_eval` access.
-
 ## Step-by-Step Flow
 
 ### 1. Place data
 
-Copy a Google Takeout zip into a session-code-named directory:
+Copy a text file or zip archive into a session-code-named directory:
 
 ```bash
 CODE="T3ST42"
 mkdir -p apps/data-pipeline/data/raw/$CODE
-cp apps/data-pipeline/data/raw/T3ST42/takeout-20230817T122334Z-001.zip \
+cp apps/data-pipeline/data/raw/test_user/MyActivity.json \
    apps/data-pipeline/data/raw/$CODE/
 ```
 
 The pipeline's stage-0 preprocess step scans `data/raw/{code}/` for uploadable files
-and currently uses the most recent `.zip` in that directory. A bare `MyActivity.json`
-file will not be picked up in this worktree.
+and uses the most recent file in that directory. If the file is a zip archive,
+it is extracted before ingestion. Otherwise it is staged directly for the
+ingestion agent to inspect. This now works for plain-text inputs such as JSON,
+CSV, TSV, TXT, Markdown, and log files.
 
 ### 2. Trigger pipeline via Prefect API
 
@@ -124,7 +128,7 @@ curl -s http://localhost:3001/api/sessions/$(echo $CODE | tr '[:upper:]' '[:lowe
 
 ### 5. Resume via browser_eval
 
-Using `next-devtools-mcp`'s `browser_eval` tool:
+Using the `browser_eval` tool:
 
 ```
 1. Navigate to http://localhost:3001
@@ -160,7 +164,7 @@ An agent holds the code in a shell variable. A human writes it on a napkin. Both
 
 ## What browser_eval Provides
 
-The `next-devtools-mcp` Playwright integration supports:
+The browser automation integration supports:
 
 - **Navigation** — `goto(url)`
 - **Screenshots** — viewport capture, returned as base64
