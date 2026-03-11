@@ -406,6 +406,13 @@ class Indicator(BaseModel):
             "to ensure correct numeric encoding."
         ),
     )
+    source_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Raw data column names referenced by how_to_measure. "
+            "Used to project chunks to only relevant columns before extraction."
+        ),
+    )
 
     @field_validator("aggregation")
     @classmethod

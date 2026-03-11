@@ -73,6 +73,7 @@ def indicator_factory():
         dtype: str = "continuous",
         aggregation: str = "mean",
         ordinal_levels: list[str] | None = None,
+        source_columns: list[str] | None = None,
     ) -> Indicator:
         # Auto-provide ordinal_levels for ordinal dtype if not specified
         if dtype == "ordinal" and ordinal_levels is None:
@@ -84,6 +85,7 @@ def indicator_factory():
             measurement_dtype=dtype,
             aggregation=aggregation,
             ordinal_levels=ordinal_levels,
+            source_columns=source_columns or [name],
         )
 
     return _make
@@ -182,6 +184,7 @@ def stage1b_measurement_all_observed():
                 "how_to_measure": "Extract the treatment dosage from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["treatment_dose"],
             },
             {
                 "name": "outcome_score",
@@ -189,6 +192,7 @@ def stage1b_measurement_all_observed():
                 "how_to_measure": "Extract the outcome score from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["outcome_score"],
             },
         ]
     }
@@ -205,6 +209,7 @@ def stage1b_measurement_missing_confounder():
                 "how_to_measure": "Extract the treatment dosage from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["treatment_dose"],
             },
             {
                 "name": "outcome_score",
@@ -212,6 +217,7 @@ def stage1b_measurement_missing_confounder():
                 "how_to_measure": "Extract the outcome score from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["outcome_score"],
             },
         ]
     }
@@ -228,6 +234,7 @@ def stage1b_measurement_with_confounder():
                 "how_to_measure": "Extract the treatment dosage from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["treatment_dose"],
             },
             {
                 "name": "outcome_score",
@@ -235,6 +242,7 @@ def stage1b_measurement_with_confounder():
                 "how_to_measure": "Extract the outcome score from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["outcome_score"],
             },
             {
                 "name": "confounder_proxy",
@@ -242,6 +250,7 @@ def stage1b_measurement_with_confounder():
                 "how_to_measure": "Proxy measurement for the confounder",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
+                "source_columns": ["confounder_proxy"],
             },
         ]
     }

@@ -22,6 +22,43 @@ from .. import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 
+def _project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.DataFrame:
+    """Project DataFrame to only the columns referenced by indicators.
+
+    Keeps the union of all indicator source_columns.  Time/date columns are
+    NOT auto-detected — the stage 1b prompt instructs the LLM to include
+    them in source_columns when they are needed for temporal context.
+
+    Falls back to the full DataFrame when no source_columns are specified.
+    """
+    source_cols: set[str] = set()
+    for ind in indicators:
+        source_cols.update(ind.get("source_columns", []))
+
+    if not source_cols:
+        return df
+
+    missing = source_cols - set(df.columns)
+    if missing:
+        logger.warning(
+            "Stage 2: source_columns not found in DataFrame, skipping them: %s",
+            sorted(missing),
+        )
+    keep = [c for c in df.columns if c in source_cols]
+    if not keep:
+        return df
+
+    dropped = len(df.columns) - len(keep)
+    if dropped:
+        logger.info(
+            "Stage 2: projected %d→%d columns (dropped %d)",
+            len(df.columns),
+            len(keep),
+            dropped,
+        )
+    return df.select(keep)
+
+
 def _chunk_log_label(chunk_idx: int, chunk_df: pl.DataFrame) -> str:
     """Build a stable log label for a worker chunk."""
     return f"stage2 chunk={chunk_idx} rows={len(chunk_df)} cols={len(chunk_df.columns)}"
@@ -244,7 +281,7 @@ async def stage2_extraction_flow(
     """
     from prefect.utilities.annotations import unmapped
 
-    from causal_ssm_agent.utils.causal_spec import make_extraction_context
+    from causal_ssm_agent.utils.causal_spec import get_indicators, make_extraction_context
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.data import chunk_dataframe
 
@@ -256,6 +293,9 @@ async def stage2_extraction_flow(
         chunk_size = config.stage2_workers.chunk_size
     submission_batch_size = config.stage2_workers.submission_batch_size
     raw_df = pl.read_parquet(Path(raw_df_path))
+
+    # Project DataFrame to only the columns workers need (source_columns + time)
+    raw_df = _project_to_source_columns(raw_df, get_indicators(extraction_ctx))
 
     # Chunk the DataFrame
     chunks = chunk_dataframe(raw_df, chunk_size)

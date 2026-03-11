@@ -47,16 +47,32 @@ def get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
     }
 
 
+_WORKER_INDICATOR_KEYS = ("name", "measurement_dtype", "how_to_measure", "source_columns")
+
+
 def make_extraction_context(causal_spec: dict) -> dict:
     """Build minimal context needed by Stage 2 extraction workers.
 
-    Extracts only indicators and the outcome construct from the full CausalSpec,
-    avoiding passing edges and all latent constructs to each worker.
+    Workers need:
+    - indicators: name, measurement_dtype, how_to_measure, source_columns
+    - outcome: name, description (for prompt context)
+
+    Does not include: construct_name, aggregation, ordinal_levels,
+    latent edges, or non-outcome constructs.
     """
+    slim_indicators = [
+        {k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind}
+        for ind in get_indicators(causal_spec)
+    ]
     outcome = get_outcome_construct(causal_spec)
+    slim_outcome = (
+        {"name": outcome["name"], "description": outcome.get("description", "")}
+        if outcome
+        else None
+    )
     return {
-        "measurement": {"indicators": get_indicators(causal_spec)},
-        "latent": {"constructs": [outcome] if outcome else []},
+        "measurement": {"indicators": slim_indicators},
+        "latent": {"constructs": [slim_outcome] if slim_outcome else []},
     }
 
 
