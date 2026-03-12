@@ -24,14 +24,12 @@ def _simple_model_json():
                     "description": "Perceived stress level",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
                 {
                     "name": "sleep",
                     "description": "Sleep quality",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                     "is_outcome": True,
                 },
             ],
@@ -58,7 +56,6 @@ def _model_with_invariant_json():
                     "description": "Daily mood state",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                     "is_outcome": True,
                 },
             ],
@@ -90,7 +87,6 @@ class TestCountRulePoints:
                 "description": "Physical activity",
                 "role": "exogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             }
         )
         large_data["edges"].append(
@@ -104,40 +100,29 @@ class TestCountRulePoints:
 
         assert _count_rule_points(large) > _count_rule_points(small)
 
-    def test_time_invariant_no_scale(self):
-        """Time-invariant with no temporal_scale should get points."""
+    def test_time_invariant_gets_points(self):
+        """Time-invariant construct should get points."""
         structure = LatentModel(**json.loads(_model_with_invariant_json()))
         points = _count_rule_points(structure)
         assert points > 0
-
-    def test_cross_timescale_bonus(self):
-        """Cross-timescale edges get +2 bonus instead of +1."""
-        cross_data = json.loads(_simple_model_json())
-        cross_data["constructs"][1]["temporal_scale"] = "weekly"
-        cross_model = LatentModel(**cross_data)
-
-        same_model = LatentModel(**json.loads(_simple_model_json()))
-
-        # Cross should score higher due to +2 bonus vs +1 for same-scale
-        assert _count_rule_points(cross_model) > _count_rule_points(same_model)
 
     def test_exact_simple_model_points(self):
         """Verify exact point count for a simple 2-construct, 1-edge model."""
         structure = LatentModel(**json.loads(_simple_model_json()))
         points = _count_rule_points(structure)
-        # stress: role(1) + temporal_status(1) + has_scale(1) + valid_gran(1) = 4
-        # sleep:  role(1) + temporal_status(1) + has_scale(1) + valid_gran(1) = 4
-        # edge:   cause_exists(1) + effect_exists(1) + endogenous(1) + same_scale(1) = 4
-        assert points == 12.0
+        # stress: role(1) + temporal_status(1) = 2
+        # sleep:  role(1) + temporal_status(1) = 2
+        # edge:   cause_exists(1) + effect_exists(1) + endogenous(1) = 3
+        assert points == 7.0
 
     def test_time_invariant_construct_points(self):
-        """Time-invariant construct with no temporal_scale gets 3 points."""
+        """Time-invariant construct gets 2 points (role + temporal_status)."""
         structure = LatentModel(**json.loads(_model_with_invariant_json()))
         points = _count_rule_points(structure)
-        # trait (time_invariant, no scale): role(1) + temporal_status(1) + no_scale_correct(1) = 3
-        # mood (time_varying, daily): role(1) + temporal_status(1) + has_scale(1) + valid_gran(1) = 4
-        # edge: cause(1) + effect(1) + endogenous(1) + cross_timescale(2) = 5
-        assert points == 12.0
+        # trait (time_invariant): role(1) + temporal_status(1) = 2
+        # mood (time_varying): role(1) + temporal_status(1) = 2
+        # edge: cause(1) + effect(1) + endogenous(1) = 3
+        assert points == 7.0
 
 
 # =============================================================================

@@ -261,14 +261,19 @@ def compute_interventions(
     if cint_draws is None:
         cint_draws = jnp.zeros((drift_draws.shape[0], n_latent))
 
-    # Pre-compute forward simulation parameters from times
+    # Pre-compute forward simulation parameters
+    # Use model_clock directly if available (exact); fall back to median(diff(times))
     dt_median: float | None = None
     horizon_steps: int | None = None
-    if times is not None and len(times) > 1:
+    model_clock_str = (causal_spec or {}).get("measurement", {}).get("model_clock")
+    if model_clock_str:
+        from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
+        dt_median = parse_duration_to_hours(model_clock_str) / 24.0
+    elif times is not None and len(times) > 1:
         diffs = jnp.diff(times)
         dt_median = float(jnp.median(diffs))
-        if dt_median > 0:
-            horizon_steps = int(30.0 / dt_median)  # 30-day horizon
+    if dt_median is not None and dt_median > 0:
+        horizon_steps = int(30.0 / dt_median)  # 30-day horizon
 
     # Lambda for manifest-level projection
     lambda_draws = samples.get("lambda")

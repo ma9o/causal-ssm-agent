@@ -12,13 +12,14 @@ stage1_structure_proposal:
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
 
-# Stage 2: Worker Extraction
-# Workers process DataFrame chunks in parallel to extract indicator values
+# Stage 2: Tick-Based Extraction
+# Workers process chunks of model-clock ticks in parallel to extract indicator values
 stage2_workers:
   model: openrouter/google/gemini-3-flash-preview
-  chunk_size: 50  # Rows per chunk for each worker
-  max_concurrent_workers: 30  # Actual concurrent LLM worker calls
-  submission_batch_size: 100  # Chunk tasks submitted to Prefect at a time
+  ticks_per_chunk: 7           # Clock ticks per LLM call
+  max_concurrent_workers: 30   # Actual concurrent LLM worker calls
+  submission_batch_size: 100   # Chunk tasks submitted to Prefect at a time
+  max_events_per_tick: 300     # Truncate/sample text beyond this per tick
 
 # Stage 3: Identifiability & Sensitivity Analysis
 # Uses y0 (Pearl's ID algorithm) - no LLM needed

@@ -19,14 +19,12 @@ def _valid_latent_data():
                 "description": "Perceived stress",
                 "role": "exogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             },
             {
                 "name": "sleep",
                 "description": "Sleep quality",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": True,
             },
         ],
@@ -39,6 +37,7 @@ def _valid_latent_data():
 def _valid_measurement_data():
     """Minimal valid measurement model dict."""
     return {
+        "model_clock": "1d",
         "indicators": [
             {
                 "name": "pss_score",
@@ -54,7 +53,7 @@ def _valid_measurement_data():
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
             },
-        ]
+        ],
     }
 
 

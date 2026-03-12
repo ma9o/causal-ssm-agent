@@ -202,7 +202,6 @@ def format_loading_params(loading_params: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# Keep legacy formatters for backward compatibility with other callers
 def format_constructs(causal_spec: dict) -> str:
     """Format constructs for the prompt."""
     lines = []
@@ -210,10 +209,9 @@ def format_constructs(causal_spec: dict) -> str:
         name = construct.get("name", "?")
         role = construct.get("role", "?")
         temporal = construct.get("temporal_status", "?")
-        gran = construct.get("temporal_scale", "N/A")
         outcome = " [OUTCOME]" if construct.get("is_outcome") else ""
         desc = construct.get("description", "")
-        lines.append(f"- **{name}**: {role}, {temporal}, granularity={gran}{outcome}")
+        lines.append(f"- **{name}**: {role}, {temporal}{outcome}")
         if desc:
             lines.append(f"  {desc}")
     return "\n".join(lines)

@@ -1,8 +1,9 @@
 """Tests for aggregation utility functions.
 
-Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous,
-flatten_aggregated_data, aggregate_worker_measurements.
+Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous, compute_indicators.
 """
+
+from datetime import datetime
 
 import polars as pl
 import pytest
@@ -11,8 +12,7 @@ from causal_ssm_agent.utils.aggregations import (
     _build_agg_expr,
     _build_map_groups_fn,
     _encode_non_continuous,
-    aggregate_worker_measurements,
-    flatten_aggregated_data,
+    compute_indicators,
 )
 
 
@@ -219,173 +219,151 @@ class TestEncodeNonContinuous:
 
 
 # =============================================================================
-# flatten_aggregated_data
+# compute_indicators
 # =============================================================================
 
 
-class TestFlattenAggregatedData:
-    def test_empty_dict(self):
-        result = flatten_aggregated_data({})
-        assert isinstance(result, pl.DataFrame)
-        assert len(result) == 0
-        assert set(result.columns) == {"indicator", "value", "time_bucket"}
-
-    def test_single_granularity(self):
-        df = pl.DataFrame(
-            {
-                "indicator": ["mood", "mood"],
-                "value": [3.0, 4.0],
-                "time_bucket": ["2024-01-01", "2024-01-02"],
-            }
-        )
-        result = flatten_aggregated_data({"daily": df})
-        assert len(result) == 2
-        assert set(result.columns) == {"indicator", "value", "time_bucket"}
-
-    def test_multiple_granularities_combined(self):
-        df1 = pl.DataFrame(
-            {
-                "indicator": ["mood"],
-                "value": [3.0],
-                "time_bucket": ["2024-01-01"],
-            }
-        )
-        df2 = pl.DataFrame(
-            {
-                "indicator": ["mood"],
-                "value": [4.0],
-                "time_bucket": ["2024-01-08"],
-            }
-        )
-        result = flatten_aggregated_data({"daily": df1, "weekly": df2})
-        assert len(result) == 2
-
-    def test_sorted_output(self):
-        df = pl.DataFrame(
-            {
-                "indicator": ["sleep", "mood", "mood"],
-                "value": [8.0, 3.0, 4.0],
-                "time_bucket": ["2024-01-01", "2024-01-02", "2024-01-01"],
-            }
-        )
-        result = flatten_aggregated_data({"daily": df})
-        indicators = result["indicator"].to_list()
-        assert indicators[0] == "mood"  # sorted by indicator first
-
-
-# =============================================================================
-# aggregate_worker_measurements
-# =============================================================================
-
-
-def _worker_df(rows):
-    """Build a worker DataFrame from list of (indicator, value, timestamp) tuples."""
+def _make_raw_df() -> pl.DataFrame:
+    """Create a raw DataFrame spanning 3 days with heart_rate and steps."""
     return pl.DataFrame(
         {
-            "indicator": [r[0] for r in rows],
-            "value": [str(r[1]) for r in rows],
-            "timestamp": [r[2] for r in rows],
-        },
-        schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
+            "timestamp": [
+                datetime(2024, 1, 1, 8, 0),
+                datetime(2024, 1, 1, 12, 0),
+                datetime(2024, 1, 1, 18, 0),
+                datetime(2024, 1, 2, 9, 0),
+                datetime(2024, 1, 2, 15, 0),
+                datetime(2024, 1, 3, 10, 0),
+            ],
+            "heart_rate": [72.0, 85.0, 68.0, 74.0, 90.0, 70.0],
+            "steps": [1000, 3000, 500, 2000, 4000, 1500],
+        }
     )
 
 
-def _causal_spec_for_agg(*indicators):
-    """Build a causal spec for aggregation tests. Each indicator: (name, dtype, aggregation)."""
-    return {
-        "measurement": {
-            "indicators": [
-                {
-                    "name": name,
-                    "measurement_dtype": dtype,
-                    "aggregation": agg,
-                }
-                for name, dtype, agg in indicators
-            ]
-        }
-    }
+class TestComputeIndicators:
+    def test_single_mean(self):
+        """Mean of heart_rate across 3 daily ticks."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        assert result.columns == ["indicator", "value", "timestamp"]
+        assert result["indicator"].to_list() == ["avg_hr"] * 3
+        # Day 1: mean(72, 85, 68) = 75.0
+        values = [float(v) for v in result["value"].to_list()]
+        assert abs(values[0] - 75.0) < 0.01
 
+    def test_sum_aggregation(self):
+        """Sum of steps across daily ticks."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "total_steps", "source_columns": ["steps"], "aggregation": "sum"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        values = [float(v) for v in result["value"].to_list()]
+        # Day 1: 1000+3000+500=4500, Day 2: 2000+4000=6000, Day 3: 1500
+        assert values == [4500.0, 6000.0, 1500.0]
 
-class TestAggregateWorkerMeasurements:
-    def test_empty_input(self):
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([], spec)
-        assert result == {}
+    def test_multiple_indicators(self):
+        """Two computed indicators in one call."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {"name": "total_steps", "source_columns": ["steps"], "aggregation": "sum"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        # 3 ticks * 2 indicators = 6 rows
+        assert len(result) == 6
+        assert set(result["indicator"].to_list()) == {"avg_hr", "total_steps"}
 
-    def test_all_none_input(self):
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([None, None], spec)
-        assert result == {}
+    def test_output_schema(self):
+        """Output columns are exactly {indicator, value, timestamp} as Utf8."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        assert result.columns == ["indicator", "value", "timestamp"]
+        assert result.schema["indicator"] == pl.Utf8
+        assert result.schema["value"] == pl.Utf8
+        assert result.schema["timestamp"] == pl.Utf8
 
-    def test_basic_daily_aggregation(self):
-        df = _worker_df(
-            [
-                ("mood", 3.0, "2024-01-01T10:00:00"),
-                ("mood", 5.0, "2024-01-01T14:00:00"),
-                ("mood", 7.0, "2024-01-02T10:00:00"),
-            ]
+    def test_empty_indicators(self):
+        """Empty indicator list returns empty DataFrame with correct schema."""
+        df = _make_raw_df()
+        result = compute_indicators(df, [], "1d", "timestamp")
+        assert result.columns == ["indicator", "value", "timestamp"]
+        assert len(result) == 0
+
+    def test_trend_aggregation(self):
+        """Trend (map_groups path) computes OLS slope."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 1, 18, 0),
+                ],
+                "hr": [70.0, 75.0, 80.0],  # increasing → positive slope
+            }
         )
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([df], spec, "daily")
-        assert "daily" in result
-        agged = result["daily"]
-        assert len(agged) == 2  # 2 days
-        # Day 1 should be mean(3, 5) = 4
-        day1 = agged.filter(pl.col("time_bucket") == agged["time_bucket"][0])
-        assert abs(day1["value"][0] - 4.0) < 1e-6
+        indicators = [{"name": "hr_trend", "source_columns": ["hr"], "aggregation": "trend"}]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        assert len(result) == 1
+        assert float(result["value"][0]) > 0  # positive slope
 
-    def test_multiple_workers_combined(self):
-        df1 = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
-        df2 = _worker_df([("mood", 5.0, "2024-01-01T14:00:00")])
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([df1, df2], spec, "daily")
-        assert "daily" in result
-        agged = result["daily"]
-        assert len(agged) == 1
-        assert abs(agged["value"][0] - 4.0) < 1e-6
+    def test_missing_source_column(self):
+        """Missing source column is skipped with warning, not crash."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "missing", "source_columns": ["nonexistent_col"], "aggregation": "mean"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        assert len(result) == 0
 
-    def test_none_dfs_filtered(self):
-        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([None, df, None], spec, "daily")
-        assert "daily" in result
-
-    def test_finest_no_truncation(self):
-        df = _worker_df(
-            [
-                ("mood", 3.0, "2024-01-01T10:00:00"),
-                ("mood", 5.0, "2024-01-01T14:00:00"),
-            ]
+    def test_null_source_values(self):
+        """Source column with nulls aggregates correctly."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 1, 18, 0),
+                ],
+                "hr": [72.0, None, 68.0],
+            }
         )
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([df], spec, "finest")
-        assert "finest" in result
-        assert len(result["finest"]) == 2  # no aggregation
+        indicators = [{"name": "avg_hr", "source_columns": ["hr"], "aggregation": "mean"}]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        assert len(result) == 1
+        # mean(72, 68) = 70.0 (null ignored)
+        assert abs(float(result["value"][0]) - 70.0) < 0.01
 
-    def test_unknown_aggregation_window_raises(self):
-        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        with pytest.raises(ValueError, match="Unknown aggregation_window"):
-            aggregate_worker_measurements([df], spec, "invalid_window")
+    def test_timestamp_format_matches_bucket_by_clock(self):
+        """Computed timestamps match the ISO format from bucket_by_clock."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+        ]
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+        # Should be ISO format: YYYY-MM-DDTHH:MM:SS
+        assert result["timestamp"][0] == "2024-01-01T00:00:00"
 
-    def test_single_row_df(self):
-        """A DataFrame with one row still aggregates correctly."""
-        df = _worker_df([("mood", 3.0, "2024-01-01T10:00:00")])
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([df], spec, "daily")
-        assert "daily" in result
-        assert len(result["daily"]) == 1
-        assert abs(result["daily"]["value"][0] - 3.0) < 1e-6
+    def test_hourly_clock(self):
+        """Hourly model_clock produces hourly ticks."""
+        df = _make_raw_df()
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+        ]
+        result = compute_indicators(df, indicators, "1h", "timestamp")
+        # 6 events at 6 different hours → 6 ticks (each with 1 event)
+        assert len(result) == 6
 
-    def test_unknown_indicators_filtered(self):
-        df = _worker_df(
-            [
-                ("mood", 3.0, "2024-01-01T10:00:00"),
-                ("unknown_ind", 5.0, "2024-01-01T10:00:00"),
-            ]
-        )
-        spec = _causal_spec_for_agg(("mood", "continuous", "mean"))
-        result = aggregate_worker_measurements([df], spec, "daily")
-        assert "daily" in result
-        indicators = result["daily"]["indicator"].unique().to_list()
-        assert "unknown_ind" not in indicators
+    def test_col_name_parameter(self):
+        """_build_agg_expr with custom col_name works correctly."""
+        df = pl.DataFrame({"heart_rate": [72.0, 85.0, 68.0]})
+        expr = _build_agg_expr("mean", "heart_rate")
+        result = df.select(expr)
+        assert abs(result["value"][0] - 75.0) < 0.01

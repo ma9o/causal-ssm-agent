@@ -1,13 +1,7 @@
-"""Aggregate raw worker extractions to a pipeline-level aggregation window.
+"""Dtype encoding and aggregation helpers for extracted indicator data.
 
-Workers extract at the finest resolution visible in their chunk.
-This module buckets timestamps and applies each indicator's aggregation
-function within a shared aggregation window (default: daily).
-SSM discretization then handles the aggregated observations -> continuous time.
-
-    Workers extract at raw resolution
-      -> aggregate_worker_measurements() -> aggregation window
-      -> SSM discretization -> continuous time
+Provides non-continuous dtype encoding (binary, ordinal, categorical -> numeric)
+and Polars aggregation expression builders used by the pipeline's stage 2 logic.
 """
 
 import logging
@@ -17,27 +11,25 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
-# Granularity -> Polars truncation interval
-_TRUNCATE_INTERVAL = {
-    "hourly": "1h",
-    "daily": "1d",
-    "weekly": "1w",
-    "monthly": "1mo",
-    "yearly": "1y",
-}
-
 # Aggregations that require map_groups (cannot be expressed as a single Polars expr)
 _MAP_GROUPS_AGGREGATIONS = {"trend"}
 
 
-def _build_agg_expr(agg_name: str) -> pl.Expr:
-    """Map an aggregation name to a Polars expression over the 'value' column.
+def _build_agg_expr(agg_name: str, col_name: str = "value") -> pl.Expr:
+    """Map an aggregation name to a Polars expression over a named column.
 
     Supports 23 of 24 aggregation functions as expressions. The 'trend'
-    aggregation requires map_groups and is handled separately in
-    aggregate_worker_measurements.
+    aggregation requires map_groups and is handled separately via
+    _build_map_groups_fn.
+
+    Args:
+        agg_name: Name of the aggregation function.
+        col_name: Column to aggregate (default: "value").
+
+    Returns:
+        Polars expression aliased to "value".
     """
-    col = pl.col("value")
+    col = pl.col(col_name)
 
     simple = {
         "mean": col.mean(),
@@ -110,6 +102,90 @@ def _build_map_groups_fn(agg_name: str):
         return _ols_slope
 
     raise ValueError(f"Unknown map_groups aggregation: '{agg_name}'")
+
+
+def compute_indicators(
+    raw_df: pl.DataFrame,
+    indicators: list[dict],
+    model_clock: str,
+    time_col: str,
+) -> pl.DataFrame:
+    """Compute indicator values directly via Polars aggregation.
+
+    For indicators with extraction_mode='computed', applies the aggregation
+    function to the single source column, grouped by model_clock ticks.
+
+    Args:
+        raw_df: Raw wide-format DataFrame with actual column names.
+        indicators: List of indicator dicts with extraction_mode="computed".
+            Each must have exactly one source_column.
+        model_clock: Polars duration string for truncation (e.g., "1d").
+        time_col: Name of the datetime column in raw_df.
+
+    Returns:
+        Long-format DataFrame with columns: indicator (Utf8), value (Utf8),
+        timestamp (Utf8). Matches the schema produced by the semantic path.
+    """
+    output_schema = {"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
+    if not indicators:
+        return pl.DataFrame(schema=output_schema)
+
+    # Ensure the time column is datetime
+    df = raw_df
+    if df.schema[time_col] == pl.Utf8:
+        df = df.with_columns(pl.col(time_col).str.to_datetime(strict=False).alias(time_col))
+
+    # Add tick column via truncation
+    df = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__"))
+
+    frames: list[pl.DataFrame] = []
+    for ind in indicators:
+        name = ind["name"]
+        source_col = ind["source_columns"][0]
+        agg_name = ind["aggregation"]
+
+        if source_col not in df.columns:
+            logger.warning(
+                "Computed indicator '%s': source column '%s' not in DataFrame, skipping",
+                name,
+                source_col,
+            )
+            continue
+
+        if agg_name in _MAP_GROUPS_AGGREGATIONS:
+            # trend etc: rename source_col → "value" for map_groups function
+            fn = _build_map_groups_fn(agg_name)
+            agg_df = (
+                df.select(
+                    "__tick__",
+                    pl.col(source_col).cast(pl.Float64, strict=False).alias("value"),
+                )
+                .sort("__tick__")
+                .group_by("__tick__", maintain_order=True)
+                .map_groups(fn)
+            )
+        else:
+            expr = _build_agg_expr(agg_name, source_col)
+            agg_df = (
+                df.select(
+                    "__tick__",
+                    pl.col(source_col).cast(pl.Float64, strict=False).alias(source_col),
+                )
+                .group_by("__tick__", maintain_order=True)
+                .agg(expr)
+            )
+
+        agg_df = agg_df.select(
+            pl.lit(name).alias("indicator"),
+            pl.col("value").cast(pl.Utf8).alias("value"),
+            pl.col("__tick__").dt.to_string("%Y-%m-%dT%H:%M:%S").alias("timestamp"),
+        )
+        frames.append(agg_df)
+
+    if not frames:
+        return pl.DataFrame(schema=output_schema)
+
+    return pl.concat(frames, how="vertical").sort("timestamp", "indicator")
 
 
 _BINARY_TRUE = {"true", "yes", "1", "1.0", "t", "y"}
@@ -212,167 +288,3 @@ def _encode_non_continuous(
 
     remaining = df.filter(remaining_mask)
     return pl.concat([remaining, *frames], how="vertical")
-
-
-def aggregate_worker_measurements(
-    worker_dfs: list[pl.DataFrame | None],
-    causal_spec: dict,
-    aggregation_window: str = "daily",
-) -> dict[str, pl.DataFrame]:
-    """Aggregate raw worker extractions within a shared aggregation window.
-
-    All indicators are aggregated at the same temporal resolution (the
-    pipeline-level ``aggregation_window``), eliminating sparse-pivot issues
-    from mixed per-indicator granularities.
-
-    Args:
-        worker_dfs: List of DataFrames with columns (indicator, value, timestamp),
-                    each from a worker. None entries are skipped.
-        causal_spec: The full CausalSpec dict with measurement.indicators.
-        aggregation_window: Pipeline-level aggregation window for all indicators.
-            One of "daily", "hourly", "weekly", "monthly", "yearly", or "finest".
-            Default is "daily".
-
-    Returns:
-        Dict keyed by aggregation window (e.g. "daily", "finest").
-        Each value is a DataFrame with columns (indicator, value, time_bucket).
-        For "finest", time_bucket is the original datetime.
-    """
-    # Filter out None DataFrames and empty list
-    valid_dfs = [df for df in worker_dfs if df is not None and not df.is_empty()]
-    if not valid_dfs:
-        return {}
-
-    # 1. Concat all worker DataFrames
-    combined = pl.concat(valid_dfs, how="vertical")
-
-    # 2. Materialize Object dtype columns to Utf8 for further processing
-    for col_name in ("value", "timestamp"):
-        if col_name in combined.columns and combined.schema[col_name] == pl.Object:
-            py_vals = [str(v) if v is not None else None for v in combined[col_name].to_list()]
-            combined = combined.with_columns(pl.Series(col_name, py_vals, dtype=pl.Utf8))
-
-    # 3. Dtype-aware encoding: encode binary/ordinal/categorical values before Float64 cast
-    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
-
-    dtype_lookup = get_indicator_dtypes(causal_spec)
-    ordinal_levels_lookup: dict[str, list[str]] = {
-        ind["name"]: ind["ordinal_levels"]
-        for ind in get_indicators(causal_spec)
-        if ind.get("ordinal_levels")
-    }
-    combined = _encode_non_continuous(combined, dtype_lookup, ordinal_levels_lookup)
-
-    combined = combined.with_columns(
-        pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-        pl.col("timestamp")
-        .cast(pl.Utf8, strict=False)
-        .str.to_datetime(strict=False)
-        .alias("datetime"),
-    )
-
-    # 4. Drop rows with null timestamp or null value
-    combined = combined.drop_nulls(subset=["datetime", "value"])
-
-    if combined.is_empty():
-        return {}
-
-    # 5. Build indicator -> aggregation lookup
-    indicator_info: dict[str, str] = {}
-    for ind in get_indicators(causal_spec):
-        name = ind.get("name")
-        if name:
-            indicator_info[name] = ind.get("aggregation", "mean")
-
-    # 6. Filter to known indicators only
-    known_names = set(indicator_info.keys())
-    combined = combined.filter(pl.col("indicator").is_in(known_names))
-
-    if combined.is_empty():
-        return {}
-
-    # 7. Aggregate all indicators at the shared aggregation_window
-    results: dict[str, pl.DataFrame] = {}
-    ind_names = list(indicator_info.keys())
-
-    if aggregation_window == "finest":
-        # Deduplicate exact (indicator, datetime, value) triples
-        deduped = combined.unique(subset=["indicator", "datetime", "value"])
-        results["finest"] = deduped.select(
-            pl.col("indicator"),
-            pl.col("value"),
-            pl.col("datetime").alias("time_bucket"),
-        ).sort("indicator", "time_bucket")
-    else:
-        # Bucket timestamps and aggregate
-        interval = _TRUNCATE_INTERVAL.get(aggregation_window)
-        if interval is None:
-            raise ValueError(
-                f"Unknown aggregation_window '{aggregation_window}'. "
-                f"Must be 'finest' or one of: {', '.join(sorted(_TRUNCATE_INTERVAL.keys()))}"
-            )
-
-        # Add time_bucket column
-        bucketed = combined.with_columns(
-            pl.col("datetime").dt.truncate(interval).alias("time_bucket"),
-        )
-
-        # Sort by datetime so first/last are chronological
-        bucketed = bucketed.sort("datetime")
-
-        # Aggregate per indicator per time_bucket
-        agg_frames = []
-        for ind_name in ind_names:
-            ind_data = bucketed.filter(pl.col("indicator") == ind_name)
-            if ind_data.is_empty():
-                continue
-
-            agg_name = indicator_info[ind_name]
-
-            if agg_name in _MAP_GROUPS_AGGREGATIONS:
-                fn = _build_map_groups_fn(agg_name)
-                agged = (
-                    ind_data.group_by("time_bucket", maintain_order=True)
-                    .map_groups(fn)
-                    .with_columns(
-                        pl.lit(ind_name).alias("indicator"),
-                        pl.col("value").cast(pl.Float64),
-                    )
-                    .select("indicator", "value", "time_bucket")
-                )
-            else:
-                agg_expr = _build_agg_expr(agg_name)
-                agged = (
-                    ind_data.group_by("time_bucket", maintain_order=True)
-                    .agg(agg_expr)
-                    .with_columns(
-                        pl.lit(ind_name).alias("indicator"),
-                        pl.col("value").cast(pl.Float64),
-                    )
-                    .select("indicator", "value", "time_bucket")
-                )
-            agg_frames.append(agged)
-
-        if agg_frames:
-            results[aggregation_window] = pl.concat(agg_frames, how="vertical").sort(
-                "indicator", "time_bucket"
-            )
-
-    return results
-
-
-def flatten_aggregated_data(aggregated: dict[str, pl.DataFrame]) -> pl.DataFrame:
-    """Flatten dict[granularity -> DataFrame] to single long-format DataFrame.
-
-    Args:
-        aggregated: Dict keyed by granularity level, each with
-            columns (indicator, value, time_bucket).
-
-    Returns:
-        Single DataFrame with columns (indicator, value, time_bucket),
-        sorted by indicator then time_bucket.
-    """
-    frames = list(aggregated.values())
-    if not frames:
-        return pl.DataFrame({"indicator": [], "value": [], "time_bucket": []})
-    return pl.concat(frames, how="vertical").sort("indicator", "time_bucket")

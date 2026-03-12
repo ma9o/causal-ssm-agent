@@ -1,11 +1,11 @@
 from .agents import WorkerResult, process_chunk
 from .schemas import (
-    Extraction,
+    TickExtraction,
     WorkerOutput,
 )
 
 __all__ = [
-    "Extraction",
+    "TickExtraction",
     "WorkerOutput",
     "WorkerResult",
     "process_chunk",

@@ -66,11 +66,12 @@ class TestMeasurementCompiler:
     ):
         """Outcome coverage is enforced at compile time."""
         measurement = {
+            "model_clock": "1d",
             "indicators": [
                 indicator
                 for indicator in stage1b_measurement_all_observed["indicators"]
                 if indicator["construct_name"] != "Outcome"
-            ]
+            ],
         }
 
         result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
@@ -83,6 +84,7 @@ class TestMeasurementCompiler:
     ):
         """Identical indicators for the same construct are rejected."""
         measurement = {
+            "model_clock": "1d",
             "indicators": [
                 stage1b_measurement_all_observed["indicators"][0],
                 {
@@ -93,7 +95,7 @@ class TestMeasurementCompiler:
                     "aggregation": "mean",
                 },
                 stage1b_measurement_all_observed["indicators"][1],
-            ]
+            ],
         }
 
         result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
@@ -106,6 +108,7 @@ class TestMeasurementCompiler:
     ):
         """Compiler surfaces aggregation/measurement semantic mismatches."""
         measurement = {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "treatment_count",
@@ -115,7 +118,7 @@ class TestMeasurementCompiler:
                     "aggregation": "mean",
                 },
                 stage1b_measurement_all_observed["indicators"][1],
-            ]
+            ],
         }
 
         result = trial_compile_measurement_model(measurement, stage1b_simple_latent)

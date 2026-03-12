@@ -37,7 +37,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                         "role": "endogenous",
                         "is_outcome": True,
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                     {
                         "name": "Stress",
@@ -45,7 +44,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                         "role": "endogenous",
                         "is_outcome": False,
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                 ],
                 "edges": [
@@ -70,7 +68,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                             "role": "endogenous",
                             "is_outcome": True,
                             "temporal_status": "time_varying",
-                            "temporal_scale": "daily",
                         },
                         {
                             "name": "Stress",
@@ -78,7 +75,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                             "role": "endogenous",
                             "is_outcome": False,
                             "temporal_status": "time_varying",
-                            "temporal_scale": "daily",
                         },
                     ],
                     "edges": [
@@ -91,6 +87,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                     ],
                 },
                 "measurement": {
+                    "model_clock": "1d",
                     "indicators": [
                         {
                             "name": "stress_score",
@@ -109,12 +106,12 @@ def valid_stage_payloads() -> dict[str, dict]:
                     "worker_id": 0,
                     "status": "completed",
                     "n_extractions": 3,
-                    "chunk_size": 20,
+                    "n_ticks": 7,
                 }
             ],
             "combined_extractions_sample": [
-                {"indicator": "stress_score", "value": 1.2, "timestamp": "2024-01-01T00:00:00Z"},
-                {"indicator": "late_night", "value": True, "timestamp": "2024-01-02T00:00:00Z"},
+                {"indicator": "stress_score", "value": 1.2, "tick": "2024-01-01T00:00:00Z"},
+                {"indicator": "late_night", "value": True, "tick": "2024-01-02T00:00:00Z"},
             ],
             "per_indicator_counts": {"stress_score": 2, "late_night": 1},
         },

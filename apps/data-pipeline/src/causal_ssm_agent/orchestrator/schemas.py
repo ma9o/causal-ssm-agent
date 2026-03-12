@@ -129,14 +129,52 @@ class TemporalStatus(StrEnum):
     TIME_INVARIANT = "time_invariant"  # Fixed for each person
 
 
-# Hours per granularity unit
-GRANULARITY_HOURS = {
-    "hourly": 1,
-    "daily": 24,
-    "weekly": 168,
-    "monthly": 720,  # 30 days
-    "yearly": 8760,
+# ══════════════════════════════════════════════════════════════════════════════
+# DURATION PARSING (Polars-compatible duration strings)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Polars duration units → hours conversion factor
+_DURATION_UNIT_HOURS: dict[str, float] = {
+    "s": 1 / 3600,
+    "m": 1 / 60,
+    "h": 1.0,
+    "d": 24.0,
+    "w": 168.0,
+    "mo": 720.0,  # 30 days
+    "q": 2160.0,  # 90 days
+    "y": 8760.0,  # 365 days
 }
+
+# Match <integer><unit> where unit is a Polars duration suffix
+_DURATION_RE = re.compile(r"^(\d+)(s|m|h|d|w|mo|q|y)$")
+
+
+def parse_duration_to_hours(duration: str) -> float:
+    """Parse a Polars-compatible duration string to hours.
+
+    Accepts any string of the form ``<int><unit>`` where unit is one of:
+    s (seconds), m (minutes), h (hours), d (days), w (weeks),
+    mo (months/30d), q (quarters/90d), y (years/365d).
+
+    >>> parse_duration_to_hours("1d")
+    24.0
+    >>> parse_duration_to_hours("4h")
+    4.0
+    >>> parse_duration_to_hours("1w")
+    168.0
+    """
+    match = _DURATION_RE.match(duration)
+    if not match:
+        raise ValueError(
+            f"Invalid duration: {duration!r}. "
+            f"Expected format: <int><unit> where unit is one of "
+            f"{', '.join(_DURATION_UNIT_HOURS)}"
+        )
+    n = int(match.group(1))
+    unit = match.group(2)
+    if n == 0:
+        raise ValueError("Duration must be positive (got 0)")
+    return n * _DURATION_UNIT_HOURS[unit]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -161,33 +199,10 @@ class Construct(BaseModel):
     temporal_status: TemporalStatus = Field(
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
     )
-    temporal_scale: str | None = Field(
-        default=None,
-        description=(
-            "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for time-varying constructs. "
-            "The timescale at which causal dynamics operate."
-        ),
-    )
 
     @model_validator(mode="after")
     def validate_construct(self):
         """Validate construct field consistency."""
-        is_time_varying = self.temporal_status == TemporalStatus.TIME_VARYING
-
-        if is_time_varying:
-            if self.temporal_scale is None:
-                raise ValueError(f"Time-varying construct '{self.name}' requires temporal_scale")
-            if self.temporal_scale not in GRANULARITY_HOURS:
-                raise ValueError(
-                    f"Invalid temporal_scale '{self.temporal_scale}' for '{self.name}'. "
-                    f"Must be one of: {', '.join(sorted(GRANULARITY_HOURS.keys()))}"
-                )
-        else:
-            if self.temporal_scale is not None:
-                raise ValueError(
-                    f"Time-invariant construct '{self.name}' must not have temporal_scale"
-                )
-
         # Outcomes must be endogenous
         if self.is_outcome and self.role != Role.ENDOGENOUS:
             raise ValueError(
@@ -206,9 +221,8 @@ class CausalEdge(BaseModel):
     lagged: bool = Field(
         default=True,
         description=(
-            "If True, effect at t is caused by cause at t-1. "
-            "If False (contemporaneous), effect at t is caused by cause at t. "
-            "Cross-timescale edges are always lagged."
+            "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). "
+            "If False (contemporaneous), effect at t is caused by cause at t."
         ),
     )
 
@@ -235,15 +249,10 @@ def _check_edge_constraint(
     if effect_construct.role == Role.EXOGENOUS:
         return f"Exogenous construct '{edge.effect}' cannot be an effect"
 
-    cause_gran = cause_construct.temporal_scale
-    effect_gran = effect_construct.temporal_scale
-    both_time_varying = cause_gran is not None and effect_gran is not None
-
-    if not edge.lagged and both_time_varying and cause_gran != effect_gran:
-        return (
-            f"Contemporaneous edge (lagged=false) requires same timescale: "
-            f"{edge.cause} ({cause_gran}) -> {edge.effect} ({effect_gran})"
-        )
+    both_time_varying = (
+        cause_construct.temporal_status == TemporalStatus.TIME_VARYING
+        and effect_construct.temporal_status == TemporalStatus.TIME_VARYING
+    )
 
     both_endogenous = (
         cause_construct.role == Role.ENDOGENOUS and effect_construct.role == Role.ENDOGENOUS
@@ -391,6 +400,21 @@ class Indicator(BaseModel):
             "Used to project chunks to only relevant columns before extraction."
         ),
     )
+    extraction_mode: str = Field(
+        default="semantic",
+        description=(
+            "'computed' (direct Polars aggregation on source column) or "
+            "'semantic' (LLM extraction). Use 'computed' when the indicator "
+            "maps to a single numeric column and the aggregation can be applied directly."
+        ),
+    )
+
+    @field_validator("extraction_mode")
+    @classmethod
+    def validate_extraction_mode(cls, v: str) -> str:
+        if v not in ("computed", "semantic"):
+            raise ValueError(f"extraction_mode must be 'computed' or 'semantic', got '{v}'")
+        return v
 
     @field_validator("aggregation")
     @classmethod
@@ -434,6 +458,23 @@ class Indicator(BaseModel):
             logger.warning("Indicator '%s': %s", self.name, warning)
         return self
 
+    @model_validator(mode="after")
+    def validate_computed_mode(self) -> "Indicator":
+        """Enforce constraints when extraction_mode='computed'."""
+        if self.extraction_mode != "computed":
+            return self
+        if len(self.source_columns) != 1:
+            raise ValueError(
+                f"Computed indicator '{self.name}' requires exactly 1 source_column, "
+                f"got {len(self.source_columns)}: {self.source_columns}"
+            )
+        if self.measurement_dtype not in ("continuous", "count"):
+            raise ValueError(
+                f"Computed indicator '{self.name}' requires measurement_dtype "
+                f"'continuous' or 'count', got '{self.measurement_dtype}'"
+            )
+        return self
+
     @property
     def observation_kind(self) -> ObservationKind:
         """Derived observation kind from aggregation + measurement_dtype."""
@@ -462,6 +503,30 @@ class MeasurementModel(BaseModel):
     indicators: list[Indicator] = Field(
         description="Observed indicators, each measuring a construct"
     )
+    model_clock: str = Field(
+        description=(
+            "Observation window width for extraction and SSM discretization. "
+            "Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). "
+            "Choose based on data density: need enough events per tick."
+        )
+    )
+
+    @field_validator("model_clock")
+    @classmethod
+    def validate_model_clock(cls, v: str) -> str:
+        """Check that model_clock is a valid Polars duration string."""
+        parse_duration_to_hours(v)
+        return v
+
+    @property
+    def model_clock_hours(self) -> float:
+        """Model clock duration in hours."""
+        return parse_duration_to_hours(self.model_clock)
+
+    @property
+    def model_clock_days(self) -> float:
+        """Model clock duration in fractional days (for SSM discretization)."""
+        return self.model_clock_hours / 24.0
 
     def get_indicators_for_construct(self, construct_name: str) -> list[Indicator]:
         """Get all indicators that measure a given construct."""
@@ -471,31 +536,6 @@ class MeasurementModel(BaseModel):
 # ══════════════════════════════════════════════════════════════════════════════
 # CAUSAL SPEC (composition of latent + measurement)
 # ══════════════════════════════════════════════════════════════════════════════
-
-
-def compute_lag_hours(
-    cause_granularity: str | None,
-    effect_granularity: str | None,
-    lagged: bool,
-) -> int:
-    """Compute lag in hours based on granularities and lagged flag.
-
-    Rules (Markov property):
-    - Same timescale, contemporaneous: lag = 0
-    - Same timescale, lagged: lag = 1 granularity unit
-    - Cross timescale: lag = coarser granularity (always lagged)
-    """
-    cause_hours = GRANULARITY_HOURS.get(cause_granularity, 0) if cause_granularity else 0
-    effect_hours = GRANULARITY_HOURS.get(effect_granularity, 0) if effect_granularity else 0
-
-    # Cross-timescale: always use coarser granularity
-    if cause_granularity != effect_granularity:
-        return max(cause_hours, effect_hours)
-
-    # Same timescale: depends on lagged flag
-    if lagged:
-        return cause_hours  # 1 unit of the shared granularity
-    return 0  # contemporaneous
 
 
 class IdentifiedTreatmentStatus(BaseModel):
@@ -556,7 +596,7 @@ class CausalSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_causal_spec(self):
-        """Validate that measurement model covers all constructs."""
+        """Validate measurement model covers all constructs."""
         construct_names = {c.name for c in self.latent.constructs}
 
         # Check all indicator references are valid
@@ -568,16 +608,9 @@ class CausalSpec(BaseModel):
 
         return self
 
-    def get_edge_lag_hours(self, edge: CausalEdge) -> int:
+    def get_edge_lag_hours(self, edge: CausalEdge) -> float:
         """Compute lag in hours for a causal edge."""
-        construct_map = {c.name: c for c in self.latent.constructs}
-        cause = construct_map[edge.cause]
-        effect = construct_map[edge.effect]
-        return compute_lag_hours(
-            cause.temporal_scale,
-            effect.temporal_scale,
-            edge.lagged,
-        )
+        return self.measurement.model_clock_hours if edge.lagged else 0
 
     def to_networkx(self):
         """Convert to NetworkX DiGraph with computed lag_hours."""
@@ -737,6 +770,20 @@ def validate_measurement_model(
         errors.append("'indicators' must be a list")
         indicators = []
 
+    # Validate model_clock
+    model_clock = data.get("model_clock")
+    if model_clock is None:
+        errors.append("'model_clock' is required")
+    elif not isinstance(model_clock, str):
+        errors.append("'model_clock' must be a string")
+        model_clock = None
+    else:
+        try:
+            parse_duration_to_hours(model_clock)
+        except ValueError as e:
+            errors.append(f"model_clock: {e}")
+            model_clock = None
+
     construct_names = {c.name for c in latent.constructs}
 
     # Validate each indicator
@@ -778,7 +825,7 @@ def validate_measurement_model(
 
     if not errors:
         try:
-            model = MeasurementModel(indicators=valid_indicators)
+            model = MeasurementModel(indicators=valid_indicators, model_clock=model_clock)
             return model, []
         except Exception as e:
             errors.append(f"Final validation failed: {e}")

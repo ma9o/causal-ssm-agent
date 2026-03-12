@@ -19,12 +19,13 @@ def simple_causal_spec():
     return {
         "latent": {
             "constructs": [
-                {"name": "stress", "temporal_scale": "daily"},
-                {"name": "sleep", "temporal_scale": "daily"},
+                {"name": "stress"},
+                {"name": "sleep"},
             ],
             "edges": [{"cause": "stress", "effect": "sleep"}],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "stress_score",
@@ -54,7 +55,7 @@ def _make_spec(
     indicator_name="stress_score",
     construct_name="stress",
     dtype="continuous",
-    causal_gran="daily",
+    model_clock="1d",
     temporal_status="time_varying",
     extra_indicators=None,
 ):
@@ -73,7 +74,6 @@ def _make_spec(
     constructs = [
         {
             "name": construct_name,
-            "temporal_scale": causal_gran,
             "temporal_status": temporal_status,
         },
     ]
@@ -87,14 +87,17 @@ def _make_spec(
                 constructs.append(
                     {
                         "name": cn,
-                        "temporal_scale": causal_gran,
                         "temporal_status": temporal_status,
                     }
                 )
 
+    measurement: dict = {"indicators": indicators}
+    if model_clock is not None:
+        measurement["model_clock"] = model_clock
+
     return {
         "latent": {"constructs": constructs},
-        "measurement": {"indicators": indicators},
+        "measurement": measurement,
     }
 
 
@@ -423,7 +426,7 @@ class TestCheckTimeCoverage:
 
     def test_sufficient_coverage_no_issue(self):
         """Enough time span produces no coverage issue."""
-        spec = _make_spec(causal_gran="daily")
+        spec = _make_spec(model_clock="1d")
         records = [
             {
                 "indicator": "stress_score",
@@ -438,7 +441,7 @@ class TestCheckTimeCoverage:
 
     def test_insufficient_coverage_is_warning(self):
         """Short time span → insufficient_coverage warning."""
-        spec = _make_spec(causal_gran="daily")
+        spec = _make_spec(model_clock="1d")
         # Only 3 days of data, need 10 * 24h = 240h
         records = [
             {
@@ -455,7 +458,7 @@ class TestCheckTimeCoverage:
 
     def test_time_invariant_skips_coverage(self):
         """Time-invariant constructs skip coverage check."""
-        spec = _make_spec(causal_gran=None, temporal_status="time_invariant")
+        spec = _make_spec(model_clock=None, temporal_status="time_invariant")
         records = [
             {
                 "indicator": "stress_score",
@@ -470,7 +473,7 @@ class TestCheckTimeCoverage:
 
     def test_weekly_granularity_needs_more_span(self):
         """Weekly granularity requires 10 * 168h = 1680h of coverage."""
-        spec = _make_spec(causal_gran="weekly")
+        spec = _make_spec(model_clock="1w")
         # 20 days < 70 days needed
         records = [
             {
@@ -495,7 +498,7 @@ class TestCheckTimestampGaps:
 
     def test_no_large_gaps(self):
         """Regular daily data has no large gaps."""
-        spec = _make_spec(causal_gran="daily")
+        spec = _make_spec(model_clock="1d")
         records = [
             {
                 "indicator": "stress_score",
@@ -510,7 +513,7 @@ class TestCheckTimestampGaps:
 
     def test_large_gap_warning(self):
         """Gap > 5x granularity → warning."""
-        spec = _make_spec(causal_gran="daily")
+        spec = _make_spec(model_clock="1d")
         # 3 observations with a 10-day gap (>5x daily=120h)
         records = [
             {"indicator": "stress_score", "value": "1.0", "timestamp": "2024-01-01 10:00"},
@@ -531,7 +534,7 @@ class TestCheckTimestampGaps:
 
     def test_skips_with_few_timestamps(self):
         """Fewer than 3 timestamps skips gap check."""
-        spec = _make_spec(causal_gran="daily")
+        spec = _make_spec(model_clock="1d")
         records = [
             {"indicator": "stress_score", "value": "1.0", "timestamp": "2024-01-01 10:00"},
             {"indicator": "stress_score", "value": "2.0", "timestamp": "2024-06-01 10:00"},

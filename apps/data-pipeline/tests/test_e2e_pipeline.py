@@ -24,10 +24,6 @@ from causal_ssm_agent.flows.stages.stage3_validation import (
 from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.orchestrator.schemas import CausalSpec
-from causal_ssm_agent.utils.aggregations import (
-    aggregate_worker_measurements,
-    flatten_aggregated_data,
-)
 from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.effects import get_all_treatments
 
@@ -79,7 +75,6 @@ def latent_model():
                 "description": "Psychological stress level",
                 "role": "exogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": False,
             },
             {
@@ -87,7 +82,6 @@ def latent_model():
                 "description": "Physical and mental fatigue",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": False,
             },
             {
@@ -95,7 +89,6 @@ def latent_model():
                 "description": "Ability to concentrate",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": False,
             },
             {
@@ -103,7 +96,6 @@ def latent_model():
                 "description": "Task performance",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": True,
             },
         ],
@@ -140,6 +132,7 @@ def latent_model():
 def measurement_model():
     """Stage 1b output: measurement model with 6 indicators for 4 constructs."""
     return {
+        "model_clock": "1d",
         "indicators": [
             {
                 "name": "stress_primary",
@@ -376,13 +369,31 @@ def raw_data_pl(worker_dfs):
 
 @pytest.fixture(scope="class")
 def daily_data(causal_spec, worker_dfs):
-    """Aggregated daily data (proper datetime time_bucket column).
+    """Data at model_clock resolution with datetime time_bucket column.
 
-    This is what stages 4b and 5 receive in the real pipeline —
-    aggregated data with datetime time_bucket, not raw string timestamps.
+    Mirrors the new dag.py stage2() logic: encode non-continuous types,
+    cast to Float64, parse timestamps to datetime.
     """
-    aggregated = aggregate_worker_measurements(worker_dfs, causal_spec)
-    return flatten_aggregated_data(aggregated)
+    from causal_ssm_agent.utils.aggregations import _encode_non_continuous
+    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
+
+    combined = pl.concat(worker_dfs, how="vertical")
+    dtype_lookup = get_indicator_dtypes(causal_spec)
+    ordinal_levels_lookup: dict[str, list[str]] = {
+        ind["name"]: ind["ordinal_levels"]
+        for ind in get_indicators(causal_spec)
+        if ind.get("ordinal_levels")
+    }
+    data = _encode_non_continuous(combined, dtype_lookup, ordinal_levels_lookup)
+    data = data.with_columns(
+        pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+        pl.col("timestamp")
+        .str.replace(r"[Zz]$", "")
+        .str.replace(r"[+-]\d{2}:\d{2}$", "")
+        .str.to_datetime(strict=False)
+        .alias("time_bucket"),
+    ).drop("timestamp").drop_nulls(subset=["time_bucket", "value"])
+    return data.sort("indicator", "time_bucket")
 
 
 @pytest.fixture(scope="class")
@@ -478,16 +489,11 @@ class TestE2EPipeline:
         present = {i["indicator"] for i in result["issues"] if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
 
-    def test_stage3_aggregate(self, causal_spec, worker_dfs):
-        """aggregate_worker_measurements produces daily data for all indicators."""
-        aggregated = aggregate_worker_measurements(worker_dfs, causal_spec)
-        assert "daily" in aggregated
-        daily = aggregated["daily"]
-        assert daily["indicator"].n_unique() == 6
-        # Each indicator should have ~80 time buckets
-        for name in INDICATOR_NAMES:
-            ind_data = daily.filter(pl.col("indicator") == name)
-            assert len(ind_data) >= 70  # Allow some tolerance for bucketing
+    def test_stage3_combine(self, worker_dfs):
+        """Concatenating worker DataFrames produces correct shape."""
+        combined = pl.concat(worker_dfs, how="vertical")
+        assert len(combined) == T * len(INDICATOR_NAMES)  # 80 * 6 = 480
+        assert set(combined.columns) == {"indicator", "value", "timestamp"}
 
     # ------------------------------------------------------------------
     # Stage 4b: parametric identifiability (T-rule only for speed)

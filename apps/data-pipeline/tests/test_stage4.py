@@ -241,6 +241,7 @@ class TestFailedParameters:
         ]
         causal_spec = {
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {"name": "mood_score", "construct_name": "mood"},
                     {"name": "stress_score", "construct_name": "stress"},
@@ -448,13 +449,12 @@ class TestSSMPriorConversion:
                 "constructs": [
                     {
                         "name": "heart_rate",
-                        "temporal_scale": "hourly",
                         "temporal_status": "time_varying",
                     },
                 ],
                 "edges": [],
             },
-            "measurement": {"indicators": []},
+            "measurement": {"model_clock": "1h", "indicators": []},
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
@@ -587,18 +587,16 @@ class TestSSMPriorConversion:
                 "constructs": [
                     {
                         "name": "heart_rate",
-                        "temporal_scale": "hourly",
                         "temporal_status": "time_varying",
                     },
                     {
                         "name": "activity",
-                        "temporal_scale": "hourly",
                         "temporal_status": "time_varying",
                     },
                 ],
                 "edges": [{"cause": "activity", "effect": "heart_rate"}],
             },
-            "measurement": {"indicators": []},
+            "measurement": {"model_clock": "1h", "indicators": []},
         }
         drift_mask = np.array([[True, True], [False, True]])
         ssm_spec = SSMSpec(
@@ -760,20 +758,19 @@ class TestTrialCompile:
                         "role": "exogenous",
                         "description": "Treatment",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                     {
                         "name": "Outcome",
                         "role": "endogenous",
                         "description": "Outcome",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                         "is_outcome": True,
                     },
                 ],
                 "edges": [],
             },
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {
                         "name": "outcome_score",
@@ -782,7 +779,7 @@ class TestTrialCompile:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     }
-                ]
+                ],
             },
         }
 
@@ -829,13 +826,13 @@ class TestStage4CompileOwnership:
                         "role": "endogenous",
                         "description": "Outcome",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                         "is_outcome": True,
                     }
                 ],
                 "edges": [],
             },
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {
                         "name": "outcome_score",
@@ -844,7 +841,7 @@ class TestStage4CompileOwnership:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     }
-                ]
+                ],
             },
             "identifiability": {
                 "identifiable_treatments": {},

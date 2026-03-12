@@ -20,7 +20,7 @@ from causal_ssm_agent.models.ssm import (
     SSMSpec,
     fit,
 )
-from causal_ssm_agent.orchestrator.schemas import GRANULARITY_HOURS, compute_lag_hours
+from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
     LinkFunction,
@@ -208,23 +208,24 @@ class SSMModelBuilder:
 
         return get_config().inference.to_sampler_config()
 
-    def _get_construct_dt_days(self, construct_name: str) -> float:
-        """Get the time-step size in fractional days for a construct.
+    def _get_construct_dt_days(self, _construct_name: str = "") -> float:
+        """Get the time-step size in fractional days.
 
-        Looks up ``temporal_scale`` from the causal_spec and converts
-        via ``GRANULARITY_HOURS``.  Falls back to 1.0 (daily) when no
-        spec is available or the construct is not found.
+        Uses ``model_clock`` from the measurement model.
+        Falls back to 1.0 (daily) when no spec is available.
         """
         if self._causal_spec is None:
             return 1.0
-        from causal_ssm_agent.utils.causal_spec import get_constructs
-
-        for c in get_constructs(self._causal_spec):
-            name = c.get("name") if isinstance(c, dict) else c.name
-            if name == construct_name:
-                gran = c.get("temporal_scale") if isinstance(c, dict) else c.temporal_scale
-                if gran and gran in GRANULARITY_HOURS:
-                    return GRANULARITY_HOURS[gran] / 24.0
+        model_clock = (
+            self._causal_spec.get("measurement", {}).get("model_clock")
+            if isinstance(self._causal_spec, dict)
+            else getattr(getattr(self._causal_spec, "measurement", None), "model_clock", None)
+        )
+        if model_clock:
+            try:
+                return parse_duration_to_hours(model_clock) / 24.0
+            except ValueError:
+                return 1.0
         return 1.0
 
     def _get_structural_latent_layout(self) -> tuple[list[str], np.ndarray | None] | None:
@@ -472,19 +473,8 @@ class SSMModelBuilder:
 
                 # Compute and store lag_hours for this edge
                 lagged = edge.get("lagged", True) if isinstance(edge, dict) else edge.lagged
-                cause_gran = None
-                effect_gran = None
-                if cause in construct_map:
-                    c = construct_map[cause]
-                    cause_gran = (
-                        c.get("temporal_scale") if isinstance(c, dict) else c.temporal_scale
-                    )
-                if effect in construct_map:
-                    c = construct_map[effect]
-                    effect_gran = (
-                        c.get("temporal_scale") if isinstance(c, dict) else c.temporal_scale
-                    )
-                lag_hours = compute_lag_hours(cause_gran, effect_gran, lagged)
+                dt_days = self._get_construct_dt_days("")  # model_clock is global
+                lag_hours = (dt_days * 24.0) if lagged else 0
                 if lag_hours > 0:
                     self._edge_lag_days[(ei, ci)] = lag_hours / 24.0
 
@@ -609,7 +599,7 @@ class SSMModelBuilder:
             if param_name in diag_param_index:
                 attr, idx = diag_param_index[param_name]
                 construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
-                # Precedence: reference_interval_days > temporal_scale > default 1.0
+                # Precedence: reference_interval_days > model_clock > default 1.0
                 ref_days = prior_spec.get("reference_interval_days")
                 if ref_days is not None and ref_days > 0:
                     dt = float(ref_days)
@@ -634,7 +624,7 @@ class SSMModelBuilder:
             # the drift off-diagonal is a continuous-time rate: β_CT ≈ β_DT / dt
             if param_name in offdiag_param_index:
                 attr, idx = offdiag_param_index[param_name]
-                # Precedence: reference_interval_days > temporal_scale > default 1.0
+                # Precedence: reference_interval_days > model_clock > default 1.0
                 ref_days = prior_spec.get("reference_interval_days")
                 if ref_days is not None and ref_days > 0:
                     dt = float(ref_days)

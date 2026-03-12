@@ -224,7 +224,6 @@ class TestFormatConstructs:
                         "name": "stress",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     }
                 ]
             }
@@ -297,6 +296,7 @@ class TestFormatIndicators:
     def test_basic_indicator(self):
         spec = {
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {
                         "name": "pss_score",
@@ -304,7 +304,7 @@ class TestFormatIndicators:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     }
-                ]
+                ],
             }
         }
         result = format_indicators(spec)
@@ -314,12 +314,13 @@ class TestFormatIndicators:
         assert "mean" in result
 
     def test_empty_indicators(self):
-        result = format_indicators({"measurement": {"indicators": []}})
+        result = format_indicators({"measurement": {"model_clock": "1d", "indicators": []}})
         assert result == ""
 
     def test_multiple_indicators(self):
         spec = {
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {
                         "name": "pss",
@@ -333,7 +334,7 @@ class TestFormatIndicators:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     },
-                ]
+                ],
             }
         }
         result = format_indicators(spec)

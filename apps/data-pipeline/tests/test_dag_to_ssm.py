@@ -61,7 +61,6 @@ def _make_causal_spec_dict() -> dict:
                     "description": "Cause",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
                 {
                     "name": "Y",
@@ -69,14 +68,12 @@ def _make_causal_spec_dict() -> dict:
                     "role": "endogenous",
                     "is_outcome": True,
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
                 {
                     "name": "Z",
                     "description": "Downstream",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
             ],
             "edges": [
@@ -95,6 +92,7 @@ def _make_causal_spec_dict() -> dict:
             ],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "x1",

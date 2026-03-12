@@ -16,7 +16,7 @@ def _make_causal_spec(
     """Build a CausalSpec dict from components."""
     return {
         "latent": {"constructs": constructs, "edges": edges},
-        "measurement": {"indicators": indicators},
+        "measurement": {"model_clock": "1d", "indicators": indicators},
     }
 
 
@@ -28,13 +28,11 @@ def _simple_spec():
                 "name": "stress",
                 "role": "exogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             },
             {
                 "name": "sleep",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
                 "is_outcome": True,
             },
         ],
@@ -89,7 +87,6 @@ class TestDeriveDeterministicSpec:
                     "name": "mood",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                     "is_outcome": True,
                 },
             ],
@@ -118,7 +115,6 @@ class TestDeriveDeterministicSpec:
                     "name": "activity",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                     "is_outcome": True,
                 },
             ],
@@ -168,7 +164,6 @@ class TestDeriveDeterministicSpec:
                     "name": "stress",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                     "is_outcome": True,
                 },
             ],

@@ -120,6 +120,82 @@ def sample_chunks(
     return sampled
 
 
+_TIME_COLUMN_NAMES = (
+    "timestamp",
+    "time",
+    "date",
+    "datetime",
+    "created_at",
+    "ts",
+    "dt",
+    "updated_at",
+)
+
+
+def detect_time_column(df: pl.DataFrame) -> str:
+    """Detect the primary time/date column in a DataFrame.
+
+    Strategy:
+    1. Look for Datetime/Date-typed columns; if exactly one, use it.
+    2. If multiple, prefer common time column names.
+    3. If none have datetime type, look for common names regardless of type.
+
+    Raises:
+        ValueError: If no time column can be identified.
+    """
+    dt_cols = [c for c in df.columns if df.schema[c] in (pl.Datetime, pl.Date)]
+    if len(dt_cols) == 1:
+        return dt_cols[0]
+    if dt_cols:
+        for name in _TIME_COLUMN_NAMES:
+            if name in dt_cols:
+                return name
+        return dt_cols[0]
+
+    # Fallback: look for common names regardless of type
+    for name in _TIME_COLUMN_NAMES:
+        if name in df.columns:
+            return name
+
+    raise ValueError(f"Could not detect time column in DataFrame with columns: {df.columns}")
+
+
+def bucket_by_clock(
+    df: pl.DataFrame,
+    model_clock: str,
+    time_col: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Group DataFrame rows by model_clock ticks.
+
+    Args:
+        df: Raw DataFrame with a time column.
+        model_clock: Polars duration string (e.g. "1d", "4h", "1w").
+        time_col: Name of the datetime column to bucket by.
+
+    Returns:
+        List of (tick_id, events_df) sorted chronologically.
+        tick_id is an ISO-format string of the tick start time.
+    """
+    # Ensure the time column is datetime
+    if df.schema[time_col] == pl.Utf8:
+        df = df.with_columns(pl.col(time_col).str.to_datetime(strict=False).alias(time_col))
+
+    # Truncate to tick boundaries
+    bucketed = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__")).sort(
+        time_col
+    )
+
+    # Group by tick
+    result = []
+    for tick_val, group_df in bucketed.group_by("__tick__", maintain_order=True):
+        tick_dt = tick_val[0]
+        tick_id = tick_dt.isoformat() if hasattr(tick_dt, "isoformat") else str(tick_dt)
+        events = group_df.drop("__tick__")
+        result.append((tick_id, events))
+
+    return result
+
+
 def chunk_dataframe(df: pl.DataFrame, chunk_size: int) -> list[pl.DataFrame]:
     """Split a DataFrame into row-based chunks.
 
