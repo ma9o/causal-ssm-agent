@@ -3,7 +3,7 @@ import type { LLMTrace } from "@causal-ssm/api-types";
 import { openrouter } from "@openrouter/ai-sdk-provider";
 import { jsonSchema, streamText, tool } from "ai";
 import { basename, join, resolve } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 
 import { traceToCoreMessages } from "@/lib/utils/trace-to-core";
 
@@ -55,6 +55,8 @@ export async function POST(req: Request) {
         description: t.description,
         parameters: jsonSchema(t.parameters),
         execute: async (args) => {
+          const safeRunId = basename(runId);
+          const safeStageId = basename(stageId);
           const res = await fetch(
             `${TOOL_SERVER}/api/tools/${stageId}/${t.name}`,
             {
@@ -68,6 +70,17 @@ export async function POST(req: Request) {
             throw new Error(`Tool execution failed: ${text}`);
           }
           const data = await res.json();
+
+          // Persist draft on successful tool call (stage_output is set)
+          if (data.stage_output) {
+            const draftDir = resolve(join(RESULTS_DIR, safeRunId));
+            await mkdir(draftDir, { recursive: true });
+            await writeFile(
+              resolve(join(draftDir, `${safeStageId}-draft.json`)),
+              JSON.stringify(data.stage_output),
+            );
+          }
+
           return data.result;
         },
       }),
