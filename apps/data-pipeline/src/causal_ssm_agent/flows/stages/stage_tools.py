@@ -92,7 +92,9 @@ def stage1b_grounding(data: dict, latent_model: dict) -> tuple[dict | None, str]
         id_status["graph_info"] = id_result["graph_info"]
 
     causal_spec = build_causal_spec(latent_model, measurement, id_status)
-    stage_output = {"causal_spec": causal_spec}
+    stage_output: dict[str, Any] = {"causal_spec": causal_spec}
+    if "graph_info" in id_result:
+        stage_output["graph_info"] = id_result["graph_info"]
 
     if id_result.get("non_identifiable_treatments"):
         feedback = _format_identifiability_feedback(id_result, latent_model)
