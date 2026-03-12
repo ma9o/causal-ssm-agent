@@ -7,9 +7,7 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.orchestrator.stage1a import run_stage1a
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.effects import get_all_treatments
 from causal_ssm_agent.utils.llm import StageContext
 
 
@@ -33,13 +31,11 @@ async def propose_latent_model(question: str) -> dict:
     ctx = StageContext("stage-1a")
     generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
     result = await run_stage1a(question=question, generate=generate)
-    latent_model = result.latent_model
 
-    outcome = get_outcome_name(latent_model)
-    treatments = get_all_treatments(latent_model)
-
-    return ctx.finalize({
-        "latent_model": latent_model,
-        "outcome_name": outcome or "",
-        "treatments": treatments,
-    })
+    return ctx.finalize(
+        {
+            "latent_model": result.latent_model,
+            "outcome_name": result.outcome_name,
+            "treatments": result.treatments,
+        }
+    )

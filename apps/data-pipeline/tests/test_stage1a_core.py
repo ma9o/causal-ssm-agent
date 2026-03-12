@@ -13,7 +13,9 @@ from causal_ssm_agent.orchestrator.stage1a import Stage1aMessages, Stage1aResult
 class TestStage1aResult:
     def test_n_constructs(self):
         result = Stage1aResult(
-            latent_model={"constructs": [{"name": "A"}, {"name": "B"}], "edges": []}
+            latent_model={"constructs": [{"name": "A"}, {"name": "B"}], "edges": []},
+            outcome_name="",
+            treatments=[],
         )
         assert result.n_constructs == 2
 
@@ -25,17 +27,19 @@ class TestStage1aResult:
                     {"cause": "A", "effect": "B"},
                     {"cause": "B", "effect": "C"},
                 ],
-            }
+            },
+            outcome_name="",
+            treatments=[],
         )
         assert result.n_edges == 2
 
     def test_empty_model(self):
-        result = Stage1aResult(latent_model={})
+        result = Stage1aResult(latent_model={}, outcome_name="", treatments=[])
         assert result.n_constructs == 0
         assert result.n_edges == 0
 
     def test_missing_keys_default_zero(self):
-        result = Stage1aResult(latent_model={"constructs": []})
+        result = Stage1aResult(latent_model={"constructs": []}, outcome_name="", treatments=[])
         assert result.n_constructs == 0
         assert result.n_edges == 0
 
