@@ -34,6 +34,7 @@ def _emit_worker_event(
     completed_count: int,
     n_ticks: int,
     n_extractions: int | None = None,
+    n_llm_calls: int | None = None,
     error: str | None = None,
 ) -> None:
     """Emit a worker progress event on the root flow run resource."""
@@ -47,6 +48,8 @@ def _emit_worker_event(
     }
     if n_extractions is not None:
         payload["n_extractions"] = n_extractions
+    if n_llm_calls is not None:
+        payload["n_llm_calls"] = n_llm_calls
     if error is not None:
         payload["error"] = error
     emit_event(
@@ -173,8 +176,15 @@ def _collect_batch_results(
         n_ext = result.get("n_extractions", 0)
         output_rows = result.get("dataframe", [])
         status = result.get("status", "completed")
-        if sampled_trace is None and "llm_trace" in result:
-            sampled_trace = result["llm_trace"]
+        llm_trace = result.get("llm_trace")
+        if sampled_trace is None and llm_trace is not None:
+            sampled_trace = llm_trace
+        # Count LLM API calls from the trace (each assistant message = 1 call)
+        worker_llm_calls = 0
+        if llm_trace and isinstance(llm_trace, dict):
+            worker_llm_calls = sum(
+                1 for m in llm_trace.get("messages", []) if m.get("role") == "assistant"
+            )
         n_total += n_ext
         rows_by_worker[worker_id] = output_rows
         statuses_by_worker[worker_id] = {
@@ -204,6 +214,7 @@ def _collect_batch_results(
                 completed_count=overall_completed,
                 n_ticks=n_ticks,
                 n_extractions=n_ext,
+                n_llm_calls=worker_llm_calls or None,
             )
 
     ordered_rows = [row for worker_id in batch_indices for row in rows_by_worker.get(worker_id, [])]
