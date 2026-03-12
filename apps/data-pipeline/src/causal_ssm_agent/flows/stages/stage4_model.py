@@ -182,7 +182,7 @@ async def elicit_prior_task(
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.llm import make_worker_generate_fn
     from causal_ssm_agent.workers.prior_research import (
-        elicit_prior,
+        elicit_prior_paraphrased,
         get_default_prior,
         run_prior_elicitation,
     )
@@ -211,7 +211,7 @@ async def elicit_prior_task(
             )
         else:
             # Paraphrased path: N independent prompts, GMM aggregation
-            result = await elicit_prior(
+            result = await elicit_prior_paraphrased(
                 parameter=param,
                 question=question,
                 generate=generate,
