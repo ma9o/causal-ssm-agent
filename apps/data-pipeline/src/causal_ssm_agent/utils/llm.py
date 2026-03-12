@@ -3,7 +3,6 @@
 import json
 import time
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -90,77 +89,6 @@ def _build_trace(all_messages: list[dict[str, Any]], output: dict[str, Any]) -> 
     )
 
 
-# ---------------------------------------------------------------------------
-# Live trace persistence (intermediate disk writes)
-# ---------------------------------------------------------------------------
-
-_RESULT_STORAGE = Path("results")
-
-
-def make_live_trace_path(stage_id: str) -> Path:
-    """Create a path for live trace persistence.
-
-    Writes to the same ``results/{flow_run_id}/{stage_id}.json`` file that
-    ``persist_web_result`` will eventually overwrite with the full stage output.
-    This lets the frontend display intermediate LLM conversation state while
-    a stage is still running.
-
-    Uses the Prefect flow run ID when running inside a flow, otherwise
-    falls back to a timestamp-based directory.
-
-    Args:
-        stage_id: Stage identifier (e.g. "stage-1a", "stage-4")
-
-    Returns:
-        Path like ``results/{run_id}/{stage_id}.json``
-    """
-    run_id = None
-    try:
-        from prefect.runtime import flow_run
-
-        run_id = flow_run.id
-    except Exception:
-        logger.debug("Could not get Prefect flow run ID; using timestamp fallback")
-    if run_id is None:
-        run_id = time.strftime("%Y%m%d-%H%M%S")
-    return _RESULT_STORAGE / str(run_id) / f"{stage_id}.json"
-
-
-def _persist_partial_trace(
-    messages: list[dict[str, Any]],
-    trace_path: Path,
-    label: str,
-    turn: int,
-    elapsed: float,
-) -> None:
-    """Write accumulated messages to disk as a partial stage result.
-
-    Builds a ``PartialStageResult`` (a subset of the full stage contract with
-    only ``llm_trace`` + ``_live`` metadata) and serialises it to disk so the
-    frontend can render intermediate conversation state.
-
-    Overwrites the file each turn. Failures are logged but never bubble up.
-    """
-    from causal_ssm_agent.flows.stages.contracts import LiveMetadata, PartialStageResult
-
-    try:
-        trace_path.parent.mkdir(parents=True, exist_ok=True)
-        partial = PartialStageResult(  # ty: ignore[missing-argument]
-            llm_trace=LLMTrace(
-                messages=[_chat_message_to_trace(m) for m in messages],
-                total_time_seconds=round(elapsed, 1),
-            ),
-            live=LiveMetadata(  # ty: ignore[unknown-argument]
-                status="running",
-                label=label,
-                turn=turn,
-                elapsed_seconds=round(elapsed, 1),
-            ),
-        )
-        trace_path.write_text(partial.model_dump_json(indent=2, by_alias=True))
-    except Exception:
-        logger.debug("Failed to write partial trace to %s", trace_path, exc_info=True)
-
 
 # ---------------------------------------------------------------------------
 # Type aliases for generate functions (unified)
@@ -240,7 +168,6 @@ def make_generate_fn(
     model_name: str,
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
-    trace_path: Path | None = None,
 ) -> GenerateFn:
     """Create a generate function for LLM calls.
 
@@ -251,8 +178,6 @@ def make_generate_fn(
         model_name: LiteLLM model identifier
         config: Optional generation config (uses get_generate_config() if None)
         trace_capture: Optional dict for capturing the LLM trace
-        trace_path: Optional path for live trace persistence (partial JSON written
-            after each LLM turn so agents can inspect mid-run state)
 
     Returns:
         An async function that handles multi-turn generation with tools and follow-ups
@@ -276,7 +201,6 @@ def make_generate_fn(
                 tools=tools or [],
                 config=config,
                 trace_capture=trace_capture,
-                trace_path=trace_path,
                 log_label=label,
             )
         response = await call_model(model_name, chat_messages, config=config, log_label=label)
@@ -622,7 +546,6 @@ async def _run_tool_loop(
     log_label: str | None = None,
     max_turns: int = MAX_TOOL_LOOP_TURNS,
     warn_turns: int = WARN_TOOL_LOOP_TURNS,
-    trace_path: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run a tool loop with per-turn logging and an infinite-loop guard.
 
@@ -630,7 +553,6 @@ async def _run_tool_loop(
     - INFO log per turn (tokens, timing, tool calls, content preview)
     - WARNING when turn count hits warn_turns
     - RuntimeError when turn count exceeds max_turns
-    - Optional partial trace written to disk after each turn
     """
     _config = config or GenerateConfig()
     t0 = time.monotonic()
@@ -680,9 +602,6 @@ async def _run_tool_loop(
             )
             messages.extend(tool_messages)
 
-        if trace_path is not None:
-            _persist_partial_trace(messages, trace_path, label, turn, time.monotonic() - t0)
-
         terminal_tool = _terminal_tool_success(tool_messages, tools) if tool_messages else None
         if terminal_tool is not None:
             tool_name, result_text = terminal_tool
@@ -717,7 +636,6 @@ async def multi_turn_generate(
     follow_up_tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
-    trace_path: Path | None = None,
     log_label: str | None = None,
 ) -> str:
     """
@@ -738,8 +656,6 @@ async def multi_turn_generate(
         config: Optional generation config
         trace_capture: Optional dict; when provided, the full LLMTrace is stored
             under ``trace_capture["trace"]`` before returning.
-        trace_path: Optional path; when provided, a partial JSON trace is written
-            to disk after each LLM turn for live observability.
 
     Returns:
         The final completion string
@@ -770,7 +686,6 @@ async def multi_turn_generate(
             config,
             label="initial",
             log_label=log_label,
-            trace_path=trace_path,
         )
     else:
         t_gen = time.monotonic()
@@ -801,7 +716,6 @@ async def multi_turn_generate(
                 config,
                 label=f"follow-up-{i + 1}",
                 log_label=log_label,
-                trace_path=trace_path,
             )
         else:
             t_fu = time.monotonic()
@@ -820,10 +734,6 @@ async def multi_turn_generate(
                 len(follow_ups),
                 _summarize_output(output, elapsed_fu),
             )
-            if trace_path is not None:
-                _persist_partial_trace(
-                    messages, trace_path, f"follow-up-{i + 1}", 1, time.monotonic() - t0
-                )
 
         if output["completion"] and output["completion"].strip():
             last_nonempty = output["completion"]
@@ -838,33 +748,36 @@ async def multi_turn_generate(
 
 
 # ---------------------------------------------------------------------------
-# StageContext — eliminates per-stage trace boilerplate
+# LLMStageContext — eliminates per-stage LLM trace boilerplate
 # ---------------------------------------------------------------------------
 
 
-class StageContext:
-    """Encapsulates trace capture and generate function creation for a stage.
+class LLMStageContext:
+    """Encapsulates trace capture, generate function creation, and lifecycle logging.
 
     Replaces the repeated boilerplate of:
         trace_capture = {}
-        generate = make_generate_fn(model, trace_capture=trace_capture,
-                                     trace_path=make_live_trace_path(stage_id))
+        generate = make_generate_fn(model, trace_capture=trace_capture)
         ...
         attach_trace(output, trace_capture)
 
     Usage::
 
-        ctx = StageContext("stage-1a")
-        generate = ctx.generate(model_name)
-        # ... run stage logic ...
-        output = ctx.finalize({"latent_model": ..., "treatments": ...})
-        # output now has llm_trace attached
+        async with LLMStageContext("stage-1a") as ctx:
+            generate = ctx.make_generate(model_name)
+            # ... run stage logic ...
+            return ctx.finalize({"latent_model": ..., "treatments": ...})
+            # output now has llm_trace attached; lifecycle logged automatically
+
+    Can also be used without ``async with`` — lifecycle logging still works
+    via :meth:`make_generate` (start) and :meth:`finalize` (completion).
     """
 
-    def __init__(self, stage_id: str, *, live_trace: bool = True) -> None:
+    def __init__(self, stage_id: str) -> None:
         self.stage_id = stage_id
+        self._t0 = time.monotonic()
+        self._model_name: str | None = None
         self._trace_capture: dict = {}
-        self._trace_path = make_live_trace_path(stage_id) if live_trace else None
 
     @property
     def trace_capture(self) -> dict:
@@ -873,17 +786,35 @@ class StageContext:
 
     def make_generate(self, model_name: str, config: GenerateConfig | None = None) -> GenerateFn:
         """Create a generate function wired to this context's trace capture."""
+        self._model_name = model_name
+        logger.info("[%s] starting (model=%s)", self.stage_id, model_name)
         return make_generate_fn(
             model_name,
             config=config,
             trace_capture=self._trace_capture,
-            trace_path=self._trace_path,
         )
 
     def finalize(self, output: dict) -> dict:
         """Attach the captured LLM trace to the output dict and return it."""
+        elapsed = time.monotonic() - self._t0
         attach_trace(output, self._trace_capture)
+        # Build a concise completion summary
+        parts = [f"completed in {elapsed:.1f}s"]
+        trace: LLMTrace | None = self._trace_capture.get("trace")
+        if trace and trace.usage:
+            u = trace.usage
+            parts.append(f"tokens(in={u.input_tokens},out={u.output_tokens})")
+        logger.info("[%s] %s", self.stage_id, " ".join(parts))
         return output
+
+    async def __aenter__(self) -> "LLMStageContext":
+        return self
+
+    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        if exc_type is not None:
+            elapsed = time.monotonic() - self._t0
+            logger.error("[%s] failed after %.1fs: %s", self.stage_id, elapsed, exc_val)
+        return False
 
 
 # ---------------------------------------------------------------------------

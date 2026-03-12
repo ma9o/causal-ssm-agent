@@ -8,7 +8,7 @@ from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.orchestrator.stage1a import run_stage1a
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.llm import StageContext
+from causal_ssm_agent.utils.llm import LLMStageContext
 
 
 @task(
@@ -28,14 +28,14 @@ async def propose_latent_model(question: str) -> dict:
     Returns:
         Stage1aData dict matching the web frontend contract.
     """
-    ctx = StageContext("stage-1a")
-    generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
-    result = await run_stage1a(question=question, generate=generate)
+    async with LLMStageContext("stage-1a") as ctx:
+        generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
+        result = await run_stage1a(question=question, generate=generate)
 
-    return ctx.finalize(
-        {
-            "latent_model": result.latent_model,
-            "outcome_name": result.outcome_name,
-            "treatments": result.treatments,
-        }
-    )
+        return ctx.finalize(
+            {
+                "latent_model": result.latent_model,
+                "outcome_name": result.outcome_name,
+                "treatments": result.treatments,
+            }
+        )

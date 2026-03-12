@@ -12,7 +12,6 @@ Validation checks (semantic only - Polars handles structural validation):
 See docs/reference/pipeline.md for full specification.
 """
 
-import logging
 import math
 from datetime import datetime, timedelta
 
@@ -20,7 +19,9 @@ import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-logger = logging.getLogger(__name__)
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 # Minimum observations for temporal modeling
 MIN_OBSERVATIONS = 10  # Reasonable minimum for temporal modeling
