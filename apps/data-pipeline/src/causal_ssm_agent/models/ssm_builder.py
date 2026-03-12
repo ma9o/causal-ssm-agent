@@ -4,7 +4,6 @@ Provides a model builder interface compatible with the causal SSM pipeline
 while using the NumPyro SSM implementation underneath.
 """
 
-import logging
 import math
 from typing import Any
 
@@ -12,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm import (
     InferenceResult,
@@ -30,7 +30,7 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
 from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # Distributions that have native emission functions in emissions.py.
 _SUPPORTED_EMISSIONS: set[DistributionFamily] = {

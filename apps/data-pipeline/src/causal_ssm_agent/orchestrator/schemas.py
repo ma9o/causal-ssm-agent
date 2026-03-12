@@ -5,16 +5,16 @@ Separates:
 2. MeasurementModel - observed indicators that reflect constructs (data-driven)
 """
 
-import logging
 import re
 from enum import StrEnum
 from typing import get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.schemas_inference import AggregationFunction, MeasurementDtype
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # Derived from the canonical Literal types in schemas_inference.py
 VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))

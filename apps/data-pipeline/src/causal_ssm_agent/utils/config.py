@@ -1,7 +1,6 @@
 """Configuration loader for the causal agent pipeline."""
 
 import dataclasses
-import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -10,7 +9,9 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 # Centralized .env loading — all modules that need env vars import from config.py
 # (or from modules that import config.py), so this runs once at import time.

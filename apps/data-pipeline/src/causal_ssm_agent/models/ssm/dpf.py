@@ -24,7 +24,6 @@ Key design choices:
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 import equinox as eqx
@@ -34,11 +33,12 @@ import jax.random as random
 import jax.scipy.linalg as jla
 from numpyro.distributions import MultivariateNormal, Normal
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.likelihoods.base import (

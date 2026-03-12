@@ -13,17 +13,17 @@ and discrete-time forward simulation for temporal trajectories.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 from jax import vmap
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.discretization import discretize_system
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def steady_state(drift: jnp.ndarray, cint: jnp.ndarray) -> jnp.ndarray:
@@ -330,7 +330,11 @@ def compute_interventions(
                     if manifest_effects:
                         entry["manifest_effects"] = manifest_effects
             except Exception:
-                logger.debug("Forward simulation failed for '%s'", treatment_name, exc_info=True)
+                logger.warning(
+                    "Forward simulation failed for '%s'; temporal effects unavailable",
+                    treatment_name,
+                    exc_info=True,
+                )
 
         results.append(entry)
 

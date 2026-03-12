@@ -34,7 +34,6 @@ PF likelihood evaluation. Do NOT downgrade to diagonal Hessian.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Literal
 
 import jax
@@ -44,6 +43,7 @@ import jax.scipy.linalg as jla
 from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.utils import (
@@ -52,7 +52,7 @@ from causal_ssm_agent.models.ssm.utils import (
     extract_constrained_samples,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # CoV L-kernel density (full covariance)

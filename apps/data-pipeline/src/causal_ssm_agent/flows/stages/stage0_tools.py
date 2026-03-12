@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import io
 import json
-import logging
 import tarfile
 from typing import TYPE_CHECKING
 
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.litellm_client import Tool, tool
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     import modal
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Runner script executed inside the Modal sandbox.

@@ -27,7 +27,6 @@ problem of mass matrix adaptation in high dimensions.
 from __future__ import annotations
 
 import functools
-import logging
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -41,6 +40,7 @@ from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_media
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import (
@@ -50,7 +50,7 @@ from causal_ssm_agent.models.ssm.inference import (
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 _DA_INTERNAL_SITES = {"eta_0", "eta", "eps_0", "eps", "obs_0", "obs"}
 

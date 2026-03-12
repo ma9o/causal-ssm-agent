@@ -8,12 +8,13 @@ Extracted from inference.py to separate visualization concerns from inference lo
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import jax.numpy as jnp
 
-logger = logging.getLogger(__name__)
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 # Histogram binning edge padding to avoid artifacts at distribution tails
 HIST_PADDING_RATIO = 0.05

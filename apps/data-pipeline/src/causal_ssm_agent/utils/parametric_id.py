@@ -13,7 +13,6 @@ Post-fit diagnostics (power-scaling sensitivity) are in parametric_id_postfit.py
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -25,6 +24,7 @@ from jax import lax
 from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.utils import (
@@ -37,7 +37,7 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # Chi-squared(1) critical values divided by 2, for profile likelihood thresholds.
 # chi2(1, 0.05) / 2 = 3.84 / 2 = 1.92  (95% confidence)

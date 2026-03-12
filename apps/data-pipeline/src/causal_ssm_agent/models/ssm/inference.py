@@ -23,7 +23,6 @@ Available methods:
 from __future__ import annotations
 
 import functools
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -53,7 +52,9 @@ from causal_ssm_agent.models.ssm.diagnostics_viz import (
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
 
-logger = logging.getLogger(__name__)
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()

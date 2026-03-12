@@ -7,10 +7,10 @@ Each worker researches a single parameter using:
 """
 
 import asyncio
-import logging
 
 import numpy as np
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
 from causal_ssm_agent.utils.llm import (
     WorkerGenerateFn,
@@ -33,7 +33,7 @@ from causal_ssm_agent.workers.schemas_prior import (
     RawPriorSample,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def _make_prior_tool() -> tuple[object, dict]:

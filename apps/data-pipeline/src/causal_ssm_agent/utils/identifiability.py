@@ -15,7 +15,6 @@ However, our framework uses linear SEMs where IV identification is valid. We det
 structures separately and mark them as identifiable (with linearity assumption).
 """
 
-import logging
 from typing import Any
 
 import networkx as nx
@@ -23,13 +22,14 @@ from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from causal_ssm_agent.utils.effects import (
     build_digraph,
     get_all_treatments,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def check_identifiability(

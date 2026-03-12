@@ -1,11 +1,11 @@
-import logging
 from pathlib import Path
 
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
 

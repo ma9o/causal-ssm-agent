@@ -1,10 +1,10 @@
 """Worker agents using LiteLLM-backed runtime clients."""
 
 import asyncio
-import logging
 
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import get_stage2_generate_config, make_generate_fn
 
@@ -13,7 +13,7 @@ from .core import (
     run_worker_extraction,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 async def process_chunk_async(
