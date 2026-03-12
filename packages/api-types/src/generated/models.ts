@@ -671,6 +671,7 @@ export interface Stage5BContract {
   inference_metadata: InferenceMetadataContract;
   mcmc_diagnostics?: MCMCDiagnostics | null;
   svi_diagnostics?: SVIDiagnostics | null;
+  smc_diagnostics?: SMCDiagnostics | null;
   loo_diagnostics?: LOODiagnostics | null;
   posterior_marginals?: PosteriorMarginal[] | null;
   posterior_pairs?: PosteriorPair[] | null;
@@ -798,6 +799,16 @@ export interface EnergyDiagnostics {
 export interface EnergyHistogram {
   bin_centers: number[];
   density: number[];
+}
+/**
+ * Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.).
+ */
+export interface SMCDiagnostics {
+  beta_schedule: number[];
+  ess_history: number[];
+  accept_rates: number[];
+  n_levels: number;
+  n_particles: number;
 }
 /**
  * Leave-one-out cross-validation diagnostics (ArviZ).

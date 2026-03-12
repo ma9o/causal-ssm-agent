@@ -100,6 +100,21 @@ class SVIDiagnostics(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# SMC diagnostics
+# ---------------------------------------------------------------------------
+
+
+class SMCDiagnostics(BaseModel):
+    """Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.)."""
+
+    beta_schedule: list[float]
+    ess_history: list[float]
+    accept_rates: list[float]
+    n_levels: int
+    n_particles: int
+
+
+# ---------------------------------------------------------------------------
 # LOO diagnostics
 # ---------------------------------------------------------------------------
 

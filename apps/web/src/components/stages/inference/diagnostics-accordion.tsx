@@ -8,6 +8,7 @@ import { ParetoKChart } from "@/components/charts/pareto-k-chart";
 import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
 import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
 import { PowerScalingScatter } from "@/components/charts/power-scaling-scatter";
+import { SMCDiagnosticsChart } from "@/components/charts/smc-diagnostics-chart";
 import {
   Accordion,
   AccordionContent,
@@ -24,6 +25,7 @@ import type {
   PosteriorMarginal,
   PosteriorPair,
   PowerScalingResult,
+  SMCDiagnostics,
   SVIDiagnostics,
 } from "@causal-ssm/api-types";
 import { PowerScalingTable } from "./power-scaling-table";
@@ -34,6 +36,7 @@ interface DiagnosticsAccordionProps {
   ppc?: PPCResult | null;
   mcmcDiagnostics?: MCMCDiagnostics | null;
   sviDiagnostics?: SVIDiagnostics | null;
+  smcDiagnostics?: SMCDiagnostics | null;
   looDiagnostics?: LOODiagnostics | null;
   posteriorMarginals?: PosteriorMarginal[] | null;
   posteriorPairs?: PosteriorPair[] | null;
@@ -44,6 +47,7 @@ export function DiagnosticsAccordion({
   ppc,
   mcmcDiagnostics,
   sviDiagnostics,
+  smcDiagnostics,
   looDiagnostics,
   posteriorMarginals,
   posteriorPairs,
@@ -55,7 +59,7 @@ export function DiagnosticsAccordion({
   const hasPowerScaling = powerScaling != null && powerScaling.length > 0;
   const hasPPC = ppc != null && ppc.per_variable_warnings.length > 0;
 
-  const defaultOpen = ["mcmc", "svi", "ppc", "loo", "power-scaling"];
+  const defaultOpen = ["mcmc", "svi", "smc", "ppc", "loo", "power-scaling"];
 
   return (
     <Accordion defaultOpen={defaultOpen}>
@@ -93,6 +97,34 @@ export function DiagnosticsAccordion({
           </AccordionTrigger>
           <AccordionContent>
             <ELBOLossChart diagnostics={sviDiagnostics} />
+          </AccordionContent>
+        </AccordionItem>
+      )}
+
+      {/* ── SMC Diagnostics (tempering schedule + ESS + acceptance) ── */}
+      {smcDiagnostics && (
+        <AccordionItem value="smc">
+          <AccordionTrigger className="text-sm">
+            <span className="inline-flex items-center gap-1.5 flex-wrap">
+              SMC Diagnostics
+              <StatTooltip explanation="Tempered SMC convergence: tempering schedule (β from 0→1), effective sample size at each level, and Metropolis-Hastings acceptance rates." />
+              <Badge
+                variant={
+                  smcDiagnostics.beta_schedule.length > 0 &&
+                  smcDiagnostics.beta_schedule[smcDiagnostics.beta_schedule.length - 1] >= 1.0
+                    ? "success"
+                    : "destructive"
+                }
+              >
+                {smcDiagnostics.beta_schedule.length > 0 &&
+                smcDiagnostics.beta_schedule[smcDiagnostics.beta_schedule.length - 1] >= 1.0
+                  ? "Converged"
+                  : "Did not converge"}
+              </Badge>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <SMCDiagnosticsChart diagnostics={smcDiagnostics} />
           </AccordionContent>
         </AccordionItem>
       )}

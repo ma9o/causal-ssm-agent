@@ -1968,6 +1968,49 @@
       "title": "Role",
       "type": "string"
     },
+    "SMCDiagnostics": {
+      "description": "Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.).",
+      "properties": {
+        "beta_schedule": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Beta Schedule",
+          "type": "array"
+        },
+        "ess_history": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Ess History",
+          "type": "array"
+        },
+        "accept_rates": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Accept Rates",
+          "type": "array"
+        },
+        "n_levels": {
+          "title": "N Levels",
+          "type": "integer"
+        },
+        "n_particles": {
+          "title": "N Particles",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "accept_rates",
+        "beta_schedule",
+        "ess_history",
+        "n_levels",
+        "n_particles"
+      ],
+      "title": "SMCDiagnostics",
+      "type": "object"
+    },
     "SVIDiagnostics": {
       "description": "SVI (variational inference) diagnostics.",
       "properties": {
@@ -2562,6 +2605,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/SVIDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "smc_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SMCDiagnostics"
             },
             {
               "type": "null"

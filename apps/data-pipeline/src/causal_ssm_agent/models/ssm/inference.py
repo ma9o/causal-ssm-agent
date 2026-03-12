@@ -189,6 +189,28 @@ class InferenceResult:
 
         return result
 
+    def get_smc_diagnostics(self) -> dict[str, Any] | None:
+        """Extract JSON-serializable SMC diagnostics.
+
+        Returns tempering schedule, ESS history, and acceptance rates
+        for methods backed by tempered SMC (laplace_em, tempered_smc, etc.).
+        Returns None for non-SMC methods.
+        """
+        if self.method in ("nuts", "nuts_da", "svi"):
+            return None
+
+        beta = self.diagnostics.get("beta_schedule")
+        if beta is None:
+            return None
+
+        return {
+            "beta_schedule": [float(b) for b in beta],
+            "ess_history": [float(e) for e in self.diagnostics.get("ess_history", [])],
+            "accept_rates": [float(a) for a in self.diagnostics.get("accept_rates", [])],
+            "n_levels": int(self.diagnostics.get("n_levels", len(beta))),
+            "n_particles": int(self.diagnostics.get("n_csmc_particles", 0)),
+        }
+
     def get_svi_diagnostics(self) -> dict[str, Any] | None:
         """Extract JSON-serializable SVI diagnostics (ELBO loss curve).
 
@@ -223,6 +245,10 @@ class InferenceResult:
         log p(y_t | y_{1:t-1}, θ) are conditionally independent given θ,
         making PSIS-LOO valid for time series via this decomposition.
 
+        Works for both MCMC-based methods (NUTS) and SMC-based methods
+        (laplace_em, tempered_smc). For MCMC, uses az.from_numpyro; for SMC,
+        constructs InferenceData from the posterior samples dict directly.
+
         Args:
             model_fn: The NumPyro model function (needed to replay for ll_per_timestep)
             observations: (T, n_manifest) observed data
@@ -231,19 +257,31 @@ class InferenceResult:
         Returns:
             Dict with LOO diagnostics, or None if not computable.
         """
+        if model_fn is None or observations is None:
+            return None
+
         mcmc = self.diagnostics.get("mcmc")
-        if mcmc is None or model_fn is None or observations is None:
+        if mcmc is None and not self._samples:
             return None
 
         try:
             import arviz as az
 
-            flat_samples = mcmc.get_samples()
-            public_sites = self.diagnostics.get("public_sites")
-            if public_sites is not None:
-                flat_samples = _filter_public_samples(flat_samples, set(public_sites))
-            n_draws = next(iter(flat_samples.values())).shape[0]
-            n_chains = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else 1
+            # Get posterior samples and chain structure.
+            # MCMC: extract from MCMC object (has chain info).
+            # SMC: use stored posterior samples directly (1 chain of N particles).
+            if mcmc is not None:
+                flat_samples = mcmc.get_samples()
+                public_sites = self.diagnostics.get("public_sites")
+                if public_sites is not None:
+                    flat_samples = _filter_public_samples(flat_samples, set(public_sites))
+                n_draws = next(iter(flat_samples.values())).shape[0]
+                n_chains = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else 1
+            else:
+                flat_samples = self._samples
+                n_draws = next(iter(flat_samples.values())).shape[0]
+                n_chains = 1
+
             n_per_chain = n_draws // n_chains
 
             # Try SSM-specific path first: replay model to extract
@@ -261,18 +299,41 @@ class InferenceResult:
                     ll_chained = ll_per_t[: n_chains * n_per_chain].reshape(
                         n_chains, n_per_chain, n_timesteps
                     )
-                    idata = az.from_numpyro(
-                        mcmc,
-                        log_likelihood={"ll_per_timestep": ll_chained},
-                    )
+                    if mcmc is not None:
+                        idata = az.from_numpyro(
+                            mcmc,
+                            log_likelihood={"ll_per_timestep": ll_chained},
+                        )
+                    else:
+                        # Build InferenceData from dict for SMC-based methods.
+                        # Treat N particles as 1 chain of N draws.
+                        import numpy as np
+
+                        posterior_dict = {}
+                        n_used = n_chains * n_per_chain
+                        for name, vals in flat_samples.items():
+                            v = np.asarray(vals[:n_used])
+                            posterior_dict[name] = v.reshape(
+                                n_chains, n_per_chain, *v.shape[1:]
+                            )
+                        idata = az.from_dict(
+                            posterior=posterior_dict,
+                            log_likelihood={
+                                "ll_per_timestep": np.asarray(ll_chained)
+                            },
+                        )
                     ll_per_timestep_found = True
             except Exception:
                 logger.debug("SSM-specific LOO path failed, trying standard ArviZ", exc_info=True)
 
             if not ll_per_timestep_found:
-                # Standard path: ArviZ extracts LL from observed sample sites
-                idata = az.from_numpyro(mcmc)
-                if not hasattr(idata, "log_likelihood"):
+                if mcmc is not None:
+                    # Standard path: ArviZ extracts LL from observed sample sites
+                    idata = az.from_numpyro(mcmc)
+                    if not hasattr(idata, "log_likelihood"):
+                        return None
+                else:
+                    # No ll_per_timestep and no MCMC → can't compute LOO
                     return None
 
             loo_result = az.loo(idata)

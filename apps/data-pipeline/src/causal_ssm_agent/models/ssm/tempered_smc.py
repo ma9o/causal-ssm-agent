@@ -35,6 +35,7 @@ def fit_tempered_smc(
     **kwargs: Any,  # noqa: ARG001
 ) -> InferenceResult:
     """Fit SSM parameters via tempered SMC with preconditioned HMC mutations."""
+    backend = model.make_likelihood_backend()
     return run_tempered_smc(
         model,
         observations,
@@ -51,7 +52,8 @@ def fit_tempered_smc(
         waste_free=waste_free,
         n_leapfrog=n_leapfrog,
         method_name="tempered_smc",
-        likelihood_backend=model.make_likelihood_backend(),
+        likelihood_backend=backend,
+        extra_diagnostics={"likelihood_backend": backend},
         print_prefix="Tempered SMC",
         reparam=reparam,
     )
