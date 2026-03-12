@@ -148,11 +148,21 @@ class ValidateExtractionsInput(BaseModel):
 # --- Stage 4 tool inputs ---
 
 
-class ValidateModelSpecInput(BaseModel):
+class SearchLiteratureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model_spec_json: str = Field(
-        description="The JSON string containing the model spec to validate."
+    query: str = Field(description="Search query for empirical literature about effect sizes.")
+
+
+class ValidateModelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_json: str = Field(
+        description=(
+            "JSON object with proposed changes. Include 'model_spec' (complete ModelSpec) "
+            "and/or 'priors' (dict mapping parameter names to prior proposals). "
+            "Only include fields you are changing."
+        ),
     )
 
 
@@ -191,7 +201,7 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
     "stage-1b": [
         ToolContract(
             name="validate_measurement_model_tool",
-            description="Tool for validating measurement model JSON plus compiler constraints.",
+            description="Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
             input_schema=ValidateMeasurementModelInput,
         ),
     ],
@@ -204,9 +214,14 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
     ],
     "stage-4": [
         ToolContract(
-            name="validate_model_spec_tool",
-            description="Tool for validating model specification JSON (Stage 4).",
-            input_schema=ValidateModelSpecInput,
+            name="search_literature",
+            description="Search for empirical literature about effect sizes for model parameters.",
+            input_schema=SearchLiteratureInput,
+        ),
+        ToolContract(
+            name="validate_model",
+            description="Validate model specification and/or prior proposals: schema check, compile, prior predictive simulation.",
+            input_schema=ValidateModelInput,
         ),
     ],
 }
