@@ -15,11 +15,48 @@ from typing import Any
 
 import polars as pl
 from prefect import flow, get_run_logger, task
+from prefect.events import emit_event
 from prefect.futures import as_completed
 
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
+
+WORKER_EVENT_PREFIX = "causal-ssm.worker"
+
+
+def _emit_worker_event(
+    root_run_id: str,
+    *,
+    worker_id: int,
+    status: str,
+    total_workers: int,
+    completed_count: int,
+    chunk_size: int,
+    n_extractions: int | None = None,
+    error: str | None = None,
+) -> None:
+    """Emit a worker progress event on the root flow run resource."""
+    payload: dict[str, Any] = {
+        "stage_id": "stage-2",
+        "worker_id": worker_id,
+        "status": status,
+        "chunk_size": chunk_size,
+        "total_workers": total_workers,
+        "completed_count": completed_count,
+    }
+    if n_extractions is not None:
+        payload["n_extractions"] = n_extractions
+    if error is not None:
+        payload["error"] = error
+    emit_event(
+        event=f"{WORKER_EVENT_PREFIX}.{status}",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{root_run_id}",
+            "prefect.resource.name": root_run_id,
+        },
+        payload=payload,
+    )
 
 
 def _project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.DataFrame:
@@ -72,6 +109,7 @@ def _collect_batch_results(
     logger: Any,
     completed_before: int,
     total_chunks: int,
+    root_run_id: str | None = None,
 ) -> tuple[list[dict], list[dict], int, dict | None]:
     """Collect mapped worker futures in completion order while preserving output order."""
     batch_meta = {
@@ -120,6 +158,16 @@ def _collect_batch_results(
                 "n_ticks": n_ticks,
                 "error": str(exc),
             }
+            if root_run_id:
+                _emit_worker_event(
+                    root_run_id,
+                    worker_id=worker_id,
+                    status="failed",
+                    total_workers=total_chunks,
+                    completed_count=overall_completed,
+                    chunk_size=n_ticks,
+                    error=str(exc),
+                )
             continue
 
         n_ext = result.get("n_extractions", 0)
@@ -147,6 +195,16 @@ def _collect_batch_results(
             n_ext,
             len(output_rows),
         )
+        if root_run_id:
+            _emit_worker_event(
+                root_run_id,
+                worker_id=worker_id,
+                status="completed",
+                total_workers=total_chunks,
+                completed_count=overall_completed,
+                chunk_size=n_ticks,
+                n_extractions=n_ext,
+            )
 
     ordered_rows = [row for worker_id in batch_indices for row in rows_by_worker.get(worker_id, [])]
     ordered_statuses = [
@@ -184,14 +242,12 @@ async def extract_tick_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import StageContext, get_stage2_generate_config
+    from causal_ssm_agent.utils.llm import LLMStageContext, get_stage2_generate_config
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
     generate_config = get_stage2_generate_config()
-    ctx = StageContext("stage-2", live_trace=False)
-    generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
     indicator_count = len(get_indicators(causal_spec))
     n_events = tick_text.count("\n")
     chunk_label = _chunk_log_label(chunk_idx, len(tick_ids), n_events)
@@ -206,40 +262,43 @@ async def extract_tick_chunk_task(
         generate_config.reasoning_effort,
     )
 
-    started_at = perf_counter()
-    try:
-        result = await run_worker_extraction(
-            tick_text=tick_text,
-            tick_ids=tick_ids,
-            question=question,
-            causal_spec=causal_spec,
-            generate=generate,
-            logger=run_logger,
-            call_label=chunk_label,
-        )
-    except Exception:
-        run_logger.exception(
-            "[%s] Failed after %.1fs",
+    async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
+        generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
+
+        started_at = perf_counter()
+        try:
+            result = await run_worker_extraction(
+                tick_text=tick_text,
+                tick_ids=tick_ids,
+                question=question,
+                causal_spec=causal_spec,
+                generate=generate,
+                logger=run_logger,
+                call_label=chunk_label,
+            )
+        except Exception:
+            run_logger.exception(
+                "[%s] Failed after %.1fs",
+                chunk_label,
+                perf_counter() - started_at,
+            )
+            raise
+
+        elapsed = perf_counter() - started_at
+        run_logger.info(
+            "[%s] Finished in %.1fs with %d extractions and %d output rows",
             chunk_label,
-            perf_counter() - started_at,
+            elapsed,
+            len(result.output.extractions),
+            result.dataframe.height,
         )
-        raise
 
-    elapsed = perf_counter() - started_at
-    run_logger.info(
-        "[%s] Finished in %.1fs with %d extractions and %d output rows",
-        chunk_label,
-        elapsed,
-        len(result.output.extractions),
-        result.dataframe.height,
-    )
-
-    result_dict: dict = {
-        "dataframe": result.dataframe.to_dicts(),
-        "n_extractions": len(result.output.extractions),
-        "status": "completed",
-    }
-    return ctx.finalize(result_dict)
+        result_dict: dict = {
+            "dataframe": result.dataframe.to_dicts(),
+            "n_extractions": len(result.output.extractions),
+            "status": "completed",
+        }
+        return ctx.finalize(result_dict)
 
 
 @flow(
@@ -253,6 +312,7 @@ async def stage2_extraction_flow(
     question: str,
     causal_spec: dict,
     chunk_size: int | None = None,  # noqa: ARG001 - kept for Prefect call-site compat
+    root_run_id: str | None = None,
 ) -> dict:
     """Stage 2: Extract indicator values via hybrid computed/semantic paths.
 
@@ -387,6 +447,16 @@ async def stage2_extraction_flow(
                     question=unmapped(question),
                     causal_spec=unmapped(extraction_ctx),
                 )
+                if root_run_id:
+                    for idx, n_t in zip(batch_indices, batch_n_ticks, strict=True):
+                        _emit_worker_event(
+                            root_run_id,
+                            worker_id=idx,
+                            status="submitted",
+                            total_workers=len(chunks),
+                            completed_count=n_finished,
+                            chunk_size=n_t,
+                        )
                 batch_rows, batch_statuses, batch_total, batch_trace = _collect_batch_results(
                     futures=results,
                     batch_indices=batch_indices,
@@ -394,6 +464,7 @@ async def stage2_extraction_flow(
                     logger=logger,
                     completed_before=n_finished,
                     total_chunks=len(chunks),
+                    root_run_id=root_run_id,
                 )
                 n_finished += len(batch_statuses)
                 n_semantic_total += batch_total

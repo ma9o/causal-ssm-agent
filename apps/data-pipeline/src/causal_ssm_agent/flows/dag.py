@@ -454,7 +454,7 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
+async def stage2(question: str, stage0: dict, stage1b: dict, root_run_id: str | None = None) -> dict:
     """Extract indicator values from data using LLM workers.
 
     Returns dict with:
@@ -482,6 +482,7 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
         raw_df_path=str(raw_df_path),
         question=question,
         causal_spec=causal_spec,
+        root_run_id=root_run_id,
     )
 
     # Reconstruct raw_data DataFrame from worker results
@@ -1130,7 +1131,7 @@ async def stage2_flow(
     run_id: str,
 ) -> dict:
     logger.info("Stage 2 starting: extracting measurements from raw data")
-    stage2_result = await stage2(question, stage0_result, stage1b_result)
+    stage2_result = await stage2(question, stage0_result, stage1b_result, root_run_id=run_id)
     raw_data = stage2_result.pop("_raw_data")
     data_for_model = stage2_result.pop("_data_for_model")
     stage2_result["_raw_data_path"] = _save_parquet(raw_data, run_id, "stage2-raw-data.parquet")
