@@ -305,11 +305,13 @@ class TestAnalyzeFirstPassRB:
     def test_zero_dep_gaussian_channel_goes_to_kalman(self):
         """Zero-dependency Gaussian+identity obs channel is assigned to Kalman."""
         # 2 latents, 3 obs: obs 2 has zero loadings (no deps)
-        H = jnp.array([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 0.0],  # zero-dep channel
-        ])
+        H = jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 0.0],  # zero-dep channel
+            ]
+        )
         spec = _make_spec(
             n_latent=2,
             n_manifest=3,
@@ -329,11 +331,13 @@ class TestAnalyzeFirstPassRB:
     def test_zero_dep_nongaussian_channel_goes_to_particle(self):
         """Zero-dependency non-Gaussian obs channel is assigned to particle."""
         # 2 latents, 3 obs: obs 2 has zero loadings but Poisson noise
-        H = jnp.array([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 0.0],  # zero-dep channel
-        ])
+        H = jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 0.0],  # zero-dep channel
+            ]
+        )
         spec = _make_spec(
             n_latent=2,
             n_manifest=3,
@@ -533,11 +537,13 @@ class TestSelectDefaultMethod:
 
     def test_zero_dep_gaussian_channel_still_routes_nuts(self):
         """Gaussian zero-dep channel doesn't break pure-Kalman routing → nuts."""
-        H = jnp.array([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 0.0],  # zero-dep Gaussian+identity
-        ])
+        H = jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 0.0],  # zero-dep Gaussian+identity
+            ]
+        )
         spec = _make_spec(
             n_latent=2,
             n_manifest=3,
@@ -549,11 +555,13 @@ class TestSelectDefaultMethod:
 
     def test_zero_dep_nongaussian_channel_routes_to_laplace_em(self):
         """Non-Gaussian zero-dep channel prevents pure-Kalman → laplace_em."""
-        H = jnp.array([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.0, 0.0],  # zero-dep Poisson
-        ])
+        H = jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 0.0],  # zero-dep Poisson
+            ]
+        )
         spec = _make_spec(
             n_latent=2,
             n_manifest=3,

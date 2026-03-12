@@ -394,9 +394,7 @@ class SSMModel:
         Callers that need a different backend (Laplace, Structured VI, DPF)
         construct it themselves instead of calling this.
         """
-        return make_likelihood_backend(
-            self.spec, self.likelihood, self.n_particles, self.pf_key
-        )
+        return make_likelihood_backend(self.spec, self.likelihood, self.n_particles, self.pf_key)
 
     def model(
         self,

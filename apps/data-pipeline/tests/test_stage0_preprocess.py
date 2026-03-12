@@ -328,7 +328,9 @@ class TestRunAgenticIngestion:
             tool_map = {tool.name: tool for tool in tools}
 
             if "execute_python" in tool_map:
-                await tool_map["execute_python"](code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")')
+                await tool_map["execute_python"](
+                    code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+                )
                 return ""
 
             await tool_map["submit_table"](
@@ -367,7 +369,9 @@ class TestRunAgenticIngestion:
         async def generate(_messages, tools, *_args, **_kwargs):
             tool_map = {tool.name: tool for tool in tools}
             if "execute_python" in tool_map:
-                await tool_map["execute_python"](code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")')
+                await tool_map["execute_python"](
+                    code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+                )
             return ""
 
         with pytest.raises(
