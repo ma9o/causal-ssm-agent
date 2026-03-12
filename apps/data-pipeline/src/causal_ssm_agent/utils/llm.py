@@ -199,9 +199,6 @@ def get_generate_config() -> GenerateConfig:
         timeout=llm.timeout,
         reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
-        verbose_logging=llm.verbose_logging,
-        log_reasoning=llm.log_reasoning,
-        log_output_char_limit=llm.log_output_char_limit,
     )
 
 
@@ -215,9 +212,6 @@ def get_stage2_generate_config() -> GenerateConfig:
         timeout=llm.timeout,
         reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool retries when validation fails.
-        verbose_logging=llm.verbose_logging,
-        log_reasoning=llm.log_reasoning,
-        log_output_char_limit=llm.log_output_char_limit,
     )
 
 

@@ -70,9 +70,6 @@ class GenerateConfig:
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
     reasoning_history: str | None = None
     max_tool_output: int = 16_000
-    verbose_logging: bool = False
-    log_reasoning: bool = False
-    log_output_char_limit: int = 8000
 
 
 @dataclass
@@ -285,32 +282,19 @@ def _usage_from_response(response: Any) -> dict[str, int | None] | None:
     }
 
 
-def _truncate_log_text(text: str, limit: int) -> str:
-    """Bound verbose log payloads so a single completion cannot flood the log stream."""
-    if limit <= 0 or len(text) <= limit:
-        return text
-    trimmed = text[:limit]
-    remaining = len(text) - limit
-    return f"{trimmed}\n...[truncated {remaining} chars]"
-
-
-def _log_verbose_response_details(
+def _log_response_details(
     *,
     log_label: str | None,
-    request: GenerateConfig,
     message: dict[str, Any],
     completion_text: str,
 ) -> None:
-    """Log raw assistant outputs for development debugging when explicitly enabled."""
-    if not request.verbose_logging:
-        return
-
+    """Log raw assistant outputs (completion, tool calls, reasoning)."""
     prefix = f"[{log_label}] " if log_label else ""
 
     logger.info(
         "%scall_model completion:\n%s",
         prefix,
-        _truncate_log_text(completion_text or "<empty>", request.log_output_char_limit),
+        completion_text or "<empty>",
     )
 
     tool_calls = message.get("tool_calls") or []
@@ -318,30 +302,23 @@ def _log_verbose_response_details(
         logger.info(
             "%scall_model tool_calls:\n%s",
             prefix,
-            _truncate_log_text(
-                json.dumps(tool_calls, indent=2, sort_keys=True),
-                request.log_output_char_limit,
-            ),
+            json.dumps(tool_calls, indent=2, sort_keys=True),
         )
 
-    if request.log_reasoning:
-        reasoning = message.get("reasoning")
-        if isinstance(reasoning, str) and reasoning:
-            logger.info(
-                "%scall_model reasoning:\n%s",
-                prefix,
-                _truncate_log_text(reasoning, request.log_output_char_limit),
-            )
-        reasoning_details = message.get("reasoning_details")
-        if reasoning_details is not None:
-            logger.info(
-                "%scall_model reasoning_details:\n%s",
-                prefix,
-                _truncate_log_text(
-                    json.dumps(reasoning_details, indent=2, sort_keys=True, default=str),
-                    request.log_output_char_limit,
-                ),
-            )
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        logger.info(
+            "%scall_model reasoning:\n%s",
+            prefix,
+            reasoning,
+        )
+    reasoning_details = message.get("reasoning_details")
+    if reasoning_details is not None:
+        logger.info(
+            "%scall_model reasoning_details:\n%s",
+            prefix,
+            json.dumps(reasoning_details, indent=2, sort_keys=True, default=str),
+        )
 
 
 async def call_model(
@@ -403,9 +380,8 @@ async def call_model(
             tool_call_count,
             len(completion_text),
         )
-    _log_verbose_response_details(
+    _log_response_details(
         log_label=log_label,
-        request=request,
         message=message,
         completion_text=completion_text,
     )

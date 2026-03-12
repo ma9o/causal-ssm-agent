@@ -510,11 +510,7 @@ class TestVerboseResponseLogging:
                 litellm_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(
-                        verbose_logging=True,
-                        log_reasoning=True,
-                        log_output_char_limit=1000,
-                    ),
+                    config=litellm_client.GenerateConfig(),
                     log_label="stage2 chunk=1",
                 )
             )
@@ -547,46 +543,11 @@ class TestVerboseResponseLogging:
                 litellm_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(verbose_logging=True),
+                    config=litellm_client.GenerateConfig(),
                 )
             )
 
         assert "call_model completion:\nunlabeled completion" in caplog.text
-
-    def test_call_model_verbose_logs_respect_char_limit(self, monkeypatch, caplog):
-        from causal_ssm_agent.utils import litellm_client
-
-        async def fake_acompletion(**kwargs):
-            return {
-                "model": "test-model",
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-                "choices": [
-                    {
-                        "finish_reason": "stop",
-                        "message": {
-                            "content": "abcdefghijklmnopqrstuvwxyz",
-                        },
-                    }
-                ],
-            }
-
-        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
-
-        with caplog.at_level(logging.INFO):
-            _run(
-                litellm_client.call_model(
-                    "test-model",
-                    [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(
-                        verbose_logging=True,
-                        log_output_char_limit=10,
-                    ),
-                    log_label="stage2 chunk=2",
-                )
-            )
-
-        assert "abcdefghij" in caplog.text
-        assert "[truncated 16 chars]" in caplog.text
 
 
 # =============================================================================

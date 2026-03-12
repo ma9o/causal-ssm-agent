@@ -158,9 +158,6 @@ class LLMConfig:
     max_tokens: int = 65536
     timeout: int = 900
     reasoning_effort: str = "high"
-    verbose_logging: bool = False
-    log_reasoning: bool = False
-    log_output_char_limit: int = 8000
 
 
 @dataclass(frozen=True)
@@ -281,15 +278,6 @@ def load_config() -> PipelineConfig:
 
     # Parse llm section (optional)
     llm_raw = dict(raw.get("llm", {}))
-    verbose_logging = _env_bool("CAUSAL_SSM_LLM_VERBOSE_LOGGING")
-    if verbose_logging is not None:
-        llm_raw["verbose_logging"] = verbose_logging
-    log_reasoning = _env_bool("CAUSAL_SSM_LLM_LOG_REASONING")
-    if log_reasoning is not None:
-        llm_raw["log_reasoning"] = log_reasoning
-    log_output_char_limit = _env_int("CAUSAL_SSM_LLM_LOG_OUTPUT_CHAR_LIMIT")
-    if log_output_char_limit is not None:
-        llm_raw["log_output_char_limit"] = log_output_char_limit
     llm_config = LLMConfig(**llm_raw) if llm_raw else LLMConfig()
 
     # Parse pipeline section (optional)
