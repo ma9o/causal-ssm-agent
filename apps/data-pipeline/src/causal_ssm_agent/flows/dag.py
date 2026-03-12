@@ -1127,7 +1127,9 @@ async def stage2_flow(
         data_for_model, run_id, "stage2-model-data.parquet"
     )
     web = _web_payload(
-        "stage-2", stage2_result, run_id,
+        "stage-2",
+        stage2_result,
+        run_id,
         extras={"outcome": "success" if len(raw_data) > 0 else "fail"},
     )
     worker_statuses = stage2_result.get("_worker_statuses", [])
@@ -1178,6 +1180,11 @@ async def stage4_flow(
     from .stages.stage4_model import compile_model_task
 
     logger.info("Stage 4 starting: building model specification and priors")
+
+    # Persist raw_data for the refinement tool_server (prior predictive gate)
+    data_for_model = _load_parquet(stage2_result["_data_for_model_path"])
+    _save_parquet(data_for_model, run_id, "stage-4-data.parquet")
+
     if override_payload is None:
         stage4_result = await stage4(question, stage1b_result, stage2_result, enable_literature)
     else:
@@ -1190,7 +1197,9 @@ async def stage4_flow(
                 _load_parquet(stage2_result["_data_for_model_path"]),
                 causal_spec=stage4_result["causal_spec"],
             )
-            compile_result = compile_task.result() if hasattr(compile_task, "result") else compile_task
+            compile_result = (
+                compile_task.result() if hasattr(compile_task, "result") else compile_task
+            )
             compiled_ssm = compile_result.pop("compiled_ssm", None)
             stage4_result.setdefault("model_info", compile_result)
             if compiled_ssm is not None:

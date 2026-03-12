@@ -153,11 +153,16 @@ async def elicit_prior_task(
     literature: dict,
     n_paraphrases: int = 1,
     feedback: str | None = None,
+    model_spec: dict | None = None,
+    causal_spec: dict | None = None,
+    raw_data: pl.DataFrame | None = None,
+    current_priors: dict | None = None,
 ) -> dict:
     """Elicit a prior for a single parameter using LLM.
 
-    Uses pre-fetched literature context (no Exa call). Accepts optional
-    feedback from a previous failed validation for re-elicitation.
+    Dispatches to:
+    - ``run_prior_elicitation`` (fat tool, self-correcting) for n_paraphrases=1
+    - ``elicit_prior`` (paraphrased, GMM aggregation) for n_paraphrases>1
 
     Args:
         parameter_spec: ParameterSpec as dict
@@ -165,6 +170,10 @@ async def elicit_prior_task(
         literature: Cached literature dict from search_literature_task
         n_paraphrases: Number of paraphrased prompts
         feedback: Validation feedback from previous attempt
+        model_spec: Current model spec (enables compile + PP in fat tool)
+        causal_spec: CausalSpec dict
+        raw_data: Polars DataFrame for prior predictive checks
+        current_priors: Existing priors for other parameters
 
     Returns:
         PriorProposal as dict
@@ -175,6 +184,7 @@ async def elicit_prior_task(
     from causal_ssm_agent.workers.prior_research import (
         elicit_prior,
         get_default_prior,
+        run_prior_elicitation,
     )
 
     config = get_config()
@@ -186,16 +196,31 @@ async def elicit_prior_task(
     param = ParameterSpec.model_validate(parameter_spec)
 
     try:
-        result = await elicit_prior(
-            parameter=param,
-            question=question,
-            generate=generate,
-            literature_context=literature.get("formatted", ""),
-            literature_sources=literature.get("sources", []),
-            feedback=feedback,
-            n_paraphrases=n_paraphrases,
-        )
-        return result.proposal.model_dump()
+        if n_paraphrases <= 1:
+            # Fat tool path: self-correcting loop with search + validate
+            return await run_prior_elicitation(
+                parameter=param,
+                question=question,
+                generate=generate,
+                literature_context=literature.get("formatted", ""),
+                feedback=feedback,
+                model_spec=model_spec,
+                current_priors=current_priors,
+                raw_data=raw_data,
+                causal_spec=causal_spec,
+            )
+        else:
+            # Paraphrased path: N independent prompts, GMM aggregation
+            result = await elicit_prior(
+                parameter=param,
+                question=question,
+                generate=generate,
+                literature_context=literature.get("formatted", ""),
+                literature_sources=literature.get("sources", []),
+                feedback=feedback,
+                n_paraphrases=n_paraphrases,
+            )
+            return result.proposal.model_dump()
     except Exception as e:
         logger.warning("Prior elicitation failed for %s: %s. Using default.", param.name, e)
         return get_default_prior(param).model_dump()
@@ -421,6 +446,9 @@ async def stage4_orchestrated_flow(
             literature_by_name[ps.get("name", f"param_{i}")] for i, ps in enumerate(parameter_specs)
         ],
         n_paraphrases=unmapped(n_paraphrases),
+        model_spec=unmapped(model_spec),
+        causal_spec=unmapped(causal_spec),
+        raw_data=unmapped(raw_data),
     )
 
     initial_results = initial_futures.result()
@@ -511,6 +539,10 @@ async def stage4_orchestrated_flow(
             literature=failed_literature,
             n_paraphrases=unmapped(n_paraphrases),
             feedback=failed_feedbacks,
+            model_spec=unmapped(model_spec),
+            causal_spec=unmapped(causal_spec),
+            raw_data=unmapped(raw_data),
+            current_priors=unmapped(priors),
         )
 
         # Merge re-elicited priors back

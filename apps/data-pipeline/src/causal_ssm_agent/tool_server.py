@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS
 from causal_ssm_agent.flows.stages.stage_tools import (
+    search_literature,
     stage1a_grounding,
     stage1b_grounding,
     stage4_grounding,
@@ -53,6 +54,16 @@ def _load_stage_result(run_id: str, stage_id: str) -> dict[str, Any]:
     if not path.exists():
         raise HTTPException(404, f"Stage result not found: {path}")
     return json.loads(path.read_text())
+
+
+def _load_raw_data(run_id: str) -> Any:
+    """Load raw_data parquet for prior predictive checks."""
+    import polars as pl
+
+    path = _RESULTS_DIR / run_id / "stage-4-data.parquet"
+    if path.exists():
+        return pl.read_parquet(path)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -97,11 +108,21 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(run_id)
+    raw_data = _load_raw_data(run_id)
     return _run_compute(
         args,
         "model_json",
-        lambda data: stage4_grounding(data, causal_spec, current=current),
+        lambda data: stage4_grounding(data, causal_spec, current=current, raw_data=raw_data),
     )
+
+
+async def _execute_search_literature(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Execute search_literature via Exa API (async)."""
+    query = args.get("query", "")
+    if not query:
+        return {"result": "Error: query is required"}
+    result = await search_literature(query)
+    return {"result": result}
 
 
 def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
@@ -122,6 +143,7 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-1b", "validate_measurement_model_tool"): _execute_validate_measurement_model,
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
     ("stage-4", "validate_model"): _execute_validate_model,
+    ("stage-4", "search_literature"): _execute_search_literature,
 }
 
 # Upstream dependencies: which stage results need to be loaded for context
@@ -185,11 +207,15 @@ def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
 
 
 @app.post("/api/tools/{stage_id}/{tool_name}")
-def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) -> dict[str, Any]:
+async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) -> dict[str, Any]:
     """Execute a pipeline tool and return its result."""
     impl = _TOOL_IMPLS.get((stage_id, tool_name))
     if impl is None:
         raise HTTPException(404, f"No implementation for tool {tool_name!r} in stage {stage_id!r}")
 
     ctx = _build_context(request.run_id, stage_id)
+    import inspect
+
+    if inspect.iscoroutinefunction(impl):
+        return await impl(ctx, request.input)
     return impl(ctx, request.input)
