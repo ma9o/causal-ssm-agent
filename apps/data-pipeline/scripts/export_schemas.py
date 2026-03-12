@@ -19,7 +19,6 @@ from causal_ssm_agent.flows.stages.contracts import (
     INTERACTIVE_STAGES,
     STAGE_CONTRACTS,
     STAGE_TOOLS,
-    PartialStageResult,
 )
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "packages" / "api-types" / "schemas"
@@ -116,15 +115,6 @@ def export_schemas() -> dict:
         contract_name = model_cls.__name__
         all_defs[contract_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
         stage_refs[stage_id] = {"$ref": f"#/$defs/{contract_name}"}
-
-    # Add PartialStageResult (live trace contract) alongside stage contracts
-    partial_schema = PartialStageResult.model_json_schema(mode="serialization")
-    partial_defs = partial_schema.pop("$defs", {})
-    all_defs.update(partial_defs)
-    all_defs["PartialStageResult"] = {
-        k: v for k, v in partial_schema.items() if k not in ("$defs",)
-    }
-    stage_refs["_partial"] = {"$ref": "#/$defs/PartialStageResult"}
 
     combined = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
