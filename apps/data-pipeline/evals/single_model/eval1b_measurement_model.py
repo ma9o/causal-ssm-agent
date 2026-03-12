@@ -160,22 +160,13 @@ def _score_stage1b_result(
             breakdown.append(f"+{bonus} multi-indicator for '{construct}' ({count})")
 
     # Identifiability bonuses
-    initial_non_id = len(result.initial_identifiability["non_identifiable_treatments"])
-    final_non_id = len(result.final_identifiability["non_identifiable_treatments"])
+    non_id = len(result.identifiability_status.get("non_identifiable_treatments", {}))
 
-    if final_non_id == 0:
-        if initial_non_id > 0:
-            breakdown.append("+15 ALL identifiable after proxy fix!")
-            total += 15
-        else:
-            breakdown.append("+10 ALL identifiable from start!")
-            total += 10
-    elif initial_non_id > final_non_id:
-        improved = initial_non_id - final_non_id
-        breakdown.append(f"+5 Fixed {improved} treatments via proxies")
-        total += 5
+    if non_id == 0:
+        breakdown.append("+10 ALL identifiable!")
+        total += 10
     else:
-        breakdown.append(f"+0 {final_non_id} treatments still not identifiable")
+        breakdown.append(f"+0 {non_id} treatments not identifiable")
 
     # Build breakdown summary
     breakdown.insert(0, f"INDICATORS ({len(measurement.indicators)}):")
@@ -232,12 +223,8 @@ def measurement_model_scorer():
             explanation=scoring["breakdown"],
             metadata={
                 "n_indicators": len(result.measurement_model.get("indicators", [])),
-                "proxy_requested": result.proxy_requested,
-                "initial_non_identifiable": len(
-                    result.initial_identifiability["non_identifiable_treatments"]
-                ),
-                "final_non_identifiable": len(
-                    result.final_identifiability["non_identifiable_treatments"]
+                "non_identifiable": len(
+                    result.identifiability_status.get("non_identifiable_treatments", {})
                 ),
             },
         )
