@@ -9,15 +9,15 @@ a single tool loop — no imperative multi-step orchestration.
 """
 
 import json
-import logging
 from dataclasses import dataclass
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.identifiability import analyze_unobserved_constructs
 from causal_ssm_agent.utils.llm import OrchestratorGenerateFn
 
 from .prompts import measurement_model
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 @dataclass

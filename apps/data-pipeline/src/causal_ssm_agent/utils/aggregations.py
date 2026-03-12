@@ -4,12 +4,12 @@ Provides non-continuous dtype encoding (binary, ordinal, categorical -> numeric)
 and Polars aggregation expression builders used by the pipeline's stage 2 logic.
 """
 
-import logging
-
 import numpy as np
 import polars as pl
 
-logger = logging.getLogger(__name__)
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
 
 # Aggregations that require map_groups (cannot be expressed as a single Polars expr)
 _MAP_GROUPS_AGGREGATIONS = {"trend"}

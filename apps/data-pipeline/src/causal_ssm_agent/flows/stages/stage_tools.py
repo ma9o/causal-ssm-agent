@@ -14,13 +14,15 @@ check domain constraints, and derive fields the LLM cannot be trusted to compute
 from __future__ import annotations
 
 import json
-import logging
+import time
 from typing import TYPE_CHECKING, Any
+
+from causal_ssm_agent.flows import get_prefect_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +349,20 @@ def make_stage_tool(
         try:
             data = json.loads(kwargs[param_name])
         except json.JSONDecodeError as e:
+            logger.warning("[%s] JSON parse error: %s", name, e)
             return f"JSON parse error: {e}"
 
+        t0 = time.monotonic()
         stage_output, feedback = compute_fn(data)
+        elapsed = time.monotonic() - t0
+
         if stage_output is not None:
             capture.update(stage_output)
+            logger.info("[%s] grounding passed (%.1fs)", name, elapsed)
+        else:
+            preview = feedback[:200].replace("\n", " ")
+            logger.info("[%s] grounding rejected (%.1fs): %s", name, elapsed, preview)
+
         return feedback
 
     return Tool(

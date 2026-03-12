@@ -10,7 +10,6 @@ waste-free recycling, multi-step leapfrog, and precision preconditioning.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import jax
@@ -19,6 +18,7 @@ import jax.random as random
 from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
     HMC_TARGET_ACCEPT,
@@ -33,7 +33,7 @@ from causal_ssm_agent.models.ssm.utils import (
     extract_constrained_samples,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def run_tempered_smc(

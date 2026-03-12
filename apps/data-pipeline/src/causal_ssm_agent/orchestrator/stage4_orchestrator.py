@@ -9,8 +9,7 @@ provides genuine decisions: distribution choices for ambiguous dtypes, loading
 constraints, search_context strings, and reasoning.
 """
 
-import logging
-
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.prompts.model_proposal import (
     SYSTEM as MODEL_PROPOSAL_SYSTEM,
 )
@@ -34,7 +33,7 @@ from causal_ssm_agent.utils.llm import (
     make_validation_tool,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 
 def derive_deterministic_spec(

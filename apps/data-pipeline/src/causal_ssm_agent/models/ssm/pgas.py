@@ -23,7 +23,6 @@ Upgrades:
 from __future__ import annotations
 
 import functools
-import logging
 from typing import Any
 
 import jax
@@ -36,6 +35,7 @@ from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoMultivariateNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR, NUMERICAL_EPSILON
 from causal_ssm_agent.models.likelihoods.particle import SSMAdapter
 from causal_ssm_agent.models.ssm.constants import MIN_DT
@@ -55,7 +55,7 @@ from causal_ssm_agent.models.ssm.utils import (
     extract_constrained_samples,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # SVI warmstart for mass matrix initialization

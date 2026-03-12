@@ -7,16 +7,15 @@ values, scale plausibility).
 
 from __future__ import annotations
 
-import logging
-
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
-logger = logging.getLogger(__name__)
+logger = get_prefect_logger(__name__)
 
 # Map ModelSpec parameter keywords to SSM sample site names
 # Same pattern as _PRIOR_RULES in ssm_builder.py

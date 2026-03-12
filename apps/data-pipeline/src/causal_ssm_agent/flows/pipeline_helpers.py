@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
+
 
 def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
     """Format a DataFrame schema and sample for LLM consumption.
@@ -57,7 +61,7 @@ def compute_date_range(df: pl.DataFrame) -> dict[str, str]:
                             "end": str(parsed.max())[:10],
                         }
                 except Exception:
-                    pass
+                    logger.debug("Date parsing failed for column '%s'", candidate, exc_info=True)
     return {"start": "", "end": ""}
 
 
