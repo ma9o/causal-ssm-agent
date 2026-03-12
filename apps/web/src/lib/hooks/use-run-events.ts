@@ -14,12 +14,15 @@ import {
   type PipelineProgress,
   type StageRunStatus,
 } from "./pipeline-progress";
+import type { Stage2Worker } from "./use-stage2-workers";
 
 export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
 
 const EVENT_LOOKBACK_MS = 60_000;
 const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
+const CAUSAL_SSM_EVENT_PREFIX = "causal-ssm.";
 const STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage.";
+const WORKER_EVENT_PREFIX = "causal-ssm.worker.";
 
 interface PrefectTaskRun {
   name: string;
@@ -45,13 +48,17 @@ function getStageQueryKey(runId: string, stageId: StageId) {
   return ["pipeline", runId, "stage", stageId] as const;
 }
 
+function getWorkerQueryKey(runId: string) {
+  return ["pipeline", runId, "stage2-workers"] as const;
+}
+
 export function buildPrefectEventFilterMessage(runId: string, now = new Date()) {
   return {
     type: "filter",
     filter: {
-      // Prefect task-run events are not scoped to the parent flow-run resource,
-      // so the pipeline emits explicit stage progress events on the root flow run.
-      event: { prefix: [STAGE_PROGRESS_EVENT_PREFIX] },
+      // Pipeline emits custom events (stage progress + worker progress)
+      // on the root flow run resource.
+      event: { prefix: [CAUSAL_SSM_EVENT_PREFIX] },
       resource: {
         id: [`prefect.flow-run.${runId}`],
       },
@@ -108,6 +115,55 @@ export function parsePrefectStageProgressEvent(
   };
 }
 
+export interface WorkerProgressEvent {
+  workerId: number;
+  status: "submitted" | "completed" | "failed";
+  chunkSize: number;
+  totalWorkers: number;
+  completedCount: number;
+  nExtractions?: number;
+  error?: string;
+}
+
+export function parseWorkerProgressEvent(
+  event: PrefectEventSocketMessage["event"],
+): WorkerProgressEvent | null {
+  if (!event?.event?.startsWith(WORKER_EVENT_PREFIX)) return null;
+  const p = event.payload;
+  if (!p || typeof p.worker_id !== "number") return null;
+  const status = p.status;
+  if (status !== "submitted" && status !== "completed" && status !== "failed") return null;
+  return {
+    workerId: p.worker_id as number,
+    status,
+    chunkSize: (p.chunk_size as number) ?? 0,
+    totalWorkers: (p.total_workers as number) ?? 0,
+    completedCount: (p.completed_count as number) ?? 0,
+    nExtractions: typeof p.n_extractions === "number" ? p.n_extractions : undefined,
+    error: typeof p.error === "string" ? p.error : undefined,
+  };
+}
+
+function applyWorkerEvent(
+  workers: Stage2Worker[],
+  event: WorkerProgressEvent,
+): Stage2Worker[] {
+  const id = `worker-${event.workerId}`;
+  const name = `extract-chunk-${event.workerId}`;
+  const state: Stage2Worker["state"] =
+    event.status === "submitted" ? "running" : event.status;
+
+  const existing = workers.find((w) => w.id === id);
+  if (existing) {
+    // Don't regress: if already completed/failed, ignore submitted
+    if (event.status === "submitted" && existing.state !== "pending") {
+      return workers;
+    }
+    return workers.map((w) => (w.id === id ? { ...w, state } : w));
+  }
+  return [...workers, { id, name, state }];
+}
+
 function invalidateStageData(
   queryClient: ReturnType<typeof useQueryClient>,
   runId: string,
@@ -119,7 +175,7 @@ function invalidateStageData(
 function applyHydratedTaskRun(
   runId: string,
   taskRun: PrefectTaskRun,
-  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number) => void,
+  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => void,
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
   const stage = getStageForPrefectRunName(taskRun.name);
@@ -157,7 +213,7 @@ function isPipelineTerminal(
 
 function createRunEventSocket(
   runId: string,
-  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number) => void,
+  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => void,
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4200";
@@ -181,6 +237,17 @@ function createRunEventSocket(
         return;
       }
 
+      // Worker progress events (stage-2 chunks)
+      const workerEvent = parseWorkerProgressEvent(message.event);
+      if (workerEvent) {
+        queryClient.setQueryData<Stage2Worker[]>(
+          getWorkerQueryKey(runId),
+          (old) => applyWorkerEvent(old ?? [], workerEvent),
+        );
+        return;
+      }
+
+      // Stage progress events
       const stageEvent = parsePrefectStageProgressEvent(message.event);
       if (!stageEvent) return;
 
@@ -207,7 +274,7 @@ function createRunEventSocket(
  */
 async function hydrateFromPrefect(
   runId: string,
-  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number) => void,
+  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => void,
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
   try {
