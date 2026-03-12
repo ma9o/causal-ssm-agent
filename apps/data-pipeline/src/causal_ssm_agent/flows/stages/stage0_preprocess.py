@@ -14,7 +14,7 @@ from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import RAW_DIR
-from causal_ssm_agent.utils.llm import StageContext
+from causal_ssm_agent.utils.llm import LLMStageContext
 
 from .. import get_prefect_logger
 from .stage0_ingest import IngestionResult, run_agentic_ingestion
@@ -80,19 +80,19 @@ async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     logger.info("Ingesting %s from %s/", raw_path.name, raw_path.parent.name)
 
     config = get_config()
-    ctx = StageContext("stage-0")
-    generate = ctx.make_generate(config.stage0_ingestion.model)
+    async with LLMStageContext("stage-0") as ctx:
+        generate = ctx.make_generate(config.stage0_ingestion.model)
 
-    with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-        extract_dir = _prepare_raw_input(raw_path, Path(tmpdir))
-        result = await run_agentic_ingestion(extract_dir, generate)
+        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+            extract_dir = _prepare_raw_input(raw_path, Path(tmpdir))
+            result = await run_agentic_ingestion(extract_dir, generate)
 
-    # Attach trace for web persistence
-    trace_out = ctx.finalize({})
-    if "llm_trace" in trace_out:
-        result.llm_trace = trace_out["llm_trace"]
+        # Attach trace for web persistence
+        trace_out = ctx.finalize({})
+        if "llm_trace" in trace_out:
+            result.llm_trace = trace_out["llm_trace"]
 
-    logger.info(
-        "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
-    )
-    return result
+        logger.info(
+            "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
+        )
+        return result

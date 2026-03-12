@@ -90,22 +90,22 @@ async def propose_model_task(
         propose_model_spec,
     )
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import StageContext
+    from causal_ssm_agent.utils.llm import LLMStageContext
 
     config = get_config()
-    ctx = StageContext("stage-4")
-    generate = ctx.make_generate(config.stage4_prior_elicitation.model)
+    async with LLMStageContext("stage-4") as ctx:
+        generate = ctx.make_generate(config.stage4_prior_elicitation.model)
 
-    data_summary = build_raw_data_summary(raw_data)
+        data_summary = build_raw_data_summary(raw_data)
 
-    result = await propose_model_spec(
-        causal_spec=causal_spec,
-        data_summary=data_summary,
-        question=question,
-        generate=generate,
-    )
+        result = await propose_model_spec(
+            causal_spec=causal_spec,
+            data_summary=data_summary,
+            question=question,
+            generate=generate,
+        )
 
-    return ctx.finalize(result.model_spec.model_dump())
+        return ctx.finalize(result.model_spec.model_dump())
 
 
 @task(

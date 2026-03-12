@@ -9,7 +9,7 @@ from prefect.cache_policies import INPUTS
 from causal_ssm_agent.orchestrator.agents import build_causal_spec as _build_causal_spec_core
 from causal_ssm_agent.orchestrator.stage1b import run_stage1b
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.llm import StageContext
+from causal_ssm_agent.utils.llm import LLMStageContext
 
 
 @task(cache_policy=INPUTS, result_serializer="json")
@@ -45,14 +45,14 @@ async def propose_measurement_with_identifiability_fix(
     Returns:
         Stage1bData dict matching the web frontend contract.
     """
-    ctx = StageContext("stage-1b")
-    generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
-    result = await run_stage1b(
-        question=question,
-        latent_model=latent_model,
-        chunks=data_sample,
-        generate=generate,
-        dataset_summary=dataset_summary,
-    )
-    # causal_spec is already built by stage1b_grounding — pass through directly
-    return ctx.finalize({"causal_spec": result.causal_spec})
+    async with LLMStageContext("stage-1b") as ctx:
+        generate = ctx.make_generate(get_config().stage1_structure_proposal.model)
+        result = await run_stage1b(
+            question=question,
+            latent_model=latent_model,
+            chunks=data_sample,
+            generate=generate,
+            dataset_summary=dataset_summary,
+        )
+        # causal_spec is already built by stage1b_grounding — pass through directly
+        return ctx.finalize({"causal_spec": result.causal_spec})
