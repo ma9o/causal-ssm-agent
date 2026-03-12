@@ -6,14 +6,9 @@ Uses dependency injection for the LLM generate function.
 
 from dataclasses import dataclass
 
-from causal_ssm_agent.utils.llm import (
-    OrchestratorGenerateFn,
-    make_validation_tool,
-    parse_json_response,
-)
+from causal_ssm_agent.utils.llm import OrchestratorGenerateFn
 
 from .prompts import latent_model
-from .schemas import LatentModel, validate_latent_model
 
 
 @dataclass
@@ -21,6 +16,8 @@ class Stage1aResult:
     """Result of Stage 1a: latent model proposal."""
 
     latent_model: dict
+    outcome_name: str
+    treatments: list[str]
 
     @property
     def n_constructs(self) -> int:
@@ -62,31 +59,27 @@ async def run_stage1a(
         generate: Async function (messages, tools, follow_ups) -> completion
 
     Returns:
-        Stage1aResult with the latent model
+        Stage1aResult with latent model, outcome_name, and treatments
     """
+    from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool, stage1a_grounding
+
     msgs = Stage1aMessages(question)
 
-    # Step 1: Initial proposal with self-review
-    # The tool captures the last valid LatentModel so we don't depend
-    # on the final completion being valid JSON (the review follow-up
-    # may return prose or empty).
-    proposal_msgs = msgs.proposal_messages()
-    tool, capture = make_validation_tool(
+    tool, capture = make_stage_tool(
         name="validate_latent_model",
-        description="Validate latent model JSON.",
+        description="Validate latent model JSON. Returns outcome and treatments on success.",
         param_name="structure_json",
         param_description="The JSON string containing the latent model.",
-        validator=validate_latent_model,
-        capture_key="latent",
+        compute_fn=stage1a_grounding,
     )
 
-    completion = await generate(proposal_msgs, [tool], [latent_model.REVIEW])
+    await generate(msgs.proposal_messages(), [tool], [latent_model.REVIEW])
 
-    # Prefer the captured result from the validation tool
-    latent = capture.get("latent")
-    if latent is None:
-        # Fallback: try parsing the final completion directly
-        latent = parse_json_response(completion)
-    LatentModel.model_validate(latent)  # Validate schema
+    if not capture.get("latent_model"):
+        raise ValueError("No valid latent model produced")
 
-    return Stage1aResult(latent_model=latent)
+    return Stage1aResult(
+        latent_model=capture["latent_model"],
+        outcome_name=capture["outcome_name"],
+        treatments=capture["treatments"],
+    )
