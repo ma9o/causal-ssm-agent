@@ -30,6 +30,7 @@ STAGE_SEQUENCE = (
     "stage-3",
     "stage-4",
     "stage-4b",
+    "stage-5a",
     "stage-5",
     "stage-6",
 )
@@ -434,6 +435,20 @@ async def causal_inference_pipeline(
         )
         stage_states["stage-4b"] = stage4b_state
     partial = _maybe_finish("stage-4b")
+    if partial is not None:
+        return partial
+
+    stage5a_idx = _stage_idx("stage-5a")
+    if start_idx > stage5a_idx:
+        pass  # stage-5a is best-effort preflight, no restore needed
+    else:
+        stage5a_state = dag.stage5a_flow(
+            stage4_result,
+            stage2_result,
+            root_run_id,
+        )
+        stage_states["stage-5a"] = stage5a_state
+    partial = _maybe_finish("stage-5a")
     if partial is not None:
         return partial
 
