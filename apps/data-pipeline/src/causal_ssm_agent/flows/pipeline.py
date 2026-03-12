@@ -6,6 +6,7 @@ can provide edited payloads for selected stages, and the pipeline skips those
 stage computations while re-running downstream stages from the override point.
 """
 
+import time
 from collections.abc import Callable
 from inspect import isawaitable
 from pathlib import Path
@@ -287,12 +288,16 @@ async def causal_inference_pipeline(
         return restored
 
     async def _run_stage(stage_id: str, runner: Callable[[], Any]) -> dict[str, Any]:
+        logger.info(">>> %s starting", stage_id)
+        t0 = time.monotonic()
         _emit_stage_progress_event(root_run_id, stage_id, "running")
         try:
             stage_state = runner()
             if isawaitable(stage_state):
                 stage_state = await stage_state
         except Exception as exc:
+            elapsed = time.monotonic() - t0
+            logger.error(">>> %s FAILED after %.1fs: %s", stage_id, elapsed, exc)
             _emit_stage_progress_event(
                 root_run_id,
                 stage_id,
@@ -301,8 +306,10 @@ async def causal_inference_pipeline(
             )
             raise
         # Include outcome from stage result if available
+        elapsed = time.monotonic() - t0
         web_data = stage_state.get("web", {}) if isinstance(stage_state, dict) else {}
         stage_outcome = web_data.get("outcome")
+        logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
         _emit_stage_progress_event(root_run_id, stage_id, "completed", outcome=stage_outcome)
         return stage_state
 
