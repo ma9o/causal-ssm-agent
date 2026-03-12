@@ -8,7 +8,7 @@ import {
 } from "@/lib/hooks/use-stage2-workers";
 import { type PrefectLogEntry, logLevelLabel } from "@/lib/hooks/use-stage-logs";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const LEVEL_COLORS: Record<number, string> = {
   10: "text-muted-foreground/50",
@@ -61,28 +61,26 @@ function WorkerGrid({ workers }: { workers: Stage2Worker[] }) {
 }
 
 function useRpm(workers: Stage2Worker[]): number {
+  // Periodic tick so the 60s window slides even when no new workers complete
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
   return useMemo(() => {
     const now = Date.now();
     const windowMs = 60_000;
     let totalCalls = 0;
-    let count = 0;
     for (const w of workers) {
       if (w.completedAt && now - w.completedAt < windowMs && w.nLlmCalls) {
         totalCalls += w.nLlmCalls;
-        count++;
       }
     }
-    // If we have fewer than 3 data points in the window, estimate from rate
-    if (count < 3) return 0;
-    const earliest = Math.min(
-      ...workers
-        .filter((w) => w.completedAt && now - w.completedAt < windowMs)
-        .map((w) => w.completedAt!),
-    );
-    const spanMs = now - earliest;
-    if (spanMs < 1000) return 0;
-    return Math.round((totalCalls / spanMs) * 60_000);
-  }, [workers]);
+    // Rolling 60s count = RPM (matches OpenRouter's sliding window)
+    return totalCalls;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workers, tick]);
 }
 
 function RpmGauge({ rpm }: { rpm: number }) {
