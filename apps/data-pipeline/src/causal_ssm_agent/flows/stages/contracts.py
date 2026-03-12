@@ -562,32 +562,6 @@ class Stage6Contract(BaseModel):
         )
 
 
-class LiveMetadata(BaseModel):
-    """Metadata attached to partial stage results while an LLM stage is running."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["running"]
-    label: str
-    turn: int
-    elapsed_seconds: float
-
-
-class PartialStageResult(BaseModel):
-    """Partial stage result written to disk during LLM generation.
-
-    A subset of the full stage contract: only the ``llm_trace`` field (the part
-    available mid-run) plus ``_live`` metadata so the frontend can distinguish
-    in-progress from completed results.  Overwritten by ``persist_web_result``
-    when the stage completes.
-    """
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    llm_trace: LLMTrace
-    live: LiveMetadata = Field(alias="_live")
-
-
 STAGE_CONTRACTS: dict[StageId, type[BaseModel]] = {
     "stage-0": Stage0Contract,
     "stage-1a": Stage1aContract,
