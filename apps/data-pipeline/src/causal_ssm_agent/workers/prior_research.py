@@ -24,7 +24,6 @@ from causal_ssm_agent.workers.prompts.prior_research import (
     USER as PRIOR_RESEARCH_USER,
 )
 from causal_ssm_agent.workers.prompts.prior_research import (
-    format_literature_for_parameter,
     generate_paraphrased_prompts,
 )
 from causal_ssm_agent.workers.schemas_prior import (
@@ -59,9 +58,9 @@ def _make_prior_tool() -> tuple[object, dict]:
 
 
 async def search_parameter_literature(
-    parameter: ParameterSpec,
+    parameter_or_query: ParameterSpec | str,
 ) -> list[dict]:
-    """Search Exa for literature relevant to this specific parameter.
+    """Search Exa for literature relevant to a parameter or free-text query.
 
     This is separated from elicitation so results can be cached and reused
     across retry loops without re-hitting the Exa API.
@@ -69,7 +68,8 @@ async def search_parameter_literature(
     Uses Exa deep search with structured output schema.
 
     Args:
-        parameter: The parameter spec with search_context
+        parameter_or_query: Either a ParameterSpec (uses search_context) or a
+            plain query string
 
     Returns:
         List of source dicts with title, url, snippet, effect_size
@@ -80,6 +80,12 @@ async def search_parameter_literature(
     if not api_key:
         return []
 
+    search_context = (
+        parameter_or_query.search_context
+        if isinstance(parameter_or_query, ParameterSpec)
+        else parameter_or_query
+    )
+
     try:
         from exa_py import AsyncExa
 
@@ -89,7 +95,7 @@ async def search_parameter_literature(
         query = f"""\
 Empirical effect sizes related to:
 
-{parameter.search_context}
+{search_context}
 
 Focus on meta-analyses, systematic reviews, and large-scale longitudinal studies.
 Report standardized effect sizes (Cohen's d, correlation r, standardized beta).
@@ -282,20 +288,18 @@ def _aggregate_gmm(
     )
 
 
-async def elicit_prior(
+async def elicit_prior_paraphrased(
     parameter: ParameterSpec,
     question: str,
     generate: WorkerGenerateFn,
     literature_context: str,
     literature_sources: list[dict] | None = None,
     feedback: str | None = None,
-    n_paraphrases: int = 1,
+    n_paraphrases: int = 8,
 ) -> PriorResearchResult:
-    """Elicit a prior for a parameter using LLM (no Exa search).
+    """Elicit a prior via AutoElicit-style paraphrased prompting with GMM aggregation.
 
-    This is the core elicitation function, separated from literature search
-    so it can be called in a retry loop with validation feedback without
-    re-hitting the Exa API.
+    For single-shot elicitation, use run_prior_elicitation() instead (fat tool path).
 
     Args:
         parameter: The parameter spec from ModelSpec
@@ -304,7 +308,7 @@ async def elicit_prior(
         literature_context: Pre-formatted literature evidence string
         literature_sources: Raw source dicts (for metadata)
         feedback: Optional validation feedback from a previous failed attempt
-        n_paraphrases: Number of paraphrased prompts (1 = original single-shot)
+        n_paraphrases: Number of paraphrased prompts
 
     Returns:
         PriorResearchResult with proposed prior
@@ -312,15 +316,6 @@ async def elicit_prior(
     if literature_sources is None:
         literature_sources = []
 
-    if n_paraphrases <= 1:
-        return await _research_single_prior_single_shot(
-            parameter=parameter,
-            question=question,
-            generate=generate,
-            literature_context=literature_context,
-            literature_sources=literature_sources,
-            feedback=feedback,
-        )
     return await _research_single_prior_paraphrased(
         parameter=parameter,
         question=question,
@@ -374,7 +369,7 @@ async def run_prior_elicitation(
 
     msgs = _build_prior_messages(parameter, question, literature_context, feedback)
 
-    search_tool = make_search_tool(parameter.model_dump())
+    search_tool = make_search_tool()
     validate_tool, capture = make_stage_tool(
         name="validate_model",
         description="Submit prior proposals for validation.",
@@ -423,46 +418,6 @@ def _build_prior_messages(
     ]
 
 
-async def research_single_prior(
-    parameter: ParameterSpec,
-    question: str,
-    generate: WorkerGenerateFn,
-    enable_literature: bool = True,
-    n_paraphrases: int = 1,
-) -> PriorResearchResult:
-    """Research and propose a prior for a single parameter.
-
-    Convenience wrapper that runs both Exa search and LLM elicitation.
-    For retry loops, use search_parameter_literature() + elicit_prior() separately.
-
-    Args:
-        parameter: The parameter spec from ModelSpec
-        question: The research question for context
-        generate: Async generate function (messages, tools) -> str
-        enable_literature: Whether to search Exa for literature
-        n_paraphrases: Number of paraphrased prompts (1 = original single-shot)
-
-    Returns:
-        PriorResearchResult with proposed prior
-    """
-    # Search literature if enabled
-    literature_sources: list[dict] = []
-    if enable_literature:
-        literature_sources = await search_parameter_literature(parameter)
-
-    # Format literature for prompt
-    literature_context = format_literature_for_parameter(literature_sources)
-
-    return await elicit_prior(
-        parameter=parameter,
-        question=question,
-        generate=generate,
-        literature_context=literature_context,
-        literature_sources=literature_sources,
-        n_paraphrases=n_paraphrases,
-    )
-
-
 async def _research_single_prior_single_shot(
     parameter: ParameterSpec,
     question: str,
@@ -471,24 +426,11 @@ async def _research_single_prior_single_shot(
     literature_sources: list[dict],
     feedback: str | None = None,
 ) -> PriorResearchResult:
-    """Original single-shot prior elicitation."""
-    # Build messages
-    user_content = PRIOR_RESEARCH_USER.format(
-        parameter_name=parameter.name,
-        parameter_role=parameter.role.value,
-        parameter_constraint=parameter.constraint.value,
-        parameter_description=parameter.description,
-        question=question,
-        literature_context=literature_context,
-    )
+    """Schema-only single-shot elicitation (used as paraphrasing fallback).
 
-    if feedback:
-        user_content += f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
-
-    messages = [
-        {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
-        {"role": "user", "content": user_content},
-    ]
+    For the primary single-shot path, use run_prior_elicitation() instead.
+    """
+    messages = _build_prior_messages(parameter, question, literature_context, feedback)
 
     # Generate prior proposal with validation tool
     tool, capture = _make_prior_tool()
