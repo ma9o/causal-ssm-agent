@@ -8,6 +8,8 @@ export interface Stage2Worker {
   id: string;
   name: string;
   state: "running" | "completed" | "failed" | "pending";
+  nLlmCalls?: number;
+  completedAt?: number;
 }
 
 export interface Stage2WorkerProgress {
@@ -51,16 +53,37 @@ export function useStage2Workers(
 }
 
 async function fetchStage2Logs(runId: string): Promise<PrefectLogEntry[]> {
-  // Find the stage-2 subflow run ID, then fetch its logs
+  // Find the stage-2 subflow run ID and all its nested flow runs,
+  // then fetch logs from all of them (workers run in a nested extraction flow).
   const { fetchStageFlowRunId } = await import("./use-stage-logs");
   const subFlowRunId = await fetchStageFlowRunId(runId, "stage-2");
   if (!subFlowRunId) return [];
+
+  const flowRunIds = [subFlowRunId];
+
+  // Find nested flow runs (stage2-worker-extraction flow is a child)
+  try {
+    const childRes = await fetch("/prefect/flow_runs/filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        flow_runs: { parent_flow_run_id: { any_: [subFlowRunId] } },
+        limit: 5,
+      }),
+    });
+    if (childRes.ok) {
+      const children: { id: string }[] = await childRes.json();
+      flowRunIds.push(...children.map((c) => c.id));
+    }
+  } catch {
+    // Best-effort — still fetch logs from the parent flow
+  }
 
   const res = await fetch("/prefect/logs/filter", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      logs: { flow_run_id: { any_: [subFlowRunId] } },
+      logs: { flow_run_id: { any_: flowRunIds } },
       sort: "TIMESTAMP_ASC",
       limit: 500,
     }),

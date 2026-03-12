@@ -122,6 +122,7 @@ export interface WorkerProgressEvent {
   totalWorkers: number;
   completedCount: number;
   nExtractions?: number;
+  nLlmCalls?: number;
   error?: string;
 }
 
@@ -140,6 +141,7 @@ export function parseWorkerProgressEvent(
     totalWorkers: (p.total_workers as number) ?? 0,
     completedCount: (p.completed_count as number) ?? 0,
     nExtractions: typeof p.n_extractions === "number" ? p.n_extractions : undefined,
+    nLlmCalls: typeof p.n_llm_calls === "number" ? p.n_llm_calls : undefined,
     error: typeof p.error === "string" ? p.error : undefined,
   };
 }
@@ -159,9 +161,22 @@ function applyWorkerEvent(
     if (event.status === "submitted" && existing.state !== "pending") {
       return workers;
     }
-    return workers.map((w) => (w.id === id ? { ...w, state } : w));
+    return workers.map((w) =>
+      w.id === id
+        ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt: (event.status !== "submitted") ? Date.now() : undefined }
+        : w,
+    );
   }
-  return [...workers, { id, name, state }];
+  return [
+    ...workers,
+    {
+      id,
+      name,
+      state,
+      nLlmCalls: event.nLlmCalls,
+      completedAt: (event.status !== "submitted") ? Date.now() : undefined,
+    },
+  ];
 }
 
 function invalidateStageData(
