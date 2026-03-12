@@ -54,11 +54,5 @@ async def propose_measurement_with_identifiability_fix(
         generate=generate,
         dataset_summary=dataset_summary,
     )
-    causal_spec = _build_causal_spec_core(
-        latent_model, result.measurement_model, result.identifiability_status
-    )
-    return ctx.finalize({
-        "causal_spec": causal_spec,
-        "measurement_model": result.measurement_model,
-        "identifiability_status": result.identifiability_status,
-    })
+    # causal_spec is already built by stage1b_grounding — pass through directly
+    return ctx.finalize({"causal_spec": result.causal_spec})

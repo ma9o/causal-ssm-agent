@@ -111,7 +111,21 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 
 ## Validation Tool
 
-You have access to `validate_measurement_model` tool. It checks both schema validity and compiler-level measurement constraints. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+You have access to `validate_measurement_model` tool. It checks:
+1. Schema and compiler-level measurement constraints
+2. **Causal identifiability** — whether treatment effects can be estimated from the proposed indicators
+
+Keep validating until you get "VALID".
+
+### Identifiability
+
+If the tool reports identifiability issues, it will tell you:
+- Which treatment effects are blocked and by which unobserved confounders
+- Which confounders need proxy indicators
+
+To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement model (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder — add it as a new indicator with the confounder as its `construct_name`.
+
+If no suitable proxy exists in the available data columns, proceed anyway — those effects will remain non-identifiable and be flagged in downstream analysis.
 
 IMPORTANT: Once you get "VALID", STOP. Do not output anything else — the validated result is already saved by the tool. Any additional output will be ignored.
 """
@@ -172,43 +186,3 @@ If you find issues, fix them, validate with the tool, and stop once you get "VAL
 
 Think very hard.
 """
-
-# Proxy request for blocking confounders
-PROXY_SYSTEM = """\
-You are a causal inference expert. Some causal effects are not identifiable due to unobserved confounders.
-
-Your task is to find proxy measurements for specific blocking confounders to make the effects identifiable.
-
-## Guidelines
-- Focus ONLY on the requested confounders
-- A proxy should capture some aspect of the confounder's variation
-- If no proxy exists in the data, explicitly state this
-- Do NOT modify existing measurements
-
-Return a JSON with new indicators for the blocking confounders, or empty list if none found."""
-
-PROXY_USER = """\
-The following causal effects are NOT identifiable:
-{blocking_info}
-
-Think of proxy measurements for these specific confounders to make the effects identifiable:
-{confounders_to_operationalize}
-
-Return JSON with structure:
-{{
-    "new_proxies": [
-        {{
-            "construct": "confounder_name",
-            "indicators": ["indicator1", "indicator2"],
-            "justification": "Why these are good proxies"
-        }}
-    ],
-    "unfeasible_confounders": [
-        {{
-            "construct": "confounder_name",
-            "reason": "Why no proxy could be found in the data"
-        }}
-    ]
-}}
-
-Think very hard."""
