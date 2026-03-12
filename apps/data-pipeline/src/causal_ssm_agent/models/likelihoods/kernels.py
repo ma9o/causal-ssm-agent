@@ -221,9 +221,7 @@ def _make_student_t_grad_hess(df: float) -> Callable:
         sig2 = scale_diag**2
         denom = df * sig2 + residual**2
         g_eta = (df + 1.0) * residual / denom * mask_t
-        w_eta = (
-            jnp.maximum((df + 1.0) * (df * sig2 - residual**2) / (denom**2), 0.0) * mask_t
-        )
+        w_eta = jnp.maximum((df + 1.0) * (df * sig2 - residual**2) / (denom**2), 0.0) * mask_t
         g_z = H.T @ g_eta
         neg_H_z = H.T @ (w_eta[:, None] * H)
         return g_z, 0.5 * (neg_H_z + neg_H_z.T)

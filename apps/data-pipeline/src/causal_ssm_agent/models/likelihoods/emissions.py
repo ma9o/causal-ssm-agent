@@ -183,9 +183,7 @@ def _score_weight_beta_logit(y_t, eta, obs_mask_t, concentration):
     score_mu = phi * (logit_y + psi_diff)
     g = sig_deriv * score_mu * obs_mask_t
     psi1_sum = jax.lax.polygamma(1.0, alpha) + jax.lax.polygamma(1.0, beta_)
-    w_raw = phi * sig_deriv * (
-        phi * sig_deriv * psi1_sum - (1.0 - 2.0 * mu_c) * score_mu
-    )
+    w_raw = phi * sig_deriv * (phi * sig_deriv * psi1_sum - (1.0 - 2.0 * mu_c) * score_mu)
     return g, jnp.maximum(w_raw, 0.0) * obs_mask_t
 
 
@@ -228,9 +226,7 @@ def _score_weight_beta_probit(y_t, eta, obs_mask_t, concentration):
     y_c = jnp.clip(y_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     logit_y = jnp.log(y_c) - jnp.log(1.0 - y_c)
     phi_eta = jnp.exp(jstats.norm.logpdf(eta))
-    score_mu = phi * (
-        logit_y + jax.scipy.special.digamma(beta_) - jax.scipy.special.digamma(alpha)
-    )
+    score_mu = phi * (logit_y + jax.scipy.special.digamma(beta_) - jax.scipy.special.digamma(alpha))
     g = phi_eta * score_mu * obs_mask_t
     psi1_sum = jax.lax.polygamma(1.0, alpha) + jax.lax.polygamma(1.0, beta_)
     w = jnp.maximum(phi_eta**2 * phi**2 * psi1_sum, 0.0) * obs_mask_t

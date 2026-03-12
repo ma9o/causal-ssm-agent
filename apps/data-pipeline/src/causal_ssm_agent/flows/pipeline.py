@@ -303,9 +303,7 @@ async def causal_inference_pipeline(
         # Include outcome from stage result if available
         web_data = stage_state.get("web", {}) if isinstance(stage_state, dict) else {}
         stage_outcome = web_data.get("outcome")
-        _emit_stage_progress_event(
-            root_run_id, stage_id, "completed", outcome=stage_outcome
-        )
+        _emit_stage_progress_event(root_run_id, stage_id, "completed", outcome=stage_outcome)
         return stage_state
 
     def _maybe_finish(stage_id: str) -> dict[str, Any] | None:

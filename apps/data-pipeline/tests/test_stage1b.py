@@ -136,7 +136,9 @@ class TestStage1bGrounding:
         """Valid + identifiable returns VALID feedback and stage_output."""
         from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
 
-        output, feedback = stage1b_grounding(stage1b_measurement_all_observed, stage1b_simple_latent)
+        output, feedback = stage1b_grounding(
+            stage1b_measurement_all_observed, stage1b_simple_latent
+        )
 
         assert feedback == "VALID"
         assert output is not None
@@ -162,7 +164,9 @@ class TestStage1bGrounding:
         """Invalid schema returns None stage_output."""
         from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
 
-        output, feedback = stage1b_grounding({"indicators": [{"bad": "data"}]}, stage1b_simple_latent)
+        output, feedback = stage1b_grounding(
+            {"indicators": [{"bad": "data"}]}, stage1b_simple_latent
+        )
 
         assert output is None
         assert "VALIDATION ERRORS" in feedback

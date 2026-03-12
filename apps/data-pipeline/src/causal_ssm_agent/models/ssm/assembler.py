@@ -41,9 +41,7 @@ class SSMAssembler:
                         self.offdiag_positions.append((i, j))
 
         self.ti_mask: jnp.ndarray | None = (
-            jnp.array(spec.time_invariant_mask)
-            if spec.time_invariant_mask is not None
-            else None
+            jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
         )
 
         # Lambda: pre-compute mode, template, and free positions
@@ -64,9 +62,7 @@ class SSMAssembler:
             self.lambda_mode = "legacy"
             self.lambda_template = jnp.eye(spec.n_manifest, spec.n_latent)
             self.lambda_free_positions = [
-                (i, j)
-                for i in range(spec.n_latent, spec.n_manifest)
-                for j in range(spec.n_latent)
+                (i, j) for i in range(spec.n_latent, spec.n_manifest) for j in range(spec.n_latent)
             ]
 
     def assemble_drift(
@@ -98,9 +94,7 @@ class SSMAssembler:
             diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
         return diffusion
 
-    def assemble_lambda(
-        self, free_loadings: jnp.ndarray | None = None
-    ) -> jnp.ndarray:
+    def assemble_lambda(self, free_loadings: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build lambda (factor loading) matrix.
 
         Handles all three modes (template+mask, fixed, legacy) via the

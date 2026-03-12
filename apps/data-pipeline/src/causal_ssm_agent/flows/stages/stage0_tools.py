@@ -271,7 +271,9 @@ def _safe_resolve(base: Path, user_path: str) -> Path:
     return resolved
 
 
-def make_ingestion_tools(extract_dir_raw: Path, sandbox: ModalCodeSandbox) -> tuple[list[Tool], dict]:
+def make_ingestion_tools(
+    extract_dir_raw: Path, sandbox: ModalCodeSandbox
+) -> tuple[list[Tool], dict]:
     """Create the toolset for the agentic ingestion agent.
 
     Args:

@@ -1185,5 +1185,3 @@ def sbc_check(
         n_failed=n_failed,
         n_attempted=n_attempted,
     )
-
-

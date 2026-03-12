@@ -404,7 +404,8 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
         ("causal-ssm.pipeline-stage.completed", "stage-1a", "completed"),
     ]
     assert all(
-        resource["prefect.resource.id"].startswith("prefect.flow-run.") for _, resource, _ in emitted
+        resource["prefect.resource.id"].startswith("prefect.flow-run.")
+        for _, resource, _ in emitted
     )
 
 

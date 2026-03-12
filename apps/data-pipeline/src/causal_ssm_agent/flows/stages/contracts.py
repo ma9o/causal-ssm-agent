@@ -104,9 +104,7 @@ class ExecutePythonInput(BaseModel):
 class SubmitTableInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_label: str = Field(
-        description="A short human-readable label for the data source."
-    )
+    source_label: str = Field(description="A short human-readable label for the data source.")
     column_descriptions_json: str = Field(
         description="JSON object mapping column names to descriptions."
     )
@@ -555,9 +553,7 @@ class Stage6Contract(BaseModel):
 
     def summarize(self) -> tuple[int, str]:
         warnings = sum(
-            1
-            for r in self.intervention_results
-            if r.ppc_warnings or r.prior_sensitivity_warning
+            1 for r in self.intervention_results if r.ppc_warnings or r.prior_sensitivity_warning
         )
         return (
             logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,

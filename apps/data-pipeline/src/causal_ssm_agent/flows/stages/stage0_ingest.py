@@ -122,9 +122,11 @@ def _has_submission_metadata(capture: dict) -> bool:
 
     source_label = capture.get("source_label")
     column_descriptions = capture.get("column_descriptions")
-    return bool(source_label) and isinstance(column_descriptions, dict) and set(
-        column_descriptions
-    ) == set(df.columns)
+    return (
+        bool(source_label)
+        and isinstance(column_descriptions, dict)
+        and set(column_descriptions) == set(df.columns)
+    )
 
 
 def _format_finalize_prompt(df: pl.DataFrame) -> str:

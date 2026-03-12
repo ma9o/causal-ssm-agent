@@ -87,9 +87,7 @@ def _assemble_deterministics(
                 samples["diffusion_diag_pop"], samples["diffusion_lower"]
             )
         else:
-            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(
-                samples["diffusion_diag_pop"]
-            )
+            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(samples["diffusion_diag_pop"])
 
     if "cint_pop" in samples:
         det["cint"] = samples["cint_pop"]

@@ -21,8 +21,6 @@ from causal_ssm_agent.utils.litellm_client import (
 logger = get_prefect_logger(__name__)
 
 
-
-
 # ---------------------------------------------------------------------------
 # Trace models
 # ---------------------------------------------------------------------------
@@ -387,9 +385,7 @@ def make_validation_tool(
         description=description,
         parameters={
             "type": "object",
-            "properties": {
-                param_name: {"type": "string", "description": param_description}
-            },
+            "properties": {param_name: {"type": "string", "description": param_description}},
             "required": [param_name],
             "additionalProperties": False,
         },
@@ -594,7 +590,9 @@ async def _call_model_with_tool_repair(
     attempt = 0
 
     while True:
-        attempt_label = log_label if attempt == 0 else _combine_log_label(log_label, f"repair-{attempt}")
+        attempt_label = (
+            log_label if attempt == 0 else _combine_log_label(log_label, f"repair-{attempt}")
+        )
         try:
             return await call_model(
                 model_name,
@@ -791,9 +789,7 @@ async def multi_turn_generate(
         )
         messages.append(output["message"])
         elapsed_gen = time.monotonic() - t_gen
-        logger.info(
-            _scoped(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen)
-        )
+        logger.info(_scoped(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen))
 
     last_nonempty = output["completion"]
 
@@ -881,9 +877,7 @@ class StageContext:
         """Direct access to the trace capture dict (for advanced use)."""
         return self._trace_capture
 
-    def make_generate(
-        self, model_name: str, config: GenerateConfig | None = None
-    ) -> GenerateFn:
+    def make_generate(self, model_name: str, config: GenerateConfig | None = None) -> GenerateFn:
         """Create a generate function wired to this context's trace capture."""
         return make_generate_fn(
             model_name,
