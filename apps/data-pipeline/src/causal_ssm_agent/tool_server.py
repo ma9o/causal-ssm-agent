@@ -22,6 +22,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS
+from causal_ssm_agent.flows.stages.stage_tools import (
+    stage1a_grounding,
+    stage1b_grounding,
+    stage4_grounding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,59 +60,60 @@ def _load_stage_result(run_id: str, stage_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _execute_validate_latent_model(
-    _ctx: dict[str, Any], args: dict[str, Any]
-) -> str:
-    from causal_ssm_agent.orchestrator.schemas import validate_latent_model
-    from causal_ssm_agent.utils.llm import _validate_json_and_format
+def _run_compute(
+    args: dict[str, Any],
+    param_name: str,
+    compute_fn: Any,
+) -> dict[str, Any]:
+    """Parse JSON arg, run compute function, return result + stage_output."""
+    raw = args.get(param_name, "")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"result": f"JSON parse error: {e}", "stage_output": None}
 
-    return _validate_json_and_format(args["structure_json"], validate_latent_model)
+    stage_output, feedback = compute_fn(data)
+    return {"result": feedback, "stage_output": stage_output}
+
+
+def _execute_validate_latent_model(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    return _run_compute(args, "structure_json", stage1a_grounding)
 
 
 def _execute_validate_measurement_model(
     ctx: dict[str, Any], args: dict[str, Any]
-) -> str:
-    from causal_ssm_agent.models.ssm_compiler import (
-        validate_measurement_model_for_compilation,
-    )
-    from causal_ssm_agent.orchestrator.schemas import LatentModel
-    from causal_ssm_agent.utils.llm import _validate_json_and_format
-
+) -> dict[str, Any]:
     stage1a = ctx.get("stage-1a", {})
-    latent_model = LatentModel.model_validate(stage1a["latent_model"])
-    return _validate_json_and_format(
-        args["measurement_json"],
-        lambda data: validate_measurement_model_for_compilation(data, latent_model),
+    latent_model = stage1a["latent_model"]
+    return _run_compute(
+        args,
+        "measurement_json",
+        lambda data: stage1b_grounding(data, latent_model),
     )
 
 
-def _execute_validate_model_spec(
-    ctx: dict[str, Any], args: dict[str, Any]
-) -> str:
-    from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-    from causal_ssm_agent.utils.llm import _validate_json_and_format
-
+def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    run_id = ctx["_run_id"]
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
-    indicators = get_indicators(causal_spec)
-    return _validate_json_and_format(
-        args["model_spec_json"],
-        lambda data: validate_model_spec_dict(data, indicators=indicators or None),
+    current = _load_stage4_current(run_id)
+    return _run_compute(
+        args,
+        "model_json",
+        lambda data: stage4_grounding(data, causal_spec, current=current),
     )
 
 
-def _execute_validate_extractions(
-    ctx: dict[str, Any], args: dict[str, Any]
-) -> str:
+def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
     from causal_ssm_agent.utils.llm import _validate_json_and_format
     from causal_ssm_agent.workers.schemas import validate_worker_output
 
     schema = ctx.get("_extraction_schema", {})
-    return _validate_json_and_format(
+    result = _validate_json_and_format(
         args["output_json"],
         lambda data: validate_worker_output(data, schema),
     )
+    return {"result": result}
 
 
 # Registry: (stage_id, tool_name) → implementation function
@@ -115,7 +121,7 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-1a", "validate_latent_model_tool"): _execute_validate_latent_model,
     ("stage-1b", "validate_measurement_model_tool"): _execute_validate_measurement_model,
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
-    ("stage-4", "validate_model_spec_tool"): _execute_validate_model_spec,
+    ("stage-4", "validate_model"): _execute_validate_model,
 }
 
 # Upstream dependencies: which stage results need to be loaded for context
@@ -127,9 +133,26 @@ _STAGE_CONTEXT_DEPS: dict[str, list[str]] = {
 }
 
 
+def _load_stage4_current(run_id: str) -> dict[str, Any] | None:
+    """Load stage-4 result with draft overlay for state accumulation.
+
+    During refinement, priors are submitted incrementally. Each successful
+    tool call saves a draft; subsequent calls merge new proposals with the
+    accumulated state (original result + draft overlay).
+    """
+    path = _RESULTS_DIR / run_id / "stage-4.json"
+    if not path.exists():
+        return None
+    state = json.loads(path.read_text())
+    draft_path = _RESULTS_DIR / run_id / "stage-4-draft.json"
+    if draft_path.exists():
+        state.update(json.loads(draft_path.read_text()))
+    return state
+
+
 def _build_context(run_id: str, stage_id: str) -> dict[str, Any]:
     """Load upstream stage results needed for tool execution context."""
-    ctx: dict[str, Any] = {}
+    ctx: dict[str, Any] = {"_run_id": run_id}
     for dep_stage in _STAGE_CONTEXT_DEPS.get(stage_id, []):
         ctx[dep_stage] = _load_stage_result(run_id, dep_stage)
     return ctx
@@ -162,16 +185,11 @@ def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
 
 
 @app.post("/api/tools/{stage_id}/{tool_name}")
-def execute_tool(
-    stage_id: str, tool_name: str, request: ToolCallRequest
-) -> dict[str, str]:
+def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) -> dict[str, Any]:
     """Execute a pipeline tool and return its result."""
     impl = _TOOL_IMPLS.get((stage_id, tool_name))
     if impl is None:
-        raise HTTPException(
-            404, f"No implementation for tool {tool_name!r} in stage {stage_id!r}"
-        )
+        raise HTTPException(404, f"No implementation for tool {tool_name!r} in stage {stage_id!r}")
 
     ctx = _build_context(request.run_id, stage_id)
-    result = impl(ctx, request.input)
-    return {"result": result}
+    return impl(ctx, request.input)
