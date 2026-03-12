@@ -32,26 +32,22 @@ def construct_factory():
 
     Usage:
         def test_something(construct_factory):
-            stress = construct_factory("stress", "daily", Role.EXOGENOUS)
-            mood = construct_factory("mood", "daily", Role.ENDOGENOUS, is_outcome=True)
+            stress = construct_factory("stress", Role.EXOGENOUS)
+            mood = construct_factory("mood", Role.ENDOGENOUS, is_outcome=True)
     """
 
     def _make(
         name: str,
-        granularity: str | None = "daily",
         role: Role = Role.ENDOGENOUS,
         is_outcome: bool = False,
+        temporal_status: TemporalStatus = TemporalStatus.TIME_VARYING,
     ) -> Construct:
-        temporal_status = (
-            TemporalStatus.TIME_VARYING if granularity else TemporalStatus.TIME_INVARIANT
-        )
         return Construct(
             name=name,
             description=f"{name} description",
             role=role,
             is_outcome=is_outcome,
             temporal_status=temporal_status,
-            temporal_scale=granularity,
         )
 
     return _make
@@ -73,6 +69,7 @@ def indicator_factory():
         aggregation: str = "mean",
         ordinal_levels: list[str] | None = None,
         source_columns: list[str] | None = None,
+        extraction_mode: str = "semantic",
     ) -> Indicator:
         # Auto-provide ordinal_levels for ordinal dtype if not specified
         if dtype == "ordinal" and ordinal_levels is None:
@@ -85,6 +82,7 @@ def indicator_factory():
             aggregation=aggregation,
             ordinal_levels=ordinal_levels,
             source_columns=source_columns or [name],
+            extraction_mode=extraction_mode,
         )
 
     return _make
@@ -112,7 +110,6 @@ def stage1b_simple_latent():
                 "is_outcome": True,
                 "description": "The result",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             },
         ],
         "edges": [
@@ -135,7 +132,6 @@ def stage1b_confounded_latent():
                 "role": "endogenous",
                 "description": "The intervention",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             },
             {
                 "name": "Outcome",
@@ -143,7 +139,6 @@ def stage1b_confounded_latent():
                 "is_outcome": True,
                 "description": "The result",
                 "temporal_status": "time_varying",
-                "temporal_scale": "daily",
             },
             {
                 "name": "Confounder",
@@ -176,6 +171,7 @@ def stage1b_confounded_latent():
 def stage1b_measurement_all_observed():
     """Measurement model with indicators for Treatment and Outcome."""
     return {
+        "model_clock": "1d",
         "indicators": [
             {
                 "name": "treatment_dose",
@@ -193,7 +189,91 @@ def stage1b_measurement_all_observed():
                 "aggregation": "mean",
                 "source_columns": ["outcome_score"],
             },
-        ]
+        ],
+    }
+
+
+@pytest.fixture
+def stage1b_measurement_missing_confounder():
+    """Measurement model missing the confounder (non-identifiable)."""
+    return {
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": "treatment_dose",
+                "construct_name": "Treatment",
+                "how_to_measure": "Extract the treatment dosage from the data",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "source_columns": ["treatment_dose"],
+            },
+            {
+                "name": "outcome_score",
+                "construct_name": "Outcome",
+                "how_to_measure": "Extract the outcome score from the data",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "source_columns": ["outcome_score"],
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def stage1b_measurement_with_confounder():
+    """Measurement model with confounder indicator (identifiable)."""
+    return {
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": "treatment_dose",
+                "construct_name": "Treatment",
+                "how_to_measure": "Extract the treatment dosage from the data",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "source_columns": ["treatment_dose"],
+            },
+            {
+                "name": "outcome_score",
+                "construct_name": "Outcome",
+                "how_to_measure": "Extract the outcome score from the data",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "source_columns": ["outcome_score"],
+            },
+            {
+                "name": "confounder_proxy",
+                "construct_name": "Confounder",
+                "how_to_measure": "Proxy measurement for the confounder",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "source_columns": ["confounder_proxy"],
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def stage1b_proxy_response_success():
+    """Successful proxy response that adds confounder indicator."""
+    return {
+        "new_proxies": [
+            {
+                "construct": "Confounder",
+                "indicators": ["confounder_proxy"],
+                "justification": "This proxy captures the confounder",
+            }
+        ],
+        "unfeasible_confounders": [],
+    }
+
+
+@pytest.fixture
+def stage1b_proxy_response_empty():
+    """Empty proxy response (no proxies found)."""
+    return {
+        "new_proxies": [],
+        "unfeasible_confounders": ["Confounder"],
     }
 
 

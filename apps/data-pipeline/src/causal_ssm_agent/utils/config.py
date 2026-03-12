@@ -35,12 +35,15 @@ class Stage1Config:
 
 @dataclass(frozen=True)
 class Stage2Config:
-    """Stage 2: Dimension Population (Workers)."""
+    """Stage 2: Tick-Based Extraction (Workers)."""
 
     model: str
-    chunk_size: int
+    ticks_per_chunk: int = 7
     max_concurrent_workers: int = 4
     submission_batch_size: int = 50
+    max_events_per_tick: int = 300
+    # Deprecated: kept for config.yaml backward compat, ignored at runtime
+    chunk_size: int = 50
 
 
 @dataclass(frozen=True)

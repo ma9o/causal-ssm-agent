@@ -621,11 +621,12 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
         "cardiovascular_risk",
     }
     measurement = {
+        "model_clock": "1d",
         "indicators": [
             indicator
             for indicator in stage1b["measurement"]["indicators"]
             if indicator["construct_name"] in stage4_construct_names
-        ]
+        ],
     }
     causal_spec = {
         "latent": {
@@ -635,35 +636,30 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
                     "description": "Prescription refill and appointment follow-through.",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
                 {
                     "name": "lipid_burden",
                     "description": "Atherogenic lipid profile.",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
                 {
                     "name": "vascular_inflammation",
                     "description": "Inflammatory state relevant to cardiovascular risk.",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
                 {
                     "name": "glycemic_control",
                     "description": "Blood-glucose regulation quality.",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
                 {
                     "name": "arterial_pressure",
                     "description": "Blood-pressure burden.",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
                 {
                     "name": "cardiovascular_risk",
@@ -671,7 +667,6 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
                     "role": "endogenous",
                     "is_outcome": True,
                     "temporal_status": "time_varying",
-                    "temporal_scale": "monthly",
                 },
             ],
             "edges": [

@@ -458,18 +458,16 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
     """Extract indicator values from data using LLM workers.
 
     Returns dict with:
-    - ``_raw_data``: long-format Polars DataFrame
-    - ``_data_for_model``: aggregated DataFrame for modeling
+    - ``_raw_data``: long-format Polars DataFrame (tick-level, already at model_clock resolution)
+    - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
     - ``_worker_statuses``: per-worker status list
     - plus web-serializable fields
     """
     import polars as pl
     from prefect.task_runners import ThreadPoolTaskRunner
 
-    from causal_ssm_agent.utils.aggregations import (
-        aggregate_worker_measurements,
-        flatten_aggregated_data,
-    )
+    from causal_ssm_agent.utils.aggregations import _encode_non_continuous
+    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
     from causal_ssm_agent.utils.config import get_config
 
     from .stages import stage2_extraction_flow
@@ -487,6 +485,7 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
     )
 
     # Reconstruct raw_data DataFrame from worker results
+    # Tick-based extraction: timestamp column contains tick start times
     raw_data_dicts = stage2_result.get("raw_data", [])
     if raw_data_dicts:
         raw_data = pl.DataFrame(
@@ -501,22 +500,34 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
     n_observations = len(raw_data)
     n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
     logger.info(
-        "Extracted %d observations across %d indicators", n_observations, n_unique_indicators
+        "Extracted %d tick-level observations across %d indicators",
+        n_observations,
+        n_unique_indicators,
     )
 
-    # Aggregate to pipeline-level granularity
-    worker_dfs = [raw_data]
-    aggregated_result = aggregate_worker_measurements(worker_dfs, causal_spec)
-    if aggregated_result:
-        data_for_model = flatten_aggregated_data(aggregated_result)
-        logger.info(
-            "  Aggregated to %d observations across %s granularities",
-            len(data_for_model),
-            list(aggregated_result.keys()),
-        )
+    # Encode non-continuous types and prepare for modeling
+    # Data is already at model_clock resolution — no aggregation needed
+    if n_observations > 0:
+        dtype_lookup = get_indicator_dtypes(causal_spec)
+        ordinal_levels_lookup: dict[str, list[str]] = {
+            ind["name"]: ind["ordinal_levels"]
+            for ind in get_indicators(causal_spec)
+            if ind.get("ordinal_levels")
+        }
+        data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
+        data_for_model = data_for_model.with_columns(
+            pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+            pl.col("timestamp")
+            .str.replace(r"[Zz]$", "")
+            .str.replace(r"[+-]\d{2}:\d{2}$", "")
+            .str.to_datetime(strict=False)
+            .alias("time_bucket"),
+        ).drop("timestamp").drop_nulls(subset=["time_bucket", "value"])
+        data_for_model = data_for_model.sort("indicator", "time_bucket")
     else:
         data_for_model = raw_data
-        logger.info("  No aggregation applied (using raw data)")
+
+    logger.info("  Data for model: %d observations", len(data_for_model))
 
     # Build web payload
     sample_rows = raw_data.head(20).to_dicts() if n_observations > 0 else []
@@ -527,7 +538,7 @@ async def stage2(question: str, stage0: dict, stage1b: dict) -> dict:
         {
             "indicator": str(row.get("indicator", "")),
             "value": row.get("value"),
-            "timestamp": (str(row.get("timestamp")) if row.get("timestamp") is not None else None),
+            "tick": row.get("timestamp"),
         }
         for row in sample_rows
     ]

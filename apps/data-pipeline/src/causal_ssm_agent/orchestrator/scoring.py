@@ -13,9 +13,7 @@ import json
 from pydantic import ValidationError
 
 from causal_ssm_agent.orchestrator.schemas import (
-    GRANULARITY_HOURS,
     LatentModel,
-    TemporalStatus,
 )
 
 
@@ -59,17 +57,11 @@ def _count_rule_points(structure: LatentModel) -> float:
     Points per construct:
     - +1 valid role
     - +1 valid temporal_status
-    - +1 correct temporal_scale constraint (required for time_varying, forbidden for time_invariant)
-    - +1 valid temporal_scale value (if specified)
 
     Points per edge:
     - +1 cause exists in constructs
     - +1 effect exists in constructs
     - +1 effect is endogenous
-    - +1 correct timescale handling (same-scale or cross-scale rules)
-
-    Bonus points:
-    - +2 per cross-timescale edge (more complex modeling)
     """
     from causal_ssm_agent.orchestrator.schemas import Role
 
@@ -77,25 +69,12 @@ def _count_rule_points(structure: LatentModel) -> float:
     construct_map = {c.name: c for c in structure.constructs}
 
     # Points for constructs
-    for construct in structure.constructs:
+    for _construct in structure.constructs:
         # Valid role (already validated by schema, but count it)
         points += 1
 
         # Valid temporal_status
         points += 1
-
-        is_time_varying = construct.temporal_status == TemporalStatus.TIME_VARYING
-
-        # Correct temporal_scale constraint
-        if is_time_varying:
-            if construct.temporal_scale is not None:
-                points += 1
-                # Valid granularity value
-                if construct.temporal_scale in GRANULARITY_HOURS:
-                    points += 1
-        else:  # time_invariant
-            if construct.temporal_scale is None:
-                points += 1
 
     # Points for edges
     for edge in structure.edges:
@@ -107,24 +86,11 @@ def _count_rule_points(structure: LatentModel) -> float:
         if edge.effect in construct_map:
             points += 1
 
-        cause_construct = construct_map.get(edge.cause)
         effect_construct = construct_map.get(edge.effect)
 
-        if cause_construct and effect_construct:
-            # Effect is endogenous
-            if effect_construct.role == Role.ENDOGENOUS:
-                points += 1
-
-            cause_gran = cause_construct.temporal_scale
-            effect_gran = effect_construct.temporal_scale
-
-            # Timescale handling
-            if cause_gran == effect_gran:
-                # Same timescale: valid lag handling
-                points += 1
-            else:
-                # Cross-timescale: bonus for complexity
-                points += 2
+        # Effect is endogenous
+        if effect_construct and effect_construct.role == Role.ENDOGENOUS:
+            points += 1
 
     return points
 
@@ -147,10 +113,10 @@ def score_latent_model_normalized(example, pred, trace=None) -> float:
     except (json.JSONDecodeError, AttributeError):
         return 0.0
 
-    # Theoretical max per construct: ~4 points (2 classification + 2 temporal_scale)
-    # Theoretical max per edge: ~4 points (cause + effect + endogenous + timescale/cross-timescale bonus)
-    max_construct_points = n_constructs * 4
-    max_edge_points = n_edges * 4
+    # Theoretical max per construct: 2 points (role + temporal_status)
+    # Theoretical max per edge: 3 points (cause + effect + endogenous)
+    max_construct_points = n_constructs * 2
+    max_edge_points = n_edges * 3
     max_points = max_construct_points + max_edge_points
 
     if max_points == 0:

@@ -7,11 +7,11 @@ run_worker_extraction.
 import json
 import logging
 
-import polars as pl
 import pytest
 
 from causal_ssm_agent.workers.core import (
     WorkerMessages,
+    _format_indicators,
     _get_outcome_description,
     run_worker_extraction,
 )
@@ -34,22 +34,49 @@ def _causal_spec():
             "edges": [{"cause": "stress", "effect": "sleep"}],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "pss_score",
                     "construct_name": "stress",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Perceived Stress Scale score",
+                    "aggregation": "mean",
                 },
                 {
                     "name": "sleep_hours",
                     "construct_name": "sleep",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Self-reported hours of sleep",
+                    "aggregation": "mean",
                 },
-            ]
+            ],
         },
     }
+
+
+# =============================================================================
+# _format_indicators
+# =============================================================================
+
+
+class TestFormatIndicators:
+    def test_basic_formatting(self):
+        result = _format_indicators(_causal_spec())
+        assert "pss_score" in result
+        assert "sleep_hours" in result
+        assert "continuous" in result
+        assert "Perceived Stress Scale" in result
+        assert "agg=mean" in result
+
+    def test_empty_indicators(self):
+        result = _format_indicators({"measurement": {"model_clock": "1d", "indicators": []}})
+        assert result == ""
+
+    def test_missing_optional_fields(self):
+        spec = {"measurement": {"model_clock": "1d", "indicators": [{"name": "x"}]}}
+        result = _format_indicators(spec)
+        assert "x" in result
 
 
 # =============================================================================
@@ -89,20 +116,15 @@ class TestGetOutcomeDescription:
 
 
 class TestWorkerMessages:
-    def _sample_df(self):
-        return pl.DataFrame(
-            {
-                "date": ["Day 1", "Day 2"],
-                "pss_score": [25, 18],
-                "sleep_hours": [6.5, 7.2],
-            }
-        )
+    def _sample_tick_text(self):
+        return "## Tick: 2024-01-01\n\n08:00  pss=25, sleep=6.5\n09:00  pss=18, sleep=7.2"
 
     def test_extraction_messages_structure(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            chunk_df=self._sample_df(),
+            tick_text=self._sample_tick_text(),
+            n_ticks=1,
         )
         msgs = wm.extraction_messages()
         assert len(msgs) == 2
@@ -113,12 +135,12 @@ class TestWorkerMessages:
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            chunk_df=self._sample_df(),
+            tick_text=self._sample_tick_text(),
+            n_ticks=1,
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]
         assert "stress" in user_msg.lower() or "sleep" in user_msg.lower()
-        # CSV format should contain the actual data values
         assert "25" in user_msg
         assert "6.5" in user_msg
 
@@ -126,7 +148,8 @@ class TestWorkerMessages:
         wm = WorkerMessages(
             question="test",
             causal_spec=_causal_spec(),
-            chunk_df=self._sample_df(),
+            tick_text=self._sample_tick_text(),
+            n_ticks=1,
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]
@@ -140,15 +163,11 @@ class TestWorkerMessages:
 
 
 class TestRunWorkerExtraction:
-    def _sample_df(self):
-        return pl.DataFrame(
-            {
-                "timestamp": ["2024-01-01T00:00:00Z"],
-                "activity_type": ["Search"],
-                "full_title": ["Searched for sleep hygiene"],
-                "url": ["https://example.com"],
-            }
-        )
+    def _sample_tick_text(self):
+        return "## Tick: 2024-01-01\n\n08:00  Searched for sleep hygiene"
+
+    def _sample_tick_ids(self):
+        return ["2024-01-01"]
 
     def test_empty_completion_raises_parse_error(self, caplog):
         async def fake_generate(messages, tools=None, follow_ups=None, label=None):
@@ -162,7 +181,8 @@ class TestRunWorkerExtraction:
         ):
             _run(
                 run_worker_extraction(
-                    chunk_df=self._sample_df(),
+                    tick_text=self._sample_tick_text(),
+                    tick_ids=self._sample_tick_ids(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
                     generate=fake_generate,
@@ -182,9 +202,9 @@ class TestRunWorkerExtraction:
                 {
                     "extractions": [
                         {
+                            "tick": "2024-01-01",
                             "indicator": "pss_score",
                             "value": 12.0,
-                            "timestamp": "2024-01-01T00:00:00Z",
                         }
                     ]
                 }
@@ -195,15 +215,16 @@ class TestRunWorkerExtraction:
         with caplog.at_level(logging.INFO, logger=logger.name):
             result = _run(
                 run_worker_extraction(
-                    chunk_df=self._sample_df(),
+                    tick_text=self._sample_tick_text(),
+                    tick_ids=self._sample_tick_ids(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
                     generate=fake_generate,
                     logger=logger,
-                    call_label="stage2 chunk=3 rows=1 cols=4",
+                    call_label="stage2 chunk=3 ticks=1 events=1",
                 )
             )
 
-        assert captured["label"] == "stage2 chunk=3 rows=1 cols=4"
+        assert captured["label"] == "stage2 chunk=3 ticks=1 events=1"
         assert result.dataframe.height == 1
-        assert "[stage2 chunk=3 rows=1 cols=4] Calling extraction model" in caplog.text
+        assert "[stage2 chunk=3 ticks=1 events=1] Calling extraction model" in caplog.text

@@ -20,8 +20,6 @@ import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.orchestrator.schemas import GRANULARITY_HOURS
-
 logger = logging.getLogger(__name__)
 
 # Minimum observations for temporal modeling
@@ -161,7 +159,7 @@ def _check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[li
 
 def _check_time_coverage(
     parsed_ts: pl.Series,
-    temporal_scale: str | None,
+    model_clock_hours: float,
     ind_name: str,
 ) -> tuple[list[dict], float | None]:
     """Check if data spans enough time for temporal modeling.
@@ -171,13 +169,6 @@ def _check_time_coverage(
     """
     issues: list[dict] = []
 
-    if temporal_scale is None:
-        return issues, None
-
-    gran_hours = GRANULARITY_HOURS.get(temporal_scale)
-    if gran_hours is None:
-        return issues, None
-
     if len(parsed_ts) < 2:
         return issues, None
 
@@ -186,7 +177,7 @@ def _check_time_coverage(
     assert isinstance(ts_max, datetime) and isinstance(ts_min, datetime)
     time_span = ts_max - ts_min
     time_span_hours = time_span.total_seconds() / 3600
-    min_hours = MIN_COVERAGE_PERIODS * gran_hours
+    min_hours = MIN_COVERAGE_PERIODS * model_clock_hours
     coverage_ratio = min(time_span_hours / min_hours, 1.0) if min_hours > 0 else None
 
     if time_span_hours < min_hours:
@@ -197,7 +188,7 @@ def _check_time_coverage(
                 "severity": "warning",
                 "message": (
                     f"Time span {time_span_hours:.0f}h < required {min_hours}h "
-                    f"({MIN_COVERAGE_PERIODS} x {temporal_scale})"
+                    f"({MIN_COVERAGE_PERIODS} x {model_clock_hours}h)"
                 ),
             }
         )
@@ -207,7 +198,7 @@ def _check_time_coverage(
 
 def _check_timestamp_gaps(
     parsed_ts: pl.Series,
-    temporal_scale: str | None,
+    model_clock_hours: float,
     ind_name: str,
 ) -> tuple[list[dict], float | None]:
     """Check for excessively large gaps in timestamps.
@@ -217,13 +208,6 @@ def _check_timestamp_gaps(
     """
     issues: list[dict] = []
 
-    if temporal_scale is None:
-        return issues, None
-
-    gran_hours = GRANULARITY_HOURS.get(temporal_scale)
-    if gran_hours is None:
-        return issues, None
-
     if len(parsed_ts) < 3:
         return issues, None
 
@@ -232,7 +216,7 @@ def _check_timestamp_gaps(
     max_gap_raw = diffs.max()
     assert isinstance(max_gap_raw, timedelta)
     max_gap_hours = max_gap_raw.total_seconds() / 3600
-    threshold = MAX_GAP_MULTIPLIER * gran_hours
+    threshold = MAX_GAP_MULTIPLIER * model_clock_hours
     max_gap_ratio = max_gap_hours / threshold if threshold > 0 else None
 
     if max_gap_hours > threshold:
@@ -243,7 +227,7 @@ def _check_timestamp_gaps(
                 "severity": "warning",
                 "message": (
                     f"Max consecutive gap {max_gap_hours:.0f}h > "
-                    f"{MAX_GAP_MULTIPLIER}x {temporal_scale} ({threshold}h)"
+                    f"{MAX_GAP_MULTIPLIER}x {model_clock_hours}h ({threshold}h)"
                 ),
             }
         )
@@ -537,8 +521,18 @@ def validate_extraction(
         dtype = ind_meta.get("measurement_dtype")
         construct_name = ind_meta.get("construct_name")
         construct_meta = construct_lookup.get(construct_name, {}) if construct_name else {}
-        causal_gran = construct_meta.get("temporal_scale")
         is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
+
+        # Get model_clock_hours from measurement model
+        model_clock_str = causal_spec.get("measurement", {}).get("model_clock")
+        model_clock_hours: float | None = None
+        if model_clock_str:
+            import contextlib
+
+            from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
+
+            with contextlib.suppress(ValueError):
+                model_clock_hours = parse_duration_to_hours(model_clock_str)
 
         # 1. Timestamp parseability
         ts_issues, parsed_ts = _check_timestamps(ind_data, ind_name)
@@ -553,12 +547,14 @@ def validate_extraction(
         # 3-4. Time coverage and gaps (skip for time-invariant constructs)
         time_coverage_ratio: float | None = None
         max_gap_ratio: float | None = None
-        if not is_time_invariant:
+        if not is_time_invariant and model_clock_hours is not None:
             coverage_issues, time_coverage_ratio = _check_time_coverage(
-                parsed_ts, causal_gran, ind_name
+                parsed_ts, model_clock_hours, ind_name
             )
             issues.extend(coverage_issues)
-            gap_issues, max_gap_ratio = _check_timestamp_gaps(parsed_ts, causal_gran, ind_name)
+            gap_issues, max_gap_ratio = _check_timestamp_gaps(
+                parsed_ts, model_clock_hours, ind_name
+            )
             issues.extend(gap_issues)
 
         # 5. Hallucination signals

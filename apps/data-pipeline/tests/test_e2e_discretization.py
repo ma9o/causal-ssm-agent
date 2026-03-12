@@ -49,14 +49,12 @@ def two_construct_causal_spec() -> dict:
                     "role": "endogenous",
                     "is_outcome": True,
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
                 {
                     "name": "stress",
                     "description": "Daily stress level",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
-                    "temporal_scale": "daily",
                 },
             ],
             "edges": [
@@ -69,6 +67,7 @@ def two_construct_causal_spec() -> dict:
             ],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "mood_rating",
@@ -202,7 +201,7 @@ def weekly_study_priors() -> dict[str, dict]:
             "params": {"alpha": 2.0, "beta": 2.0},
             "sources": [],
             "reasoning": "No literature; weakly informative",
-            # No reference_interval_days → falls back to temporal_scale (daily → dt=1)
+            # No reference_interval_days → falls back to dt=1
         },
         "beta_stress_mood": {
             "parameter": "beta_stress_mood",
@@ -302,14 +301,12 @@ class TestE2ESpecToDiscretization:
                         "role": "endogenous",
                         "is_outcome": True,
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                     {
                         "name": "stress",
                         "description": "Daily stress",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                     {
                         "name": "trait_vulnerability",
@@ -328,6 +325,7 @@ class TestE2ESpecToDiscretization:
                 ],
             },
             "measurement": {
+                "model_clock": "1d",
                 "indicators": [
                     {
                         "name": "mood_rating",
@@ -350,7 +348,7 @@ class TestE2ESpecToDiscretization:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     },
-                ]
+                ],
             },
         }
         model_spec = {
@@ -532,10 +530,10 @@ class TestE2ESpecToDiscretization:
     def test_dt_to_ct_uses_reference_interval_days(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
-        """Priors with reference_interval_days use that dt, not temporal_scale.
+        """Priors with reference_interval_days use that dt.
 
         rho_mood has reference_interval_days=7 → dt=7
-        rho_stress has no reference_interval_days → falls back to temporal_scale=daily → dt=1
+        rho_stress has no reference_interval_days → falls back to dt=1
         beta_stress_mood has reference_interval_days=7 → dt=7
         """
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
@@ -881,21 +879,19 @@ class TestE2ESpecToDiscretization:
                         "role": "endogenous",
                         "is_outcome": True,
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                     {
                         "name": "stress",
                         "description": "Stress",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
-                        "temporal_scale": "daily",
                     },
                 ],
                 "edges": [
                     {"cause": "stress", "effect": "mood", "description": "test", "lagged": True},
                 ],
             },
-            "measurement": {"indicators": []},
+            "measurement": {"model_clock": "1d", "indicators": []},
         }
 
         model_spec = {

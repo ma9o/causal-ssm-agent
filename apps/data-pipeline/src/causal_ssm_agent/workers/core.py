@@ -1,4 +1,4 @@
-"""Worker extraction core logic.
+"""Worker extraction core logic (tick-based).
 
 Core logic for worker data extraction, decoupled from Prefect and model-client
 frameworks. Uses dependency injection for the LLM generate function.
@@ -38,15 +38,16 @@ def _pfx(label: str | None, message: str) -> str:
 def _format_indicators(causal_spec: dict) -> str:
     """Format indicators for the worker prompt.
 
-    Shows: name, dtype, how_to_measure
+    Shows: name, dtype, aggregation, how_to_measure
     """
     lines = []
     for ind in get_indicators(causal_spec):
         name = ind.get("name", "unknown")
         how_to_measure = ind.get("how_to_measure", "")
         dtype = ind.get("measurement_dtype", "")
+        agg = ind.get("aggregation", "mean")
 
-        lines.append(f"- {name} ({dtype}): {how_to_measure}")
+        lines.append(f"- {name} ({dtype}, agg={agg}): {how_to_measure}")
     return "\n".join(lines)
 
 
@@ -58,38 +59,19 @@ def _get_outcome_description(causal_spec: dict) -> str:
     return "Not specified"
 
 
-def _format_dataframe_schema(df: pl.DataFrame) -> str:
-    """Format a DataFrame schema for the worker prompt."""
-    lines = ["| Column | Type |", "|--------|------|"]
-    for col in df.columns:
-        lines.append(f"| {col} | {df.schema[col]} |")
-    return "\n".join(lines)
-
-
-def _format_dataframe_chunk(df: pl.DataFrame) -> str:
-    """Format a DataFrame chunk as CSV for the worker prompt.
-
-    Uses CSV rather than str(df) because Polars' default __str__
-    truncates both rows and columns (replacing them with '…'),
-    which hides most of the data from the LLM.
-    """
-    return df.write_csv()
-
-
 @dataclass
 class WorkerMessages:
     """Message builders for worker prompts."""
 
     question: str
     causal_spec: dict
-    chunk_df: pl.DataFrame
+    tick_text: str
+    n_ticks: int
 
     def extraction_messages(self) -> list[dict]:
         """Build messages for worker extraction."""
         indicators_text = _format_indicators(self.causal_spec)
         outcome_description = _get_outcome_description(self.causal_spec)
-        schema_text = _format_dataframe_schema(self.chunk_df)
-        chunk_text = _format_dataframe_chunk(self.chunk_df)
 
         return [
             {"role": "system", "content": SYSTEM},
@@ -99,16 +81,16 @@ class WorkerMessages:
                     question=self.question,
                     outcome_description=outcome_description,
                     indicators=indicators_text,
-                    schema=schema_text,
-                    n_rows=len(self.chunk_df),
-                    chunk=chunk_text,
+                    n_ticks=self.n_ticks,
+                    tick_text=self.tick_text,
                 ),
             },
         ]
 
 
 async def run_worker_extraction(
-    chunk_df: pl.DataFrame,
+    tick_text: str,
+    tick_ids: list[str],
     question: str,
     causal_spec: dict,
     generate: WorkerGenerateFn,
@@ -116,26 +98,27 @@ async def run_worker_extraction(
     call_label: str | None = None,
 ) -> WorkerResult:
     """
-    Run worker extraction for a single DataFrame chunk.
+    Run worker extraction for a chunk of ticks.
 
     This is the core logic, decoupled from any framework. The caller provides
     a `generate` function that handles LLM calls.
 
     Args:
-        chunk_df: A slice of the raw DataFrame to process
-        question: The causal research question
-        causal_spec: The CausalSpec dict with latent and measurement
-        generate: Async function (messages, tools) -> completion
+        tick_text: Pre-formatted text of tick events for the LLM prompt.
+        tick_ids: Expected tick IDs in this chunk (for validation).
+        question: The causal research question.
+        causal_spec: The CausalSpec dict with latent and measurement.
+        generate: Async function (messages, tools) -> completion.
+        logger: Optional logger instance.
+        call_label: Optional label for log messages.
 
     Returns:
-        WorkerResult with output, dataframe, and raw completion
+        WorkerResult with output, dataframe, and raw completion.
     """
     active_logger = logger or logging.getLogger(__name__)
-    msgs = WorkerMessages(question, causal_spec, chunk_df)
+    msgs = WorkerMessages(question, causal_spec, tick_text, n_ticks=len(tick_ids))
 
     # Build messages and tools
-    # The validation tool captures the last valid output so we don't depend
-    # on the final completion being valid JSON.
     extraction_msgs = msgs.extraction_messages()
     from causal_ssm_agent.workers.schemas import validate_worker_output
 
@@ -144,22 +127,20 @@ async def run_worker_extraction(
         description="Validate worker extraction output JSON.",
         param_name="output_json",
         param_description="The JSON string containing the worker output.",
-        validator=lambda data: validate_worker_output(data, causal_spec),
+        validator=lambda data: validate_worker_output(data, causal_spec, tick_ids),
         capture_key="output",
     )
     tools = [tool]
-    chunk_csv = _format_dataframe_chunk(chunk_df)
     tool_names = [tool.name for tool in tools]
 
     active_logger.info(
         _pfx(
             call_label,
-            "Prepared worker prompt with %d rows, %d columns, %d indicators, %d CSV chars",
+            "Prepared worker prompt with %d ticks, %d indicators, %d text chars",
         ),
-        len(chunk_df),
-        len(chunk_df.columns),
+        len(tick_ids),
         len(get_indicators(causal_spec)),
-        len(chunk_csv),
+        len(tick_text),
     )
     active_logger.info(_pfx(call_label, "Using worker tools: %s"), tool_names)
 

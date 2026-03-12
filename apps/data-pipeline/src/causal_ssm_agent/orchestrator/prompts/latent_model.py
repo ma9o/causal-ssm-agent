@@ -35,22 +35,20 @@ Each construct has three properties:
 Set `is_outcome: true` for the primary outcome Y implied by the question. Exactly one construct must be the outcome. Only endogenous constructs can be outcomes.
 
 ### 3. Temporal Status
-| Value | Description | temporal_scale |
-|-------|-------------|---------------------|
-| **time_varying** | Changes within person over time | Required (hourly/daily/weekly/monthly/yearly) |
-| **time_invariant** | Fixed for each person | Must be null |
-
-**temporal_scale**: The timescale at which causal dynamics operate. Ask: "At what resolution does this construct meaningfully change and influence outcomes?"
+| Value | Description |
+|-------|-------------|
+| **time_varying** | Changes within person over time |
+| **time_invariant** | Fixed for each person |
 
 ## Causal Edges
 
 Edges represent causal relationships between constructs.
 
 ### Edge Timing
-- **lagged=true** (default): cause at t-1 → effect at t
-- **lagged=false**: cause at t → effect at t (contemporaneous, same timescale only)
+- **lagged=true** (default): cause at t-1 → effect at t (one model_clock tick delay)
+- **lagged=false**: cause at t → effect at t (contemporaneous)
 
-Cross-timescale edges are always lagged. The system computes lag in hours automatically.
+Multi-step effects (e.g., "sleep 2 days ago affects mood today") should be modeled as indirect chains through intermediary constructs.
 
 Contemporaneous edges must form a DAG within each time slice (A4). Feedback loops require lagged edges—model them across time, not within.
 
@@ -70,8 +68,7 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
       "description": "what this theoretical construct represents",
       "role": "endogenous" | "exogenous",
       "is_outcome": true | false,
-      "temporal_status": "time_varying" | "time_invariant",
-      "temporal_scale": "hourly" | "daily" | "weekly" | "monthly" | "yearly" | null
+      "temporal_status": "time_varying" | "time_invariant"
     }
   ],
   "edges": [
@@ -109,8 +106,7 @@ Review your proposed latent model for theoretical coherence.
 
 1. **Outcome clarity**: Is exactly one construct marked as is_outcome=true?
 2. **Causal completeness**: Are there important confounders missing?
-3. **Temporal coherence**: Do temporal_scale values make sense for each construct?
-4. **Edge validity**: Are all edges theoretically justified? Are contemporaneous edges truly instantaneous?
+3. **Edge validity**: Are all edges theoretically justified? Are contemporaneous edges truly instantaneous?
 5. **Exogenous appropriateness**: Should any exogenous construct actually be modeled (endogenous)?
 
 ## Output

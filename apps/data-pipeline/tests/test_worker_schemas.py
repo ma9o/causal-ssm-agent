@@ -6,7 +6,7 @@ Covers: _check_dtype_match, validate_worker_output, WorkerOutput.to_dataframe.
 import polars as pl
 
 from causal_ssm_agent.workers.schemas import (
-    Extraction,
+    TickExtraction,
     WorkerOutput,
     _check_dtype_match,
     validate_worker_output,
@@ -17,7 +17,10 @@ def _causal_spec(*indicators):
     """Build a minimal CausalSpec dict with given indicator tuples (name, dtype)."""
     return {
         "measurement": {
-            "indicators": [{"name": name, "measurement_dtype": dtype} for name, dtype in indicators]
+            "model_clock": "1d",
+            "indicators": [
+                {"name": name, "measurement_dtype": dtype} for name, dtype in indicators
+            ],
         }
     }
 
@@ -103,7 +106,7 @@ class TestCheckDtypeMatch:
 class TestValidateWorkerOutput:
     def test_valid_single_extraction(self):
         spec = _causal_spec(("mood", "continuous"))
-        data = {"extractions": [{"indicator": "mood", "value": 3.5}]}
+        data = {"extractions": [{"tick": "2024-01-01", "indicator": "mood", "value": 3.5}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
@@ -146,7 +149,7 @@ class TestValidateWorkerOutput:
 
     def test_unknown_indicator_error(self):
         spec = _causal_spec(("mood", "continuous"))
-        data = {"extractions": [{"indicator": "nonexistent", "value": 1.0}]}
+        data = {"extractions": [{"tick": "2024-01-01", "indicator": "nonexistent", "value": 1.0}]}
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert any("nonexistent" in e for e in errors)
@@ -154,7 +157,9 @@ class TestValidateWorkerOutput:
 
     def test_dtype_mismatch_error(self):
         spec = _causal_spec(("mood", "continuous"))
-        data = {"extractions": [{"indicator": "mood", "value": "not_a_number"}]}
+        data = {
+            "extractions": [{"tick": "2024-01-01", "indicator": "mood", "value": "not_a_number"}]
+        }
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert any("dtype" in e for e in errors)
@@ -163,34 +168,32 @@ class TestValidateWorkerOutput:
         spec = _causal_spec(("mood", "continuous"))
         data = {
             "extractions": [
-                {"indicator": "bad1", "value": 1.0},
-                {"indicator": "bad2", "value": 2.0},
+                {"tick": "2024-01-01", "indicator": "bad1", "value": 1.0},
+                {"tick": "2024-01-01", "indicator": "bad2", "value": 2.0},
             ]
         }
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert len(errors) >= 2
 
-    def test_timestamp_preserved(self):
+    def test_tick_preserved(self):
         spec = _causal_spec(("mood", "continuous"))
-        data = {
-            "extractions": [{"indicator": "mood", "value": 5.0, "timestamp": "2024-01-01T10:00:00"}]
-        }
+        data = {"extractions": [{"tick": "2024-01-01", "indicator": "mood", "value": 5.0}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
-        assert output.extractions[0].timestamp == "2024-01-01T10:00:00"
+        assert output.extractions[0].tick == "2024-01-01"
 
     def test_null_value_accepted(self):
         spec = _causal_spec(("mood", "continuous"))
-        data = {"extractions": [{"indicator": "mood", "value": None}]}
+        data = {"extractions": [{"tick": "2024-01-01", "indicator": "mood", "value": None}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
 
     def test_binary_valid(self):
         spec = _causal_spec(("is_smoking", "binary"))
-        data = {"extractions": [{"indicator": "is_smoking", "value": True}]}
+        data = {"extractions": [{"tick": "2024-01-01", "indicator": "is_smoking", "value": True}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
@@ -199,14 +202,39 @@ class TestValidateWorkerOutput:
         spec = _causal_spec(("mood", "continuous"), ("is_smoking", "binary"))
         data = {
             "extractions": [
-                {"indicator": "mood", "value": 7.0},
-                {"indicator": "is_smoking", "value": False},
+                {"tick": "2024-01-01", "indicator": "mood", "value": 7.0},
+                {"tick": "2024-01-01", "indicator": "is_smoking", "value": False},
             ]
         }
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
         assert len(output.extractions) == 2
+
+    def test_duplicate_tick_indicator_rejected(self):
+        spec = _causal_spec(("mood", "continuous"))
+        data = {
+            "extractions": [
+                {"tick": "2024-01-01", "indicator": "mood", "value": 3.0},
+                {"tick": "2024-01-01", "indicator": "mood", "value": 4.0},
+            ]
+        }
+        output, errors = validate_worker_output(data, spec)
+        assert output is None
+        assert any("duplicate" in e.lower() for e in errors)
+
+    def test_unexpected_tick_rejected_when_expected_ticks_given(self):
+        spec = _causal_spec(("mood", "continuous"))
+        data = {
+            "extractions": [
+                {"tick": "2024-01-99", "indicator": "mood", "value": 3.0},
+            ]
+        }
+        output, errors = validate_worker_output(
+            data, spec, expected_ticks=["2024-01-01", "2024-01-02"]
+        )
+        assert output is None
+        assert any("not in expected ticks" in e for e in errors)
 
 
 # =============================================================================
@@ -225,7 +253,7 @@ class TestWorkerOutputToDataframe:
     def test_basic_conversion(self):
         output = WorkerOutput(
             extractions=[
-                Extraction(indicator="mood", value=7.5, timestamp="2024-01-01"),
+                TickExtraction(tick="2024-01-01", indicator="mood", value=7.5),
             ]
         )
         df = output.to_dataframe()
@@ -235,20 +263,24 @@ class TestWorkerOutputToDataframe:
         assert df["timestamp"][0] == "2024-01-01"
 
     def test_none_value_preserved(self):
-        output = WorkerOutput(extractions=[Extraction(indicator="mood", value=None)])
+        output = WorkerOutput(
+            extractions=[TickExtraction(tick="2024-01-01", indicator="mood", value=None)]
+        )
         df = output.to_dataframe()
         assert df["value"][0] is None
 
     def test_bool_converted_to_string(self):
-        output = WorkerOutput(extractions=[Extraction(indicator="smoke", value=True)])
+        output = WorkerOutput(
+            extractions=[TickExtraction(tick="2024-01-01", indicator="smoke", value=True)]
+        )
         df = output.to_dataframe()
         assert df["value"][0] == "True"
 
     def test_multiple_rows(self):
         output = WorkerOutput(
             extractions=[
-                Extraction(indicator="mood", value=7.0),
-                Extraction(indicator="sleep", value=8.0),
+                TickExtraction(tick="2024-01-01", indicator="mood", value=7.0),
+                TickExtraction(tick="2024-01-01", indicator="sleep", value=8.0),
             ]
         )
         df = output.to_dataframe()

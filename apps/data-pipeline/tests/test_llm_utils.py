@@ -146,6 +146,7 @@ def _worker_schema():
             "edges": [{"cause": "stress", "effect": "sleep"}],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "sleep_hours",
@@ -153,7 +154,7 @@ def _worker_schema():
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Read sleep hours directly from the rows",
                 }
-            ]
+            ],
         },
     }
 

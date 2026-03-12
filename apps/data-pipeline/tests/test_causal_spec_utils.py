@@ -13,12 +13,11 @@ def _full_spec():
     return {
         "latent": {
             "constructs": [
-                {"name": "stress", "role": "exogenous", "temporal_scale": "daily"},
+                {"name": "stress", "role": "exogenous"},
                 {
                     "name": "mood",
                     "role": "endogenous",
                     "is_outcome": True,
-                    "temporal_scale": "daily",
                 },
             ],
             "edges": [
@@ -26,6 +25,7 @@ def _full_spec():
             ],
         },
         "measurement": {
+            "model_clock": "1d",
             "indicators": [
                 {
                     "name": "pss_score",
@@ -58,8 +58,7 @@ class TestMakeExtractionContext:
         spec["measurement"]["indicators"][0]["source_columns"] = ["pss_col"]
         ctx = make_extraction_context(spec)
         ind = ctx["measurement"]["indicators"][0]
-        assert set(ind.keys()) == {"name", "measurement_dtype", "how_to_measure", "source_columns"}
-        assert "aggregation" not in ind
+        assert set(ind.keys()) == {"name", "measurement_dtype", "how_to_measure", "source_columns", "aggregation"}
         assert "construct_name" not in ind
 
     def test_outcome_slimmed_to_name_and_description(self):
@@ -73,7 +72,10 @@ class TestMakeExtractionContext:
     def test_no_outcome_gives_empty_constructs(self):
         spec = {
             "latent": {"constructs": [{"name": "x", "role": "exogenous"}]},
-            "measurement": {"indicators": [{"name": "ind", "measurement_dtype": "continuous"}]},
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [{"name": "ind", "measurement_dtype": "continuous"}],
+            },
         }
         ctx = make_extraction_context(spec)
         assert ctx["latent"]["constructs"] == []
