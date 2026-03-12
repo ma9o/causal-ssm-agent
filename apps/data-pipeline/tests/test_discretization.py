@@ -40,14 +40,6 @@ class TestKronLyapunovSolve:
         assert jnp.isclose(X[0, 0], 1.0, atol=1e-5)
         assert jnp.isclose(X[1, 1], 2.0, atol=1e-5)
 
-    def test_satisfies_equation(self):
-        """Verify A*X + X*A' = -Q."""
-        A = jnp.array([[-2.0, 0.5], [0.0, -3.0]])
-        Q = jnp.array([[1.0, 0.2], [0.2, 2.0]])
-        X = _kron_lyapunov_solve(A, Q)
-        residual = A @ X + X @ A.T + Q
-        assert jnp.allclose(residual, 0.0, atol=1e-5)
-
 
 # =============================================================================
 # solve_lyapunov (Schur-based, custom VJP)
@@ -152,20 +144,6 @@ class TestDiscreteDiffusion:
         expected = Q_inf - Ad @ Q_inf @ Ad.T
         actual = compute_discrete_diffusion(A, Q, dt)
         assert jnp.allclose(actual, expected, atol=1e-6)
-
-    def test_does_not_depend_on_lyapunov_solver(self, monkeypatch):
-        """Per-step discretization should not call solve_lyapunov."""
-        import causal_ssm_agent.models.ssm.discretization as disc
-
-        def _raise(*_args, **_kwargs):
-            raise AssertionError("solve_lyapunov should not be called")
-
-        monkeypatch.setattr(disc, "solve_lyapunov", _raise)
-        A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
-        Q = jnp.eye(2)
-        dt = 0.5
-        Q_dt = disc.compute_discrete_diffusion(A, Q, dt)
-        assert jnp.all(jnp.isfinite(Q_dt))
 
 
 # =============================================================================

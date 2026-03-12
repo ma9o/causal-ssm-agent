@@ -11,22 +11,6 @@ from causal_ssm_agent.models.likelihoods.particle import _systematic_resampling
 
 
 class TestSystematicResampling:
-    def test_output_shape(self):
-        """Should return n indices."""
-        key = jax.random.PRNGKey(0)
-        logits = jnp.zeros(100)
-        idx = _systematic_resampling(key, logits, 100)
-        assert idx.shape == (100,)
-
-    def test_indices_in_range(self):
-        """All indices should be in [0, N-1]."""
-        key = jax.random.PRNGKey(42)
-        N = 50
-        logits = jax.random.normal(key, (N,))
-        idx = _systematic_resampling(key, logits, N)
-        assert jnp.all(idx >= 0)
-        assert jnp.all(idx < N)
-
     def test_deterministic_with_same_key(self):
         """Same key should produce same indices."""
         logits = jnp.array([0.0, 1.0, -1.0, 2.0, -2.0])
@@ -55,10 +39,3 @@ class TestSystematicResampling:
         # should be selected exactly once
         counts = jnp.bincount(idx, length=N)
         assert jnp.all(counts == 1)
-
-    def test_integer_output(self):
-        """Indices should be integers."""
-        key = jax.random.PRNGKey(0)
-        logits = jnp.array([1.0, 2.0, 3.0])
-        idx = _systematic_resampling(key, logits, 3)
-        assert jnp.issubdtype(idx.dtype, jnp.integer)

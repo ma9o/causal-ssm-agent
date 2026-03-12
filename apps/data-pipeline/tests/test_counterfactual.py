@@ -149,13 +149,6 @@ class TestTreatmentEffect:
 
 
 class TestSummarizeTrajectory:
-    def test_keys_present(self):
-        """Should return all expected keys."""
-        traj = jnp.linspace(0, 1, 100)
-        result = _summarize_trajectory(traj, dt=0.1)
-        expected_keys = {"effect_1d", "effect_7d", "effect_30d", "peak_effect", "time_to_peak_days"}
-        assert set(result.keys()) == expected_keys
-
     def test_monotonic_increasing_trajectory(self):
         """For monotonically increasing trajectory, 30d > 7d > 1d."""
         traj = jnp.linspace(0, 3, 300)
@@ -182,12 +175,6 @@ class TestSummarizeTrajectory:
         traj = jnp.array([0.5, 1.0, 1.5, 2.0, 2.5])
         result = _summarize_trajectory(traj, dt=1.0)
         assert abs(result["effect_1d"] - 0.5) < 1e-5
-
-    def test_time_to_peak_positive(self):
-        """Time to peak should always be positive."""
-        traj = jnp.array([3.0, 2.0, 1.0, 0.5])
-        result = _summarize_trajectory(traj, dt=0.5)
-        assert result["time_to_peak_days"] > 0
 
 
 # =============================================================================

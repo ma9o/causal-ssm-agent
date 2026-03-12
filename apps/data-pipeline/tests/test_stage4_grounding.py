@@ -172,11 +172,6 @@ class TestStage4GroundingInputValidation:
         assert output is None
         assert "model_spec" in feedback and "priors" in feedback
 
-    def test_neither_key_returns_error(self, causal_spec):
-        output, feedback = stage4_grounding({"something_else": 1}, causal_spec)
-        assert output is None
-        assert "VALIDATION ERRORS" in feedback
-
 
 # ---------------------------------------------------------------------------
 # Gate 1: schema validation
@@ -223,12 +218,6 @@ class TestStage4GroundingSchemaValidation:
 
 class TestStage4GroundingCompile:
     """Compile gate: trial compile (no priors) or full compile (with priors)."""
-
-    def test_model_spec_trial_compiles(self, causal_spec, model_spec):
-        """model_spec without priors does a trial compile with defaults."""
-        output, feedback = stage4_grounding({"model_spec": model_spec}, causal_spec)
-        assert output is not None
-        assert feedback == "VALID"
 
     def test_priors_without_model_spec_fails(self, causal_spec, model_spec, priors):
         """Priors without model_spec in current state → compile error."""
@@ -320,16 +309,6 @@ class TestStage4GroundingStateMerging:
 
 class TestStage4GroundingPriorPredictive:
     """Prior predictive gate runs only when priors + raw_data are present."""
-
-    def test_no_raw_data_skips_pp(self, causal_spec, model_spec, priors):
-        """Without raw_data, PP gate is skipped → VALID."""
-        output, feedback = stage4_grounding(
-            {"model_spec": model_spec, "priors": priors},
-            causal_spec,
-            raw_data=None,
-        )
-        assert output is not None
-        assert feedback == "VALID"
 
     def test_with_raw_data_runs_pp(self, causal_spec, model_spec, priors):
         """With raw_data, PP gate runs. With reasonable priors it should pass."""

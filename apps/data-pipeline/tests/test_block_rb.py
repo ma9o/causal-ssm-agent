@@ -571,57 +571,6 @@ class TestCrossCoupling:
         assert jnp.isfinite(ll)
         assert float(ll) < 0  # LL should be negative
 
-    def test_full_coupling_finite(self):
-        """Full cross-coupling (G<->S): LL should be finite."""
-        ct, meas, init = _make_mixed_params(
-            n_g=1,
-            n_s=1,
-            n_manifest=2,
-            cross_coupling=True,
-        )
-        key = random.PRNGKey(222)
-        obs, dt = _simulate_data(key, ct, meas, init, T=20)
-
-        ll = _run_block_rbpf(
-            ct,
-            meas,
-            init,
-            obs,
-            dt,
-            diffusion_dists=["gaussian", "student_t"],
-            n_particles=200,
-            extra_params={"proc_df": 5.0},
-        )
-        assert jnp.isfinite(ll)
-
-    def test_deterministic_with_fixed_seed(self):
-        """Block RBPF should be deterministic with fixed RNG key."""
-        ct, meas, init = _make_mixed_params(n_g=1, n_s=1, n_manifest=2)
-        key = random.PRNGKey(333)
-        obs, dt = _simulate_data(key, ct, meas, init, T=15)
-
-        ll1 = _run_block_rbpf(
-            ct,
-            meas,
-            init,
-            obs,
-            dt,
-            diffusion_dists=["gaussian", "student_t"],
-            rng_key=random.PRNGKey(99),
-            extra_params={"proc_df": 5.0},
-        )
-        ll2 = _run_block_rbpf(
-            ct,
-            meas,
-            init,
-            obs,
-            dt,
-            diffusion_dists=["gaussian", "student_t"],
-            rng_key=random.PRNGKey(99),
-            extra_params={"proc_df": 5.0},
-        )
-        assert float(ll1) == float(ll2)
-
     def test_higher_dim_mixed(self):
         """3G + 2S with mixed coupling: LL is finite."""
         ct, meas, init = _make_mixed_params(

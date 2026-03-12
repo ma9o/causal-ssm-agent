@@ -313,14 +313,10 @@ class InferenceResult:
                         n_used = n_chains * n_per_chain
                         for name, vals in flat_samples.items():
                             v = np.asarray(vals[:n_used])
-                            posterior_dict[name] = v.reshape(
-                                n_chains, n_per_chain, *v.shape[1:]
-                            )
+                            posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
                         idata = az.from_dict(
                             posterior=posterior_dict,
-                            log_likelihood={
-                                "ll_per_timestep": np.asarray(ll_chained)
-                            },
+                            log_likelihood={"ll_per_timestep": np.asarray(ll_chained)},
                         )
                     ll_per_timestep_found = True
             except Exception:

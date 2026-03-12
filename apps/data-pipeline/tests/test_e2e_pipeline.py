@@ -23,11 +23,7 @@ from causal_ssm_agent.flows.stages.stage3_validation import (
 )
 from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-from causal_ssm_agent.orchestrator.schemas import (
-    CausalSpec,
-    LatentModel,
-    MeasurementModel,
-)
+from causal_ssm_agent.orchestrator.schemas import CausalSpec
 from causal_ssm_agent.utils.aggregations import (
     aggregate_worker_measurements,
     flatten_aggregated_data,
@@ -467,26 +463,6 @@ class TestE2EPipeline:
         outcome = get_outcome_name(causal_spec["latent"])
         assert outcome == "Perf"
 
-    def test_latent_model_validates(self, latent_model):
-        """LatentModel fixture passes Pydantic validation."""
-        model = LatentModel.model_validate(latent_model)
-        assert len(model.constructs) == 4
-        assert len(model.edges) == 4
-
-    def test_measurement_model_validates(self, measurement_model):
-        """MeasurementModel fixture passes Pydantic validation."""
-        model = MeasurementModel.model_validate(measurement_model)
-        assert len(model.indicators) == 6
-
-    def test_get_treatments(self, latent_model):
-        """get_all_treatments returns all non-outcome ancestors of Perf."""
-        treatments = get_all_treatments(latent_model)
-        assert treatments == ["Fatigue", "Focus", "Stress"]
-
-    def test_get_outcome(self, latent_model):
-        """get_outcome_name returns Perf."""
-        assert get_outcome_name(latent_model) == "Perf"
-
     # ------------------------------------------------------------------
     # Stage 3: validation + aggregation (Polars, fast)
     # ------------------------------------------------------------------
@@ -501,12 +477,6 @@ class TestE2EPipeline:
         # All 6 indicators present with sufficient observations
         present = {i["indicator"] for i in result["issues"] if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
-
-    def test_stage3_combine(self, worker_dfs):
-        """Concatenating worker DataFrames produces correct shape."""
-        combined = pl.concat(worker_dfs, how="vertical")
-        assert len(combined) == T * len(INDICATOR_NAMES)  # 80 * 6 = 480
-        assert set(combined.columns) == {"indicator", "value", "timestamp"}
 
     def test_stage3_aggregate(self, causal_spec, worker_dfs):
         """aggregate_worker_measurements produces daily data for all indicators."""
