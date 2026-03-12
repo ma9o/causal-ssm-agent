@@ -105,6 +105,10 @@ async def run_stage1b(
         "identifiable_treatments": id_info.get("identifiable_treatments", {}),
         "non_identifiable_treatments": id_info.get("non_identifiable_treatments", {}),
     }
+    # graph_info is preserved in capture (not in the Pydantic model) for downstream analysis
+    graph_info = capture.get("graph_info")
+    if graph_info is not None:
+        id_status["graph_info"] = graph_info
 
     # Deterministic post-processing: which unobserved constructs can be marginalized
     marginalization = analyze_unobserved_constructs(latent_model, measurement, id_status)
