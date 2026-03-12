@@ -32,7 +32,7 @@ def _emit_worker_event(
     status: str,
     total_workers: int,
     completed_count: int,
-    chunk_size: int,
+    n_ticks: int,
     n_extractions: int | None = None,
     error: str | None = None,
 ) -> None:
@@ -41,7 +41,7 @@ def _emit_worker_event(
         "stage_id": "stage-2",
         "worker_id": worker_id,
         "status": status,
-        "chunk_size": chunk_size,
+        "n_ticks": n_ticks,
         "total_workers": total_workers,
         "completed_count": completed_count,
     }
@@ -165,7 +165,7 @@ def _collect_batch_results(
                     status="failed",
                     total_workers=total_chunks,
                     completed_count=overall_completed,
-                    chunk_size=n_ticks,
+                    n_ticks=n_ticks,
                     error=str(exc),
                 )
             continue
@@ -202,7 +202,7 @@ def _collect_batch_results(
                 status="completed",
                 total_workers=total_chunks,
                 completed_count=overall_completed,
-                chunk_size=n_ticks,
+                n_ticks=n_ticks,
                 n_extractions=n_ext,
             )
 
@@ -455,7 +455,7 @@ async def stage2_extraction_flow(
                             status="submitted",
                             total_workers=len(chunks),
                             completed_count=n_finished,
-                            chunk_size=n_t,
+                            n_ticks=n_t,
                         )
                 batch_rows, batch_statuses, batch_total, batch_trace = _collect_batch_results(
                     futures=results,
