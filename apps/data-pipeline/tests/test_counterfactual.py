@@ -285,7 +285,7 @@ class TestComputeInterventions:
         assert results[0]["effect_size"] is None
 
     def test_treatment_not_in_latent_names(self):
-        """Treatment not in latent names should produce a warning entry."""
+        """Treatment not in latent names should return skeleton with None effect."""
         samples = self._make_samples()
         results = compute_interventions(
             samples,
@@ -294,7 +294,6 @@ class TestComputeInterventions:
             latent_names=["A", "B", "C"],
         )
         assert results[0]["effect_size"] is None
-        assert "warning" in results[0]
 
     def test_no_drift_samples(self):
         """Missing drift returns skeletons."""
@@ -341,7 +340,6 @@ class TestComputeInterventions:
         b_result = next(r for r in results if r["treatment"] == "B")
         assert a_result["identifiable"] is False
         assert b_result["identifiable"] is True
-        assert "warning" in a_result
 
     def test_missing_cint_defaults_to_zeros(self):
         """When cint is missing, should default to zeros."""

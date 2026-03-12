@@ -343,6 +343,13 @@ class TestE2ESpecToDiscretization:
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     },
+                    {
+                        "name": "vulnerability_score",
+                        "construct_name": "trait_vulnerability",
+                        "how_to_measure": "Vulnerability questionnaire",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
                 ]
             },
         }
@@ -356,6 +363,12 @@ class TestE2ESpecToDiscretization:
                 },
                 {
                     "variable": "stress_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "vulnerability_score",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
