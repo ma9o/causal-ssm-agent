@@ -433,6 +433,12 @@ class TestE2ESpecToDiscretization:
                     "link": "identity",
                     "reasoning": "",
                 },
+                {
+                    "variable": "stress_cortisol",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
             ],
             "parameters": [
                 {
