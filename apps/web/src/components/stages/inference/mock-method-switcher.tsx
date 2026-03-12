@@ -2,14 +2,14 @@
 
 import { Badge } from "@/components/ui/badge";
 import type { Stage5bData } from "@causal-ssm/api-types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-type InferenceMethod = "svi" | "nuts_da" | "particle_filter";
+type InferenceMethod = "laplace_em" | "nuts_da" | "particle_filter";
 
 const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
+  { id: "laplace_em", label: "Laplace-EM", disabled: false },
   { id: "nuts_da", label: "NUTS-DA", disabled: false },
   { id: "particle_filter", label: "Particle Filter", disabled: true },
-  { id: "svi", label: "SVI", disabled: false },
 ];
 
 interface MockMethodSwitcherProps {
@@ -18,28 +18,28 @@ interface MockMethodSwitcherProps {
 }
 
 export function MockMethodSwitcher({ baseData, onDataChange }: MockMethodSwitcherProps) {
-  const [active, setActive] = useState<InferenceMethod>("nuts_da");
+  const [active, setActive] = useState<InferenceMethod>("laplace_em");
   const [nutsdaData, setNutsdaData] = useState<Stage5bData | null>(null);
-
-  useEffect(() => {
-    fetch("/api/results/mock-run-001/stage-5b-nutsda")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        setNutsdaData(d);
-        if (d) onDataChange(d);
-      })
-      .catch(() => {
-        // Fetch failure is non-critical; NUTS-DA data simply won't be available
-      });
-  }, [onDataChange]);
 
   const handleSwitch = (method: InferenceMethod) => {
     if (method === active) return;
     setActive(method);
-    if (method === "svi") {
+    if (method === "laplace_em") {
       onDataChange(baseData);
-    } else if (method === "nuts_da" && nutsdaData) {
-      onDataChange(nutsdaData);
+    } else if (method === "nuts_da") {
+      if (nutsdaData) {
+        onDataChange(nutsdaData);
+      } else {
+        fetch("/api/results/mock-run-001/stage-5b-nutsda")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d) {
+              setNutsdaData(d);
+              onDataChange(d);
+            }
+          })
+          .catch(() => {});
+      }
     }
   };
 
