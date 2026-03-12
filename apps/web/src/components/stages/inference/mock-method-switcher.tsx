@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import type { Stage5Data } from "@causal-ssm/api-types";
+import type { Stage5bData } from "@causal-ssm/api-types";
 import { useEffect, useState } from "react";
 
 type InferenceMethod = "svi" | "nuts_da" | "particle_filter";
@@ -13,16 +13,16 @@ const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
 ];
 
 interface MockMethodSwitcherProps {
-  baseData: Stage5Data;
-  onDataChange: (data: Stage5Data) => void;
+  baseData: Stage5bData;
+  onDataChange: (data: Stage5bData) => void;
 }
 
 export function MockMethodSwitcher({ baseData, onDataChange }: MockMethodSwitcherProps) {
   const [active, setActive] = useState<InferenceMethod>("nuts_da");
-  const [nutsdaData, setNutsdaData] = useState<Stage5Data | null>(null);
+  const [nutsdaData, setNutsdaData] = useState<Stage5bData | null>(null);
 
   useEffect(() => {
-    fetch("/api/results/mock-run-001/stage-5-nutsda")
+    fetch("/api/results/mock-run-001/stage-5b-nutsda")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setNutsdaData(d);

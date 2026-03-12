@@ -7,7 +7,7 @@ export const STAGE_IDS = [
   "stage-4",
   "stage-4b",
   "stage-5a",
-  "stage-5",
+  "stage-5b",
   "stage-6",
 ] as const;
 
@@ -109,11 +109,11 @@ export const STAGES: StageMeta[] = [
     interactive: false,
   },
   {
-    id: "stage-5",
+    id: "stage-5b",
     label: "Inference & Diagnostics",
-    number: "5",
+    number: "5b",
     hasGate: false,
-    prefectFlowName: "stage-5-flow",
+    prefectFlowName: "stage-5b-flow",
     loadingHint: "Running Bayesian inference...",
     description: "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
     interactive: false,

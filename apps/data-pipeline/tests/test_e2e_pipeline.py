@@ -1,7 +1,7 @@
 """End-to-end fixture-driven pipeline test.
 
 Wires FOUR_LATENT benchmark fixtures through the real computation stages
-(3, 4b, 5) to verify data flows correctly from causal specification through
+(3, 4b, 5b) to verify data flows correctly from causal specification through
 inference to intervention ranking — without LLM calls.
 
 Uses .fn() to bypass Prefect runtime on all stage tasks.

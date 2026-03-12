@@ -7,7 +7,7 @@ import type {
   Stage3Data,
   Stage4Data,
   Stage4bData,
-  Stage5Data,
+  Stage5bData,
   Stage6Data,
 } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
@@ -35,7 +35,7 @@ export interface AllStageData {
   "stage-3"?: Stage3Data | null;
   "stage-4"?: Stage4Data | null;
   "stage-4b"?: Stage4bData | null;
-  "stage-5"?: Stage5Data | null;
+  "stage-5b"?: Stage5bData | null;
   "stage-6"?: Stage6Data | null;
 }
 
@@ -434,10 +434,10 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
   }
 
   // --- Stage 5: Inference & Diagnostics ---
-  const s5 = data["stage-5"];
+  const s5 = data["stage-5b"];
   if (s5) {
-    lines.push(section(2, `Stage 5: ${STAGES[7].label}`));
-    lines.push(`> ${STAGES[7].description}`);
+    lines.push(section(2, `Stage 5b: ${STAGES[8].label}`));
+    lines.push(`> ${STAGES[8].description}`);
     lines.push("");
 
     // MCMC diagnostics
@@ -586,8 +586,8 @@ export function generateMarkdown(data: AllStageData, runId: string): string {
   // --- Stage 6: Treatment Effects ---
   const s6 = data["stage-6"];
   if (s6) {
-    lines.push(section(2, `Stage 6: ${STAGES[8].label}`));
-    lines.push(`> ${STAGES[8].description}`);
+    lines.push(section(2, `Stage 6: ${STAGES[9].label}`));
+    lines.push(`> ${STAGES[9].description}`);
     lines.push("");
 
     if (s6.intervention_results.length === 0) {

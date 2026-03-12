@@ -3,10 +3,10 @@
 import { DiagnosticsAccordion } from "@/components/stages/inference/diagnostics-accordion";
 import { MockMethodSwitcher } from "@/components/stages/inference/mock-method-switcher";
 import { isMockMode } from "@/lib/api/mock-provider";
-import type { Stage5Data } from "@causal-ssm/api-types";
+import type { Stage5bData } from "@causal-ssm/api-types";
 import { useState } from "react";
 
-export default function Stage5Content({ data }: { data: Stage5Data }) {
+export default function Stage5bContent({ data }: { data: Stage5bData }) {
   const [activeData, setActiveData] = useState(data);
   const mock = isMockMode();
 

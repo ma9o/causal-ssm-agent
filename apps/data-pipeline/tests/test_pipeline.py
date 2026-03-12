@@ -75,13 +75,13 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             "t_rule": {},
         }
 
-    def stage5(
+    def stage5b(
         stage4_result: dict,
         stage1b_result: dict,
         stage2_result: dict,
         inference_method: str | None,
     ) -> dict:
-        calls.append(("stage5", stage4_result, stage1b_result, stage2_result, inference_method))
+        calls.append(("stage5b", stage4_result, stage1b_result, stage2_result, inference_method))
         return {
             "_fitted_result": {"fitted": True},
             "_ps_result": {},
@@ -108,8 +108,8 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     def persist_web_result(stage_id: str, data: dict, run_id: str) -> dict:
         calls.append(("persist_web_result", stage_id, data, run_id))
-        if stage_id == "stage-5":
-            return {"stage5": True}
+        if stage_id == "stage-5b":
+            return {"stage5b": True}
         if stage_id == "stage-6":
             return {"stage6": True}
         return data
@@ -120,7 +120,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage3", stage3)
     monkeypatch.setattr(dag, "stage4b", stage4b)
     monkeypatch.setattr(dag, "stage4b_gate", stage4b_gate)
-    monkeypatch.setattr(dag, "stage5", stage5)
+    monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr("causal_ssm_agent.flows.stages.persist_web_result", persist_web_result)
 
@@ -188,7 +188,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         entry[0] == "persist_web_result" and entry[1] == "stage-1a" and entry[2] == override_payload
         for entry in calls
     )
-    assert result == {"stage5": True, "stage6": True}
+    assert result == {"stage5b": True, "stage6": True}
 
 
 def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeypatch, tmp_path):
@@ -247,7 +247,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
     )
 
     assert any(entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls)
-    assert result == {"stage5": True, "stage6": True}
+    assert result == {"stage5b": True, "stage6": True}
 
 
 def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatch, tmp_path):
@@ -447,19 +447,19 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     ]
 
 
-def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatch):
+def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     run_id = "legacy-run"
     run_dir = tmp_path / "results" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "stage5-fitted-result.pkl").write_bytes(
+    (run_dir / "stage5b-fitted-result.pkl").write_bytes(
         cloudpickle.dumps({"samples": {"x": [1, 2, 3]}})
     )
     _write_public_result(
         tmp_path,
         run_id,
-        "stage-5",
+        "stage-5b",
         {
             "outcome": "warn",
             "power_scaling": [
@@ -481,9 +481,9 @@ def test_load_stage5_state_reconstructs_from_public_payload(tmp_path, monkeypatc
         },
     )
 
-    state = dag.load_stage_state(run_id, "stage-5")
+    state = dag.load_stage_state(run_id, "stage-5b")
 
-    assert state["result"]["_fitted_result_path"].endswith("stage5-fitted-result.pkl")
+    assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
     assert state["result"]["_ps_result"]["checked"] is True
     assert state["result"]["_ps_result"]["diagnosis"] == {"beta_x": "prior_dominated"}
     assert state["result"]["_ppc_result"]["checked"] is True

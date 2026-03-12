@@ -28,8 +28,8 @@
     "stage-5a": {
       "$ref": "#/$defs/Stage5aContract"
     },
-    "stage-5": {
-      "$ref": "#/$defs/Stage5Contract"
+    "stage-5b": {
+      "$ref": "#/$defs/Stage5bContract"
     },
     "stage-6": {
       "$ref": "#/$defs/Stage6Contract"
@@ -2455,7 +2455,73 @@
       "title": "Stage4bContract",
       "type": "object"
     },
-    "Stage5Contract": {
+    "Stage5aContract": {
+      "additionalProperties": false,
+      "description": "SVI preflight: fast approximate fit before expensive inference.",
+      "properties": {
+        "outcome": {
+          "default": "success",
+          "enum": [
+            "success",
+            "warn",
+            "fail"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "inference_metadata": {
+          "$ref": "#/$defs/InferenceMetadataContract"
+        },
+        "svi_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SVIDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "posterior_marginals": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorMarginal"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Marginals"
+        },
+        "posterior_pairs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorPair"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Pairs"
+        }
+      },
+      "required": [
+        "inference_metadata",
+        "outcome"
+      ],
+      "title": "Stage5aContract",
+      "type": "object"
+    },
+    "Stage5bContract": {
       "additionalProperties": false,
       "properties": {
         "outcome": {
@@ -2551,73 +2617,7 @@
         "power_scaling",
         "ppc"
       ],
-      "title": "Stage5Contract",
-      "type": "object"
-    },
-    "Stage5aContract": {
-      "additionalProperties": false,
-      "description": "SVI preflight: fast approximate fit before expensive inference.",
-      "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "inference_metadata": {
-          "$ref": "#/$defs/InferenceMetadataContract"
-        },
-        "svi_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SVIDiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "posterior_marginals": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorMarginal"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Marginals"
-        },
-        "posterior_pairs": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorPair"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Pairs"
-        }
-      },
-      "required": [
-        "inference_metadata",
-        "outcome"
-      ],
-      "title": "Stage5aContract",
+      "title": "Stage5bContract",
       "type": "object"
     },
     "Stage6Contract": {
@@ -3165,8 +3165,8 @@
     "stage-3",
     "stage-4",
     "stage-4b",
-    "stage-5",
     "stage-5a",
+    "stage-5b",
     "stage-6"
   ]
 }

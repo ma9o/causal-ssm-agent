@@ -16,7 +16,7 @@ import type {
   Stage3Data,
   Stage4Data,
   Stage4bData,
-  Stage5Data,
+  Stage5bData,
   Stage5aData,
   Stage6Data,
   StageId,
@@ -47,7 +47,7 @@ const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5aContent = lazy(() => import("./stage-contents/stage-5a-content"));
-const Stage5Content = lazy(() => import("./stage-contents/stage-5-content"));
+const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
 const Stage6Content = lazy(() => import("./stage-contents/stage-6-content"));
 
 function StageWithTrace({
@@ -293,9 +293,9 @@ function StageContent({ stageId, runId }: { stageId: string; runId: string }) {
       return (
         <SimpleStageWrapper<Stage5aData> runId={runId} stageId="stage-5a" Component={Stage5aContent} />
       );
-    case "stage-5":
+    case "stage-5b":
       return (
-        <SimpleStageWrapper<Stage5Data> runId={runId} stageId="stage-5" Component={Stage5Content} />
+        <SimpleStageWrapper<Stage5bData> runId={runId} stageId="stage-5b" Component={Stage5bContent} />
       );
     case "stage-6":
       return (

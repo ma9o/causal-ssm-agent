@@ -26,7 +26,7 @@ RESULT_STORAGE = Path("results")
 STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
 STAGE2_RAW_PARQUET_FILENAMES = ("stage2-raw-data.parquet",)
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
-STAGE5_PICKLE_FILENAMES = ("stage5-fitted-result.pkl",)
+STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 
 
 def _run_dir(run_id: str) -> Path:
@@ -278,7 +278,7 @@ def load_stage_state(
         gate = stage4b_gate(result, override_gates=bool(web.get("gate_overridden")))
         return _stage_state(result, web, gate=gate)
 
-    if stage_id == "stage-5":
+    if stage_id == "stage-5b":
         power_scaling = list(web.get("power_scaling", []) or [])
         result = {
             "outcome": web.get("outcome", "success"),
@@ -292,7 +292,7 @@ def load_stage_state(
             "loo_diagnostics": web.get("loo_diagnostics"),
             "posterior_marginals": web.get("posterior_marginals"),
             "posterior_pairs": web.get("posterior_pairs"),
-            "_fitted_result_path": _find_run_artifact(run_id, STAGE5_PICKLE_FILENAMES),
+            "_fitted_result_path": _find_run_artifact(run_id, STAGE5B_PICKLE_FILENAMES),
         }
         return _stage_state(result, web)
 
@@ -757,7 +757,7 @@ def stage5a(
 ) -> dict:
     """SVI preflight: fast approximate fit before expensive inference.
 
-    Runs the same fit_model task as stage5 but with method="svi" forced.
+    Runs the same fit_model task as stage5b but with method="svi" forced.
     Produces SVI diagnostics (ELBO curve) and posterior marginals for
     quick sanity-checking before committing to laplace_em / SMC.
     """
@@ -792,7 +792,7 @@ def stage5a(
     }
 
 
-def stage5(
+def stage5b(
     stage4: dict,
     stage1b: dict,
     stage2: dict,
@@ -939,7 +939,7 @@ def stage5(
 
 
 def stage6(
-    stage5: dict,
+    stage5b: dict,
     stage1a: dict,
     stage1b: dict,
     stage1b_gate: dict,
@@ -952,12 +952,12 @@ def stage6(
 
     from .stages import run_interventions
 
-    fitted_result = _load_pickle(stage5["_fitted_result_path"])
+    fitted_result = _load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
-    ppc_result = stage5["_ppc_result"]
-    ps_result = stage5["_ps_result"]
+    ppc_result = stage5b["_ppc_result"]
+    ps_result = stage5b["_ps_result"]
 
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
@@ -1292,21 +1292,21 @@ def stage5a_flow(
     return _finalize_stage_state("stage-5a", result, web, run_id)
 
 
-@flow(name="stage-5-flow", persist_result=False)
-def stage5_flow(
+@flow(name="stage-5b-flow", persist_result=False)
+def stage5b_flow(
     stage4_result: dict,
     stage1b_result: dict,
     stage2_result: dict,
     inference_method: str | None,
     run_id: str,
 ) -> dict:
-    logger.info("Stage 5 starting: fitting model and running diagnostics")
-    stage5_result = stage5(stage4_result, stage1b_result, stage2_result, inference_method)
-    fitted_result = stage5_result.pop("_fitted_result")
-    stage5_result["_fitted_result_path"] = _save_pickle(
-        fitted_result, run_id, "stage5-fitted-result.pkl"
+    logger.info("Stage 5b starting: fitting model and running diagnostics")
+    stage5b_result = stage5b(stage4_result, stage1b_result, stage2_result, inference_method)
+    fitted_result = stage5b_result.pop("_fitted_result")
+    stage5b_result["_fitted_result_path"] = _save_pickle(
+        fitted_result, run_id, "stage5b-fitted-result.pkl"
     )
-    web = _web_payload("stage-5", stage5_result, run_id)
+    web = _web_payload("stage-5b", stage5b_result, run_id)
     ps_list = web.get("power_scaling", [])
     ps_issues = sum(
         1
@@ -1315,25 +1315,25 @@ def stage5_flow(
     )
     ppc_warnings = len(web.get("ppc", {}).get("per_variable_warnings", []) or [])
     logger.info(
-        "Stage 5 complete: method=%s power_scaling_issues=%d ppc_warnings=%d outcome=%s",
+        "Stage 5b complete: method=%s power_scaling_issues=%d ppc_warnings=%d outcome=%s",
         web.get("inference_metadata", {}).get("method", "unknown"),
         ps_issues,
         ppc_warnings,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-5", stage5_result, web, run_id)
+    return _finalize_stage_state("stage-5b", stage5b_result, web, run_id)
 
 
 @flow(name="stage-6-flow", persist_result=False)
 def stage6_flow(
-    stage5_result: dict,
+    stage5b_result: dict,
     stage1a_result: dict,
     stage1b_result: dict,
     stage1b_gate_result: dict,
     run_id: str,
 ) -> dict:
     logger.info("Stage 6 starting: estimating intervention effects")
-    stage6_result = stage6(stage5_result, stage1a_result, stage1b_result, stage1b_gate_result)
+    stage6_result = stage6(stage5b_result, stage1a_result, stage1b_result, stage1b_gate_result)
     web = _web_payload("stage-6", stage6_result, run_id)
     intervention_results = web.get("intervention_results", [])
     warning_count = sum(
