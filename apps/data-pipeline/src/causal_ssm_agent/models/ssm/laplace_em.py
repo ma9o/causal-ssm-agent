@@ -533,7 +533,7 @@ def fit_laplace_em(
         n_leapfrog=n_leapfrog,
         method_name="laplace_em",
         likelihood_backend=backend,
-        extra_diagnostics={"n_ieks_iters": n_ieks_iters},
+        extra_diagnostics={"n_ieks_iters": n_ieks_iters, "likelihood_backend": backend},
         print_prefix="Laplace-EM",
         reparam=reparam,
     )

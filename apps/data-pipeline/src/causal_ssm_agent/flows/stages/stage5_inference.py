@@ -77,17 +77,24 @@ def fit_model(
         time_col = "time" if "time" in X.columns else None
         fit_times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float32) if time_col else None
 
-        # Extract serializable diagnostics (MCMC or SVI)
+        # Extract serializable diagnostics (MCMC, SVI, or SMC)
         mcmc_diag = result.get_mcmc_diagnostics()
         svi_diag = result.get_svi_diagnostics()
+        smc_diag = result.get_smc_diagnostics()
 
-        # LOO diagnostics (needs model function and data)
+        # LOO diagnostics (needs model function and data).
+        # Use the inference-consistent likelihood backend: for laplace_em
+        # the Laplace backend is stored in diagnostics; for MCMC methods
+        # fall back to the model's default backend.
         import functools
 
         assert builder._model is not None
+        loo_backend = result.diagnostics.get(
+            "likelihood_backend", builder._model.make_likelihood_backend()
+        )
         model_fn = functools.partial(
             builder._model.model,
-            likelihood_backend=builder._model.make_likelihood_backend(),
+            likelihood_backend=loo_backend,
         )
         loo_diag = result.get_loo_diagnostics(
             model_fn=model_fn,
@@ -107,6 +114,7 @@ def fit_model(
             "times": fit_times,
             "mcmc_diagnostics": mcmc_diag,
             "svi_diagnostics": svi_diag,
+            "smc_diagnostics": smc_diag,
             "loo_diagnostics": loo_diag,
             "posterior_marginals": posterior_marginals,
             "posterior_pairs": posterior_pairs,

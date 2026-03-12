@@ -185,6 +185,49 @@ class TestLOODiagnostics:
     def test_loo_without_model_returns_none(self, mcmc_result):
         assert mcmc_result.get_loo_diagnostics() is None
 
+    def test_loo_smc_path(self):
+        """LOO works for SMC-based methods (no MCMC object) via az.from_dict."""
+        key = random.PRNGKey(0)
+        N = 30
+        x = jnp.linspace(-2, 2, N)
+        y = 1.0 + 2.5 * x + 0.5 * random.normal(key, (N,))
+
+        # SSM-style model: uses factor + ll_per_timestep deterministic
+        def _ssm_style_model(x, y):
+            alpha = numpyro.sample("alpha", dist.Normal(0, 10))
+            beta_p = numpyro.sample("beta", dist.Normal(0, 5))
+            sigma = numpyro.sample("sigma", dist.HalfNormal(5))
+            mu = alpha + beta_p * x
+            ll_per_t = dist.Normal(mu, sigma).log_prob(y)
+            numpyro.deterministic("ll_per_timestep", ll_per_t)
+            numpyro.factor("log_likelihood", jnp.sum(ll_per_t))
+
+        # Run MCMC to get real posterior samples, then wrap as SMC-style result
+        kernel = NUTS(_ssm_style_model)
+        mcmc = MCMC(kernel, num_warmup=100, num_samples=200, num_chains=1)
+        mcmc.run(random.PRNGKey(42), x, y)
+        samples = mcmc.get_samples()
+
+        # Create InferenceResult without MCMC object (simulates SMC path)
+        smc_result = InferenceResult(
+            _samples=samples,
+            method="laplace_em",
+            diagnostics={},  # no "mcmc" key
+        )
+
+        loo = smc_result.get_loo_diagnostics(
+            model_fn=_ssm_style_model,
+            observations=x,
+            times=y,
+        )
+        assert loo is not None
+        assert "elpd_loo" in loo
+        assert "p_loo" in loo
+        assert "se" in loo
+        assert "pareto_k" in loo
+        assert len(loo["pareto_k"]) == N
+        assert loo["observation_unit"] == "timestep"  # SSM path found ll_per_timestep
+
 
 class TestPosteriorMarginals:
     def test_marginals(self, mcmc_result):

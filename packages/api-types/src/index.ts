@@ -102,6 +102,7 @@ export type {
   MCMCParamDiagnostic,
   MCMCDiagnostics,
   SVIDiagnostics,
+  SMCDiagnostics,
   LOODiagnostics,
 } from "./generated/models";
 export type { TraceData, TraceChain } from "./generated/models";

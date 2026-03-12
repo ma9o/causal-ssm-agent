@@ -28,6 +28,7 @@ from causal_ssm_agent.models.ssm.schemas_inference import (  # noqa: TC001
     PosteriorMarginal,
     PosteriorPair,
     RBPartitionResult,
+    SMCDiagnostics,
     SVIDiagnostics,
     TemporalEffect,
 )
@@ -511,6 +512,7 @@ class Stage5bContract(BaseModel):
     inference_metadata: InferenceMetadataContract
     mcmc_diagnostics: MCMCDiagnostics | None = None
     svi_diagnostics: SVIDiagnostics | None = None
+    smc_diagnostics: SMCDiagnostics | None = None
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
