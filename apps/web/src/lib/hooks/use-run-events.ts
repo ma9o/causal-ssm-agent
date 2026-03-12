@@ -124,6 +124,7 @@ export interface WorkerProgressEvent {
   nExtractions?: number;
   nLlmCalls?: number;
   error?: string;
+  occurredAt?: number;
 }
 
 export function parseWorkerProgressEvent(
@@ -143,6 +144,7 @@ export function parseWorkerProgressEvent(
     nExtractions: typeof p.n_extractions === "number" ? p.n_extractions : undefined,
     nLlmCalls: typeof p.n_llm_calls === "number" ? p.n_llm_calls : undefined,
     error: typeof p.error === "string" ? p.error : undefined,
+    occurredAt: event?.occurred ? new Date(event.occurred).getTime() : undefined,
   };
 }
 
@@ -154,6 +156,9 @@ function applyWorkerEvent(
   const name = `extract-chunk-${event.workerId}`;
   const state: Stage2Worker["state"] =
     event.status === "submitted" ? "running" : event.status;
+  const completedAt = (event.status !== "submitted")
+    ? (event.occurredAt ?? Date.now())
+    : undefined;
 
   const existing = workers.find((w) => w.id === id);
   if (existing) {
@@ -163,19 +168,13 @@ function applyWorkerEvent(
     }
     return workers.map((w) =>
       w.id === id
-        ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt: (event.status !== "submitted") ? Date.now() : undefined }
+        ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt }
         : w,
     );
   }
   return [
     ...workers,
-    {
-      id,
-      name,
-      state,
-      nLlmCalls: event.nLlmCalls,
-      completedAt: (event.status !== "submitted") ? Date.now() : undefined,
-    },
+    { id, name, state, nLlmCalls: event.nLlmCalls, completedAt },
   ];
 }
 
