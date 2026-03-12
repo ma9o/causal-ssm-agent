@@ -332,6 +332,97 @@ async def elicit_prior(
     )
 
 
+async def run_prior_elicitation(
+    parameter: ParameterSpec,
+    question: str,
+    generate: WorkerGenerateFn,
+    literature_context: str = "",
+    feedback: str | None = None,
+    model_spec: dict | None = None,
+    current_priors: dict | None = None,
+    raw_data=None,
+    causal_spec: dict | None = None,
+) -> dict:
+    """Fat-tool prior elicitation: single LLM conversation with self-correction.
+
+    Replaces the single-shot path (n_paraphrases=1) with a richer tool loop.
+    The LLM has both a search tool (for additional literature lookups) and a
+    validate_model tool (schema + compile + optional PP feedback).
+
+    Args:
+        parameter: The parameter spec requiring a prior
+        question: The research question for context
+        generate: Async generate function (messages, tools) -> str
+        literature_context: Pre-fetched literature evidence string
+        feedback: Prior predictive feedback from a previous failed attempt
+        model_spec: Current model spec (enables compile + PP in validate_model)
+        current_priors: Existing priors for other parameters
+        raw_data: Polars DataFrame for prior predictive checks
+        causal_spec: CausalSpec dict for compilation
+
+    Returns:
+        PriorProposal as dict
+
+    Raises:
+        ValueError: If no valid prior was produced
+    """
+    from causal_ssm_agent.flows.stages.stage_tools import (
+        make_search_tool,
+        make_stage_tool,
+        stage4_grounding,
+    )
+
+    msgs = _build_prior_messages(parameter, question, literature_context, feedback)
+
+    search_tool = make_search_tool(parameter.model_dump())
+    validate_tool, capture = make_stage_tool(
+        name="validate_model",
+        description="Submit prior proposals for validation.",
+        param_name="model_json",
+        param_description="JSON with 'priors' dict mapping parameter names to prior proposals.",
+        compute_fn=lambda data: stage4_grounding(
+            data,
+            causal_spec or {},
+            current={"model_spec": model_spec, "priors": current_priors or {}}
+            if model_spec
+            else None,
+            raw_data=raw_data,
+        ),
+    )
+
+    await generate(msgs, [search_tool, validate_tool])
+
+    priors = capture.get("priors")
+    if not priors or parameter.name not in priors:
+        raise ValueError(f"No valid prior produced for {parameter.name}")
+    return priors[parameter.name]
+
+
+def _build_prior_messages(
+    parameter: ParameterSpec,
+    question: str,
+    literature_context: str,
+    feedback: str | None,
+) -> list[dict]:
+    """Build chat messages for fat-tool prior elicitation."""
+    user_content = PRIOR_RESEARCH_USER.format(
+        parameter_name=parameter.name,
+        parameter_role=parameter.role.value,
+        parameter_constraint=parameter.constraint.value,
+        parameter_description=parameter.description,
+        question=question,
+        literature_context=literature_context,
+    )
+
+    if feedback:
+        user_content += f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
+
+    return [
+        {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
+        {"role": "user", "content": user_content},
+    ]
+
+
 async def research_single_prior(
     parameter: ParameterSpec,
     question: str,

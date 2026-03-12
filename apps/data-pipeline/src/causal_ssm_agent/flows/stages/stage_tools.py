@@ -250,6 +250,84 @@ def stage4_grounding(
 
 
 # ---------------------------------------------------------------------------
+# Search: literature retrieval (not a grounding function)
+# ---------------------------------------------------------------------------
+
+
+async def search_literature(query: str, parameter_context: dict | None = None) -> str:
+    """Search Exa for empirical literature, return formatted results.
+
+    This is a retrieval helper, not a grounding function — it returns
+    formatted text for the LLM, not a (stage_output, feedback) tuple.
+
+    Args:
+        query: Search query string
+        parameter_context: Optional parameter spec dict for building richer queries
+
+    Returns:
+        Formatted literature string (or empty-result message)
+    """
+    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+    from causal_ssm_agent.workers.prior_research import search_parameter_literature
+    from causal_ssm_agent.workers.prompts.prior_research import format_literature_for_parameter
+
+    if parameter_context is not None:
+        param = ParameterSpec.model_validate(parameter_context)
+        # Override search_context with the user's query
+        param = param.model_copy(update={"search_context": query})
+    else:
+        # Build a minimal ParameterSpec for the search
+        param = ParameterSpec(
+            name="query",
+            role="fixed_effect",
+            constraint="none",
+            description=query,
+            search_context=query,
+        )
+
+    sources = await search_parameter_literature(param)
+    if not sources:
+        return "No relevant literature found for this query."
+    return format_literature_for_parameter(sources)
+
+
+def make_search_tool(parameter_context: dict | None = None) -> Any:
+    """Create a search_literature Tool for pipeline use.
+
+    Unlike make_stage_tool, search tools are retrieval-only — no capture dict,
+    no stop_on_success. The LLM uses search results to inform its next
+    validate_model call.
+
+    Args:
+        parameter_context: Optional parameter spec dict for richer Exa queries
+
+    Returns:
+        Tool object
+    """
+    from causal_ssm_agent.utils.litellm_client import Tool
+
+    async def _execute(*, query: str) -> str:
+        return await search_literature(query, parameter_context)
+
+    return Tool(
+        name="search_literature",
+        description="Search for empirical literature about effect sizes for model parameters.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for empirical literature about effect sizes.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool factory for pipeline use
 # ---------------------------------------------------------------------------
 
