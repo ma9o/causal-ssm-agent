@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { getStageForPrefectRunName } from "./stages";
 
 describe("STAGE_IDS", () => {
-  it("has 9 stages", () => {
-    expect(STAGE_IDS).toHaveLength(9);
+  it("has 10 stages", () => {
+    expect(STAGE_IDS).toHaveLength(10);
   });
 
   it("contains all expected stage IDs", () => {
@@ -17,7 +17,8 @@ describe("STAGE_IDS", () => {
       "stage-3",
       "stage-4",
       "stage-4b",
-      "stage-5",
+      "stage-5a",
+      "stage-5b",
       "stage-6",
     ];
     expect([...STAGE_IDS]).toEqual(expected);
@@ -81,7 +82,7 @@ describe("STAGES metadata", () => {
 
   it("stage numbers are in expected order", () => {
     const numbers = STAGES.map((s) => s.number);
-    expect(numbers).toEqual(["0", "1a", "1b", "2", "3", "4", "4b", "5", "6"]);
+    expect(numbers).toEqual(["0", "1a", "1b", "2", "3", "4", "4b", "5a", "5b", "6"]);
   });
 
   it("stage IDs follow stage-{number} pattern", () => {

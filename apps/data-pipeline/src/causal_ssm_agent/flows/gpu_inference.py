@@ -37,7 +37,7 @@ def _make_image(gpu: str):
     )
 
 
-def _stage5_on_gpu(
+def _stage5b_on_gpu(
     stage4_result: dict,
     data_bytes: bytes,
     sampler_config: dict | None,
@@ -45,7 +45,7 @@ def _stage5_on_gpu(
     outcome: str,
     causal_spec: dict | None,
 ) -> dict[str, Any]:
-    """Execute all stage 5 tasks inside a GPU container.
+    """Execute all stage 5b tasks inside a GPU container.
 
     This function runs *remotely* on Modal. All inputs/outputs are plain
     Python types (no JAX arrays cross the boundary).
@@ -225,7 +225,7 @@ def _stage5_on_gpu(
     }
 
 
-def run_stage5_gpu(
+def run_stage5b_gpu(
     stage4_result: dict,
     raw_data: pl.DataFrame,
     sampler_config: dict | None,
@@ -234,7 +234,7 @@ def run_stage5_gpu(
     causal_spec: dict | None,
     gpu: str,
 ) -> dict[str, Any]:
-    """Dispatch stage 5 to a Modal GPU container.
+    """Dispatch stage 5b to a Modal GPU container.
 
     Serializes data as Arrow IPC bytes, sends everything to a remote
     Modal function, and returns plain-dict results.
@@ -256,20 +256,20 @@ def run_stage5_gpu(
     import modal
 
     image = _make_image(gpu)
-    app = modal.App("causal-ssm-stage5", image=image)
+    app = modal.App("causal-ssm-stage5b", image=image)
 
     # Register the remote function with GPU and timeout
-    stage5_fn = app.function(gpu=gpu, timeout=7200)(_stage5_on_gpu)
+    stage5b_fn = app.function(gpu=gpu, timeout=7200)(_stage5b_on_gpu)
 
     # Serialize DataFrame as Arrow IPC bytes
     buf = io.BytesIO()
     raw_data.write_ipc(buf)
     data_bytes = buf.getvalue()
 
-    logger.info("Dispatching stage 5 to Modal (%s GPU)...", gpu)
+    logger.info("Dispatching stage 5b to Modal (%s GPU)...", gpu)
 
     with app.run():
-        return stage5_fn.remote(
+        return stage5b_fn.remote(
             stage4_result=stage4_result,
             data_bytes=data_bytes,
             sampler_config=sampler_config,

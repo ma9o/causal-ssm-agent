@@ -190,7 +190,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                 "summary": {"structural_issues": [], "boundary_issues": [], "weak_params": []},
             }
         },
-        "stage-5": {
+        "stage-5b": {
             "power_scaling": [
                 {
                     "parameter": "rho_Stress",
@@ -251,17 +251,17 @@ def test_persist_web_result_rejects_missing_required_fields(valid_stage_payloads
         persist_web_result.fn("stage-2", bad, "run-123")
 
 
-def test_persist_web_result_logs_stage5_summary(
+def test_persist_web_result_logs_stage5b_summary(
     valid_stage_payloads: dict[str, dict], caplog: pytest.LogCaptureFixture
 ):
     """Persistence task should emit a compact stage summary for UI-visible logs."""
     with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stages.persist"):
-        persist_web_result.fn("stage-5", valid_stage_payloads["stage-5"], "run-123")
+        persist_web_result.fn("stage-5b", valid_stage_payloads["stage-5b"], "run-123")
 
     assert any(
         record.levelno == logging.INFO
         and record.message
-        == "Stage 5 summary: method=svi samples=1000 power_scaling_issues=0 ppc_warnings=0 outcome=success"
+        == "Stage 5b summary: method=svi samples=1000 power_scaling_issues=0 ppc_warnings=0 outcome=success"
         for record in caplog.records
     )
 

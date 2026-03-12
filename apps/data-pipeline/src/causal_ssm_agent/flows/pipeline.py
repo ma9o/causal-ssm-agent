@@ -31,7 +31,7 @@ STAGE_SEQUENCE = (
     "stage-4",
     "stage-4b",
     "stage-5a",
-    "stage-5",
+    "stage-5b",
     "stage-6",
 )
 STAGE_INDEX = {stage_id: index for index, stage_id in enumerate(STAGE_SEQUENCE)}
@@ -315,7 +315,7 @@ async def causal_inference_pipeline(
             _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
         if stage_id == "stage-6":
             logger.info("Pipeline complete: run finished successfully")
-            return {**stage_states["stage-5"]["web"], **stage_states["stage-6"]["web"]}
+            return {**stage_states["stage-5b"]["web"], **stage_states["stage-6"]["web"]}
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
         return _partial_pipeline_result(root_run_id, stage_id, stage_states[stage_id])
 
@@ -452,25 +452,25 @@ async def causal_inference_pipeline(
     if partial is not None:
         return partial
 
-    stage5_idx = _stage_idx("stage-5")
-    if start_idx > stage5_idx:
-        stage5_state = _restore_stage("stage-5")
+    stage5b_idx = _stage_idx("stage-5b")
+    if start_idx > stage5b_idx:
+        stage5b_state = _restore_stage("stage-5b")
     else:
-        stage5_state = dag.stage5_flow(
+        stage5b_state = dag.stage5b_flow(
             stage4_result,
             stage1b_result,
             stage2_result,
             inference_method,
             root_run_id,
         )
-        stage_states["stage-5"] = stage5_state
-    partial = _maybe_finish("stage-5")
+        stage_states["stage-5b"] = stage5b_state
+    partial = _maybe_finish("stage-5b")
     if partial is not None:
         return partial
-    stage5_result = stage5_state["result"]
+    stage5b_result = stage5b_state["result"]
 
     stage6_state = dag.stage6_flow(
-        stage5_result,
+        stage5b_result,
         stage1a_result,
         stage1b_result,
         stage1b_gate,

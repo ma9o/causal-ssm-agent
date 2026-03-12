@@ -41,7 +41,7 @@ class TestStageContracts:
             "stage-4",
             "stage-4b",
             "stage-5a",
-            "stage-5",
+            "stage-5b",
             "stage-6",
         }
         assert set(STAGE_CONTRACTS.keys()) == expected

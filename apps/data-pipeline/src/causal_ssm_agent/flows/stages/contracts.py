@@ -48,7 +48,7 @@ StageId = Literal[
     "stage-4",
     "stage-4b",
     "stage-5a",
-    "stage-5",
+    "stage-5b",
     "stage-6",
 ]
 
@@ -502,7 +502,7 @@ class Stage5aContract(BaseModel):
         )
 
 
-class Stage5Contract(BaseModel):
+class Stage5bContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: Literal["success", "warn", "fail"] = "success"
@@ -524,7 +524,7 @@ class Stage5Contract(BaseModel):
         ppc_warnings = len(self.ppc.per_variable_warnings)
         return (
             logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
-            f"Stage 5 summary: method={self.inference_metadata.method} "
+            f"Stage 5b summary: method={self.inference_metadata.method} "
             f"samples={self.inference_metadata.n_samples} "
             f"power_scaling_issues={ps_issues} ppc_warnings={ppc_warnings} outcome={self.outcome}",
         )
@@ -584,7 +584,7 @@ STAGE_CONTRACTS: dict[StageId, type[BaseModel]] = {
     "stage-4": Stage4Contract,
     "stage-4b": Stage4bContract,
     "stage-5a": Stage5aContract,
-    "stage-5": Stage5Contract,
+    "stage-5b": Stage5bContract,
     "stage-6": Stage6Contract,
 }
 

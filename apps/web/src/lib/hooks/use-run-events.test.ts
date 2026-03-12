@@ -126,6 +126,6 @@ describe("fetchStageFlowRunId", () => {
         jsonResponse([{ id: "task-1", name: "stage-2-flow" }]),
       ) as typeof fetch;
 
-    await expect(fetchStageFlowRunId("run-abc", "stage-5")).resolves.toBeNull();
+    await expect(fetchStageFlowRunId("run-abc", "stage-5b")).resolves.toBeNull();
   });
 });

@@ -170,9 +170,9 @@ describe("generateMarkdown", () => {
     expect(result).toContain("heart_rate");
   });
 
-  it("handles stage 5 MCMC diagnostics", () => {
+  it("handles stage 5b MCMC diagnostics", () => {
     const data: AllStageData = {
-      "stage-5": {
+      "stage-5b": {
         outcome: "success",
         inference_metadata: {
           method: "nuts",
@@ -208,10 +208,10 @@ describe("generateMarkdown", () => {
           ],
         },
         power_scaling: [],
-      } as AllStageData["stage-5"],
+      } as AllStageData["stage-5b"],
     };
     const result = generateMarkdown(data, "run-5");
-    expect(result).toContain("Stage 5");
+    expect(result).toContain("Stage 5b");
     expect(result).toContain("MCMC Diagnostics");
     expect(result).toContain("drift_diag_0");
   });

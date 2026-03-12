@@ -65,7 +65,7 @@ export interface CausalSSMContracts {
   "stage-4": Stage4Contract;
   "stage-4b": Stage4BContract;
   "stage-5a": Stage5AContract;
-  "stage-5": Stage5Contract;
+  "stage-5b": Stage5BContract;
   "stage-6": Stage6Contract;
   _partial: PartialStageResult;
 }
@@ -664,7 +664,7 @@ export interface PosteriorPair {
   y_values: number[];
   divergent?: boolean[] | null;
 }
-export interface Stage5Contract {
+export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
   power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
