@@ -386,6 +386,48 @@ class TestPivotToWide:
         assert wide["x"][0] == 42.0
 
 
+class TestPivotToWideSparsity:
+    """Test post-pivot sparsity detection (moved from test_stage4.py)."""
+
+    def test_pivot_warns_on_sparse_matrix(self, caplog):
+        """Sparse multi-granularity data triggers a warning."""
+        import logging
+
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        rows = []
+        for h in range(24):
+            rows.append({"indicator": "hourly_var", "value": float(h), "time_bucket": h})
+        rows.append({"indicator": "daily_b", "value": 5.0, "time_bucket": 0})
+        rows.append({"indicator": "daily_c", "value": 9.0, "time_bucket": 0})
+
+        raw = pl.DataFrame(rows)
+        logger = logging.getLogger("causal_ssm_agent.utils.data")
+        logger.propagate = True
+        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
+            wide = pivot_to_wide(raw)
+
+        assert wide.height == 24
+        assert any("Sparse observation matrix" in msg for msg in caplog.messages)
+
+    def test_pivot_no_warning_on_complete_matrix(self, caplog):
+        """Complete data should not trigger sparsity warning."""
+        import logging
+
+        from causal_ssm_agent.utils.data import pivot_to_wide
+
+        rows = []
+        for t in range(10):
+            rows.append({"indicator": "A", "value": float(t), "time_bucket": t})
+            rows.append({"indicator": "B", "value": float(t * 2), "time_bucket": t})
+
+        raw = pl.DataFrame(rows)
+        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
+            pivot_to_wide(raw)
+
+        assert not any("Sparse" in msg for msg in caplog.messages)
+
+
 class TestPivotToWideTimezoneStrings:
     def test_utc_string_timestamps_parsed(self):
         """UTC timestamps with timezone suffix should parse to fractional days."""

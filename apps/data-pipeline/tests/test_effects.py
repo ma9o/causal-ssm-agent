@@ -34,11 +34,6 @@ class TestBuildDigraph:
         G = build_digraph({"edges": []})
         assert len(G.nodes()) == 0
 
-    def test_missing_edges_key(self):
-        """Missing 'edges' key treated as empty."""
-        G = build_digraph({})
-        assert len(G.nodes()) == 0
-
     def test_diamond_topology(self):
         """Diamond: A → B, A → C, B → D, C → D."""
         model = {

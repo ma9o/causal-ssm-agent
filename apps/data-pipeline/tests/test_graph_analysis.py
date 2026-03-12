@@ -432,6 +432,115 @@ class TestAnalyzeFirstPassRB:
         assert not partition.has_kalman_block
         assert partition.has_particle_block
 
+    def test_free_lambda_no_split(self):
+        """lambda='free' → no exclusive obs channels → no Kalman obs."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift=jnp.diag(jnp.array([-0.5, -0.3])),
+            lambda_mat="free",
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        partition = analyze_first_pass_rb(spec)
+        # Var 0 is decoupled in drift, but lambda="free" means all obs depend on all vars
+        np.testing.assert_array_equal(partition.kalman_idx, [0])
+        assert len(partition.obs_kalman_idx) == 0  # no exclusive obs
+
+    def test_g_feeds_s_prevents_split(self):
+        """A[s,g] != 0 → g must go to particle (S depends on G)."""
+        drift = jnp.array([[-0.5, 0.0], [0.2, -0.3]])  # A[1,0] = 0.2: S <- G
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift=drift,
+            lambda_mat=jnp.eye(2),
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        partition = analyze_first_pass_rb(spec)
+        assert len(partition.kalman_idx) == 0
+
+    def test_s_feeds_g_prevents_split(self):
+        """A[g,s] != 0 → g must go to particle (G depends on S)."""
+        drift = jnp.array([[-0.5, 0.15], [0.0, -0.3]])  # A[0,1] = 0.15: G <- S
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift=drift,
+            lambda_mat=jnp.eye(2),
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        partition = analyze_first_pass_rb(spec)
+        assert len(partition.kalman_idx) == 0
+
+    def test_partial_split_3var(self):
+        """2 Gaussian isolated + 1 Student-t → 2 in Kalman."""
+        # Drift: 3x3 with [0,1] block-diagonal, [2] separate
+        drift = jnp.array(
+            [
+                [-0.5, 0.1, 0.0],
+                [0.1, -0.3, 0.0],
+                [0.0, 0.0, -0.8],
+            ]
+        )
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            drift=drift,
+            lambda_mat=jnp.eye(3),
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+            ],
+        )
+        partition = analyze_first_pass_rb(spec)
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.particle_idx, [2])
+
+    def test_shared_obs_prevents_kalman(self):
+        """Dense lambda couples G and S vars into shared obs → no Kalman obs."""
+        # All 2 obs depend on all 2 latent vars
+        lam = jnp.ones((2, 2))
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift=jnp.diag(jnp.array([-0.5, -0.3])),
+            lambda_mat=lam,
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        partition = analyze_first_pass_rb(spec)
+        # Var 0 is Gaussian and decoupled in drift, but all obs depend on both vars
+        # → no exclusive obs for var 0 → obs_kalman is empty
+        np.testing.assert_array_equal(partition.kalman_idx, [0])
+        np.testing.assert_array_equal(partition.particle_idx, [1])
+        assert len(partition.obs_kalman_idx) == 0
+        np.testing.assert_array_equal(partition.obs_particle_idx, [0, 1])
+
+    def test_independent_blocks_clean_split(self):
+        """Block-diagonal drift with 2 Gaussian + 1 Student-t → clean 3-var split."""
+        n = 3
+        m = 3
+        # Block-diagonal drift: stable diagonal
+        drift = jnp.diag(jnp.array([-0.5, -0.5, -0.5]))
+        # Block-diagonal lambda: obs 0,1 → latent 0,1; obs 2 → latent 2
+        lam = jnp.eye(3)
+        spec = _make_spec(
+            n_latent=n,
+            n_manifest=m,
+            drift=drift,
+            lambda_mat=lam,
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+            ],
+        )
+        partition = analyze_first_pass_rb(spec)
+        np.testing.assert_array_equal(partition.kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.particle_idx, [2])
+        np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1])
+        np.testing.assert_array_equal(partition.obs_particle_idx, [2])
+
 
 # =============================================================================
 # select_default_method — structural inference routing

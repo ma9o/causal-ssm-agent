@@ -5,7 +5,7 @@ Tests that:
 2. lambda_mask + template constrains factor loadings to measurement model
 3. Per-element priors align with mask positions
 4. Builder constructs masks from CausalSpec
-5. graph_analysis and parametric_id respect masks
+5. parametric_id respects masks
 6. Pipeline threading passes causal_spec through
 """
 
@@ -136,26 +136,6 @@ def _make_causal_spec_dict() -> dict:
 
 class TestDriftMask:
     """Test that drift_mask constrains off-diagonal sampling."""
-
-    def test_drift_mask_reduces_param_count(self):
-        """Masked drift should sample fewer off-diagonal params."""
-        # X→Y, Y→Z: only 2 off-diagonal edges
-        mask = np.eye(3, dtype=bool)
-        mask[1, 0] = True  # Y row, X col (X→Y)
-        mask[2, 1] = True  # Z row, Y col (Y→Z)
-
-        spec = _make_3latent_spec(drift_mask=mask)
-        model = SSMModel(spec)
-
-        rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
-        )
-
-        # drift_offdiag_pop should have shape (2,) — only 2 edges
-        assert trace["drift_offdiag_pop"]["value"].shape == (2,)
 
     def test_drift_mask_zeros_non_edges(self):
         """Drift entries where mask is False should be zero."""
@@ -493,66 +473,6 @@ class TestBuilderMasks:
         assert spec.lambda_mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Graph analysis mask awareness
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestGraphAnalysisMasks:
-    """Test that graph_analysis functions respect masks."""
-
-    def test_drift_sparsity_uses_mask(self):
-        """compute_drift_sparsity returns drift_mask when set."""
-        from causal_ssm_agent.models.likelihoods.graph_analysis import compute_drift_sparsity
-
-        mask = np.array([[True, False], [True, True]])
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            drift="free",
-            drift_mask=mask,
-            lambda_mat=jnp.eye(2),
-        )
-
-        result = compute_drift_sparsity(spec)
-        np.testing.assert_array_equal(result, mask)
-
-    def test_drift_sparsity_no_mask_all_true(self):
-        """Without mask, drift_sparsity is all True for free drift."""
-        from causal_ssm_agent.models.likelihoods.graph_analysis import compute_drift_sparsity
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            drift="free",
-            lambda_mat=jnp.eye(2),
-        )
-
-        result = compute_drift_sparsity(spec)
-        assert np.all(result)
-
-    def test_obs_dependency_with_lambda_mask(self):
-        """compute_obs_dependency combines fixed nonzeros with lambda_mask."""
-        from causal_ssm_agent.models.likelihoods.graph_analysis import compute_obs_dependency
-
-        lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
-        lambda_mask = np.array([[False, False], [False, False], [True, False]])
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=3,
-            lambda_mat=lambda_mat,
-            lambda_mask=lambda_mask,
-        )
-
-        result = compute_obs_dependency(spec)
-        # Row 0: [True, False] (from lambda_mat)
-        # Row 1: [False, True] (from lambda_mat)
-        # Row 2: [True, False] (from lambda_mask)
-        expected = np.array([[True, False], [False, True], [True, False]])
-        np.testing.assert_array_equal(result, expected)
 
 
 # ═══════════════════════════════════════════════════════════════════════

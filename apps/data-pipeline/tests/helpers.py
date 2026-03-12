@@ -4,16 +4,14 @@ These are utilities that can be imported directly into test modules.
 For fixtures, see conftest.py.
 """
 
-from dataclasses import dataclass
+import asyncio
 
 import jax.numpy as jnp
 
 
-@dataclass
-class MockPrediction:
-    """Mock DSPy prediction object for scoring tests."""
-
-    structure: str
+def _run(coro):
+    """Run an async function synchronously for testing."""
+    return asyncio.run(coro)
 
 
 def make_mock_generate(responses: list[str]):

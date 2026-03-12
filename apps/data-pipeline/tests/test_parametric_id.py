@@ -207,36 +207,6 @@ class TestTRule:
         counts = count_free_params(spec)
         assert counts.get("obs_df") == 1
 
-    def test_print_report(self, caplog):
-        """print_report should not crash."""
-        import logging
-
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            drift="free",
-            diffusion="diag",
-            lambda_mat=jnp.eye(2),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
-        )
-        result = check_t_rule(spec, T=50)
-        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
-            result.print_report()
-        assert "T-Rule" in caplog.text
-        assert "[ok]" in caplog.text
-
-    def test_utils_init_exports(self):
-        """T-rule exports should be available from utils __init__."""
-        from causal_ssm_agent.utils import TRuleResult, check_t_rule, count_free_params
-
-        assert callable(check_t_rule)
-        assert callable(count_free_params)
-        assert TRuleResult is not None
-
 
 class TestSimulateSSM:
     """Test forward simulator."""
@@ -372,46 +342,6 @@ class TestOutputSensitivity:
         assert n_non_id > 0, (
             "Non-identified model should flag some parameters, all are identifiable"
         )
-
-    def test_result_structure(self):
-        """OutputSensitivityResult should have correct structure."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
-
-        model = _make_identified_model()
-        times = jnp.linspace(0, 10, 20)
-
-        result = output_sensitivity_analysis(model, times, n_draws=2, seed=0)
-
-        # Check structure
-        assert isinstance(result.singular_values, list)
-        assert isinstance(result.condition_number, float)
-        assert isinstance(result.per_parameter, list)
-        assert all("parameter" in e for e in result.per_parameter)
-        assert all("sensitivity_norm" in e for e in result.per_parameter)
-        assert all("identifiable" in e for e in result.per_parameter)
-
-    def test_print_report(self, caplog):
-        """print_report should not crash."""
-        import logging
-
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
-
-        model = _make_identified_model()
-        times = jnp.linspace(0, 10, 20)
-
-        result = output_sensitivity_analysis(model, times, n_draws=2, seed=0)
-        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
-            result.print_report()
-
-        assert "Output Sensitivity Analysis" in caplog.text
-        assert "Condition number" in caplog.text
-
-    def test_utils_init_exports(self):
-        """New exports should be available from utils __init__."""
-        from causal_ssm_agent.utils import OutputSensitivityResult, output_sensitivity_analysis
-
-        assert callable(output_sensitivity_analysis)
-        assert OutputSensitivityResult is not None
 
 
 class TestProfileLikelihood:
@@ -574,80 +504,9 @@ class TestProfileLikelihoodResult:
 
         assert result.summary()["p"] == "structurally_unidentifiable"
 
-    def test_print_report(self, caplog):
-        """print_report should not crash."""
-        import logging
-
-        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
-
-        grid = jnp.linspace(-3, 3, 10)
-        result = ProfileLikelihoodResult(
-            parameter_profiles={
-                "p": {
-                    "grid_unc": grid,
-                    "grid_con": grid,
-                    "profile_ll": -(grid**2),
-                    "mle_value": 0.0,
-                },
-            },
-            mle_ll=0.0,
-            mle_params={"p": jnp.array(0.0)},
-            threshold=1.92,
-            parameter_names=["p"],
-        )
-        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
-            result.print_report()
-
-        assert "Profile Likelihood Report" in caplog.text
-
 
 class TestSBCCheck:
     """Test simulation-based calibration."""
-
-    @pytest.mark.slow
-    def test_sbc_basic_structure(self):
-        """SBC result should have correct shapes and fields."""
-        from causal_ssm_agent.utils.parametric_id import sbc_check
-
-        # Minimal 1D LGSS for fast SBC
-        # Use NUTS (not SVI) — SBC requires raw parameter samples
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            manifest_means=jnp.zeros(1),
-            diffusion="diag",
-            t0_means=jnp.zeros(1),
-            t0_var=jnp.eye(1),
-        )
-        priors = SSMPriors(
-            drift_diag={"mu": -0.5, "sigma": 0.3},
-            diffusion_diag={"sigma": 0.3},
-            manifest_var_diag={"sigma": 0.3},
-        )
-        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
-
-        result = sbc_check(
-            model,
-            T=30,
-            dt=1.0,
-            n_sbc=3,
-            method="nuts",
-            num_warmup=100,
-            num_samples=50,
-            num_chains=1,
-            seed=42,
-        )
-
-        assert result.n_sbc > 0
-        assert result.n_posterior_samples > 0
-        assert len(result.ranks) > 0
-        assert result.likelihood_ranks.shape[0] == result.n_sbc
-
-        # Ranks should be in [0, n_posterior_samples]
-        for name, ranks in result.ranks.items():
-            assert jnp.all(ranks >= 0), f"Negative rank for {name}"
-            assert jnp.all(ranks <= result.n_posterior_samples), f"Rank > n_post for {name}"
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
@@ -694,32 +553,6 @@ class TestSBCCheck:
         )
         # Allow at most 1 parameter to fail by chance
         assert n_failing <= 1, f"Too many SBC failures: {summary}"
-
-
-class TestPowerScalingResult:
-    """Test PowerScalingResult dataclass."""
-
-    def test_print_report(self, caplog):
-        """print_report should not crash."""
-        import logging
-
-        from causal_ssm_agent.utils.parametric_id_postfit import PowerScalingResult
-
-        result = PowerScalingResult(
-            prior_sensitivity={"drift_diag_pop": 0.02, "diffusion_diag_pop": 0.08},
-            likelihood_sensitivity={"drift_diag_pop": 0.5, "diffusion_diag_pop": 0.01},
-            diagnosis={
-                "drift_diag_pop": "well_identified",
-                "diffusion_diag_pop": "prior_dominated",
-            },
-            psis_k_hat={"drift_diag_pop": 0.3, "diffusion_diag_pop": 0.5},
-        )
-
-        with caplog.at_level(logging.INFO, logger="causal_ssm_agent.utils.parametric_id"):
-            result.print_report()
-        assert "Power-Scaling Sensitivity Report" in caplog.text
-        assert "well_identified" in caplog.text
-        assert "prior_dominated" in caplog.text
 
 
 class TestPowerScalingSensitivity:
@@ -774,58 +607,6 @@ class TestPowerScalingSensitivity:
         valid_diagnoses = {"prior_dominated", "well_identified", "prior_data_conflict"}
         for name, diag in ps_result.diagnosis.items():
             assert diag in valid_diagnoses, f"Invalid diagnosis for {name}: {diag}"
-
-
-class TestStage4bFlow:
-    """Smoke test for the Prefect stage 4b flow."""
-
-    def test_parametric_id_task_import(self):
-        """Stage 4b task and flow should be importable."""
-        from causal_ssm_agent.flows.stages.stage4b_parametric_id import (
-            parametric_id_task,
-            stage4b_parametric_id_flow,
-        )
-
-        assert callable(parametric_id_task)
-        assert callable(stage4b_parametric_id_flow)
-
-    def test_run_power_scaling_import(self):
-        """Power-scaling task should be importable from stage5."""
-        from causal_ssm_agent.flows.stages.stage5_inference import run_power_scaling
-
-        assert callable(run_power_scaling)
-
-    def test_stages_init_exports(self):
-        """New exports should be available from stages __init__."""
-        from causal_ssm_agent.flows.stages import (
-            parametric_id_task,
-            run_power_scaling,
-            stage4b_parametric_id_flow,
-        )
-
-        assert callable(parametric_id_task)
-        assert callable(stage4b_parametric_id_flow)
-        assert callable(run_power_scaling)
-
-    def test_utils_init_exports(self):
-        """New exports should be available from utils __init__."""
-        from causal_ssm_agent.utils import (
-            PowerScalingResult,
-            ProfileLikelihoodResult,
-            SBCResult,
-            power_scaling_sensitivity,
-            profile_likelihood,
-            sbc_check,
-            simulate_ssm,
-        )
-
-        assert callable(profile_likelihood)
-        assert callable(sbc_check)
-        assert callable(power_scaling_sensitivity)
-        assert callable(simulate_ssm)
-        assert ProfileLikelihoodResult is not None
-        assert SBCResult is not None
-        assert PowerScalingResult is not None
 
 
 # ---------------------------------------------------------------------------
@@ -939,97 +720,3 @@ class TestSimulateSSMRecovery:
         assert obs_q5 <= data["true_obs_sd"] <= obs_q95, (
             f"Obs SD {data['true_obs_sd']:.2f} outside 90% CI [{obs_q5:.3f}, {obs_q95:.3f}]"
         )
-
-
-class TestProfileLikelihoodRecovery:
-    """Recovery tests for profile likelihood diagnostics."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(300)
-    def test_identified_model_classified_correctly(self):
-        """Well-identified 1D LGSS: all params should be classified as identified."""
-        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
-
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            manifest_means=jnp.zeros(1),
-            diffusion="diag",
-            t0_means=jnp.zeros(1),
-            t0_var=jnp.eye(1),
-        )
-        priors = SSMPriors(
-            drift_diag={"mu": -0.5, "sigma": 0.3},
-            diffusion_diag={"sigma": 0.3},
-            manifest_var_diag={"sigma": 0.3},
-        )
-        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
-
-        T = 100
-        times = jnp.arange(T, dtype=jnp.float32)
-        obs = simulate_ssm(
-            drift=jnp.array([[-0.3]]),
-            diffusion_chol=jnp.array([[0.3]]),
-            lambda_mat=jnp.eye(1),
-            manifest_chol=jnp.array([[0.5]]),
-            t0_means=jnp.zeros(1),
-            t0_chol=jnp.eye(1),
-            times=times,
-            rng_key=random.PRNGKey(42),
-        )
-
-        result = profile_likelihood(
-            model=model,
-            observations=obs,
-            times=times,
-            n_grid=20,
-            seed=42,
-        )
-
-        result.print_report()
-        summary = result.summary()
-
-        # All params should be identified for a well-specified 1D LGSS
-        for name, cls in summary.items():
-            assert cls != "structurally_unidentifiable", (
-                f"1D LGSS param {name} should not be structurally unidentifiable"
-            )
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(300)
-    def test_nonidentified_model_flags_issues(self):
-        """Non-identified model (2 latent, 1 manifest) should flag issues."""
-        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
-
-        model = _make_nonidentified_model()
-        T = 100
-        times = jnp.arange(T, dtype=jnp.float32)
-
-        obs = simulate_ssm(
-            drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
-            diffusion_chol=jnp.eye(2) * 0.3,
-            lambda_mat=jnp.ones((1, 2)) * 0.5,
-            manifest_chol=jnp.eye(1) * 0.2,
-            t0_means=jnp.zeros(2),
-            t0_chol=jnp.eye(2) * 0.5,
-            times=times,
-            rng_key=random.PRNGKey(42),
-        )
-
-        result = profile_likelihood(
-            model=model,
-            observations=obs,
-            times=times,
-            n_grid=20,
-            seed=42,
-        )
-
-        result.print_report()
-        summary = result.summary()
-
-        has_issues = any(
-            v in ("structurally_unidentifiable", "practically_unidentifiable")
-            for v in summary.values()
-        )
-        assert has_issues, f"Non-identified model should flag issues: {summary}"

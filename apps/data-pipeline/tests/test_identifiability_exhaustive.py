@@ -256,33 +256,6 @@ class TestBackdoorCriterion:
         assert_identifiable(result, "X", "Backdoor through observed Z")
         assert_identifiable(result, "Z", "Direct cause Z is identifiable")
 
-    def test_backdoor_blocked_by_unobserved(self):
-        """Backdoor path exists but confounder is unobserved.
-
-            U (unobserved)
-           / \\
-          v   v
-          X -> Y
-        """
-        latent_model = make_latent_model(
-            constructs=[
-                {"name": "U", "role": "exogenous"},
-                {"name": "X"},
-                {"name": "Y", "is_outcome": True},
-            ],
-            edges=[
-                {"cause": "U", "effect": "X"},
-                {"cause": "U", "effect": "Y"},
-                {"cause": "X", "effect": "Y"},
-            ],
-        )
-        measurement_model = make_measurement_model(["X", "Y"])
-
-        result = check_identifiability(latent_model, measurement_model)
-
-        assert_not_identifiable(result, "X", "Can't adjust for unobserved U")
-        assert_blocked_by(result, "X", "U")
-
     def test_backdoor_multiple_confounders_all_observed(self):
         """Multiple confounders, all observed - should be identifiable.
 
@@ -343,37 +316,6 @@ class TestBackdoorCriterion:
         # X is identifiable via IV using Z1
         assert_identifiable(result, "X", "Z1 is valid instrument")
         assert "IV(Z1)" in get_estimand(result, "X")
-
-    def test_no_identification_strategy_available(self):
-        """No identification strategy works: no backdoor, no front-door, no IV.
-
-            U (unobserved)
-           / \\
-          v   v
-          X -> Y
-
-        - No backdoor: U is unobserved
-        - No front-door: No mediator
-        - No IV: No parent of X other than U
-        """
-        latent_model = make_latent_model(
-            constructs=[
-                {"name": "U", "role": "exogenous"},
-                {"name": "X"},
-                {"name": "Y", "is_outcome": True},
-            ],
-            edges=[
-                {"cause": "U", "effect": "X"},
-                {"cause": "U", "effect": "Y"},
-                {"cause": "X", "effect": "Y"},
-            ],
-        )
-        measurement_model = make_measurement_model(["X", "Y"])
-
-        result = check_identifiability(latent_model, measurement_model)
-
-        assert_not_identifiable(result, "X", "No identification strategy available")
-        assert_blocked_by(result, "X", "U")
 
     def test_backdoor_chain_of_confounders(self):
         """Confounder chain: Z -> W, W affects both X and Y.

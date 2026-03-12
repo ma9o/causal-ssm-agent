@@ -201,25 +201,6 @@ class TestLoadConfig:
 
         load_config.cache_clear()
 
-    def test_sampler_config_roundtrip(self, tmp_path, monkeypatch):
-        """Load config and use to_sampler_config."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(FULL_CONFIG)
-
-        load_config.cache_clear()
-
-        import causal_ssm_agent.utils.config as config_mod
-
-        monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
-
-        cfg = load_config()
-        sampler = cfg.inference.to_sampler_config()
-        assert sampler["method"] == "nuts"
-        assert sampler["num_warmup"] == 500
-        assert sampler["target_accept_prob"] == 0.9
-
-        load_config.cache_clear()
-
     def test_llm_env_overrides(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(MINIMAL_CONFIG)

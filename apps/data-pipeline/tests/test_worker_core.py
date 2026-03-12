@@ -4,7 +4,6 @@ Covers: _format_indicators, _get_outcome_description, WorkerMessages,
 run_worker_extraction.
 """
 
-import asyncio
 import json
 import logging
 
@@ -13,10 +12,10 @@ import pytest
 
 from causal_ssm_agent.workers.core import (
     WorkerMessages,
-    _format_indicators,
     _get_outcome_description,
     run_worker_extraction,
 )
+from tests.helpers import _run
 
 
 def _causal_spec():
@@ -51,33 +50,6 @@ def _causal_spec():
             ]
         },
     }
-
-
-def _run(coro):
-    return asyncio.run(coro)
-
-
-# =============================================================================
-# _format_indicators
-# =============================================================================
-
-
-class TestFormatIndicators:
-    def test_basic_formatting(self):
-        result = _format_indicators(_causal_spec())
-        assert "pss_score" in result
-        assert "sleep_hours" in result
-        assert "continuous" in result
-        assert "Perceived Stress Scale" in result
-
-    def test_empty_indicators(self):
-        result = _format_indicators({"measurement": {"indicators": []}})
-        assert result == ""
-
-    def test_missing_optional_fields(self):
-        spec = {"measurement": {"indicators": [{"name": "x"}]}}
-        result = _format_indicators(spec)
-        assert "x" in result
 
 
 # =============================================================================

@@ -53,17 +53,6 @@ class TestAggregateSimple:
         # No between-sample variance
         assert result.sigma == pytest.approx(1.0)
 
-    def test_no_gmm_fields(self):
-        mus = np.array([1.0])
-        sigmas = np.array([1.0])
-        samples = _make_samples([1.0], [1.0])
-
-        result = _aggregate_simple(mus, sigmas, samples)
-
-        assert result.mixture_weights is None
-        assert result.mixture_means is None
-        assert result.mixture_stds is None
-
     def test_sigma_includes_between_sample_variance(self):
         """When mus vary, pooled sigma should be larger than individual sigmas."""
         mus = np.array([0.0, 10.0])

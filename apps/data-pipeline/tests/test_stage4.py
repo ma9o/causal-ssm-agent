@@ -1,45 +1,33 @@
-"""Tests for Stage 4: Model Specification & Prior Elicitation."""
+"""Tests for Stage 4: Model Specification & Prior Elicitation.
+
+Unit tests for prior validation helpers, default priors, aggregation, and
+prompt generation live in their dedicated files:
+- test_prior_predictive.py (NaN/constraint/extreme checks, format functions)
+- test_prior_aggregation.py (simple/GMM aggregation)
+- test_prior_research_prompts.py (paraphrase generation)
+- test_get_default_prior.py (constraint→distribution mapping)
+- test_model_spec_validation.py (validate_model_spec domain rules)
+
+This file tests stage4-specific orchestration: SSMModelBuilder wiring,
+prior predictive end-to-end, failed parameter identification with
+causal_spec context, SSM prior conversion, sparsity, trial compile,
+and compile ownership.
+"""
 
 import asyncio
 from unittest.mock import patch
 
-import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
 
 from causal_ssm_agent.models.prior_predictive import (
-    _check_constraint_violations,
-    _check_extreme_values,
-    _check_nan_inf,
-    format_parameter_feedback,
-    format_validation_report,
     get_failed_parameters,
     validate_prior_predictive,
 )
-from causal_ssm_agent.orchestrator.schemas_model import (
-    EXPECTED_CONSTRAINT_FOR_ROLE,
-    VALID_LINKS_FOR_DISTRIBUTION,
-    DistributionFamily,
-    LikelihoodSpec,
-    LinkFunction,
-    ModelSpec,
-    ParameterConstraint,
-    ParameterRole,
-    ParameterSpec,
-    validate_model_spec,
-)
-from causal_ssm_agent.workers.prior_research import (
-    aggregate_prior_samples,
-    get_default_prior,
-)
-from causal_ssm_agent.workers.prompts.prior_research import generate_paraphrased_prompts
 from causal_ssm_agent.workers.schemas_prior import (
-    PriorProposal,
-    PriorSource,
     PriorValidationResult,
-    RawPriorSample,
 )
 
 # --- Fixtures ---
@@ -124,59 +112,6 @@ def simple_data() -> pd.DataFrame:
     )
 
 
-# --- Schema Tests ---
-
-
-class TestSchemas:
-    """Test model and prior schemas."""
-
-    def test_parameter_spec_validation(self):
-        """ParameterSpec validates correctly."""
-        spec = ParameterSpec(
-            name="beta_stress_mood",
-            role=ParameterRole.FIXED_EFFECT,
-            constraint=ParameterConstraint.NONE,
-            description="Effect of stress on mood",
-            search_context="stress mood effect size",
-        )
-        assert spec.name == "beta_stress_mood"
-        assert spec.role == ParameterRole.FIXED_EFFECT
-
-    def test_likelihood_spec_validation(self):
-        """LikelihoodSpec validates correctly."""
-        spec = LikelihoodSpec(
-            variable="mood_score",
-            distribution=DistributionFamily.GAUSSIAN,
-            link=LinkFunction.IDENTITY,
-            reasoning="Continuous outcome",
-        )
-        assert spec.distribution == DistributionFamily.GAUSSIAN
-
-    def test_model_spec_validation(self, simple_model_spec):
-        """ModelSpec validates from dict."""
-        spec = ModelSpec.model_validate(simple_model_spec)
-        assert len(spec.likelihoods) == 1
-        assert len(spec.parameters) == 3
-
-    def test_prior_proposal_validation(self):
-        """PriorProposal validates correctly."""
-        proposal = PriorProposal(
-            parameter="beta_x",
-            distribution="Normal",
-            params={"mu": 0.3, "sigma": 0.1},
-            sources=[
-                PriorSource(
-                    title="Meta-analysis",
-                    url="https://example.com",
-                    snippet="Effect size r=0.3",
-                    effect_size="r=0.3",
-                )
-            ],
-            reasoning="Based on meta-analysis",
-        )
-        assert len(proposal.sources) == 1
-
-
 # --- SSMModelBuilder Tests ---
 
 
@@ -205,311 +140,6 @@ class TestSSMModelBuilder:
         model = builder.build_model(simple_data)
         assert model is not None
         assert model.spec.n_manifest == 1  # mood_score only
-
-
-# --- Prior Validation Tests ---
-
-
-class TestPriorValidation:
-    """Test prior predictive validation helpers."""
-
-    def test_format_validation_report_passed(self):
-        """Report formats correctly for passed validation."""
-        results = [
-            PriorValidationResult(
-                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
-            ),
-        ]
-        report = format_validation_report(True, results)
-        assert "PASSED" in report
-
-    def test_format_validation_report_failed(self):
-        """Report formats correctly for failed validation."""
-        results = [
-            PriorValidationResult(
-                parameter="x", is_valid=False, issue="Bad values", suggested_adjustment=None
-            ),
-        ]
-        report = format_validation_report(False, results)
-        assert "FAILED" in report
-        assert "x: Bad values" in report
-
-
-# --- Default Prior Tests ---
-
-
-class TestDefaultPriors:
-    """Test default prior generation."""
-
-    def test_default_prior_positive_constraint(self):
-        """Positive constraint yields HalfNormal."""
-        param = ParameterSpec(
-            name="sigma_x",
-            role=ParameterRole.RESIDUAL_SD,
-            constraint=ParameterConstraint.POSITIVE,
-            description="Residual SD",
-            search_context="",
-        )
-        prior = get_default_prior(param)
-        assert prior.distribution == "HalfNormal"
-
-    def test_default_prior_ar_coefficient(self):
-        """AR coefficient with correlation constraint yields Uniform(-1, 1)."""
-        param = ParameterSpec(
-            name="rho_x",
-            role=ParameterRole.AR_COEFFICIENT,
-            constraint=ParameterConstraint.CORRELATION,
-            description="AR coefficient",
-            search_context="",
-        )
-        prior = get_default_prior(param)
-        assert prior.distribution == "Uniform"
-        assert prior.params["lower"] == -1.0
-        assert prior.params["upper"] == 1.0
-
-    def test_default_prior_correlation(self):
-        """Correlation constraint yields Uniform(-1, 1)."""
-        param = ParameterSpec(
-            name="cor_xy",
-            role=ParameterRole.CORRELATION,
-            constraint=ParameterConstraint.CORRELATION,
-            description="Correlation",
-            search_context="",
-        )
-        prior = get_default_prior(param)
-        assert prior.distribution == "Uniform"
-        assert prior.params["lower"] == -1.0
-        assert prior.params["upper"] == 1.0
-
-    def test_default_prior_unconstrained(self):
-        """Unconstrained parameter yields Normal."""
-        param = ParameterSpec(
-            name="beta_x",
-            role=ParameterRole.FIXED_EFFECT,
-            constraint=ParameterConstraint.NONE,
-            description="Fixed effect",
-            search_context="",
-        )
-        prior = get_default_prior(param)
-        assert prior.distribution == "Normal"
-
-
-# --- AutoElicit Tests ---
-
-
-class TestAutoElicit:
-    """Test AutoElicit-style paraphrased prompting and aggregation."""
-
-    def test_aggregate_unimodal_uses_simple(self):
-        """GMM with unimodal data falls back to simple pooling."""
-        # All samples identical -> GMM should select K=1 -> simple pooling
-        samples = [
-            RawPriorSample(paraphrase_id=i, mu=0.3, sigma=0.1, reasoning="") for i in range(5)
-        ]
-
-        result = aggregate_prior_samples(samples)
-
-        # Should fall back to simple (K=1 detected)
-        assert result.method == "simple"
-        assert result.mixture_weights is None
-        assert np.isclose(result.mu, 0.3)
-
-    def test_aggregate_bimodal_detects_mixture(self):
-        """GMM detects multimodal distribution (K >= 2)."""
-        # Create clearly bimodal samples with more separation
-        samples = [
-            RawPriorSample(paraphrase_id=0, mu=-2.0, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=1, mu=-2.0, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=2, mu=-2.0, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=3, mu=2.0, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=4, mu=2.0, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=5, mu=2.0, sigma=0.1, reasoning=""),
-        ]
-
-        result = aggregate_prior_samples(samples)
-
-        # Should detect K >= 2 mixture (BIC may select 2 or 3)
-        assert result.method == "gmm"
-        assert result.mixture_weights is not None
-        assert result.mixture_means is not None
-        assert result.mixture_stds is not None
-        assert len(result.mixture_weights) >= 2
-        assert len(result.mixture_means) >= 2
-        assert len(result.mixture_stds) >= 2
-        # Means should span negative and positive values
-        assert min(result.mixture_means) < 0
-        assert max(result.mixture_means) > 0
-
-    def test_aggregate_too_few_samples_uses_simple(self):
-        """GMM with <3 samples falls back to simple."""
-        samples = [
-            RawPriorSample(paraphrase_id=0, mu=0.2, sigma=0.1, reasoning=""),
-            RawPriorSample(paraphrase_id=1, mu=0.3, sigma=0.1, reasoning=""),
-        ]
-
-        result = aggregate_prior_samples(samples)
-
-        assert result.method == "simple"
-        # Simple pooling formula
-        assert np.isclose(result.mu, 0.25)
-
-    def test_paraphrase_generation_count(self):
-        """generate_paraphrased_prompts returns N prompts."""
-        prompts = generate_paraphrased_prompts(
-            parameter_name="beta_stress_mood",
-            parameter_role="fixed_effect",
-            parameter_constraint="none",
-            parameter_description="Effect of stress on mood",
-            question="How does stress affect mood?",
-            literature_context="No literature found.",
-            n_paraphrases=10,
-        )
-
-        assert len(prompts) == 10
-
-    def test_paraphrase_generation_fewer_than_10(self):
-        """generate_paraphrased_prompts handles n < 10."""
-        prompts = generate_paraphrased_prompts(
-            parameter_name="beta_x",
-            parameter_role="fixed_effect",
-            parameter_constraint="none",
-            parameter_description="Test param",
-            question="Test question",
-            literature_context="",
-            n_paraphrases=3,
-        )
-
-        assert len(prompts) == 3
-
-    def test_paraphrase_generation_content_varies(self):
-        """Each paraphrase template produces different content."""
-        prompts = generate_paraphrased_prompts(
-            parameter_name="beta_x",
-            parameter_role="fixed_effect",
-            parameter_constraint="none",
-            parameter_description="Test param",
-            question="Test question",
-            literature_context="",
-            n_paraphrases=10,
-        )
-
-        # Each prompt should be unique (different template endings)
-        assert len(set(prompts)) == 10
-
-    def test_paraphrase_generation_contains_parameter_info(self):
-        """Paraphrased prompts contain parameter info."""
-        prompts = generate_paraphrased_prompts(
-            parameter_name="beta_stress_mood",
-            parameter_role="fixed_effect",
-            parameter_constraint="none",
-            parameter_description="Effect of stress on mood",
-            question="How does stress affect mood?",
-            literature_context="No literature found.",
-            n_paraphrases=1,
-        )
-
-        assert "beta_stress_mood" in prompts[0]
-        assert "fixed_effect" in prompts[0]
-        assert "Effect of stress on mood" in prompts[0]
-
-    def test_single_sample_returns_input(self):
-        """With n=1, aggregation returns same values as input."""
-        samples = [
-            RawPriorSample(paraphrase_id=0, mu=0.3, sigma=0.15, reasoning="test"),
-        ]
-
-        result = aggregate_prior_samples(samples)
-
-        # With single sample: mu = mu, sigma = sigma (var(mu) = 0)
-        assert np.isclose(result.mu, 0.3)
-        assert np.isclose(result.sigma, 0.15)
-        assert result.n_samples == 1
-
-
-# --- Domain Validation Tests ---
-
-
-class TestDomainValidation:
-    """Test domain validation rules from schemas_model."""
-
-    def test_valid_spec_no_issues(self, simple_model_spec):
-        """A well-formed ModelSpec produces no validation issues."""
-        spec = ModelSpec.model_validate(simple_model_spec)
-        issues = validate_model_spec(spec)
-        assert issues == []
-
-    def test_wrong_link_for_distribution(self):
-        """Bernoulli + identity link is flagged as error."""
-        spec = ModelSpec(
-            likelihoods=[
-                LikelihoodSpec(
-                    variable="x",
-                    distribution=DistributionFamily.BERNOULLI,
-                    link=LinkFunction.IDENTITY,
-                    reasoning="test",
-                )
-            ],
-            parameters=[],
-            reasoning="test",
-        )
-        issues = validate_model_spec(spec)
-        assert len(issues) == 1
-        assert issues[0]["severity"] == "error"
-        assert "identity" in issues[0]["issue"]
-
-    def test_wrong_constraint_for_role(self):
-        """ar_coefficient + none constraint is flagged as warning."""
-        spec = ModelSpec(
-            likelihoods=[],
-            parameters=[
-                ParameterSpec(
-                    name="rho_x",
-                    role=ParameterRole.AR_COEFFICIENT,
-                    constraint=ParameterConstraint.NONE,
-                    description="test",
-                    search_context="test",
-                )
-            ],
-            reasoning="test",
-        )
-        issues = validate_model_spec(spec)
-        assert len(issues) == 1
-        assert issues[0]["severity"] == "warning"
-        assert "correlation" in issues[0]["issue"]
-
-    def test_wrong_distribution_for_dtype(self):
-        """Normal for binary dtype is flagged when indicators provided."""
-        spec = ModelSpec(
-            likelihoods=[
-                LikelihoodSpec(
-                    variable="flag",
-                    distribution=DistributionFamily.GAUSSIAN,
-                    link=LinkFunction.IDENTITY,
-                    reasoning="test",
-                )
-            ],
-            parameters=[],
-            reasoning="test",
-        )
-        indicators = [{"name": "flag", "measurement_dtype": "binary"}]
-        issues = validate_model_spec(spec, indicators=indicators)
-        assert any(i["severity"] == "error" and "binary" in i["issue"] for i in issues)
-
-    def test_all_distributions_have_link_rules(self):
-        """Every DistributionFamily member has an entry in VALID_LINKS_FOR_DISTRIBUTION."""
-        for dist in DistributionFamily:
-            assert dist in VALID_LINKS_FOR_DISTRIBUTION, f"Missing link rule for {dist}"
-
-    def test_all_roles_have_constraint_rules(self):
-        """Every ParameterRole except LOADING has an entry in EXPECTED_CONSTRAINT_FOR_ROLE.
-
-        LOADING is excluded because its constraint depends on context
-        (positive for reference indicators, none for others).
-        """
-        for role in ParameterRole:
-            if role == ParameterRole.LOADING:
-                continue
-            assert role in EXPECTED_CONSTRAINT_FOR_ROLE, f"Missing constraint rule for {role}"
 
 
 # --- Prior Predictive Validation Tests ---
@@ -575,42 +205,6 @@ class TestPriorPredictiveValidation:
             assert any("model_build" in r.parameter for r in results)
             assert any("deliberate test failure" in (r.issue or "") for r in results)
 
-    def test_nan_detection(self):
-        """Mock samples with NaN -> caught."""
-        samples = {
-            "drift_diag_pop": jnp.array([1.0, float("nan"), 3.0]),
-            "diffusion_diag_pop": jnp.array([1.0, 2.0, 3.0]),
-        }
-        result = _check_nan_inf(samples)
-        assert result is not None
-        assert result.is_valid is False
-        assert result.issue is not None
-        assert "NaN" in result.issue
-        assert "drift_diag_pop" in result.issue
-
-    def test_extreme_values_detection(self):
-        """Mock samples > 1e6 -> caught."""
-        # 50% of values are extreme (above 10% threshold)
-        samples = {
-            "drift_diag_pop": jnp.array([1e7, 1e8, 0.5, 0.3]),
-        }
-        results = _check_extreme_values(samples)
-        assert len(results) == 1
-        assert results[0].is_valid is False
-        assert results[0].issue is not None
-        assert "Extreme" in results[0].issue
-
-    def test_constraint_violations_detection(self):
-        """Positive-constrained sites with negative values -> caught."""
-        # >1% negative
-        vals = jnp.concatenate([jnp.ones(90), -jnp.ones(10)])
-        samples = {"diffusion_diag_pop": vals}
-        results = _check_constraint_violations(samples)
-        assert len(results) == 1
-        assert results[0].is_valid is False
-        assert results[0].issue is not None
-        assert "negative" in results[0].issue
-
     def test_no_data_still_validates(self, simple_model_spec, simple_priors):
         """raw_data=None -> NaN/constraint/extreme checks run, scale skipped."""
         is_valid, results, _samples = validate_prior_predictive(
@@ -619,17 +213,6 @@ class TestPriorPredictiveValidation:
         # Should still produce results (pass or fail) without crashing
         assert isinstance(is_valid, bool)
         assert isinstance(results, list)
-
-    def test_format_report_integrates(self, simple_model_spec, simple_priors):
-        """validate + format_validation_report -> well-formed string."""
-        is_valid, results, _samples = validate_prior_predictive(
-            simple_model_spec, simple_priors, None, n_samples=10
-        )
-        report = format_validation_report(is_valid, results)
-        assert isinstance(report, str)
-        assert "Prior predictive validation" in report
-        if is_valid:
-            assert "PASSED" in report
 
     def test_validate_priors_task_delegates(self, simple_model_spec, simple_priors):
         """Prefect task.fn() -> returns dict with expected keys."""
@@ -643,88 +226,8 @@ class TestPriorPredictiveValidation:
         assert "issues" in result
 
 
-# --- Validation Feedback Tests ---
-
-
-class TestValidationFeedback:
-    """Test per-parameter validation feedback formatting."""
-
-    def test_format_parameter_feedback_with_issues(self):
-        """Feedback includes issue and suggestion for failed parameter."""
-        results = [
-            PriorValidationResult(
-                parameter="scale_mood",
-                is_valid=False,
-                issue="Scale mismatch for mood: implied std (450.2) vs data std (1.3), ratio=346",
-                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
-            ),
-        ]
-        prior = {"distribution": "Normal", "params": {"mu": 5.0, "sigma": 10.0}}
-
-        # scale_mood is a global failure that maps to all params
-        feedback = format_parameter_feedback("sigma_mood_score", results, prior=prior)
-
-        assert "Normal(mu=5.0, sigma=10.0)" in feedback
-        assert "Scale mismatch" in feedback
-        assert "Adjust diffusion" in feedback
-
-    def test_format_parameter_feedback_with_data_stats(self):
-        """Feedback includes data scale reference."""
-        results = [
-            PriorValidationResult(
-                parameter="dynamics_stability",
-                is_valid=False,
-                issue="Unstable dynamics: 8/10 prior draws have unstable drift",
-                suggested_adjustment="Tighten drift_diag prior",
-            ),
-        ]
-        data_stats = {"mood": {"mean": 5.0, "std": 1.3, "min": 1.0, "max": 9.0}}
-
-        # dynamics_stability is a global failure
-        feedback = format_parameter_feedback("rho_mood", results, data_stats=data_stats)
-
-        assert "mood" in feedback
-        assert "std=1.3" in feedback
-
-    def test_format_parameter_feedback_empty_for_passing(self):
-        """No feedback for parameters that passed."""
-        results = [
-            PriorValidationResult(
-                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
-            ),
-        ]
-        feedback = format_parameter_feedback("x", results)
-        assert feedback == ""
-
-
 class TestFailedParameters:
     """Test failed parameter identification."""
-
-    def test_global_failure_returns_all(self):
-        """Model build failure affects all parameters."""
-        results = [
-            PriorValidationResult(
-                parameter="model_build",
-                is_valid=False,
-                issue="Build failed",
-                suggested_adjustment=None,
-            ),
-        ]
-        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood", "beta_stress"])
-        assert set(failed) == {"rho_mood", "sigma_mood", "beta_stress"}
-
-    def test_scale_mismatch_without_causal_spec_returns_all(self):
-        """Scale mismatch without causal_spec affects all parameters."""
-        results = [
-            PriorValidationResult(
-                parameter="scale_mood",
-                is_valid=False,
-                issue="Scale mismatch",
-                suggested_adjustment=None,
-            ),
-        ]
-        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood"])
-        assert set(failed) == {"rho_mood", "sigma_mood"}
 
     def test_scale_mismatch_with_causal_spec_targets_construct(self):
         """Scale mismatch with causal_spec targets only the affected construct."""
@@ -752,29 +255,6 @@ class TestFailedParameters:
         assert "beta_stress_mood" in failed  # contains "mood"
         assert "rho_stress" not in failed
         assert "sigma_stress" not in failed
-
-    def test_drift_diag_failure_maps_to_ar(self):
-        """drift_diag failure maps to AR coefficient parameters."""
-        results = [
-            PriorValidationResult(
-                parameter="drift_diag_pop",
-                is_valid=False,
-                issue="Extreme values",
-                suggested_adjustment=None,
-            ),
-        ]
-        failed = get_failed_parameters(results, ["rho_mood", "sigma_mood", "beta_stress"])
-        assert "rho_mood" in failed
-        assert "beta_stress" not in failed
-
-    def test_no_failures_returns_empty(self):
-        """All passing -> empty list."""
-        results = [
-            PriorValidationResult(
-                parameter="x", is_valid=True, issue=None, suggested_adjustment=None
-            ),
-        ]
-        assert get_failed_parameters(results, ["x", "y"]) == []
 
 
 # --- SSM Prior Conversion Tests ---
@@ -1138,53 +618,6 @@ class TestSSMPriorConversion:
         mu = ssm_priors.drift_offdiag["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - expected_mu) < 0.5
-
-
-# --- Sparsity Validation Tests ---
-
-
-class TestSparsityValidation:
-    """Test post-pivot sparsity detection."""
-
-    def test_pivot_warns_on_sparse_matrix(self, caplog):
-        """Sparse multi-granularity data triggers a warning."""
-        import logging
-
-        from causal_ssm_agent.utils.data import pivot_to_wide
-
-        # 3 indicators at hourly resolution, but B and C only have 1 observation each.
-        # Total cells = 24*3 = 72, nulls = 23+23 = 46, sparsity = 64% > 50%.
-        rows = []
-        for h in range(24):
-            rows.append({"indicator": "hourly_var", "value": float(h), "time_bucket": h})
-        rows.append({"indicator": "daily_b", "value": 5.0, "time_bucket": 0})
-        rows.append({"indicator": "daily_c", "value": 9.0, "time_bucket": 0})
-
-        raw = pl.DataFrame(rows)
-        logger = logging.getLogger("causal_ssm_agent.utils.data")
-        logger.propagate = True
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
-            wide = pivot_to_wide(raw)
-
-        assert wide.height == 24
-        assert any("Sparse observation matrix" in msg for msg in caplog.messages)
-
-    def test_pivot_no_warning_on_complete_matrix(self, caplog):
-        """Complete data should not trigger sparsity warning."""
-        import logging
-
-        from causal_ssm_agent.utils.data import pivot_to_wide
-
-        rows = []
-        for t in range(10):
-            rows.append({"indicator": "A", "value": float(t), "time_bucket": t})
-            rows.append({"indicator": "B", "value": float(t * 2), "time_bucket": t})
-
-        raw = pl.DataFrame(rows)
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
-            pivot_to_wide(raw)
-
-        assert not any("Sparse" in msg for msg in caplog.messages)
 
 
 # --- Trial Compile Tests ---

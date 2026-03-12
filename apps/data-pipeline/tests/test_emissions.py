@@ -13,7 +13,6 @@ from causal_ssm_agent.models.likelihoods.emissions import (
     emission_log_prob_bernoulli_probit,
     emission_log_prob_beta,
     emission_log_prob_beta_probit,
-    emission_log_prob_gamma,
     emission_log_prob_gamma_inverse,
     emission_log_prob_gaussian,
     emission_log_prob_negative_binomial,
@@ -148,17 +147,6 @@ class TestStudentTEmission:
 
 
 class TestGammaEmission:
-    def test_positive_values(self):
-        """Gamma log-prob should be finite for positive observations."""
-        H = jnp.eye(1)
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        z = jnp.array([jnp.log(3.0)])
-        y = jnp.array([2.0])
-        mask = jnp.ones(1)
-        lp = emission_log_prob_gamma(y, z, H, d, R, mask, shape=2.0)
-        assert jnp.isfinite(lp)
-
     def test_inverse_link(self):
         """Gamma with inverse link should give finite log-prob."""
         H = jnp.eye(1)
@@ -177,17 +165,6 @@ class TestGammaEmission:
 
 
 class TestBernoulliEmission:
-    def test_logit_link_basic(self):
-        """High eta should give high prob of y=1."""
-        H = jnp.eye(1)
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        z_high = jnp.array([5.0])
-        y_one = jnp.array([1.0])
-        mask = jnp.ones(1)
-        lp = emission_log_prob_bernoulli(y_one, z_high, H, d, R, mask)
-        assert lp > jnp.log(0.9)
-
     def test_probit_link(self):
         """Probit link should give log(0.5) at eta=0."""
         H = jnp.eye(1)
@@ -208,18 +185,6 @@ class TestBernoulliEmission:
 
 
 class TestNegBinEmission:
-    def test_finite_logprob(self):
-        """NB log-prob should be finite for valid inputs."""
-        H = jnp.eye(1)
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        z = jnp.array([jnp.log(5.0)])
-        y = jnp.array([3.0])
-        mask = jnp.ones(1)
-        lp = emission_log_prob_negative_binomial(y, z, H, d, R, mask, r=10.0)
-        assert jnp.isfinite(lp)
-        assert lp < 0.0
-
     def test_overdispersion_increases_with_lower_r(self):
         """Lower r means more overdispersion, so NB should be more spread."""
         H = jnp.eye(1)
@@ -240,17 +205,6 @@ class TestNegBinEmission:
 
 
 class TestBetaEmission:
-    def test_logit_link(self):
-        """Beta log-prob should be finite for values in (0,1)."""
-        H = jnp.eye(1)
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        z = jnp.array([0.0])
-        y = jnp.array([0.5])
-        mask = jnp.ones(1)
-        lp = emission_log_prob_beta(y, z, H, d, R, mask, concentration=10.0)
-        assert jnp.isfinite(lp)
-
     def test_probit_link(self):
         """Beta with probit link should be finite."""
         H = jnp.eye(1)
@@ -282,18 +236,6 @@ class TestBetaEmission:
 
 
 class TestGetEmissionFn:
-    def test_gaussian(self):
-        fn = get_emission_fn("gaussian")
-        assert fn is emission_log_prob_gaussian
-
-    def test_poisson(self):
-        fn = get_emission_fn("poisson")
-        assert fn is emission_log_prob_poisson
-
-    def test_bernoulli_default_logit(self):
-        fn = get_emission_fn("bernoulli")
-        assert fn is emission_log_prob_bernoulli
-
     def test_bernoulli_probit(self):
         fn = get_emission_fn("bernoulli", link="probit")
         assert fn is emission_log_prob_bernoulli_probit

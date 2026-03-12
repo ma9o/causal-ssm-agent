@@ -80,42 +80,37 @@ class TestBuildAggExpr:
     def test_p25(self):
         df = _make_df([1.0, 2.0, 3.0, 4.0])
         result = df.select(_build_agg_expr("p25"))
-        assert result["value"][0] is not None
+        assert result["value"][0] == pytest.approx(2.0)
 
     def test_p75(self):
         df = _make_df([1.0, 2.0, 3.0, 4.0])
         result = df.select(_build_agg_expr("p75"))
-        assert result["value"][0] is not None
+        assert result["value"][0] == pytest.approx(3.0)
 
     def test_iqr(self):
         df = _make_df([1.0, 2.0, 3.0, 4.0])
         result = df.select(_build_agg_expr("iqr"))
-        assert result["value"][0] >= 0
+        assert result["value"][0] == pytest.approx(1.0)
 
     def test_cv_nonzero_mean(self):
         df = _make_df([10.0, 12.0, 8.0])
         result = df.select(_build_agg_expr("cv"))
-        assert result["value"][0] is not None
-        assert result["value"][0] > 0
+        assert result["value"][0] == pytest.approx(0.2)
 
     def test_instability(self):
+        """MSSD: mean of squared successive differences."""
         df = _make_df([1.0, 3.0, 2.0, 4.0])
         result = df.select(_build_agg_expr("instability"))
-        assert result["value"][0] > 0
-
-    def test_output_alias_is_value(self):
-        """All expressions should alias to 'value'."""
-        for agg in ["mean", "sum", "min", "max", "range", "p25", "cv", "instability"]:
-            df = _make_df([1.0, 2.0, 3.0])
-            result = df.select(_build_agg_expr(agg))
-            assert "value" in result.columns
+        # diffs: [null, 2, -1, 2], squared: [null, 4, 1, 4], mean = 3.0
+        assert result["value"][0] == pytest.approx(3.0)
 
     def test_single_value(self):
         """Aggregating a single value works for all functions."""
         df = _make_df([42.0])
         for agg in ["mean", "sum", "min", "max", "count", "median", "first", "last"]:
             result = df.select(_build_agg_expr(agg))
-            assert result["value"][0] is not None, f"{agg} failed on single value"
+            expected = 1 if agg == "count" else 42.0
+            assert result["value"][0] == pytest.approx(expected), f"{agg} failed on single value"
 
     def test_cv_zero_mean(self):
         """CV with zero mean should handle division safely."""

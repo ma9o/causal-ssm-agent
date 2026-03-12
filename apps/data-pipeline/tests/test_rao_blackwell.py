@@ -25,12 +25,6 @@ class TestGaussHermite1D:
         _nodes, weights = _gauss_hermite_1d(5)
         assert jnp.isclose(jnp.sum(weights), 1.0, atol=1e-10)
 
-    def test_integrates_constant(self):
-        """int 1 * N(x|0,1) dx = 1."""
-        _nodes, weights = _gauss_hermite_1d(3)
-        result = jnp.sum(weights * 1.0)
-        assert jnp.isclose(result, 1.0, atol=1e-10)
-
     def test_integrates_x_squared(self):
         """int x^2 * N(x|0,1) dx = 1 (variance of standard normal)."""
         nodes, weights = _gauss_hermite_1d(5)

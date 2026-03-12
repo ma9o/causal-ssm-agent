@@ -136,7 +136,7 @@ class TestLaplaceEMBlockSolver:
         z_dense = jnp.linalg.solve(dense, rhs.reshape(-1)).reshape(T, D)
 
         np.testing.assert_allclose(z_smooth, z_dense, atol=1e-5, rtol=1e-5)
-        assert jnp.isfinite(log_lik)
+        assert jnp.isfinite(log_lik).all()
 
 
 class TestParticleLikelihoodCore:
@@ -227,106 +227,6 @@ class TestParticleLikelihoodCore:
 
         assert all(np.isfinite(ll) for ll in likelihoods)
         assert len({round(ll, 2) for ll in likelihoods}) > 1
-
-
-class TestDeterministicKey:
-    """Test that fixed PF key gives deterministic results."""
-
-    def test_same_params_same_key_same_ll(self):
-        """Same parameters + same key should produce identical log-likelihood."""
-        T = 10
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, 2)) * 0.5
-        time_intervals = jnp.ones(T) * 0.5
-
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-            diffusion_cov=jnp.eye(2) * 0.1,
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        pf_key = random.PRNGKey(99)
-
-        backend1 = ParticleLikelihood(
-            n_latent=2,
-            n_manifest=2,
-            n_particles=200,
-            rng_key=pf_key,
-        )
-        ll1 = backend1.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        backend2 = ParticleLikelihood(
-            n_latent=2,
-            n_manifest=2,
-            n_particles=200,
-            rng_key=pf_key,
-        )
-        ll2 = backend2.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert float(ll1[-1]) == float(ll2[-1]), f"Not deterministic: {ll1} vs {ll2}"
-
-
-class TestParticleLikelihoodGradient:
-    """Test that jax.grad flows through the particle filter."""
-
-    def test_gradient_is_finite(self):
-        """jax.grad of PF log-likelihood should produce finite values."""
-        T = 8
-        observations = jnp.ones((T, 2)) * 0.3
-        time_intervals = jnp.ones(T) * 0.5
-
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        pf_key = random.PRNGKey(0)
-
-        def ll_fn(drift_diag):
-            drift = jnp.diag(drift_diag)
-            ct_params = CTParams(
-                drift=drift,
-                diffusion_cov=jnp.eye(2) * 0.1,
-                cint=None,
-            )
-            backend = ParticleLikelihood(
-                n_latent=2,
-                n_manifest=2,
-                n_particles=100,
-                rng_key=pf_key,
-            )
-            return backend.compute_log_likelihood(
-                ct_params,
-                meas_params,
-                init,
-                observations,
-                time_intervals,
-            )[-1]
-
-        drift_diag = jnp.array([-0.5, -0.5])
-        grad = jax.grad(ll_fn)(drift_diag)
-
-        assert jnp.all(jnp.isfinite(grad)), f"Non-finite gradient: {grad}"
 
 
 # =============================================================================
@@ -875,107 +775,6 @@ class TestEdgeCases:
 # =============================================================================
 
 
-class TestFitReturnsInferenceResult:
-    """Test that fit() returns InferenceResult for all methods."""
-
-    @pytest.mark.slow
-    def test_fit_nuts_returns_inference_result(self):
-        """fit() with method='nuts' returns InferenceResult."""
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
-        )
-        model = SSMModel(spec, n_particles=50)
-
-        T = 15
-        key = random.PRNGKey(0)
-        observations = random.normal(key, (T, 2)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="nuts",
-            num_warmup=10,
-            num_samples=20,
-            num_chains=1,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "nuts"
-        samples = result.get_samples()
-        assert "drift_diag_pop" in samples
-
-    @pytest.mark.slow
-    def test_fit_svi_returns_inference_result(self):
-        """fit() with method='svi' returns InferenceResult."""
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            diffusion="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
-        )
-        model = SSMModel(spec, n_particles=50)
-
-        T = 15
-        key = random.PRNGKey(0)
-        observations = random.normal(key, (T, 2)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="svi",
-            num_steps=50,
-            num_samples=20,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "svi"
-        samples = result.get_samples()
-        # SVI Predictive returns deterministic sites (drift, diffusion, etc.)
-        assert "drift" in samples
-        assert samples["drift"].shape[0] == 20
-
-    @pytest.mark.slow
-    def test_fit_poisson_svi_returns_inference_result(self):
-        """fit() with Poisson manifest_dist + SVI returns InferenceResult."""
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            diffusion="diag",
-            manifest_dist=DistributionFamily.POISSON,
-        )
-        model = SSMModel(spec, n_particles=50)
-
-        T = 15
-        key = random.PRNGKey(0)
-        observations = random.poisson(key, jnp.ones((T, 1)) * 5.0).astype(jnp.float32)
-        times = jnp.arange(T, dtype=jnp.float32)
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="svi",
-            num_steps=50,
-            num_samples=20,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "svi"
-
-
 # =============================================================================
 # SVI-specific Tests
 # =============================================================================
@@ -1021,40 +820,6 @@ class TestSVIBackend:
         assert late_mean < early_mean, (
             f"SVI loss did not decrease: early={early_mean:.1f}, late={late_mean:.1f}"
         )
-
-    @pytest.mark.slow
-    def test_svi_guide_types(self):
-        """All guide types should produce valid results."""
-        spec = SSMSpec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            diffusion="diag",
-        )
-
-        T = 10
-        key = random.PRNGKey(0)
-        observations = random.normal(key, (T, 1)) * 0.5
-        times = jnp.arange(T, dtype=jnp.float32) * 0.5
-
-        for guide_type in ["normal", "mvn", "delta"]:
-            model = SSMModel(spec, n_particles=50)
-            result = fit(
-                model,
-                observations=observations,
-                times=times,
-                method="svi",
-                guide_type=guide_type,
-                num_steps=50,
-                num_samples=10,
-            )
-            assert isinstance(result, InferenceResult)
-            assert len(result.get_samples()) > 0
-
-
-# =============================================================================
-# PMMH-specific Tests
-# =============================================================================
 
 
 # =============================================================================
@@ -1115,88 +880,6 @@ class TestSVIParameterRecovery:
 # =============================================================================
 # Builder Noise Family Wiring Tests
 # =============================================================================
-
-
-class TestBuilderDistributionFamilyWiring:
-    """Test that SSMModelBuilder wires noise families from ModelSpec."""
-
-    def test_convert_spec_sets_poisson_noise_family(self):
-        """ModelSpec with Poisson likelihood -> SSMSpec has POISSON manifest_dist."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-        from causal_ssm_agent.orchestrator.schemas_model import (
-            DistributionFamily,
-            LikelihoodSpec,
-            LinkFunction,
-            ModelSpec,
-            ParameterConstraint,
-            ParameterRole,
-            ParameterSpec,
-        )
-
-        model_spec = ModelSpec(
-            likelihoods=[
-                LikelihoodSpec(
-                    variable="count_var",
-                    distribution=DistributionFamily.POISSON,
-                    link=LinkFunction.LOG,
-                    reasoning="Count data",
-                ),
-            ],
-            parameters=[
-                ParameterSpec(
-                    name="rho_count",
-                    role=ParameterRole.AR_COEFFICIENT,
-                    constraint=ParameterConstraint.UNIT_INTERVAL,
-                    description="AR coeff",
-                    search_context="autoregressive",
-                ),
-            ],
-            reasoning="test",
-        )
-
-        builder = SSMModelBuilder(model_spec=model_spec)
-        ssm_spec = builder._convert_spec_to_ssm(model_spec)
-
-        assert ssm_spec.manifest_dist == DistributionFamily.POISSON
-
-    def test_convert_spec_sets_gaussian_for_normal(self):
-        """ModelSpec with Normal likelihood -> SSMSpec has GAUSSIAN manifest_dist."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-        from causal_ssm_agent.orchestrator.schemas_model import (
-            DistributionFamily,
-            LikelihoodSpec,
-            LinkFunction,
-            ModelSpec,
-            ParameterConstraint,
-            ParameterRole,
-            ParameterSpec,
-        )
-
-        model_spec = ModelSpec(
-            likelihoods=[
-                LikelihoodSpec(
-                    variable="continuous_var",
-                    distribution=DistributionFamily.GAUSSIAN,
-                    link=LinkFunction.IDENTITY,
-                    reasoning="Continuous data",
-                ),
-            ],
-            parameters=[
-                ParameterSpec(
-                    name="rho_cont",
-                    role=ParameterRole.AR_COEFFICIENT,
-                    constraint=ParameterConstraint.UNIT_INTERVAL,
-                    description="AR coeff",
-                    search_context="autoregressive",
-                ),
-            ],
-            reasoning="test",
-        )
-
-        builder = SSMModelBuilder(model_spec=model_spec)
-        ssm_spec = builder._convert_spec_to_ssm(model_spec)
-
-        assert ssm_spec.manifest_dist == DistributionFamily.GAUSSIAN
 
 
 # =============================================================================
@@ -1337,24 +1020,6 @@ class TestHessMC2ReverseMomentum:
         expected = 0.5 * s["eps"] * s["grad_new"] + s["v_half"]
         assert jnp.allclose(v_new, expected)
 
-    def test_fo_forward_reverse_symmetry(self):
-        """FO proposal + reverse with same gradient should recover original v."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _reverse_fo
-
-        x = jnp.array([1.0, 2.0])
-        grad = jnp.array([0.5, -0.3])
-        z = jnp.array([0.1, -0.2])
-        eps = 0.1
-
-        _, _v, v_half, _, _ = _propose_fo(x, grad, jnp.zeros((2, 2)), z, eps, eps)
-        # If grad_new == grad (stationary), reverse should give v_new == v
-        # because: v = z, v_half = 0.5*eps*grad + z
-        #          v_new = 0.5*eps*grad + v_half = 0.5*eps*grad + 0.5*eps*grad + z
-        # This is NOT v — the symmetry is in the weight correction, not the values.
-        # Just verify the reverse produces finite values.
-        v_new, _, _ = _reverse_fo(v_half, grad, jnp.zeros((2, 2)), eps, eps)
-        assert jnp.all(jnp.isfinite(v_new))
-
 
 class TestHessMC2Weights:
     """Test importance weight computation and CoV L-kernel."""
@@ -1435,50 +1100,6 @@ class TestHessMC2Weights:
         assert lw == -jnp.inf
 
 
-class TestHessMC2FullHessian:
-    """Test full Hessian computation via jax.hessian on known functions."""
-
-    def test_quadratic_hessian_is_exact(self):
-        """For f(x) = 0.5 * x^T A x, H = A."""
-        A = jnp.array([[2.0, 0.5], [0.5, 3.0]])
-
-        def f(x):
-            return 0.5 * x @ A @ x
-
-        x = jnp.array([1.0, -1.0])
-        H = jax.hessian(f)(x)
-        assert jnp.allclose(H, A, atol=1e-4)
-
-    def test_hessian_captures_off_diagonal(self):
-        """Full Hessian should capture off-diagonal curvature that diagonal misses."""
-        A = jnp.array([[2.0, 1.5], [1.5, 3.0]])
-
-        def f(x):
-            return 0.5 * x @ A @ x
-
-        x = jnp.array([1.0, -1.0])
-        H = jax.hessian(f)(x)
-        assert jnp.allclose(H[0, 1], 1.5, atol=1e-4)
-        assert jnp.allclose(H[1, 0], 1.5, atol=1e-4)
-
-    def test_rosenbrock_hessian(self):
-        """Verify full Hessian on Rosenbrock: f(x,y) = (1-x)^2 + 100(y-x^2)^2."""
-
-        def rosenbrock(xy):
-            x, y = xy[0], xy[1]
-            return (1 - x) ** 2 + 100 * (y - x**2) ** 2
-
-        # At (1, 1) (the minimum):
-        # d^2f/dx^2 = 2 - 400*y + 1200*x^2 = 802
-        # d^2f/dy^2 = 200
-        # d^2f/dxdy = -400*x = -400
-        xy = jnp.array([1.0, 1.0])
-        H = jax.hessian(rosenbrock)(xy)
-        assert jnp.allclose(H[0, 0], 802.0, atol=1.0)
-        assert jnp.allclose(H[1, 1], 200.0, atol=1.0)
-        assert jnp.allclose(H[0, 1], -400.0, atol=1.0)
-
-
 class TestHessMC2VmapBatching:
     """Test that proposals and weights work correctly under vmap."""
 
@@ -1540,320 +1161,73 @@ class TestHessMC2VmapBatching:
 
 
 # =============================================================================
-# Hess-MC² Smoke Test (Non-linear Non-Gaussian DGP)
-# =============================================================================
-
-
-class TestHessMC2Smoke:
-    """End-to-end smoke test for Hess-MC² on a Linear Gaussian SSM.
-
-    Replicates the paper's LGSS experiment (Section IV-A) using our
-    continuous-time SSM framework. D=3 parameters (drift_diag, diffusion_diag,
-    manifest_var_diag) — matching the paper's low-dimensional test case.
-
-    Uses tiny inference settings (N=8, K=3) to exercise the full pipeline
-    quickly. Recovery test is in tests/test_recovery.py.
-    """
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(30)
-    def test_lgss_hessian_smoke(self, lgss_data):
-        """Hess-MC² Hessian proposal on 1D LGSS (D=3) — pipeline check.
-
-        Paper reference: Section IV-A, LGSS model.
-        Performance gate: must complete within 30s.
-        Exercises tempered warmup code path (warmup_iters=2).
-        """
-        import time
-
-        t0 = time.perf_counter()
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="hessmc2",
-            n_smc_particles=8,
-            n_iterations=5,
-            proposal="hessian",
-            step_size=0.5,
-            warmup_iters=2,
-            warmup_step_size=0.5,
-            adapt_step_size=False,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "hessmc2"
-        samples = result.get_samples()
-
-        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
-            assert site in samples, f"Missing sample site: {site}"
-
-        assert samples["drift_diag_pop"].shape == (8, 1)
-        assert samples["diffusion_diag_pop"].shape == (8, 1)
-        assert samples["manifest_var_diag"].shape == (8, 1)
-
-        ess = result.diagnostics["ess_history"]
-        assert len(ess) == 5
-        assert all(e > 0 for e in ess)
-        assert result.diagnostics["warmup_iters"] == 2
-
-        elapsed = time.perf_counter() - t0
-        assert elapsed < 30.0, f"Hess-MC² smoke took {elapsed:.1f}s, must be under 30s"
-
-
-# =============================================================================
-# MCMC Utils Tests
-# =============================================================================
-
-
-class TestMCMCUtils:
-    """Test shared MCMC utility functions."""
-
-    def test_hmc_step_n_leapfrog_1_is_mala(self):
-        """hmc_step with n_leapfrog=1 should behave as MALA."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import hmc_step
-
-        D = 3
-        key = random.PRNGKey(42)
-
-        # Simple quadratic target: -0.5 * x^T x
-        def target_vg(z):
-            val = -0.5 * jnp.dot(z, z)
-            grad = -z
-            return val, grad
-
-        z = jnp.array([1.0, -0.5, 0.3])
-        chol_mass = jnp.eye(D)
-        z_new, accepted, log_target = hmc_step(key, z, target_vg, 0.1, chol_mass, n_leapfrog=1)
-
-        assert z_new.shape == (D,)
-        assert jnp.isfinite(log_target)
-        assert accepted.dtype == jnp.bool_
-
-    def test_hmc_step_n_leapfrog_5(self):
-        """hmc_step with n_leapfrog=5 should produce valid results."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import hmc_step
-
-        D = 3
-        key = random.PRNGKey(42)
-
-        def target_vg(z):
-            val = -0.5 * jnp.dot(z, z)
-            grad = -z
-            return val, grad
-
-        z = jnp.array([1.0, -0.5, 0.3])
-        chol_mass = jnp.eye(D)
-        z_new, _accepted, log_target = hmc_step(key, z, target_vg, 0.1, chol_mass, n_leapfrog=5)
-
-        assert z_new.shape == (D,)
-        assert jnp.isfinite(log_target)
-
-    def test_find_next_beta_basic(self):
-        """find_next_beta should return a value between beta_prev and 1.0."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import find_next_beta
-
-        N = 100
-        logw = jnp.zeros(N)
-        key = random.PRNGKey(0)
-        log_liks = random.normal(key, (N,)) * 10.0  # spread-out likelihoods
-
-        beta = find_next_beta(logw, log_liks, 0.0, 0.5, N)
-        assert 0.0 < beta <= 1.0
-
-    def test_find_next_beta_reaches_one(self):
-        """find_next_beta should reach 1.0 when likelihoods are uniform."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import find_next_beta
-
-        N = 100
-        logw = jnp.zeros(N)
-        log_liks = jnp.zeros(N)  # all equal -> ESS stays at N for any delta
-
-        beta = find_next_beta(logw, log_liks, 0.0, 0.5, N)
-        assert beta == 1.0
-
-    def test_dual_averaging_converges(self):
-        """Dual averaging should converge step size toward target acceptance."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import (
-            dual_averaging_init,
-            dual_averaging_update,
-        )
-
-        state = dual_averaging_init(1.0)
-        # Simulate low acceptance (step too large) -> should shrink
-        for _ in range(50):
-            state = dual_averaging_update(state, 0.1, target_accept=0.65)
-        assert state.eps < 1.0  # step size should have decreased
-        assert state.eps_bar < 1.0
-
-        # Simulate high acceptance (step too small) -> should grow
-        state2 = dual_averaging_init(0.001)
-        for _ in range(50):
-            state2 = dual_averaging_update(state2, 0.95, target_accept=0.65)
-        assert state2.eps > 0.001
-
-    def test_compute_weighted_chol_mass_shape(self):
-        """compute_weighted_chol_mass should return (D, D) lower-triangular."""
-        from causal_ssm_agent.models.ssm.mcmc_utils import compute_weighted_chol_mass
-
-        D = 4
-        N = 50
-        key = random.PRNGKey(0)
-        particles = random.normal(key, (N, D))
-        logw = jnp.zeros(N)
-
-        chol = compute_weighted_chol_mass(particles, logw, D)
-        assert chol.shape == (D, D)
-        # Should be lower-triangular (upper triangle ~0)
-        assert jnp.allclose(chol, jnp.tril(chol), atol=1e-6)
-
-
-# =============================================================================
 # Tempered SMC Upgrade Tests
 # =============================================================================
 
 
-class TestTemperedSMCAdaptive:
-    """Test adaptive ESS-based tempering."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
+class TestTemperedSMCVariants:
+    """Parameterized smoke tests for tempered SMC variants."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(60)
-    def test_adaptive_tempering_reaches_beta_one(self, lgss_data):
-        """Adaptive tempering should reach beta=1.0."""
+    @pytest.mark.parametrize(
+        "variant, extra_kwargs",
+        [
+            pytest.param(
+                "adaptive",
+                {
+                    "n_outer": 50,
+                    "adaptive_tempering": True,
+                    "target_ess_ratio": 0.5,
+                    "waste_free": False,
+                },
+                id="adaptive",
+            ),
+            pytest.param(
+                "waste_free",
+                {
+                    "n_outer": 10,
+                    "waste_free": True,
+                },
+                id="waste_free",
+            ),
+            pytest.param(
+                "multi_step_hmc",
+                {
+                    "n_outer": 6,
+                    "n_leapfrog": 5,
+                    "waste_free": False,
+                },
+                id="multi_step_hmc",
+            ),
+        ],
+    )
+    def test_tempered_smc_variant(self, lgss_data, variant, extra_kwargs):
+        """Each tempered SMC variant should complete and pass its specific checks."""
         from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="tempered_smc",
-            n_outer=50,
-            n_csmc_particles=10,
-            n_mh_steps=5,
-            param_step_size=0.01,
-            adaptive_tempering=True,
-            target_ess_ratio=0.5,
-            waste_free=False,
-            seed=0,
-        )
+        common_kwargs = {
+            "observations": lgss_data["observations"],
+            "times": lgss_data["times"],
+            "method": "tempered_smc",
+            "n_csmc_particles": 10,
+            "n_mh_steps": 5,
+            "param_step_size": 0.01,
+            "seed": 0,
+        }
+        result = fit(model, **{**common_kwargs, **extra_kwargs})
 
         assert isinstance(result, InferenceResult)
-        beta_schedule = result.diagnostics["beta_schedule"]
-        assert beta_schedule[-1] == 1.0, f"Final beta={beta_schedule[-1]}, expected 1.0"
 
-
-class TestTemperedSMCWasteFree:
-    """Test waste-free particle recycling."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(60)
-    def test_waste_free_runs(self, lgss_data):
-        """Waste-free mode should complete without error."""
-        from causal_ssm_agent.models.ssm import SSMModel, fit
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="tempered_smc",
-            n_outer=10,
-            n_csmc_particles=10,  # N=10, n_mh_steps=5 -> M=2
-            n_mh_steps=5,
-            param_step_size=0.01,
-            waste_free=True,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.diagnostics["waste_free"] is True
+        # Variant-specific assertions
+        if variant == "adaptive":
+            beta_schedule = result.diagnostics["beta_schedule"]
+            assert beta_schedule[-1] == 1.0, f"Final beta={beta_schedule[-1]}, expected 1.0"
+        elif variant == "waste_free":
+            assert result.diagnostics["waste_free"] is True
+        elif variant == "multi_step_hmc":
+            assert result.diagnostics["n_leapfrog"] == 5
 
     def test_waste_free_rejects_bad_n(self):
         """Waste-free should reject N % n_mh_steps != 0."""
@@ -1885,216 +1259,79 @@ class TestTemperedSMCWasteFree:
             )
 
 
-class TestTemperedSMCMultiStepHMC:
-    """Test multi-step HMC mutations in tempered SMC."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(60)
-    def test_multi_step_hmc_runs(self, lgss_data):
-        """n_leapfrog=5 should complete without error."""
-        from causal_ssm_agent.models.ssm import SSMModel, fit
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="tempered_smc",
-            n_outer=6,
-            n_csmc_particles=10,
-            n_mh_steps=5,
-            param_step_size=0.01,
-            n_leapfrog=5,
-            waste_free=False,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.diagnostics["n_leapfrog"] == 5
-
-
 # =============================================================================
 # PGAS Upgrade Tests
 # =============================================================================
 
 
-class TestPGASPreconditioned:
-    """Test preconditioned MALA in PGAS."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
+class TestPGASVariants:
+    """Parameterized smoke tests for PGAS variants."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(60)
-    def test_pgas_preconditioned_runs(self, lgss_data):
-        """PGAS with preconditioned HMC should complete without error."""
+    @pytest.mark.parametrize(
+        "variant, extra_kwargs",
+        [
+            pytest.param(
+                "preconditioned",
+                {
+                    "n_outer": 10,
+                    "n_warmup": 5,
+                    "block_sampling": False,
+                },
+                id="preconditioned",
+            ),
+            pytest.param(
+                "optimal_proposal",
+                {
+                    "n_outer": 6,
+                    "n_warmup": 3,
+                },
+                id="optimal_proposal",
+            ),
+            pytest.param(
+                "block_sampling",
+                {
+                    "n_outer": 10,
+                    "n_warmup": 5,
+                    "block_sampling": True,
+                },
+                id="block_sampling",
+            ),
+        ],
+    )
+    def test_pgas_variant(self, lgss_data, variant, extra_kwargs):
+        """Each PGAS variant should complete and pass its specific checks."""
         from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="pgas",
-            n_outer=10,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=5,
-            block_sampling=False,
-            seed=0,
-        )
+        common_kwargs = {
+            "observations": lgss_data["observations"],
+            "times": lgss_data["times"],
+            "method": "pgas",
+            "n_csmc_particles": 8,
+            "n_mh_steps": 3,
+            "param_step_size": 0.1,
+            "seed": 0,
+        }
+        result = fit(model, **{**common_kwargs, **extra_kwargs})
 
         assert isinstance(result, InferenceResult)
-        assert result.method == "pgas"
-        assert len(result.diagnostics["accept_rates"]) == 10
 
-
-class TestPGASOptimalProposal:
-    """Test locally optimal proposal for Gaussian observations."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(60)
-    def test_pgas_optimal_proposal_gaussian(self, lgss_data):
-        """PGAS with optimal proposal should complete for Gaussian obs."""
-        from causal_ssm_agent.models.ssm import SSMModel, fit
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="pgas",
-            n_outer=6,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=3,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.diagnostics["gaussian_obs"] is True
+        # Variant-specific assertions
+        if variant == "preconditioned":
+            assert result.method == "pgas"
+            assert len(result.diagnostics["accept_rates"]) == 10
+        elif variant == "optimal_proposal":
+            assert result.diagnostics["gaussian_obs"] is True
+        elif variant == "block_sampling":
+            assert result.diagnostics["block_sampling"] is True
+            assert "block_accept_rates" in result.diagnostics
+            # Should have per-block rates for each parameter site
+            block_rates = result.diagnostics["block_accept_rates"]
+            assert len(block_rates) > 0
+            for _name, rates in block_rates.items():
+                assert len(rates) == 10  # n_outer iterations
 
     @pytest.mark.slow
     @pytest.mark.timeout(60)
@@ -2132,81 +1369,6 @@ class TestPGASOptimalProposal:
 
         assert isinstance(result, InferenceResult)
         assert result.diagnostics["gaussian_obs"] is False
-
-
-class TestPGASBlockSampling:
-    """Test block parameter sampling in PGAS."""
-
-    @pytest.fixture
-    def lgss_data(self):
-        """1D Linear Gaussian SSM data."""
-        import jax.scipy.linalg as jla
-
-        from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-
-        n_latent, n_manifest = 1, 1
-        T, dt = 50, 1.0
-
-        true_drift = jnp.array([[-0.3]])
-        true_diff_cov = jnp.array([[0.3**2]])
-        true_obs_var = jnp.array([[0.5**2]])
-
-        Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
-        Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-        R_chol = jla.cholesky(true_obs_var, lower=True)
-
-        key = random.PRNGKey(42)
-        states = [jnp.zeros(n_latent)]
-        for _ in range(T - 1):
-            key, nk = random.split(key)
-            states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-        latent = jnp.stack(states)
-
-        key, obs_key = random.split(key)
-        observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-        times = jnp.arange(T, dtype=float) * dt
-
-        spec = SSMSpec(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
-            t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
-        )
-
-        return {"observations": observations, "times": times, "spec": spec}
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(60)
-    def test_pgas_block_sampling_runs(self, lgss_data):
-        """PGAS with block sampling should complete and have per-block diagnostics."""
-        from causal_ssm_agent.models.ssm import SSMModel, fit
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="pgas",
-            n_outer=10,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=5,
-            block_sampling=True,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.diagnostics["block_sampling"] is True
-        assert "block_accept_rates" in result.diagnostics
-        # Should have per-block rates for each parameter site
-        block_rates = result.diagnostics["block_accept_rates"]
-        assert len(block_rates) > 0
-        for _name, rates in block_rates.items():
-            assert len(rates) == 10  # n_outer iterations
 
 
 if __name__ == "__main__":

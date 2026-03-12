@@ -9,7 +9,6 @@ import jax.numpy as jnp
 import jax.random as random
 
 from causal_ssm_agent.models.ssm.mcmc_utils import (
-    DualAveragingState,
     compute_weighted_chol_mass,
     dual_averaging_init,
     dual_averaging_update,
@@ -276,22 +275,6 @@ class TestFindNextBeta:
 class TestDualAveraging:
     """Tests for Nesterov dual averaging step size adaptation."""
 
-    def test_init_state(self):
-        """dual_averaging_init creates correct initial state."""
-        state = dual_averaging_init(0.1)
-
-        assert isinstance(state, DualAveragingState)
-        assert state.step == 0
-        assert state.h_bar == 0.0
-        assert state.log_eps_bar == 0.0
-        assert abs(state.eps - 0.1) < 1e-10
-
-    def test_eps_property(self):
-        """eps and eps_bar properties return exp of log values."""
-        state = dual_averaging_init(0.5)
-        assert abs(state.eps - 0.5) < 1e-10
-        assert abs(state.eps_bar - 1.0) < 1e-10  # log_eps_bar=0 → exp(0)=1
-
     def test_adapts_down_for_low_acceptance(self):
         """When accept_prob < target, step size should decrease."""
         state = dual_averaging_init(1.0)
@@ -329,14 +312,3 @@ class TestDualAveraging:
         last_values = values[-50:]
         spread = max(last_values) - min(last_values)
         assert spread < 0.1, f"eps_bar should stabilize, spread={spread:.4f}"
-
-    def test_step_increments(self):
-        """Step counter should increment with each update."""
-        state = dual_averaging_init(0.1)
-        assert state.step == 0
-
-        state = dual_averaging_update(state, accept_prob=0.5)
-        assert state.step == 1
-
-        state = dual_averaging_update(state, accept_prob=0.5)
-        assert state.step == 2

@@ -1,4 +1,4 @@
-"""Recovery tests for Laplace-EM, Structured VI, and DPF.
+"""Recovery tests for all inference methods.
 
 Smoke tests verify pipeline correctness (small settings, fast).
 Recovery tests verify parameter recovery within 90% CIs (slow).
@@ -24,6 +24,242 @@ DOCTOLIB_FIXTURE_DIR = (
 def _load_doctolib_fixture(name: str) -> dict:
     """Load the shared Doctolib mock fixture used by the web app."""
     return json.loads((DOCTOLIB_FIXTURE_DIR / name).read_text())
+
+
+# =============================================================================
+# NUTS Data Augmentation
+# =============================================================================
+
+
+class TestNutsDARecovery:
+    """NUTS-DA smoke and recovery tests on 1D LGSS."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(120)
+    def test_nuts_da_smoke(self, lgss_data):
+        """NUTS-DA pipeline check on 1D LGSS (D=3).
+
+        Verifies: instantiation, inference completes, correct output structure.
+        """
+        model = SSMModel(lgss_data["spec"])
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="nuts_da",
+            num_warmup=50,
+            num_samples=50,
+            num_chains=1,
+            seed=0,
+        )
+
+        assert isinstance(result, InferenceResult)
+        assert result.method == "nuts_da"
+        samples = result.get_samples()
+
+        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
+            assert site in samples, f"Missing sample site: {site}"
+
+        # innovations should be excluded from returned samples
+        assert "innovations" not in samples
+
+        # Should have 50 posterior samples
+        assert samples["drift_diag_pop"].shape == (50, 1)
+        assert samples["diffusion_diag_pop"].shape == (50, 1)
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_nuts_da_recovery(self, lgss_data):
+        """NUTS-DA recovers 1D LGSS params (D=3) within 90% CIs."""
+        model = SSMModel(lgss_data["spec"])
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="nuts_da",
+            num_warmup=500,
+            num_samples=500,
+            num_chains=1,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        assert_recovery_ci(
+            samples["drift_diag_pop"][:, 0],
+            lgss_data["true_drift_diag"],
+            "Drift",
+            transform=lambda s: -jnp.abs(s),
+        )
+        assert_recovery_ci(
+            samples["diffusion_diag_pop"][:, 0],
+            lgss_data["true_diff_diag"],
+            "Diffusion",
+        )
+        assert_recovery_ci(
+            samples["manifest_var_diag"][:, 0],
+            lgss_data["true_obs_sd"],
+            "Obs SD",
+        )
+
+
+# =============================================================================
+# Hess-MC2
+# =============================================================================
+
+
+class TestHessMC2Recovery:
+    """Hess-MC2 Hessian proposal recovery on 1D LGSS (D=3)."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_lgss_hessian_recovery(self, lgss_data):
+        """Hess-MC2 Hessian proposal recovers 1D LGSS params (D=3).
+
+        Paper reference: Section IV-A. With D=3 and proper settings,
+        the SO proposal should recover parameters within 90% CIs.
+
+        Uses tempered warmup (warmup_iters=10) to avoid initial particle
+        collapse with diffuse HalfNormal priors. N=256 for reliable
+        posterior approximation.
+        """
+        model = SSMModel(lgss_data["spec"], n_particles=200)
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="hessmc2",
+            n_smc_particles=256,
+            n_iterations=20,
+            proposal="hessian",
+            step_size=0.5,
+            warmup_iters=10,
+            warmup_step_size=0.5,
+            adapt_step_size=False,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        assert_recovery_ci(
+            samples["drift_diag_pop"][:, 0],
+            lgss_data["true_drift_diag"],
+            "Drift",
+            transform=lambda s: -jnp.abs(s),
+        )
+        assert_recovery_ci(
+            samples["diffusion_diag_pop"][:, 0],
+            lgss_data["true_diff_diag"],
+            "Diffusion",
+        )
+        assert_recovery_ci(
+            samples["manifest_var_diag"][:, 0],
+            lgss_data["true_obs_sd"],
+            "Obs SD",
+        )
+
+
+# =============================================================================
+# PGAS
+# =============================================================================
+
+
+class TestPGASRecovery:
+    """PGAS recovery tests on 1D LGSS."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(180)
+    def test_pgas_recovery(self, lgss_data):
+        """PGAS recovers 1D LGSS params (D=3) within 90% CIs."""
+        model = SSMModel(lgss_data["spec"], n_particles=50)
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="pgas",
+            n_outer=200,
+            n_csmc_particles=30,
+            n_mh_steps=10,
+            langevin_step_size=0.0,
+            param_step_size=0.05,
+            n_warmup=100,
+            block_sampling=False,
+            n_leapfrog=3,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        assert_recovery_ci(
+            samples["drift_diag_pop"][:, 0],
+            lgss_data["true_drift_diag"],
+            "Drift",
+            transform=lambda s: -jnp.abs(s),
+        )
+        assert_recovery_ci(
+            samples["diffusion_diag_pop"][:, 0],
+            lgss_data["true_diff_diag"],
+            "Diffusion",
+        )
+        assert_recovery_ci(
+            samples["manifest_var_diag"][:, 0],
+            lgss_data["true_obs_sd"],
+            "Obs SD",
+        )
+
+
+# =============================================================================
+# Tempered SMC
+# =============================================================================
+
+
+class TestTemperedSMCRecovery:
+    """Tempered SMC recovery tests on 1D LGSS."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_tempered_smc_recovery(self, lgss_data):
+        """Tempered SMC recovers 1D LGSS params (D=3) within 90% CIs."""
+        model = SSMModel(lgss_data["spec"], n_particles=50)
+
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="tempered_smc",
+            n_outer=100,
+            n_csmc_particles=20,
+            n_mh_steps=10,
+            param_step_size=0.1,
+            n_warmup=50,
+            adaptive_tempering=False,
+            waste_free=False,
+            n_leapfrog=1,
+            seed=0,
+        )
+
+        samples = result.get_samples()
+
+        assert_recovery_ci(
+            samples["drift_diag_pop"][:, 0],
+            lgss_data["true_drift_diag"],
+            "Drift",
+            transform=lambda s: -jnp.abs(s),
+        )
+        assert_recovery_ci(
+            samples["diffusion_diag_pop"][:, 0],
+            lgss_data["true_diff_diag"],
+            "Diffusion",
+        )
+        assert_recovery_ci(
+            samples["manifest_var_diag"][:, 0],
+            lgss_data["true_obs_sd"],
+            "Obs SD",
+        )
 
 
 # =============================================================================
@@ -89,7 +325,7 @@ class TestLaplaceEM:
 
         Uses Kalman likelihood backend (exact for linear Gaussian) for fast
         evaluation. The Laplace-EM outer loop (tempered SMC over parameters)
-        is the same as tempered_smc — the method's value is for non-Gaussian
+        is the same as tempered_smc -- the method's value is for non-Gaussian
         emissions where Laplace approximation replaces the PF.
         """
         model = SSMModel(lgss_data["spec"], likelihood="kalman")
@@ -330,6 +566,11 @@ class TestDPF:
             lgss_data["true_obs_sd"],
             "Obs SD",
         )
+
+
+# =============================================================================
+# Laplace-EM Doctolib Fixture
+# =============================================================================
 
 
 def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFrame]:

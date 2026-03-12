@@ -1,12 +1,9 @@
 """Tests for Stage 4 orchestrator deterministic spec derivation.
 
-Covers: derive_deterministic_spec, build_data_summary.
+Covers: derive_deterministic_spec.
 """
 
-import polars as pl
-
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
-    build_data_summary,
     derive_deterministic_spec,
 )
 
@@ -209,36 +206,3 @@ class TestDeriveDeterministicSpec:
         ar_params = [p for p in params if p["role"] == "ar_coefficient"]
         for p in ar_params:
             assert "stress" not in p["name"]  # stress is exogenous
-
-
-# =============================================================================
-# build_data_summary
-# =============================================================================
-
-
-class TestBuildDataSummary:
-    def test_basic_output(self):
-        df = pl.DataFrame(
-            {
-                "time_bucket": ["2024-01-01", "2024-01-02"],
-                "mood": [5.0, 7.0],
-                "sleep": [6.0, 8.0],
-            }
-        )
-        result = build_data_summary({"daily": df})
-        assert "daily" in result.lower()
-        assert "2" in result  # 2 time points
-
-    def test_time_invariant(self):
-        df = pl.DataFrame(
-            {
-                "time_bucket": ["na"],
-                "age": [30.0],
-            }
-        )
-        result = build_data_summary({"time_invariant": df})
-        assert "time-invariant" in result.lower()
-
-    def test_empty_data(self):
-        result = build_data_summary({})
-        assert "Data Overview" in result

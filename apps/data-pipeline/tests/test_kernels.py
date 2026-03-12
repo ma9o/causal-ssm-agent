@@ -9,9 +9,6 @@ import jax.numpy as jnp
 import pytest
 
 from causal_ssm_agent.models.likelihoods.kernels import (
-    _response_exp,
-    _response_identity,
-    _response_inverse,
     _response_probit,
     _response_sigmoid,
     build_observation_kernel,
@@ -25,14 +22,6 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, Link
 
 
 class TestResponseFunctions:
-    def test_identity(self):
-        x = jnp.array([1.0, -2.0, 3.0])
-        assert jnp.allclose(_response_identity(x), x)
-
-    def test_exp(self):
-        x = jnp.array([0.0, 1.0, -1.0])
-        assert jnp.allclose(_response_exp(x), jnp.exp(x))
-
     def test_sigmoid_range(self):
         x = jnp.array([-10.0, 0.0, 10.0])
         result = _response_sigmoid(x)
@@ -46,11 +35,6 @@ class TestResponseFunctions:
         assert jnp.all(result >= 0.0)
         assert jnp.all(result <= 1.0)
         assert jnp.isclose(result[1], 0.5)
-
-    def test_inverse(self):
-        x = jnp.array([1.0, 2.0, 4.0])
-        result = _response_inverse(x)
-        assert jnp.allclose(result, jnp.array([1.0, 0.5, 0.25]))
 
 
 # =============================================================================

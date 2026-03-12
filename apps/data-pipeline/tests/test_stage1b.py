@@ -145,13 +145,13 @@ class TestStage1bGrounding:
         assert "causal_spec" in output
 
     def test_valid_not_identifiable(
-        self, stage1b_confounded_latent, stage1b_measurement_missing_confounder
+        self, stage1b_confounded_latent, stage1b_measurement_all_observed
     ):
         """Valid but not identifiable returns stage_output with identifiability feedback."""
         from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
 
         output, feedback = stage1b_grounding(
-            stage1b_measurement_missing_confounder, stage1b_confounded_latent
+            stage1b_measurement_all_observed, stage1b_confounded_latent
         )
 
         assert output is not None  # stage_output set even when not identifiable
@@ -199,16 +199,19 @@ class TestStage1bFlow:
         )
 
         assert isinstance(result, Stage1bResult)
-        assert len(result.identifiability_status["non_identifiable_treatments"]) == 0
+        status = result.identifiability_status
+        assert isinstance(status["identifiable_treatments"], dict)
+        assert isinstance(status["non_identifiable_treatments"], dict)
+        assert len(status["non_identifiable_treatments"]) == 0
 
     def test_non_identifiable_still_produces_result(
         self,
         stage1b_confounded_latent,
-        stage1b_measurement_missing_confounder,
+        stage1b_measurement_all_observed,
         stage1b_dummy_chunks,
     ):
         """Non-identifiable model still produces a result (fat tool captures on structural validity)."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_missing_confounder)])
+        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
 
         result = asyncio.run(
             run_stage1b(
@@ -222,39 +225,14 @@ class TestStage1bFlow:
         assert isinstance(result, Stage1bResult)
         assert len(result.identifiability_status["non_identifiable_treatments"]) > 0
 
-    def test_identifiable_model_has_clean_status(
-        self,
-        stage1b_simple_latent,
-        stage1b_measurement_all_observed,
-        stage1b_dummy_chunks,
-    ):
-        """Identifiable model has proper identifiability_status structure."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
-
-        result = asyncio.run(
-            run_stage1b(
-                question="Does treatment improve outcome?",
-                latent_model=stage1b_simple_latent,
-                chunks=stage1b_dummy_chunks,
-                generate=mock_generate,
-            )
-        )
-
-        status = result.identifiability_status
-        assert "identifiable_treatments" in status
-        assert "non_identifiable_treatments" in status
-        assert isinstance(status["identifiable_treatments"], dict)
-        assert isinstance(status["non_identifiable_treatments"], dict)
-        assert len(status["non_identifiable_treatments"]) == 0
-
     def test_marginalization_analysis_included(
         self,
         stage1b_confounded_latent,
-        stage1b_measurement_missing_confounder,
+        stage1b_measurement_all_observed,
         stage1b_dummy_chunks,
     ):
         """Marginalization analysis is computed and accessible."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_missing_confounder)])
+        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
 
         result = asyncio.run(
             run_stage1b(

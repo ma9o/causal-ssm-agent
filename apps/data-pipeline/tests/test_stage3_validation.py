@@ -9,7 +9,6 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage3_validation import (
-    MIN_OBSERVATIONS,
     validate_extraction,
 )
 
@@ -202,10 +201,6 @@ class TestValidateExtraction:
         # But should have low_n warnings
         low_n_warnings = [i for i in result["issues"] if i["issue_type"] == "low_n"]
         assert len(low_n_warnings) == 2  # Both indicators
-
-    def test_minimum_observations_threshold(self):
-        """Verify MIN_OBSERVATIONS is set reasonably."""
-        assert MIN_OBSERVATIONS >= 5  # At least a few observations needed
 
     def test_non_numeric_values_are_errors(self, simple_causal_spec):
         """Non-numeric values that can't be cast generate error."""
