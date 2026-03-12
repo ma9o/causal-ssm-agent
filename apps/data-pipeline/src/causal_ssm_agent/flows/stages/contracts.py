@@ -47,6 +47,7 @@ StageId = Literal[
     "stage-3",
     "stage-4",
     "stage-4b",
+    "stage-5a",
     "stage-5",
     "stage-6",
 ]
@@ -482,6 +483,25 @@ class InferenceMetadataContract(BaseModel):
     duration_seconds: float
 
 
+class Stage5aContract(BaseModel):
+    """SVI preflight: fast approximate fit before expensive inference."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["success", "warn", "fail"] = "success"
+    inference_metadata: InferenceMetadataContract
+    svi_diagnostics: SVIDiagnostics | None = None
+    posterior_marginals: list[PosteriorMarginal] | None = None
+    posterior_pairs: list[PosteriorPair] | None = None
+
+    def summarize(self) -> tuple[int, str]:
+        converged = self.svi_diagnostics is not None
+        return (
+            logging.INFO,
+            f"Stage 5a summary: method=svi converged={converged} outcome={self.outcome}",
+        )
+
+
 class Stage5Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -563,6 +583,7 @@ STAGE_CONTRACTS: dict[StageId, type[BaseModel]] = {
     "stage-3": Stage3Contract,
     "stage-4": Stage4Contract,
     "stage-4b": Stage4bContract,
+    "stage-5a": Stage5aContract,
     "stage-5": Stage5Contract,
     "stage-6": Stage6Contract,
 }

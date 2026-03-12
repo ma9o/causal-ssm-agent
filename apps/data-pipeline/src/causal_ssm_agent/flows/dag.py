@@ -751,6 +751,47 @@ def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def stage5a(
+    stage4: dict,
+    stage2: dict,
+) -> dict:
+    """SVI preflight: fast approximate fit before expensive inference.
+
+    Runs the same fit_model task as stage5 but with method="svi" forced.
+    Produces SVI diagnostics (ELBO curve) and posterior marginals for
+    quick sanity-checking before committing to laplace_em / SMC.
+    """
+    from .stages import fit_model
+
+    data_for_model = _load_parquet(stage2["_data_for_model_path"])
+
+    svi_config = {"method": "svi", "num_steps": 5000, "num_samples": 500}
+
+    fitted = fit_model(stage4, data_for_model, sampler_config=svi_config, builder=None)
+    fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
+
+    if not fitted_result.get("fitted", False):
+        return {
+            "inference_metadata": {"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
+            "svi_diagnostics": None,
+            "posterior_marginals": None,
+            "posterior_pairs": None,
+            "outcome": "fail",
+        }
+
+    return {
+        "inference_metadata": {
+            "method": "svi",
+            "n_samples": 500,
+            "duration_seconds": 0.0,
+        },
+        "svi_diagnostics": fitted_result.get("svi_diagnostics"),
+        "posterior_marginals": fitted_result.get("posterior_marginals"),
+        "posterior_pairs": fitted_result.get("posterior_pairs"),
+        "outcome": "success",
+    }
+
+
 def stage5(
     stage4: dict,
     stage1b: dict,
@@ -1232,6 +1273,23 @@ def stage4b_flow(
     if stage4b_gate_result["gate_overridden"]:
         logger.warning("Stage 4b gate overridden: continuing despite T-rule violation")
     return state
+
+
+@flow(name="stage-5a-flow", persist_result=False)
+def stage5a_flow(
+    stage4_result: dict,
+    stage2_result: dict,
+    run_id: str,
+) -> dict:
+    logger.info("Stage 5a starting: SVI preflight")
+    result = stage5a(stage4_result, stage2_result)
+    web = _web_payload("stage-5a", result, run_id)
+    logger.info(
+        "Stage 5a complete: svi_converged=%s outcome=%s",
+        web.get("svi_diagnostics") is not None,
+        web.get("outcome", "success"),
+    )
+    return _finalize_stage_state("stage-5a", result, web, run_id)
 
 
 @flow(name="stage-5-flow", persist_result=False)

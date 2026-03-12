@@ -31,7 +31,7 @@ from causal_ssm_agent.flows.stages.contracts import (
 
 
 class TestStageContracts:
-    def test_has_all_nine_stages(self):
+    def test_has_all_stages(self):
         expected = {
             "stage-0",
             "stage-1a",
@@ -40,6 +40,7 @@ class TestStageContracts:
             "stage-3",
             "stage-4",
             "stage-4b",
+            "stage-5a",
             "stage-5",
             "stage-6",
         }

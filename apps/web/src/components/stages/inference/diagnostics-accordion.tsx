@@ -30,8 +30,8 @@ import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
 interface DiagnosticsAccordionProps {
-  powerScaling: PowerScalingResult[];
-  ppc: PPCResult;
+  powerScaling?: PowerScalingResult[] | null;
+  ppc?: PPCResult | null;
   mcmcDiagnostics?: MCMCDiagnostics | null;
   sviDiagnostics?: SVIDiagnostics | null;
   looDiagnostics?: LOODiagnostics | null;
@@ -48,11 +48,12 @@ export function DiagnosticsAccordion({
   posteriorMarginals,
   posteriorPairs,
 }: DiagnosticsAccordionProps) {
-  const hasEnergy = mcmcDiagnostics?.energy != null;
   const marginals = posteriorMarginals ?? [];
   const pairs = posteriorPairs ?? [];
   const hasMarginals = marginals.length > 0;
   const hasPairs = pairs.length > 0;
+  const hasPowerScaling = powerScaling != null && powerScaling.length > 0;
+  const hasPPC = ppc != null && ppc.per_variable_warnings.length > 0;
 
   const defaultOpen = ["mcmc", "svi", "ppc", "loo", "power-scaling"];
 
@@ -97,28 +98,30 @@ export function DiagnosticsAccordion({
       )}
 
       {/* ── Posterior Predictive Checks (warnings + overlays + test stats) ── */}
-      <AccordionItem value="ppc">
-        <AccordionTrigger className="text-sm">
-          <span className="inline-flex items-center gap-1.5 flex-wrap">
-            Posterior Predictive Checks
-            <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
-            <Badge
-              variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}
-            >
-              {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
-            </Badge>
-          </span>
-        </AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-6">
-            <PPCWarningsTable
-              warnings={ppc.per_variable_warnings}
-              testStats={ppc.test_stats ?? []}
-              overlays={ppc.overlays ?? []}
-            />
-          </div>
-        </AccordionContent>
-      </AccordionItem>
+      {hasPPC && ppc && (
+        <AccordionItem value="ppc">
+          <AccordionTrigger className="text-sm">
+            <span className="inline-flex items-center gap-1.5 flex-wrap">
+              Posterior Predictive Checks
+              <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
+              <Badge
+                variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}
+              >
+                {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
+              </Badge>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-6">
+              <PPCWarningsTable
+                warnings={ppc.per_variable_warnings}
+                testStats={ppc.test_stats ?? []}
+                overlays={ppc.overlays ?? []}
+              />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      )}
 
       {/* ── LOO Cross-Validation (PIT + Pareto-K side by side) ── */}
       {looDiagnostics && (
@@ -164,51 +167,53 @@ export function DiagnosticsAccordion({
       )}
 
       {/* ── Power Scaling (scatter + table side by side) ── */}
-      <AccordionItem value="power-scaling">
-        <AccordionTrigger className="text-sm">
-          <span className="inline-flex items-center gap-1.5 flex-wrap">
-            Power Scaling Diagnostics
-            <StatTooltip explanation="Tests whether posteriors are driven by data (good) or priors (concerning). Scales the likelihood and prior to detect sensitivity." />
-            {(() => {
-              const nOk = powerScaling.filter((p) => p.diagnosis === "well_identified").length;
-              const nPrior = powerScaling.filter((p) => p.diagnosis === "prior_dominated").length;
-              const nConflict = powerScaling.filter(
-                (p) => p.diagnosis === "prior_data_conflict",
-              ).length;
-              if (nOk === powerScaling.length) {
+      {hasPowerScaling && powerScaling && (
+        <AccordionItem value="power-scaling">
+          <AccordionTrigger className="text-sm">
+            <span className="inline-flex items-center gap-1.5 flex-wrap">
+              Power Scaling Diagnostics
+              <StatTooltip explanation="Tests whether posteriors are driven by data (good) or priors (concerning). Scales the likelihood and prior to detect sensitivity." />
+              {(() => {
+                const nOk = powerScaling.filter((p) => p.diagnosis === "well_identified").length;
+                const nPrior = powerScaling.filter((p) => p.diagnosis === "prior_dominated").length;
+                const nConflict = powerScaling.filter(
+                  (p) => p.diagnosis === "prior_data_conflict",
+                ).length;
+                if (nOk === powerScaling.length) {
+                  return (
+                    <Badge variant="success">
+                      {nOk}/{powerScaling.length} OK
+                    </Badge>
+                  );
+                }
                 return (
-                  <Badge variant="success">
-                    {nOk}/{powerScaling.length} OK
-                  </Badge>
+                  <>
+                    <Badge variant="success">
+                      {nOk}/{powerScaling.length} OK
+                    </Badge>
+                    {nPrior > 0 && <Badge variant="warning">{nPrior} prior-dominated</Badge>}
+                    {nConflict > 0 && (
+                      <Badge variant="destructive">{nConflict} prior-data conflict</Badge>
+                    )}
+                  </>
                 );
-              }
-              return (
-                <>
-                  <Badge variant="success">
-                    {nOk}/{powerScaling.length} OK
-                  </Badge>
-                  {nPrior > 0 && <Badge variant="warning">{nPrior} prior-dominated</Badge>}
-                  {nConflict > 0 && (
-                    <Badge variant="destructive">{nConflict} prior-data conflict</Badge>
-                  )}
-                </>
-              );
-            })()}
-          </span>
-        </AccordionTrigger>
-        <AccordionContent>
-          {powerScaling.length >= 2 ? (
-            <div className="grid gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-                <PowerScalingTable results={powerScaling} />
+              })()}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            {powerScaling.length >= 2 ? (
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <PowerScalingTable results={powerScaling} />
+                </div>
+                <PowerScalingScatter results={powerScaling} />
               </div>
-              <PowerScalingScatter results={powerScaling} />
-            </div>
-          ) : (
-            <PowerScalingTable results={powerScaling} />
-          )}
-        </AccordionContent>
-      </AccordionItem>
+            ) : (
+              <PowerScalingTable results={powerScaling} />
+            )}
+          </AccordionContent>
+        </AccordionItem>
+      )}
 
       {/* ── Posterior Exploration (marginals + pairs) ── */}
       {(hasMarginals || hasPairs) && (

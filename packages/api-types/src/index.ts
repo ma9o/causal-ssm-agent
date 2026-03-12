@@ -19,6 +19,7 @@ export type { Stage2Contract as Stage2Data } from "./generated/models";
 export type { Stage3Contract as Stage3Data } from "./generated/models";
 export type { Stage4Contract as Stage4Data } from "./generated/models";
 export type { Stage4BContract as Stage4bData } from "./generated/models";
+export type { Stage5AContract as Stage5aData } from "./generated/models";
 export type { Stage5Contract as Stage5Data } from "./generated/models";
 export type { Stage6Contract as Stage6Data } from "./generated/models";
 

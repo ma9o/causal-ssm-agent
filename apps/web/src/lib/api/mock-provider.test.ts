@@ -87,11 +87,11 @@ describe("simulatePipelineEvents", () => {
       onStageComplete: (id) => completes.push(id),
     });
 
-    // Advance past all timers (last stage at 12500ms)
+    // Advance past all timers (last stage at 14000ms)
     vi.advanceTimersByTime(15000);
 
-    expect(starts.length).toBe(9); // 9 stages
-    expect(completes.length).toBe(9);
+    expect(starts.length).toBe(10); // 10 stages
+    expect(completes.length).toBe(10);
     expect(starts).toContain("stage-0");
     expect(starts).toContain("stage-6");
     expect(completes).toContain("stage-0");
