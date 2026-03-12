@@ -148,14 +148,13 @@ export function StageSectionRouter({
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
-  // Read context + trace + gate override + outcome from the stage data.
-  // When running, polls every 3s to pick up partial traces written by the pipeline.
+  // Read context + trace + gate override + outcome from the stage data (once, after completion).
   const { data: stageData } = useStageData<{
     context?: string;
     llm_trace?: LLMTrace;
     gate_overridden?: GateOverride;
     outcome?: StageOutcome;
-  }>(runId, stage.id, isCompleted, status);
+  }>(runId, stage.id, isCompleted);
 
   const outcome: StageOutcome = stageData?.outcome ?? "success";
 
