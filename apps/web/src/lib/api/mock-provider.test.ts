@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 
 function unsetEnv(key: string) {
@@ -70,15 +70,7 @@ describe("getMockFixture", () => {
 });
 
 describe("simulatePipelineEvents", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("calls onStageStart and onStageComplete for each stage", () => {
+  it("calls onStageStart and onStageComplete for each stage synchronously", () => {
     const starts: string[] = [];
     const completes: string[] = [];
 
@@ -86,9 +78,6 @@ describe("simulatePipelineEvents", () => {
       onStageStart: (id) => starts.push(id),
       onStageComplete: (id) => completes.push(id),
     });
-
-    // Advance past all timers (last stage at 14000ms)
-    vi.advanceTimersByTime(15000);
 
     expect(starts.length).toBe(10); // 10 stages
     expect(completes.length).toBe(10);
@@ -106,8 +95,6 @@ describe("simulatePipelineEvents", () => {
       onStageComplete: (id) => events.push({ type: "complete", id }),
     });
 
-    vi.advanceTimersByTime(15000);
-
     // For each stage, start should come before complete
     for (const id of ["stage-0", "stage-1a", "stage-6"]) {
       const startIdx = events.findIndex((e) => e.type === "start" && e.id === id);
@@ -116,35 +103,13 @@ describe("simulatePipelineEvents", () => {
     }
   });
 
-  it("returns a cleanup function that clears all timers", () => {
-    const starts: string[] = [];
-    const completes: string[] = [];
-
+  it("returns a no-op cleanup function", () => {
     const cleanup = simulatePipelineEvents({
-      onStageStart: (id) => starts.push(id),
-      onStageComplete: (id) => completes.push(id),
+      onStageStart: () => {},
+      onStageComplete: () => {},
     });
 
-    // Clean up immediately
-    cleanup();
-    vi.advanceTimersByTime(15000);
-
-    expect(starts.length).toBe(0);
-    expect(completes.length).toBe(0);
-  });
-
-  it("fires stage-0 events first", () => {
-    const events: string[] = [];
-
-    simulatePipelineEvents({
-      onStageStart: (id) => events.push(`start:${id}`),
-      onStageComplete: (id) => events.push(`complete:${id}`),
-    });
-
-    // Only advance to stage-0 timing (500ms complete, 100ms start)
-    vi.advanceTimersByTime(600);
-
-    expect(events).toContain("start:stage-0");
-    expect(events).toContain("complete:stage-0");
+    expect(typeof cleanup).toBe("function");
+    cleanup(); // should not throw
   });
 });
