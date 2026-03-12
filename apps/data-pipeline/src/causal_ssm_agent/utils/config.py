@@ -39,7 +39,7 @@ class Stage2Config:
     """Stage 2: Tick-Based Extraction (Workers)."""
 
     model: str
-    ticks_per_chunk: int = 7
+    ticks_per_chunk: int = 1
     max_concurrent_workers: int = 4
     submission_batch_size: int = 50
     max_events_per_tick: int = 300

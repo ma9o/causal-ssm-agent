@@ -16,7 +16,7 @@ stage1_structure_proposal:
 # Workers process chunks of model-clock ticks in parallel to extract indicator values
 stage2_workers:
   model: openrouter/google/gemini-3-flash-preview
-  ticks_per_chunk: 7           # Clock ticks per LLM call
+  ticks_per_chunk: 1           # Clock ticks per LLM call
   max_concurrent_workers: 30   # Actual concurrent LLM worker calls
   submission_batch_size: 100   # Chunk tasks submitted to Prefect at a time
   max_events_per_tick: 300     # Truncate/sample text beyond this per tick
