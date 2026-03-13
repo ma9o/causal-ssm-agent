@@ -13,11 +13,12 @@ const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
 ];
 
 interface MockMethodSwitcherProps {
+  code: string;
   baseData: Stage5bData;
   onDataChange: (data: Stage5bData) => void;
 }
 
-export function MockMethodSwitcher({ baseData, onDataChange }: MockMethodSwitcherProps) {
+export function MockMethodSwitcher({ code, baseData, onDataChange }: MockMethodSwitcherProps) {
   const [active, setActive] = useState<InferenceMethod>("laplace_em");
   const [nutsdaData, setNutsdaData] = useState<Stage5bData | null>(null);
 
@@ -30,7 +31,7 @@ export function MockMethodSwitcher({ baseData, onDataChange }: MockMethodSwitche
       if (nutsdaData) {
         onDataChange(nutsdaData);
       } else {
-        fetch("/api/results/mock-run-001/stage-5b-nutsda")
+        fetch(`/api/results/${code}/stage-5b-nutsda`)
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             if (d) {
