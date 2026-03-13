@@ -7,6 +7,20 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows import dag, pipeline
+from causal_ssm_agent.utils import data as data_module
+
+
+def _redirect_storage(monkeypatch, tmp_path, code: str = "test_user") -> None:
+    """Point runs_dir and input_dir to tmp_path so tests don't touch real data/."""
+    run_dir = tmp_path / "data" / code / "run"
+
+    def _mock_runs_dir(c: str) -> type(run_dir):
+        return tmp_path / "data" / c / "run"
+
+    monkeypatch.setattr(dag, "runs_dir", _mock_runs_dir)
+    monkeypatch.setattr(data_module, "runs_dir", _mock_runs_dir)
+    monkeypatch.setattr(pipeline, "runs_dir", _mock_runs_dir)
+    monkeypatch.setattr(pipeline, "DATA_DIR", tmp_path / "data")
 
 
 def _stub_config() -> SimpleNamespace:
@@ -20,8 +34,8 @@ def _noop_artifact(**_kwargs) -> None:
     return None
 
 
-def _write_public_result(tmp_path, run_id: str, stage_id: str, payload: dict) -> None:
-    run_dir = tmp_path / "results" / run_id
+def _write_public_result(tmp_path, code: str, stage_id: str, payload: dict) -> None:
+    run_dir = tmp_path / "data" / code / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / f"{stage_id}.json").write_text(
         json.dumps(
@@ -34,8 +48,8 @@ def _write_public_result(tmp_path, run_id: str, stage_id: str, payload: dict) ->
 
 
 def _patch_common_stage_stubs(monkeypatch, calls: list):
-    async def stage0(user_id: str) -> dict:
-        calls.append(("stage0", user_id))
+    async def stage0(code: str) -> dict:
+        calls.append(("stage0", code))
         return {
             "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
             "_column_descriptions": {},
@@ -51,7 +65,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             "non_identifiable": {},
         }
 
-    async def stage2(question: str, stage0_result: dict, stage1b_result: dict) -> dict:
+    async def stage2(question: str, stage0_result: dict, stage1b_result: dict, **_kw) -> dict:
         calls.append(("stage2", question, stage0_result, stage1b_result))
         raw_data = pl.DataFrame(
             {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
@@ -106,8 +120,8 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         calls.append(("stage6", stage5_result, stage1a_result, stage1b_result, stage1b_gate_result))
         return {"intervention_results": [], "outcome": "success"}
 
-    def persist_web_result(stage_id: str, data: dict, run_id: str) -> dict:
-        calls.append(("persist_web_result", stage_id, data, run_id))
+    def persist_web_result(stage_id: str, data: dict, code: str) -> dict:
+        calls.append(("persist_web_result", stage_id, data, code))
         if stage_id == "stage-5b":
             return {"stage5b": True}
         if stage_id == "stage-6":
@@ -127,6 +141,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         _stub_config,
@@ -193,6 +208,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
 
 def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         _stub_config,
@@ -250,8 +266,9 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
     assert result == {"stage5b": True, "stage6": True}
 
 
-def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatch, tmp_path):
+def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         _stub_config,
@@ -261,15 +278,15 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    prior_run = "prior-run"
-    prior_dir = tmp_path / "results" / prior_run
-    prior_dir.mkdir(parents=True, exist_ok=True)
-    prior_df_path = prior_dir / "stage0-raw-input.parquet"
-    pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}).write_parquet(prior_df_path)
+    code = "test_user"
+    run_dir = tmp_path / "data" / code / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    df_path = run_dir / "stage0-raw-input.parquet"
+    pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}).write_parquet(df_path)
 
     _write_public_result(
         tmp_path,
-        prior_run,
+        code,
         "stage-0",
         {
             "outcome": "success",
@@ -286,7 +303,7 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
     )
     _write_public_result(
         tmp_path,
-        prior_run,
+        code,
         "stage-1a",
         {
             "latent_model": {"constructs": []},
@@ -296,7 +313,7 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
     )
     _write_public_result(
         tmp_path,
-        prior_run,
+        code,
         "stage-1b",
         {
             "outcome": "success",
@@ -307,7 +324,7 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
         },
     )
 
-    async def stage0(_user_id: str) -> dict:
+    async def stage0(_code: str) -> dict:
         raise AssertionError("stage0 should be restored, not rerun")
 
     async def stage1a(_question: str) -> dict:
@@ -318,7 +335,7 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
 
     captured: dict = {}
 
-    async def stage2(question: str, stage0_result: dict, stage1b_result: dict) -> dict:
+    async def stage2(question: str, stage0_result: dict, stage1b_result: dict, **_kw) -> dict:
         calls.append(("stage2", question, stage0_result, stage1b_result))
         captured["question"] = question
         captured["stage0_df_path"] = stage0_result["_df_path"]
@@ -343,26 +360,23 @@ def test_resume_from_stage2_restores_upstream_state_without_rerunning(monkeypatc
     result = asyncio.run(
         pipeline.causal_inference_pipeline(
             query="why is this happening?",
-            resume_run_id=prior_run,
             start_stage="stage-2",
             end_stage="stage-2",
         )
     )
 
     assert result["final_stage"] == "stage-2"
+    assert result["code"] == code
     assert captured["question"] == "why is this happening?"
     assert captured["stage1b_result"]["causal_spec"]["measurement"]["indicators"] == []
-    assert captured["stage0_df_path"] != str(prior_df_path)
-    assert captured["stage0_df_path"] == f"results/{result['run_id']}/stage0-raw-input.parquet"
-    assert (tmp_path / "results" / result["run_id"] / "stage0-raw-input.parquet").exists()
-    assert (tmp_path / "results" / result["run_id"] / "stage-0-state.pkl").exists()
-    assert (tmp_path / "results" / result["run_id"] / "stage-1a-state.pkl").exists()
-    assert (tmp_path / "results" / result["run_id"] / "stage-1b-state.pkl").exists()
-    assert (tmp_path / "results" / result["run_id"] / "stage-2-state.pkl").exists()
+    # Artifacts stay in place — df_path points to the same run dir
+    assert captured["stage0_df_path"] == str(df_path)
+    assert (run_dir / "stage-2-state.pkl").exists()
 
 
 def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         _stub_config,
@@ -411,6 +425,7 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
 
 def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         _stub_config,
@@ -450,16 +465,17 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
 
 def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
 
-    run_id = "legacy-run"
-    run_dir = tmp_path / "results" / run_id
+    code = "test_user"
+    run_dir = tmp_path / "data" / code / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "stage5b-fitted-result.pkl").write_bytes(
         cloudpickle.dumps({"samples": {"x": [1, 2, 3]}})
     )
     _write_public_result(
         tmp_path,
-        run_id,
+        code,
         "stage-5b",
         {
             "outcome": "warn",
@@ -482,7 +498,7 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
         },
     )
 
-    state = dag.load_stage_state(run_id, "stage-5b")
+    state = dag.load_stage_state(code, "stage-5b")
 
     assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
     assert state["result"]["_ps_result"]["checked"] is True
@@ -492,10 +508,11 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
 
 def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr("prefect.artifacts.create_markdown_artifact", _noop_artifact)
     monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.persist_web_result",
-        lambda _stage_id, data, _run_id: data,
+        lambda _stage_id, data, _code: data,
     )
 
     causal_spec = {
@@ -574,7 +591,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
             {"causal_spec": causal_spec},
             {"_data_for_model_path": str(data_path)},
             True,
-            "run-123",
+            "test-code",
             override_payload=override_payload,
         )
     )

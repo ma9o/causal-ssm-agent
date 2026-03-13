@@ -9,11 +9,18 @@ logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
 
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
-RAW_DIR = DATA_DIR / "raw"
+DATA_DIR = Path(__file__).resolve().parents[5] / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
-QUERIES_DIR = DATA_DIR / "queries"
-TRAINING_DIR = DATA_DIR / "training"
+
+
+def input_dir(code: str) -> Path:
+    """Return the input directory for a session code: ``data/{code}/input/``."""
+    return DATA_DIR / code / "input"
+
+
+def runs_dir(code: str) -> Path:
+    """Return the single run directory for a session code: ``data/{code}/run/``."""
+    return DATA_DIR / code / "run"
 
 
 def get_orchestrator_chunk_size() -> int:
@@ -225,7 +232,7 @@ def get_latest_preprocessed_file(
     Returns:
         Path to latest file, or None if no files found
     """
-    search_dir = directory or PROCESSED_DIR
+    search_dir = directory or (DATA_DIR / "processed")
     exclude = exclude or set()
     txt_files = [f for f in search_dir.glob("*.txt") if f.name not in exclude]
 
@@ -235,53 +242,6 @@ def get_latest_preprocessed_file(
     # Sort by modification time, newest first
     return max(txt_files, key=lambda p: p.stat().st_mtime)
 
-
-def resolve_query_path(filename: str) -> Path:
-    """
-    Resolve query file path from filename.
-
-    Args:
-        filename: Filename (mnemonic name like 'smoking-cancer.txt') in test-queries dir.
-                  Extension is optional - will try .txt and .md if not provided.
-
-    Returns:
-        Full path to the query file
-
-    Raises:
-        FileNotFoundError: If no matching file found
-    """
-    # Try exact match first
-    path = QUERIES_DIR / filename
-    if path.exists():
-        return path
-
-    # Try with extensions if not provided
-    if not path.suffix:
-        for ext in [".txt", ".md"]:
-            path_with_ext = QUERIES_DIR / f"{filename}{ext}"
-            if path_with_ext.exists():
-                return path_with_ext
-
-    raise FileNotFoundError(f"Query file not found: {filename} in {QUERIES_DIR}")
-
-
-def load_query(filename: str) -> str:
-    """
-    Load query content from file.
-
-    Args:
-        filename: Filename in test-queries dir (e.g., 'smoking-cancer')
-
-    Returns:
-        Query text content
-    """
-    path = resolve_query_path(filename)
-    return path.read_text().strip()
-
-
-def list_queries() -> list[str]:
-    """List available query files in test-queries directory."""
-    return [p.name for p in QUERIES_DIR.glob("*") if p.is_file() and p.name != ".gitkeep"]
 
 
 def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:

@@ -1,7 +1,7 @@
 """Tests for utils/data.py pure utility functions.
 
 Covers: chunk_lines, pivot_to_wide, load_lines, sample_chunks,
-        get_latest_preprocessed_file, resolve_query_path, load_query, list_queries.
+        get_latest_preprocessed_file.
 """
 
 import time
@@ -162,65 +162,6 @@ class TestGetLatestPreprocessedFile:
         f.write_text("only")
         assert get_latest_preprocessed_file(tmp_path) == f
 
-
-# =============================================================================
-# resolve_query_path / load_query / list_queries
-# =============================================================================
-
-
-class TestQueryFunctions:
-    def test_resolve_exact_match(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        f = tmp_path / "test.txt"
-        f.write_text("query content")
-        from causal_ssm_agent.utils.data import resolve_query_path
-
-        assert resolve_query_path("test.txt") == f
-
-    def test_resolve_adds_txt_extension(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        f = tmp_path / "test.txt"
-        f.write_text("content")
-        from causal_ssm_agent.utils.data import resolve_query_path
-
-        assert resolve_query_path("test") == f
-
-    def test_resolve_adds_md_extension(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        f = tmp_path / "test.md"
-        f.write_text("content")
-        from causal_ssm_agent.utils.data import resolve_query_path
-
-        assert resolve_query_path("test") == f
-
-    def test_resolve_not_found(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        import pytest
-
-        from causal_ssm_agent.utils.data import resolve_query_path
-
-        with pytest.raises(FileNotFoundError):
-            resolve_query_path("nonexistent")
-
-    def test_load_query(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        f = tmp_path / "q.txt"
-        f.write_text("  Does X cause Y?  \n")
-        from causal_ssm_agent.utils.data import load_query
-
-        assert load_query("q.txt") == "Does X cause Y?"
-
-    def test_list_queries(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("causal_ssm_agent.utils.data.QUERIES_DIR", tmp_path)
-        (tmp_path / "a.txt").write_text("a")
-        (tmp_path / "b.md").write_text("b")
-        (tmp_path / ".gitkeep").write_text("")
-        from causal_ssm_agent.utils.data import list_queries
-
-        names = list_queries()
-        assert "a.txt" in names
-        assert "b.md" in names
-        assert ".gitkeep" not in names
 
 
 # =============================================================================

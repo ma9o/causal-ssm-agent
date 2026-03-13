@@ -233,7 +233,7 @@ class TestIngestionTools:
 
 
 class TestFindRawInput:
-    def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path):
+    def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path, monkeypatch):
         import causal_ssm_agent.flows.stages.stage0_preprocess as mod
         from causal_ssm_agent.flows.stages.stage0_preprocess import _find_raw_input
 
@@ -249,29 +249,20 @@ class TestFindRawInput:
         os.utime(older, (1_700_000_000, 1_700_000_000))
         os.utime(newer, (1_700_000_100, 1_700_000_100))
 
-        # Monkeypatch RAW_DIR
-        original = mod.RAW_DIR
-        mod.RAW_DIR = tmp_path
-        try:
-            result = _find_raw_input("test_user")
-            assert result.name == "notes.txt"
-        finally:
-            mod.RAW_DIR = original
+        monkeypatch.setattr(mod, "input_dir", lambda code: tmp_path / code)
+        result = _find_raw_input("test_user")
+        assert result.name == "notes.txt"
 
-    def test_no_files_raises(self, tmp_path):
+    def test_no_files_raises(self, tmp_path, monkeypatch):
         import causal_ssm_agent.flows.stages.stage0_preprocess as mod
         from causal_ssm_agent.flows.stages.stage0_preprocess import _find_raw_input
 
         user_dir = tmp_path / "empty_user"
         user_dir.mkdir()
 
-        original = mod.RAW_DIR
-        mod.RAW_DIR = tmp_path
-        try:
-            with pytest.raises(FileNotFoundError):
-                _find_raw_input("empty_user")
-        finally:
-            mod.RAW_DIR = original
+        monkeypatch.setattr(mod, "input_dir", lambda code: tmp_path / code)
+        with pytest.raises(FileNotFoundError):
+            _find_raw_input("empty_user")
 
 
 class TestPrepareRawInput:
