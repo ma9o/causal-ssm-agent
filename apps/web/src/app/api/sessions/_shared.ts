@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 export const DATA_DIR = join(process.cwd(), "..", "..", "data");
 export const SESSIONS_PATH = join(DATA_DIR, "sessions.json");
@@ -31,6 +31,11 @@ export async function readSessions(): Promise<Record<string, Session>> {
     // No runtime sessions
   }
   return sessions;
+}
+
+export async function writeSessions(sessions: Record<string, Session>): Promise<void> {
+  await mkdir(dirname(SESSIONS_PATH), { recursive: true });
+  await writeFile(SESSIONS_PATH, JSON.stringify(sessions, null, 2));
 }
 
 /** Read the research question from ``data/{code}/query.txt``. */
