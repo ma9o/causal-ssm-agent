@@ -1,9 +1,14 @@
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { type SessionWithQuestion, readQuestion, readSessions } from "../_shared";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
-  const normalizedCode = code.toUpperCase();
+  const normalizedCode = basename(code);
+
+  if (!normalizedCode || normalizedCode !== code || normalizedCode === "." || normalizedCode === "..") {
+    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  }
 
   try {
     const sessions = await readSessions();

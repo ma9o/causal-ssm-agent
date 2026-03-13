@@ -146,11 +146,16 @@ export default function LandingPage() {
   };
 
   const handleResume = async () => {
-    const code = resumeCode.trim().toUpperCase();
-    if (code.length !== CODE_LENGTH) {
-      setResumeError(`Session code must be ${CODE_LENGTH} characters.`);
+    const rawCode = resumeCode.trim();
+    if (!rawCode) {
+      setResumeError("Enter a session code or user ID.");
       return;
     }
+
+    const code =
+      rawCode.length === CODE_LENGTH && /^[A-Za-z0-9]+$/.test(rawCode)
+        ? rawCode.toUpperCase()
+        : rawCode;
 
     setIsResuming(true);
     setResumeError(null);
@@ -427,23 +432,22 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input
               type="text"
-              aria-label="Session code"
-              maxLength={CODE_LENGTH}
-              placeholder="ABC123"
+              aria-label="Session code or user ID"
+              placeholder="ABC123 or user ID"
               value={resumeCode}
               onChange={(e) => {
-                setResumeCode(e.target.value.toUpperCase());
+                setResumeCode(e.target.value);
                 if (resumeError) setResumeError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && resumeCode.trim().length === CODE_LENGTH) handleResume();
+                if (e.key === "Enter" && resumeCode.trim()) handleResume();
               }}
-              className="flex-1 rounded-md border bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] uppercase placeholder:text-muted-foreground/40 placeholder:tracking-[0.3em]"
+              className="flex-1 rounded-md border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground/40"
             />
             <Button
               variant="outline"
               onClick={handleResume}
-              disabled={isResuming || resumeCode.trim().length !== CODE_LENGTH}
+              disabled={isResuming || !resumeCode.trim()}
             >
               {isResuming ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

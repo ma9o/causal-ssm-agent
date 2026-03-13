@@ -17,8 +17,13 @@ export async function POST(request: Request) {
   }
 
   // Sanitize path components to prevent directory traversal
-  const safeCode = basename(code);
+  const trimmedCode = code.trim();
+  const safeCode = basename(trimmedCode);
   const safeFileName = basename(file.name);
+
+  if (!safeCode || safeCode !== trimmedCode || safeCode === "." || safeCode === "..") {
+    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  }
 
   const dir = join(DATA_DIR, safeCode, "input");
   await mkdir(dir, { recursive: true });
