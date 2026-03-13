@@ -112,22 +112,22 @@ function RpmGauge({ rpm }: { rpm: number }) {
   );
 }
 
-export default function Stage2RunningContent({
-  runId,
-  stageStatus,
+/** Presentational component — no hooks, pure props. Used by stories too. */
+export function Stage2RunningView({
+  workers,
+  logs,
+  rpm = 0,
 }: {
-  runId: string;
-  stageStatus: StageRunStatus;
+  workers: Stage2Worker[];
+  logs: PrefectLogEntry[];
+  rpm?: number;
 }) {
-  const { workers, logs } = useStage2Workers(runId, stageStatus);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const total = workers.length;
   const completed = workers.filter((w) => w.state === "completed").length;
   const failed = workers.filter((w) => w.state === "failed").length;
   const running = workers.filter((w) => w.state === "running").length;
-  const remaining = total - completed - failed;
-  const rpm = useRpm(workers);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -142,30 +142,20 @@ export default function Stage2RunningContent({
             <>
               <span className="flex items-center gap-1.5 font-medium tabular-nums">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                {completed + failed}
+                {completed}
                 <span className="text-muted-foreground font-normal">/</span>
-                {total}
+                {total} done
               </span>
-              {completed > 0 && (
-                <span className="flex items-center gap-1 text-emerald-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {completed}
-                </span>
-              )}
-              {running > 0 && (
-                <span className="text-muted-foreground">
-                  {running} running
-                </span>
-              )}
               {failed > 0 && (
                 <span className="flex items-center gap-1 text-destructive">
                   <XCircle className="h-3.5 w-3.5" />
-                  {failed}
+                  {failed} failed
                 </span>
               )}
-              {remaining > 0 && (
-                <span className="text-muted-foreground/60 text-xs">
-                  {remaining} remaining
+              {running > 0 && (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  {running} running
                 </span>
               )}
             </>
@@ -197,4 +187,17 @@ export default function Stage2RunningContent({
       </div>
     </div>
   );
+}
+
+export default function Stage2RunningContent({
+  runId,
+  stageStatus,
+}: {
+  runId: string;
+  stageStatus: StageRunStatus;
+}) {
+  const { workers, logs } = useStage2Workers(runId, stageStatus);
+  const rpm = useRpm(workers);
+
+  return <Stage2RunningView workers={workers} logs={logs} rpm={rpm} />;
 }
