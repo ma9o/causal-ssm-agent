@@ -73,22 +73,20 @@ All three must succeed before proceeding.
 
 ### 1. Place data
 
-Copy an input file into a session-code-named directory:
+Copy an input file into the session workspace:
 
 ```bash
 CODE="T3ST42"
-mkdir -p apps/data-pipeline/data/raw/$CODE
-cp apps/data-pipeline/data/raw/test_user/MyActivity.json \
-   apps/data-pipeline/data/raw/$CODE/
+mkdir -p data/$CODE/input
+cp data/GOLDEN/input/MyActivity.json data/$CODE/input/
 ```
 
-The pipeline's stage-0 preprocess step scans `data/raw/{code}/` for non-hidden
-files and uses the most recent one in that directory. If that file is a zip
-archive, it is extracted before ingestion. Otherwise it is copied unchanged
-into the agent's working directory for inspection. Plain-text inputs such as
-JSON, CSV, TSV, TXT, Markdown, and log files work directly. Other file types
-can also be staged here, but they only succeed if the ingestion agent can parse
-them.
+Stage 0 scans `data/{code}/input/` for non-hidden files and uses the most
+recent one in that directory. If that file is a zip archive, it is extracted
+before ingestion. Otherwise it is copied unchanged into the agent's working
+directory for inspection. Plain-text inputs such as JSON, CSV, TSV, TXT,
+Markdown, and log files work directly. Other file types can also be staged
+here, but they only succeed if the ingestion agent can parse them.
 
 ### 2. Trigger pipeline via Prefect API
 
@@ -100,12 +98,12 @@ DEPLOY_ID=$(curl -s -X POST http://localhost:4200/api/deployments/filter \
   | jq -r '.[0].id')
 
 # Create flow run
-RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
+FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"user_id\":\"$CODE\",\"override_gates\":true}}" \
+  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"code\":\"$CODE\",\"override_gates\":true}}" \
   | jq -r '.id')
 
-echo "Run ID: $RUN_ID"
+echo "Flow Run ID: $FLOW_RUN_ID"
 ```
 
 ### 3. Register session
@@ -113,7 +111,7 @@ echo "Run ID: $RUN_ID"
 ```bash
 curl -s -X POST http://localhost:3001/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"runId\":\"$RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"code\":\"$CODE\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 # → {"ok":true}
 ```
 
@@ -121,7 +119,7 @@ curl -s -X POST http://localhost:3001/api/sessions \
 
 ```bash
 curl -s http://localhost:3001/api/sessions/$CODE
-# → {"runId":"...","question":"...","createdAt":"..."}
+# → {"flowRunId":"...","question":"...","createdAt":"..."}
 
 # Case-insensitive
 curl -s http://localhost:3001/api/sessions/$(echo $CODE | tr '[:upper:]' '[:lower:]')
@@ -136,7 +134,8 @@ Using the `browser_eval` tool:
 1. Navigate to http://localhost:3001
 2. Type session code into the resume input (monospace field, maxLength=6)
 3. Click "Resume" button
-4. Verify redirect to /analysis/{runId}?code={CODE}
+4. Verify redirect to /analysis/{CODE}
+   If the session has a tracked live run, the URL may also include ?flowRunId=...
 5. Screenshot the progress bar (should show session code badge)
 ```
 
@@ -157,9 +156,9 @@ The screenshots serve as visual regression artifacts — an agent can compare th
 
 The 6-character session code is the linchpin:
 
-1. **Names the data directory** — `data/raw/{code}/` (replaces throwaway `user-{timestamp}`)
-2. **Links to the Prefect run** — `sessions.json` maps `code → runId`
-3. **Serves as a resume token** — type it into the landing page to recover the analysis URL
+1. **Names the workspace** — `data/{code}/input/`, `data/{code}/query.txt`, and `data/{code}/run/`
+2. **Links to the active Prefect run** — `sessions.json` maps `code → flowRunId`
+3. **Serves as a resume token** — type it into the landing page to recover `/analysis/{code}`
 4. **Is fully stateless on the client** — no localStorage, no cookies, no sessionStorage
 
 An agent holds the code in a shell variable. A human writes it on a napkin. Both can resume.
