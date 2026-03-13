@@ -53,19 +53,24 @@ describe("getMockFixture", () => {
     }
   });
 
-  it("returns 'default' when env var is unset", () => {
+  it("returns 'DEFAULT' when env var is unset", () => {
     unsetEnv("NEXT_PUBLIC_MOCK_DATA");
-    expect(getMockFixture()).toBe("default");
+    expect(getMockFixture()).toBe("DEFAULT");
   });
 
-  it("returns the fixture name from env var", () => {
+  it("returns uppercase fixture code from env var", () => {
     process.env.NEXT_PUBLIC_MOCK_DATA = "doctolib";
-    expect(getMockFixture()).toBe("doctolib");
+    expect(getMockFixture()).toBe("DOCTOLIB");
   });
 
-  it("returns empty string when env var is empty", () => {
+  it("returns 'DEFAULT' when env var is 'true'", () => {
+    process.env.NEXT_PUBLIC_MOCK_DATA = "true";
+    expect(getMockFixture()).toBe("DEFAULT");
+  });
+
+  it("returns 'DEFAULT' when env var is empty", () => {
     process.env.NEXT_PUBLIC_MOCK_DATA = "";
-    expect(getMockFixture()).toBe("default");
+    expect(getMockFixture()).toBe("DEFAULT");
   });
 });
 

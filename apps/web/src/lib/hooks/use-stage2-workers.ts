@@ -22,19 +22,20 @@ export interface Stage2WorkerProgress {
  *
  * Worker states (submitted/completed/failed) arrive over the existing
  * WebSocket connection in use-run-events.ts and are written into the
- * ["pipeline", runId, "stage2-workers"] query cache key.
+ * ["pipeline", code, "stage2-workers"] query cache key.
  *
  * Logs must still be polled — Prefect has no log WebSocket API.
  */
 export function useStage2Workers(
-  runId: string,
+  code: string,
+  flowRunId: string | null,
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
   const isActive = stageStatus === "running";
 
   // Workers: populated by WebSocket events in use-run-events.ts
   const { data: workers = [] } = useQuery<Stage2Worker[]>({
-    queryKey: ["pipeline", runId, "stage2-workers"],
+    queryKey: ["pipeline", code, "stage2-workers"],
     queryFn: () => [],
     enabled: isActive,
     staleTime: Infinity,
@@ -42,9 +43,9 @@ export function useStage2Workers(
 
   // Logs: still polled (Prefect has no log WebSocket)
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", runId, "stage2-logs"],
-    queryFn: () => fetchStage2Logs(runId),
-    enabled: isActive && workers.length > 0,
+    queryKey: ["pipeline", code, "stage2-logs"],
+    queryFn: () => fetchStage2Logs(flowRunId!),
+    enabled: isActive && workers.length > 0 && !!flowRunId,
     refetchInterval: 3000,
     staleTime: 1000,
   });
@@ -52,11 +53,11 @@ export function useStage2Workers(
   return { workers, logs };
 }
 
-async function fetchStage2Logs(runId: string): Promise<PrefectLogEntry[]> {
+async function fetchStage2Logs(flowRunId: string): Promise<PrefectLogEntry[]> {
   // Find the stage-2 subflow run ID and all its nested flow runs,
   // then fetch logs from all of them (workers run in a nested extraction flow).
   const { fetchStageFlowRunId } = await import("./use-stage-logs");
-  const subFlowRunId = await fetchStageFlowRunId(runId, "stage-2");
+  const subFlowRunId = await fetchStageFlowRunId(flowRunId, "stage-2");
   if (!subFlowRunId) return [];
 
   const flowRunIds = [subFlowRunId];

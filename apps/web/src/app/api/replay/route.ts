@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
+import { readSessions } from "../sessions/_shared";
 
 const PREFECT_API = "http://localhost:4200/api";
 
@@ -24,16 +25,16 @@ const STAGE_ORDER = [
  * treats that override as the stage output, skips the overridden stage's
  * computation, and re-runs all downstream stages with the new data.
  *
- * Body: { runId: string, stageId: string, stageData: object }
+ * Body: { code: string, stageId: string, stageData: object }
  */
 export async function POST(request: Request) {
-  const { runId, stageId, stageData } = await request.json();
+  const { code, stageId, stageData } = await request.json();
 
-  if (!runId || !stageId || !stageData) {
-    return NextResponse.json({ error: "Missing runId, stageId, or stageData" }, { status: 400 });
+  if (!code || !stageId || !stageData) {
+    return NextResponse.json({ error: "Missing code, stageId, or stageData" }, { status: 400 });
   }
 
-  const safeRunId = basename(runId);
+  const safeCode = basename(code);
   const safeStageId = basename(stageId);
 
   const stageIdx = STAGE_ORDER.indexOf(safeStageId);
@@ -42,29 +43,34 @@ export async function POST(request: Request) {
   }
 
   try {
-    // 1. Fetch the original flow run to get its parameters
-    const flowRunRes = await fetch(`${PREFECT_API}/flow_runs/${safeRunId}`);
-    if (!flowRunRes.ok) {
-      return NextResponse.json(
-        { error: `Could not fetch original flow run: ${flowRunRes.status}` },
-        { status: 502 },
-      );
+    // Look up the session to find the flowRunId for fetching original parameters
+    const sessions = await readSessions();
+    const session = sessions[safeCode.toUpperCase()];
+    const flowRunId = session?.flowRunId;
+
+    // Build parameters: if we have a prior flow run, reuse its params
+    let originalParams: Record<string, unknown> = {};
+    if (flowRunId) {
+      const flowRunRes = await fetch(`${PREFECT_API}/flow_runs/${flowRunId}`);
+      if (flowRunRes.ok) {
+        const flowRun = await flowRunRes.json();
+        originalParams = flowRun.parameters ?? {};
+      }
     }
 
-    const flowRun = await flowRunRes.json();
-    const originalParams = flowRun.parameters ?? {};
-
-    // 2. Build new parameters: original params + stage_overrides
-    const existingOverrides = originalParams.stage_overrides ?? {};
+    // Ensure code is set and add stage_overrides
+    const existingOverrides =
+      (originalParams.stage_overrides as Record<string, unknown>) ?? {};
     const newParams = {
       ...originalParams,
+      code: safeCode,
       stage_overrides: {
         ...existingOverrides,
         [safeStageId]: stageData,
       },
     };
 
-    // 3. Find the causal-inference deployment
+    // Find the causal-inference deployment
     const deploymentsRes = await fetch(`${PREFECT_API}/deployments/filter`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,7 +96,7 @@ export async function POST(request: Request) {
 
     const deploymentId = deployments[0].id;
 
-    // 4. Trigger new flow run with original params + stage override
+    // Trigger new flow run with original params + stage override
     const createRes = await fetch(
       `${PREFECT_API}/deployments/${deploymentId}/create_flow_run`,
       {

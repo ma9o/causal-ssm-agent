@@ -23,7 +23,7 @@ describe("buildPrefectEventFilterMessage", () => {
     expect(buildPrefectEventFilterMessage("run-123", now)).toEqual({
       type: "filter",
       filter: {
-        event: { prefix: ["causal-ssm.pipeline-stage."] },
+        event: { prefix: ["causal-ssm."] },
         resource: {
           id: ["prefect.flow-run.run-123"],
         },

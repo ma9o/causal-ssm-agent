@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
 
-const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
+const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
 
 /**
  * POST /api/refine/apply
@@ -11,25 +11,25 @@ const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
  * during refinement, merges with the original stage data, and triggers
  * a pipeline replay from that stage.
  *
- * Body: { runId, stageId }
+ * Body: { code, stageId }
  */
 export async function POST(request: Request) {
-  const { runId, stageId } = await request.json();
+  const { code, stageId } = await request.json();
 
-  if (!runId || !stageId) {
+  if (!code || !stageId) {
     return NextResponse.json(
-      { error: "Missing runId or stageId" },
+      { error: "Missing code or stageId" },
       { status: 400 },
     );
   }
 
-  const safeRunId = basename(runId);
+  const safeCode = basename(code);
   const safeStageId = basename(stageId);
   const stagePath = resolve(
-    join(RESULTS_DIR, safeRunId, `${safeStageId}.json`),
+    join(DATA_DIR, safeCode, "run", `${safeStageId}.json`),
   );
   const draftPath = resolve(
-    join(RESULTS_DIR, safeRunId, `${safeStageId}-draft.json`),
+    join(DATA_DIR, safeCode, "run", `${safeStageId}-draft.json`),
   );
 
   // Read the draft from the last successful tool call
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        runId: safeRunId,
+        code: safeCode,
         stageId: safeStageId,
         stageData: merged,
       }),

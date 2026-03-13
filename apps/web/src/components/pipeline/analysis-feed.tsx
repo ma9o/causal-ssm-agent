@@ -13,13 +13,13 @@ import { PipelineProgressBar } from "./progress-bar";
 import { StageSectionRouter } from "./stage-section-router";
 
 export function AnalysisFeed({
-  runId,
+  code,
+  flowRunId,
   progress,
-  sessionCode,
 }: {
-  runId: string;
+  code: string;
+  flowRunId?: string;
   progress: PipelineProgress | undefined;
-  sessionCode?: string;
 }) {
   const visibleStageIds = useMemo(
     () =>
@@ -50,13 +50,14 @@ export function AnalysisFeed({
 
   return (
     <div>
-      <PipelineProgressBar progress={progress} sessionCode={sessionCode} runId={runId} />
+      <PipelineProgressBar progress={progress} code={code} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
         {visibleStages.map((stage) => (
           <StageSectionRouter
             key={stage.id}
             stage={stage}
-            runId={runId}
+            code={code}
+            flowRunId={flowRunId}
             status={progress.stages[stage.id]}
             timing={progress.timings[stage.id]}
           />

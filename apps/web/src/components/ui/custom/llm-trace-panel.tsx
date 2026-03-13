@@ -39,7 +39,7 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
 /**
  * LLM Trace Panel — three modes:
  *
- * 1. Read-only (no runId/stageId or non-refinable stage): just shows the trace
+ * 1. Read-only (no code/stageId or non-refinable stage): just shows the trace
  * 2. Completed + refinable: trace (read-only) + refinement chat (interactive)
  * 3. Refining: trace + ongoing refinement conversation with tools
  *
@@ -49,12 +49,12 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
  */
 export function LLMTracePanel({
   trace,
-  runId,
+  code,
   stageId,
   interactive = true,
 }: {
   trace: LLMTrace;
-  runId?: string;
+  code?: string;
   stageId?: string;
   interactive?: boolean;
 }) {
@@ -65,7 +65,7 @@ export function LLMTracePanel({
   const [applied, setApplied] = useState(false);
 
   const canRefine =
-    interactive && !!runId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
+    interactive && !!code && !!stageId && INTERACTIVE_STAGES.includes(stageId);
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.
@@ -74,10 +74,10 @@ export function LLMTracePanel({
     const apiKey = getUserApiKey();
     return new DefaultChatTransport({
       api: "/api/refine",
-      body: { runId, stageId },
+      body: { code, stageId },
       ...(apiKey ? { headers: { "x-openrouter-key": apiKey } } : {}),
     });
-  }, [runId, stageId, canRefine]);
+  }, [code, stageId, canRefine]);
 
   const {
     messages: refinementMessages,
@@ -117,7 +117,7 @@ export function LLMTracePanel({
       const res = await fetch("/api/refine/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, runId, stageId }),
+        body: JSON.stringify({ messages: apiMessages, code, stageId }),
       });
 
       if (!res.ok) {
@@ -130,13 +130,13 @@ export function LLMTracePanel({
       if (result.ok) {
         setApplied(true);
         if (result.flowRunId) {
-          window.location.href = `/analysis/${result.flowRunId}`;
+          window.location.href = `/analysis/${code}?flowRunId=${result.flowRunId}`;
         }
       }
     } finally {
       setApplying(false);
     }
-  }, [refinementMessages, runId, stageId, applying, applied, canRefine]);
+  }, [refinementMessages, code, stageId, applying, applied, canRefine]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">

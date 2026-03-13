@@ -38,7 +38,7 @@ export function logLevelLabel(level: number): string {
 }
 
 export async function fetchStageFlowRunId(
-  runId: string,
+  flowRunId: string,
   stageId: StageId,
 ): Promise<string | null> {
   const stage = STAGES.find((s) => s.id === stageId);
@@ -48,7 +48,7 @@ export async function fetchStageFlowRunId(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      flow_runs: { id: { any_: [runId] } },
+      flow_runs: { id: { any_: [flowRunId] } },
       sort: "EXPECTED_START_TIME_DESC",
     }),
   });
@@ -94,18 +94,18 @@ async function fetchLogs(
   return res.json();
 }
 
-export function useStageLogs(runId: string, stageId: StageId, status: StageRunStatus) {
+export function useStageLogs(code: string, flowRunId: string | null, stageId: StageId, status: StageRunStatus) {
   const isActive = status !== "pending";
 
   const { data: stageFlowRunId } = useQuery({
-    queryKey: ["pipeline", runId, "stageFlowRunId", stageId],
-    queryFn: () => fetchStageFlowRunId(runId, stageId),
-    enabled: isActive,
+    queryKey: ["pipeline", code, "stageFlowRunId", stageId],
+    queryFn: () => fetchStageFlowRunId(flowRunId!, stageId),
+    enabled: isActive && !!flowRunId,
     staleTime: Infinity,
   });
 
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", runId, "logs", stageId, stageFlowRunId],
+    queryKey: ["pipeline", code, "logs", stageId, stageFlowRunId],
     queryFn: () => fetchLogs(stageFlowRunId ?? null),
     enabled: isActive && stageFlowRunId !== undefined,
     refetchInterval: status === "running" ? 3000 : false,
