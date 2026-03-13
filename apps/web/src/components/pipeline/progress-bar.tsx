@@ -77,15 +77,11 @@ export function PipelineProgressBar({
             </span>
             {completed > 0 && (
               <Tooltip>
-                <TooltipTrigger>
-                  <button
-                    type="button"
-                    onClick={exportToMarkdown}
-                    className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    title="Export report as Markdown"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
+                <TooltipTrigger
+                  onClick={exportToMarkdown}
+                  className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <Download className="h-3.5 w-3.5" />
                 </TooltipTrigger>
                 <TooltipContent>
                   <span className="text-xs">Export as Markdown</span>
@@ -130,22 +126,19 @@ export function PipelineProgressBar({
 
             return (
               <Tooltip key={stage.id}>
-                <TooltipTrigger className="flex-1">
-                  <button
-                    type="button"
-                    disabled={!isClickable}
-                    className="group relative w-full"
-                    onClick={() => {
-                      if (!isClickable) return;
-                      document
-                        .getElementById(stage.id)
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}
-                  >
-                    <div
-                      className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
-                    />
-                  </button>
+                <TooltipTrigger
+                  className="group relative flex-1"
+                  disabled={!isClickable}
+                  onClick={() => {
+                    if (!isClickable) return;
+                    document
+                      .getElementById(stage.id)
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                >
+                  <div
+                    className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
+                  />
                 </TooltipTrigger>
                 <TooltipContent>
                   <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">

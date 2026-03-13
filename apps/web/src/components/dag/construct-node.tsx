@@ -110,7 +110,7 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
   if (construct.identificationStatus === "identified" && construct.identificationDetails) {
     return (
       <Tooltip>
-        <TooltipTrigger>{nodeContent}</TooltipTrigger>
+        <TooltipTrigger render={<div />}>{nodeContent}</TooltipTrigger>
         <TooltipContent>
           <IdentifiedTooltipContent details={construct.identificationDetails} />
         </TooltipContent>
