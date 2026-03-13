@@ -7,7 +7,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { Bot, ChevronRight, Wrench } from "lucide-react";
 
@@ -22,11 +22,11 @@ function ReasoningPart({ text, idx }: { text: string; idx: number }) {
         value={`reasoning-${idx}`}
         className="border-l-2 border-amber-400/50 !border-b-0"
       >
-        <AccordionTrigger className="py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+        <AccordionTrigger className="py-1.5 text-[11px] text-amber-600">
           Thinking
         </AccordionTrigger>
         <AccordionContent>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-amber-50/50 p-2 text-[11px] dark:bg-amber-950/20">
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-amber-50/50 p-2 text-[11px]">
             {text}
           </pre>
         </AccordionContent>

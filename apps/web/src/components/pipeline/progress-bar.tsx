@@ -1,4 +1,4 @@
-import { Tooltip } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
@@ -76,15 +76,20 @@ export function PipelineProgressBar({
               {completed}/{STAGES.length} stages
             </span>
             {completed > 0 && (
-              <Tooltip content={<span className="text-xs">Export as Markdown</span>}>
-                <button
-                  type="button"
-                  onClick={exportToMarkdown}
-                  className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title="Export report as Markdown"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </button>
+              <Tooltip>
+                <TooltipTrigger>
+                  <button
+                    type="button"
+                    onClick={exportToMarkdown}
+                    className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    title="Export report as Markdown"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="text-xs">Export as Markdown</span>
+                </TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -124,10 +129,25 @@ export function PipelineProgressBar({
                       : "bg-secondary";
 
             return (
-              <Tooltip
-                key={stage.id}
-                triggerClassName="flex-1"
-                content={
+              <Tooltip key={stage.id}>
+                <TooltipTrigger className="flex-1">
+                  <button
+                    type="button"
+                    disabled={!isClickable}
+                    className="group relative w-full"
+                    onClick={() => {
+                      if (!isClickable) return;
+                      document
+                        .getElementById(stage.id)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                  >
+                    <div
+                      className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
                   <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
                     {tooltipIcon}
                     <span>
@@ -135,23 +155,7 @@ export function PipelineProgressBar({
                       {tooltipSuffix}
                     </span>
                   </div>
-                }
-              >
-                <button
-                  type="button"
-                  disabled={!isClickable}
-                  className="group relative w-full"
-                  onClick={() => {
-                    if (!isClickable) return;
-                    document
-                      .getElementById(stage.id)
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                >
-                  <div
-                    className={`h-1.5 rounded-full transition-all duration-500 ${segmentColor} ${isClickable ? "group-hover:opacity-80 cursor-pointer" : "cursor-default"}`}
-                  />
-                </button>
+                </TooltipContent>
               </Tooltip>
             );
           })}
