@@ -1,6 +1,8 @@
 "use client";
 
 import { clearCodeVerifier, getCodeVerifier, setUserApiKey } from "@/lib/auth";
+import { setIdentity } from "@/lib/identity";
+import { generateSessionCode } from "@/lib/session-code";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
@@ -32,8 +34,12 @@ export default function AuthCallbackPage({
         if (!res.ok) throw new Error("Exchange failed");
         return res.json();
       })
-      .then(({ key }) => {
+      .then(({ key, user_id }) => {
         setUserApiKey(key);
+        setIdentity({
+          userId: user_id ?? generateSessionCode(),
+          kind: "openrouter",
+        });
         router.push("/");
       })
       .catch(() => {

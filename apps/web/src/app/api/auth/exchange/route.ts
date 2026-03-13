@@ -28,8 +28,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { key } = await res.json();
-    return NextResponse.json({ key });
+    const { key, user_id } = await res.json();
+    return NextResponse.json({ key, user_id: user_id ?? null });
   } catch {
     return NextResponse.json({ error: "Failed to exchange code" }, { status: 500 });
   }

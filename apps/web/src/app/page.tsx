@@ -6,8 +6,9 @@ import { Switch } from "@/components/ui/switch";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
-import { clearUserApiKey, getUserApiKey, initiateOpenRouterAuth } from "@/lib/auth";
-import { CODE_LENGTH, generateSessionCode } from "@/lib/session-code";
+import { initiateOpenRouterAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/hooks/use-auth";
+import { CODE_LENGTH } from "@/lib/session-code";
 import {
   ArrowRight,
   FileText,
@@ -50,17 +51,11 @@ export default function LandingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasCredits, setHasCredits] = useState<boolean | null>(null);
-  const [userKey, setUserKey] = useState<string | null>(null);
   const [isMac, setIsMac] = useState(false);
+  const auth = useAuth();
 
   useEffect(() => {
     setIsMac(/Mac/.test(navigator.userAgent));
-    setUserKey(getUserApiKey());
-    fetch("/api/auth/credits")
-      .then((r) => r.json())
-      .then((d) => setHasCredits(d.hasCredits))
-      .catch(() => setHasCredits(false));
   }, []);
 
   useEffect(() => {
@@ -131,7 +126,7 @@ export default function LandingPage() {
         return;
       }
 
-      const code = generateSessionCode();
+      const code = auth.ensureIdentity();
       await uploadFile(file, code);
 
       const deploymentId = await getDeploymentId();
@@ -139,7 +134,7 @@ export default function LandingPage() {
         query: question,
         user_id: code,
         override_gates: overrideGates || undefined,
-        openrouter_api_key: userKey || undefined,
+        openrouter_api_key: auth.userKey || undefined,
       });
 
       await fetch("/api/sessions", {
@@ -148,7 +143,7 @@ export default function LandingPage() {
         body: JSON.stringify({ code, runId, question }),
       });
 
-      router.push(`/analysis/${runId}?code=${code}`);
+      router.push(`/analysis/${runId}?code=${encodeURIComponent(code)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
@@ -180,15 +175,8 @@ export default function LandingPage() {
     }
   };
 
-  const noAccess = !userKey && hasCredits === false;
-
   const handleOpenRouterAuth = async () => {
     await initiateOpenRouterAuth(`${window.location.origin}/auth/callback`);
-  };
-
-  const handleSignOut = () => {
-    clearUserApiKey();
-    setUserKey(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -211,24 +199,24 @@ export default function LandingPage() {
         </motion.div>
 
         <motion.div {...fadeInUp()}>
-          <Card className={noAccess ? "border-destructive/50" : ""}>
+          <Card className={auth.noAccess ? "border-destructive/50" : ""}>
             <CardContent className="flex items-center justify-between py-4">
               <div className="flex items-center gap-3">
-                {hasCredits === null ? (
+                {auth.hasCredits === null ? (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : userKey ? (
+                ) : auth.userKey ? (
                   <div className="h-2 w-2 rounded-full bg-success" />
-                ) : hasCredits ? (
+                ) : auth.hasCredits ? (
                   <div className="h-2 w-2 rounded-full bg-success" />
                 ) : (
                   <div className="h-2 w-2 rounded-full bg-destructive" />
                 )}
                 <div>
-                  {hasCredits === null ? (
+                  {auth.hasCredits === null ? (
                     <p className="text-sm text-muted-foreground">Checking credits...</p>
-                  ) : userKey ? (
+                  ) : auth.userKey ? (
                     <p className="text-sm font-medium">Using your OpenRouter API key</p>
-                  ) : hasCredits ? (
+                  ) : auth.hasCredits ? (
                     <>
                       <p className="text-sm font-medium">Free credits available</p>
                       <p className="text-xs text-muted-foreground">
@@ -247,13 +235,13 @@ export default function LandingPage() {
                   )}
                 </div>
               </div>
-              {userKey ? (
-                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+              {auth.userKey ? (
+                <Button variant="ghost" size="sm" onClick={auth.signOut}>
                   Sign out
                 </Button>
               ) : (
                 <Button
-                  variant={noAccess ? "default" : "outline"}
+                  variant={auth.noAccess ? "default" : "outline"}
                   size="sm"
                   onClick={handleOpenRouterAuth}
                 >
@@ -405,7 +393,7 @@ export default function LandingPage() {
             className="w-full"
             size="lg"
             onClick={handleSubmit}
-            disabled={isSubmitting || !question.trim() || !file || noAccess}
+            disabled={isSubmitting || !question.trim() || !file || auth.noAccess}
           >
             {isSubmitting ? (
               <>

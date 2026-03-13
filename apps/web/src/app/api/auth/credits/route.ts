@@ -1,20 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { NextResponse } from "next/server";
-
-function getDefaultApiKey(): string | undefined {
-  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
-
-  // Fallback: read from data-pipeline's .env
-  try {
-    const envPath = join(process.cwd(), "..", "data-pipeline", ".env");
-    const envContent = readFileSync(envPath, "utf-8");
-    const match = envContent.match(/^OPENROUTER_API_KEY=(.+)$/m);
-    return match?.[1]?.trim();
-  } catch {
-    return undefined;
-  }
-}
+import { getDefaultApiKey } from "@/lib/api/resolve-api-key";
 
 // Simple in-memory cache to avoid hammering OpenRouter on every page load
 let cache: { hasCredits: boolean; ts: number } | null = null;
