@@ -51,13 +51,13 @@ function latex(content: string): string {
   return `$$\n${content}\n$$`;
 }
 
-export function generateMarkdown(data: AllStageData, runId: string): string {
+export function generateMarkdown(data: AllStageData, code: string): string {
   const lines: string[] = [];
 
   // --- Header ---
   lines.push("# Causal Inference Pipeline Report");
   lines.push("");
-  lines.push(`**Run ID**: \`${runId}\``);
+  lines.push(`**Session**: \`${code}\``);
   lines.push(`**Generated**: ${new Date().toISOString().slice(0, 10)}`);
   lines.push("");
   lines.push("---");

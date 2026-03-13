@@ -17,16 +17,16 @@ describe("getStageResult", () => {
     const mockData = { some: "data" };
     vi.mocked(apiFetch).mockResolvedValue(mockData);
 
-    const result = await getStageResult("run-123", "stage-0");
+    const result = await getStageResult("ABC123", "stage-0");
 
-    expect(apiFetch).toHaveBeenCalledWith("/api/results/run-123/stage-0");
+    expect(apiFetch).toHaveBeenCalledWith("/api/results/ABC123/stage-0");
     expect(result).toEqual(mockData);
   });
 
   it("propagates errors from apiFetch", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("API error 500: Server Error"));
 
-    await expect(getStageResult("run-456", "stage-3")).rejects.toThrow("API error 500");
+    await expect(getStageResult("DEF456", "stage-3")).rejects.toThrow("API error 500");
   });
 });
 
@@ -42,7 +42,7 @@ describe("uploadFile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends FormData with file and userId", async () => {
+  it("sends FormData with file and code", async () => {
     const mockResponse = { path: "/uploads/test.json" };
     vi.mocked(fetch).mockResolvedValue({
       ok: true,

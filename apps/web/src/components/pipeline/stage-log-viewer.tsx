@@ -32,15 +32,17 @@ function LogLine({ entry }: { entry: PrefectLogEntry }) {
 }
 
 export function StageLogViewer({
-  runId,
+  code,
   stageId,
   status,
+  flowRunId,
 }: {
-  runId: string;
+  code: string;
   stageId: StageId;
   status: StageRunStatus;
+  flowRunId?: string;
 }) {
-  const logs = useStageLogs(runId, stageId, status);
+  const logs = useStageLogs(code, flowRunId ?? null, stageId, status);
   const [open, setOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 

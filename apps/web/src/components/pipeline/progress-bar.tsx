@@ -9,34 +9,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export function PipelineProgressBar({
   progress,
-  sessionCode,
-  runId,
+  code,
 }: {
   progress: PipelineProgress | undefined;
-  sessionCode?: string;
-  runId: string;
+  code: string;
 }) {
   const [copied, setCopied] = useState(false);
 
-  const { data: session } = useQuery<{ question: string }>({
-    queryKey: ["session", sessionCode],
+  const { data: session } = useQuery<{ question?: string }>({
+    queryKey: ["session", code],
     queryFn: async () => {
-      const res = await fetch(`/api/sessions/${sessionCode}`);
+      const res = await fetch(`/api/sessions/${code}`);
       if (!res.ok) throw new Error("Session not found");
       return res.json();
     },
-    enabled: !!sessionCode,
+    enabled: !!code,
     staleTime: Number.POSITIVE_INFINITY,
   });
 
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const handleCopy = useCallback(() => {
-    if (!sessionCode) return;
-    navigator.clipboard.writeText(sessionCode);
+    if (!code) return;
+    navigator.clipboard.writeText(code);
     setCopied(true);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-  }, [sessionCode]);
+  }, [code]);
   useEffect(
     () => () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -44,7 +42,7 @@ export function PipelineProgressBar({
     [],
   );
 
-  const { exportToMarkdown } = useExportMarkdown(runId);
+  const { exportToMarkdown } = useExportMarkdown(code);
 
   if (!progress) return null;
 
@@ -61,14 +59,14 @@ export function PipelineProgressBar({
             Causal SSM Agent
           </Link>
           <div className="flex items-center gap-2">
-            {sessionCode && (
+            {code && (
               <button
                 type="button"
                 onClick={handleCopy}
                 className="flex items-center gap-1 rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:bg-secondary"
                 title="Copy session code"
               >
-                {sessionCode.length > 8 ? "Signed in" : sessionCode}
+                {code.length > 8 ? "Signed in" : code}
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
             )}

@@ -62,12 +62,7 @@ export default function LandingPage() {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
       const code = getMockFixture();
-      fetch(`/api/sessions/${code}`)
-        .then((r) => r.json())
-        .then(({ runId }) => router.push(`/analysis/${runId}?code=${code}`))
-        .catch(() => {
-          // Mock session fetch failed — staying on landing page
-        });
+      router.push(`/analysis/${code}`);
     }
   }, [router]);
   const [error, setError] = useState<string | null>(null);
@@ -130,9 +125,9 @@ export default function LandingPage() {
       await uploadFile(file, code);
 
       const deploymentId = await getDeploymentId();
-      const runId = await triggerRun(deploymentId, {
+      const flowRunId = await triggerRun(deploymentId, {
         query: question,
-        user_id: code,
+        code: code,
         override_gates: overrideGates || undefined,
         openrouter_api_key: auth.userKey || undefined,
       });
@@ -140,10 +135,10 @@ export default function LandingPage() {
       await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, runId, question }),
+        body: JSON.stringify({ code, question, flowRunId }),
       });
 
-      router.push(`/analysis/${runId}?code=${encodeURIComponent(code)}`);
+      router.push(`/analysis/${code}?flowRunId=${flowRunId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
@@ -167,8 +162,9 @@ export default function LandingPage() {
         setIsResuming(false);
         return;
       }
-      const { runId } = await res.json();
-      router.push(`/analysis/${runId}?code=${code}`);
+      const session = await res.json();
+      const flowRunId = session.flowRunId;
+      router.push(`/analysis/${code}${flowRunId ? `?flowRunId=${flowRunId}` : ""}`);
     } catch {
       setResumeError("Failed to look up session.");
       setIsResuming(false);

@@ -6,9 +6,11 @@ export function isMockMode(): boolean {
   return !!v && v !== "false";
 }
 
-/** Returns the fixture directory name, e.g. "default". */
+/** Returns the fixture session code, e.g. "DEFAULT". */
 export function getMockFixture(): string {
-  return process.env.NEXT_PUBLIC_MOCK_DATA || "default";
+  const v = process.env.NEXT_PUBLIC_MOCK_DATA;
+  if (!v || v === "true") return "DEFAULT";
+  return v.toUpperCase();
 }
 
 export interface MockEventHandler {

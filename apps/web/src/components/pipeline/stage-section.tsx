@@ -24,7 +24,8 @@ export function StageSection({
   outcome = "success",
   loadingHint,
   runningContent,
-  runId,
+  code,
+  flowRunId,
   stageId,
 }: {
   id?: string;
@@ -40,7 +41,8 @@ export function StageSection({
   outcome?: StageOutcome;
   loadingHint?: string;
   runningContent?: ReactNode;
-  runId?: string;
+  code?: string;
+  flowRunId?: string;
   stageId?: StageId;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -149,8 +151,8 @@ export function StageSection({
           </div>
         </motion.div>
       )}
-      {runId && stageId && status !== "pending" && (
-        <StageLogViewer runId={runId} stageId={stageId} status={status} />
+      {code && stageId && status !== "pending" && (
+        <StageLogViewer code={code} flowRunId={flowRunId} stageId={stageId} status={status} />
       )}
     </motion.section>
   );

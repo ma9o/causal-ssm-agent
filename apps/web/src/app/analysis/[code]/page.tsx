@@ -10,14 +10,14 @@ export default function AnalysisPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ runId: string }>;
-  searchParams: Promise<{ code?: string }>;
+  params: Promise<{ code: string }>;
+  searchParams: Promise<{ flowRunId?: string }>;
 }) {
-  const { runId } = use(params);
-  const { code: sessionCode } = use(searchParams);
+  const { code } = use(params);
+  const { flowRunId } = use(searchParams);
 
-  useRunEvents(runId);
-  const progress = usePipelineStatus(runId);
+  useRunEvents(code, flowRunId ?? null);
+  const progress = usePipelineStatus(code);
 
   // Dynamic document title reflecting pipeline state
   useEffect(() => {
@@ -46,5 +46,5 @@ export default function AnalysisPage({
       : `(${completed}/${STAGES.length}) Running | Causal Inference Pipeline`;
   }, [progress]);
 
-  return <AnalysisFeed runId={runId} progress={progress} sessionCode={sessionCode} />;
+  return <AnalysisFeed code={code} flowRunId={flowRunId} progress={progress} />;
 }

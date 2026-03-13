@@ -24,11 +24,12 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_type: "csv",
         source_label: "test_data.csv",
         n_records: 100,
+        n_columns: 2,
         date_range: { start: "2024-01-01", end: "2024-12-31" },
         sample: [{ timestamp: "2024-01-01", value: "42" }],
+        column_descriptions: [],
       },
     };
     const result = generateMarkdown(data, "run-1");
@@ -74,11 +75,12 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_type: "csv",
         source_label: "data.csv",
         n_records: 50,
+        n_columns: 1,
         date_range: { start: "2024-01-01", end: "2024-06-30" },
         sample: [],
+        column_descriptions: [],
       },
       "stage-3": {
         outcome: "success",
@@ -148,18 +150,18 @@ describe("generateMarkdown", () => {
         validation_report: {
           is_valid: false,
           issues: [
-            { type: "error", message: "Missing data in column X" },
-            { type: "warning", message: "Low variance in Y" },
+            { indicator: "X", issue_type: "missing_data", severity: "error" as const, message: "Missing data in column X" },
+            { indicator: "Y", issue_type: "low_variance", severity: "warning" as const, message: "Low variance in Y" },
           ],
           per_indicator_health: [
             {
               indicator: "heart_rate",
               n_obs: 100,
-              n_missing: 5,
-              mean: 72.5,
-              std: 10.2,
-              min: 55,
-              max: 120,
+              variance: 104.04,
+              time_coverage_ratio: 0.95,
+              max_gap_ratio: 0.02,
+              dtype_violations: 0,
+              duplicate_pct: 0.01,
             },
           ],
         },
@@ -200,12 +202,14 @@ describe("generateMarkdown", () => {
           per_variable_warnings: [
             {
               variable: "heart_rate",
-              check_type: "mean",
+              check_type: "calibration" as const,
               passed: true,
               value: 0.12,
               message: "OK",
             },
           ],
+          overlays: [],
+          test_stats: [],
         },
         power_scaling: [],
       } as AllStageData["stage-5b"],

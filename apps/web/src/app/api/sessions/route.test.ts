@@ -1,21 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mkdir, writeFile, readSessions } = vi.hoisted(() => ({
-  mkdir: vi.fn(),
-  writeFile: vi.fn(),
-  readSessions: vi.fn(),
-}));
-
 vi.mock("node:fs/promises", () => ({
-  mkdir,
-  writeFile,
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./_shared", () => ({
-  SESSIONS_PATH: "/tmp/results/sessions.json",
-  readSessions,
+  DATA_DIR: "/tmp/data",
+  SESSIONS_PATH: "/tmp/data/sessions.json",
+  readSessions: vi.fn().mockResolvedValue({}),
 }));
 
+import { mkdir, writeFile } from "node:fs/promises";
 import { POST } from "./route";
 
 describe("POST /api/sessions", () => {
@@ -23,18 +19,13 @@ describe("POST /api/sessions", () => {
     vi.clearAllMocks();
   });
 
-  it("creates the sessions directory before writing the file", async () => {
-    readSessions.mockResolvedValue({});
-    mkdir.mockResolvedValue(undefined);
-    writeFile.mockResolvedValue(undefined);
-
+  it("writes query.txt and sessions.json", async () => {
     const response = await POST(
       new Request("http://localhost/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: "kxxsv2",
-          runId: "run-123",
           question: "How does screen time affect sleep?",
         }),
       }),
@@ -42,10 +33,28 @@ describe("POST /api/sessions", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
-    expect(mkdir).toHaveBeenCalledWith("/tmp/results", { recursive: true });
+
+    // Should write query.txt to data/{CODE}/
+    expect(mkdir).toHaveBeenCalledWith("/tmp/data/KXXSV2", { recursive: true });
     expect(writeFile).toHaveBeenCalledWith(
-      "/tmp/results/sessions.json",
+      "/tmp/data/KXXSV2/query.txt",
+      "How does screen time affect sleep?",
+    );
+
+    // Should write sessions.json without the question
+    expect(mkdir).toHaveBeenCalledWith("/tmp/data", { recursive: true });
+    expect(writeFile).toHaveBeenCalledWith(
+      "/tmp/data/sessions.json",
       expect.stringContaining('"KXXSV2"'),
     );
+
+    // Verify question is NOT in sessions.json
+    const mock = writeFile as unknown as { mock: { calls: string[][] } };
+    const sessionsCall = mock.mock.calls.find(
+      (c) => c[0] === "/tmp/data/sessions.json",
+    );
+    const written = JSON.parse(sessionsCall![1]);
+    expect(written.KXXSV2).not.toHaveProperty("question");
+    expect(written.KXXSV2).toHaveProperty("createdAt");
   });
 });

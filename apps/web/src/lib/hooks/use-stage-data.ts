@@ -5,15 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import { getStageResult } from "../api/endpoints";
 import { isMockMode } from "../api/mock-provider";
 
-async function fetchStageData<T>(runId: string, stage: StageId): Promise<T> {
+async function fetchStageData<T>(code: string, stage: StageId): Promise<T> {
   let payload: unknown;
 
   if (isMockMode()) {
-    const res = await fetch(`/api/results/${runId}/${stage}`);
+    const res = await fetch(`/api/results/${code}/${stage}`);
     if (!res.ok) throw new Error(`Mock data not found for ${stage}`);
     payload = await res.json();
   } else {
-    payload = await getStageResult<unknown>(runId, stage);
+    payload = await getStageResult<unknown>(code, stage);
   }
 
   return payload as T;
@@ -23,14 +23,14 @@ async function fetchStageData<T>(runId: string, stage: StageId): Promise<T> {
  * Fetch stage data once after completion and cache indefinitely.
  */
 export function useStageData<T>(
-  runId: string | null,
+  code: string | null,
   stage: StageId,
   enabled: boolean,
 ) {
   return useQuery<T>({
-    queryKey: ["pipeline", runId, "stage", stage],
-    queryFn: () => fetchStageData<T>(runId as string, stage),
-    enabled: !!runId && enabled,
+    queryKey: ["pipeline", code, "stage", stage],
+    queryFn: () => fetchStageData<T>(code as string, stage),
+    enabled: !!code && enabled,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

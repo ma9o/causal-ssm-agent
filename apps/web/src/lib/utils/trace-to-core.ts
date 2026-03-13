@@ -1,15 +1,15 @@
 /**
- * Convert pipeline TraceMessage[] → AI SDK CoreMessage[] (lossless, server-side).
+ * Convert pipeline TraceMessage[] → AI SDK ModelMessage[] (lossless, server-side).
  *
  * Used by the refinement route to prepend the full pipeline conversation
  * as LLM context. Unlike traceToUIMessages (display-only), this preserves
  * all information: tool calls, reasoning, system messages.
  */
 import type { TraceMessage } from "@causal-ssm/api-types";
-import type { CoreMessage } from "ai";
+import type { AssistantModelMessage, ModelMessage } from "ai";
 
-export function traceToCoreMessages(messages: TraceMessage[]): CoreMessage[] {
-  const result: CoreMessage[] = [];
+export function traceToModelMessages(messages: TraceMessage[]): ModelMessage[] {
+  const result: ModelMessage[] = [];
 
   for (const msg of messages) {
     if (msg.role === "system") {
@@ -31,8 +31,9 @@ export function traceToCoreMessages(messages: TraceMessage[]): CoreMessage[] {
               type: "tool-result",
               toolCallId: msg.tool_call_id,
               toolName: msg.tool_name ?? "unknown",
-              result: msg.tool_result ?? msg.content,
-              isError: msg.tool_is_error,
+              output: typeof (msg.tool_result ?? msg.content) === "string"
+                ? { type: "text" as const, value: msg.tool_result ?? msg.content }
+                : { type: "json" as const, value: msg.tool_result ?? msg.content },
             },
           ],
         });
@@ -74,7 +75,7 @@ export function traceToCoreMessages(messages: TraceMessage[]): CoreMessage[] {
 
       result.push({
         role: "assistant",
-        content: content.length > 0 ? (content as CoreMessage["content"]) : msg.content,
+        content: content.length > 0 ? (content as AssistantModelMessage["content"]) : msg.content,
       });
       continue;
     }

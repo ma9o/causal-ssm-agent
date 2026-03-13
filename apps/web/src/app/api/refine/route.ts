@@ -7,9 +7,9 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { NextResponse } from "next/server";
 
 import { resolveApiKey } from "@/lib/api/resolve-api-key";
-import { traceToCoreMessages } from "@/lib/utils/trace-to-core";
+import { traceToModelMessages } from "@/lib/utils/trace-to-core";
 
-const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
+const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
 const TOOL_SERVER = process.env.TOOL_SERVER_URL ?? "http://localhost:8100";
 
 /**
@@ -18,7 +18,7 @@ const TOOL_SERVER = process.env.TOOL_SERVER_URL ?? "http://localhost:8100";
  * Streams a refinement conversation with full pipeline trace context
  * and the same tools the pipeline used (proxied to Python for execution).
  *
- * Body: { messages, runId, stageId }
+ * Body: { messages, code, stageId }
  */
 export async function POST(req: Request) {
   const resolved = resolveApiKey(req);
@@ -26,23 +26,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
-  const { messages, runId, stageId } = await req.json();
+  const { messages, code, stageId } = await req.json();
 
-  // Build trace context if we have a run and stage
-  let traceContext: ReturnType<typeof traceToCoreMessages> = [];
-  if (runId && stageId) {
+  // Build trace context if we have a code and stage
+  let traceContext: ReturnType<typeof traceToModelMessages> = [];
+  if (code && stageId) {
     try {
-      const safeRunId = basename(runId);
+      const safeCode = basename(code);
       const safeStageId = basename(stageId);
       const stagePath = resolve(
-        join(RESULTS_DIR, safeRunId, `${safeStageId}.json`),
+        join(DATA_DIR, safeCode, "run", `${safeStageId}.json`),
       );
       const raw = await readFile(stagePath, "utf-8");
       const stageData = JSON.parse(raw);
 
       if (stageData.llm_trace) {
         const trace: LLMTrace = stageData.llm_trace;
-        traceContext = traceToCoreMessages(trace.messages);
+        traceContext = traceToModelMessages(trace.messages);
       }
     } catch {
       // No trace available — proceed without context
@@ -61,15 +61,15 @@ export async function POST(req: Request) {
       tool({
         description: t.description,
         parameters: jsonSchema(t.parameters),
-        execute: async (args) => {
-          const safeRunId = basename(runId);
+        execute: async (args: Record<string, unknown>) => {
+          const safeCode = basename(code);
           const safeStageId = basename(stageId);
           const res = await fetch(
             `${TOOL_SERVER}/api/tools/${stageId}/${t.name}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ run_id: runId, input: args }),
+              body: JSON.stringify({ run_id: code, input: args }),
             },
           );
           if (!res.ok) {
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
           // Persist draft on successful tool call (stage_output is set)
           if (data.stage_output) {
-            const draftDir = resolve(join(RESULTS_DIR, safeRunId));
+            const draftDir = resolve(join(DATA_DIR, safeCode, "run"));
             await mkdir(draftDir, { recursive: true });
             await writeFile(
               resolve(join(draftDir, `${safeStageId}-draft.json`)),
@@ -90,7 +90,8 @@ export async function POST(req: Request) {
 
           return data.result;
         },
-      }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any),
     ]),
   );
 
