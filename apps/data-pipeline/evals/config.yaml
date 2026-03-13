@@ -2,7 +2,7 @@
 # Shared settings for all evals
 #
 # Questions are discovered from the filesystem:
-#   data/eval/questions/<id>_<slug>/question.yaml
+#   evals/questions/<id>_<slug>/question.yaml
 # See evals/common.py discover_questions() for details.
 
 # Models for orchestrator structure eval (top-tier with max reasoning)
