@@ -105,8 +105,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing code, stageId, or stageData" }, { status: 400 });
   }
 
-  const safeCode = basename(code);
+  const safeCode = basename(code.trim());
   const safeStageId = basename(stageId);
+
+  if (!safeCode || safeCode !== code.trim() || safeCode === "." || safeCode === "..") {
+    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  }
 
   const stageIdx = STAGE_ORDER.indexOf(safeStageId);
   if (stageIdx === -1) {
@@ -116,8 +120,7 @@ export async function POST(request: Request) {
   try {
     // Look up the session to find the flowRunId for fetching original parameters
     const sessions = await readSessions();
-    const normalizedCode = safeCode.toUpperCase();
-    const session = sessions[normalizedCode];
+    const session = sessions[safeCode];
     const flowRunId = session?.flowRunId;
 
     // Build parameters: if we have a prior flow run, reuse its params
@@ -138,7 +141,7 @@ export async function POST(request: Request) {
       (originalParams.stage_overrides as Record<string, unknown>) ?? {};
     const newParams = {
       ...originalParams,
-      code: normalizedCode,
+      code: safeCode,
       stage_overrides: {
         ...existingOverrides,
         [safeStageId]: stageData,
@@ -186,7 +189,7 @@ export async function POST(request: Request) {
     }
 
     const newFlowRun = await createRes.json();
-    sessions[normalizedCode] = {
+    sessions[safeCode] = {
       createdAt: session?.createdAt ?? new Date().toISOString(),
       flowRunId: newFlowRun.id,
     };

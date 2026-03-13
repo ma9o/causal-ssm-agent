@@ -27,7 +27,7 @@ describe("POST /api/sessions", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: "kxxsv2",
+          code: "openrouter-user-123",
           question: "How does screen time affect sleep?",
         }),
       }),
@@ -37,16 +37,16 @@ describe("POST /api/sessions", () => {
     await expect(response.json()).resolves.toEqual({ ok: true });
 
     // Should write query.txt to data/{CODE}/
-    expect(mkdir).toHaveBeenCalledWith("/tmp/data/KXXSV2", { recursive: true });
+    expect(mkdir).toHaveBeenCalledWith("/tmp/data/openrouter-user-123", { recursive: true });
     expect(writeFile).toHaveBeenCalledWith(
-      "/tmp/data/KXXSV2/query.txt",
+      "/tmp/data/openrouter-user-123/query.txt",
       "How does screen time affect sleep?",
     );
 
     // Should write sessions.json without the question
     expect(writeSessions).toHaveBeenCalledWith(
       expect.objectContaining({
-        KXXSV2: expect.objectContaining({
+        "openrouter-user-123": expect.objectContaining({
           createdAt: expect.any(String),
         }),
       }),
@@ -55,7 +55,7 @@ describe("POST /api/sessions", () => {
     // Verify question is NOT in sessions.json
     const mock = writeSessions as unknown as { mock: { calls: [Record<string, unknown>][] } };
     const written = mock.mock.calls[0][0];
-    expect(written.KXXSV2).not.toHaveProperty("question");
-    expect(written.KXXSV2).toHaveProperty("createdAt");
+    expect(written["openrouter-user-123"]).not.toHaveProperty("question");
+    expect(written["openrouter-user-123"]).toHaveProperty("createdAt");
   });
 });
