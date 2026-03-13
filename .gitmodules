@@ -1,0 +1,4 @@
+[submodule "data/GOLDEN"]
+	path = data/GOLDEN
+	url = https://github.com/ma9o/causal-ssm-agent-test-data.git
+	branch = main

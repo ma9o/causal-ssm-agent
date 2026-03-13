@@ -17,15 +17,20 @@ build/
 *.log
 .DS_Store
 
-# Data files (raw and processed are gitignored, training and queries are tracked)
-apps/data-pipeline/data/raw/**
-apps/data-pipeline/data/processed/**
+# Data (monorepo root) — runtime session dirs and outputs are gitignored
+# Tracked: GOLDEN/ (submodule), DEFAULT/, DOCTOLIB/, queries/, eval/
+data/*/
+!data/GOLDEN/
+!data/DEFAULT/
+!data/DOCTOLIB/
+!data/queries/
+!data/eval/
+data/sessions.json
+data/processed/**
+.prefect-cache/
 
 # Inspect AI eval logs
 apps/data-pipeline/logs/
-
-# Prefect result persistence
-apps/data-pipeline/results/
 
 # Local scratchpad
 scratchpad/**

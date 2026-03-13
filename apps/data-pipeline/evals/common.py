@@ -43,14 +43,14 @@ def load_eval_config() -> dict:
 # Filesystem-driven question discovery
 # ══════════════════════════════════════════════════════════════════════════════
 
-EVAL_QUESTIONS_DIR = DATA_DIR / "eval" / "questions"
+EVAL_QUESTIONS_DIR = Path(__file__).parent / "questions"
 
 
 @dataclass
 class EvalQuestion:
     """An evaluation question discovered from the filesystem.
 
-    Each question lives in ``data/eval/questions/<slug>/`` where slug is
+    Each question lives in ``evals/questions/<slug>/`` where slug is
     ``<id>_<short-name>`` (e.g. ``1_resolve-errors-faster``).
     """
 
@@ -122,7 +122,7 @@ class EvalQuestion:
 def discover_questions() -> list[EvalQuestion]:
     """Discover all eval questions from the filesystem.
 
-    Globs ``data/eval/questions/*/question.yaml``, sorted by slug
+    Globs ``evals/questions/*/question.yaml``, sorted by slug
     (numeric prefix gives natural order).
     """
     questions = []

@@ -1,0 +1,179 @@
+{
+  "outcome": "fail",
+  "validation_report": {
+    "is_valid": false,
+    "issues": [
+      {
+        "indicator": "late_night_activity",
+        "issue_type": "no_variance",
+        "severity": "error",
+        "message": "Zero variance (constant value = 1)"
+      },
+      {
+        "indicator": "productive_hours",
+        "issue_type": "low_n",
+        "severity": "warning",
+        "message": "Only 8 observations (recommend >= 10)"
+      },
+      {
+        "indicator": "productive_hours",
+        "issue_type": "insufficient_coverage",
+        "severity": "warning",
+        "message": "Time span 120h < required 1680h (10 x weekly)"
+      },
+      {
+        "indicator": "task_completion_rate",
+        "issue_type": "dtype_violation",
+        "severity": "error",
+        "message": "Binary indicator has values outside {0, 1}: [0.5, 1.7]"
+      },
+      {
+        "indicator": "workload_events",
+        "issue_type": "suspicious_pattern",
+        "severity": "warning",
+        "message": ">50% of values are 5.0 (120/200)"
+      },
+      {
+        "indicator": "deadline_proximity_searches",
+        "issue_type": "large_timestamp_gap",
+        "severity": "warning",
+        "message": "Max consecutive gap 360h > 5x daily (120h)"
+      }
+    ],
+    "per_indicator_health": [
+      {
+        "indicator": "youtube_watch_time",
+        "n_obs": 182,
+        "variance": 245.3,
+        "time_coverage_ratio": 0.95,
+        "max_gap_ratio": 0.02,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.01,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "search_count",
+        "n_obs": 182,
+        "variance": 18.7,
+        "time_coverage_ratio": 0.95,
+        "max_gap_ratio": 0.02,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.03,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "late_night_activity",
+        "n_obs": 182,
+        "variance": 0.0,
+        "time_coverage_ratio": 0.95,
+        "max_gap_ratio": 0.02,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "error",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "task_completion_rate",
+        "n_obs": 182,
+        "variance": 0.04,
+        "time_coverage_ratio": 0.95,
+        "max_gap_ratio": 0.02,
+        "dtype_violations": 3,
+        "duplicate_pct": 0.02,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "error",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "deadline_proximity_searches",
+        "n_obs": 182,
+        "variance": 5.6,
+        "time_coverage_ratio": 0.95,
+        "max_gap_ratio": 1.5,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "productive_hours",
+        "n_obs": 8,
+        "variance": 32.1,
+        "time_coverage_ratio": 0.45,
+        "max_gap_ratio": 0.08,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0,
+        "arithmetic_sequence_detected": false,
+        "cell_statuses": {
+          "n_obs": "warning",
+          "variance": "ok",
+          "time_coverage_ratio": "warning",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "arithmetic_sequence_detected": "ok"
+        }
+      },
+      {
+        "indicator": "workload_events",
+        "n_obs": 200,
+        "variance": 3.2,
+        "time_coverage_ratio": 0.98,
+        "max_gap_ratio": 0.01,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.62,
+        "arithmetic_sequence_detected": true,
+        "cell_statuses": {
+          "n_obs": "ok",
+          "variance": "ok",
+          "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "arithmetic_sequence_detected": "warning"
+        }
+      }
+    ]
+  }
+}
