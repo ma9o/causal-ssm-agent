@@ -68,7 +68,7 @@ export function PipelineProgressBar({
                 className="flex items-center gap-1 rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:bg-secondary"
                 title="Copy session code"
               >
-                {sessionCode}
+                {sessionCode.length > 8 ? "Signed in" : sessionCode}
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
             )}

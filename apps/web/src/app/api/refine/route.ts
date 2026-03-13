@@ -1,10 +1,12 @@
 import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
-import { openrouter } from "@openrouter/ai-sdk-provider";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { jsonSchema, streamText, tool } from "ai";
 import { basename, join, resolve } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { NextResponse } from "next/server";
 
+import { resolveApiKey } from "@/lib/api/resolve-api-key";
 import { traceToCoreMessages } from "@/lib/utils/trace-to-core";
 
 const RESULTS_DIR = process.cwd() + "/../data-pipeline/results";
@@ -19,6 +21,11 @@ const TOOL_SERVER = process.env.TOOL_SERVER_URL ?? "http://localhost:8100";
  * Body: { messages, runId, stageId }
  */
 export async function POST(req: Request) {
+  const resolved = resolveApiKey(req);
+  if (resolved.error) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
+
   const { messages, runId, stageId } = await req.json();
 
   // Build trace context if we have a run and stage
@@ -86,6 +93,8 @@ export async function POST(req: Request) {
       }),
     ]),
   );
+
+  const openrouter = createOpenRouter({ apiKey: resolved.key });
 
   const result = streamText({
     model: openrouter("anthropic/claude-sonnet-4"),

@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { getUserApiKey } from "@/lib/auth";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@causal-ssm/api-types";
@@ -68,13 +69,15 @@ export function LLMTracePanel({
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.
-  const transport = useMemo(
-    () =>
-      canRefine
-        ? new DefaultChatTransport({ api: "/api/refine", body: { runId, stageId } })
-        : undefined,
-    [runId, stageId, canRefine],
-  );
+  const transport = useMemo(() => {
+    if (!canRefine) return undefined;
+    const apiKey = getUserApiKey();
+    return new DefaultChatTransport({
+      api: "/api/refine",
+      body: { runId, stageId },
+      ...(apiKey ? { headers: { "x-openrouter-key": apiKey } } : {}),
+    });
+  }, [runId, stageId, canRefine]);
 
   const {
     messages: refinementMessages,
