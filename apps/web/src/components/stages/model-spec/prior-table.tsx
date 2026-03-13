@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { Tooltip } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { evaluatePdf } from "@/lib/utils/distributions";
 import { formatNumber } from "@/lib/utils/format";
 import type { ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
@@ -129,7 +129,27 @@ const baseColumns = [
                 // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered list
                 i
               }`}
-              content={
+            >
+              <TooltipTrigger>
+                {source.url ? (
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                  >
+                    <Badge variant="secondary" className="cursor-pointer text-[10px] px-1.5">
+                      {i + 1}
+                      <ExternalLink className="ml-0.5 h-2.5 w-2.5" />
+                    </Badge>
+                  </a>
+                ) : (
+                  <Badge variant="secondary" className="text-[10px] px-1.5">
+                    {i + 1}
+                  </Badge>
+                )}
+              </TooltipTrigger>
+              <TooltipContent>
                 <div className="max-w-xs text-xs">
                   <p className="font-medium">{source.title}</p>
                   <p className="text-muted-foreground">{source.snippet}</p>
@@ -137,25 +157,7 @@ const baseColumns = [
                     <span className="text-muted-foreground">Effect: {source.effect_size}</span>
                   )}
                 </div>
-              }
-            >
-              {source.url ? (
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 text-primary hover:underline"
-                >
-                  <Badge variant="secondary" className="cursor-pointer text-[10px] px-1.5">
-                    {i + 1}
-                    <ExternalLink className="ml-0.5 h-2.5 w-2.5" />
-                  </Badge>
-                </a>
-              ) : (
-                <Badge variant="secondary" className="text-[10px] px-1.5">
-                  {i + 1}
-                </Badge>
-              )}
+              </TooltipContent>
             </Tooltip>
           ))}
         </div>

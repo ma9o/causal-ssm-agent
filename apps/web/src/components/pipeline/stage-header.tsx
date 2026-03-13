@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
-import { Tooltip } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
 import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
@@ -47,16 +47,22 @@ export function StageHeader({
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold sm:text-lg">{title}</h2>
           {hasGate && !gateOverridden && outcome !== "fail" && (
-            <Tooltip content="This stage can halt the pipeline if checks fail">
-              <ShieldCheck className="h-4 w-4 text-foreground/75" />
+            <Tooltip>
+              <TooltipTrigger>
+                <ShieldCheck className="h-4 w-4 text-foreground/75" />
+              </TooltipTrigger>
+              <TooltipContent>This stage can halt the pipeline if checks fail</TooltipContent>
             </Tooltip>
           )}
           {gateOverridden && (
-            <Tooltip content={gateOverridden.reason}>
-              <Badge variant="warning" className="gap-1">
-                <ShieldAlert className="h-3 w-3" />
-                Gate Overridden
-              </Badge>
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="warning" className="gap-1">
+                  <ShieldAlert className="h-3 w-3" />
+                  Gate Overridden
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>{gateOverridden.reason}</TooltipContent>
             </Tooltip>
           )}
         </div>

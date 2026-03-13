@@ -62,7 +62,7 @@ export function DiagnosticsAccordion({
   const defaultOpen = ["mcmc", "svi", "smc", "ppc", "loo", "power-scaling"];
 
   return (
-    <Accordion defaultOpen={defaultOpen}>
+    <Accordion defaultValue={defaultOpen} multiple>
       {/* ── MCMC Diagnostics (convergence + energy + traces + rank histograms) ── */}
       {mcmcDiagnostics && (
         <AccordionItem value="mcmc">

@@ -5,7 +5,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ReplayButton } from "./replay-button";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import type {
   GateOverride,
   LLMTrace,

@@ -1,8 +1,8 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Tooltip } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils/cn";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { Construct, IdentifiedTreatmentStatus, Indicator } from "@causal-ssm/api-types";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Star } from "lucide-react";
@@ -109,8 +109,11 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
 
   if (construct.identificationStatus === "identified" && construct.identificationDetails) {
     return (
-      <Tooltip content={<IdentifiedTooltipContent details={construct.identificationDetails} />}>
-        {nodeContent}
+      <Tooltip>
+        <TooltipTrigger>{nodeContent}</TooltipTrigger>
+        <TooltipContent>
+          <IdentifiedTooltipContent details={construct.identificationDetails} />
+        </TooltipContent>
       </Tooltip>
     );
   }

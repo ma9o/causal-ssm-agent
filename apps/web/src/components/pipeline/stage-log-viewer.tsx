@@ -1,7 +1,7 @@
 "use client";
 
 import { type PrefectLogEntry, logLevelLabel, useStageLogs } from "@/lib/hooks/use-stage-logs";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import type { StageId } from "@causal-ssm/api-types";
 import { Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
