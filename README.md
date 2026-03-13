@@ -50,11 +50,10 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── orchestrator/      # LLM model specification (latent + measurement)
 │   │   │   ├── workers/           # Indicator extraction + prior research LLMs
 │   │   │   ├── models/            # NumPyro SSM, compiler, likelihoods, prior/posterior predictive
-│   │   │   ├── flows/             # Prefect pipeline stages (0 → 5)
+│   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
-│   │   ├── data/                  # Raw, processed, queries, eval data
-│   │   ├── evals/                 # Inspect AI evals
+│   │   ├── evals/                 # Inspect AI evals + filesystem-discovered questions
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
 │   │   │   ├── test_pipeline.py   # Flow orchestration and replay contract coverage
@@ -69,6 +68,14 @@ causal-ssm-agent/                  # Turborepo monorepo
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
 │   └── typescript-config/         # Shared TS config
+├── data/                          # Root data workspace shared by web + pipeline
+│   ├── <CODE>/                    # Session workspace: input/, query.txt, run/
+│   ├── DEFAULT/                   # Tracked mock fixture session
+│   ├── DOCTOLIB/                  # Tracked mock fixture session
+│   ├── GOLDEN/                    # Golden dataset submodule
+│   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
+│   ├── sessions.seed.json         # Tracked fixture session metadata
+│   └── sessions.json              # Runtime session metadata (gitignored)
 ├── docs/                          # Project documentation
 │   ├── modeling/                  # Theoretical foundations
 │   ├── reference/                 # Technical specifications
