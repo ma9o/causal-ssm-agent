@@ -8,10 +8,10 @@ The methodology splits responsibilities between two modes:
 
 | Concern | Mode | Why |
 |---------|------|-----|
-| File placement, pipeline trigger, session registration | **Programmatic** (`cp`, `curl`) | Reliable, fast, no UI fragility |
+| File placement, pipeline trigger, run registration | **Programmatic** (`cp`, `curl`) | Reliable, fast, no UI fragility |
 | UI rendering verification, visual regression | **browser_eval** (Playwright) | Only way to see rendered output |
 
-The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, then hand off to `browser_eval` only for the lightweight "type 6 characters, click Resume, screenshot" loop.
+The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, then hand off to `browser_eval` only for the lightweight "enter a user ID, click Resume, screenshot" loop.
 
 ## Prerequisites
 
@@ -73,15 +73,15 @@ All three must succeed before proceeding.
 
 ### 1. Place data
 
-Copy an input file into the session workspace:
+Copy an input file into the user workspace:
 
 ```bash
-CODE="T3ST42"
-mkdir -p data/$CODE/input
-cp data/GOLDEN/input/MyActivity.json data/$CODE/input/
+USER_ID="T3ST42"
+mkdir -p data/$USER_ID/input
+cp data/GOLDEN/input/MyActivity.json data/$USER_ID/input/
 ```
 
-Stage 0 scans `data/{code}/input/` for non-hidden files and uses the most
+Stage 0 scans `data/{user_id}/input/` for non-hidden files and uses the most
 recent one in that directory. If that file is a zip archive, it is extracted
 before ingestion. Otherwise it is copied unchanged into the agent's working
 directory for inspection. Plain-text inputs such as JSON, CSV, TSV, TXT,
@@ -100,30 +100,26 @@ DEPLOY_ID=$(curl -s -X POST http://localhost:4200/api/deployments/filter \
 # Create flow run
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"code\":\"$CODE\",\"override_gates\":true}}" \
+  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"user_id\":\"$USER_ID\",\"override_gates\":true}}" \
   | jq -r '.id')
 
 echo "Flow Run ID: $FLOW_RUN_ID"
 ```
 
-### 3. Register session
+### 3. Register run metadata
 
 ```bash
 curl -s -X POST http://localhost:3001/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"userId\":\"$USER_ID\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 # → {"ok":true}
 ```
 
-### 4. Verify session lookup
+### 4. Verify user lookup
 
 ```bash
-curl -s http://localhost:3001/api/sessions/$CODE
+curl -s http://localhost:3001/api/sessions/$USER_ID
 # → {"flowRunId":"...","question":"...","createdAt":"..."}
-
-# Case-insensitive
-curl -s http://localhost:3001/api/sessions/$(echo $CODE | tr '[:upper:]' '[:lower:]')
-# → same result
 ```
 
 ### 5. Resume via browser_eval
@@ -132,11 +128,11 @@ Using the `browser_eval` tool:
 
 ```
 1. Navigate to http://localhost:3001
-2. Type session code into the resume input (monospace field, maxLength=6)
+2. Type the user ID into the resume input
 3. Click "Resume" button
-4. Verify redirect to /analysis/{CODE}
-   If the session has a tracked live run, the URL may also include ?flowRunId=...
-5. Screenshot the progress bar (should show session code badge)
+4. Verify redirect to /analysis/{USER_ID}
+   If that user has a tracked live run, the URL may also include ?flowRunId=...
+5. Screenshot the progress bar (should show the user ID badge)
 ```
 
 ### 6. Screenshot stages as they complete
@@ -152,16 +148,16 @@ Poll and screenshot as the pipeline progresses:
 
 The screenshots serve as visual regression artifacts — an agent can compare them against expected layouts.
 
-## Why Session Codes Enable This
+## Why User IDs Enable This
 
-The 6-character session code is the linchpin:
+The user ID is the linchpin:
 
-1. **Names the workspace** — `data/{code}/input/`, `data/{code}/query.txt`, and `data/{code}/run/`
-2. **Links to the active Prefect run** — `sessions.json` maps `code → flowRunId`
-3. **Serves as a resume token** — type it into the landing page to recover `/analysis/{code}`
+1. **Names the workspace** — `data/{user_id}/input/`, `data/{user_id}/query.txt`, and `data/{user_id}/run/`
+2. **Links to the active Prefect run** — `sessions.json` maps `user_id → flowRunId`
+3. **Serves as a resume token** — type it into the landing page to recover `/analysis/{user_id}`
 4. **Is fully stateless on the client** — no localStorage, no cookies, no sessionStorage
 
-An agent holds the code in a shell variable. A human writes it on a napkin. Both can resume.
+Anonymous users still get a short generated user ID, while authenticated users reuse their durable OpenRouter user ID. Both resume through the same path.
 
 ## What browser_eval Provides
 

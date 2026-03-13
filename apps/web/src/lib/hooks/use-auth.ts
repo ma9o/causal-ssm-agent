@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { clearUserApiKey, getUserApiKey } from "@/lib/auth";
 import { getIdentity, setIdentity, type UserIdentity } from "@/lib/identity";
-import { generateSessionCode } from "@/lib/session-code";
+import { generateAnonymousUserId } from "@/lib/user-id";
 
 export type AuthState = {
   /** User's OpenRouter API key (null if anonymous / signed out) */
@@ -48,7 +48,7 @@ export function useAuth(): AuthState {
       return existing.userId;
     }
     // Create anonymous identity
-    const id: UserIdentity = { userId: generateSessionCode(), kind: "anonymous" };
+    const id: UserIdentity = { userId: generateAnonymousUserId(), kind: "anonymous" };
     setIdentity(id);
     setIdentityState(id);
     return id.userId;

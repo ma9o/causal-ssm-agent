@@ -10,9 +10,9 @@ from causal_ssm_agent.flows import dag, pipeline
 from causal_ssm_agent.utils import data as data_module
 
 
-def _redirect_storage(monkeypatch, tmp_path, code: str = "test_user") -> None:
+def _redirect_storage(monkeypatch, tmp_path, user_id: str = "test_user") -> None:
     """Point runs_dir and input_dir to tmp_path so tests don't touch real data/."""
-    run_dir = tmp_path / "data" / code / "run"
+    run_dir = tmp_path / "data" / user_id / "run"
 
     def _mock_runs_dir(c: str) -> type(run_dir):
         return tmp_path / "data" / c / "run"
@@ -34,8 +34,8 @@ def _noop_artifact(**_kwargs) -> None:
     return None
 
 
-def _write_public_result(tmp_path, code: str, stage_id: str, payload: dict) -> None:
-    run_dir = tmp_path / "data" / code / "run"
+def _write_public_result(tmp_path, user_id: str, stage_id: str, payload: dict) -> None:
+    run_dir = tmp_path / "data" / user_id / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / f"{stage_id}.json").write_text(
         json.dumps(
@@ -48,8 +48,8 @@ def _write_public_result(tmp_path, code: str, stage_id: str, payload: dict) -> N
 
 
 def _patch_common_stage_stubs(monkeypatch, calls: list):
-    async def stage0(code: str) -> dict:
-        calls.append(("stage0", code))
+    async def stage0(user_id: str) -> dict:
+        calls.append(("stage0", user_id))
         return {
             "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
             "_column_descriptions": {},
@@ -120,8 +120,8 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         calls.append(("stage6", stage5_result, stage1a_result, stage1b_result, stage1b_gate_result))
         return {"intervention_results": [], "outcome": "success"}
 
-    def persist_web_result(stage_id: str, data: dict, code: str) -> dict:
-        calls.append(("persist_web_result", stage_id, data, code))
+    def persist_web_result(stage_id: str, data: dict, user_id: str) -> dict:
+        calls.append(("persist_web_result", stage_id, data, user_id))
         if stage_id == "stage-5b":
             return {"stage5b": True}
         if stage_id == "stage-6":
@@ -278,15 +278,15 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    code = "test_user"
-    run_dir = tmp_path / "data" / code / "run"
+    user_id = "test_user"
+    run_dir = tmp_path / "data" / user_id / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     df_path = run_dir / "stage0-raw-input.parquet"
     pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}).write_parquet(df_path)
 
     _write_public_result(
         tmp_path,
-        code,
+        user_id,
         "stage-0",
         {
             "outcome": "success",
@@ -303,7 +303,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     )
     _write_public_result(
         tmp_path,
-        code,
+        user_id,
         "stage-1a",
         {
             "latent_model": {"constructs": []},
@@ -313,7 +313,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     )
     _write_public_result(
         tmp_path,
-        code,
+        user_id,
         "stage-1b",
         {
             "outcome": "success",
@@ -324,7 +324,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         },
     )
 
-    async def stage0(_code: str) -> dict:
+    async def stage0(_user_id: str) -> dict:
         raise AssertionError("stage0 should be restored, not rerun")
 
     async def stage1a(_question: str) -> dict:
@@ -366,7 +366,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     )
 
     assert result["final_stage"] == "stage-2"
-    assert result["code"] == code
+    assert result["user_id"] == user_id
     assert captured["question"] == "why is this happening?"
     assert captured["stage1b_result"]["causal_spec"]["measurement"]["indicators"] == []
     # Artifacts stay in place — df_path points to the same run dir
@@ -467,15 +467,15 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
 
-    code = "test_user"
-    run_dir = tmp_path / "data" / code / "run"
+    user_id = "test_user"
+    run_dir = tmp_path / "data" / user_id / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "stage5b-fitted-result.pkl").write_bytes(
         cloudpickle.dumps({"samples": {"x": [1, 2, 3]}})
     )
     _write_public_result(
         tmp_path,
-        code,
+        user_id,
         "stage-5b",
         {
             "outcome": "warn",
@@ -498,7 +498,7 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
         },
     )
 
-    state = dag.load_stage_state(code, "stage-5b")
+    state = dag.load_stage_state(user_id, "stage-5b")
 
     assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
     assert state["result"]["_ps_result"]["checked"] is True
@@ -512,7 +512,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
     monkeypatch.setattr("prefect.artifacts.create_markdown_artifact", _noop_artifact)
     monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.persist_web_result",
-        lambda _stage_id, data, _code: data,
+        lambda _stage_id, data, _user_id: data,
     )
 
     causal_spec = {
@@ -591,7 +591,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
             {"causal_spec": causal_spec},
             {"_data_for_model_path": str(data_path)},
             True,
-            "test-code",
+            "test-user_id",
             override_payload=override_payload,
         )
     )

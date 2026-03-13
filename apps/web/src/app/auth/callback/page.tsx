@@ -2,7 +2,7 @@
 
 import { clearCodeVerifier, getCodeVerifier, setUserApiKey } from "@/lib/auth";
 import { setIdentity } from "@/lib/identity";
-import { generateSessionCode } from "@/lib/session-code";
+import { generateAnonymousUserId } from "@/lib/user-id";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
@@ -37,7 +37,7 @@ export default function AuthCallbackPage({
       .then(({ key, user_id }) => {
         setUserApiKey(key);
         setIdentity({
-          userId: user_id ?? generateSessionCode(),
+          userId: user_id ?? generateAnonymousUserId(),
           kind: "openrouter",
         });
         router.push("/");

@@ -3,51 +3,51 @@ import { basename, join } from "node:path";
 import { NextResponse } from "next/server";
 import { DATA_DIR, readSessions, writeSessions } from "./_shared";
 
-const MAX_CODE_LENGTH = 200;
+const MAX_USER_ID_LENGTH = 200;
 const MAX_QUESTION_LENGTH = 2000;
 
-function parseWorkspaceCode(code: string): string | null {
-  const trimmed = code.trim();
-  if (!trimmed || trimmed.length > MAX_CODE_LENGTH) {
+function parseUserId(userId: string): string | null {
+  const trimmed = userId.trim();
+  if (!trimmed || trimmed.length > MAX_USER_ID_LENGTH) {
     return null;
   }
 
-  const safeCode = basename(trimmed);
-  if (safeCode !== trimmed || safeCode === "." || safeCode === "..") {
+  const safeUserId = basename(trimmed);
+  if (safeUserId !== trimmed || safeUserId === "." || safeUserId === "..") {
     return null;
   }
 
-  return safeCode;
+  return safeUserId;
 }
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { code, question, flowRunId } = body as {
-    code?: string;
+  const { userId, question, flowRunId } = body as {
+    userId?: string;
     question?: string;
     flowRunId?: string;
   };
 
-  if (!code || !question) {
-    return NextResponse.json({ error: "code and question are required" }, { status: 400 });
+  if (!userId || !question) {
+    return NextResponse.json({ error: "userId and question are required" }, { status: 400 });
   }
 
-  const normalizedCode = parseWorkspaceCode(code);
-  if (!normalizedCode) {
-    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  const normalizedUserId = parseUserId(userId);
+  if (!normalizedUserId) {
+    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
   }
   if (question.length > MAX_QUESTION_LENGTH) {
     return NextResponse.json({ error: "Question too long" }, { status: 400 });
   }
 
-  // Materialize question to data/{code}/query.txt
-  const codeDir = join(DATA_DIR, normalizedCode);
-  await mkdir(codeDir, { recursive: true });
-  await writeFile(join(codeDir, "query.txt"), question);
+  // Materialize question to data/{userId}/query.txt
+  const userDir = join(DATA_DIR, normalizedUserId);
+  await mkdir(userDir, { recursive: true });
+  await writeFile(join(userDir, "query.txt"), question);
 
   // Store session metadata (without question — it lives on disk)
   const sessions = await readSessions();
-  sessions[normalizedCode] = {
+  sessions[normalizedUserId] = {
     createdAt: new Date().toISOString(),
     ...(flowRunId ? { flowRunId } : {}),
   };

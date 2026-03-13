@@ -48,23 +48,23 @@ app.add_middleware(
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 
 
-def _run_dir(code: str) -> Path:
-    return _DATA_DIR / code / "run"
+def _run_dir(user_id: str) -> Path:
+    return _DATA_DIR / user_id / "run"
 
 
-def _load_stage_result(code: str, stage_id: str) -> dict[str, Any]:
+def _load_stage_result(user_id: str, stage_id: str) -> dict[str, Any]:
     """Load a persisted stage result from disk."""
-    path = _run_dir(code) / f"{stage_id}.json"
+    path = _run_dir(user_id) / f"{stage_id}.json"
     if not path.exists():
         raise HTTPException(404, f"Stage result not found: {path}")
     return json.loads(path.read_text())
 
 
-def _load_raw_data(code: str) -> Any:
+def _load_raw_data(user_id: str) -> Any:
     """Load raw_data parquet for prior predictive checks."""
     import polars as pl
 
-    path = _run_dir(code) / "stage-4-data.parquet"
+    path = _run_dir(user_id) / "stage-4-data.parquet"
     if path.exists():
         return pl.read_parquet(path)
     return None
@@ -108,11 +108,11 @@ def _execute_validate_measurement_model(
 
 
 def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    code = ctx["_code"]
+    user_id = ctx["_user_id"]
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
-    current = _load_stage4_current(code)
-    raw_data = _load_raw_data(code)
+    current = _load_stage4_current(user_id)
+    raw_data = _load_raw_data(user_id)
     return _run_compute(
         args,
         "model_json",
@@ -159,28 +159,28 @@ _STAGE_CONTEXT_DEPS: dict[str, list[str]] = {
 }
 
 
-def _load_stage4_current(code: str) -> dict[str, Any] | None:
+def _load_stage4_current(user_id: str) -> dict[str, Any] | None:
     """Load stage-4 result with draft overlay for state accumulation.
 
     During refinement, priors are submitted incrementally. Each successful
     tool call saves a draft; subsequent calls merge new proposals with the
     accumulated state (original result + draft overlay).
     """
-    path = _run_dir(code) / "stage-4.json"
+    path = _run_dir(user_id) / "stage-4.json"
     if not path.exists():
         return None
     state = json.loads(path.read_text())
-    draft_path = _run_dir(code) / "stage-4-draft.json"
+    draft_path = _run_dir(user_id) / "stage-4-draft.json"
     if draft_path.exists():
         state.update(json.loads(draft_path.read_text()))
     return state
 
 
-def _build_context(code: str, stage_id: str) -> dict[str, Any]:
+def _build_context(user_id: str, stage_id: str) -> dict[str, Any]:
     """Load upstream stage results needed for tool execution context."""
-    ctx: dict[str, Any] = {"_code": code}
+    ctx: dict[str, Any] = {"_user_id": user_id}
     for dep_stage in _STAGE_CONTEXT_DEPS.get(stage_id, []):
-        ctx[dep_stage] = _load_stage_result(code, dep_stage)
+        ctx[dep_stage] = _load_stage_result(user_id, dep_stage)
     return ctx
 
 
@@ -190,7 +190,7 @@ def _build_context(code: str, stage_id: str) -> dict[str, Any]:
 
 
 class ToolCallRequest(BaseModel):
-    run_id: str  # Session code (historically named run_id in the API)
+    user_id: str
     input: dict[str, Any]
 
 
@@ -217,7 +217,7 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
     if impl is None:
         raise HTTPException(404, f"No implementation for tool {tool_name!r} in stage {stage_id!r}")
 
-    ctx = _build_context(request.run_id, stage_id)  # run_id is actually session code
+    ctx = _build_context(request.user_id, stage_id)
     import inspect
 
     if inspect.iscoroutinefunction(impl):

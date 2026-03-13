@@ -6,15 +6,15 @@ const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ code: string; stage: string }> },
+  { params }: { params: Promise<{ userId: string; stage: string }> },
 ) {
-  const { code, stage } = await params;
+  const { userId, stage } = await params;
 
   // Sanitize path components to prevent directory traversal
-  const safeCode = basename(code);
+  const safeUserId = basename(userId);
   const safeStage = basename(stage);
 
-  const filePath = resolve(join(DATA_DIR, safeCode, "run", `${safeStage}.json`));
+  const filePath = resolve(join(DATA_DIR, safeUserId, "run", `${safeStage}.json`));
   if (!filePath.startsWith(DATA_DIR)) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   }

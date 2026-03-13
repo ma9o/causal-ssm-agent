@@ -11,25 +11,36 @@ const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
  * during refinement, merges with the original stage data, and triggers
  * a pipeline replay from that stage.
  *
- * Body: { code, stageId }
+ * Body: { userId, stageId }
  */
 export async function POST(request: Request) {
-  const { code, stageId } = await request.json();
+  const { userId, stageId } = await request.json();
 
-  if (!code || !stageId) {
+  if (!userId || !stageId) {
     return NextResponse.json(
-      { error: "Missing code or stageId" },
+      { error: "Missing userId or stageId" },
       { status: 400 },
     );
   }
 
-  const safeCode = basename(code);
-  const safeStageId = basename(stageId);
+  const safeUserId = basename(userId.trim());
+  const safeStageId = basename(stageId.trim());
+  if (!safeUserId || safeUserId !== userId.trim() || safeUserId === "." || safeUserId === "..") {
+    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
+  }
+  if (
+    !safeStageId ||
+    safeStageId !== stageId.trim() ||
+    safeStageId === "." ||
+    safeStageId === ".."
+  ) {
+    return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
+  }
   const stagePath = resolve(
-    join(DATA_DIR, safeCode, "run", `${safeStageId}.json`),
+    join(DATA_DIR, safeUserId, "run", `${safeStageId}.json`),
   );
   const draftPath = resolve(
-    join(DATA_DIR, safeCode, "run", `${safeStageId}-draft.json`),
+    join(DATA_DIR, safeUserId, "run", `${safeStageId}-draft.json`),
   );
 
   // Read the draft from the last successful tool call
@@ -74,7 +85,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        code: safeCode,
+        userId: safeUserId,
         stageId: safeStageId,
         stageData: merged,
       }),

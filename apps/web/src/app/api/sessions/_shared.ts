@@ -10,7 +10,7 @@ export interface Session {
   flowRunId?: string;
 }
 
-/** Session enriched with the question read from ``data/{code}/query.txt``. */
+/** Session enriched with the question read from ``data/{userId}/query.txt``. */
 export interface SessionWithQuestion extends Session {
   question?: string;
 }
@@ -38,10 +38,10 @@ export async function writeSessions(sessions: Record<string, Session>): Promise<
   await writeFile(SESSIONS_PATH, JSON.stringify(sessions, null, 2));
 }
 
-/** Read the research question from ``data/{code}/query.txt``. */
-export async function readQuestion(code: string): Promise<string | undefined> {
+/** Read the research question from ``data/{userId}/query.txt``. */
+export async function readQuestion(userId: string): Promise<string | undefined> {
   try {
-    const text = await readFile(join(DATA_DIR, code, "query.txt"), "utf-8");
+    const text = await readFile(join(DATA_DIR, userId, "query.txt"), "utf-8");
     return text.trim() || undefined;
   } catch {
     return undefined;

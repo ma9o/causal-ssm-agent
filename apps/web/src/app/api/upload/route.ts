@@ -7,25 +7,30 @@ const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
 export async function POST(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
-  const code = formData.get("code") as string | null;
+  const userId = formData.get("userId") as string | null;
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
-  if (!code) {
-    return NextResponse.json({ error: "No code provided" }, { status: 400 });
+  if (!userId) {
+    return NextResponse.json({ error: "No userId provided" }, { status: 400 });
   }
 
   // Sanitize path components to prevent directory traversal
-  const trimmedCode = code.trim();
-  const safeCode = basename(trimmedCode);
+  const trimmedUserId = userId.trim();
+  const safeUserId = basename(trimmedUserId);
   const safeFileName = basename(file.name);
 
-  if (!safeCode || safeCode !== trimmedCode || safeCode === "." || safeCode === "..") {
-    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  if (
+    !safeUserId ||
+    safeUserId !== trimmedUserId ||
+    safeUserId === "." ||
+    safeUserId === ".."
+  ) {
+    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
   }
 
-  const dir = join(DATA_DIR, safeCode, "input");
+  const dir = join(DATA_DIR, safeUserId, "input");
   await mkdir(dir, { recursive: true });
 
   const buffer = Buffer.from(await file.arrayBuffer());

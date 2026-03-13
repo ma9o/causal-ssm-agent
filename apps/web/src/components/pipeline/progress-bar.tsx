@@ -7,34 +7,39 @@ import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+function formatUserIdBadge(userId: string): string {
+  if (userId.length <= 18) return userId;
+  return `${userId.slice(0, 8)}...${userId.slice(-6)}`;
+}
+
 export function PipelineProgressBar({
   progress,
-  code,
+  userId,
 }: {
   progress: PipelineProgress | undefined;
-  code: string;
+  userId: string;
 }) {
   const [copied, setCopied] = useState(false);
 
   const { data: session } = useQuery<{ question?: string }>({
-    queryKey: ["session", code],
+    queryKey: ["session", userId],
     queryFn: async () => {
-      const res = await fetch(`/api/sessions/${code}`);
+      const res = await fetch(`/api/sessions/${userId}`);
       if (!res.ok) throw new Error("Session not found");
       return res.json();
     },
-    enabled: !!code,
+    enabled: !!userId,
     staleTime: Number.POSITIVE_INFINITY,
   });
 
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const handleCopy = useCallback(() => {
-    if (!code) return;
-    navigator.clipboard.writeText(code);
+    if (!userId) return;
+    navigator.clipboard.writeText(userId);
     setCopied(true);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-  }, [code]);
+  }, [userId]);
   useEffect(
     () => () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -42,7 +47,7 @@ export function PipelineProgressBar({
     [],
   );
 
-  const { exportToMarkdown } = useExportMarkdown(code);
+  const { exportToMarkdown } = useExportMarkdown(userId);
 
   if (!progress) return null;
 
@@ -59,14 +64,14 @@ export function PipelineProgressBar({
             Causal SSM Agent
           </Link>
           <div className="flex items-center gap-2">
-            {code && (
+            {userId && (
               <button
                 type="button"
                 onClick={handleCopy}
                 className="flex items-center gap-1 rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:bg-secondary"
-                title="Copy session code"
+                title="Copy user ID"
               >
-                {code.length > 8 ? "Signed in" : code}
+                {formatUserIdBadge(userId)}
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
             )}

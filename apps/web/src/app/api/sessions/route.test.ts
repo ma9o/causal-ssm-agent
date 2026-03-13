@@ -27,7 +27,7 @@ describe("POST /api/sessions", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: "openrouter-user-123",
+          userId: "openrouter-user-123",
           question: "How does screen time affect sleep?",
         }),
       }),
@@ -36,7 +36,7 @@ describe("POST /api/sessions", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
 
-    // Should write query.txt to data/{CODE}/
+    // Should write query.txt to data/{userId}/
     expect(mkdir).toHaveBeenCalledWith("/tmp/data/openrouter-user-123", { recursive: true });
     expect(writeFile).toHaveBeenCalledWith(
       "/tmp/data/openrouter-user-123/query.txt",

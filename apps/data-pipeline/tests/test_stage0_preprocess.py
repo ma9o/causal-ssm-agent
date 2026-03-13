@@ -249,7 +249,7 @@ class TestFindRawInput:
         os.utime(older, (1_700_000_000, 1_700_000_000))
         os.utime(newer, (1_700_000_100, 1_700_000_100))
 
-        monkeypatch.setattr(mod, "input_dir", lambda code: tmp_path / code)
+        monkeypatch.setattr(mod, "input_dir", lambda user_id: tmp_path / user_id)
         result = _find_raw_input("test_user")
         assert result.name == "notes.txt"
 
@@ -260,7 +260,7 @@ class TestFindRawInput:
         user_dir = tmp_path / "empty_user"
         user_dir.mkdir()
 
-        monkeypatch.setattr(mod, "input_dir", lambda code: tmp_path / code)
+        monkeypatch.setattr(mod, "input_dir", lambda user_id: tmp_path / user_id)
         with pytest.raises(FileNotFoundError):
             _find_raw_input("empty_user")
 

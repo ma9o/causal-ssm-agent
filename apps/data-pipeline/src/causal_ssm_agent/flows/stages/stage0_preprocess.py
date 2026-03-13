@@ -22,12 +22,12 @@ from .stage0_ingest import IngestionResult, run_agentic_ingestion
 logger = get_prefect_logger(__name__)
 
 
-def _find_raw_input(code: str) -> Path:
-    """Find the raw input file for a session code.
+def _find_raw_input(user_id: str) -> Path:
+    """Find the raw input file for a user ID.
 
-    Searches data/{code}/input/ for the most recent uploaded file.
+    Searches data/{user_id}/input/ for the most recent uploaded file.
     """
-    user_dir = input_dir(code)
+    user_dir = input_dir(user_id)
     if not user_dir.is_dir():
         raise FileNotFoundError(f"No raw data directory: {user_dir}")
 
@@ -63,20 +63,20 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
 
 
 @task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
-async def agentic_ingest(code: str = "test_user") -> IngestionResult:
+async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     """Ingest raw data using an LLM agent.
 
-    Finds the most recent file in data/{code}/input/, prepares it in a
+    Finds the most recent file in data/{user_id}/input/, prepares it in a
     temporary directory, and runs the agentic ingestion loop to produce a
     Polars DataFrame.
 
     Args:
-        code: Session code (directory under data/)
+        user_id: User ID naming the workspace under ``data/``.
 
     Returns:
         IngestionResult with DataFrame, source label, and column descriptions.
     """
-    raw_path = _find_raw_input(code)
+    raw_path = _find_raw_input(user_id)
     logger.info("Ingesting %s from %s/", raw_path.name, raw_path.parent.name)
 
     config = get_config()
