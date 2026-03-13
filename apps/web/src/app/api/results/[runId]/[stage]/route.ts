@@ -3,7 +3,7 @@ import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
 
 const RESULTS_DIR = resolve(process.cwd(), "..", "data-pipeline", "results");
-const FIXTURES_DIR = resolve(process.cwd(), "test", "fixtures");
+const FIXTURES_DIR = resolve(process.cwd(), "..", "..", "packages", "fixtures");
 
 export async function GET(
   _request: Request,
