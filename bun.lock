@@ -46,7 +46,6 @@
       },
       "devDependencies": {
         "@biomejs/biome": "^1",
-        "@causal-ssm/fixtures": "workspace:*",
         "@causal-ssm/typescript-config": "workspace:*",
         "@storybook/addon-docs": "^10.2.17",
         "@storybook/nextjs-vite": "^10.2.17",
@@ -73,10 +72,6 @@
         "json-schema-to-typescript": "^15.0.4",
         "typescript": "^5",
       },
-    },
-    "packages/fixtures": {
-      "name": "@causal-ssm/fixtures",
-      "version": "0.0.0",
     },
     "packages/typescript-config": {
       "name": "@causal-ssm/typescript-config",
@@ -156,8 +151,6 @@
     "@causal-ssm/api-types": ["@causal-ssm/api-types@workspace:packages/api-types"],
 
     "@causal-ssm/data-pipeline": ["@causal-ssm/data-pipeline@workspace:apps/data-pipeline"],
-
-    "@causal-ssm/fixtures": ["@causal-ssm/fixtures@workspace:packages/fixtures"],
 
     "@causal-ssm/typescript-config": ["@causal-ssm/typescript-config@workspace:packages/typescript-config"],
 

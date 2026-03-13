@@ -29,6 +29,10 @@
     "codegen:check": {
       "cache": false,
       "dependsOn": ["codegen"]
+    },
+    "storybook": {
+      "persistent": true,
+      "cache": false
     }
   }
 }
