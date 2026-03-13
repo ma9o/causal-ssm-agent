@@ -22,12 +22,12 @@ export interface Stage2WorkerProgress {
  *
  * Worker states (submitted/completed/failed) arrive over the existing
  * WebSocket connection in use-run-events.ts and are written into the
- * ["pipeline", code, "stage2-workers"] query cache key.
+ * ["pipeline", userId, "stage2-workers"] query cache key.
  *
  * Logs must still be polled — Prefect has no log WebSocket API.
  */
 export function useStage2Workers(
-  code: string,
+  userId: string,
   flowRunId: string | null,
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
@@ -35,7 +35,7 @@ export function useStage2Workers(
 
   // Workers: populated by WebSocket events in use-run-events.ts
   const { data: workers = [] } = useQuery<Stage2Worker[]>({
-    queryKey: ["pipeline", code, "stage2-workers"],
+    queryKey: ["pipeline", userId, "stage2-workers"],
     queryFn: () => [],
     enabled: isActive,
     staleTime: Infinity,
@@ -43,7 +43,7 @@ export function useStage2Workers(
 
   // Logs: still polled (Prefect has no log WebSocket)
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", code, "stage2-logs"],
+    queryKey: ["pipeline", userId, "stage2-logs"],
     queryFn: () => fetchStage2Logs(flowRunId!),
     enabled: isActive && workers.length > 0 && !!flowRunId,
     refetchInterval: 3000,

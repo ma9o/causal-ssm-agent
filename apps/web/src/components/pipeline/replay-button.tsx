@@ -11,10 +11,10 @@ import { useCallback, useState } from "react";
  * all downstream stages → frontend navigates to new run.
  */
 export function ReplayButton({
-  code,
+  userId,
   stageId,
 }: {
-  code: string;
+  userId: string;
   stageId: string;
 }) {
   const [replaying, setReplaying] = useState(false);
@@ -26,7 +26,7 @@ export function ReplayButton({
     setReplaying(true);
     try {
       // Load current stage data
-      const dataRes = await fetch(`/api/results/${code}/${stageId}`);
+      const dataRes = await fetch(`/api/results/${userId}/${stageId}`);
       if (!dataRes.ok) return;
       const stageData = await dataRes.json();
 
@@ -36,7 +36,7 @@ export function ReplayButton({
       const res = await fetch("/api/replay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, stageId, stageData: domainData }),
+        body: JSON.stringify({ userId, stageId, stageData: domainData }),
       });
 
       if (!res.ok) {
@@ -46,12 +46,12 @@ export function ReplayButton({
 
       const result = await res.json();
       if (result.flowRunId) {
-        window.location.href = `/analysis/${code}?flowRunId=${result.flowRunId}`;
+        window.location.href = `/analysis/${userId}?flowRunId=${result.flowRunId}`;
       }
     } finally {
       setReplaying(false);
     }
-  }, [code, stageId, replaying]);
+  }, [userId, stageId, replaying]);
 
   if (!canReplay) return null;
 

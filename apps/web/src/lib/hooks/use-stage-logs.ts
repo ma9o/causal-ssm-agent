@@ -94,18 +94,18 @@ async function fetchLogs(
   return res.json();
 }
 
-export function useStageLogs(code: string, flowRunId: string | null, stageId: StageId, status: StageRunStatus) {
+export function useStageLogs(userId: string, flowRunId: string | null, stageId: StageId, status: StageRunStatus) {
   const isActive = status !== "pending";
 
   const { data: stageFlowRunId } = useQuery({
-    queryKey: ["pipeline", code, "stageFlowRunId", stageId],
+    queryKey: ["pipeline", userId, "stageFlowRunId", stageId],
     queryFn: () => fetchStageFlowRunId(flowRunId!, stageId),
     enabled: isActive && !!flowRunId,
     staleTime: Infinity,
   });
 
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", code, "logs", stageId, stageFlowRunId],
+    queryKey: ["pipeline", userId, "logs", stageId, stageFlowRunId],
     queryFn: () => fetchLogs(stageFlowRunId ?? null),
     enabled: isActive && stageFlowRunId !== undefined,
     refetchInterval: status === "running" ? 3000 : false,

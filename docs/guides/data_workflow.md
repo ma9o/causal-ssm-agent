@@ -2,38 +2,38 @@
 
 The repo currently has two distinct data lanes:
 
-1. **Session workspaces** for the web app and Prefect pipeline.
+1. **User workspaces** for the web app and Prefect pipeline.
 2. **Preprocessed chunk files** for evals and manual prompt testing.
 
 ## Directory Structure
 
 ```
 data/
-├── <CODE>/                # Session workspace
+├── <USER_ID>/             # User workspace
 │   ├── input/             # Raw uploaded files for stage 0
 │   ├── query.txt          # Materialized research question
 │   └── run/               # Persisted stage JSON + artifacts
-├── DEFAULT/               # Tracked mock session fixture
-├── DOCTOLIB/              # Tracked mock session fixture
+├── DEFAULT/               # Tracked mock user fixture
+├── DOCTOLIB/              # Tracked mock user fixture
 ├── GOLDEN/                # Golden input dataset submodule
 ├── processed/             # Preprocessed text chunks for eval/manual tools (gitignored)
-├── sessions.seed.json     # Tracked fixture session metadata
-└── sessions.json          # Runtime session metadata (gitignored)
+├── sessions.seed.json     # Tracked fixture run metadata keyed by user ID
+└── sessions.json          # Runtime run metadata keyed by user ID (gitignored)
 ```
 
-## Session Runs
+## User Runs
 
-For app or pipeline runs, place raw exports directly into a session workspace:
+For app or pipeline runs, place raw exports directly into a user workspace:
 
 ```bash
-CODE="T3ST42"
-mkdir -p data/$CODE/input
-cp /path/to/export.json data/$CODE/input/
+USER_ID="T3ST42"
+mkdir -p data/$USER_ID/input
+cp /path/to/export.json data/$USER_ID/input/
 ```
 
-Stage 0 scans `data/{code}/input/` and ingests the most recent non-hidden file.
-The question is stored in `data/{code}/query.txt`, and stage outputs land in
-`data/{code}/run/`.
+Stage 0 scans `data/{user_id}/input/` and ingests the most recent non-hidden file.
+The question is stored in `data/{user_id}/query.txt`, and stage outputs land in
+`data/{user_id}/run/`.
 
 ## Preprocessed Chunk Workflow
 

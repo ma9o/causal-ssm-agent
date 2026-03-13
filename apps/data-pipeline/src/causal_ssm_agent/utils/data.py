@@ -13,14 +13,14 @@ DATA_DIR = Path(__file__).resolve().parents[5] / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 
 
-def input_dir(code: str) -> Path:
-    """Return the input directory for a session code: ``data/{code}/input/``."""
-    return DATA_DIR / code / "input"
+def input_dir(user_id: str) -> Path:
+    """Return the input directory for a user ID: ``data/{user_id}/input/``."""
+    return DATA_DIR / user_id / "input"
 
 
-def runs_dir(code: str) -> Path:
-    """Return the single run directory for a session code: ``data/{code}/run/``."""
-    return DATA_DIR / code / "run"
+def runs_dir(user_id: str) -> Path:
+    """Return the single run directory for a user ID: ``data/{user_id}/run/``."""
+    return DATA_DIR / user_id / "run"
 
 
 def get_orchestrator_chunk_size() -> int:

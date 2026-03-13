@@ -14,10 +14,10 @@ export default function AnalysisPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ code: string }>;
+  params: Promise<{ userId: string }>;
   searchParams: Promise<{ flowRunId?: string }>;
 }) {
-  const { code } = use(params);
+  const { userId } = use(params);
   const { flowRunId } = use(searchParams);
   const [resolvedFlowRunId, setResolvedFlowRunId] = useState<string | null>(flowRunId ?? null);
 
@@ -28,7 +28,7 @@ export default function AnalysisPage({
       setResolvedFlowRunId(flowRunId);
     }
 
-    void fetch(`/api/sessions/${code}`)
+    void fetch(`/api/sessions/${userId}`)
       .then(async (response) => {
         if (!response.ok) return null;
         return (await response.json()) as SessionLookupResponse;
@@ -44,10 +44,10 @@ export default function AnalysisPage({
     return () => {
       cancelled = true;
     };
-  }, [code, flowRunId]);
+  }, [userId, flowRunId]);
 
-  useRunEvents(code, resolvedFlowRunId);
-  const progress = usePipelineStatus(code);
+  useRunEvents(userId, resolvedFlowRunId);
+  const progress = usePipelineStatus(userId);
 
   // Dynamic document title reflecting pipeline state
   useEffect(() => {
@@ -76,5 +76,5 @@ export default function AnalysisPage({
       : `(${completed}/${STAGES.length}) Running | Causal Inference Pipeline`;
   }, [progress]);
 
-  return <AnalysisFeed code={code} flowRunId={resolvedFlowRunId ?? undefined} progress={progress} />;
+  return <AnalysisFeed userId={userId} flowRunId={resolvedFlowRunId ?? undefined} progress={progress} />;
 }

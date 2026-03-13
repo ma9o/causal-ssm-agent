@@ -38,7 +38,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "old-run",
-          parameters: { code: "user-123", query: "Why?" },
+          parameters: { user_id: "user-123", query: "Why?" },
           state: { type: "RUNNING", name: "Running" },
         }),
       )
@@ -46,7 +46,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "old-run",
-          parameters: { code: "user-123", query: "Why?" },
+          parameters: { user_id: "user-123", query: "Why?" },
           state: { type: "CANCELLED", name: "Cancelled" },
         }),
       )
@@ -60,7 +60,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: "user-123",
+          userId: "user-123",
           stageId: "stage-1a",
           stageData: { latent_model: { constructs: [] } },
         }),
@@ -96,7 +96,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         body: JSON.stringify({
           parameters: {
-            code: "user-123",
+            user_id: "user-123",
             query: "Why?",
             stage_overrides: {
               "stage-1a": { latent_model: { constructs: [] } },
@@ -126,7 +126,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "done-run",
-          parameters: { code: "user-123" },
+          parameters: { user_id: "user-123" },
           state: { type: "COMPLETED", name: "Completed" },
         }),
       )
@@ -140,7 +140,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: "user-123",
+          userId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, priors: {} },
         }),

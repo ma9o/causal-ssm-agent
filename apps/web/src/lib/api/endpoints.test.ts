@@ -42,7 +42,7 @@ describe("uploadFile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends FormData with file and code", async () => {
+  it("sends FormData with file and userId", async () => {
     const mockResponse = { path: "/uploads/test.json" };
     vi.mocked(fetch).mockResolvedValue({
       ok: true,

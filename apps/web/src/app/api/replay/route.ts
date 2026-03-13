@@ -96,20 +96,20 @@ async function waitForFlowRunToStop(flowRunId: string): Promise<PrefectFlowRun> 
  * treats that override as the stage output, skips the overridden stage's
  * computation, and re-runs all downstream stages with the new data.
  *
- * Body: { code: string, stageId: string, stageData: object }
+ * Body: { userId: string, stageId: string, stageData: object }
  */
 export async function POST(request: Request) {
-  const { code, stageId, stageData } = await request.json();
+  const { userId, stageId, stageData } = await request.json();
 
-  if (!code || !stageId || !stageData) {
-    return NextResponse.json({ error: "Missing code, stageId, or stageData" }, { status: 400 });
+  if (!userId || !stageId || !stageData) {
+    return NextResponse.json({ error: "Missing userId, stageId, or stageData" }, { status: 400 });
   }
 
-  const safeCode = basename(code.trim());
+  const safeUserId = basename(userId.trim());
   const safeStageId = basename(stageId);
 
-  if (!safeCode || safeCode !== code.trim() || safeCode === "." || safeCode === "..") {
-    return NextResponse.json({ error: "Invalid code format" }, { status: 400 });
+  if (!safeUserId || safeUserId !== userId.trim() || safeUserId === "." || safeUserId === "..") {
+    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
   }
 
   const stageIdx = STAGE_ORDER.indexOf(safeStageId);
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
   try {
     // Look up the session to find the flowRunId for fetching original parameters
     const sessions = await readSessions();
-    const session = sessions[safeCode];
+    const session = sessions[safeUserId];
     const flowRunId = session?.flowRunId;
 
     // Build parameters: if we have a prior flow run, reuse its params
@@ -136,12 +136,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Ensure code is set and add stage_overrides
+    // Ensure userId is set and add stage_overrides
     const existingOverrides =
       (originalParams.stage_overrides as Record<string, unknown>) ?? {};
     const newParams = {
       ...originalParams,
-      code: safeCode,
+      user_id: safeUserId,
       stage_overrides: {
         ...existingOverrides,
         [safeStageId]: stageData,
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
     }
 
     const newFlowRun = await createRes.json();
-    sessions[safeCode] = {
+    sessions[safeUserId] = {
       createdAt: session?.createdAt ?? new Date().toISOString(),
       flowRunId: newFlowRun.id,
     };

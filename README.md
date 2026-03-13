@@ -61,21 +61,21 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   └── tools/                 # CLI tools + UIs
 │   └── web/                       # Next.js frontend
 │       └── src/
-│           ├── app/               # Next.js app router pages
+│           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
-│           └── lib/               # API clients, hooks, types, utilities
+│           └── lib/               # API clients, hooks, user-id helpers, types, utilities
 │               └── hooks/         # Prefect progress state, event streaming, stage telemetry
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
 │   └── typescript-config/         # Shared TS config
 ├── data/                          # Root data workspace shared by web + pipeline
-│   ├── <CODE>/                    # Session workspace: input/, query.txt, run/
-│   ├── DEFAULT/                   # Tracked mock fixture session
-│   ├── DOCTOLIB/                  # Tracked mock fixture session
+│   ├── <USER_ID>/                 # User workspace: input/, query.txt, run/
+│   ├── DEFAULT/                   # Tracked mock fixture user workspace
+│   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
-│   ├── sessions.seed.json         # Tracked fixture session metadata
-│   └── sessions.json              # Runtime session metadata (gitignored)
+│   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
+│   └── sessions.json              # Runtime run metadata keyed by user ID (gitignored)
 ├── docs/                          # Project documentation
 │   ├── modeling/                  # Theoretical foundations
 │   ├── reference/                 # Technical specifications
@@ -83,3 +83,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   └── literature.md              # Reference papers (links + summaries)
 └── scratchpad/                    # Temporary work files (gitignored)
 ```
+
+Web routes and persisted workspaces are keyed by `userId` / `user_id`:
+- `apps/web/src/app/analysis/[userId]/` and `apps/web/src/app/api/results/[userId]/[stage]/`
+- `apps/web/src/lib/user-id.ts` generates anonymous user IDs before auth

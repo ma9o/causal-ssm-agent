@@ -8,7 +8,7 @@ import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
 import { initiateOpenRouterAuth } from "@/lib/auth";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { CODE_LENGTH } from "@/lib/session-code";
+import { ANONYMOUS_USER_ID_LENGTH } from "@/lib/user-id";
 import {
   ArrowRight,
   FileText,
@@ -61,14 +61,14 @@ export default function LandingPage() {
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
-      const code = getMockFixture();
-      router.push(`/analysis/${code}`);
+      const userId = getMockFixture();
+      router.push(`/analysis/${userId}`);
     }
   }, [router]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [resumeCode, setResumeCode] = useState("");
+  const [resumeUserId, setResumeUserId] = useState("");
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [isResuming, setIsResuming] = useState(false);
 
@@ -121,13 +121,13 @@ export default function LandingPage() {
         return;
       }
 
-      const code = auth.ensureIdentity();
-      await uploadFile(file, code);
+      const userId = auth.ensureIdentity();
+      await uploadFile(file, userId);
 
       const deploymentId = await getDeploymentId();
       const flowRunId = await triggerRun(deploymentId, {
         query: question,
-        code: code,
+        user_id: userId,
         override_gates: overrideGates || undefined,
         openrouter_api_key: auth.userKey || undefined,
       });
@@ -135,10 +135,10 @@ export default function LandingPage() {
       await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, question, flowRunId }),
+        body: JSON.stringify({ userId, question, flowRunId }),
       });
 
-      router.push(`/analysis/${code}?flowRunId=${flowRunId}`);
+      router.push(`/analysis/${userId}?flowRunId=${flowRunId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
@@ -146,30 +146,30 @@ export default function LandingPage() {
   };
 
   const handleResume = async () => {
-    const rawCode = resumeCode.trim();
-    if (!rawCode) {
-      setResumeError("Enter a session code or user ID.");
+    const rawUserId = resumeUserId.trim();
+    if (!rawUserId) {
+      setResumeError("Enter a user ID.");
       return;
     }
 
-    const code =
-      rawCode.length === CODE_LENGTH && /^[A-Za-z0-9]+$/.test(rawCode)
-        ? rawCode.toUpperCase()
-        : rawCode;
+    const userId =
+      rawUserId.length === ANONYMOUS_USER_ID_LENGTH && /^[A-Za-z0-9]+$/.test(rawUserId)
+        ? rawUserId.toUpperCase()
+        : rawUserId;
 
     setIsResuming(true);
     setResumeError(null);
 
     try {
-      const res = await fetch(`/api/sessions/${code}`);
+      const res = await fetch(`/api/sessions/${userId}`);
       if (!res.ok) {
-        setResumeError("Session not found. Check the code and try again.");
+        setResumeError("No analysis found for that user ID.");
         setIsResuming(false);
         return;
       }
       const session = await res.json();
       const flowRunId = session.flowRunId;
-      router.push(`/analysis/${code}${flowRunId ? `?flowRunId=${flowRunId}` : ""}`);
+      router.push(`/analysis/${userId}${flowRunId ? `?flowRunId=${flowRunId}` : ""}`);
     } catch {
       setResumeError("Failed to look up session.");
       setIsResuming(false);
@@ -428,26 +428,26 @@ export default function LandingPage() {
         </div>
 
         <motion.div className="space-y-3" {...fadeInUp(0.3)}>
-          <p className="text-center text-sm text-muted-foreground">Resume a previous session</p>
+          <p className="text-center text-sm text-muted-foreground">Resume a previous analysis</p>
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input
               type="text"
-              aria-label="Session code or user ID"
-              placeholder="ABC123 or user ID"
-              value={resumeCode}
+              aria-label="User ID"
+              placeholder="ABC123 or OpenRouter user ID"
+              value={resumeUserId}
               onChange={(e) => {
-                setResumeCode(e.target.value);
+                setResumeUserId(e.target.value);
                 if (resumeError) setResumeError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && resumeCode.trim()) handleResume();
+                if (e.key === "Enter" && resumeUserId.trim()) handleResume();
               }}
               className="flex-1 rounded-md border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground/40"
             />
             <Button
               variant="outline"
               onClick={handleResume}
-              disabled={isResuming || !resumeCode.trim()}
+              disabled={isResuming || !resumeUserId.trim()}
             >
               {isResuming ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

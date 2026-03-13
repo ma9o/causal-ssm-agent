@@ -1,10 +1,10 @@
 import type { StageId } from "@causal-ssm/api-types";
 import { apiFetch } from "./client";
 
-export async function uploadFile(file: File, code: string): Promise<{ path: string }> {
+export async function uploadFile(file: File, userId: string): Promise<{ path: string }> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("code", code);
+  formData.append("userId", userId);
   const res = await fetch("/api/upload", {
     method: "POST",
     body: formData,
@@ -13,6 +13,6 @@ export async function uploadFile(file: File, code: string): Promise<{ path: stri
   return res.json();
 }
 
-export async function getStageResult<T>(code: string, stage: StageId): Promise<T> {
-  return apiFetch<T>(`/api/results/${code}/${stage}`);
+export async function getStageResult<T>(userId: string, stage: StageId): Promise<T> {
+  return apiFetch<T>(`/api/results/${userId}/${stage}`);
 }
