@@ -3,7 +3,7 @@ import { basename, join, resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { readSessions } from "../_shared";
 
-const FIXTURES_DIR = resolve(process.cwd(), "test", "fixtures");
+const FIXTURES_DIR = resolve(process.cwd(), "..", "..", "packages", "fixtures");
 
 export async function GET(_request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
