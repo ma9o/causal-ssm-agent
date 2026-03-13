@@ -9,9 +9,11 @@ vi.mock("./_shared", () => ({
   DATA_DIR: "/tmp/data",
   SESSIONS_PATH: "/tmp/data/sessions.json",
   readSessions: vi.fn().mockResolvedValue({}),
+  writeSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { mkdir, writeFile } from "node:fs/promises";
+import { writeSessions } from "./_shared";
 import { POST } from "./route";
 
 describe("POST /api/sessions", () => {
@@ -42,18 +44,17 @@ describe("POST /api/sessions", () => {
     );
 
     // Should write sessions.json without the question
-    expect(mkdir).toHaveBeenCalledWith("/tmp/data", { recursive: true });
-    expect(writeFile).toHaveBeenCalledWith(
-      "/tmp/data/sessions.json",
-      expect.stringContaining('"KXXSV2"'),
+    expect(writeSessions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        KXXSV2: expect.objectContaining({
+          createdAt: expect.any(String),
+        }),
+      }),
     );
 
     // Verify question is NOT in sessions.json
-    const mock = writeFile as unknown as { mock: { calls: string[][] } };
-    const sessionsCall = mock.mock.calls.find(
-      (c) => c[0] === "/tmp/data/sessions.json",
-    );
-    const written = JSON.parse(sessionsCall![1]);
+    const mock = writeSessions as unknown as { mock: { calls: [Record<string, unknown>][] } };
+    const written = mock.mock.calls[0][0];
     expect(written.KXXSV2).not.toHaveProperty("question");
     expect(written.KXXSV2).toHaveProperty("createdAt");
   });

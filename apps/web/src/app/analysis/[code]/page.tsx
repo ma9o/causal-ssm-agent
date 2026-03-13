@@ -4,7 +4,11 @@ import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
+
+interface SessionLookupResponse {
+  flowRunId?: string;
+}
 
 export default function AnalysisPage({
   params,
@@ -15,8 +19,34 @@ export default function AnalysisPage({
 }) {
   const { code } = use(params);
   const { flowRunId } = use(searchParams);
+  const [resolvedFlowRunId, setResolvedFlowRunId] = useState<string | null>(flowRunId ?? null);
 
-  useRunEvents(code, flowRunId ?? null);
+  useEffect(() => {
+    let cancelled = false;
+
+    if (flowRunId) {
+      setResolvedFlowRunId(flowRunId);
+    }
+
+    void fetch(`/api/sessions/${code}`)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as SessionLookupResponse;
+      })
+      .then((session) => {
+        if (cancelled || !session?.flowRunId) return;
+        setResolvedFlowRunId(session.flowRunId);
+      })
+      .catch(() => {
+        // Session lookup is best-effort; search params may already contain the flowRunId.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, flowRunId]);
+
+  useRunEvents(code, resolvedFlowRunId);
   const progress = usePipelineStatus(code);
 
   // Dynamic document title reflecting pipeline state
@@ -46,5 +76,5 @@ export default function AnalysisPage({
       : `(${completed}/${STAGES.length}) Running | Causal Inference Pipeline`;
   }, [progress]);
 
-  return <AnalysisFeed code={code} flowRunId={flowRunId} progress={progress} />;
+  return <AnalysisFeed code={code} flowRunId={resolvedFlowRunId ?? undefined} progress={progress} />;
 }

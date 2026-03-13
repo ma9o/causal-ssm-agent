@@ -1,8 +1,11 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
-import { readSessions } from "../sessions/_shared";
+import { readSessions, writeSessions } from "../sessions/_shared";
 
 const PREFECT_API = "http://localhost:4200/api";
+const TERMINAL_FLOW_STATES = new Set(["COMPLETED", "FAILED", "CANCELLED", "CRASHED"]);
+const CANCELLATION_POLL_MS = 1000;
+const CANCELLATION_TIMEOUT_MS = 60000;
 
 const STAGE_ORDER = [
   "stage-0",
@@ -16,6 +19,74 @@ const STAGE_ORDER = [
   "stage-5b",
   "stage-6",
 ];
+
+interface PrefectFlowRun {
+  id: string;
+  parameters?: Record<string, unknown>;
+  state?: {
+    type?: string;
+    name?: string;
+  } | null;
+}
+
+interface PrefectSetStateResponse {
+  status?: string;
+  details?: {
+    reason?: string;
+  } | null;
+}
+
+function isTerminalFlowState(stateType: unknown): boolean {
+  return typeof stateType === "string" && TERMINAL_FLOW_STATES.has(stateType);
+}
+
+async function fetchFlowRun(flowRunId: string): Promise<PrefectFlowRun | null> {
+  const res = await fetch(`${PREFECT_API}/flow_runs/${flowRunId}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function cancelFlowRun(flowRunId: string): Promise<void> {
+  const res = await fetch(`${PREFECT_API}/flow_runs/${flowRunId}/set_state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      state: { type: "CANCELLING", name: "Cancelling" },
+      force: false,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Could not cancel flow run ${flowRunId}: ${res.status}`);
+  }
+
+  const result: PrefectSetStateResponse = await res.json();
+  if (result.status === "ABORT" || result.status === "REJECT") {
+    throw new Error(result.details?.reason ?? `Prefect rejected cancellation for ${flowRunId}`);
+  }
+}
+
+async function waitForFlowRunToStop(flowRunId: string): Promise<PrefectFlowRun> {
+  const deadline = Date.now() + CANCELLATION_TIMEOUT_MS;
+
+  while (true) {
+    const flowRun = await fetchFlowRun(flowRunId);
+    if (!flowRun) {
+      throw new Error(`Could not reload flow run ${flowRunId} while waiting for cancellation`);
+    }
+
+    if (isTerminalFlowState(flowRun.state?.type)) {
+      return flowRun;
+    }
+
+    if (Date.now() >= deadline) {
+      const stateLabel = flowRun.state?.type ?? flowRun.state?.name ?? "unknown";
+      throw new Error(`Timed out waiting for flow run ${flowRunId} to stop (state: ${stateLabel})`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, CANCELLATION_POLL_MS));
+  }
+}
 
 /**
  * POST /api/replay
@@ -45,16 +116,20 @@ export async function POST(request: Request) {
   try {
     // Look up the session to find the flowRunId for fetching original parameters
     const sessions = await readSessions();
-    const session = sessions[safeCode.toUpperCase()];
+    const normalizedCode = safeCode.toUpperCase();
+    const session = sessions[normalizedCode];
     const flowRunId = session?.flowRunId;
 
     // Build parameters: if we have a prior flow run, reuse its params
     let originalParams: Record<string, unknown> = {};
     if (flowRunId) {
-      const flowRunRes = await fetch(`${PREFECT_API}/flow_runs/${flowRunId}`);
-      if (flowRunRes.ok) {
-        const flowRun = await flowRunRes.json();
+      const flowRun = await fetchFlowRun(flowRunId);
+      if (flowRun) {
         originalParams = flowRun.parameters ?? {};
+        if (!isTerminalFlowState(flowRun.state?.type)) {
+          await cancelFlowRun(flowRunId);
+          await waitForFlowRunToStop(flowRunId);
+        }
       }
     }
 
@@ -63,7 +138,7 @@ export async function POST(request: Request) {
       (originalParams.stage_overrides as Record<string, unknown>) ?? {};
     const newParams = {
       ...originalParams,
-      code: safeCode,
+      code: normalizedCode,
       stage_overrides: {
         ...existingOverrides,
         [safeStageId]: stageData,
@@ -111,6 +186,11 @@ export async function POST(request: Request) {
     }
 
     const newFlowRun = await createRes.json();
+    sessions[normalizedCode] = {
+      createdAt: session?.createdAt ?? new Date().toISOString(),
+      flowRunId: newFlowRun.id,
+    };
+    await writeSessions(sessions);
     const downstreamStart = stageIdx + 1;
 
     return NextResponse.json({

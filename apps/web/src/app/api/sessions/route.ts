@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { NextResponse } from "next/server";
-import { DATA_DIR, SESSIONS_PATH, readSessions } from "./_shared";
+import { DATA_DIR, readSessions, writeSessions } from "./_shared";
 
 const CODE_RE = /^[A-Z0-9]{6}$/;
 const MAX_QUESTION_LENGTH = 2000;
@@ -38,7 +38,6 @@ export async function POST(request: Request) {
     ...(flowRunId ? { flowRunId } : {}),
   };
 
-  await mkdir(dirname(SESSIONS_PATH), { recursive: true });
-  await writeFile(SESSIONS_PATH, JSON.stringify(sessions, null, 2));
+  await writeSessions(sessions);
   return NextResponse.json({ ok: true });
 }
