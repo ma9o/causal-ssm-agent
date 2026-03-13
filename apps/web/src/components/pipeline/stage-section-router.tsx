@@ -251,6 +251,12 @@ function Stage4Wrapper({ code }: { code: string }) {
   );
 }
 
+function Stage5bWrapper({ code }: { code: string }) {
+  const { data } = useStageData<Stage5bData>(code, "stage-5b", true);
+  if (!data) return null;
+  return <Stage5bContent code={code} data={data} />;
+}
+
 function StageContent({ stageId, code }: { stageId: string; code: string }) {
   switch (stageId) {
     case "stage-0":
@@ -296,9 +302,7 @@ function StageContent({ stageId, code }: { stageId: string; code: string }) {
         <SimpleStageWrapper<Stage5aData> code={code} stageId="stage-5a" Component={Stage5aContent} />
       );
     case "stage-5b":
-      return (
-        <SimpleStageWrapper<Stage5bData> code={code} stageId="stage-5b" Component={Stage5bContent} />
-      );
+      return <Stage5bWrapper code={code} />;
     case "stage-6":
       return (
         <SimpleStageWrapper<Stage6Data> code={code} stageId="stage-6" Component={Stage6Content} />
