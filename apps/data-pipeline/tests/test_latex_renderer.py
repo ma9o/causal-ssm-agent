@@ -17,18 +17,18 @@ from utils.latex_renderer import (  # ty: ignore[unresolved-import]
     render_structural,
 )
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+EVALS_DIR = Path(__file__).parent.parent / "evals"
 
 
 @pytest.fixture
 def model_spec1():
-    with (DATA_DIR / "eval/questions/1_resolve-errors-faster/model_spec.json").open() as f:
+    with (EVALS_DIR / "questions/1_resolve-errors-faster/model_spec.json").open() as f:
         return json.load(f)
 
 
 @pytest.fixture
 def causal_spec1():
-    with (DATA_DIR / "eval/questions/1_resolve-errors-faster/causal_spec.json").open() as f:
+    with (EVALS_DIR / "questions/1_resolve-errors-faster/causal_spec.json").open() as f:
         return json.load(f)
 
 

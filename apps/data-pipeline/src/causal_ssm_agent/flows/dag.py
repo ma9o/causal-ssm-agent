@@ -10,40 +10,38 @@ from __future__ import annotations
 
 import inspect
 import json
-import shutil
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
 import cloudpickle
 from prefect import flow
 
+from causal_ssm_agent.utils.data import runs_dir
+
 from . import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
-
-RESULT_STORAGE = Path("results")
 STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
 STAGE2_RAW_PARQUET_FILENAMES = ("stage2-raw-data.parquet",)
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
 STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 
 
-def _run_dir(run_id: str) -> Path:
-    path = RESULT_STORAGE / run_id
+def _run_dir(code: str) -> Path:
+    path = runs_dir(code)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _existing_run_dir(run_id: str) -> Path:
-    path = RESULT_STORAGE / run_id
+def _existing_run_dir(code: str) -> Path:
+    path = runs_dir(code)
     if not path.exists():
-        raise FileNotFoundError(f"No results directory found for run {run_id}")
+        raise FileNotFoundError(f"No results directory found for code {code}")
     return path
 
 
-def _save_parquet(df: Any, run_id: str, filename: str) -> str:
-    path = _run_dir(run_id) / filename
+def _save_parquet(df: Any, code: str, filename: str) -> str:
+    path = _run_dir(code) / filename
     df.write_parquet(path)
     return str(path)
 
@@ -54,8 +52,8 @@ def _load_parquet(path: str) -> Any:
     return pl.read_parquet(path)
 
 
-def _save_pickle(value: Any, run_id: str, filename: str) -> str:
-    path = _run_dir(run_id) / filename
+def _save_pickle(value: Any, code: str, filename: str) -> str:
+    path = _run_dir(code) / filename
     with path.open("wb") as f:
         cloudpickle.dump(value, f)
     return str(path)
@@ -66,20 +64,20 @@ def _load_pickle(path: str) -> Any:
         return cloudpickle.load(f)
 
 
-def _stage_snapshot_path(run_id: str, stage_id: str) -> Path:
-    return _run_dir(run_id) / f"{stage_id}-state.pkl"
+def _stage_snapshot_path(code: str, stage_id: str) -> Path:
+    return _run_dir(code) / f"{stage_id}-state.pkl"
 
 
-def _save_stage_snapshot(stage_id: str, state: dict[str, Any], run_id: str) -> None:
-    path = _stage_snapshot_path(run_id, stage_id)
+def _save_stage_snapshot(stage_id: str, state: dict[str, Any], code: str) -> None:
+    path = _stage_snapshot_path(code, stage_id)
     with path.open("wb") as f:
         cloudpickle.dump(state, f)
 
 
-def _load_stage_snapshot(run_id: str, stage_id: str) -> dict[str, Any]:
-    path = _existing_run_dir(run_id) / f"{stage_id}-state.pkl"
+def _load_stage_snapshot(code: str, stage_id: str) -> dict[str, Any]:
+    path = _existing_run_dir(code) / f"{stage_id}-state.pkl"
     if not path.exists():
-        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in run {run_id}")
+        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in code {code}")
     with path.open("rb") as f:
         return cloudpickle.load(f)
 
@@ -95,36 +93,26 @@ def _unwrap_persisted_result(raw: Any) -> Any:
     return raw
 
 
-def _load_public_stage_payload(run_id: str, stage_id: str) -> dict[str, Any]:
-    path = _existing_run_dir(run_id) / f"{stage_id}.json"
+def _load_public_stage_payload(code: str, stage_id: str) -> dict[str, Any]:
+    path = _existing_run_dir(code) / f"{stage_id}.json"
     if not path.exists():
-        raise FileNotFoundError(f"No public stage payload found for {stage_id} in run {run_id}")
+        raise FileNotFoundError(f"No public stage payload found for {stage_id} in code {code}")
     with path.open() as f:
         raw = json.load(f)
     payload = _unwrap_persisted_result(raw)
     if not isinstance(payload, dict):
-        raise TypeError(f"Persisted payload for {stage_id} in run {run_id} is not a dict")
+        raise TypeError(f"Persisted payload for {stage_id} in code {code} is not a dict")
     return payload
 
 
-def _find_run_artifact(run_id: str, filenames: tuple[str, ...]) -> str:
-    run_dir = _existing_run_dir(run_id)
+def _find_run_artifact(code: str, filenames: tuple[str, ...]) -> str:
+    run_dir = _existing_run_dir(code)
     for filename in filenames:
         path = run_dir / filename
         if path.exists():
             return str(path)
     expected = ", ".join(filenames)
-    raise FileNotFoundError(f"None of [{expected}] exist for run {run_id}")
-
-
-def _copy_artifact_to_run(path_str: str, target_run_id: str) -> str:
-    source = Path(path_str)
-    if not source.exists():
-        raise FileNotFoundError(f"Artifact path does not exist: {source}")
-    target = _run_dir(target_run_id) / source.name
-    if source.resolve() != target.resolve():
-        shutil.copy2(source, target)
-    return str(target)
+    raise FileNotFoundError(f"None of [{expected}] exist for code {code}")
 
 
 def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
@@ -178,7 +166,7 @@ def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
 def _web_payload(
     stage_id: str,
     result: dict[str, Any],
-    run_id: str,
+    code: str,
     *,
     extras: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -195,7 +183,7 @@ def _web_payload(
     web = {k: v for k, v in result.items() if k in contract_fields}
     if extras:
         web.update(extras)
-    return persist_web_result(stage_id, web, run_id)
+    return persist_web_result(stage_id, web, code)
 
 
 def _stage_state(
@@ -215,27 +203,27 @@ def _raise_if_gate_failed(gate_result: dict[str, Any], message: str) -> None:
 
 
 def load_stage_state(
-    run_id: str,
+    code: str,
     stage_id: str,
     prior_states: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Load a stage state snapshot, reconstructing older runs when needed."""
+    """Load a stage state snapshot, reconstructing from public payloads when needed."""
 
     try:
-        return _load_stage_snapshot(run_id, stage_id)
+        return _load_stage_snapshot(code, stage_id)
     except FileNotFoundError:
         logger.info(
-            "Reconstructing %s state from public payloads for older run %s",
+            "Reconstructing %s state from public payloads for code %s",
             stage_id,
-            run_id,
+            code,
         )
 
     prior_states = prior_states or {}
-    web = _load_public_stage_payload(run_id, stage_id)
+    web = _load_public_stage_payload(code, stage_id)
 
     if stage_id == "stage-0":
         result = dict(web)
-        result["_df_path"] = _find_run_artifact(run_id, STAGE0_PARQUET_FILENAMES)
+        result["_df_path"] = _find_run_artifact(code, STAGE0_PARQUET_FILENAMES)
         result["_column_descriptions"] = _column_descriptions_from_web(web)
         return _stage_state(result, web)
 
@@ -259,8 +247,8 @@ def load_stage_state(
         result = dict(web)
         result["workers"] = workers
         result["_worker_statuses"] = workers
-        result["_raw_data_path"] = _find_run_artifact(run_id, STAGE2_RAW_PARQUET_FILENAMES)
-        result["_data_for_model_path"] = _find_run_artifact(run_id, STAGE2_MODEL_PARQUET_FILENAMES)
+        result["_raw_data_path"] = _find_run_artifact(code, STAGE2_RAW_PARQUET_FILENAMES)
+        result["_data_for_model_path"] = _find_run_artifact(code, STAGE2_MODEL_PARQUET_FILENAMES)
         return _stage_state(result, web)
 
     if stage_id == "stage-3":
@@ -292,7 +280,7 @@ def load_stage_state(
             "loo_diagnostics": web.get("loo_diagnostics"),
             "posterior_marginals": web.get("posterior_marginals"),
             "posterior_pairs": web.get("posterior_pairs"),
-            "_fitted_result_path": _find_run_artifact(run_id, STAGE5B_PICKLE_FILENAMES),
+            "_fitted_result_path": _find_run_artifact(code, STAGE5B_PICKLE_FILENAMES),
         }
         return _stage_state(result, web)
 
@@ -302,37 +290,15 @@ def load_stage_state(
     raise ValueError(f"Unsupported stage id: {stage_id}")
 
 
-def restore_stage_state(
-    stage_id: str,
-    state: dict[str, Any],
-    run_id: str,
-) -> dict[str, Any]:
-    """Clone a prior stage state into a new run and persist its public payload."""
-
-    cloned_result = deepcopy(state["result"])
-    for key, value in list(cloned_result.items()):
-        if key.endswith("_path") and isinstance(value, str):
-            cloned_result[key] = _copy_artifact_to_run(value, run_id)
-
-    from .stages import persist_web_result
-
-    cloned_web = persist_web_result(stage_id, deepcopy(state["web"]), run_id)
-    gate = deepcopy(state.get("gate")) if state.get("gate") is not None else None
-    cloned_state = _stage_state(cloned_result, cloned_web, gate=gate)
-    _save_stage_snapshot(stage_id, cloned_state, run_id)
-    logger.info("Restored %s into run %s", stage_id, run_id)
-    return cloned_state
-
-
 def _finalize_stage_state(
     stage_id: str,
     result: dict[str, Any],
     web: dict[str, Any],
-    run_id: str,
+    code: str,
     gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = _stage_state(result, web, gate=gate)
-    _save_stage_snapshot(stage_id, state, run_id)
+    _save_stage_snapshot(stage_id, state, code)
     return state
 
 
@@ -341,7 +307,7 @@ def _finalize_stage_state(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage0(user_id: str) -> dict:
+async def stage0(code: str) -> dict:
     """Agentic ingestion of raw data.
 
     Returns dict with web-serializable fields PLUS internal data:
@@ -351,7 +317,7 @@ async def stage0(user_id: str) -> dict:
     from .pipeline_helpers import build_stage0_payload
     from .stages import agentic_ingest
 
-    result = await agentic_ingest(user_id)
+    result = await agentic_ingest(code)
     df = result.dataframe
 
     payload = build_stage0_payload(result, df)
@@ -1033,12 +999,12 @@ def stage6(
 
 
 @flow(name="stage-0-flow", persist_result=False)
-async def stage0_flow(user_id: str, run_id: str) -> dict:
-    logger.info("Stage 0 starting: ingesting raw input for user_id=%s", user_id)
-    stage0_result = await stage0(user_id)
+async def stage0_flow(code: str) -> dict:
+    logger.info("Stage 0 starting: ingesting raw input for code=%s", code)
+    stage0_result = await stage0(code)
     raw_df = stage0_result.pop("_df")
-    stage0_result["_df_path"] = _save_parquet(raw_df, run_id, "stage0-raw-input.parquet")
-    web = _web_payload("stage-0", stage0_result, run_id)
+    stage0_result["_df_path"] = _save_parquet(raw_df, code, "stage0-raw-input.parquet")
+    web = _web_payload("stage-0", stage0_result, code)
     date_range = web.get("date_range", {})
     logger.info(
         "Stage 0 complete: source=%s records=%d columns=%d date_range=%s..%s",
@@ -1048,18 +1014,18 @@ async def stage0_flow(user_id: str, run_id: str) -> dict:
         date_range.get("start") or "?",
         date_range.get("end") or "?",
     )
-    return _finalize_stage_state("stage-0", stage0_result, web, run_id)
+    return _finalize_stage_state("stage-0", stage0_result, web, code)
 
 
 @flow(name="stage-1a-flow", persist_result=False)
 async def stage1a_flow(
     question: str,
-    run_id: str,
+    code: str,
     override_payload: dict[str, Any] | None = None,
 ) -> dict:
     logger.info("Stage 1a starting: proposing latent model")
     stage1a_result = override_payload if override_payload is not None else await stage1a(question)
-    web = _web_payload("stage-1a", stage1a_result, run_id)
+    web = _web_payload("stage-1a", stage1a_result, code)
     latent_model = web.get("latent_model", {})
     logger.info(
         "Stage 1a complete: constructs=%d edges=%d treatments=%d outcome=%s",
@@ -1068,7 +1034,7 @@ async def stage1a_flow(
         len(web.get("treatments", [])),
         web.get("outcome_name", "") or "unknown",
     )
-    return _finalize_stage_state("stage-1a", stage1a_result, web, run_id)
+    return _finalize_stage_state("stage-1a", stage1a_result, web, code)
 
 
 @flow(name="stage-1b-flow", persist_result=False)
@@ -1077,7 +1043,7 @@ async def stage1b_flow(
     stage0_result: dict,
     stage1a_result: dict,
     override_gates: bool,
-    run_id: str,
+    code: str,
     override_payload: dict[str, Any] | None = None,
 ) -> dict:
     logger.info("Stage 1b starting: proposing measurement model and checking identifiability")
@@ -1092,12 +1058,12 @@ async def stage1b_flow(
         extras["gate_overridden"] = {
             "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
         }
-    web = _web_payload("stage-1b", stage1b_result, run_id, extras=extras)
+    web = _web_payload("stage-1b", stage1b_result, code, extras=extras)
     state = _finalize_stage_state(
         "stage-1b",
         stage1b_result,
         web,
-        run_id,
+        code,
         gate=stage1b_gate_result,
     )
     _raise_if_gate_failed(
@@ -1128,20 +1094,21 @@ async def stage2_flow(
     question: str,
     stage0_result: dict,
     stage1b_result: dict,
-    run_id: str,
+    code: str,
+    prefect_run_id: str | None = None,
 ) -> dict:
     logger.info("Stage 2 starting: extracting measurements from raw data")
-    stage2_result = await stage2(question, stage0_result, stage1b_result, root_run_id=run_id)
+    stage2_result = await stage2(question, stage0_result, stage1b_result, root_run_id=prefect_run_id)
     raw_data = stage2_result.pop("_raw_data")
     data_for_model = stage2_result.pop("_data_for_model")
-    stage2_result["_raw_data_path"] = _save_parquet(raw_data, run_id, "stage2-raw-data.parquet")
+    stage2_result["_raw_data_path"] = _save_parquet(raw_data, code, "stage2-raw-data.parquet")
     stage2_result["_data_for_model_path"] = _save_parquet(
-        data_for_model, run_id, "stage2-model-data.parquet"
+        data_for_model, code, "stage2-model-data.parquet"
     )
     web = _web_payload(
         "stage-2",
         stage2_result,
-        run_id,
+        code,
         extras={"outcome": "success" if len(raw_data) > 0 else "fail"},
     )
     worker_statuses = stage2_result.get("_worker_statuses", [])
@@ -1157,14 +1124,14 @@ async def stage2_flow(
         worker_counts,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-2", stage2_result, web, run_id)
+    return _finalize_stage_state("stage-2", stage2_result, web, code)
 
 
 @flow(name="stage-3-flow", persist_result=False)
-def stage3_flow(stage1b_result: dict, stage2_result: dict, run_id: str) -> dict:
+def stage3_flow(stage1b_result: dict, stage2_result: dict, code: str) -> dict:
     logger.info("Stage 3 starting: validating extracted measurements")
     stage3_result = stage3(stage1b_result, stage2_result)
-    web = _web_payload("stage-3", stage3_result, run_id)
+    web = _web_payload("stage-3", stage3_result, code)
     report = web.get("validation_report", {})
     error_count, warning_count = _validation_issue_counts(report)
     logger.info(
@@ -1175,7 +1142,7 @@ def stage3_flow(stage1b_result: dict, stage2_result: dict, run_id: str) -> dict:
         warning_count,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-3", stage3_result, web, run_id)
+    return _finalize_stage_state("stage-3", stage3_result, web, code)
 
 
 @flow(name="stage-4-flow", persist_result=False)
@@ -1184,7 +1151,7 @@ async def stage4_flow(
     stage1b_result: dict,
     stage2_result: dict,
     enable_literature: bool,
-    run_id: str,
+    code: str,
     override_payload: dict[str, Any] | None = None,
 ) -> dict:
     from prefect.artifacts import create_markdown_artifact
@@ -1195,7 +1162,7 @@ async def stage4_flow(
 
     # Persist raw_data for the refinement tool_server (prior predictive gate)
     data_for_model = _load_parquet(stage2_result["_data_for_model_path"])
-    _save_parquet(data_for_model, run_id, "stage-4-data.parquet")
+    _save_parquet(data_for_model, code, "stage-4-data.parquet")
 
     if override_payload is None:
         stage4_result = await stage4(question, stage1b_result, stage2_result, enable_literature)
@@ -1230,7 +1197,7 @@ async def stage4_flow(
     )
     if inspect.isawaitable(artifact_result):
         await artifact_result
-    web = _web_payload("stage-4", stage4_result, run_id)
+    web = _web_payload("stage-4", stage4_result, code)
     logger.info(
         "Stage 4 complete: parameters=%d likelihoods=%d priors=%d validation_ok=%s model_built=%s",
         len(model_spec.get("parameters", [])),
@@ -1239,7 +1206,7 @@ async def stage4_flow(
         validation.get("is_valid", False),
         model_info.get("model_built", False),
     )
-    return _finalize_stage_state("stage-4", stage4_result, web, run_id)
+    return _finalize_stage_state("stage-4", stage4_result, web, code)
 
 
 @flow(name="stage-4b-flow", persist_result=False)
@@ -1247,7 +1214,7 @@ def stage4b_flow(
     stage4_result: dict,
     stage2_result: dict,
     override_gates: bool,
-    run_id: str,
+    code: str,
 ) -> dict:
     logger.info("Stage 4b starting: checking parametric identifiability")
     stage4b_result = stage4b(stage4_result, stage2_result, None)
@@ -1261,12 +1228,12 @@ def stage4b_flow(
                 f"> {t_rule.get('n_moments')} moment conditions"
             )
         }
-    web = _web_payload("stage-4b", stage4b_result, run_id, extras=extras_4b)
+    web = _web_payload("stage-4b", stage4b_result, code, extras=extras_4b)
     state = _finalize_stage_state(
         "stage-4b",
         stage4b_result,
         web,
-        run_id,
+        code,
         gate=stage4b_gate_result,
     )
     t_rule = stage4b_gate_result["t_rule"]
@@ -1300,17 +1267,17 @@ def stage4b_flow(
 def stage5a_flow(
     stage4_result: dict,
     stage2_result: dict,
-    run_id: str,
+    code: str,
 ) -> dict:
     logger.info("Stage 5a starting: SVI preflight")
     result = stage5a(stage4_result, stage2_result)
-    web = _web_payload("stage-5a", result, run_id)
+    web = _web_payload("stage-5a", result, code)
     logger.info(
         "Stage 5a complete: svi_converged=%s outcome=%s",
         web.get("svi_diagnostics") is not None,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-5a", result, web, run_id)
+    return _finalize_stage_state("stage-5a", result, web, code)
 
 
 @flow(name="stage-5b-flow", persist_result=False)
@@ -1319,15 +1286,15 @@ def stage5b_flow(
     stage1b_result: dict,
     stage2_result: dict,
     inference_method: str | None,
-    run_id: str,
+    code: str,
 ) -> dict:
     logger.info("Stage 5b starting: fitting model and running diagnostics")
     stage5b_result = stage5b(stage4_result, stage1b_result, stage2_result, inference_method)
     fitted_result = stage5b_result.pop("_fitted_result")
     stage5b_result["_fitted_result_path"] = _save_pickle(
-        fitted_result, run_id, "stage5b-fitted-result.pkl"
+        fitted_result, code, "stage5b-fitted-result.pkl"
     )
-    web = _web_payload("stage-5b", stage5b_result, run_id)
+    web = _web_payload("stage-5b", stage5b_result, code)
     ps_list = web.get("power_scaling", [])
     ps_issues = sum(
         1
@@ -1342,7 +1309,7 @@ def stage5b_flow(
         ppc_warnings,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-5b", stage5b_result, web, run_id)
+    return _finalize_stage_state("stage-5b", stage5b_result, web, code)
 
 
 @flow(name="stage-6-flow", persist_result=False)
@@ -1351,11 +1318,11 @@ def stage6_flow(
     stage1a_result: dict,
     stage1b_result: dict,
     stage1b_gate_result: dict,
-    run_id: str,
+    code: str,
 ) -> dict:
     logger.info("Stage 6 starting: estimating intervention effects")
     stage6_result = stage6(stage5b_result, stage1a_result, stage1b_result, stage1b_gate_result)
-    web = _web_payload("stage-6", stage6_result, run_id)
+    web = _web_payload("stage-6", stage6_result, code)
     intervention_results = web.get("intervention_results", [])
     warning_count = sum(
         1
@@ -1370,4 +1337,4 @@ def stage6_flow(
         warning_count,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-6", stage6_result, web, run_id)
+    return _finalize_stage_state("stage-6", stage6_result, web, code)

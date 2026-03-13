@@ -13,7 +13,7 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.data import RAW_DIR
+from causal_ssm_agent.utils.data import input_dir
 from causal_ssm_agent.utils.llm import LLMStageContext
 
 from .. import get_prefect_logger
@@ -22,12 +22,12 @@ from .stage0_ingest import IngestionResult, run_agentic_ingestion
 logger = get_prefect_logger(__name__)
 
 
-def _find_raw_input(user_id: str) -> Path:
-    """Find the raw input file for a user.
+def _find_raw_input(code: str) -> Path:
+    """Find the raw input file for a session code.
 
-    Searches data/raw/<user_id>/ for the most recent uploaded file.
+    Searches data/{code}/input/ for the most recent uploaded file.
     """
-    user_dir = RAW_DIR / user_id
+    user_dir = input_dir(code)
     if not user_dir.is_dir():
         raise FileNotFoundError(f"No raw data directory: {user_dir}")
 
@@ -63,20 +63,20 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
 
 
 @task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
-async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
+async def agentic_ingest(code: str = "test_user") -> IngestionResult:
     """Ingest raw data using an LLM agent.
 
-    Finds the most recent file in data/raw/<user_id>/, prepares it in a
+    Finds the most recent file in data/{code}/input/, prepares it in a
     temporary directory, and runs the agentic ingestion loop to produce a
     Polars DataFrame.
 
     Args:
-        user_id: User subdirectory under data/raw/
+        code: Session code (directory under data/)
 
     Returns:
         IngestionResult with DataFrame, source label, and column descriptions.
     """
-    raw_path = _find_raw_input(user_id)
+    raw_path = _find_raw_input(code)
     logger.info("Ingesting %s from %s/", raw_path.name, raw_path.parent.name)
 
     config = get_config()

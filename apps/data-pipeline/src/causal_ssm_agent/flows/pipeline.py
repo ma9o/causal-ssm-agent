@@ -18,11 +18,10 @@ from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
-from causal_ssm_agent.utils.data import load_query
+from causal_ssm_agent.utils.data import DATA_DIR, runs_dir
 
 logger = get_prefect_logger(__name__)
 
-RESULT_STORAGE = Path("results")
 STAGE_SEQUENCE = (
     "stage-0",
     "stage-1a",
@@ -68,18 +67,13 @@ def _filter_stage_overrides(stage_overrides: dict[str, dict] | None) -> dict[str
 
 def _resolve_stage_window(
     *,
-    resume_run_id: str | None,
     start_stage: str | None,
     end_stage: str | None,
 ) -> tuple[str, int, str, int]:
     if start_stage is None:
-        if resume_run_id:
-            raise ValueError("resume_run_id requires start_stage")
         start_stage = STAGE_SEQUENCE[0]
 
     start_idx = _stage_idx(start_stage)
-    if resume_run_id is None and start_idx > 0:
-        raise ValueError("start_stage requires resume_run_id when skipping earlier stages")
 
     resolved_end_stage = end_stage or STAGE_SEQUENCE[-1]
     end_idx = _stage_idx(resolved_end_stage)
@@ -91,25 +85,35 @@ def _resolve_stage_window(
     return start_stage, start_idx, resolved_end_stage, end_idx
 
 
-def _load_question_for_window(
+def _resolve_question(
     *,
     query: str | None,
-    query_file: str | None,
+    code: str,
     start_idx: int,
     end_idx: int,
 ) -> str | None:
+    """Resolve the research question, materializing it to disk.
+
+    On a fresh run the caller passes ``query`` (raw text from the web UI).
+    The text is written to ``data/{code}/input/query.txt`` so that future
+    resume runs can pick it up automatically without re-supplying it.
+
+    On a resume run ``query`` is typically None; the function reads from the
+    previously-materialized file instead.
+    """
+    query_path = DATA_DIR / code / "query.txt"
     requires_question = any(
         stage_id in QUESTION_STAGES for stage_id in STAGE_SEQUENCE[start_idx : end_idx + 1]
     )
     if query:
-        return query.strip()
-    if query_file:
-        return load_query(query_file)
+        question = query.strip()
+        query_path.parent.mkdir(parents=True, exist_ok=True)
+        query_path.write_text(question)
+        return question
+    if query_path.exists():
+        return query_path.read_text().strip()
     if requires_question:
-        raise ValueError(
-            "A query is required when running stages 1a, 1b, 2, or 4. "
-            "Provide either 'query' or 'query_file'."
-        )
+        raise ValueError("A query is required when running stages 1a, 1b, 2, or 4.")
     return None
 
 
@@ -129,7 +133,7 @@ def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
 
 
 def _emit_stage_progress_event(
-    run_id: str,
+    prefect_run_id: str,
     stage_id: str,
     status: str,
     *,
@@ -147,16 +151,16 @@ def _emit_stage_progress_event(
     emit_event(
         event=f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}",
         resource={
-            "prefect.resource.id": f"prefect.flow-run.{run_id}",
-            "prefect.resource.name": run_id,
+            "prefect.resource.id": f"prefect.flow-run.{prefect_run_id}",
+            "prefect.resource.name": prefect_run_id,
         },
         payload=payload,
     )
 
 
-def _partial_pipeline_result(run_id: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
+def _partial_pipeline_result(code: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
     return {
-        "run_id": run_id,
+        "code": code,
         "final_stage": stage_id,
         "stage": state["web"],
     }
@@ -182,18 +186,16 @@ def _raise_if_restored_gate_failed(stage_id: str, state: dict[str, Any]) -> None
 
 @flow(
     persist_result=True,
-    result_storage=RESULT_STORAGE,
+    result_storage=Path(".prefect-cache"),
     result_serializer="pickle",
 )
 async def causal_inference_pipeline(
-    query_file: str | None = None,
-    user_id: str = "test_user",
+    code: str = "test_user",
     inference_method: str | None = None,
     enable_literature: bool | None = None,
     override_gates: bool | None = None,
     query: str | None = None,
     stage_overrides: dict[str, dict] | None = None,
-    resume_run_id: str | None = None,
     start_stage: str | None = None,
     end_stage: str | None = None,
     openrouter_api_key: str | None = None,
@@ -201,19 +203,17 @@ async def causal_inference_pipeline(
     """Run the causal pipeline end to end.
 
     Args:
-        query_file: Filename in data/queries/ (e.g., 'procrastination-patterns')
-        user_id: User subdirectory under data/raw/ (default: test_user)
+        code: Session code — names the workspace under data/{code}/
         inference_method: Override inference method (e.g. "auto", "svi", "nuts")
         enable_literature: Override literature search
         override_gates: Continue past stage failures instead of halting
-        query: Raw query text (used by web UI). Takes precedence over query_file.
+        query: Raw query text (used by web UI). Materialized to
+            ``data/{code}/input/query.txt`` so resume runs auto-resolve it.
         stage_overrides: Dict mapping editable stage ids (e.g. "stage-1a") to
             replacement payloads. The pipeline skips that stage's computation and
             resumes execution from the overridden output.
-        resume_run_id: Prior run id to restore upstream stage snapshots from.
-            Required when start_stage skips earlier stages.
-        start_stage: First stage to execute in this run. Required when resume_run_id
-            is set. Earlier stages are restored from ``resume_run_id``.
+        start_stage: First stage to execute in this run. Earlier stages are
+            loaded from existing artifacts in data/{code}/run/.
         end_stage: Final stage to execute in this run. Useful for stage-specific
             development replays such as rerunning only stage 2.
         openrouter_api_key: User-provided OpenRouter API key (BYOK). Overrides the
@@ -231,13 +231,12 @@ async def causal_inference_pipeline(
     config = get_config()
     supported_overrides = _filter_stage_overrides(stage_overrides)
     effective_start_stage, start_idx, effective_end_stage, end_idx = _resolve_stage_window(
-        resume_run_id=resume_run_id,
         start_stage=start_stage,
         end_stage=end_stage,
     )
-    question = _load_question_for_window(
+    question = _resolve_question(
         query=query,
-        query_file=query_file,
+        code=code,
         start_idx=start_idx,
         end_idx=end_idx,
     )
@@ -252,14 +251,13 @@ async def causal_inference_pipeline(
     )
 
     logger.info(
-        "Pipeline starting: user_id=%s source=%s inference_method=%s literature=%s "
-        "override_gates=%s resume_run_id=%s start_stage=%s end_stage=%s stage_overrides=%s",
-        user_id,
-        "raw text" if query else (query_file or "resume/no-query"),
+        "Pipeline starting: code=%s source=%s inference_method=%s literature=%s "
+        "override_gates=%s start_stage=%s end_stage=%s stage_overrides=%s",
+        code,
+        "raw text" if query else "resume/no-query",
         inference_method or "config default",
         lit_enabled,
         gates_overridden,
-        resume_run_id,
         effective_start_stage,
         effective_end_stage,
         sorted(supported_overrides),
@@ -269,28 +267,25 @@ async def causal_inference_pipeline(
 
     from prefect.context import get_run_context
 
-    root_run_id = str(get_run_context().flow_run.id)
-    run_dir = RESULT_STORAGE / root_run_id
+    prefect_run_id = str(get_run_context().flow_run.id)
+
+    # Ensure the run directory exists
+    run_dir = runs_dir(code)
     run_dir.mkdir(parents=True, exist_ok=True)
+
     stage_states: dict[str, dict[str, Any]] = {}
 
     def _restore_stage(stage_id: str) -> dict[str, Any]:
-        if resume_run_id is None:
-            raise ValueError(f"Cannot restore {stage_id} without resume_run_id")
-        restored = dag.restore_stage_state(
-            stage_id,
-            dag.load_stage_state(resume_run_id, stage_id, prior_states=stage_states),
-            root_run_id,
-        )
+        restored = dag.load_stage_state(code, stage_id, prior_states=stage_states)
         stage_states[stage_id] = restored
-        _emit_stage_progress_event(root_run_id, stage_id, "completed")
+        _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
         _raise_if_restored_gate_failed(stage_id, restored)
         return restored
 
     async def _run_stage(stage_id: str, runner: Callable[[], Any]) -> dict[str, Any]:
         logger.info(">>> %s starting", stage_id)
         t0 = time.monotonic()
-        _emit_stage_progress_event(root_run_id, stage_id, "running")
+        _emit_stage_progress_event(prefect_run_id, stage_id, "running")
         try:
             stage_state = runner()
             if isawaitable(stage_state):
@@ -299,7 +294,7 @@ async def causal_inference_pipeline(
             elapsed = time.monotonic() - t0
             logger.error(">>> %s FAILED after %.1fs: %s", stage_id, elapsed, exc)
             _emit_stage_progress_event(
-                root_run_id,
+                prefect_run_id,
                 stage_id,
                 "failed",
                 error={"type": "execution_error", "message": str(exc)},
@@ -310,7 +305,7 @@ async def causal_inference_pipeline(
         web_data = stage_state.get("web", {}) if isinstance(stage_state, dict) else {}
         stage_outcome = web_data.get("outcome")
         logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
-        _emit_stage_progress_event(root_run_id, stage_id, "completed", outcome=stage_outcome)
+        _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
         return stage_state
 
     def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
@@ -322,13 +317,13 @@ async def causal_inference_pipeline(
             logger.info("Pipeline complete: run finished successfully")
             return {**stage_states["stage-5b"]["web"], **stage_states["stage-6"]["web"]}
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
-        return _partial_pipeline_result(root_run_id, stage_id, stage_states[stage_id])
+        return _partial_pipeline_result(code, stage_id, stage_states[stage_id])
 
     stage0_idx = _stage_idx("stage-0")
     if start_idx > stage0_idx:
         stage0_state = _restore_stage("stage-0")
     else:
-        stage0_state = await _run_stage("stage-0", lambda: dag.stage0_flow(user_id, root_run_id))
+        stage0_state = await _run_stage("stage-0", lambda: dag.stage0_flow(code))
         stage_states["stage-0"] = stage0_state
     partial = _maybe_finish("stage-0")
     if partial is not None:
@@ -345,7 +340,7 @@ async def causal_inference_pipeline(
             "stage-1a",
             lambda: dag.stage1a_flow(
                 question,
-                root_run_id,
+                code,
                 override_payload=supported_overrides.get("stage-1a"),
             ),
         )
@@ -368,7 +363,7 @@ async def causal_inference_pipeline(
                 stage0_result,
                 stage1a_result,
                 gates_overridden,
-                root_run_id,
+                code,
                 override_payload=supported_overrides.get("stage-1b"),
             ),
         )
@@ -387,7 +382,7 @@ async def causal_inference_pipeline(
             raise ValueError("Question is required to execute stage-2")
         stage2_state = await _run_stage(
             "stage-2",
-            lambda: dag.stage2_flow(question, stage0_result, stage1b_result, root_run_id),
+            lambda: dag.stage2_flow(question, stage0_result, stage1b_result, code, prefect_run_id),
         )
         stage_states["stage-2"] = stage2_state
     partial = _maybe_finish("stage-2")
@@ -401,7 +396,7 @@ async def causal_inference_pipeline(
     else:
         stage3_state = await _run_stage(
             "stage-3",
-            lambda: dag.stage3_flow(stage1b_result, stage2_result, root_run_id),
+            lambda: dag.stage3_flow(stage1b_result, stage2_result, code),
         )
         stage_states["stage-3"] = stage3_state
     partial = _maybe_finish("stage-3")
@@ -421,7 +416,7 @@ async def causal_inference_pipeline(
                 stage1b_result,
                 stage2_result,
                 lit_enabled,
-                root_run_id,
+                code,
                 override_payload=supported_overrides.get("stage-4"),
             ),
         )
@@ -436,7 +431,7 @@ async def causal_inference_pipeline(
         stage4b_state = _restore_stage("stage-4b")
     else:
         stage4b_state = dag.stage4b_flow(
-            stage4_result, stage2_result, gates_overridden, root_run_id
+            stage4_result, stage2_result, gates_overridden, code
         )
         stage_states["stage-4b"] = stage4b_state
     partial = _maybe_finish("stage-4b")
@@ -450,7 +445,7 @@ async def causal_inference_pipeline(
         stage5a_state = dag.stage5a_flow(
             stage4_result,
             stage2_result,
-            root_run_id,
+            code,
         )
         stage_states["stage-5a"] = stage5a_state
     partial = _maybe_finish("stage-5a")
@@ -466,7 +461,7 @@ async def causal_inference_pipeline(
             stage1b_result,
             stage2_result,
             inference_method,
-            root_run_id,
+            code,
         )
         stage_states["stage-5b"] = stage5b_state
     partial = _maybe_finish("stage-5b")
@@ -479,7 +474,7 @@ async def causal_inference_pipeline(
         stage1a_result,
         stage1b_result,
         stage1b_gate,
-        root_run_id,
+        code,
     )
     stage_states["stage-6"] = stage6_state
     partial = _maybe_finish("stage-6")
