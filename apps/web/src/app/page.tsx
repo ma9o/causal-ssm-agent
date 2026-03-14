@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { getSession } from "@/lib/api/analysis";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
@@ -125,7 +126,7 @@ export default function LandingPage() {
       await uploadFile(file, userId);
 
       const deploymentId = await getDeploymentId();
-      const flowRunId = await triggerRun(deploymentId, {
+      const rootFlowRunId = await triggerRun(deploymentId, {
         query: question,
         user_id: userId,
         override_gates: overrideGates || undefined,
@@ -135,10 +136,10 @@ export default function LandingPage() {
       await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, question, flowRunId }),
+        body: JSON.stringify({ userId, question, rootFlowRunId }),
       });
 
-      router.push(`/analysis/${userId}?flowRunId=${flowRunId}`);
+      router.push(`/analysis/${userId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
@@ -161,15 +162,13 @@ export default function LandingPage() {
     setResumeError(null);
 
     try {
-      const res = await fetch(`/api/sessions/${userId}`);
-      if (!res.ok) {
+      const session = await getSession(userId);
+      if (session.rootFlowRunIds.length === 0) {
         setResumeError("No analysis found for that user ID.");
         setIsResuming(false);
         return;
       }
-      const session = await res.json();
-      const flowRunId = session.flowRunId;
-      router.push(`/analysis/${userId}${flowRunId ? `?flowRunId=${flowRunId}` : ""}`);
+      router.push(`/analysis/${userId}`);
     } catch {
       setResumeError("Failed to look up session.");
       setIsResuming(false);

@@ -1,9 +1,7 @@
 "use client";
 
-import type { StageId } from "@causal-ssm/api-types";
-import { STAGES } from "@causal-ssm/api-types";
 import { useQuery } from "@tanstack/react-query";
-import type { StageRunStatus } from "./use-run-events";
+import type { StageRunStatus } from "./pipeline-progress";
 
 export interface PrefectLogEntry {
   id: string;
@@ -14,15 +12,6 @@ export interface PrefectLogEntry {
   timestamp: string;
   flow_run_id: string;
   task_run_id: string | null;
-}
-
-interface PrefectTaskRun {
-  id: string;
-  name: string;
-}
-
-interface PrefectFlowRun {
-  id: string;
 }
 
 const LOG_LEVEL_LABELS: Record<number, string> = {
@@ -37,55 +26,16 @@ export function logLevelLabel(level: number): string {
   return LOG_LEVEL_LABELS[level] ?? `L${level}`;
 }
 
-export async function fetchStageFlowRunId(
-  flowRunId: string,
-  stageId: StageId,
-): Promise<string | null> {
-  const stage = STAGES.find((s) => s.id === stageId);
-  if (!stage) return null;
-
-  const parentTaskRunsRes = await fetch("/prefect/task_runs/filter", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      flow_runs: { id: { any_: [flowRunId] } },
-      sort: "EXPECTED_START_TIME_DESC",
-    }),
-  });
-  if (!parentTaskRunsRes.ok) return null;
-
-  const taskRuns: PrefectTaskRun[] = await parentTaskRunsRes.json();
-  const parentTaskRun = taskRuns.find(
-    (candidate) => candidate.name === stage.prefectFlowName,
-  );
-  if (!parentTaskRun) return null;
-
-  const flowRunsRes = await fetch("/prefect/flow_runs/filter", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      flows: { name: { any_: [stage.prefectFlowName] } },
-      flow_runs: { parent_task_run_id: { any_: [parentTaskRun.id] } },
-      sort: "START_TIME_DESC",
-      limit: 1,
-    }),
-  });
-  if (!flowRunsRes.ok) return null;
-
-  const flowRuns: PrefectFlowRun[] = await flowRunsRes.json();
-  return flowRuns[0]?.id ?? null;
-}
-
 async function fetchLogs(
-  stageFlowRunId: string | null,
+  stageSubflowRunId: string | null,
 ): Promise<PrefectLogEntry[]> {
-  if (!stageFlowRunId) return [];
+  if (!stageSubflowRunId) return [];
 
   const res = await fetch("/prefect/logs/filter", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      logs: { flow_run_id: { any_: [stageFlowRunId] } },
+      logs: { flow_run_id: { any_: [stageSubflowRunId] } },
       sort: "TIMESTAMP_ASC",
       limit: 200,
     }),
@@ -94,20 +44,17 @@ async function fetchLogs(
   return res.json();
 }
 
-export function useStageLogs(userId: string, flowRunId: string | null, stageId: StageId, status: StageRunStatus) {
+export function useStageLogs(
+  userId: string,
+  stageSubflowRunId: string | null,
+  status: StageRunStatus,
+) {
   const isActive = status !== "pending";
 
-  const { data: stageFlowRunId } = useQuery({
-    queryKey: ["pipeline", userId, "stageFlowRunId", stageId],
-    queryFn: () => fetchStageFlowRunId(flowRunId!, stageId),
-    enabled: isActive && !!flowRunId,
-    staleTime: Infinity,
-  });
-
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", userId, "logs", stageId, stageFlowRunId],
-    queryFn: () => fetchLogs(stageFlowRunId ?? null),
-    enabled: isActive && stageFlowRunId !== undefined,
+    queryKey: ["pipeline", userId, "logs", stageSubflowRunId],
+    queryFn: () => fetchLogs(stageSubflowRunId),
+    enabled: isActive && !!stageSubflowRunId,
     refetchInterval: status === "running" ? 3000 : false,
     staleTime: status === "running" ? 1000 : Infinity,
   });

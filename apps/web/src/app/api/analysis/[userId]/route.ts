@@ -1,7 +1,6 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
-import type { SessionResponse } from "@/lib/api/analysis";
-import { readQuestion, readSessions } from "../_shared";
+import { buildAnalysisManifest } from "../_shared";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
@@ -17,16 +16,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ use
   }
 
   try {
-    const sessions = await readSessions();
-    const session = sessions[normalizedUserId];
-    if (session) {
-      const question = await readQuestion(normalizedUserId);
-      const response: SessionResponse = { ...session, question };
-      return NextResponse.json(response);
+    const manifest = await buildAnalysisManifest(normalizedUserId);
+    if (manifest) {
+      return NextResponse.json(manifest);
     }
   } catch {
     // Fall through
   }
 
-  return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  return NextResponse.json({ error: "Analysis manifest not found" }, { status: 404 });
 }

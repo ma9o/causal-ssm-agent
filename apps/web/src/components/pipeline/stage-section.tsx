@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { GateOverride, StageId, StageOutcome } from "@causal-ssm/api-types";
+import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
@@ -25,8 +25,7 @@ export function StageSection({
   loadingHint,
   runningContent,
   userId,
-  flowRunId,
-  stageId,
+  stageSubflowRunId,
 }: {
   id?: string;
   number: string;
@@ -42,8 +41,7 @@ export function StageSection({
   loadingHint?: string;
   runningContent?: ReactNode;
   userId?: string;
-  flowRunId?: string;
-  stageId?: StageId;
+  stageSubflowRunId?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -151,8 +149,12 @@ export function StageSection({
           </div>
         </motion.div>
       )}
-      {userId && stageId && status !== "pending" && (
-        <StageLogViewer userId={userId} flowRunId={flowRunId} stageId={stageId} status={status} />
+      {userId && status !== "pending" && (
+        <StageLogViewer
+          userId={userId}
+          stageSubflowRunId={stageSubflowRunId}
+          status={status}
+        />
       )}
     </motion.section>
   );

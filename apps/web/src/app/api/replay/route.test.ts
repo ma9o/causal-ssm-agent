@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../sessions/_shared", () => ({
   readSessions: vi.fn(),
+  getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
+  appendSessionRootFlowRunId: vi.fn((session, rootFlowRunId) => ({
+    createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
+    rootFlowRunIds: [...(session?.rootFlowRunIds ?? []), rootFlowRunId],
+  })),
   writeSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -25,11 +30,11 @@ describe("POST /api/replay", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("cancels the current flow run before starting the replay and stores the new flowRunId", async () => {
+  it("cancels the current flow run before starting the replay and appends the new run to the session lineage", async () => {
     vi.mocked(readSessions).mockResolvedValue({
       "user-123": {
         createdAt: "2026-03-13T10:00:00.000Z",
-        flowRunId: "old-run",
+        rootFlowRunIds: ["older-run", "old-run"],
       },
     });
 
@@ -71,7 +76,6 @@ describe("POST /api/replay", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       resumeFrom: "stage-1b",
-      flowRunId: "new-run",
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -108,7 +112,7 @@ describe("POST /api/replay", () => {
     expect(writeSessions).toHaveBeenCalledWith({
       "user-123": {
         createdAt: "2026-03-13T10:00:00.000Z",
-        flowRunId: "new-run",
+        rootFlowRunIds: ["older-run", "old-run", "new-run"],
       },
     });
   });
@@ -117,7 +121,7 @@ describe("POST /api/replay", () => {
     vi.mocked(readSessions).mockResolvedValue({
       "user-123": {
         createdAt: "2026-03-13T10:00:00.000Z",
-        flowRunId: "done-run",
+        rootFlowRunIds: ["done-run"],
       },
     });
 
@@ -152,6 +156,66 @@ describe("POST /api/replay", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(
       "http://localhost:4200/api/flow_runs/done-run/set_state",
       expect.anything(),
+    );
+  });
+
+  it("drops stale resume bounds from the previous run before creating the replay", async () => {
+    vi.mocked(readSessions).mockResolvedValue({
+      "user-123": {
+        createdAt: "2026-03-13T10:00:00.000Z",
+        rootFlowRunIds: ["resume-run"],
+      },
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "resume-run",
+          parameters: {
+            user_id: "user-123",
+            start_stage: "stage-4b",
+            end_stage: "stage-6",
+            stage_overrides: {
+              "stage-1a": { latent_model: { constructs: ["existing"] } },
+            },
+          },
+          state: { type: "COMPLETED", name: "Completed" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const response = await POST(
+      new Request("http://localhost/api/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: "user-123",
+          stageId: "stage-4",
+          stageData: { model_spec: { nodes: [] }, priors: {} },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:4200/api/deployments/dep-1/create_flow_run",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          parameters: {
+            user_id: "user-123",
+            stage_overrides: {
+              "stage-1a": { latent_model: { constructs: ["existing"] } },
+              "stage-4": { model_spec: { nodes: [] }, priors: {} },
+            },
+          },
+        }),
+      }),
     );
   });
 });

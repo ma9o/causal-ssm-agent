@@ -192,13 +192,13 @@ export function Stage2RunningView({
 export default function Stage2RunningContent({
   userId,
   stageStatus,
-  flowRunId,
+  stageSubflowRunId,
 }: {
   userId: string;
   stageStatus: StageRunStatus;
-  flowRunId?: string;
+  stageSubflowRunId?: string | null;
 }) {
-  const { workers, logs } = useStage2Workers(userId, flowRunId ?? null, stageStatus);
+  const { workers, logs } = useStage2Workers(userId, stageSubflowRunId ?? null, stageStatus);
   const rpm = useRpm(workers);
 
   return <Stage2RunningView workers={workers} logs={logs} rpm={rpm} />;

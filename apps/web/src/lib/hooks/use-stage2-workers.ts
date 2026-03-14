@@ -28,7 +28,7 @@ export interface Stage2WorkerProgress {
  */
 export function useStage2Workers(
   userId: string,
-  flowRunId: string | null,
+  stageSubflowRunId: string | null,
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
   const isActive = stageStatus === "running";
@@ -43,9 +43,9 @@ export function useStage2Workers(
 
   // Logs: still polled (Prefect has no log WebSocket)
   const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", userId, "stage2-logs"],
-    queryFn: () => fetchStage2Logs(flowRunId!),
-    enabled: isActive && workers.length > 0 && !!flowRunId,
+    queryKey: ["pipeline", userId, "stage2-logs", stageSubflowRunId],
+    queryFn: () => fetchStage2Logs(stageSubflowRunId),
+    enabled: isActive && workers.length > 0 && !!stageSubflowRunId,
     refetchInterval: 3000,
     staleTime: 1000,
   });
@@ -53,14 +53,12 @@ export function useStage2Workers(
   return { workers, logs };
 }
 
-async function fetchStage2Logs(flowRunId: string): Promise<PrefectLogEntry[]> {
+async function fetchStage2Logs(stageSubflowRunId: string | null): Promise<PrefectLogEntry[]> {
   // Find the stage-2 subflow run ID and all its nested flow runs,
   // then fetch logs from all of them (workers run in a nested extraction flow).
-  const { fetchStageFlowRunId } = await import("./use-stage-logs");
-  const subFlowRunId = await fetchStageFlowRunId(flowRunId, "stage-2");
-  if (!subFlowRunId) return [];
+  if (!stageSubflowRunId) return [];
 
-  const flowRunIds = [subFlowRunId];
+  const logFlowRunIds = [stageSubflowRunId];
 
   // Find nested flow runs (stage2-worker-extraction flow is a child)
   try {
@@ -68,13 +66,13 @@ async function fetchStage2Logs(flowRunId: string): Promise<PrefectLogEntry[]> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        flow_runs: { parent_flow_run_id: { any_: [subFlowRunId] } },
+        flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
         limit: 5,
       }),
     });
     if (childRes.ok) {
       const children: { id: string }[] = await childRes.json();
-      flowRunIds.push(...children.map((c) => c.id));
+      logFlowRunIds.push(...children.map((c) => c.id));
     }
   } catch {
     // Best-effort — still fetch logs from the parent flow
@@ -84,7 +82,7 @@ async function fetchStage2Logs(flowRunId: string): Promise<PrefectLogEntry[]> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      logs: { flow_run_id: { any_: flowRunIds } },
+      logs: { flow_run_id: { any_: logFlowRunIds } },
       sort: "TIMESTAMP_ASC",
       limit: 500,
     }),

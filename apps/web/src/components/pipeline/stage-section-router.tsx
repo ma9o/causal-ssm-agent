@@ -1,5 +1,6 @@
 "use client";
 
+import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ReplayButton } from "./replay-button";
@@ -137,13 +138,13 @@ export function StageSectionRouter({
   userId,
   status,
   timing,
-  flowRunId,
+  stageRun,
 }: {
   stage: StageMeta;
   userId: string;
   status: StageRunStatus;
   timing?: StageTiming;
-  flowRunId?: string;
+  stageRun?: AnalysisStageRun;
 }) {
   const queryClient = useQueryClient();
   const isCompleted = status === "completed";
@@ -191,13 +192,16 @@ export function StageSectionRouter({
       runningContent={
         isStage2Running ? (
           <Suspense fallback={null}>
-            <Stage2RunningContent userId={userId} stageStatus={status} flowRunId={flowRunId} />
+            <Stage2RunningContent
+              userId={userId}
+              stageStatus={status}
+              stageSubflowRunId={stageRun?.stageSubflowRunId ?? null}
+            />
           </Suspense>
         ) : undefined
       }
       userId={userId}
-      flowRunId={flowRunId}
-      stageId={stage.id}
+      stageSubflowRunId={stageRun?.stageSubflowRunId ?? null}
     >
       {isCompleted && (
         <>

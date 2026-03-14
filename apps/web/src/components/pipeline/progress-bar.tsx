@@ -2,7 +2,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
-import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,23 +13,14 @@ function formatUserIdBadge(userId: string): string {
 
 export function PipelineProgressBar({
   progress,
+  question,
   userId,
 }: {
   progress: PipelineProgress | undefined;
+  question?: string;
   userId: string;
 }) {
   const [copied, setCopied] = useState(false);
-
-  const { data: session } = useQuery<{ question?: string }>({
-    queryKey: ["session", userId],
-    queryFn: async () => {
-      const res = await fetch(`/api/sessions/${userId}`);
-      if (!res.ok) throw new Error("Session not found");
-      return res.json();
-    },
-    enabled: !!userId,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
 
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const handleCopy = useCallback(() => {
@@ -93,8 +83,8 @@ export function PipelineProgressBar({
             )}
           </div>
         </div>
-        {session?.question && (
-          <p className="text-sm text-muted-foreground mb-1.5">{session.question}</p>
+        {question && (
+          <p className="text-sm text-muted-foreground mb-1.5">{question}</p>
         )}
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {

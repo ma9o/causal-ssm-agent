@@ -61,10 +61,13 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   └── tools/                 # CLI tools + UIs
 │   └── web/                       # Next.js frontend
 │       └── src/
-│           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes
+│           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes (+ colocated route tests)
+│           │   └── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
 │           └── lib/               # API clients, hooks, user-id helpers, types, utilities
-│               └── hooks/         # Prefect progress state, event streaming, stage telemetry
+│               ├── api/analysis.ts  # Shared typed contracts + client helpers for sessions, replay, and analysis manifests
+│               ├── hooks/         # Prefect progress state, event streaming, stage telemetry
+│               └── root-flow-runs.ts  # Shared root Prefect run lineage helpers used by sessions + manifest hydration
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
 │   └── typescript-config/         # Shared TS config

@@ -2,6 +2,7 @@
 
 import { BackToTop } from "@/components/back-to-top";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AnalysisStageRuns } from "@/lib/api/analysis";
 import { useKeyboardNav } from "@/lib/hooks/use-keyboard-nav";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
@@ -14,11 +15,13 @@ import { StageSectionRouter } from "./stage-section-router";
 
 export function AnalysisFeed({
   userId,
-  flowRunId,
+  stageRuns,
+  question,
   progress,
 }: {
   userId: string;
-  flowRunId?: string;
+  stageRuns?: AnalysisStageRuns;
+  question?: string;
   progress: PipelineProgress | undefined;
 }) {
   const visibleStageIds = useMemo(
@@ -50,14 +53,14 @@ export function AnalysisFeed({
 
   return (
     <div>
-      <PipelineProgressBar progress={progress} userId={userId} />
+      <PipelineProgressBar progress={progress} question={question} userId={userId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
         {visibleStages.map((stage) => (
           <StageSectionRouter
             key={stage.id}
             stage={stage}
             userId={userId}
-            flowRunId={flowRunId}
+            stageRun={stageRuns?.[stage.id]}
             status={progress.stages[stage.id]}
             timing={progress.timings[stage.id]}
           />

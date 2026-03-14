@@ -38,7 +38,7 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
       </div>
 
       {errors.length > 0 && (
-        <div className="space-y-1">
+        <div className="max-h-40 overflow-y-auto space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2">
           {errors.map((w) => (
             <p key={w.worker_id} className="text-xs text-destructive">
               Worker {w.worker_id}: {w.error}

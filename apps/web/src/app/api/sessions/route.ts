@@ -1,7 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { NextResponse } from "next/server";
-import { DATA_DIR, readSessions, writeSessions } from "./_shared";
+import {
+  DATA_DIR,
+  appendSessionRootFlowRunId,
+  normalizeSession,
+  readSessions,
+  writeSessions,
+} from "./_shared";
 
 const MAX_USER_ID_LENGTH = 200;
 const MAX_QUESTION_LENGTH = 2000;
@@ -22,10 +28,10 @@ function parseUserId(userId: string): string | null {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { userId, question, flowRunId } = body as {
+  const { userId, question, rootFlowRunId } = body as {
     userId?: string;
     question?: string;
-    flowRunId?: string;
+    rootFlowRunId?: string;
   };
 
   if (!userId || !question) {
@@ -47,10 +53,11 @@ export async function POST(request: Request) {
 
   // Store session metadata (without question — it lives on disk)
   const sessions = await readSessions();
-  sessions[normalizedUserId] = {
-    createdAt: new Date().toISOString(),
-    ...(flowRunId ? { flowRunId } : {}),
-  };
+  const existingSession = sessions[normalizedUserId];
+
+  sessions[normalizedUserId] = rootFlowRunId
+    ? appendSessionRootFlowRunId(existingSession, rootFlowRunId)
+    : normalizeSession(existingSession);
 
   await writeSessions(sessions);
   return NextResponse.json({ ok: true });
