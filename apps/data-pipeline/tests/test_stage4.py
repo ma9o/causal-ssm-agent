@@ -56,7 +56,7 @@ def simple_model_spec() -> dict:
             {
                 "name": "rho_mood",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) coefficient for mood",
                 "search_context": "mood autocorrelation daily",
             },
@@ -186,7 +186,7 @@ class TestPriorPredictiveValidation:
                 {
                     "name": "rho_x",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "AR coeff",
                     "search_context": "",
                 }
@@ -387,14 +387,14 @@ class TestSSMPriorConversion:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -435,7 +435,7 @@ class TestSSMPriorConversion:
                 {
                     "name": "rho_heart_rate",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -469,7 +469,7 @@ class TestSSMPriorConversion:
         assert abs(mu_val - expected_mu) < 0.1
 
     def test_beta_prior_dt_to_ct_transform(self):
-        """FIXED_EFFECT beta priors are converted from DT to CT via exact logm."""
+        """FIXED_EFFECT beta priors are converted via element-wise beta/dt scaling."""
         from causal_ssm_agent.models.ssm import SSMSpec
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
@@ -492,14 +492,14 @@ class TestSSMPriorConversion:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -528,15 +528,13 @@ class TestSSMPriorConversion:
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
         ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
-        # All params at dt=1.0 (daily default) → uniform intervals → exact logm.
-        # Phi = [[0.5, 0.3], [0, 0.5]] (repeated eigenvalue 0.5).
-        # logm off-diag = c/a = 0.3/0.5 = 0.6; A_CT = logm(Phi)/dt = 0.6
+        # Daily default: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu = ssm_priors.drift_offdiag["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
-        assert abs(mu_val - 0.6) < 0.01
+        assert abs(mu_val - 0.3) < 0.01
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
-        """FIXED_EFFECT beta transform uses effect construct's granularity with exact logm."""
+        """FIXED_EFFECT beta transform uses effect construct's granularity."""
         from causal_ssm_agent.models.ssm import SSMSpec
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
@@ -554,14 +552,14 @@ class TestSSMPriorConversion:
                 {
                     "name": "rho_heart_rate",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_activity",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -608,11 +606,9 @@ class TestSSMPriorConversion:
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
         ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
-        # All params at hourly dt (1/24) → uniform intervals → exact logm.
-        # Phi = [[0.5, 0.3], [0, 0.5]] (repeated eigenvalue 0.5).
-        # logm off-diag = c/a = 0.3/0.5 = 0.6; A_CT = 0.6 / (1/24) = 14.4
+        # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0
-        expected_mu = 0.6 / dt_hourly  # 14.4
+        expected_mu = 0.3 / dt_hourly  # 7.2
         mu = ssm_priors.drift_offdiag["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - expected_mu) < 0.5
@@ -648,7 +644,7 @@ class TestTrialCompile:
                 {
                     "name": "rho_x",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "test",
                     "search_context": "",
                 }
@@ -679,7 +675,7 @@ class TestTrialCompile:
                 {
                     "name": "rho_x",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "test",
                     "search_context": "",
                 },
@@ -744,7 +740,7 @@ class TestTrialCompile:
                 {
                     "name": "rho_outcome",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "test",
                     "search_context": "",
                 }

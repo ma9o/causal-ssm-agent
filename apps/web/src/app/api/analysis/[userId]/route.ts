@@ -16,7 +16,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ use
   }
 
   try {
-    const manifest = await buildAnalysisManifest(normalizedUserId);
+    const url = new URL(_request.url);
+    const bootstrapRootFlowRunIds = url.searchParams.getAll("rootFlowRunId").filter(Boolean);
+    const manifest = await buildAnalysisManifest(normalizedUserId, bootstrapRootFlowRunIds);
     if (manifest) {
       return NextResponse.json(manifest);
     }

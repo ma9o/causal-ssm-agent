@@ -89,7 +89,6 @@ def _build_trace(all_messages: list[dict[str, Any]], output: dict[str, Any]) -> 
     )
 
 
-
 # ---------------------------------------------------------------------------
 # Type aliases for generate functions (unified)
 # ---------------------------------------------------------------------------
@@ -427,7 +426,9 @@ def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
     parts.append(f"time={elapsed:.1f}s")
     tool_calls = output["message"].get("tool_calls") or []
     if tool_calls:
-        names = [call.get("function", {}).get("name") or call.get("name", "?") for call in tool_calls]
+        names = [
+            call.get("function", {}).get("name") or call.get("name", "?") for call in tool_calls
+        ]
         parts.append(f"tool_calls={names}")
     else:
         parts.append(f"stop={output.get('stop_reason') or 'end_turn'}")
@@ -810,7 +811,9 @@ class LLMStageContext:
     async def __aenter__(self) -> "LLMStageContext":
         return self
 
-    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+    async def __aexit__(
+        self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object
+    ) -> bool:
         if exc_type is not None:
             elapsed = time.monotonic() - self._t0
             logger.error("[%s] failed after %.1fs: %s", self.stage_id, elapsed, exc_val)

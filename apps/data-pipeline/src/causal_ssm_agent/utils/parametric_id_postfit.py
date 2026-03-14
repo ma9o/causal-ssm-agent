@@ -29,6 +29,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("causal_ssm_agent.utils.parametric_id")
 
 
+def _sum_sample_terms(values: jnp.ndarray) -> jnp.ndarray:
+    """Sum event terms while preserving the leading sample axis."""
+    arr = jnp.asarray(values)
+    if arr.ndim <= 1:
+        return arr
+    return arr.reshape((arr.shape[0], -1)).sum(axis=1)
+
+
 @dataclass
 class PowerScalingResult:
     """Results from post-fit power-scaling sensitivity analysis."""
@@ -88,23 +96,34 @@ def power_scaling_sensitivity(
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     _, unravel_fn = ravel_pytree(example_unc)
 
-    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
+    log_lik_fn, _log_prior_unc_fn = _build_eval_fns(
         model, observations, times, site_info, unravel_fn, backend
     )
 
     param_names = sorted(site_info.keys())
+    parameter_bindings = list(getattr(model, "parameter_bindings", []) or [])
+    bindings_by_site = {
+        (str(entry["site_name"]), int(entry["flat_index"])): str(entry["parameter"])
+        for entry in parameter_bindings
+    }
 
     # 2. Extract posterior samples -> unconstrained flat vectors
     samples = result.get_samples()
     n_samples = next(iter(samples.values())).shape[0]
 
+    constrained_by_site: dict[str, jnp.ndarray] = {}
+    unconstrained_by_site: dict[str, jnp.ndarray] = {}
     flat_samples = []
     for i in range(n_samples):
         parts = []
         for name in param_names:
             if name in samples:
-                con_val = samples[name][i]
-                unc_val = site_info[name]["transform"].inv(con_val)
+                if name not in constrained_by_site:
+                    constrained_by_site[name] = jnp.asarray(samples[name])
+                    unconstrained_by_site[name] = jax.vmap(site_info[name]["transform"].inv)(
+                        constrained_by_site[name]
+                    )
+                unc_val = unconstrained_by_site[name][i]
                 parts.append(unc_val.reshape(-1))
         if parts:
             flat_samples.append(jnp.concatenate(parts))
@@ -120,29 +139,18 @@ def power_scaling_sensitivity(
 
     # 3. Evaluate log-prior and log-likelihood for each sample
     batch_log_lik = jax.vmap(log_lik_fn)
-    batch_log_prior = jax.vmap(log_prior_unc_fn)
 
     # Chunk to avoid OOM
     chunk_size = 32
     log_liks_parts = []
-    log_priors_parts = []
     for start in range(0, n_samples, chunk_size):
         chunk = z_samples[start : start + chunk_size]
         log_liks_parts.append(batch_log_lik(chunk))
-        log_priors_parts.append(batch_log_prior(chunk))
 
     log_liks = jnp.concatenate(log_liks_parts)
-    log_priors = jnp.concatenate(log_priors_parts)
 
-    # 4. Power-scaling: compute weighted means under perturbed distributions
+    # 4. Power-scaling: use per-site prior factors and global likelihood weights.
     alpha = alpha_delta
-
-    # Prior perturbation weights: w_i propto exp(alpha * log_prior_i)
-    prior_log_weights = alpha * log_priors
-    prior_log_weights = prior_log_weights - jax.nn.logsumexp(prior_log_weights)
-    prior_weights = jnp.exp(prior_log_weights)
-
-    # Likelihood perturbation weights: w_i propto exp(alpha * log_lik_i)
     lik_log_weights = alpha * log_liks
     lik_log_weights = lik_log_weights - jax.nn.logsumexp(lik_log_weights)
     lik_weights = jnp.exp(lik_log_weights)
@@ -152,43 +160,53 @@ def power_scaling_sensitivity(
     likelihood_sensitivity = {}
     diagnosis = {}
     psis_k_hat = {}
+    import arviz as az
+    import numpy as np
 
-    # Extract per-parameter values from flat samples
-    offset = 0
     for name in param_names:
-        if name not in samples:
+        if name not in constrained_by_site:
             continue
-        size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
-        param_vals = z_samples[:, offset : offset + size]  # (n_samples, size)
-        param_mean = jnp.mean(param_vals, axis=0)
 
-        # Weighted means under perturbation
-        prior_weighted_mean = jnp.sum(prior_weights[:, None] * param_vals, axis=0)
-        lik_weighted_mean = jnp.sum(lik_weights[:, None] * param_vals, axis=0)
+        con_vals = constrained_by_site[name]
+        unc_vals = unconstrained_by_site[name]
+        flat_vals = unc_vals.reshape((n_samples, -1))
+        param_mean = jnp.mean(flat_vals, axis=0)
 
-        # Sensitivity = ||shift|| / alpha_delta
-        prior_shift = float(jnp.mean(jnp.abs(prior_weighted_mean - param_mean))) / alpha_delta
-        lik_shift = float(jnp.mean(jnp.abs(lik_weighted_mean - param_mean))) / alpha_delta
+        site_log_prob = _sum_sample_terms(site_info[name]["distribution"].log_prob(con_vals))
+        site_log_jac = _sum_sample_terms(
+            jax.vmap(site_info[name]["transform"].log_abs_det_jacobian)(unc_vals, con_vals)
+        )
+        site_prior_log_weights = alpha * (site_log_prob + site_log_jac)
+        site_prior_log_weights = site_prior_log_weights - jax.nn.logsumexp(site_prior_log_weights)
+        site_prior_weights = jnp.exp(site_prior_log_weights)
 
-        prior_sensitivity[name] = prior_shift
-        likelihood_sensitivity[name] = lik_shift
+        prior_weighted_mean = jnp.sum(site_prior_weights[:, None] * flat_vals, axis=0)
+        lik_weighted_mean = jnp.sum(lik_weights[:, None] * flat_vals, axis=0)
 
-        # k-hat from prior weights via PSIS
-        import arviz as az
-        import numpy as np
+        prior_shift_vec = jnp.abs(prior_weighted_mean - param_mean) / alpha_delta
+        lik_shift_vec = jnp.abs(lik_weighted_mean - param_mean) / alpha_delta
+        _, kss = az.psislw(np.asarray(site_prior_log_weights))
 
-        _, kss = az.psislw(np.asarray(prior_log_weights))
-        psis_k_hat[name] = float(kss)
+        for flat_index in range(flat_vals.shape[1]):
+            param_label = bindings_by_site.get((name, flat_index))
+            if parameter_bindings and param_label is None:
+                continue
+            if param_label is None:
+                param_label = name if flat_vals.shape[1] == 1 else f"{name}[{flat_index}]"
 
-        # Diagnosis
-        if prior_shift > 0.05 and lik_shift < 0.05:
-            diagnosis[name] = "prior_dominated"
-        elif prior_shift > 0.05 and lik_shift > 0.05:
-            diagnosis[name] = "prior_data_conflict"
-        else:
-            diagnosis[name] = "well_identified"
+            prior_shift = float(prior_shift_vec[flat_index])
+            lik_shift = float(lik_shift_vec[flat_index])
 
-        offset += size
+            prior_sensitivity[param_label] = prior_shift
+            likelihood_sensitivity[param_label] = lik_shift
+            psis_k_hat[param_label] = float(kss)
+
+            if prior_shift > 0.05 and lik_shift < 0.05:
+                diagnosis[param_label] = "prior_dominated"
+            elif prior_shift > 0.05 and lik_shift > 0.05:
+                diagnosis[param_label] = "prior_data_conflict"
+            else:
+                diagnosis[param_label] = "well_identified"
 
     return PowerScalingResult(
         prior_sensitivity=prior_sensitivity,

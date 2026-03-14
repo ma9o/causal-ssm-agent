@@ -44,7 +44,8 @@ class PriorProposal(BaseModel):
         description=(
             "Observation interval (in days) that the DT prior is expressed in. "
             "Sourced from the study's measurement schedule (e.g., 7 for a weekly study). "
-            "Used for DT→CT conversion: drift = beta / reference_interval_days."
+            "Used for DT→CT conversion of dynamic priors "
+            "(e.g. beta/dt for cross-lags, -log(rho)/dt for persistence)."
         ),
     )
     density_points: list[dict[str, float]] | None = Field(

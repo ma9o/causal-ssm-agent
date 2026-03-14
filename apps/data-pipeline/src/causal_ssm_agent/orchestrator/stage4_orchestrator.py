@@ -129,8 +129,8 @@ def derive_deterministic_spec(
                 {
                     "name": f"rho_{c['name']}",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
-                    "description": f"AR(1) persistence for {c['name']}",
+                    "constraint": "unit_interval",
+                    "description": f"AR(1) discrete-time persistence for {c['name']}",
                 }
             )
 

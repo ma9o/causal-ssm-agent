@@ -22,7 +22,7 @@ The following are already determined and shown in the user message:
 - **All parameters** (enumerated from the DAG: one AR per time-varying endogenous construct, \
 one fixed effect per edge, one residual SD per construct, loadings for multi-indicator constructs)
 - **Deterministic likelihoods** (e.g., ordinal → ordered_logistic / cumulative_logit)
-- **Parameter constraints** based on role (ar → correlation, fixed_effect → none, residual_sd → positive)
+- **Parameter constraints** based on role (ar → unit_interval, fixed_effect → none, residual_sd → positive)
 
 ## What You Decide
 
@@ -59,9 +59,9 @@ direct reciprocal relationship)
 
 The underlying model is a continuous-time state-space model (CT-SSM). Time is \
 measured in fractional days. AR coefficients represent discrete-time persistence \
-per observation interval, in (−1, 1). Positive = smooth persistence; negative = \
-oscillatory dynamics (common in homeostatic/feedback systems). The system handles \
-the CT conversion automatically.
+per observation interval, in (0, 1). Values near 1 imply slow decay across the \
+reference interval; values near 0 imply rapid decay. The system handles the CT \
+conversion automatically.
 
 ## Validation Tool
 

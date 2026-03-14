@@ -84,6 +84,10 @@ class SSMSpec:
     # Per-channel observation noise (overrides scalar manifest_dist if set)
     manifest_dists: list[DistributionFamily] | None = None
 
+    # Per-channel number of encoded levels for discrete emissions.
+    # Non-discrete channels use 0.
+    manifest_level_counts: list[int] | None = None
+
     # Link function (scalar fallback for all channels)
     manifest_link: LinkFunction = LinkFunction.IDENTITY
 
@@ -267,7 +271,7 @@ class SSMModel:
 
         diff_diag_pop = numpyro.sample(
             "diffusion_diag_pop",
-            dist.HalfNormal(self.priors.diffusion_diag["sigma"]).expand((n,)),
+            dist.HalfNormal(jnp.asarray(self.priors.diffusion_diag["sigma"])).expand((n,)),
         )
 
         diff_lower = None
@@ -434,16 +438,81 @@ class SSMModel:
 
         # Sample noise family hyperparameters
         extra_params = {}
-        if spec.manifest_dist == DistributionFamily.STUDENT_T:
+        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+        manifest_dist_set = set(manifest_dists)
+
+        if DistributionFamily.STUDENT_T in manifest_dist_set:
             extra_params["obs_df"] = numpyro.sample("obs_df", dist.Gamma(5.0, 1.0))
-        if spec.manifest_dist == DistributionFamily.GAMMA:
+        if DistributionFamily.GAMMA in manifest_dist_set:
             extra_params["obs_shape"] = numpyro.sample("obs_shape", dist.Gamma(2.0, 1.0))
-        if spec.manifest_dist == DistributionFamily.NEGATIVE_BINOMIAL:
+        if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
             extra_params["obs_r"] = numpyro.sample("obs_r", dist.Gamma(2.0, 0.5))
-        if spec.manifest_dist == DistributionFamily.BETA:
+        if DistributionFamily.BETA in manifest_dist_set:
             extra_params["obs_concentration"] = numpyro.sample(
                 "obs_concentration", dist.Gamma(5.0, 0.5)
             )
+        if spec.manifest_level_counts is not None:
+            level_counts = jnp.asarray(spec.manifest_level_counts, dtype=jnp.int32)
+            extra_params["obs_level_counts"] = level_counts
+
+            max_levels = int(jnp.max(level_counts)) if level_counts.size else 0
+            max_cutpoints = max(max_levels - 1, 0)
+
+            if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
+                if max_cutpoints <= 0:
+                    raise ValueError(
+                        "ordered_logistic requires manifest_level_counts with at least 2 levels"
+                    )
+                ordered_base = numpyro.sample(
+                    "obs_ordered_base",
+                    dist.Normal(0.0, 1.0).expand((spec.n_manifest,)),
+                )
+                if max_cutpoints > 1:
+                    ordered_gaps = numpyro.sample(
+                        "obs_ordered_gaps",
+                        dist.HalfNormal(1.0).expand((spec.n_manifest, max_cutpoints - 1)),
+                    )
+                else:
+                    ordered_gaps = jnp.zeros((spec.n_manifest, 0))
+
+                raw_cutpoints = jnp.concatenate(
+                    [
+                        ordered_base[:, None],
+                        ordered_base[:, None] + jnp.cumsum(ordered_gaps, axis=1),
+                    ],
+                    axis=1,
+                )
+                cutpoint_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
+                    level_counts[:, None] - 1, 0
+                )
+                cutpoint_sum = jnp.sum(jnp.where(cutpoint_mask, raw_cutpoints, 0.0), axis=1)
+                cutpoint_count = jnp.maximum(level_counts - 1, 1)
+                cutpoint_center = cutpoint_sum / cutpoint_count
+                ordered_cutpoints = jnp.where(
+                    cutpoint_mask,
+                    raw_cutpoints - cutpoint_center[:, None],
+                    0.0,
+                )
+                extra_params["obs_ordered_cutpoints"] = ordered_cutpoints
+
+            if DistributionFamily.CATEGORICAL in manifest_dist_set:
+                if max_cutpoints <= 0:
+                    raise ValueError(
+                        "categorical requires manifest_level_counts with at least 2 levels"
+                    )
+                cat_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
+                    level_counts[:, None] - 1, 0
+                )
+                cat_intercepts = numpyro.sample(
+                    "obs_cat_intercepts",
+                    dist.Normal(0.0, 1.0).expand((spec.n_manifest, max_cutpoints)),
+                )
+                cat_slopes = numpyro.sample(
+                    "obs_cat_slopes",
+                    dist.Normal(0.0, 1.0).expand((spec.n_manifest, max_cutpoints)),
+                )
+                extra_params["obs_cat_intercepts"] = jnp.where(cat_mask, cat_intercepts, 0.0)
+                extra_params["obs_cat_slopes"] = jnp.where(cat_mask, cat_slopes, 0.0)
         if spec.diffusion_dist == DistributionFamily.STUDENT_T:
             extra_params["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
 

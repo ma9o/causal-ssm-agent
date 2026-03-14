@@ -21,8 +21,10 @@ import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.likelihoods.emissions import (
+    categorical_moments,
     get_emission_fn,
     get_emission_score_weight_fn,
+    ordered_logistic_moments,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
@@ -188,6 +190,65 @@ def _make_variance_identity(manifest_cov: jnp.ndarray) -> Callable:
     return variance_fn
 
 
+def _make_discrete_response_ordered_logistic(
+    cutpoints: jnp.ndarray,
+    level_counts: jnp.ndarray,
+) -> Callable:
+    def response_fn(eta: jnp.ndarray) -> jnp.ndarray:
+        mean, _variance = ordered_logistic_moments(eta, cutpoints, level_counts)
+        return mean
+
+    return response_fn
+
+
+def _make_discrete_response_categorical(
+    intercepts: jnp.ndarray,
+    slopes: jnp.ndarray,
+    level_counts: jnp.ndarray,
+) -> Callable:
+    def response_fn(eta: jnp.ndarray) -> jnp.ndarray:
+        mean, _variance = categorical_moments(eta, intercepts, slopes, level_counts)
+        return mean
+
+    return response_fn
+
+
+def _make_discrete_variance_from_moments(moment_fn: Callable) -> Callable:
+    def variance_fn(eta: jnp.ndarray) -> jnp.ndarray:
+        _mean, variance = moment_fn(eta)
+        return jnp.diag(jnp.maximum(variance, 1e-8))
+
+    return variance_fn
+
+
+def _slice_observation_extra_params(
+    extra_params: dict | None, ch_indices: list[int]
+) -> dict | None:
+    if extra_params is None:
+        return None
+
+    sliced: dict = {}
+    idx = jnp.array(ch_indices, dtype=jnp.int32)
+    for key, value in extra_params.items():
+        if (
+            hasattr(value, "ndim")
+            and hasattr(value, "shape")
+            and value.ndim >= 1
+            and value.shape[0] == len(idx)
+        ):
+            sliced[key] = value
+            continue
+        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
+            try:
+                if value.shape[0] >= len(ch_indices):
+                    sliced[key] = value[idx]
+                    continue
+            except TypeError:
+                pass
+        sliced[key] = value
+    return sliced
+
+
 # =============================================================================
 # Emission gradient/Hessian factories for IEKS (analytical, GPU-compatible)
 # =============================================================================
@@ -277,11 +338,21 @@ def build_observation_kernel(
     emission_fn = get_emission_fn(dist, extra_params, link=link)
 
     # Response function (inverse link)
-    response_fn = _RESPONSE_FNS.get(link)
-    if response_fn is None:
-        raise ValueError(
-            f"No response function for link={link!r}. Supported: {list(_RESPONSE_FNS.keys())}"
-        )
+    if dist == DistributionFamily.ORDERED_LOGISTIC:
+        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        response_fn = _make_discrete_response_ordered_logistic(cutpoints, level_counts)
+    elif dist == DistributionFamily.CATEGORICAL:
+        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
+        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        response_fn = _make_discrete_response_categorical(intercepts, slopes, level_counts)
+    else:
+        response_fn = _RESPONSE_FNS.get(link)
+        if response_fn is None:
+            raise ValueError(
+                f"No response function for link={link!r}. Supported: {list(_RESPONSE_FNS.keys())}"
+            )
 
     # Variance function + is_gaussian flag
     is_gaussian = dist == DistributionFamily.GAUSSIAN
@@ -311,11 +382,24 @@ def build_observation_kernel(
     elif dist == DistributionFamily.BETA:
         conc = extra_params.get("obs_concentration", 10.0)
         variance_fn = _make_variance_beta(conc)
+    elif dist == DistributionFamily.ORDERED_LOGISTIC:
+        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        variance_fn = _make_discrete_variance_from_moments(
+            lambda eta: ordered_logistic_moments(eta, cutpoints, level_counts)
+        )
+    elif dist == DistributionFamily.CATEGORICAL:
+        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
+        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        variance_fn = _make_discrete_variance_from_moments(
+            lambda eta: categorical_moments(eta, intercepts, slopes, level_counts)
+        )
     else:
         raise ValueError(
             f"No variance function for dist={dist!r}. "
             f"Supported: gaussian, student_t, poisson, negative_binomial, "
-            f"gamma, bernoulli, beta."
+            "gamma, bernoulli, beta, ordered_logistic, categorical."
         )
 
     # Build emission_grad_hess_fn (analytical, avoids jax.hessian on GPU)
@@ -433,7 +517,11 @@ def build_composite_observation_kernel(
     # Build per-group kernels
     group_kernels: list[tuple[list[int], ObservationKernel]] = []
     for (dist, link), ch_indices in groups.items():
-        kernel = build_observation_kernel(dist, link, extra_params)
+        kernel = build_observation_kernel(
+            dist,
+            link,
+            _slice_observation_extra_params(extra_params, ch_indices),
+        )
         group_kernels.append((ch_indices, kernel))
 
     # Compose emission_fn: sum per-group emission log-probs

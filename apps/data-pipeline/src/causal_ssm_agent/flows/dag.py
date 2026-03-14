@@ -96,7 +96,9 @@ def _unwrap_persisted_result(raw: Any) -> Any:
 def _load_public_stage_payload(user_id: str, stage_id: str) -> dict[str, Any]:
     path = _existing_run_dir(user_id) / f"{stage_id}.json"
     if not path.exists():
-        raise FileNotFoundError(f"No public stage payload found for {stage_id} in user_id {user_id}")
+        raise FileNotFoundError(
+            f"No public stage payload found for {stage_id} in user_id {user_id}"
+        )
     with path.open() as f:
         raw = json.load(f)
     payload = _unwrap_persisted_result(raw)
@@ -420,7 +422,9 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage2(question: str, stage0: dict, stage1b: dict, root_run_id: str | None = None) -> dict:
+async def stage2(
+    question: str, stage0: dict, stage1b: dict, root_run_id: str | None = None
+) -> dict:
     """Extract indicator values from data using LLM workers.
 
     Returns dict with:
@@ -482,14 +486,18 @@ async def stage2(question: str, stage0: dict, stage1b: dict, root_run_id: str | 
             if ind.get("ordinal_levels")
         }
         data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
-        data_for_model = data_for_model.with_columns(
-            pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-            pl.col("timestamp")
-            .str.replace(r"[Zz]$", "")
-            .str.replace(r"[+-]\d{2}:\d{2}$", "")
-            .str.to_datetime(strict=False)
-            .alias("time_bucket"),
-        ).drop("timestamp").drop_nulls(subset=["time_bucket", "value"])
+        data_for_model = (
+            data_for_model.with_columns(
+                pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+                pl.col("timestamp")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("time_bucket"),
+            )
+            .drop("timestamp")
+            .drop_nulls(subset=["time_bucket", "value"])
+        )
         data_for_model = data_for_model.sort("indicator", "time_bucket")
     else:
         data_for_model = raw_data
@@ -1098,7 +1106,9 @@ async def stage2_flow(
     prefect_run_id: str | None = None,
 ) -> dict:
     logger.info("Stage 2 starting: extracting measurements from raw data")
-    stage2_result = await stage2(question, stage0_result, stage1b_result, root_run_id=prefect_run_id)
+    stage2_result = await stage2(
+        question, stage0_result, stage1b_result, root_run_id=prefect_run_id
+    )
     raw_data = stage2_result.pop("_raw_data")
     data_for_model = stage2_result.pop("_data_for_model")
     stage2_result["_raw_data_path"] = _save_parquet(raw_data, user_id, "stage2-raw-data.parquet")

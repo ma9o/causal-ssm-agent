@@ -85,9 +85,6 @@ export type { RBPartitionResult, RBVariable } from "./generated/models";
 // LLM trace types
 export type { LLMTrace, TraceMessage, TraceUsage } from "./generated/models";
 
-// Live trace (partial stage result written mid-run)
-export type { PartialStageResult, LiveMetadata } from "./generated/models";
-
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
 export { STAGE_TOOLS, INTERACTIVE_STAGES } from "./generated/tools";

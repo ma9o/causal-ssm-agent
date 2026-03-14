@@ -58,7 +58,13 @@ class TestMakeExtractionContext:
         spec["measurement"]["indicators"][0]["source_columns"] = ["pss_col"]
         ctx = make_extraction_context(spec)
         ind = ctx["measurement"]["indicators"][0]
-        assert set(ind.keys()) == {"name", "measurement_dtype", "how_to_measure", "source_columns", "aggregation"}
+        assert set(ind.keys()) == {
+            "name",
+            "measurement_dtype",
+            "how_to_measure",
+            "source_columns",
+            "aggregation",
+        }
         assert "construct_name" not in ind
 
     def test_outcome_slimmed_to_name_and_description(self):

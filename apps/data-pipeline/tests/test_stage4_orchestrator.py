@@ -141,6 +141,7 @@ class TestDeriveDeterministicSpec:
         # Only "sleep" is endogenous
         assert len(ar_params) == 1
         assert "sleep" in ar_params[0]["name"]
+        assert ar_params[0]["constraint"] == "unit_interval"
 
     def test_beta_params_for_edges(self):
         """Each edge should produce a beta (fixed effect) parameter."""

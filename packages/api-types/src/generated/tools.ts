@@ -49,7 +49,7 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   "stage-1b": [
     {
       name: "validate_measurement_model_tool",
-      description: "Tool for validating measurement model JSON plus compiler constraints.",
+      description: "Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
       parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement model to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementModelInput","type":"object"},
     },
   ],
@@ -62,9 +62,14 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   ],
   "stage-4": [
     {
-      name: "validate_model_spec_tool",
-      description: "Tool for validating model specification JSON (Stage 4).",
-      parameters: {"additionalProperties":false,"properties":{"model_spec_json":{"description":"The JSON string containing the model spec to validate.","title":"Model Spec Json","type":"string"}},"required":["model_spec_json"],"title":"ValidateModelSpecInput","type":"object"},
+      name: "search_literature",
+      description: "Search for empirical literature about effect sizes for model parameters.",
+      parameters: {"additionalProperties":false,"properties":{"query":{"description":"Search query for empirical literature about effect sizes.","title":"Query","type":"string"}},"required":["query"],"title":"SearchLiteratureInput","type":"object"},
+    },
+    {
+      name: "validate_model",
+      description: "Validate model specification and/or prior proposals: schema check, compile, prior predictive simulation.",
+      parameters: {"additionalProperties":false,"properties":{"model_json":{"description":"JSON object with proposed changes. Include 'model_spec' (complete ModelSpec) and/or 'priors' (dict mapping parameter names to prior proposals). Only include fields you are changing.","title":"Model Json","type":"string"}},"required":["model_json"],"title":"ValidateModelInput","type":"object"},
     },
   ],
 };

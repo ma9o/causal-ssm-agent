@@ -47,7 +47,13 @@ def get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
     }
 
 
-_WORKER_INDICATOR_KEYS = ("name", "measurement_dtype", "how_to_measure", "source_columns", "aggregation")
+_WORKER_INDICATOR_KEYS = (
+    "name",
+    "measurement_dtype",
+    "how_to_measure",
+    "source_columns",
+    "aggregation",
+)
 
 
 def make_extraction_context(causal_spec: dict) -> dict:

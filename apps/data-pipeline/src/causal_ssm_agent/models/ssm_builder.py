@@ -5,6 +5,7 @@ while using the NumPyro SSM implementation underneath.
 """
 
 import math
+from dataclasses import replace
 from typing import Any
 
 import jax.numpy as jnp
@@ -22,7 +23,6 @@ from causal_ssm_agent.models.ssm import (
 )
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
-    VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
     ModelSpec,
@@ -42,12 +42,8 @@ _SUPPORTED_EMISSIONS: set[DistributionFamily] = {
     DistributionFamily.BERNOULLI,
     DistributionFamily.NEGATIVE_BINOMIAL,
     DistributionFamily.BETA,
-}
-
-# Fallback mapping for unsupported distributions → closest supported one.
-_EMISSION_FALLBACKS: dict[DistributionFamily, DistributionFamily] = {
-    DistributionFamily.ORDERED_LOGISTIC: DistributionFamily.GAUSSIAN,
-    DistributionFamily.CATEGORICAL: DistributionFamily.GAUSSIAN,
+    DistributionFamily.ORDERED_LOGISTIC,
+    DistributionFamily.CATEGORICAL,
 }
 
 
@@ -70,6 +66,14 @@ _KEYWORD_RULES: list[tuple[list[str], str, dict]] = [
     (["lambda", "loading"], "lambda_free", {"mu": 0.5, "sigma": 0.5}),
     (["cor"], "diffusion_offdiag", {"mu": 0.0, "sigma": 0.5}),
 ]
+
+_SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
+    "drift_diag": "drift_diag_pop",
+    "drift_offdiag": "drift_offdiag_pop",
+    "diffusion_diag": "diffusion_diag_pop",
+    "diffusion_offdiag": "diffusion_lower",
+    "lambda_free": "lambda_free",
+}
 
 
 def _normalize_prior_params(distribution: str, params: dict) -> dict:
@@ -161,6 +165,7 @@ class SSMModelBuilder:
         model_config: dict | None = None,
         sampler_config: dict | None = None,
         causal_spec: dict | None = None,
+        parameter_bindings: list[dict[str, Any]] | None = None,
     ):
         """Initialize the SSM model builder.
 
@@ -182,6 +187,7 @@ class SSMModelBuilder:
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
         self._causal_spec = causal_spec
+        self._parameter_bindings = parameter_bindings
 
         self._model: SSMModel | None = None
         self._spec: SSMSpec | None = None
@@ -205,6 +211,9 @@ class SSMModelBuilder:
                 for k, v in self._priors.items()
             }
             priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+
+        if self._parameter_bindings is None and self._model_spec is not None:
+            self._parameter_bindings = self._compile_parameter_bindings(spec, self._model_spec)
 
         return spec, priors
 
@@ -362,26 +371,11 @@ class SSMModelBuilder:
         for lik in model_spec.likelihoods:
             dist = lik.distribution
             if dist not in _SUPPORTED_EMISSIONS:
-                fallback = _EMISSION_FALLBACKS.get(dist)
-                if fallback is not None:
-                    logger.warning(
-                        "Indicator '%s': distribution '%s' unsupported, falling back to '%s'",
-                        lik.variable,
-                        dist.value,
-                        fallback.value,
-                    )
-                    dist = fallback
-                    lik.distribution = fallback
-                    # Fix link function to match the fallback distribution
-                    valid_links = VALID_LINKS_FOR_DISTRIBUTION.get(fallback)
-                    if valid_links and lik.link not in valid_links:
-                        lik.link = next(iter(valid_links))
-                else:
-                    raise ValueError(
-                        f"Indicator '{lik.variable}': distribution '{dist}' "
-                        f"has no native emission function. Supported: "
-                        f"{sorted(d.value for d in _SUPPORTED_EMISSIONS)}."
-                    )
+                raise ValueError(
+                    f"Indicator '{lik.variable}': distribution '{dist}' "
+                    f"has no native emission function. Supported: "
+                    f"{sorted(d.value for d in _SUPPORTED_EMISSIONS)}."
+                )
             manifest_dists.append(dist)
 
         # Scalar fallback: first non-Gaussian type (for PF dispatch)
@@ -598,18 +592,14 @@ class SSMModelBuilder:
         # Maps SSMPriors field -> list of (array_index, normalized_dict)
         per_element: dict[str, list[tuple[int, dict]]] = {}
 
-        # Track raw DT values for exact logm conversion (Phase 2)
-        # {matrix_index: (rho_mu, rho_sigma)} for diagonal
-        dt_diag_raw: dict[int, tuple[float, float]] = {}
-        # {flat_offdiag_index: (beta_mu, beta_sigma)} for off-diagonal
-        dt_offdiag_raw: dict[int, tuple[float, float]] = {}
-        # Track dt used for each parameter (for logm: needs single dt)
-        dt_values: list[float] = []
-
         # Build index maps from masks if available
-        offdiag_param_index, lambda_param_index, diag_param_index, diffusion_offdiag_param_index = (
-            self._build_prior_index_maps(ssm_spec, model_spec)
-        )
+        (
+            offdiag_param_index,
+            lambda_param_index,
+            diag_param_index,
+            diffusion_diag_param_index,
+            diffusion_offdiag_param_index,
+        ) = self._build_prior_index_maps(ssm_spec, model_spec)
 
         for param_name, prior_spec in priors.items():
             distribution = prior_spec.get("distribution", "Normal")
@@ -628,18 +618,32 @@ class SSMModelBuilder:
                     dt = float(ref_days)
                 else:
                     dt = self._get_construct_dt_days(construct_name)
-                mu_ar = max(-0.999, min(normalized.get("mu", 0.5), 0.999))
-                if abs(mu_ar) < 0.001:
-                    mu_ar = 0.001  # avoid log(0)
+                lower = normalized.get("lower")
+                upper = normalized.get("upper")
+                if lower is not None and float(lower) < 0.0:
+                    raise ValueError(
+                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
+                        f"but lower bound is {float(lower):.3g}"
+                    )
+                if upper is not None and float(upper) > 1.0:
+                    raise ValueError(
+                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
+                        f"but upper bound is {float(upper):.3g}"
+                    )
+
+                mu_ar = float(normalized.get("mu", 0.5))
+                if not 0.0 < mu_ar < 1.0:
+                    raise ValueError(
+                        f"AR prior '{param_name}' must have DT persistence mean in (0, 1), "
+                        f"got {mu_ar:.3g}"
+                    )
+                mu_ar = min(max(mu_ar, 0.001), 0.999)
                 sigma_ar = normalized.get("sigma", 0.2)
-                mu_drift = -math.log(abs(mu_ar)) / dt
-                sigma_drift = sigma_ar / (abs(mu_ar) * dt)  # delta method
+                mu_drift = -math.log(mu_ar) / dt
+                sigma_drift = sigma_ar / (mu_ar * dt)  # delta method
                 per_element.setdefault(attr, []).append(
                     (idx, {"mu": mu_drift, "sigma": sigma_drift})
                 )
-                # Save raw DT values for exact logm
-                dt_diag_raw[idx] = (mu_ar, sigma_ar)
-                dt_values.append(dt)
                 continue
 
             # Fixed effect (beta) → apply DT-to-CT coupling rate transform
@@ -666,12 +670,13 @@ class SSMModelBuilder:
                 per_element.setdefault(attr, []).append(
                     (idx, {"mu": mu_beta / dt, "sigma": sigma_beta / dt})
                 )
-                # Save raw DT values for exact logm
-                dt_offdiag_raw[idx] = (mu_beta, sigma_beta)
-                dt_values.append(dt)
                 continue
             if param_name in lambda_param_index:
                 attr, idx = lambda_param_index[param_name]
+                per_element.setdefault(attr, []).append((idx, normalized))
+                continue
+            if param_name in diffusion_diag_param_index:
+                attr, idx = diffusion_diag_param_index[param_name]
                 per_element.setdefault(attr, []).append((idx, normalized))
                 continue
             # Correlation → diffusion off-diagonal (no DT-to-CT transform needed;
@@ -720,19 +725,23 @@ class SSMModelBuilder:
                 n_total = max(n_total, expected_size)
 
             # Build arrays from defaults + positioned entries
-            mu_default = current.get("mu", 0.0)
-            sigma_default = current.get("sigma", 0.5)
+            include_mu = "mu" in current or any("mu" in normed for _, normed in entries)
+            include_sigma = "sigma" in current or any("sigma" in normed for _, normed in entries)
 
-            mu_arr = [float(mu_default)] * n_total
-            sigma_arr = [float(sigma_default)] * n_total
+            mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
+            sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
 
             for idx, normed in entries:
-                if "mu" in normed:
+                if "mu" in normed and mu_arr is not None:
                     mu_arr[idx] = float(normed["mu"])
-                if "sigma" in normed:
+                if "sigma" in normed and sigma_arr is not None:
                     sigma_arr[idx] = float(normed["sigma"])
 
-            result = {"mu": mu_arr, "sigma": sigma_arr}
+            result: dict[str, list[float]] = {}
+            if mu_arr is not None:
+                result["mu"] = mu_arr
+            if sigma_arr is not None:
+                result["sigma"] = sigma_arr
 
             # Propagate bounds if any entry has them
             has_bounds = any("lower" in n for _, n in entries)
@@ -747,177 +756,15 @@ class SSMModelBuilder:
 
             setattr(ssm_priors, attr, result)
 
-        # Try exact matrix logarithm DT→CT conversion (Phase 2)
-        # Falls back to first-order (already stored above) if not embeddable
-        if dt_diag_raw and ssm_spec:
-            self._try_exact_logm_conversion(
-                ssm_priors,
-                ssm_spec,
-                dt_diag_raw,
-                dt_offdiag_raw,
-                dt_values,
-            )
-        else:
-            # Diagnostic: warn when first-order approximation may be inaccurate
-            self._warn_first_order_approximation(ssm_priors)
+        # The compiled prior family is factorized across parameters, so keep the
+        # DT→CT transform element-wise rather than applying a mean-only joint logm rewrite.
+        self._warn_first_order_approximation(ssm_priors)
 
         # Check consistency between CT drift rates and edge lag_hours
         if ssm_spec:
             self._check_drift_lag_consistency(ssm_priors, ssm_spec)
 
         return ssm_priors
-
-    def _try_exact_logm_conversion(
-        self,
-        ssm_priors: SSMPriors,
-        ssm_spec: SSMSpec,
-        dt_diag_raw: dict[int, tuple[float, float]],
-        dt_offdiag_raw: dict[int, tuple[float, float]],
-        dt_values: list[float],
-    ) -> None:
-        """Try exact matrix logarithm DT→CT conversion, updating ssm_priors in-place.
-
-        Assembles the DT transition matrix Phi from AR (diagonal) and
-        cross-lag (off-diagonal) priors, checks embeddability, and if
-        possible replaces the first-order drift priors with exact
-        logm(Phi)/dt values.
-
-        Falls back silently to first-order (already stored in ssm_priors)
-        if embeddability check fails.
-
-        Reference: Higham (2008), Functions of Matrices, Ch. 11.
-        """
-        from scipy.linalg import logm as scipy_logm
-
-        n = ssm_spec.n_latent
-        if n < 2:
-            # For 1D, first-order is exact (scalar log)
-            return
-
-        # Need a single consistent dt for the full matrix conversion.
-        # If parameters have different observation intervals, the DT
-        # transition matrix is not self-consistent and logm cannot be applied.
-        if not dt_values:
-            return
-        dt_min, dt_max = min(dt_values), max(dt_values)
-        if dt_min <= 0:
-            return
-        if dt_max / dt_min > 1.01:  # >1% variation → mixed intervals
-            logger.info(
-                "Mixed observation intervals (%.1f–%.1f days) across parameters. "
-                "Cannot apply exact matrix logarithm; using first-order approximation.",
-                dt_min,
-                dt_max,
-            )
-            self._warn_first_order_approximation(ssm_priors)
-            return
-        dt = float(np.mean(dt_values))
-
-        # Assemble DT transition matrix Phi from prior means
-        Phi = np.eye(n)
-        for idx, (rho_mu, _rho_sigma) in dt_diag_raw.items():
-            if idx < n:
-                Phi[idx, idx] = rho_mu
-
-        # Build off-diagonal position map from drift_mask
-        offdiag_positions: list[tuple[int, int]] = []
-        if ssm_spec.drift_mask is not None:
-            for i in range(n):
-                for j in range(n):
-                    if i != j and ssm_spec.drift_mask[i, j]:
-                        offdiag_positions.append((i, j))
-
-        for flat_idx, (beta_mu, _beta_sigma) in dt_offdiag_raw.items():
-            if flat_idx < len(offdiag_positions):
-                i, j = offdiag_positions[flat_idx]
-                Phi[i, j] = beta_mu
-
-        # Check embeddability: all eigenvalues must be real and positive
-        eigenvalues = np.linalg.eigvals(Phi)
-        if not np.all(np.isreal(eigenvalues)) or not np.all(eigenvalues.real > 0):
-            logger.info(
-                "DT transition matrix is not embeddable (eigenvalues: %s). "
-                "Using first-order DT->CT approximation.",
-                eigenvalues,
-            )
-            self._warn_first_order_approximation(ssm_priors)
-            return
-
-        # Compute exact drift matrix via matrix logarithm
-        try:
-            A_exact = scipy_logm(Phi).real / dt
-        except Exception as e:
-            logger.warning("Matrix logarithm failed: %s. Using first-order approximation.", e)
-            self._warn_first_order_approximation(ssm_priors)
-            return
-
-        # Check stability: all eigenvalues of A must have negative real parts
-        A_eigenvalues = np.linalg.eigvals(A_exact)
-        if not np.all(A_eigenvalues.real < 0):
-            logger.warning(
-                "Exact drift matrix is unstable (eigenvalues: %s). "
-                "Using first-order approximation.",
-                A_eigenvalues,
-            )
-            self._warn_first_order_approximation(ssm_priors)
-            return
-
-        # Success: overwrite drift priors with exact logm-derived values
-        # Diagonal: store as positive magnitude (model negates via -abs())
-        diag_prior = ssm_priors.drift_diag
-        if diag_prior and "mu" in diag_prior:
-            mu_arr = diag_prior["mu"]
-            sigma_arr = diag_prior.get("sigma", [0.5] * n)
-            if isinstance(mu_arr, list):
-                for idx in range(min(n, len(mu_arr))):
-                    # |A[i,i]| since model stores as positive magnitude
-                    mu_arr[idx] = abs(float(A_exact[idx, idx]))
-                    # Scale sigma by ratio of exact to first-order
-                    if idx in dt_diag_raw:
-                        rho_mu, _rho_sigma = dt_diag_raw[idx]
-                        rho_abs = max(0.001, min(abs(rho_mu), 0.999))
-                        first_order_mu = -math.log(rho_abs) / dt
-                        if abs(first_order_mu) > NUMERICAL_EPSILON:
-                            ratio = abs(float(A_exact[idx, idx])) / first_order_mu
-                            if isinstance(sigma_arr, list) and idx < len(sigma_arr):
-                                sigma_arr[idx] = float(sigma_arr[idx]) * ratio
-                diag_prior["mu"] = mu_arr
-                if isinstance(sigma_arr, list):
-                    diag_prior["sigma"] = sigma_arr
-
-        # Off-diagonal: direct CT coupling rate from A
-        offdiag_prior = ssm_priors.drift_offdiag
-        if offdiag_prior and "mu" in offdiag_prior:
-            mu_arr = offdiag_prior["mu"]
-            sigma_arr = offdiag_prior.get("sigma", [0.5] * len(offdiag_positions))
-            if isinstance(mu_arr, list):
-                for flat_idx, (i, j) in enumerate(offdiag_positions):
-                    if flat_idx < len(mu_arr):
-                        mu_arr[flat_idx] = float(A_exact[i, j])
-                        # Scale sigma by ratio of exact to first-order
-                        if flat_idx in dt_offdiag_raw:
-                            _beta_mu, beta_sigma = dt_offdiag_raw[flat_idx]
-                            first_order_sigma = beta_sigma / dt
-                            if abs(first_order_sigma) > NUMERICAL_EPSILON:
-                                # Use same relative uncertainty
-                                exact_mu = abs(float(A_exact[i, j]))
-                                first_order_mu_abs = abs(dt_offdiag_raw[flat_idx][0] / dt)
-                                if first_order_mu_abs > NUMERICAL_EPSILON:
-                                    ratio = exact_mu / first_order_mu_abs
-                                    if isinstance(sigma_arr, list) and flat_idx < len(sigma_arr):
-                                        sigma_arr[flat_idx] = first_order_sigma * max(ratio, 0.5)
-                offdiag_prior["mu"] = mu_arr
-                if isinstance(sigma_arr, list):
-                    offdiag_prior["sigma"] = sigma_arr
-
-        logger.info(
-            "Exact matrix logarithm DT->CT conversion succeeded for %dx%d system "
-            "(dt=%.1f days). Drift eigenvalues: %s",
-            n,
-            n,
-            dt,
-            [f"{ev.real:.4f}" for ev in A_eigenvalues],
-        )
 
     @staticmethod
     def _warn_first_order_approximation(ssm_priors: SSMPriors) -> None:
@@ -958,8 +805,8 @@ class SSMModelBuilder:
                 logger.warning(
                     "First-order DT->CT approximation may be inaccurate: "
                     "off-diagonal drift[%d] magnitude (%.3f) is %.0f%% of "
-                    "minimum diagonal magnitude (%.3f). Consider exact matrix "
-                    "logarithm conversion (Phase 2).",
+                    "minimum diagonal magnitude (%.3f). Consider a shorter "
+                    "reference interval or eliciting priors directly on CT rates.",
                     i,
                     abs(float(od)),
                     ratio * 100,
@@ -1041,6 +888,7 @@ class SSMModelBuilder:
         dict[str, tuple[str, int]],
         dict[str, tuple[str, int]],
         dict[str, tuple[str, int]],
+        dict[str, tuple[str, int]],
     ]:
         """Build parameter name → (SSMPriors field, array index) maps.
 
@@ -1050,27 +898,46 @@ class SSMModelBuilder:
 
         Returns:
             (offdiag_param_index, lambda_param_index, diag_param_index,
-             diffusion_offdiag_param_index) —
+             diffusion_diag_param_index, diffusion_offdiag_param_index) —
             all are {param_name: (ssm_field, index)} dicts. Empty if no
             spec/masks.
         """
         offdiag_index: dict[str, tuple[str, int]] = {}
         lambda_index: dict[str, tuple[str, int]] = {}
         diag_index: dict[str, tuple[str, int]] = {}
+        diffusion_diag_index: dict[str, tuple[str, int]] = {}
         diffusion_offdiag_index: dict[str, tuple[str, int]] = {}
 
         if ssm_spec is None:
-            return offdiag_index, lambda_index, diag_index, diffusion_offdiag_index
+            return (
+                offdiag_index,
+                lambda_index,
+                diag_index,
+                diffusion_diag_index,
+                diffusion_offdiag_index,
+            )
 
         # Parse model_spec for parameter names + roles
         if not model_spec:
-            return offdiag_index, lambda_index, diag_index, diffusion_offdiag_index
+            return (
+                offdiag_index,
+                lambda_index,
+                diag_index,
+                diffusion_diag_index,
+                diffusion_offdiag_index,
+            )
         if isinstance(model_spec, dict):
             spec_obj = ModelSpec.model_validate(model_spec)
         elif isinstance(model_spec, ModelSpec):
             spec_obj = model_spec
         else:
-            return offdiag_index, lambda_index, diag_index, diffusion_offdiag_index
+            return (
+                offdiag_index,
+                lambda_index,
+                diag_index,
+                diffusion_diag_index,
+                diffusion_offdiag_index,
+            )
 
         latent_names = ssm_spec.latent_names or []
         latent_idx_map = {name: i for i, name in enumerate(latent_names)}
@@ -1087,6 +954,19 @@ class SSMModelBuilder:
             elif strict_structure:
                 raise ValueError(
                     "AR parameter does not reference a construct in causal_spec: "
+                    f"{p.name!r} not in {sorted(latent_idx_map)}"
+                )
+
+        # --- Diffusion diagonal index (residual SDs) ---
+        for p in spec_obj.parameters:
+            if p.role != ParameterRole.RESIDUAL_SD:
+                continue
+            construct = p.name.removeprefix("sigma_")
+            if construct in latent_idx_map:
+                diffusion_diag_index[p.name] = ("diffusion_diag", latent_idx_map[construct])
+            elif strict_structure:
+                raise ValueError(
+                    "RESIDUAL_SD parameter does not reference a construct in causal_spec: "
                     f"{p.name!r} not in {sorted(latent_idx_map)}"
                 )
 
@@ -1209,7 +1089,51 @@ class SSMModelBuilder:
                         f"{p.name!r}"
                     )
 
-        return offdiag_index, lambda_index, diag_index, diffusion_offdiag_index
+        return (
+            offdiag_index,
+            lambda_index,
+            diag_index,
+            diffusion_diag_index,
+            diffusion_offdiag_index,
+        )
+
+    def _compile_parameter_bindings(
+        self,
+        ssm_spec: SSMSpec,
+        model_spec: ModelSpec | dict | None,
+    ) -> list[dict[str, Any]]:
+        """Compile semantic parameter bindings to NumPyro sample sites."""
+        (
+            offdiag_index,
+            lambda_index,
+            diag_index,
+            diffusion_diag_index,
+            diffusion_offdiag_index,
+        ) = self._build_prior_index_maps(ssm_spec, model_spec)
+
+        bindings: list[dict[str, Any]] = []
+        index_maps = (
+            diag_index,
+            offdiag_index,
+            diffusion_diag_index,
+            diffusion_offdiag_index,
+            lambda_index,
+        )
+        for mapping in index_maps:
+            for param_name, (prior_field, flat_index) in sorted(mapping.items()):
+                sample_site = _SAMPLE_SITE_FOR_PRIOR_FIELD.get(prior_field)
+                if sample_site is None:
+                    continue
+                bindings.append(
+                    {
+                        "parameter": param_name,
+                        "site_name": sample_site,
+                        "flat_index": flat_index,
+                    }
+                )
+
+        bindings.sort(key=lambda entry: str(entry["parameter"]))
+        return bindings
 
     def build_model(
         self,
@@ -1245,10 +1169,13 @@ class SSMModelBuilder:
         else:
             spec, priors = self.compile_inputs()
 
+        spec = self._hydrate_discrete_manifest_metadata(spec, X)
+
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
         pf_seed = self._model_config.get("pf_seed", 0)
         self._model = SSMModel(spec, priors, n_particles=n_particles, pf_seed=pf_seed)
+        self._model.parameter_bindings = list(self._parameter_bindings or [])
         self._spec = spec
 
         return self._model
@@ -1294,6 +1221,88 @@ class SSMModelBuilder:
 
         self._result = result
         return result
+
+    def _hydrate_discrete_manifest_metadata(self, spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
+        """Infer per-channel discrete level counts from encoded wide data."""
+        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+        needs_levels = any(
+            dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
+            for dist in manifest_dists
+        )
+        if not needs_levels:
+            return spec
+
+        manifest_cols = spec.manifest_names or [
+            c for c in X.columns if c not in ["time", "time_bucket"] and not c.endswith("_lag1")
+        ]
+        if len(manifest_cols) != spec.n_manifest:
+            raise ValueError(
+                "Wide data columns do not match SSMSpec manifest dimensionality: "
+                f"{len(manifest_cols)} vs {spec.n_manifest}"
+            )
+
+        inferred_counts = [0] * spec.n_manifest
+        for idx, (column, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
+            if dist not in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL):
+                continue
+
+            values = (
+                X.select(column)
+                .drop_nulls()
+                .to_series()
+                .cast(pl.Float64, strict=False)
+                .drop_nulls()
+                .to_numpy()
+            )
+            if values.size == 0:
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but has no data"
+                )
+
+            rounded = np.rint(values)
+            if not np.allclose(values, rounded, atol=1e-6):
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but data are not "
+                    "integer-encoded"
+                )
+
+            unique_levels = sorted({int(v) for v in rounded.tolist()})
+            if unique_levels[0] != 0 or unique_levels != list(range(unique_levels[-1] + 1)):
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but encoded levels "
+                    f"are not contiguous from 0: {unique_levels}"
+                )
+            if len(unique_levels) < 2:
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but only "
+                    f"{len(unique_levels)} level(s) are present"
+                )
+            inferred_counts[idx] = len(unique_levels)
+
+        if spec.manifest_level_counts is None:
+            return replace(spec, manifest_level_counts=inferred_counts)
+
+        if len(spec.manifest_level_counts) != spec.n_manifest:
+            raise ValueError(
+                "SSMSpec manifest_level_counts length does not match n_manifest: "
+                f"{len(spec.manifest_level_counts)} vs {spec.n_manifest}"
+            )
+
+        resolved_counts = list(spec.manifest_level_counts)
+        for idx, inferred_count in enumerate(inferred_counts):
+            if inferred_count == 0:
+                resolved_counts[idx] = 0
+                continue
+            existing_count = resolved_counts[idx]
+            if existing_count in (0, inferred_count):
+                resolved_counts[idx] = inferred_count
+                continue
+            raise ValueError(
+                "Discrete level metadata mismatch for "
+                f"'{manifest_cols[idx]}': spec={existing_count}, data={inferred_count}"
+            )
+
+        return replace(spec, manifest_level_counts=resolved_counts)
 
     def _prepare_data(self, X: pl.DataFrame) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Prepare data for SSM fitting.

@@ -163,7 +163,6 @@ class TestGetLatestPreprocessedFile:
         assert get_latest_preprocessed_file(tmp_path) == f
 
 
-
 # =============================================================================
 # pivot_to_wide
 # =============================================================================

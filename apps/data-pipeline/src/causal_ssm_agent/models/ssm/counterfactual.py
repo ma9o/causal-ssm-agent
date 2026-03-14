@@ -268,6 +268,7 @@ def compute_interventions(
     model_clock_str = (causal_spec or {}).get("measurement", {}).get("model_clock")
     if model_clock_str:
         from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
+
         dt_median = parse_duration_to_hours(model_clock_str) / 24.0
     elif times is not None and len(times) > 1:
         diffs = jnp.diff(times)

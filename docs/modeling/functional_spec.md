@@ -23,8 +23,8 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 | `continuous` | Gaussian | identity | Student-t, Gamma (log), Beta (logit) |
 | `binary` | Bernoulli | logit | — |
 | `count` | Poisson | log | Negative Binomial (log) |
-| `ordinal` | OrderedLogistic | cumulative logit | *planned* |
-| `categorical` | Categorical | softmax | *planned* |
+| `ordinal` | OrderedLogistic | cumulative logit | — |
+| `categorical` | Categorical | softmax | — |
 
 The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via the `observation_model` field in the model spec.
 

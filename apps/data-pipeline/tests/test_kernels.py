@@ -110,6 +110,35 @@ class TestBuildObservationKernel:
         # Var = p(1-p) / (phi+1) = 0.25 / 10 = 0.025
         assert jnp.isclose(var[0, 0], 0.025)
 
+    def test_ordered_logistic_variance(self):
+        kernel = build_observation_kernel(
+            DistributionFamily.ORDERED_LOGISTIC,
+            LinkFunction.CUMULATIVE_LOGIT,
+            extra_params={
+                "obs_level_counts": jnp.array([3, 4]),
+                "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]]),
+            },
+        )
+        eta = jnp.array([0.0, 0.5])
+        var = kernel.variance_fn(eta)
+        assert var.shape == (2, 2)
+        assert jnp.all(jnp.diag(var) > 0)
+
+    def test_categorical_variance(self):
+        kernel = build_observation_kernel(
+            DistributionFamily.CATEGORICAL,
+            LinkFunction.SOFTMAX,
+            extra_params={
+                "obs_level_counts": jnp.array([3]),
+                "obs_cat_intercepts": jnp.array([[-1.0, 0.5]]),
+                "obs_cat_slopes": jnp.array([[0.2, -0.4]]),
+            },
+        )
+        eta = jnp.array([0.7])
+        var = kernel.variance_fn(eta)
+        assert var.shape == (1, 1)
+        assert var[0, 0] > 0
+
     def test_unsupported_link_raises(self):
         with pytest.raises(ValueError, match="No response function"):
             build_observation_kernel(
