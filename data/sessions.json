@@ -1,0 +1,18 @@
+{
+  "DEFAULT": {
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "rootFlowRunIds": []
+  },
+  "DOCTOLIB": {
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "rootFlowRunIds": []
+  },
+  "GOLDEN": {
+    "createdAt": "2026-03-13T18:33:26.268Z",
+    "rootFlowRunIds": [
+      "6ad78821-0728-486b-b132-1bf7b7a003b4",
+      "a1c62d7f-3184-4f10-a4a9-2574ef8d9381",
+      "e8a74818-3d49-4edd-9a20-89f04a31c1aa"
+    ]
+  }
+}
