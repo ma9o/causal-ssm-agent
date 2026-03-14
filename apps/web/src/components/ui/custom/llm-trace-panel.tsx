@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import type { RefineApplyResponse } from "@/lib/api/analysis";
 import { getUserApiKey } from "@/lib/auth";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
@@ -126,12 +127,10 @@ export function LLMTracePanel({
         return;
       }
 
-      const result = await res.json();
+      const result = (await res.json()) as RefineApplyResponse;
       if (result.ok) {
         setApplied(true);
-        if (result.flowRunId) {
-          window.location.href = `/analysis/${userId}?flowRunId=${result.flowRunId}`;
-        }
+        window.location.href = `/analysis/${userId}`;
       }
     } finally {
       setApplying(false);

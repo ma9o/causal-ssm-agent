@@ -1,6 +1,11 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
-import { readSessions, writeSessions } from "../sessions/_shared";
+import {
+  appendSessionRootFlowRunId,
+  getLatestSessionRootFlowRunId,
+  readSessions,
+  writeSessions,
+} from "../sessions/_shared";
 
 const PREFECT_API = "http://localhost:4200/api";
 const TERMINAL_FLOW_STATES = new Set(["COMPLETED", "FAILED", "CANCELLED", "CRASHED"]);
@@ -118,20 +123,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Look up the session to find the flowRunId for fetching original parameters
+    // Look up the session to find the latest root flow run for fetching original parameters
     const sessions = await readSessions();
     const session = sessions[safeUserId];
-    const flowRunId = session?.flowRunId;
+    const latestRootFlowRunId = getLatestSessionRootFlowRunId(session);
 
     // Build parameters: if we have a prior flow run, reuse its params
     let originalParams: Record<string, unknown> = {};
-    if (flowRunId) {
-      const flowRun = await fetchFlowRun(flowRunId);
+    if (latestRootFlowRunId) {
+      const flowRun = await fetchFlowRun(latestRootFlowRunId);
       if (flowRun) {
         originalParams = flowRun.parameters ?? {};
         if (!isTerminalFlowState(flowRun.state?.type)) {
-          await cancelFlowRun(flowRunId);
-          await waitForFlowRunToStop(flowRunId);
+          await cancelFlowRun(latestRootFlowRunId);
+          await waitForFlowRunToStop(latestRootFlowRunId);
         }
       }
     }
@@ -139,8 +144,9 @@ export async function POST(request: Request) {
     // Ensure userId is set and add stage_overrides
     const existingOverrides =
       (originalParams.stage_overrides as Record<string, unknown>) ?? {};
+    const { start_stage: _startStage, end_stage: _endStage, ...baseParams } = originalParams;
     const newParams = {
-      ...originalParams,
+      ...baseParams,
       user_id: safeUserId,
       stage_overrides: {
         ...existingOverrides,
@@ -189,17 +195,13 @@ export async function POST(request: Request) {
     }
 
     const newFlowRun = await createRes.json();
-    sessions[safeUserId] = {
-      createdAt: session?.createdAt ?? new Date().toISOString(),
-      flowRunId: newFlowRun.id,
-    };
+    sessions[safeUserId] = appendSessionRootFlowRunId(session, newFlowRun.id);
     await writeSessions(sessions);
     const downstreamStart = stageIdx + 1;
 
     return NextResponse.json({
       ok: true,
       resumeFrom: downstreamStart < STAGE_ORDER.length ? STAGE_ORDER[downstreamStart] : null,
-      flowRunId: newFlowRun.id,
     });
   } catch (err) {
     return NextResponse.json(

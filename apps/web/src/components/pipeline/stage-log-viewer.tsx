@@ -2,7 +2,6 @@
 
 import { type PrefectLogEntry, logLevelLabel, useStageLogs } from "@/lib/hooks/use-stage-logs";
 import { cn } from "@/lib/utils";
-import type { StageId } from "@causal-ssm/api-types";
 import { Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
@@ -33,16 +32,14 @@ function LogLine({ entry }: { entry: PrefectLogEntry }) {
 
 export function StageLogViewer({
   userId,
-  stageId,
   status,
-  flowRunId,
+  stageSubflowRunId,
 }: {
   userId: string;
-  stageId: StageId;
   status: StageRunStatus;
-  flowRunId?: string;
+  stageSubflowRunId?: string | null;
 }) {
-  const logs = useStageLogs(userId, flowRunId ?? null, stageId, status);
+  const logs = useStageLogs(userId, stageSubflowRunId ?? null, status);
   const [open, setOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 

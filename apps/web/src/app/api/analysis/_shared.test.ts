@@ -1,0 +1,193 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../sessions/_shared", () => ({
+  getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
+  readQuestion: vi.fn(),
+  readSessions: vi.fn(),
+}));
+
+import { readQuestion, readSessions } from "../sessions/_shared";
+import { buildAnalysisManifest } from "./_shared";
+
+const originalFetch = globalThis.fetch;
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => data,
+  } as Response;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  globalThis.fetch = originalFetch;
+});
+
+describe("buildAnalysisManifest", () => {
+  it("assigns each stage to the root run that owns it after a resume", async () => {
+    vi.mocked(readSessions).mockResolvedValue({
+      "user-123": {
+        createdAt: "2026-03-13T18:33:26.268Z",
+        rootFlowRunIds: ["full-run", "resume-run"],
+      },
+    });
+    vi.mocked(readQuestion).mockResolvedValue("Why does this happen?");
+
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/full-run") {
+        return jsonResponse({ id: "full-run", parameters: {} });
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/resume-run") {
+        return jsonResponse({ id: "resume-run", parameters: { start_stage: "stage-4b" } });
+      }
+
+      if (url === "http://localhost:4200/api/task_runs/filter") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          flow_runs?: { id?: { any_?: string[] } };
+        };
+        const rootFlowRunId = body.flow_runs?.id?.any_?.[0];
+
+        if (rootFlowRunId === "full-run") {
+          return jsonResponse([
+            {
+              id: "stage-4-task",
+              name: "stage-4-flow-0",
+              state_type: "COMPLETED",
+              start_time: "2026-03-13T18:15:00.000Z",
+              end_time: "2026-03-13T18:20:00.000Z",
+            },
+          ]);
+        }
+
+        if (rootFlowRunId === "resume-run") {
+          return jsonResponse([
+            {
+              id: "stage-4b-task",
+              name: "stage-4b-flow-0",
+              state_type: "COMPLETED",
+              start_time: "2026-03-13T18:33:00.000Z",
+              end_time: "2026-03-13T18:35:00.000Z",
+            },
+          ]);
+        }
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          flow_runs?: { parent_task_run_id?: { any_?: string[] } };
+        };
+        const parentTaskRunId = body.flow_runs?.parent_task_run_id?.any_?.[0];
+
+        if (parentTaskRunId === "stage-4-task") {
+          return jsonResponse([{ id: "stage-4-subflow" }]);
+        }
+
+        if (parentTaskRunId === "stage-4b-task") {
+          return jsonResponse([{ id: "stage-4b-subflow" }]);
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest).toMatchObject({
+      userId: "user-123",
+      createdAt: "2026-03-13T18:33:26.268Z",
+      question: "Why does this happen?",
+      rootFlowRunIds: ["full-run", "resume-run"],
+      latestRootFlowRunId: "resume-run",
+    });
+
+    expect(manifest?.stages["stage-3"]).toEqual({
+      ownerRootFlowRunId: "full-run",
+      stageSubflowRunId: null,
+      wrapperTaskRun: null,
+    });
+    expect(manifest?.stages["stage-4"]).toMatchObject({
+      ownerRootFlowRunId: "full-run",
+      stageSubflowRunId: "stage-4-subflow",
+      wrapperTaskRun: {
+        id: "stage-4-task",
+        name: "stage-4-flow-0",
+        stateType: "COMPLETED",
+      },
+    });
+    expect(manifest?.stages["stage-4b"]).toMatchObject({
+      ownerRootFlowRunId: "resume-run",
+      stageSubflowRunId: "stage-4b-subflow",
+      wrapperTaskRun: {
+        id: "stage-4b-task",
+        name: "stage-4b-flow-0",
+        stateType: "COMPLETED",
+      },
+    });
+    expect(manifest?.stages["stage-5b"]).toEqual({
+      ownerRootFlowRunId: "resume-run",
+      stageSubflowRunId: null,
+      wrapperTaskRun: null,
+    });
+  });
+
+  it("matches Prefect's suffixed wrapper task names when resolving a stage subflow", async () => {
+    vi.mocked(readSessions).mockResolvedValue({
+      "user-123": {
+        createdAt: "2026-03-13T18:33:26.268Z",
+        rootFlowRunIds: ["run-abc"],
+      },
+    });
+    vi.mocked(readQuestion).mockResolvedValue(undefined);
+
+    const fetchMock = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/run-abc") {
+        return jsonResponse({ id: "run-abc", parameters: {} });
+      }
+
+      if (url === "http://localhost:4200/api/task_runs/filter") {
+        return jsonResponse([
+          {
+            id: "task-1",
+            name: "stage-4b-flow-0",
+            state_type: "COMPLETED",
+            start_time: "2026-03-13T18:33:00.000Z",
+            end_time: "2026-03-13T18:35:00.000Z",
+          },
+        ]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body ?? "{}"))).toEqual({
+          flows: { name: { any_: ["stage-4b-flow"] } },
+          flow_runs: { parent_task_run_id: { any_: ["task-1"] } },
+          sort: "START_TIME_DESC",
+          limit: 1,
+        });
+        return jsonResponse([{ id: "flow-123" }]);
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest?.stages["stage-4b"]).toMatchObject({
+      ownerRootFlowRunId: "run-abc",
+      stageSubflowRunId: "flow-123",
+      wrapperTaskRun: {
+        id: "task-1",
+        name: "stage-4b-flow-0",
+      },
+    });
+  });
+});

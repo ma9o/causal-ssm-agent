@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReplayResponse } from "@/lib/api/analysis";
 import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
 import { Loader2, RotateCcw } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -44,9 +45,9 @@ export function ReplayButton({
         return;
       }
 
-      const result = await res.json();
-      if (result.flowRunId) {
-        window.location.href = `/analysis/${userId}?flowRunId=${result.flowRunId}`;
+      const result = (await res.json()) as ReplayResponse;
+      if (result.ok) {
+        window.location.href = `/analysis/${userId}`;
       }
     } finally {
       setReplaying(false);

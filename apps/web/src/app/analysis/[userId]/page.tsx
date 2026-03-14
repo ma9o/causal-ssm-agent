@@ -1,53 +1,29 @@
 "use client";
 
 import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
+import { getAnalysisManifest, getAnalysisManifestQueryKey } from "@/lib/api/analysis";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
-import { use, useEffect, useState } from "react";
-
-interface SessionLookupResponse {
-  flowRunId?: string;
-}
+import { useQuery } from "@tanstack/react-query";
+import { use, useEffect } from "react";
 
 export default function AnalysisPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ userId: string }>;
-  searchParams: Promise<{ flowRunId?: string }>;
 }) {
   const { userId } = use(params);
-  const { flowRunId } = use(searchParams);
-  const [resolvedFlowRunId, setResolvedFlowRunId] = useState<string | null>(flowRunId ?? null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (flowRunId) {
-      setResolvedFlowRunId(flowRunId);
-    }
-
-    void fetch(`/api/sessions/${userId}`)
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return (await response.json()) as SessionLookupResponse;
-      })
-      .then((session) => {
-        if (cancelled || !session?.flowRunId) return;
-        setResolvedFlowRunId(session.flowRunId);
-      })
-      .catch(() => {
-        // Session lookup is best-effort; search params may already contain the flowRunId.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, flowRunId]);
-
-  useRunEvents(userId, resolvedFlowRunId);
   const progress = usePipelineStatus(userId);
+  const { data: manifest } = useQuery({
+    queryKey: getAnalysisManifestQueryKey(userId),
+    queryFn: () => getAnalysisManifest(userId),
+    enabled: !!userId,
+    refetchInterval: progress && !progress.isComplete && !progress.isFailed ? 3000 : false,
+    staleTime: progress && !progress.isComplete && !progress.isFailed ? 1000 : Infinity,
+  });
+
+  useRunEvents(userId, manifest?.rootFlowRunIds ?? [], manifest?.stages);
 
   // Dynamic document title reflecting pipeline state
   useEffect(() => {
@@ -76,5 +52,12 @@ export default function AnalysisPage({
       : `(${completed}/${STAGES.length}) Running | Causal Inference Pipeline`;
   }, [progress]);
 
-  return <AnalysisFeed userId={userId} flowRunId={resolvedFlowRunId ?? undefined} progress={progress} />;
+  return (
+    <AnalysisFeed
+      userId={userId}
+      question={manifest?.question}
+      stageRuns={manifest?.stages}
+      progress={progress}
+    />
+  );
 }
