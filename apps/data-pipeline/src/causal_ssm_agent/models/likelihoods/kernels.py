@@ -22,8 +22,10 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.likelihoods.emissions import (
     categorical_moments,
+    get_categorical_extra_params,
     get_emission_fn,
     get_emission_score_weight_fn,
+    get_ordered_logistic_extra_params,
     ordered_logistic_moments,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -339,13 +341,10 @@ def build_observation_kernel(
 
     # Response function (inverse link)
     if dist == DistributionFamily.ORDERED_LOGISTIC:
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
         response_fn = _make_discrete_response_ordered_logistic(cutpoints, level_counts)
     elif dist == DistributionFamily.CATEGORICAL:
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
-        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
         response_fn = _make_discrete_response_categorical(intercepts, slopes, level_counts)
     else:
         response_fn = _RESPONSE_FNS.get(link)
@@ -383,15 +382,12 @@ def build_observation_kernel(
         conc = extra_params.get("obs_concentration", 10.0)
         variance_fn = _make_variance_beta(conc)
     elif dist == DistributionFamily.ORDERED_LOGISTIC:
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
         variance_fn = _make_discrete_variance_from_moments(
             lambda eta: ordered_logistic_moments(eta, cutpoints, level_counts)
         )
     elif dist == DistributionFamily.CATEGORICAL:
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
-        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
         variance_fn = _make_discrete_variance_from_moments(
             lambda eta: categorical_moments(eta, intercepts, slopes, level_counts)
         )

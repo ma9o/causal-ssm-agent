@@ -197,123 +197,6 @@ def _simulate_one_draw_gaussian(
     return y_sim  # (T, n_manifest)
 
 
-def _simulate_one_draw_nongaussian(
-    drift: jnp.ndarray,
-    diffusion_chol: jnp.ndarray,
-    cint: jnp.ndarray | None,
-    lambda_mat: jnp.ndarray,
-    manifest_means: jnp.ndarray,
-    manifest_cov: jnp.ndarray,
-    t0_mean: jnp.ndarray,
-    t0_chol: jnp.ndarray,
-    dt_array: jnp.ndarray,
-    rng_key: jax.Array,
-    manifest_dist: str,
-    obs_df: float | None = None,
-    obs_shape: float | None = None,
-    obs_r: float | None = None,
-    obs_concentration: float | None = None,
-    manifest_link: str | None = None,
-    manifest_level_counts: jnp.ndarray | None = None,
-    ordered_cutpoints: jnp.ndarray | None = None,
-    cat_intercepts: jnp.ndarray | None = None,
-    cat_slopes: jnp.ndarray | None = None,
-) -> jnp.ndarray:
-    """Simulate one trajectory for non-Gaussian observation noise.
-
-    Returns:
-        y_sim: (T, n_manifest) simulated observations
-    """
-    import numpyro.distributions as npdist
-
-    n_latent = drift.shape[0]
-    n_manifest = lambda_mat.shape[0]
-    T = dt_array.shape[0]
-
-    diffusion_cov = diffusion_chol @ diffusion_chol.T
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
-    if cd is None:
-        cd = jnp.zeros((T, n_latent))
-
-    key_init, key_proc, key_obs = jax.random.split(rng_key, 3)
-    eta_0 = t0_mean + t0_chol @ jax.random.normal(key_init, (n_latent,))
-    proc_keys = jax.random.split(key_proc, T)
-    obs_keys = jax.random.split(key_obs, T)
-
-    manifest_std = jnp.sqrt(jnp.diag(manifest_cov))
-
-    def scan_fn(eta_prev, inputs):
-        Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
-        Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
-        eps = jax.random.normal(pkey, (n_latent,))
-        eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
-
-        loc = lambda_mat @ eta_t + manifest_means
-
-        if manifest_dist == DistributionFamily.STUDENT_T:
-            df = obs_df if obs_df is not None else 5.0
-            y_t = npdist.StudentT(df=df, loc=loc, scale=manifest_std).sample(okey)
-        elif manifest_dist == DistributionFamily.POISSON:
-            rate = jnp.exp(loc)
-            y_t = npdist.Poisson(rate=rate).sample(okey)
-        elif manifest_dist == DistributionFamily.GAMMA:
-            shape_param = obs_shape if obs_shape is not None else 2.0
-            if manifest_link == LinkFunction.INVERSE:
-                mean = 1.0 / jnp.clip(loc, 1e-6, None)
-            else:
-                mean = jnp.exp(loc)
-            scale = mean / shape_param
-            scale = jnp.maximum(scale, 1e-8)
-            y_t = npdist.Gamma(concentration=shape_param, rate=1.0 / scale).sample(okey)
-        elif manifest_dist == DistributionFamily.BERNOULLI:
-            if manifest_link == LinkFunction.PROBIT:
-                p = jax.scipy.stats.norm.cdf(loc)
-            else:
-                p = jax.nn.sigmoid(loc)
-            y_t = npdist.Bernoulli(probs=p).sample(okey)
-        elif manifest_dist == DistributionFamily.NEGATIVE_BINOMIAL:
-            mu = jnp.exp(loc)
-            r_val = obs_r if obs_r is not None else 5.0
-            probs = mu / (mu + r_val)
-            y_t = npdist.NegativeBinomialProbs(total_count=int(r_val), probs=probs).sample(okey)
-        elif manifest_dist == DistributionFamily.BETA:
-            if manifest_link == LinkFunction.PROBIT:
-                mean = jax.scipy.stats.norm.cdf(loc)
-            else:
-                mean = jax.nn.sigmoid(loc)
-            phi = obs_concentration if obs_concentration is not None else 10.0
-            alpha = mean * phi
-            beta_ = (1.0 - mean) * phi
-            y_t = npdist.Beta(concentration1=alpha, concentration0=beta_).sample(okey)
-        elif manifest_dist == DistributionFamily.ORDERED_LOGISTIC:
-            if manifest_level_counts is None or ordered_cutpoints is None:
-                raise ValueError(
-                    "ordered_logistic PPC simulation requires cutpoints and level counts"
-                )
-            probs = ordered_logistic_probabilities(loc, ordered_cutpoints, manifest_level_counts)
-            y_t = _sample_discrete_from_probs(okey, probs)
-        elif manifest_dist == DistributionFamily.CATEGORICAL:
-            if manifest_level_counts is None or cat_intercepts is None or cat_slopes is None:
-                raise ValueError(
-                    "categorical PPC simulation requires softmax coefficients and level counts"
-                )
-            probs = categorical_probabilities(
-                loc, cat_intercepts, cat_slopes, manifest_level_counts
-            )
-            y_t = _sample_discrete_from_probs(okey, probs)
-        else:
-            # Fallback to Gaussian
-            manifest_chol = jnp.diag(manifest_std)
-            delta = jax.random.normal(okey, (n_manifest,))
-            y_t = loc + manifest_chol @ delta
-
-        return eta_t, y_t
-
-    _, y_sim = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys))
-    return y_sim  # (T, n_manifest)
-
-
 def _sample_channel(
     loc_j,
     key,
@@ -439,6 +322,25 @@ def _sample_channel(
         cutpoints,
         cat_intercepts,
         cat_slopes,
+    )
+
+
+def _resolve_dist_indices(
+    manifest_dist: str,
+    manifest_link: str | None,
+    manifest_dists: list[str] | None,
+    manifest_links: list[str] | None,
+    n_manifest: int,
+) -> jnp.ndarray:
+    effective_dists = manifest_dists or [manifest_dist] * n_manifest
+    effective_links = manifest_links or [manifest_link] * n_manifest
+    return jnp.array(
+        [
+            _DIST_LINK_IDX.get((dist, link), _DIST_IDX.get(dist, 0))
+            if link is not None
+            else _DIST_IDX.get(dist, 0)
+            for dist, link in zip(effective_dists, effective_links, strict=False)
+        ]
     )
 
 
@@ -690,18 +592,14 @@ def simulate_posterior_predictive(
             lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
         )(t0_cov_sub)
 
-        # Build combined (dist, link) indices
-        if effective_links is not None:
-            assert effective_dists is not None
-            dist_indices = jnp.array(
-                [
-                    _DIST_LINK_IDX.get((d, lk), _DIST_IDX.get(d, 0))
-                    for d, lk in zip(effective_dists, effective_links)
-                ]
-            )
-        else:
-            assert effective_dists is not None
-            dist_indices = jnp.array([_DIST_IDX.get(d, 0) for d in effective_dists])
+        assert effective_dists is not None
+        dist_indices = _resolve_dist_indices(
+            manifest_dist=manifest_dist,
+            manifest_link=None,
+            manifest_dists=effective_dists,
+            manifest_links=effective_links,
+            n_manifest=n_manifest,
+        )
 
         obs_df_val = _scalar(samples.get("obs_df")) or 5.0
         obs_shape_val = _scalar(samples.get("obs_shape")) or 2.0
@@ -742,18 +640,24 @@ def simulate_posterior_predictive(
             lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
         )(t0_cov_sub)
 
-        # Resolve effective scalar distribution and link
         effective_dist = effective_dists[0] if effective_dists else manifest_dist
         effective_link = effective_links[0] if effective_links else None
+        dist_indices = _resolve_dist_indices(
+            manifest_dist=effective_dist,
+            manifest_link=effective_link,
+            manifest_dists=None,
+            manifest_links=None,
+            n_manifest=n_manifest,
+        )
 
-        obs_df_val = _scalar(samples.get("obs_df"))
-        obs_shape_val = _scalar(samples.get("obs_shape"))
-        obs_r_val = _scalar(samples.get("obs_r"))
-        obs_conc_val = _scalar(samples.get("obs_concentration"))
+        obs_df_val = _scalar(samples.get("obs_df")) or 5.0
+        obs_shape_val = _scalar(samples.get("obs_shape")) or 2.0
+        obs_r_val = _scalar(samples.get("obs_r")) or 5.0
+        obs_conc_val = _scalar(samples.get("obs_concentration")) or 10.0
 
         def sim_one(i):
             ci = cint_sub[i] if cint_sub is not None else None
-            return _simulate_one_draw_nongaussian(
+            return _simulate_one_draw_mixed(
                 drift=drift_sub[i],
                 diffusion_chol=diffusion_sub[i],
                 cint=ci,
@@ -764,7 +668,7 @@ def simulate_posterior_predictive(
                 t0_chol=t0_chol_sub[i],
                 dt_array=dt_array,
                 rng_key=draw_keys[i],
-                manifest_dist=effective_dist,
+                dist_indices=dist_indices,
                 obs_df=obs_df_val,
                 obs_shape=obs_shape_val,
                 obs_r=obs_r_val,
@@ -775,7 +679,6 @@ def simulate_posterior_predictive(
                 else None,
                 cat_intercepts=cat_intercepts_sub[i] if cat_intercepts_sub is not None else None,
                 cat_slopes=cat_slopes_sub[i] if cat_slopes_sub is not None else None,
-                manifest_link=effective_link,
             )
 
         y_sim = vmap(sim_one)(jnp.arange(n_use))

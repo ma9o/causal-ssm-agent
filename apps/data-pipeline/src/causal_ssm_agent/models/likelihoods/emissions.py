@@ -148,6 +148,23 @@ def categorical_moments(
     )
 
 
+def get_ordered_logistic_extra_params(
+    extra_params: dict,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+    cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+    return level_counts, cutpoints
+
+
+def get_categorical_extra_params(
+    extra_params: dict,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+    intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
+    slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+    return level_counts, intercepts, slopes
+
+
 def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
     """Log p(y_t | z_t) for Gaussian emissions."""
     pred = H @ z_t + d
@@ -460,13 +477,10 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
         r = extra_params.get("obs_r", 5.0)
         return lambda y, eta, m: _score_weight_negative_binomial(y, eta, m, r)
     if manifest_dist == "ordered_logistic":
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
         return lambda y, eta, m: _score_weight_ordered_logistic(y, eta, m, cutpoints, level_counts)
     if manifest_dist == "categorical":
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
-        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
         return lambda y, eta, m: _score_weight_categorical(
             y, eta, m, intercepts, slopes, level_counts
         )
@@ -511,15 +525,12 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
             return lambda y, z, H, d, R, m: emission_log_prob_beta_probit(y, z, H, d, R, m, conc)
         return lambda y, z, H, d, R, m: emission_log_prob_beta(y, z, H, d, R, m, conc)
     if manifest_dist == "ordered_logistic":
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
+        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
         return lambda y, z, H, d, R, m: emission_log_prob_ordered_logistic(
             y, z, H, d, R, m, cutpoints, level_counts
         )
     if manifest_dist == "categorical":
-        level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
-        intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
-        slopes = jnp.asarray(extra_params["obs_cat_slopes"])
+        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
         return lambda y, z, H, d, R, m: emission_log_prob_categorical(
             y, z, H, d, R, m, intercepts, slopes, level_counts
         )
