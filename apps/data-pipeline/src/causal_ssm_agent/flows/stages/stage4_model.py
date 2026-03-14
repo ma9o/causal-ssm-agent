@@ -399,18 +399,30 @@ async def stage4_orchestrated_flow(
 
     # 1. Orchestrator proposes model specification. Stage 1b owns structural
     # validation, so stage 4 only performs a single compile-time assertion.
+    # Retry up to 2 times if the LLM proposes unsupported distributions/structures.
     from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
     from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
 
-    model_spec = await propose_model_task(causal_spec, question, raw_data)
-    llm_trace = model_spec.pop("llm_trace", None)
+    max_spec_attempts = 3
+    compile_error = None
+    llm_trace = None
+    for spec_attempt in range(max_spec_attempts):
+        model_spec = await propose_model_task(causal_spec, question, raw_data)
+        llm_trace = model_spec.pop("llm_trace", None)
 
-    # Auto-add correlation parameters for marginalized confounders.
-    inject_marginalized_correlations(model_spec, causal_spec)
+        inject_marginalized_correlations(model_spec, causal_spec)
 
-    compile_error = trial_compile_model_spec(model_spec, causal_spec)
+        compile_error = trial_compile_model_spec(model_spec, causal_spec)
+        if compile_error is None:
+            break
+        logger.warning(
+            "Stage 4: model spec attempt %d/%d failed compilation: %s",
+            spec_attempt + 1,
+            max_spec_attempts,
+            compile_error,
+        )
     if compile_error is not None:
-        raise ValueError(f"Stage 4 model spec failed compilation: {compile_error}")
+        raise ValueError(f"Stage 4 model spec failed compilation after {max_spec_attempts} attempts: {compile_error}")
 
     parameter_specs = model_spec.get("parameters", [])
 

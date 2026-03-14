@@ -463,7 +463,7 @@ class TreatmentEffectContract(BaseModel):
     posterior_draws: list[float] | None = None
     prob_positive: float | None = None
     identifiable: bool
-    ppc_warnings: list[str] | None = None
+    ppc_warnings: list[PPCWarning] | None = None
     prior_sensitivity_warning: str | None = None
     temporal: TemporalEffect | None = None
     manifest_effects: dict[str, float] | None = None

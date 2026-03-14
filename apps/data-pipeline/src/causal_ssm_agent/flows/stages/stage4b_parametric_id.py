@@ -24,12 +24,12 @@ logger = get_prefect_logger(__name__)
 
 @task(task_run_name="parametric-id-check")
 def parametric_id_task(
-    _model_spec: dict,
-    _priors: dict[str, dict],
+    model_spec: dict,
+    priors: dict[str, dict],
     raw_data: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
-    _causal_spec: dict | None = None,
+    causal_spec: dict | None = None,
     compiled_ssm: dict | None = None,
     builder: Any = None,
 ) -> dict:
@@ -41,12 +41,12 @@ def parametric_id_task(
     4. Return result summary
 
     Args:
-        _model_spec: Model specification dict
-        _priors: Prior proposals by parameter name
+        model_spec: Model specification dict
+        priors: Prior proposals by parameter name
         raw_data: Raw timestamped data (indicator, value, timestamp)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
-        _causal_spec: CausalSpec dict for DAG-constrained masks
+        causal_spec: CausalSpec dict for DAG-constrained masks
         compiled_ssm: Serialized executable artifact from stage 4
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
@@ -84,12 +84,7 @@ def parametric_id_task(
         if not t_rule.satisfies:
             return {
                 "checked": True,
-                "t_rule": {
-                    "satisfies": False,
-                    "n_free_params": t_rule.n_free_params,
-                    "n_moments": t_rule.n_moments,
-                    "param_counts": t_rule.param_counts,
-                },
+                "t_rule": t_rule.model_dump(),
                 "summary": {},
                 "error": (
                     f"T-rule violated: {t_rule.n_free_params} free params "
@@ -168,11 +163,7 @@ def parametric_id_task(
 
         return {
             "checked": True,
-            "t_rule": {
-                "satisfies": True,
-                "n_free_params": t_rule.n_free_params,
-                "n_moments": t_rule.n_moments,
-            },
+            "t_rule": t_rule.model_dump(),
             "sensitivity_analysis": sensitivity_payload,
             "summary": summary,
             "per_param_classification": per_param,

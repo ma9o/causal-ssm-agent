@@ -1,35 +1,31 @@
-"""Utility functions for causal-ssm-agent."""
+"""Utility functions for causal-ssm-agent.
 
-# Aggregation utilities in causal_ssm_agent.utils.aggregations
+Heavy submodules (parametric_id, parametric_id_postfit) are imported lazily
+to avoid circular imports with models/orchestrator.
+"""
 
-from causal_ssm_agent.utils.parametric_id import (
-    OutputSensitivityResult,
-    ProfileLikelihoodResult,
-    SBCResult,
-    TRuleResult,
-    check_t_rule,
-    count_free_params,
-    output_sensitivity_analysis,
-    profile_likelihood,
-    sbc_check,
-    simulate_ssm,
-)
-from causal_ssm_agent.utils.parametric_id_postfit import (
-    PowerScalingResult,
-    power_scaling_sensitivity,
-)
+import importlib as _importlib
 
-__all__ = [
-    "OutputSensitivityResult",
-    "PowerScalingResult",
-    "ProfileLikelihoodResult",
-    "SBCResult",
-    "TRuleResult",
-    "check_t_rule",
-    "count_free_params",
-    "output_sensitivity_analysis",
-    "power_scaling_sensitivity",
-    "profile_likelihood",
-    "sbc_check",
-    "simulate_ssm",
-]
+_LAZY = {
+    "OutputSensitivityResult": "causal_ssm_agent.utils.parametric_id",
+    "ProfileLikelihoodResult": "causal_ssm_agent.utils.parametric_id",
+    "SBCResult": "causal_ssm_agent.utils.parametric_id",
+    "TRuleResult": "causal_ssm_agent.utils.parametric_id",
+    "check_t_rule": "causal_ssm_agent.utils.parametric_id",
+    "count_free_params": "causal_ssm_agent.utils.parametric_id",
+    "output_sensitivity_analysis": "causal_ssm_agent.utils.parametric_id",
+    "profile_likelihood": "causal_ssm_agent.utils.parametric_id",
+    "sbc_check": "causal_ssm_agent.utils.parametric_id",
+    "simulate_ssm": "causal_ssm_agent.utils.parametric_id",
+    "PowerScalingResult": "causal_ssm_agent.utils.parametric_id_postfit",
+    "power_scaling_sensitivity": "causal_ssm_agent.utils.parametric_id_postfit",
+}
+
+__all__ = list(_LAZY)
+
+
+def __getattr__(name: str):
+    if name in _LAZY:
+        mod = _importlib.import_module(_LAZY[name])
+        return getattr(mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

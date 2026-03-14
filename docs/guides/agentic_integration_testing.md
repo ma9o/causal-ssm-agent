@@ -148,6 +148,72 @@ Poll and screenshot as the pipeline progresses:
 
 The screenshots serve as visual regression artifacts — an agent can compare them against expected layouts.
 
+## Resuming After a Stage Failure
+
+**Do not restart the pipeline from scratch.** Every stage persists its output to
+`data/{user_id}/run/` (both `{stage_id}-state.pkl` snapshots and `{stage_id}.json`
+web payloads). When a stage fails, the earlier stages' artifacts are already on disk
+and can be reused.
+
+### Identify the failed stage
+
+Check the Prefect flow run to find which stage failed:
+
+```bash
+# Get the failed flow run's state
+curl -s "http://localhost:4200/api/flow_runs/$FLOW_RUN_ID" | jq '{state: .state.type, name: .state.name}'
+
+# List which stage artifacts already exist on disk
+ls data/$USER_ID/run/
+```
+
+The last successfully written `stage-*-state.pkl` tells you where execution stopped.
+If `stage-2-state.pkl` exists but `stage-3-state.pkl` does not, stage 3 failed.
+
+### Rerun from the failed stage
+
+Use the `start_stage` parameter to skip all earlier stages — they are restored from
+their on-disk snapshots automatically. You do **not** need to re-supply the `query`
+parameter; it was materialized to `data/{user_id}/query.txt` during the original run.
+
+```bash
+# Example: stage-3 failed, rerun from stage-3 onward
+FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
+  -H 'Content-Type: application/json' \
+  -d "{\"parameters\":{\"user_id\":\"$USER_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
+  | jq -r '.id')
+```
+
+You can also scope the rerun to a single stage by combining `start_stage` and
+`end_stage`:
+
+```bash
+# Rerun only stage-4, then stop
+FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
+  -H 'Content-Type: application/json' \
+  -d "{\"parameters\":{\"user_id\":\"$USER_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
+  | jq -r '.id')
+```
+
+### Re-register the new flow run
+
+After triggering a resume run, update the session so the web UI tracks the new
+flow run ID:
+
+```bash
+curl -s -X POST http://localhost:3001/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d "{\"userId\":\"$USER_ID\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+```
+
+### Valid stage IDs
+
+The full stage sequence is:
+
+```
+stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6
+```
+
 ## Why User IDs Enable This
 
 The user ID is the linchpin:
