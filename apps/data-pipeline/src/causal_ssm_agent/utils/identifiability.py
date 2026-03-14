@@ -562,7 +562,7 @@ def analyze_unobserved_constructs(
     marginalize_reason = {}
     for u in can_marginalize:
         # Check if U creates any confounding at all (is in unobserved_confounders)
-        if u in identifiability_result["graph_info"].get("unobserved_confounders", []):
+        if u in identifiability_result.get("graph_info", {}).get("unobserved_confounders", []):
             marginalize_reason[u] = (
                 "confounding handled by identification strategy (front-door or similar)"
             )
@@ -671,13 +671,14 @@ def format_identifiability_report(result: dict, outcome: str) -> str:
         if n_identifiable > 5:
             lines.append(f"  ... and {n_identifiable - 5} more")
 
-    info = result["graph_info"]
-    lines.append(
-        f"\nGraph: {len(info['observed_constructs'])}/{info['total_constructs']} constructs observed, "
-        f"{info['n_directed_edges']} directed edges"
-    )
-    if info["unobserved_confounders"]:
-        lines.append(f"Unobserved confounders: {', '.join(info['unobserved_confounders'])}")
+    info = result.get("graph_info")
+    if info:
+        lines.append(
+            f"\nGraph: {len(info['observed_constructs'])}/{info['total_constructs']} constructs observed, "
+            f"{info['n_directed_edges']} directed edges"
+        )
+        if info["unobserved_confounders"]:
+            lines.append(f"Unobserved confounders: {', '.join(info['unobserved_confounders'])}")
 
     return "\n".join(lines)
 

@@ -427,7 +427,7 @@ def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
     parts.append(f"time={elapsed:.1f}s")
     tool_calls = output["message"].get("tool_calls") or []
     if tool_calls:
-        names = [call["name"] for call in tool_calls]
+        names = [call.get("function", {}).get("name") or call.get("name", "?") for call in tool_calls]
         parts.append(f"tool_calls={names}")
     else:
         parts.append(f"stop={output.get('stop_reason') or 'end_turn'}")

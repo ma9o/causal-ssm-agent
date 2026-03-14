@@ -243,8 +243,11 @@ def _assistant_message(message: Any) -> dict[str, Any]:
         tool_calls.append(
             {
                 "id": str(_get_attr(tool_call, "id", "")),
-                "name": str(_get_attr(function, "name", "")),
-                "arguments": str(arguments or "{}"),
+                "type": "function",
+                "function": {
+                    "name": str(_get_attr(function, "name", "")),
+                    "arguments": str(arguments or "{}"),
+                },
             }
         )
     if tool_calls:
@@ -415,7 +418,8 @@ async def execute_tools(
         logger.info("[%s] executing %d tool call(s)", log_label, len(tool_calls))
 
     for tool_call in tool_calls:
-        tool_name = str(tool_call.get("name", ""))
+        fn = tool_call.get("function") or {}
+        tool_name = str(fn.get("name") or tool_call.get("name", ""))
         result_text: str
         error_text: str | None = None
         tool_obj = tool_map.get(tool_name)
@@ -426,7 +430,8 @@ async def execute_tools(
             error_text = result_text
         else:
             try:
-                args = json.loads(str(tool_call.get("arguments", "{}")) or "{}")
+                raw_args = str(fn.get("arguments") or tool_call.get("arguments", "{}") or "{}")
+                args = json.loads(raw_args)
                 if not isinstance(args, dict):
                     raise ValueError("Tool arguments must decode to a JSON object")
                 result = await tool_obj(**args)

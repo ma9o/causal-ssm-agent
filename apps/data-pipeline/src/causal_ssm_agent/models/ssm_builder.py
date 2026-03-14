@@ -22,6 +22,7 @@ from causal_ssm_agent.models.ssm import (
 )
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
+    VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
     ModelSpec,
@@ -41,6 +42,12 @@ _SUPPORTED_EMISSIONS: set[DistributionFamily] = {
     DistributionFamily.BERNOULLI,
     DistributionFamily.NEGATIVE_BINOMIAL,
     DistributionFamily.BETA,
+}
+
+# Fallback mapping for unsupported distributions → closest supported one.
+_EMISSION_FALLBACKS: dict[DistributionFamily, DistributionFamily] = {
+    DistributionFamily.ORDERED_LOGISTIC: DistributionFamily.GAUSSIAN,
+    DistributionFamily.CATEGORICAL: DistributionFamily.GAUSSIAN,
 }
 
 
@@ -353,13 +360,29 @@ class SSMModelBuilder:
         # Distributions are passed through directly — no approximation.
         manifest_dists: list[DistributionFamily] = []
         for lik in model_spec.likelihoods:
-            if lik.distribution not in _SUPPORTED_EMISSIONS:
-                raise ValueError(
-                    f"Indicator '{lik.variable}': distribution '{lik.distribution}' "
-                    f"has no native emission function. Supported: "
-                    f"{sorted(d.value for d in _SUPPORTED_EMISSIONS)}."
-                )
-            manifest_dists.append(lik.distribution)
+            dist = lik.distribution
+            if dist not in _SUPPORTED_EMISSIONS:
+                fallback = _EMISSION_FALLBACKS.get(dist)
+                if fallback is not None:
+                    logger.warning(
+                        "Indicator '%s': distribution '%s' unsupported, falling back to '%s'",
+                        lik.variable,
+                        dist.value,
+                        fallback.value,
+                    )
+                    dist = fallback
+                    lik.distribution = fallback
+                    # Fix link function to match the fallback distribution
+                    valid_links = VALID_LINKS_FOR_DISTRIBUTION.get(fallback)
+                    if valid_links and lik.link not in valid_links:
+                        lik.link = next(iter(valid_links))
+                else:
+                    raise ValueError(
+                        f"Indicator '{lik.variable}': distribution '{dist}' "
+                        f"has no native emission function. Supported: "
+                        f"{sorted(d.value for d in _SUPPORTED_EMISSIONS)}."
+                    )
+            manifest_dists.append(dist)
 
         # Scalar fallback: first non-Gaussian type (for PF dispatch)
         manifest_dist = DistributionFamily.GAUSSIAN
