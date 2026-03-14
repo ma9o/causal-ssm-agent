@@ -138,6 +138,44 @@ class TestForwardSimulation:
         assert y_sim.shape == (10, 15, 2)
         assert jnp.all(y_sim > 0)
 
+    def test_forward_simulate_ordered_logistic(self):
+        """Ordered-logistic simulation returns encoded category indices."""
+        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
+        samples["obs_ordered_cutpoints"] = jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]])
+        times = jnp.arange(15, dtype=float)
+
+        y_sim = simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            manifest_dist="ordered_logistic",
+            manifest_level_counts=[3, 4],
+            n_subsample=10,
+        )
+
+        assert y_sim.shape == (10, 15, 2)
+        assert jnp.all(jnp.isfinite(y_sim))
+        assert jnp.all((y_sim[:, :, 0] >= 0) & (y_sim[:, :, 0] <= 2))
+        assert jnp.all((y_sim[:, :, 1] >= 0) & (y_sim[:, :, 1] <= 3))
+
+    def test_forward_simulate_categorical(self):
+        """Categorical simulation returns encoded category indices."""
+        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
+        samples["obs_cat_intercepts"] = jnp.array([[-1.0, 0.5], [0.2, -0.3]])
+        samples["obs_cat_slopes"] = jnp.array([[0.2, -0.4], [0.5, 0.1]])
+        times = jnp.arange(15, dtype=float)
+
+        y_sim = simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            manifest_dist="categorical",
+            manifest_level_counts=[3, 3],
+            n_subsample=10,
+        )
+
+        assert y_sim.shape == (10, 15, 2)
+        assert jnp.all(jnp.isfinite(y_sim))
+        assert jnp.all((y_sim >= 0) & (y_sim <= 2))
+
 
 class TestDiagnosticChecks:
     """Tests for individual diagnostic checks."""

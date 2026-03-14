@@ -161,6 +161,19 @@ class TestValidateModelSpecDict:
         assert spec is None
         assert any("constraint" in e and "unexpected" in e for e in errors)
 
+    def test_ar_role_requires_unit_interval(self):
+        d = _valid_spec_dict()
+        d["parameters"][0] = {
+            "name": "rho_mood",
+            "role": "ar_coefficient",
+            "constraint": "correlation",
+            "description": "AR(1) persistence for mood",
+            "search_context": "mood autocorrelation",
+        }
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("expected 'unit_interval'" in e for e in errors)
+
 
 # =============================================================================
 # merge_decisions_to_spec

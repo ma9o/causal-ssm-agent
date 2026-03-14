@@ -243,7 +243,6 @@ def get_latest_preprocessed_file(
     return max(txt_files, key=lambda p: p.stat().st_mtime)
 
 
-
 def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     """Pivot long-format raw data to wide-format Polars DataFrame.
 

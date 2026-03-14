@@ -33,9 +33,6 @@
     },
     "stage-6": {
       "$ref": "#/$defs/Stage6Contract"
-    },
-    "_partial": {
-      "$ref": "#/$defs/PartialStageResult"
     }
   },
   "$defs": {
@@ -59,7 +56,7 @@
         },
         "lagged": {
           "default": true,
-          "description": "If True, effect at t is caused by cause at t-1. If False (contemporaneous), effect at t is caused by cause at t. Cross-timescale edges are always lagged.",
+          "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
           "title": "Lagged",
           "type": "boolean"
         }
@@ -154,19 +151,6 @@
         "temporal_status": {
           "$ref": "#/$defs/TemporalStatus",
           "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
-        },
-        "temporal_scale": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for time-varying constructs. The timescale at which causal dynamics operate.",
-          "title": "Temporal Scale"
         }
       },
       "required": [
@@ -291,7 +275,7 @@
           ],
           "title": "Value"
         },
-        "timestamp": {
+        "tick": {
           "anyOf": [
             {
               "type": "string"
@@ -300,12 +284,12 @@
               "type": "null"
             }
           ],
-          "title": "Timestamp"
+          "title": "Tick"
         }
       },
       "required": [
         "indicator",
-        "timestamp",
+        "tick",
         "value"
       ],
       "title": "ExtractionContract",
@@ -442,11 +426,18 @@
           },
           "title": "Source Columns",
           "type": "array"
+        },
+        "extraction_mode": {
+          "default": "semantic",
+          "description": "'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.",
+          "title": "Extraction Mode",
+          "type": "string"
         }
       },
       "required": [
         "aggregation",
         "construct_name",
+        "extraction_mode",
         "how_to_measure",
         "measurement_dtype",
         "name",
@@ -794,37 +785,6 @@
       "title": "LinkFunction",
       "type": "string"
     },
-    "LiveMetadata": {
-      "additionalProperties": false,
-      "description": "Metadata attached to partial stage results while an LLM stage is running.",
-      "properties": {
-        "status": {
-          "const": "running",
-          "title": "Status",
-          "type": "string"
-        },
-        "label": {
-          "title": "Label",
-          "type": "string"
-        },
-        "turn": {
-          "title": "Turn",
-          "type": "integer"
-        },
-        "elapsed_seconds": {
-          "title": "Elapsed Seconds",
-          "type": "number"
-        }
-      },
-      "required": [
-        "elapsed_seconds",
-        "label",
-        "status",
-        "turn"
-      ],
-      "title": "LiveMetadata",
-      "type": "object"
-    },
     "MCMCDiagnostics": {
       "description": "Top-level MCMC diagnostics container.",
       "properties": {
@@ -1027,10 +987,16 @@
           },
           "title": "Indicators",
           "type": "array"
+        },
+        "model_clock": {
+          "description": "Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per tick.",
+          "title": "Model Clock",
+          "type": "string"
         }
       },
       "required": [
-        "indicators"
+        "indicators",
+        "model_clock"
       ],
       "title": "MeasurementModel",
       "type": "object"
@@ -1554,24 +1520,6 @@
         "structural_issues",
         "weak_params"
       ]
-    },
-    "PartialStageResult": {
-      "additionalProperties": false,
-      "description": "Partial stage result written to disk during LLM generation.\n\nA subset of the full stage contract: only the ``llm_trace`` field (the part\navailable mid-run) plus ``_live`` metadata so the frontend can distinguish\nin-progress from completed results.  Overwritten by ``persist_web_result``\nwhen the stage completes.",
-      "properties": {
-        "llm_trace": {
-          "$ref": "#/$defs/LLMTrace"
-        },
-        "_live": {
-          "$ref": "#/$defs/LiveMetadata"
-        }
-      },
-      "required": [
-        "_live",
-        "llm_trace"
-      ],
-      "title": "PartialStageResult",
-      "type": "object"
     },
     "PosteriorMarginal": {
       "description": "Marginal posterior density for a single scalar parameter.",
@@ -3013,7 +2961,7 @@
           "anyOf": [
             {
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/PPCWarning"
               },
               "type": "array"
             },
@@ -3183,8 +3131,8 @@
           "title": "N Extractions",
           "type": "integer"
         },
-        "chunk_size": {
-          "title": "Chunk Size",
+        "n_ticks": {
+          "title": "N Ticks",
           "type": "integer"
         },
         "error": {
@@ -3201,8 +3149,8 @@
         }
       },
       "required": [
-        "chunk_size",
         "n_extractions",
+        "n_ticks",
         "status",
         "worker_id"
       ],
@@ -3211,7 +3159,6 @@
     }
   },
   "required": [
-    "_partial",
     "stage-0",
     "stage-1a",
     "stage-1b",

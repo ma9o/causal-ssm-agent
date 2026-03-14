@@ -157,20 +157,15 @@ def _stage5b_on_gpu(
             else str(spec.manifest_dist)
         )
 
-        # Per-channel distributions override scalar fallback
-        manifest_dists_list = None
-        if spec.manifest_dists:
-            manifest_dists_list = [
-                d.value if hasattr(d, "value") else str(d) for d in spec.manifest_dists
-            ]
-
         ppc = run_posterior_predictive_checks(
             samples=result.get_samples(),
             observations=observations,
             times=times,
             manifest_names=manifest_names,
             manifest_dist=manifest_dist_val,
-            manifest_dists=manifest_dists_list,
+            manifest_dists=spec.manifest_dists,
+            manifest_links=spec.manifest_links,
+            manifest_level_counts=spec.manifest_level_counts,
         )
         ppc_result = ppc.model_dump(mode="json")
     except Exception:

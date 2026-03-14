@@ -67,7 +67,6 @@ export interface CausalSSMContracts {
   "stage-5a": Stage5AContract;
   "stage-5b": Stage5BContract;
   "stage-6": Stage6Contract;
-  _partial: PartialStageResult;
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
@@ -168,10 +167,6 @@ export interface Construct {
    */
   is_outcome: boolean;
   temporal_status: TemporalStatus;
-  /**
-   * 'hourly', 'daily', 'weekly', 'monthly', 'yearly'. Required for time-varying constructs. The timescale at which causal dynamics operate.
-   */
-  temporal_scale?: string | null;
 }
 /**
  * A directed causal relationship between constructs.
@@ -190,7 +185,7 @@ export interface CausalEdge {
    */
   description: string;
   /**
-   * If True, effect at t is caused by cause at t-1. If False (contemporaneous), effect at t is caused by cause at t. Cross-timescale edges are always lagged.
+   * If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.
    */
   lagged: boolean;
 }
@@ -227,6 +222,10 @@ export interface MeasurementModel {
    * Observed indicators, each measuring a construct
    */
   indicators: Indicator[];
+  /**
+   * Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per tick.
+   */
+  model_clock: string;
 }
 /**
  * An observed variable that reflects a construct.
@@ -263,6 +262,10 @@ export interface Indicator {
    * Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
    */
   source_columns: string[];
+  /**
+   * 'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.
+   */
+  extraction_mode: string;
 }
 /**
  * Status of causal effect identifiability.
@@ -331,13 +334,13 @@ export interface WorkerStatusContract {
   worker_id: number;
   status: "pending" | "running" | "completed" | "failed";
   n_extractions: number;
-  chunk_size: number;
+  n_ticks: number;
   error?: string | null;
 }
 export interface ExtractionContract {
   indicator: string;
   value: number | boolean | string | null;
-  timestamp: string | null;
+  tick: string | null;
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";
@@ -837,7 +840,7 @@ export interface TreatmentEffectContract {
   posterior_draws?: number[] | null;
   prob_positive?: number | null;
   identifiable: boolean;
-  ppc_warnings?: string[] | null;
+  ppc_warnings?: PPCWarning[] | null;
   prior_sensitivity_warning?: string | null;
   temporal?: TemporalEffect | null;
   manifest_effects?: {
@@ -853,25 +856,4 @@ export interface TemporalEffect {
   effect_30d: number;
   peak_effect: number;
   time_to_peak_days: number;
-}
-/**
- * Partial stage result written to disk during LLM generation.
- *
- * A subset of the full stage contract: only the ``llm_trace`` field (the part
- * available mid-run) plus ``_live`` metadata so the frontend can distinguish
- * in-progress from completed results.  Overwritten by ``persist_web_result``
- * when the stage completes.
- */
-export interface PartialStageResult {
-  llm_trace: LLMTrace;
-  _live: LiveMetadata;
-}
-/**
- * Metadata attached to partial stage results while an LLM stage is running.
- */
-export interface LiveMetadata {
-  status: "running";
-  label: string;
-  turn: number;
-  elapsed_seconds: number;
 }

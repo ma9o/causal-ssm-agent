@@ -4,6 +4,7 @@ import type {
   AnalysisStageRuns,
   AnalysisStageTaskRun,
 } from "@/lib/api/analysis";
+import { dedupeRootFlowRunIds } from "@/lib/root-flow-runs";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
 import {
   getLatestSessionRootFlowRunId,
@@ -16,6 +17,9 @@ const PREFECT_API = "http://localhost:4200/api";
 interface PrefectFlowRun {
   id: string;
   parameters?: Record<string, unknown>;
+  created?: string | null;
+  start_time?: string | null;
+  expected_start_time?: string | null;
 }
 
 interface PrefectTaskRun {
@@ -29,6 +33,8 @@ interface PrefectTaskRun {
 interface RootFlowRunLineageEntry {
   rootFlowRunId: string;
   startStage: StageId;
+  endStage: StageId;
+  createdAt: string | null;
 }
 
 function emptyStageRun(): AnalysisStageRun {
@@ -47,6 +53,10 @@ function getFlowRunStartStage(parameters?: Record<string, unknown>): StageId {
   return isStageId(parameters?.start_stage) ? parameters.start_stage : "stage-0";
 }
 
+function getFlowRunEndStage(parameters?: Record<string, unknown>): StageId {
+  return isStageId(parameters?.end_stage) ? parameters.end_stage : STAGES[STAGES.length - 1].id;
+}
+
 function getStageIndex(stageId: StageId): number {
   return STAGES.findIndex((stage) => stage.id === stageId);
 }
@@ -61,7 +71,9 @@ function getStageOwningRootFlowRunId(
   let ownerRootFlowRunId: string | null = null;
 
   for (const entry of lineage) {
-    if (getStageIndex(entry.startStage) <= stageIndex) {
+    const startIndex = getStageIndex(entry.startStage);
+    const endIndex = getStageIndex(entry.endStage);
+    if (startIndex <= stageIndex && stageIndex <= endIndex) {
       ownerRootFlowRunId = entry.rootFlowRunId;
     }
   }
@@ -105,6 +117,8 @@ async function fetchRootFlowRunLineage(
       return {
         rootFlowRunId,
         startStage: getFlowRunStartStage(flowRun?.parameters),
+        endStage: getFlowRunEndStage(flowRun?.parameters),
+        createdAt: flowRun?.created ?? flowRun?.start_time ?? flowRun?.expected_start_time ?? null,
       };
     }),
   );
@@ -148,11 +162,14 @@ async function fetchStageSubflowRunId(stageId: StageId, parentTaskRunId: string)
   return flowRuns?.[0]?.id ?? null;
 }
 
-async function buildStageRuns(rootFlowRunIds: string[]): Promise<AnalysisStageRuns> {
-  const lineage = await fetchRootFlowRunLineage(rootFlowRunIds);
+async function buildStageRuns(
+  rootFlowRunIds: string[],
+  lineage?: RootFlowRunLineageEntry[],
+): Promise<AnalysisStageRuns> {
+  const effectiveLineage = lineage ?? (await fetchRootFlowRunLineage(rootFlowRunIds));
   const taskRunsByRootFlowRunId = new Map(
     await Promise.all(
-      lineage.map(async ({ rootFlowRunId }) => [
+      effectiveLineage.map(async ({ rootFlowRunId }) => [
         rootFlowRunId,
         await fetchTaskRunsForRootFlowRun(rootFlowRunId),
       ] as const),
@@ -161,7 +178,7 @@ async function buildStageRuns(rootFlowRunIds: string[]): Promise<AnalysisStageRu
 
   const stageRuns = await Promise.all(
     STAGES.map(async (stage) => {
-      const ownerRootFlowRunId = getStageOwningRootFlowRunId(lineage, stage.id);
+      const ownerRootFlowRunId = getStageOwningRootFlowRunId(effectiveLineage, stage.id);
       if (!ownerRootFlowRunId) {
         return [stage.id, emptyStageRun()] as const;
       }
@@ -196,22 +213,35 @@ async function buildStageRuns(rootFlowRunIds: string[]): Promise<AnalysisStageRu
   return Object.fromEntries(stageRuns) as AnalysisStageRuns;
 }
 
-export async function buildAnalysisManifest(userId: string): Promise<AnalysisManifest | null> {
+export async function buildAnalysisManifest(
+  userId: string,
+  bootstrapRootFlowRunIds: string[] = [],
+): Promise<AnalysisManifest | null> {
   const sessions = await readSessions();
   const session = sessions[userId];
-  if (!session) return null;
-
-  const [question, stages] = await Promise.all([
-    readQuestion(userId),
-    buildStageRuns(session.rootFlowRunIds),
+  const rootFlowRunIds = dedupeRootFlowRunIds([
+    ...(session?.rootFlowRunIds ?? []),
+    ...bootstrapRootFlowRunIds,
   ]);
+  if (!session && rootFlowRunIds.length === 0) return null;
+
+  const [question, lineage] = await Promise.all([
+    session ? readQuestion(userId) : Promise.resolve(undefined),
+    fetchRootFlowRunLineage(rootFlowRunIds),
+  ]);
+  const stagesResolved = await buildStageRuns(rootFlowRunIds, lineage);
+
+  const createdAt =
+    session?.createdAt ??
+    lineage.find((entry) => entry.createdAt)?.createdAt ??
+    new Date(0).toISOString();
 
   return {
     userId,
-    createdAt: session.createdAt,
+    createdAt,
     question,
-    rootFlowRunIds: session.rootFlowRunIds,
-    latestRootFlowRunId: getLatestSessionRootFlowRunId(session),
-    stages,
+    rootFlowRunIds,
+    latestRootFlowRunId: rootFlowRunIds.at(-1) ?? getLatestSessionRootFlowRunId(session),
+    stages: stagesResolved,
   };
 }

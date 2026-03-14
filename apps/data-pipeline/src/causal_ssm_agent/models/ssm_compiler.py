@@ -323,6 +323,7 @@ def compile_ssm_artifact(
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
         "priors": serialize_ssm_priors(ssm_priors),
+        "parameter_bindings": list(builder._parameter_bindings or []),
     }
 
 
@@ -342,6 +343,7 @@ def make_builder_from_compiled_artifact(
         ssm_priors=priors,
         model_config=model_config,
         sampler_config=sampler_config,
+        parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),
     )
 
 

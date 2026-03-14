@@ -385,14 +385,18 @@ def daily_data(causal_spec, worker_dfs):
         if ind.get("ordinal_levels")
     }
     data = _encode_non_continuous(combined, dtype_lookup, ordinal_levels_lookup)
-    data = data.with_columns(
-        pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-        pl.col("timestamp")
-        .str.replace(r"[Zz]$", "")
-        .str.replace(r"[+-]\d{2}:\d{2}$", "")
-        .str.to_datetime(strict=False)
-        .alias("time_bucket"),
-    ).drop("timestamp").drop_nulls(subset=["time_bucket", "value"])
+    data = (
+        data.with_columns(
+            pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+            pl.col("timestamp")
+            .str.replace(r"[Zz]$", "")
+            .str.replace(r"[+-]\d{2}:\d{2}$", "")
+            .str.to_datetime(strict=False)
+            .alias("time_bucket"),
+        )
+        .drop("timestamp")
+        .drop_nulls(subset=["time_bucket", "value"])
+    )
     return data.sort("indicator", "time_bucket")
 
 

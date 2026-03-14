@@ -134,9 +134,7 @@ class TestBucketByClock:
         assert tick_ids == sorted(tick_ids)
 
     def test_empty_df(self):
-        df = pl.DataFrame(
-            schema={"timestamp": pl.Datetime, "value": pl.Int64}
-        )
+        df = pl.DataFrame(schema={"timestamp": pl.Datetime, "value": pl.Int64})
         ticks = bucket_by_clock(df, "1d", "timestamp")
         assert ticks == []
 
@@ -159,10 +157,7 @@ class TestBucketByClock:
 
 def _make_ticks(n: int) -> list[tuple[str, pl.DataFrame]]:
     """Create N dummy ticks."""
-    return [
-        (f"2024-01-{i + 1:02d}", pl.DataFrame({"value": [i]}))
-        for i in range(n)
-    ]
+    return [(f"2024-01-{i + 1:02d}", pl.DataFrame({"value": [i]})) for i in range(n)]
 
 
 class TestChunkTicks:

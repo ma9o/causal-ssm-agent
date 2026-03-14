@@ -5,7 +5,9 @@ Covers: _normalize_prior_params, _split_compound_name.
 
 import pytest
 
+from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_builder import (
+    SSMModelBuilder,
     _normalize_prior_params,
     _split_compound_name,
 )
@@ -176,3 +178,38 @@ class TestSplitCompoundName:
         result = _split_compound_name(compound, {"", "_"}, {"", "_"})
         # Just verify it doesn't crash; result depends on valid sets
         assert result is None or isinstance(result, tuple)
+
+
+class TestBuilderPriorConversion:
+    def test_ar_prior_rejects_negative_support(self):
+        """AR priors must stay on the DT persistence scale in (0, 1)."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                    "search_context": "",
+                }
+            ],
+        }
+        priors = {
+            "rho_mood": {
+                "distribution": "Uniform",
+                "params": {"lower": -1.0, "upper": 1.0},
+            }
+        }
+        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
+
+        with pytest.raises(ValueError, match="DT persistence scale"):
+            builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)

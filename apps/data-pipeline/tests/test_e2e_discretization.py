@@ -123,14 +123,14 @@ def two_construct_model_spec() -> dict:
             {
                 "name": "rho_mood",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for mood",
                 "search_context": "mood autocorrelation",
             },
             {
                 "name": "rho_stress",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for stress",
                 "search_context": "stress autocorrelation",
             },
@@ -142,24 +142,17 @@ def two_construct_model_spec() -> dict:
                 "search_context": "stress mood cross-lagged",
             },
             {
-                "name": "sigma_mood_rating",
+                "name": "sigma_mood",
                 "role": "residual_sd",
                 "constraint": "positive",
-                "description": "Residual SD for mood_rating",
+                "description": "Residual SD for mood",
                 "search_context": "",
             },
             {
-                "name": "sigma_stress_self_report",
+                "name": "sigma_stress",
                 "role": "residual_sd",
                 "constraint": "positive",
-                "description": "Residual SD for stress_self_report",
-                "search_context": "",
-            },
-            {
-                "name": "sigma_stress_cortisol",
-                "role": "residual_sd",
-                "constraint": "positive",
-                "description": "Residual SD for stress_cortisol",
+                "description": "Residual SD for stress",
                 "search_context": "",
             },
             {
@@ -217,22 +210,15 @@ def weekly_study_priors() -> dict[str, dict]:
             "reasoning": "Weekly cross-lagged panel study",
             "reference_interval_days": 7.0,
         },
-        "sigma_mood_rating": {
-            "parameter": "sigma_mood_rating",
+        "sigma_mood": {
+            "parameter": "sigma_mood",
             "distribution": "HalfNormal",
             "params": {"sigma": 1.0},
             "sources": [],
             "reasoning": "Weakly informative",
         },
-        "sigma_stress_self_report": {
-            "parameter": "sigma_stress_self_report",
-            "distribution": "HalfNormal",
-            "params": {"sigma": 1.0},
-            "sources": [],
-            "reasoning": "Weakly informative",
-        },
-        "sigma_stress_cortisol": {
-            "parameter": "sigma_stress_cortisol",
+        "sigma_stress": {
+            "parameter": "sigma_stress",
             "distribution": "HalfNormal",
             "params": {"sigma": 1.0},
             "sources": [],
@@ -376,14 +362,14 @@ class TestE2ESpecToDiscretization:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -442,14 +428,14 @@ class TestE2ESpecToDiscretization:
                 {
                     "name": "rho_affect",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -492,6 +478,18 @@ class TestE2ESpecToDiscretization:
             "stress_self_report",
             "stress_cortisol",
         ]
+        assert compiled["parameter_bindings"] == [
+            {"parameter": "beta_stress_mood", "site_name": "drift_offdiag_pop", "flat_index": 0},
+            {
+                "parameter": "lambda_stress_cortisol_stress",
+                "site_name": "lambda_free",
+                "flat_index": 0,
+            },
+            {"parameter": "rho_mood", "site_name": "drift_diag_pop", "flat_index": 0},
+            {"parameter": "rho_stress", "site_name": "drift_diag_pop", "flat_index": 1},
+            {"parameter": "sigma_mood", "site_name": "diffusion_diag_pop", "flat_index": 0},
+            {"parameter": "sigma_stress", "site_name": "diffusion_diag_pop", "flat_index": 1},
+        ]
 
         raw_data = pl.DataFrame(
             {
@@ -526,6 +524,35 @@ class TestE2ESpecToDiscretization:
         assert builder._model is not None
         assert isinstance(builder._model.priors.drift_diag["mu"], list)
         assert len(builder._model.priors.drift_diag["mu"]) == 2
+        assert builder._model.parameter_bindings == compiled["parameter_bindings"]
+
+    def test_residual_sd_priors_are_construct_specific(
+        self, two_construct_causal_spec, two_construct_model_spec
+    ):
+        """Construct-specific sigma priors compile to per-latent diffusion scales."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        priors = {
+            "rho_mood": {"distribution": "Beta", "params": {"alpha": 3.0, "beta": 2.0}},
+            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
+            "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 0.1}},
+            "sigma_stress": {"distribution": "HalfNormal", "params": {"sigma": 0.9}},
+            "lambda_stress_cortisol_stress": {
+                "distribution": "Normal",
+                "params": {"mu": 0.8, "sigma": 0.2},
+            },
+        }
+
+        builder = SSMModelBuilder(
+            model_spec=two_construct_model_spec,
+            priors=priors,
+            causal_spec=two_construct_causal_spec,
+        )
+        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors = builder._convert_priors_to_ssm(priors, two_construct_model_spec, ssm_spec=spec)
+
+        assert ssm_priors.diffusion_diag == {"sigma": [0.1, 0.9]}
 
     def test_dt_to_ct_uses_reference_interval_days(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
@@ -790,7 +817,8 @@ class TestE2ESpecToDiscretization:
 
         # Simple diagonal diffusion
         diff_sd = ssm_priors.diffusion_diag.get("sigma", 1.0)
-        diffusion_cov = jnp.eye(n) * diff_sd**2
+        diff_sd_arr = jnp.asarray(diff_sd, dtype=jnp.float32)
+        diffusion_cov = jnp.diag(diff_sd_arr**2)
 
         # CINT (zeros)
         cint = jnp.zeros(n)
@@ -913,14 +941,14 @@ class TestE2ESpecToDiscretization:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -980,17 +1008,15 @@ class TestE2ESpecToDiscretization:
         mu_w_val = mu_w[0] if isinstance(mu_w, list) else mu_w
         assert abs(mu_w_val - 0.3 / 7.0) < 0.01
 
-        # Daily: uniform intervals (all 1d) → exact logm is applied.
-        # Phi = [[0.5, 0.3], [0, 0.5]] (identical AR eigenvalues)
-        # logm off-diagonal: 0.3 / 0.5 = 0.6 (exact CT coupling rate)
+        # Daily: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu_d = ssm_priors_d.drift_offdiag["mu"]
         mu_d_val = mu_d[0] if isinstance(mu_d, list) else mu_d
-        expected_logm = 0.3 / 0.5  # c / a for repeated eigenvalue a
-        assert abs(mu_d_val - expected_logm) < 0.05, (
-            f"Daily case uses exact logm: got {mu_d_val}, expected {expected_logm}"
+        expected_daily = 0.3
+        assert abs(mu_d_val - expected_daily) < 0.05, (
+            f"Daily case uses beta/dt scaling: got {mu_d_val}, expected {expected_daily}"
         )
 
-        # Rates should differ significantly (exact logm vs first-order)
+        # Rates should differ significantly because beta/dt depends on the interval.
         assert mu_d_val > mu_w_val, "Daily rate should be larger than weekly rate"
 
 
@@ -1215,13 +1241,8 @@ class TestExactMatrixLogConversion:
             f"Shorter interval should have less decay: |eigs(F1)|={eigs_1}, |eigs(F2)|={eigs_2}"
         )
 
-    def test_builder_uses_logm_when_intervals_match(self, two_construct_causal_spec):
-        """SSMModelBuilder applies exact logm when all parameters have the same dt.
-
-        When all reference_interval_days values are equal, the builder should
-        assemble the full DT transition matrix Phi and apply logm(Phi)/dt
-        instead of the first-order element-wise approximation.
-        """
+    def test_builder_keeps_elementwise_priors_when_intervals_match(self, two_construct_causal_spec):
+        """SSMModelBuilder keeps factorized DT→CT priors even when dt values match."""
         model_spec = {
             "likelihoods": [
                 {
@@ -1241,14 +1262,14 @@ class TestExactMatrixLogConversion:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -1296,34 +1317,12 @@ class TestExactMatrixLogConversion:
         )
         ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
-        # Verify logm was applied by checking roundtrip consistency:
-        # Reconstruct Phi from the exact CT drift, then check it matches original DT params
-        from scipy.linalg import expm
-
         drift_diag = ssm_priors.drift_diag["mu"]
         drift_offdiag = ssm_priors.drift_offdiag["mu"]
 
-        A = np.zeros((2, 2))
-        A[0, 0] = -abs(drift_diag[0])  # model negates diagonal
-        A[1, 1] = -abs(drift_diag[1])
-        A[0, 1] = drift_offdiag[0]
-
-        Phi_reconstructed = expm(A * 7.0)
-
-        # Should recover original DT values closely
-        rho_mood_original = 3.0 / 5.0  # E[Beta(3,2)] = 0.6
-        rho_stress_original = 0.5  # E[Beta(2,2)] = 0.5
-        beta_original = 0.3
-
-        assert abs(Phi_reconstructed[0, 0] - rho_mood_original) < 0.01, (
-            f"Roundtrip rho_mood: got {Phi_reconstructed[0, 0]:.4f}, expected {rho_mood_original}"
-        )
-        assert abs(Phi_reconstructed[1, 1] - rho_stress_original) < 0.01, (
-            f"Roundtrip rho_stress: got {Phi_reconstructed[1, 1]:.4f}, expected {rho_stress_original}"
-        )
-        assert abs(Phi_reconstructed[0, 1] - beta_original) < 0.01, (
-            f"Roundtrip beta: got {Phi_reconstructed[0, 1]:.4f}, expected {beta_original}"
-        )
+        assert abs(drift_diag[0] - (-math.log(0.6) / 7.0)) < 0.01
+        assert abs(drift_diag[1] - (-math.log(0.5) / 7.0)) < 0.01
+        assert abs(drift_offdiag[0] - (0.3 / 7.0)) < 0.01
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
         """Builder stores edge lag metadata from causal spec during mask building."""
@@ -1346,14 +1345,14 @@ class TestExactMatrixLogConversion:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -1405,14 +1404,14 @@ class TestExactMatrixLogConversion:
                 {
                     "name": "rho_mood",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "",
                     "search_context": "",
                 },
@@ -1432,7 +1431,7 @@ class TestExactMatrixLogConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_stress_mood": {
                 "distribution": "Normal",
-                "params": {"mu": 5.0, "sigma": 1.0},
+                "params": {"mu": 6.0, "sigma": 1.0},
             },
         }
         drift_mask = np.array([[True, True], [False, True]])

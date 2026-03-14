@@ -68,7 +68,7 @@ class ParameterRole(StrEnum):
     """Role of a parameter in the model."""
 
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
-    AR_COEFFICIENT = "ar_coefficient"  # Rho for autoregressive terms
+    AR_COEFFICIENT = "ar_coefficient"  # DT persistence rho for autoregressive terms
     RESIDUAL_SD = "residual_sd"  # Sigma for residual variance
     RANDOM_INTERCEPT_SD = "random_intercept_sd"  # Between-person SD for random intercepts
     CORRELATION = "correlation"  # Correlation between constructs
@@ -110,7 +110,7 @@ VALID_LINKS_FOR_DISTRIBUTION: dict[DistributionFamily, set[LinkFunction]] = {
 }
 
 EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
-    ParameterRole.AR_COEFFICIENT: ParameterConstraint.CORRELATION,
+    ParameterRole.AR_COEFFICIENT: ParameterConstraint.UNIT_INTERVAL,
     ParameterRole.RESIDUAL_SD: ParameterConstraint.POSITIVE,
     ParameterRole.FIXED_EFFECT: ParameterConstraint.NONE,
     ParameterRole.CORRELATION: ParameterConstraint.CORRELATION,

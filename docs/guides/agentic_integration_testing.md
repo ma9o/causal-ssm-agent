@@ -35,7 +35,7 @@ Start these processes in separate terminals (or background them). **Order matter
 |---|---------|------|---------------|--------------|
 | 1 | Prefect server | 4200 | See below | Central API coordinator |
 | 2 | Pipeline deployment | — | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
-| 3 | Next.js frontend | 3001 | `cd apps/web && bun run dev -p 3001` | Web UI for session resume and stage visualization |
+| 3 | Next.js frontend | 3000 | `cd apps/web && bun run dev -p 3000` | Web UI for session resume and stage visualization |
 
 #### Prefect server (file-backed SQLite)
 
@@ -64,7 +64,7 @@ curl -s -X POST http://localhost:4200/api/deployments/filter \
   | jq -r '.[0].id' && echo "deployment ok"
 
 # Next.js frontend
-curl -sf -o /dev/null http://localhost:3001 && echo "next.js ok"
+curl -sf -o /dev/null http://localhost:3000 && echo "next.js ok"
 ```
 
 All three must succeed before proceeding.
@@ -109,17 +109,17 @@ echo "Flow Run ID: $FLOW_RUN_ID"
 ### 3. Register run metadata
 
 ```bash
-curl -s -X POST http://localhost:3001/api/sessions \
+curl -s -X POST http://localhost:3000/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"userId\":\"$USER_ID\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 # → {"ok":true}
 ```
 
 ### 4. Verify user lookup
 
 ```bash
-curl -s http://localhost:3001/api/sessions/$USER_ID
-# → {"flowRunId":"...","question":"...","createdAt":"..."}
+curl -s http://localhost:3000/api/sessions/$USER_ID
+# → {"rootFlowRunIds":["..."],"question":"...","createdAt":"..."}
 ```
 
 ### 5. Resume via browser_eval
@@ -127,11 +127,11 @@ curl -s http://localhost:3001/api/sessions/$USER_ID
 Using the `browser_eval` tool:
 
 ```
-1. Navigate to http://localhost:3001
+1. Navigate to http://localhost:3000
 2. Type the user ID into the resume input
 3. Click "Resume" button
 4. Verify redirect to /analysis/{USER_ID}
-   If that user has a tracked live run, the URL may also include ?flowRunId=...
+   If the session write failed but the run launched successfully, the URL may include ?rootFlowRunId=...
 5. Screenshot the progress bar (should show the user ID badge)
 ```
 
@@ -201,9 +201,9 @@ After triggering a resume run, update the session so the web UI tracks the new
 flow run ID:
 
 ```bash
-curl -s -X POST http://localhost:3001/api/sessions \
+curl -s -X POST http://localhost:3000/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"flowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"userId\":\"$USER_ID\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 ```
 
 ### Valid stage IDs

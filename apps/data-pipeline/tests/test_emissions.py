@@ -4,6 +4,7 @@ Covers: Gaussian, Poisson, Student-t, Gamma, Bernoulli, NegBin, Beta,
         probit-link variants, inverse-link Gamma, and get_emission_fn dispatcher.
 """
 
+import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import pytest
@@ -13,9 +14,11 @@ from causal_ssm_agent.models.likelihoods.emissions import (
     emission_log_prob_bernoulli_probit,
     emission_log_prob_beta,
     emission_log_prob_beta_probit,
+    emission_log_prob_categorical,
     emission_log_prob_gamma_inverse,
     emission_log_prob_gaussian,
     emission_log_prob_negative_binomial,
+    emission_log_prob_ordered_logistic,
     emission_log_prob_poisson,
     emission_log_prob_student_t,
     get_emission_fn,
@@ -200,6 +203,53 @@ class TestNegBinEmission:
 
 
 # =============================================================================
+# Ordered Logistic / Categorical
+# =============================================================================
+
+
+class TestDiscreteEmission:
+    def test_ordered_logistic_matches_manual_probability(self):
+        H = jnp.eye(1)
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        z = jnp.array([0.0])
+        y = jnp.array([1.0])
+        mask = jnp.ones(1)
+        cutpoints = jnp.array([[-1.0, 1.0]])
+        level_counts = jnp.array([3])
+
+        lp = emission_log_prob_ordered_logistic(y, z, H, d, R, mask, cutpoints, level_counts)
+        expected = jnp.log(jax.nn.sigmoid(1.0) - jax.nn.sigmoid(-1.0))
+        assert jnp.isclose(lp, expected, atol=1e-5)
+
+    def test_categorical_matches_manual_softmax(self):
+        H = jnp.eye(1)
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        z = jnp.array([0.7])
+        y = jnp.array([2.0])
+        mask = jnp.ones(1)
+        intercepts = jnp.array([[-1.0, 0.5]])
+        slopes = jnp.array([[0.2, -0.4]])
+        level_counts = jnp.array([3])
+
+        lp = emission_log_prob_categorical(
+            y,
+            z,
+            H,
+            d,
+            R,
+            mask,
+            intercepts,
+            slopes,
+            level_counts,
+        )
+        logits = jnp.array([0.0, -1.0 + 0.2 * 0.7, 0.5 - 0.4 * 0.7])
+        expected = jax.nn.log_softmax(logits)[2]
+        assert jnp.isclose(lp, expected, atol=1e-5)
+
+
+# =============================================================================
 # Beta
 # =============================================================================
 
@@ -301,6 +351,43 @@ class TestGetEmissionFn:
         H = jnp.eye(1)
         z = jnp.array([0.0])
         y = jnp.array([0.5])
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        mask = jnp.ones(1)
+        lp = fn(y, z, H, d, R, mask)
+        assert jnp.isfinite(lp)
+
+    def test_ordered_logistic(self):
+        fn = get_emission_fn(
+            "ordered_logistic",
+            extra_params={
+                "obs_level_counts": jnp.array([3]),
+                "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0]]),
+            },
+            link="cumulative_logit",
+        )
+        H = jnp.eye(1)
+        z = jnp.array([0.0])
+        y = jnp.array([1.0])
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        mask = jnp.ones(1)
+        lp = fn(y, z, H, d, R, mask)
+        assert jnp.isfinite(lp)
+
+    def test_categorical(self):
+        fn = get_emission_fn(
+            "categorical",
+            extra_params={
+                "obs_level_counts": jnp.array([3]),
+                "obs_cat_intercepts": jnp.array([[-1.0, 0.5]]),
+                "obs_cat_slopes": jnp.array([[0.2, -0.4]]),
+            },
+            link="softmax",
+        )
+        H = jnp.eye(1)
+        z = jnp.array([0.7])
+        y = jnp.array([2.0])
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)

@@ -360,7 +360,9 @@ async def stage2_extraction_flow(
 
     # Split indicators by extraction mode
     computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
-    semantic_inds = [i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"]
+    semantic_inds = [
+        i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
+    ]
     logger.info(
         "Stage 2: %d computed + %d semantic indicators",
         len(computed_inds),

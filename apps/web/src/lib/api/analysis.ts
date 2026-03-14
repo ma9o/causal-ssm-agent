@@ -42,10 +42,21 @@ export async function getSession(userId: string): Promise<SessionResponse> {
   return apiFetch<SessionResponse>(`/api/sessions/${userId}`);
 }
 
-export function getAnalysisManifestQueryKey(userId: string) {
-  return ["analysis", userId, "manifest"] as const;
+export function getAnalysisManifestQueryKey(
+  userId: string,
+  rootFlowRunId?: string | null,
+) {
+  return rootFlowRunId == null
+    ? (["analysis", userId, "manifest"] as const)
+    : (["analysis", userId, "manifest", rootFlowRunId] as const);
 }
 
-export async function getAnalysisManifest(userId: string): Promise<AnalysisManifest> {
-  return apiFetch<AnalysisManifest>(`/api/analysis/${userId}`);
+export async function getAnalysisManifest(
+  userId: string,
+  rootFlowRunId?: string | null,
+): Promise<AnalysisManifest> {
+  const search = rootFlowRunId
+    ? `?${new URLSearchParams({ rootFlowRunId }).toString()}`
+    : "";
+  return apiFetch<AnalysisManifest>(`/api/analysis/${userId}${search}`);
 }

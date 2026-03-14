@@ -422,7 +422,9 @@ async def stage4_orchestrated_flow(
             compile_error,
         )
     if compile_error is not None:
-        raise ValueError(f"Stage 4 model spec failed compilation after {max_spec_attempts} attempts: {compile_error}")
+        raise ValueError(
+            f"Stage 4 model spec failed compilation after {max_spec_attempts} attempts: {compile_error}"
+        )
 
     parameter_specs = model_spec.get("parameters", [])
 

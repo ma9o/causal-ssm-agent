@@ -133,13 +133,17 @@ export default function LandingPage() {
         openrouter_api_key: auth.userKey || undefined,
       });
 
-      await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, question, rootFlowRunId }),
-      });
+      try {
+        await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, question, rootFlowRunId }),
+        });
+      } catch {
+        // The analysis page can bootstrap directly from the root flow run ID.
+      }
 
-      router.push(`/analysis/${userId}`);
+      router.push(`/analysis/${userId}?${new URLSearchParams({ rootFlowRunId }).toString()}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);

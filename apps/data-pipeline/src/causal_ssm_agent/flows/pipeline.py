@@ -382,7 +382,9 @@ async def causal_inference_pipeline(
             raise ValueError("Question is required to execute stage-2")
         stage2_state = await _run_stage(
             "stage-2",
-            lambda: dag.stage2_flow(question, stage0_result, stage1b_result, user_id, prefect_run_id),
+            lambda: dag.stage2_flow(
+                question, stage0_result, stage1b_result, user_id, prefect_run_id
+            ),
         )
         stage_states["stage-2"] = stage2_state
     partial = _maybe_finish("stage-2")
@@ -430,9 +432,7 @@ async def causal_inference_pipeline(
     if start_idx > stage4b_idx:
         stage4b_state = _restore_stage("stage-4b")
     else:
-        stage4b_state = dag.stage4b_flow(
-            stage4_result, stage2_result, gates_overridden, user_id
-        )
+        stage4b_state = dag.stage4b_flow(stage4_result, stage2_result, gates_overridden, user_id)
         stage_states["stage-4b"] = stage4b_state
     partial = _maybe_finish("stage-4b")
     if partial is not None:

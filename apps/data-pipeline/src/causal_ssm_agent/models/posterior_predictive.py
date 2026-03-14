@@ -18,6 +18,10 @@ from jax import lax, vmap
 from pydantic import BaseModel, Field
 
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
+from causal_ssm_agent.models.likelihoods.emissions import (
+    categorical_probabilities,
+    ordered_logistic_probabilities,
+)
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -32,6 +36,8 @@ _DIST_IDX: dict[str, int] = {
     DistributionFamily.BERNOULLI: 4,
     DistributionFamily.NEGATIVE_BINOMIAL: 5,
     DistributionFamily.BETA: 6,
+    DistributionFamily.ORDERED_LOGISTIC: 10,
+    DistributionFamily.CATEGORICAL: 11,
 }
 
 # Combined (dist, link) dispatch — adds non-default link variants
@@ -47,6 +53,8 @@ _DIST_LINK_IDX: dict[tuple[str, str], int] = {
     (DistributionFamily.GAMMA, LinkFunction.INVERSE): 7,
     (DistributionFamily.BERNOULLI, LinkFunction.PROBIT): 8,
     (DistributionFamily.BETA, LinkFunction.PROBIT): 9,
+    (DistributionFamily.ORDERED_LOGISTIC, LinkFunction.CUMULATIVE_LOGIT): 10,
+    (DistributionFamily.CATEGORICAL, LinkFunction.SOFTMAX): 11,
 }
 
 # ---------------------------------------------------------------------------
@@ -108,6 +116,30 @@ class PPCResult(BaseModel):
 # ---------------------------------------------------------------------------
 # Forward simulation
 # ---------------------------------------------------------------------------
+
+
+def _broadcast_draw_param(
+    value: jnp.ndarray | None,
+    n_use: int,
+    indices: jnp.ndarray,
+) -> jnp.ndarray | None:
+    if value is None:
+        return None
+    if value.ndim == 0:
+        return jnp.broadcast_to(value, (n_use,))
+    if value.shape[0] == n_use:
+        return value
+    if value.shape[0] >= int(indices[-1]) + 1:
+        return value[indices]
+    return jnp.broadcast_to(value, (n_use, *value.shape))
+
+
+def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:
+    return jax.random.categorical(
+        key,
+        jnp.log(jnp.maximum(probs, NUMERICAL_EPSILON)),
+        axis=-1,
+    ).astype(jnp.float32)
 
 
 def _simulate_one_draw_gaussian(
@@ -182,6 +214,10 @@ def _simulate_one_draw_nongaussian(
     obs_r: float | None = None,
     obs_concentration: float | None = None,
     manifest_link: str | None = None,
+    manifest_level_counts: jnp.ndarray | None = None,
+    ordered_cutpoints: jnp.ndarray | None = None,
+    cat_intercepts: jnp.ndarray | None = None,
+    cat_slopes: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Simulate one trajectory for non-Gaussian observation noise.
 
@@ -250,6 +286,22 @@ def _simulate_one_draw_nongaussian(
             alpha = mean * phi
             beta_ = (1.0 - mean) * phi
             y_t = npdist.Beta(concentration1=alpha, concentration0=beta_).sample(okey)
+        elif manifest_dist == DistributionFamily.ORDERED_LOGISTIC:
+            if manifest_level_counts is None or ordered_cutpoints is None:
+                raise ValueError(
+                    "ordered_logistic PPC simulation requires cutpoints and level counts"
+                )
+            probs = ordered_logistic_probabilities(loc, ordered_cutpoints, manifest_level_counts)
+            y_t = _sample_discrete_from_probs(okey, probs)
+        elif manifest_dist == DistributionFamily.CATEGORICAL:
+            if manifest_level_counts is None or cat_intercepts is None or cat_slopes is None:
+                raise ValueError(
+                    "categorical PPC simulation requires softmax coefficients and level counts"
+                )
+            probs = categorical_probabilities(
+                loc, cat_intercepts, cat_slopes, manifest_level_counts
+            )
+            y_t = _sample_discrete_from_probs(okey, probs)
         else:
             # Fallback to Gaussian
             manifest_chol = jnp.diag(manifest_std)
@@ -262,18 +314,32 @@ def _simulate_one_draw_nongaussian(
     return y_sim  # (T, n_manifest)
 
 
-def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
+def _sample_channel(
+    loc_j,
+    key,
+    dist_idx,
+    std_j,
+    df,
+    shape_p,
+    r_p,
+    phi_p,
+    level_count,
+    cutpoints,
+    cat_intercepts,
+    cat_slopes,
+):
     """Sample one observation from a channel's distribution using jax.lax.switch.
 
-    All 10 distribution+link combos are compiled but only the matching one executes.
+    All distribution+link combos are compiled but only the matching one executes.
     Uses raw JAX random functions for switch-compatibility.
-    Indices 0-6: default link; 7: gamma+inverse; 8: bernoulli+probit; 9: beta+probit.
+    Indices 0-6: default link; 7: gamma+inverse; 8: bernoulli+probit; 9: beta+probit;
+    10: ordered_logistic; 11: categorical+softmax.
     """
 
-    def _gauss(loc, k, s, _df, _sh, _r, _ph):
+    def _gauss(loc, k, s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
         return loc + s * jax.random.normal(k, ())
 
-    def _student_t(loc, k, s, df_v, _sh, _r, _ph):
+    def _student_t(loc, k, s, df_v, _sh, _r, _ph, _lc, _cp, _ci, _cs):
         # t-distribution via normal / sqrt(chi2/df); chi2(df) = 2*Gamma(df/2)
         k1, k2 = jax.random.split(k)
         z = jax.random.normal(k1, ())
@@ -281,27 +347,27 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         t_val = z * jnp.sqrt(df_v / jnp.maximum(chi2, NUMERICAL_EPSILON))
         return loc + s * t_val
 
-    def _poisson(loc, k, _s, _df, _sh, _r, _ph):
+    def _poisson(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
         rate = jnp.exp(jnp.clip(loc, -20.0, 20.0))
         return jax.random.poisson(k, rate).astype(jnp.float32)
 
-    def _gamma(loc, k, _s, _df, shape_v, _r, _ph):
+    def _gamma(loc, k, _s, _df, shape_v, _r, _ph, _lc, _cp, _ci, _cs):
         mean = jnp.exp(jnp.clip(loc, -20.0, 20.0))
         scale = jnp.maximum(mean / jnp.maximum(shape_v, 1e-8), 1e-8)
         return jax.random.gamma(k, shape_v) * scale
 
-    def _bernoulli(loc, k, _s, _df, _sh, _r, _ph):
+    def _bernoulli(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
         p = jax.nn.sigmoid(loc)
         return jax.random.bernoulli(k, p).astype(jnp.float32)
 
-    def _negbin(loc, k, _s, _df, _sh, r_v, _ph):
+    def _negbin(loc, k, _s, _df, _sh, r_v, _ph, _lc, _cp, _ci, _cs):
         # Gamma-Poisson mixture: g ~ Gamma(r, 1), y ~ Poisson(g * mu / r)
         mu = jnp.exp(jnp.clip(loc, -20.0, 20.0))
         k1, k2 = jax.random.split(k)
         g = jax.random.gamma(k1, r_v) * mu / jnp.maximum(r_v, 1e-8)
         return jax.random.poisson(k2, jnp.maximum(g, NUMERICAL_EPSILON)).astype(jnp.float32)
 
-    def _beta(loc, k, _s, _df, _sh, _r, phi_v):
+    def _beta(loc, k, _s, _df, _sh, _r, phi_v, _lc, _cp, _ci, _cs):
         mean = jax.nn.sigmoid(loc)
         alpha = jnp.maximum(mean * phi_v, 1e-4)
         beta_p = jnp.maximum((1.0 - mean) * phi_v, 1e-4)
@@ -310,16 +376,16 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         g2 = jax.random.gamma(k2, beta_p)
         return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
 
-    def _gamma_inv(loc, k, _s, _df, shape_v, _r, _ph):
+    def _gamma_inv(loc, k, _s, _df, shape_v, _r, _ph, _lc, _cp, _ci, _cs):
         mean = 1.0 / jnp.clip(loc, 1e-6, None)
         scale = jnp.maximum(mean / jnp.maximum(shape_v, 1e-8), 1e-8)
         return jax.random.gamma(k, shape_v) * scale
 
-    def _bernoulli_probit(loc, k, _s, _df, _sh, _r, _ph):
+    def _bernoulli_probit(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
         p = jax.scipy.stats.norm.cdf(loc)
         return jax.random.bernoulli(k, p).astype(jnp.float32)
 
-    def _beta_probit(loc, k, _s, _df, _sh, _r, phi_v):
+    def _beta_probit(loc, k, _s, _df, _sh, _r, phi_v, _lc, _cp, _ci, _cs):
         mean = jax.scipy.stats.norm.cdf(loc)
         alpha = jnp.maximum(mean * phi_v, 1e-4)
         beta_p = jnp.maximum((1.0 - mean) * phi_v, 1e-4)
@@ -327,6 +393,23 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         g1 = jax.random.gamma(k1, alpha)
         g2 = jax.random.gamma(k2, beta_p)
         return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
+
+    def _ordered_logistic(loc, k, _s, _df, _sh, _r, _ph, lc, cp, _ci, _cs):
+        probs = ordered_logistic_probabilities(
+            jnp.asarray([loc]),
+            cp[None, :],
+            jnp.asarray([lc], dtype=jnp.int32),
+        )[0]
+        return _sample_discrete_from_probs(k, probs)
+
+    def _categorical(loc, k, _s, _df, _sh, _r, _ph, lc, _cp, ci, cs):
+        probs = categorical_probabilities(
+            jnp.asarray([loc]),
+            ci[None, :],
+            cs[None, :],
+            jnp.asarray([lc], dtype=jnp.int32),
+        )[0]
+        return _sample_discrete_from_probs(k, probs)
 
     branches = [
         _gauss,
@@ -339,8 +422,24 @@ def _sample_channel(loc_j, key, dist_idx, std_j, df, shape_p, r_p, phi_p):
         _gamma_inv,
         _bernoulli_probit,
         _beta_probit,
+        _ordered_logistic,
+        _categorical,
     ]
-    return jax.lax.switch(dist_idx, branches, loc_j, key, std_j, df, shape_p, r_p, phi_p)
+    return jax.lax.switch(
+        dist_idx,
+        branches,
+        loc_j,
+        key,
+        std_j,
+        df,
+        shape_p,
+        r_p,
+        phi_p,
+        level_count,
+        cutpoints,
+        cat_intercepts,
+        cat_slopes,
+    )
 
 
 def _simulate_one_draw_mixed(
@@ -359,6 +458,10 @@ def _simulate_one_draw_mixed(
     obs_shape: float = 2.0,
     obs_r: float = 5.0,
     obs_concentration: float = 10.0,
+    manifest_level_counts: jnp.ndarray | None = None,
+    ordered_cutpoints: jnp.ndarray | None = None,
+    cat_intercepts: jnp.ndarray | None = None,
+    cat_slopes: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Simulate one trajectory with per-channel distribution types.
 
@@ -406,6 +509,12 @@ def _simulate_one_draw_mixed(
             jnp.full(n_manifest, obs_shape),
             jnp.full(n_manifest, obs_r),
             jnp.full(n_manifest, obs_concentration),
+            manifest_level_counts
+            if manifest_level_counts is not None
+            else jnp.ones(n_manifest, dtype=jnp.int32),
+            ordered_cutpoints if ordered_cutpoints is not None else jnp.zeros((n_manifest, 1)),
+            cat_intercepts if cat_intercepts is not None else jnp.zeros((n_manifest, 1)),
+            cat_slopes if cat_slopes is not None else jnp.zeros((n_manifest, 1)),
         )
         return eta_t, y_t
 
@@ -419,6 +528,7 @@ def simulate_posterior_predictive(
     manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
+    manifest_level_counts: list[int] | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> jnp.ndarray:
@@ -437,6 +547,8 @@ def simulate_posterior_predictive(
             jax.lax.switch. Overrides manifest_dist.
         manifest_links: Per-channel link function strings. When provided,
             used together with manifest_dists for combined dispatch.
+        manifest_level_counts: Per-channel encoded category counts for
+            ordered-logistic/categorical emissions.
         n_subsample: Number of posterior draws to use.
         rng_seed: Random seed for simulation.
 
@@ -493,6 +605,17 @@ def simulate_posterior_predictive(
     else:
         manifest_means_sub = jnp.zeros((n_use, n_manifest))
 
+    ordered_cutpoints_sub = _broadcast_draw_param(
+        samples.get("obs_ordered_cutpoints"), n_use, indices
+    )
+    cat_intercepts_sub = _broadcast_draw_param(samples.get("obs_cat_intercepts"), n_use, indices)
+    cat_slopes_sub = _broadcast_draw_param(samples.get("obs_cat_slopes"), n_use, indices)
+    level_counts = (
+        jnp.asarray(manifest_level_counts, dtype=jnp.int32)
+        if manifest_level_counts is not None
+        else None
+    )
+
     # Compute dt array
     dt_array = jnp.diff(times, prepend=times[0])
     dt_array = jnp.maximum(dt_array, MIN_DT)
@@ -505,6 +628,14 @@ def simulate_posterior_predictive(
     effective_links = manifest_links or None
     unique_dists = set(effective_dists) if effective_dists else {manifest_dist}
     all_gaussian = unique_dists == {DistributionFamily.GAUSSIAN} or unique_dists == {"gaussian"}
+
+    if level_counts is None and any(
+        dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
+        for dist in unique_dists
+    ):
+        raise ValueError(
+            "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
+        )
 
     # Check if link functions introduce mixing (e.g. all bernoulli but some probit)
     has_nondefault_link = False
@@ -595,6 +726,12 @@ def simulate_posterior_predictive(
                 obs_shape=obs_shape_val,
                 obs_r=obs_r_val,
                 obs_concentration=obs_conc_val,
+                manifest_level_counts=level_counts,
+                ordered_cutpoints=ordered_cutpoints_sub[i]
+                if ordered_cutpoints_sub is not None
+                else None,
+                cat_intercepts=cat_intercepts_sub[i] if cat_intercepts_sub is not None else None,
+                cat_slopes=cat_slopes_sub[i] if cat_slopes_sub is not None else None,
             )
 
         y_sim = vmap(sim_one)(jnp.arange(n_use))
@@ -632,6 +769,12 @@ def simulate_posterior_predictive(
                 obs_shape=obs_shape_val,
                 obs_r=obs_r_val,
                 obs_concentration=obs_conc_val,
+                manifest_level_counts=level_counts,
+                ordered_cutpoints=ordered_cutpoints_sub[i]
+                if ordered_cutpoints_sub is not None
+                else None,
+                cat_intercepts=cat_intercepts_sub[i] if cat_intercepts_sub is not None else None,
+                cat_slopes=cat_slopes_sub[i] if cat_slopes_sub is not None else None,
                 manifest_link=effective_link,
             )
 
@@ -1008,6 +1151,7 @@ def run_posterior_predictive_checks(
     manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
+    manifest_level_counts: list[int] | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> PPCResult:
@@ -1021,6 +1165,7 @@ def run_posterior_predictive_checks(
         manifest_dist: scalar observation noise family (fallback)
         manifest_dists: per-channel noise families (overrides manifest_dist)
         manifest_links: per-channel link function strings
+        manifest_level_counts: per-channel encoded category counts
         n_subsample: number of posterior draws to forward-simulate
         rng_seed: random seed
 
@@ -1033,6 +1178,7 @@ def run_posterior_predictive_checks(
         manifest_dist=manifest_dist,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
+        manifest_level_counts=manifest_level_counts,
         n_subsample=n_subsample,
         rng_seed=rng_seed,
     )

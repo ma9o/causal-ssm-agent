@@ -36,6 +36,19 @@ from causal_ssm_agent.workers.schemas_prior import (
 logger = get_prefect_logger(__name__)
 
 
+def _display_constraint(parameter: ParameterSpec) -> str:
+    """Render the worker-facing constraint label for a parameter.
+
+    AR coefficients are elicited as discrete-time persistence values in (0, 1),
+    even though older ModelSpec payloads may still label them as correlations.
+    """
+    from causal_ssm_agent.orchestrator.schemas_model import ParameterConstraint, ParameterRole
+
+    if parameter.role == ParameterRole.AR_COEFFICIENT:
+        return ParameterConstraint.UNIT_INTERVAL.value
+    return parameter.constraint.value
+
+
 def _make_prior_tool() -> tuple[object, dict]:
     """Create a validation tool for prior proposals using PriorProposal schema."""
 
@@ -403,7 +416,7 @@ def _build_prior_messages(
     user_content = PRIOR_RESEARCH_USER.format(
         parameter_name=parameter.name,
         parameter_role=parameter.role.value,
-        parameter_constraint=parameter.constraint.value,
+        parameter_constraint=_display_constraint(parameter),
         parameter_description=parameter.description,
         question=question,
         literature_context=literature_context,
@@ -463,7 +476,7 @@ async def _research_single_prior_paraphrased(
     prompts = generate_paraphrased_prompts(
         parameter_name=parameter.name,
         parameter_role=parameter.role.value,
-        parameter_constraint=parameter.constraint.value,
+        parameter_constraint=_display_constraint(parameter),
         parameter_description=parameter.description,
         question=question,
         literature_context=literature_context,
@@ -525,8 +538,11 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     """
     from causal_ssm_agent.orchestrator.schemas_model import ParameterConstraint, ParameterRole
 
-    # Choose distribution based on constraint
-    if parameter.constraint == ParameterConstraint.POSITIVE:
+    # AR priors live on the DT persistence scale in (0, 1).
+    if parameter.role == ParameterRole.AR_COEFFICIENT:
+        distribution = "Beta"
+        params = {"alpha": 2.0, "beta": 2.0}
+    elif parameter.constraint == ParameterConstraint.POSITIVE:
         distribution = "HalfNormal"
         params = {"sigma": 1.0}
     elif parameter.constraint == ParameterConstraint.UNIT_INTERVAL:

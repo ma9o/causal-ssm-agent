@@ -66,6 +66,15 @@ class TestGetDefaultPrior:
         assert result.distribution == "HalfNormal"
         assert result.params == {"sigma": 1.0}
 
+    def test_ar_role_overrides_correlation_constraint(self):
+        p = _make_param(
+            role=ParameterRole.AR_COEFFICIENT,
+            constraint=ParameterConstraint.CORRELATION,
+        )
+        result = get_default_prior(p)
+        assert result.distribution == "Beta"
+        assert result.params == {"alpha": 2.0, "beta": 2.0}
+
     def test_parameter_name_propagated(self):
         p = _make_param(name="sigma_residual")
         result = get_default_prior(p)
