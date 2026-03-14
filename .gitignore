@@ -25,7 +25,6 @@ data/*/
 !data/DOCTOLIB/
 !data/queries/
 !data/eval/
-data/sessions.json
 data/processed/**
 .prefect-cache/
 
