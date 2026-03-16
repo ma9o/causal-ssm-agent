@@ -180,7 +180,7 @@ async def elicit_prior_task(
     """
     from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import make_worker_generate_fn
+    from causal_ssm_agent.utils.llm import make_generate_fn
     from causal_ssm_agent.workers.prior_research import (
         elicit_prior_paraphrased,
         get_default_prior,
@@ -191,7 +191,7 @@ async def elicit_prior_task(
     worker_model = (
         config.stage4_prior_elicitation.worker_model or config.stage4_prior_elicitation.model
     )
-    generate = make_worker_generate_fn(worker_model)
+    generate = make_generate_fn(worker_model)
 
     param = ParameterSpec.model_validate(parameter_spec)
 

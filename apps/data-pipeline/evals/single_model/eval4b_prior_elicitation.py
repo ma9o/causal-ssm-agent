@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from evals.common import (
     get_questions_with_model_spec_and_causal_spec,
-    make_worker_generate_fn,
+    make_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -215,7 +215,7 @@ def prior_elicitation_solver():
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
-            gen_fn = make_worker_generate_fn(model)
+            gen_fn = make_generate_fn(model)
 
             model_spec_dict = state.metadata["model_spec"]
             causal_spec = state.metadata["causal_spec"]

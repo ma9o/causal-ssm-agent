@@ -13,7 +13,7 @@ import numpy as np
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
 from causal_ssm_agent.utils.llm import (
-    WorkerGenerateFn,
+    GenerateFn,
     make_validation_tool,
     parse_json_response,
 )
@@ -154,7 +154,7 @@ Report standardized effect sizes (Cohen's d, correlation r, standardized beta).
 async def _elicit_single_paraphrase(
     paraphrase_id: int,
     prompt: str,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
 ) -> RawPriorSample | None:
     """Elicit a prior from a single paraphrased prompt.
 
@@ -304,7 +304,7 @@ def _aggregate_gmm(
 async def elicit_prior_paraphrased(
     parameter: ParameterSpec,
     question: str,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
     literature_context: str,
     literature_sources: list[dict] | None = None,
     feedback: str | None = None,
@@ -343,7 +343,7 @@ async def elicit_prior_paraphrased(
 async def run_prior_elicitation(
     parameter: ParameterSpec,
     question: str,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
     literature_context: str = "",
     feedback: str | None = None,
     model_spec: dict | None = None,
@@ -434,7 +434,7 @@ def _build_prior_messages(
 async def _research_single_prior_single_shot(
     parameter: ParameterSpec,
     question: str,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
     literature_context: str,
     literature_sources: list[dict],
     feedback: str | None = None,
@@ -465,7 +465,7 @@ async def _research_single_prior_single_shot(
 async def _research_single_prior_paraphrased(
     parameter: ParameterSpec,
     question: str,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
     literature_context: str,
     literature_sources: list[dict],
     n_paraphrases: int,

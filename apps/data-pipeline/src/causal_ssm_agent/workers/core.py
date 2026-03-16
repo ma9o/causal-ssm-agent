@@ -12,9 +12,10 @@ import polars as pl
 
 from causal_ssm_agent.utils.causal_spec import get_indicators, get_outcome_construct
 from causal_ssm_agent.utils.llm import (
-    WorkerGenerateFn,
+    GenerateFn,
     make_validation_tool,
     parse_json_response,
+    scoped_log,
 )
 
 from .prompts.extraction import SYSTEM, USER
@@ -28,11 +29,6 @@ class WorkerResult:
     output: WorkerOutput
     dataframe: pl.DataFrame
     raw_completion: str
-
-
-def _pfx(label: str | None, message: str) -> str:
-    """Prefix a log message with a chunk label when available."""
-    return f"[{label}] {message}" if label else message
 
 
 def _format_indicators(causal_spec: dict) -> str:
@@ -93,7 +89,7 @@ async def run_worker_extraction(
     tick_ids: list[str],
     question: str,
     causal_spec: dict,
-    generate: WorkerGenerateFn,
+    generate: GenerateFn,
     logger: Any | None = None,
     call_label: str | None = None,
 ) -> WorkerResult:
@@ -134,7 +130,7 @@ async def run_worker_extraction(
     tool_names = [tool.name for tool in tools]
 
     active_logger.info(
-        _pfx(
+        scoped_log(
             call_label,
             "Prepared worker prompt with %d ticks, %d indicators, %d text chars",
         ),
@@ -142,19 +138,19 @@ async def run_worker_extraction(
         len(get_indicators(causal_spec)),
         len(tick_text),
     )
-    active_logger.info(_pfx(call_label, "Using worker tools: %s"), tool_names)
+    active_logger.info(scoped_log(call_label, "Using worker tools: %s"), tool_names)
 
     # Generate extraction
-    active_logger.info(_pfx(call_label, "Calling extraction model"))
+    active_logger.info(scoped_log(call_label, "Calling extraction model"))
     completion = await generate(extraction_msgs, tools=tools, label=call_label)
-    active_logger.info(_pfx(call_label, "Model call returned %d characters"), len(completion))
+    active_logger.info(scoped_log(call_label, "Model call returned %d characters"), len(completion))
 
     # Prefer the captured result from the validation tool
     data = capture.get("output")
     if data is None:
         # Fallback: try parsing the final completion directly
         active_logger.warning(
-            _pfx(
+            scoped_log(
                 call_label,
                 "Validation tool did not capture structured output; falling back to completion parsing",
             ),
@@ -163,7 +159,7 @@ async def run_worker_extraction(
     output = WorkerOutput.model_validate(data)
     dataframe = output.to_dataframe()
     active_logger.info(
-        _pfx(call_label, "Validated %d extractions into %d output rows"),
+        scoped_log(call_label, "Validated %d extractions into %d output rows"),
         len(output.extractions),
         dataframe.height,
     )

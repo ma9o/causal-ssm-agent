@@ -6,7 +6,7 @@ Uses dependency injection for the LLM generate function.
 
 from dataclasses import dataclass
 
-from causal_ssm_agent.utils.llm import OrchestratorGenerateFn
+from causal_ssm_agent.utils.llm import GenerateFn
 
 from .prompts import latent_model
 
@@ -46,7 +46,7 @@ class Stage1aMessages:
 
 async def run_stage1a(
     question: str,
-    generate: OrchestratorGenerateFn,
+    generate: GenerateFn,
 ) -> Stage1aResult:
     """
     Run the full Stage 1a flow: latent model proposal with self-review.

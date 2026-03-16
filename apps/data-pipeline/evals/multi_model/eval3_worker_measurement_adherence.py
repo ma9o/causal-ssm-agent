@@ -28,7 +28,7 @@ from evals.common import (
     get_questions_with_causal_spec,
     get_sample_chunks_worker,
     load_eval_config,
-    make_worker_generate_fn,
+    make_generate_fn,
     select_question,
 )
 from inspect_ai import Task, task
@@ -110,7 +110,7 @@ async def generate_worker_output(
     Returns the raw JSON string of the output.
     """
     model = get_model(model_id)
-    generate = make_worker_generate_fn(model)
+    generate = make_generate_fn(model)
 
     result = await run_worker_extraction(
         chunk=chunk,
