@@ -4,6 +4,8 @@ Replaces the repeated pattern of causal_spec.get("latent", {}).get("constructs",
 with clear, typed accessor functions.
 """
 
+import networkx as nx
+
 
 def get_constructs(causal_spec: dict) -> list[dict]:
     """Get constructs from a CausalSpec dict."""
@@ -115,3 +117,43 @@ def get_outcome_name(causal_spec_or_latent: dict) -> str | None:
     """
     outcome = get_outcome_construct(causal_spec_or_latent)
     return outcome["name"] if outcome else None
+
+
+# ---------------------------------------------------------------------------
+# Graph utilities (merged from effects.py)
+# ---------------------------------------------------------------------------
+
+
+def build_digraph(latent_model: dict) -> nx.DiGraph:
+    """Build a simple DiGraph from a latent model's edge list.
+
+    Args:
+        latent_model: Dict with 'edges' list of {cause, effect} dicts
+
+    Returns:
+        nx.DiGraph with one node per referenced construct
+    """
+    G = nx.DiGraph()
+    for edge in latent_model.get("edges", []):
+        G.add_edge(edge["cause"], edge["effect"])
+    return G
+
+
+def get_all_treatments(latent_model: dict) -> list[str]:
+    """Get all potential treatments from latent model.
+
+    A treatment is any construct that has a causal path to the outcome.
+
+    Args:
+        latent_model: Dict with 'constructs' and 'edges'
+
+    Returns:
+        Sorted list of treatment construct names
+    """
+    outcome = get_outcome_name(latent_model)
+    if not outcome:
+        return []
+
+    G = build_digraph(latent_model)
+    treatments = [node for node in G.nodes() if node != outcome and nx.has_path(G, node, outcome)]
+    return sorted(treatments)

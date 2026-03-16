@@ -23,10 +23,10 @@ from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
-from causal_ssm_agent.utils.effects import (
+from causal_ssm_agent.utils.causal_spec import (
     build_digraph,
     get_all_treatments,
+    get_outcome_name,
 )
 
 logger = get_prefect_logger(__name__)
