@@ -214,6 +214,48 @@ class TestPriorPredictiveValidation:
         assert isinstance(is_valid, bool)
         assert isinstance(results, list)
 
+    def test_no_data_uses_support_compatible_dummy_build_data(self):
+        """Support-restricted likelihoods should still validate without raw data."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "screen_gap",
+                    "distribution": "gamma",
+                    "link": "log",
+                    "reasoning": "Positive continuous gap",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_screen_gap",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "AR coefficient",
+                    "search_context": "",
+                }
+            ],
+        }
+        priors = {
+            "rho_screen_gap": {
+                "parameter": "rho_screen_gap",
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "reasoning": "Weakly informative",
+            }
+        }
+
+        with patch(
+            "causal_ssm_agent.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
+            return_value={"drift_diag_pop": np.ones((2, 1))},
+        ):
+            is_valid, results, _samples = validate_prior_predictive(
+                model_spec, priors, None, n_samples=2
+            )
+
+        assert is_valid is True
+        assert not any(r.parameter == "model_build" for r in results)
+
     def test_validate_priors_task_delegates(self, simple_model_spec, simple_priors):
         """Prefect task.fn() -> returns dict with expected keys."""
         from causal_ssm_agent.flows.stages.stage4_model import validate_priors_task

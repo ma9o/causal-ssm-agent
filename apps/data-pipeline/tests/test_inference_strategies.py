@@ -18,11 +18,14 @@ Test Matrix:
 | High-dim, Poisson + Student-t  | poisson + student_t  | Stress test        |
 """
 
+import functools
+
 import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
+from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.models.likelihoods.base import (
     CTParams,
@@ -32,11 +35,14 @@ from causal_ssm_agent.models.likelihoods.base import (
 from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
+from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
+from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
 from causal_ssm_agent.models.ssm.laplace_em import (
     _build_ieks_system,
     _ieks_smooth,
     _solve_block_tridiagonal,
 )
+from causal_ssm_agent.models.ssm.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 # =============================================================================
@@ -775,6 +781,97 @@ class TestEdgeCases:
 # =============================================================================
 
 
+class TestInferenceCaching:
+    """Low-risk caching behavior for default inference helpers."""
+
+    def test_model_reuses_backend_instances(self):
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec)
+
+        backend_a = model.make_likelihood_backend()
+        backend_b = model.make_likelihood_backend()
+        laplace_a = model.make_laplace_backend(3)
+        laplace_b = model.make_laplace_backend(3)
+        laplace_c = model.make_laplace_backend(5)
+
+        assert backend_a is backend_b
+        assert laplace_a is laplace_b
+        assert laplace_a is not laplace_c
+
+
+class TestPureJaxLikelihoodEvaluator:
+    """The pure-JAX likelihood path should match NumPyro replay exactly."""
+
+    @staticmethod
+    def _build_poisson_case():
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+            manifest_dist=DistributionFamily.POISSON,
+            manifest_link=LinkFunction.LOG,
+            manifest_means=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
+        )
+        model = SSMModel(spec, n_particles=40)
+        observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)
+        times = jnp.arange(observations.shape[0], dtype=jnp.float32) * 0.5
+        return model, observations, times
+
+    @staticmethod
+    def _assert_log_likelihood_match(reparam) -> None:
+        model, observations, times = TestPureJaxLikelihoodEvaluator._build_poisson_case()
+        backend = model.make_likelihood_backend()
+        site_info = _discover_sites(
+            model,
+            observations,
+            times,
+            random.PRNGKey(0),
+            backend,
+            reparam=reparam,
+        )
+        example_unc = {
+            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
+        }
+        z0, unravel_fn = ravel_pytree(example_unc)
+        log_lik_fn, _ = _build_eval_fns(
+            model,
+            observations,
+            times,
+            site_info,
+            unravel_fn,
+            likelihood_backend=backend,
+            reparam=reparam,
+        )
+
+        base_model_fn = functools.partial(model.model, likelihood_backend=backend)
+        replay_model_fn = _apply_reparam(base_model_fn, reparam)
+        constrained = {
+            name: site_info[name]["transform"](unravel_fn(z0)[name]) for name in site_info
+        }
+        replay_ll, _ = _eval_model(replay_model_fn, constrained, observations, times)
+
+        np.testing.assert_allclose(
+            np.asarray(log_lik_fn(z0)),
+            np.asarray(replay_ll),
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        grads = jax.grad(log_lik_fn)(z0)
+        assert jnp.all(jnp.isfinite(grads))
+
+    def test_log_likelihood_matches_model_replay_without_reparam(self):
+        self._assert_log_likelihood_match(reparam=None)
+
+    def test_log_likelihood_matches_model_replay_with_fixed_autoreparam(self):
+        self._assert_log_likelihood_match(reparam=AutoReparam(centered=0.0))
+
+
 # =============================================================================
 # SVI-specific Tests
 # =============================================================================
@@ -782,6 +879,90 @@ class TestEdgeCases:
 
 class TestSVIBackend:
     """Tests specific to SVI inference backend."""
+
+    def test_svi_rejects_nonfinite_losses(self, monkeypatch):
+        """SVI should fail fast instead of returning a numerically invalid fit."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, likelihood="kalman")
+        observations = jnp.zeros((4, 1), dtype=jnp.float32)
+        times = jnp.arange(4, dtype=jnp.float32)
+
+        class FakeSVI:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def run(self, *_args, **_kwargs):
+                return type(
+                    "FakeSVIResult",
+                    (),
+                    {
+                        "losses": jnp.array([1.0, jnp.nan], dtype=jnp.float32),
+                        "params": {"loc": jnp.array([0.0], dtype=jnp.float32)},
+                    },
+                )()
+
+        monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.SVI", FakeSVI)
+
+        with pytest.raises(FloatingPointError, match="non-finite losses"):
+            fit(
+                model,
+                observations=observations,
+                times=times,
+                method="svi",
+                num_steps=2,
+                num_samples=2,
+            )
+
+    def test_svi_rejects_nonfinite_posterior_samples(self, monkeypatch):
+        """SVI should fail fast when guide predictive samples contain NaNs."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, likelihood="kalman")
+        observations = jnp.zeros((4, 1), dtype=jnp.float32)
+        times = jnp.arange(4, dtype=jnp.float32)
+
+        class FakeSVI:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def run(self, *_args, **_kwargs):
+                return type(
+                    "FakeSVIResult",
+                    (),
+                    {
+                        "losses": jnp.array([1.0, 0.5], dtype=jnp.float32),
+                        "params": {"loc": jnp.array([0.0], dtype=jnp.float32)},
+                    },
+                )()
+
+        class FakePredictive:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def __call__(self, *_args, **_kwargs):
+                return {"drift": jnp.array([[[jnp.nan]]], dtype=jnp.float32)}
+
+        monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.SVI", FakeSVI)
+        monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.Predictive", FakePredictive)
+
+        with pytest.raises(FloatingPointError, match="non-finite posterior samples"):
+            fit(
+                model,
+                observations=observations,
+                times=times,
+                method="svi",
+                num_steps=2,
+                num_samples=1,
+            )
 
     @pytest.mark.slow
     def test_svi_losses_decrease(self):
@@ -875,6 +1056,57 @@ class TestSVIParameterRecovery:
         assert posterior_mean < 0.0, (
             f"Drift posterior mean {posterior_mean:.3f} should be negative (true={true_drift})"
         )
+
+
+class TestAutoMethodConfigRouting:
+    """Regression tests for backend-specific config propagation under method='auto'."""
+
+    def test_auto_passes_smc_config_to_laplace_em(self, monkeypatch):
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec, likelihood="kalman")
+        observations = jnp.zeros((3, 1), dtype=jnp.float32)
+        times = jnp.arange(3, dtype=jnp.float32)
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.select_default_method",
+            lambda _spec: "laplace_em",
+        )
+
+        def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
+            captured.update(kwargs)
+            return InferenceResult(
+                _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+                method="laplace_em",
+                diagnostics={},
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.laplace_em.fit_laplace_em",
+            fake_fit_laplace_em,
+        )
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="auto",
+            smc_config={"n_outer": 6, "n_csmc_particles": 8, "param_step_size": 0.05},
+            nuts_config={"max_tree_depth": 99},
+            svi_config={"num_steps": 1234},
+        )
+
+        assert result.method == "laplace_em"
+        assert captured["n_outer"] == 6
+        assert captured["n_csmc_particles"] == 8
+        assert captured["param_step_size"] == 0.05
+        assert "max_tree_depth" not in captured
+        assert "num_steps" not in captured
 
 
 # =============================================================================

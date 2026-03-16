@@ -28,6 +28,9 @@ class TestToSamplerConfig:
         assert "num_steps" not in result
         assert "learning_rate" not in result
         assert "guide_type" not in result
+        assert result["svi_config"]["num_steps"] == 5000
+        assert result["nuts_config"]["max_tree_depth"] == 8
+        assert result["smc_config"]["n_outer"] == 100
 
     def test_nuts_defaults(self):
         cfg = InferenceConfig(method="nuts")

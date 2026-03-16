@@ -3,6 +3,7 @@
 Covers: _normalize_prior_params, _split_compound_name.
 """
 
+import polars as pl
 import pytest
 
 from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -213,3 +214,32 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="DT persistence scale"):
             builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+
+
+class TestObservationSupportValidation:
+    def test_gamma_emission_rejects_zero_observations(self):
+        """Gamma likelihoods must fail early when observed data include zeros."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "screen_gap",
+                    "distribution": "gamma",
+                    "link": "log",
+                    "reasoning": "",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_screen_gap",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                    "search_context": "",
+                }
+            ],
+        }
+        builder = SSMModelBuilder(model_spec=model_spec, priors={})
+        X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
+
+        with pytest.raises(ValueError, match="Observation support check failed"):
+            builder.build_model(X)

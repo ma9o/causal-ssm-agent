@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 
 import cloudpickle
+import numpy as np
 import polars as pl
 import pytest
 
@@ -264,6 +265,48 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
 
     assert any(entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls)
     assert result == {"stage5b": True, "stage6": True}
+
+
+def test_stage6_recomputes_interventions_from_gpu_samples(monkeypatch):
+    fitted_payload = {
+        "fitted": True,
+        "intervention_results": [],
+        "posterior_samples": {"latent": np.array([[0.1, 0.2]])},
+        "latent_names": ["screen_time", "sleep_quality"],
+        "manifest_names": [],
+        "times": np.array([0.0, 1.0]),
+    }
+    stage5b_result = {
+        "_fitted_result_path": "unused.pkl",
+        "_ppc_result": {"checked": True, "per_variable_warnings": []},
+        "_ps_result": {"checked": True, "diagnosis": {}},
+    }
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(dag, "_load_pickle", lambda _path: fitted_payload)
+    monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
+
+    def fake_compute_interventions(**kwargs):
+        captured.update(kwargs)
+        return [{"treatment": "screen_time", "effect_size": 1.0, "identifiable": True}]
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.counterfactual.compute_interventions",
+        fake_compute_interventions,
+    )
+
+    result = dag.stage6(
+        stage5b_result,
+        {"outcome_name": "sleep_quality"},
+        {"causal_spec": {}},
+        {"treatments": ["screen_time"]},
+    )
+
+    assert result["intervention_results"][0]["treatment"] == "screen_time"
+    assert captured["treatments"] == ["screen_time"]
+    assert captured["outcome"] == "sleep_quality"
+    assert captured["latent_names"] == ["screen_time", "sleep_quality"]
 
 
 def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
