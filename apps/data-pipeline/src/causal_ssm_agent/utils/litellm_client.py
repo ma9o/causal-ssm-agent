@@ -34,32 +34,37 @@ logger = get_prefect_logger(__name__)
 class RpmLimiter:
     """Thread-safe async sliding-window rate limiter.
 
-    Tracks LLM API calls over a rolling 60-second window and blocks when the
-    configured ``max_rpm`` would be exceeded.  Uses ``threading.Lock`` for
-    cross-thread safety (Prefect ThreadPoolTaskRunner) and ``asyncio.sleep``
-    to yield control while waiting.
+    Tracks API calls over a rolling window and blocks when the configured
+    maximum would be exceeded.  Uses ``threading.Lock`` for cross-thread
+    safety (Prefect ThreadPoolTaskRunner) and ``asyncio.sleep`` to yield
+    control while waiting.
+
+    Args:
+        max_requests: Maximum number of requests allowed within the window.
+        window_seconds: Length of the sliding window (default 60 for RPM).
     """
 
-    def __init__(self, max_rpm: int) -> None:
-        self.max_rpm = max_rpm
+    def __init__(self, max_requests: int, window_seconds: float = 60.0) -> None:
+        self.max_requests = max_requests
+        self._window = window_seconds
         self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
     def _purge(self, now: float) -> None:
-        while self._timestamps and self._timestamps[0] <= now - 60:
+        while self._timestamps and self._timestamps[0] <= now - self._window:
             self._timestamps.popleft()
 
     async def acquire(self) -> None:
-        """Wait until a request slot is available within the RPM window."""
+        """Wait until a request slot is available within the window."""
         while True:
             with self._lock:
                 now = monotonic()
                 self._purge(now)
-                if len(self._timestamps) < self.max_rpm:
+                if len(self._timestamps) < self.max_requests:
                     self._timestamps.append(now)
                     return
                 # Calculate how long until the oldest entry expires
-                wait_for = self._timestamps[0] + 60 - now
+                wait_for = self._timestamps[0] + self._window - now
             await asyncio.sleep(min(wait_for + 0.05, 1.0))
 
 
@@ -70,6 +75,7 @@ def set_rpm_limiter(limiter: RpmLimiter | None) -> None:
     """Set (or clear) the global RPM limiter applied to every ``call_model`` invocation."""
     global _rpm_limiter
     _rpm_limiter = limiter
+
 
 # LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
 # They drown out the stage-level logs we rely on during Prefect runs.
