@@ -50,6 +50,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── orchestrator/      # LLM model specification (latent + measurement)
 │   │   │   ├── workers/           # Indicator extraction + prior research LLMs
 │   │   │   ├── models/            # NumPyro SSM, compiler, likelihoods, prior/posterior predictive
+│   │   │   │   └── ssm/prior_predictive_runtime.py  # Compile-stable prior predictive runtime from serialized semantics
 │   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
