@@ -50,7 +50,17 @@ def _write_public_result(tmp_path, user_id: str, stage_id: str, payload: dict) -
     )
 
 
+def _reset_stage_registry(monkeypatch):
+    """Reset lazily-initialized stage registry so monkeypatched dag functions are picked up."""
+    from causal_ssm_agent.flows import stage_registry
+
+    monkeypatch.setattr(stage_registry, "_registry", None)
+    monkeypatch.setattr(stage_registry, "_execution_order", None)
+
+
 def _patch_common_stage_stubs(monkeypatch, calls: list):
+    # Parameter names must match the bare computation function signatures in dag.py
+
     async def stage0(user_id: str) -> dict:
         calls.append(("stage0", user_id))
         return {
@@ -58,33 +68,33 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             "_column_descriptions": {},
         }
 
-    def stage1b_gate(stage1a_result: dict, stage1b_result: dict, override_gates: bool) -> dict:
-        calls.append(("stage1b_gate", stage1a_result, stage1b_result, override_gates))
+    def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
+        calls.append(("stage1b_gate", stage1a, stage1b, override_gates))
         return {
-            "treatments": stage1a_result["treatments"],
+            "treatments": stage1a["treatments"],
             "gate_failed": False,
             "gate_overridden": False,
             "web_outcome": "success",
             "non_identifiable": {},
         }
 
-    async def stage2(question: str, stage0_result: dict, stage1b_result: dict, **_kw) -> dict:
-        calls.append(("stage2", question, stage0_result, stage1b_result))
+    async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
+        calls.append(("stage2", question, stage0, stage1b))
         raw_data = pl.DataFrame(
             {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
         )
         return {"_data_for_model": raw_data, "_raw_data": raw_data}
 
-    def stage3(stage1b_result: dict, stage2_result: dict) -> dict:
-        calls.append(("stage3", stage1b_result, stage2_result))
+    def stage3(stage1b: dict, stage2: dict) -> dict:
+        calls.append(("stage3", stage1b, stage2))
         return {"validation_report": {}, "outcome": "success"}
 
-    def stage4b(stage4_result: dict, stage2_result: dict, builder=None):
-        calls.append(("stage4b", stage4_result, stage2_result, builder))
+    def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
+        calls.append(("stage4b", stage4, stage2, ssm_builder))
         return {"parametric_id": {}}
 
-    def stage4b_gate(stage4b_result: dict, override_gates: bool) -> dict:
-        calls.append(("stage4b_gate", stage4b_result, override_gates))
+    def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
+        calls.append(("stage4b_gate", stage4b, override_gates))
         return {
             "gate_failed": False,
             "gate_overridden": False,
@@ -93,11 +103,11 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         }
 
     def stage5b(
-        stage4_result: dict,
-        stage2_result: dict,
+        stage4: dict,
+        stage2: dict,
         inference_method: str | None,
     ) -> dict:
-        calls.append(("stage5b", stage4_result, stage2_result, inference_method))
+        calls.append(("stage5b", stage4, stage2, inference_method))
         return {
             "_fitted_artifact": None,
             "_ps_result": {},
@@ -114,12 +124,12 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         }
 
     def stage6(
-        stage5_result: dict,
-        stage1a_result: dict,
-        stage1b_result: dict,
-        stage1b_gate_result: dict,
+        stage5b: dict,
+        stage1a: dict,
+        stage1b: dict,
+        stage1b_gate: dict,
     ) -> dict:
-        calls.append(("stage6", stage5_result, stage1a_result, stage1b_result, stage1b_gate_result))
+        calls.append(("stage6", stage5b, stage1a, stage1b, stage1b_gate))
         return {"intervention_results": [], "outcome": "success"}
 
     def persist_web_result(stage_id: str, data: dict, user_id: str) -> dict:
@@ -139,6 +149,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr("causal_ssm_agent.flows.stages.persist_web_result", persist_web_result)
+    _reset_stage_registry(monkeypatch)
 
 
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):
@@ -161,8 +172,8 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
             "treatments": ["generated-treatment"],
         }
 
-    async def stage1b(question: str, stage0_result: dict, stage1a_result: dict) -> dict:
-        calls.append(("stage1b", question, stage0_result, stage1a_result))
+    async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
+        calls.append(("stage1b", question, stage0, stage1a))
         return {
             "causal_spec": {
                 "latent": {"constructs": [], "edges": []},
@@ -171,18 +182,19 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         }
 
     async def stage4(
-        question: str, stage1b_result: dict, stage2_result: dict, enable_literature: bool
+        question: str, stage1b: dict, stage2: dict, enable_literature: bool
     ) -> dict:
-        calls.append(("stage4", question, stage1b_result, stage2_result, enable_literature))
+        calls.append(("stage4", question, stage1b, stage2, enable_literature))
         return {
             "model_spec": {},
             "priors": {},
-            "causal_spec": stage1b_result["causal_spec"],
+            "causal_spec": stage1b["causal_spec"],
         }
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
     monkeypatch.setattr(dag, "stage1b", stage1b)
     monkeypatch.setattr(dag, "stage4", stage4)
+    _reset_stage_registry(monkeypatch)
 
     override_payload = {
         "latent_model": {"constructs": [{"name": "Overridden"}]},
@@ -233,24 +245,25 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         "measurement": {"model_clock": "1d", "indicators": [{"name": "m"}]},
     }
 
-    async def stage1b(question: str, stage0_result: dict, stage1a_result: dict) -> dict:
-        calls.append(("stage1b", question, stage0_result, stage1a_result))
+    async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
+        calls.append(("stage1b", question, stage0, stage1a))
         return {"causal_spec": causal_spec}
 
     async def stage4(
-        question: str, stage1b_result: dict, stage2_result: dict, enable_literature: bool
+        question: str, stage1b: dict, stage2: dict, enable_literature: bool
     ) -> dict:
         raise AssertionError("stage4 should be skipped when an override is provided")
 
-    def stage4b(stage4_result: dict, stage2_result: dict, builder=None):
-        calls.append(("stage4b", stage4_result, stage2_result, builder))
-        assert stage4_result["causal_spec"] == causal_spec
+    def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
+        calls.append(("stage4b", stage4, stage2, ssm_builder))
+        assert stage4["causal_spec"] == causal_spec
         return {"parametric_id": {}}
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
     monkeypatch.setattr(dag, "stage1b", stage1b)
     monkeypatch.setattr(dag, "stage4", stage4)
     monkeypatch.setattr(dag, "stage4b", stage4b)
+    _reset_stage_registry(monkeypatch)
 
     override_payload = {
         "model_spec": {"parameters": []},
@@ -389,11 +402,11 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
 
     captured: dict = {}
 
-    async def stage2(question: str, stage0_result: dict, stage1b_result: dict, **_kw) -> dict:
-        calls.append(("stage2", question, stage0_result, stage1b_result))
+    async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
+        calls.append(("stage2", question, stage0, stage1b))
         captured["question"] = question
-        captured["stage0_df_path"] = stage0_result["_df_path"]
-        captured["stage1b_result"] = stage1b_result
+        captured["stage0_df_path"] = stage0["_df_path"]
+        captured["stage1b_result"] = stage1b
         raw_data = pl.DataFrame(
             {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
         )
@@ -410,6 +423,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     monkeypatch.setattr(dag, "stage1a", stage1a)
     monkeypatch.setattr(dag, "stage1b", stage1b)
     monkeypatch.setattr(dag, "stage2", stage2)
+    _reset_stage_registry(monkeypatch)
 
     result = asyncio.run(
         pipeline.causal_inference_pipeline(
@@ -496,7 +510,7 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(_question: str) -> dict:
+    async def stage1a(question: str) -> dict:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
