@@ -7,7 +7,6 @@ stage computations while re-running downstream stages from the override point.
 """
 
 import time
-from collections.abc import Callable
 from inspect import isawaitable
 from pathlib import Path
 from typing import Any
@@ -227,7 +226,13 @@ async def causal_inference_pipeline(
         os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
         logger.info("Using user-provided OpenRouter API key")
 
-    from causal_ssm_agent.flows import dag
+    from causal_ssm_agent.flows.stage_registry import (
+        PipelineContext,
+        get_execution_order,
+        get_stage_registry,
+        load_stage_state,
+        run_stage_flow,
+    )
     from causal_ssm_agent.utils.config import get_config
 
     config = get_config()
@@ -274,40 +279,19 @@ async def causal_inference_pipeline(
     # Ensure the run directory exists
     storage.makedirs(runs_dir(user_id))
 
+    ctx = PipelineContext(
+        user_id=user_id,
+        prefect_run_id=prefect_run_id,
+        question=question,
+        gates_overridden=gates_overridden,
+        lit_enabled=lit_enabled,
+        inference_method=inference_method,
+        supported_overrides=supported_overrides,
+    )
+
     stage_states: dict[str, dict[str, Any]] = {}
-
-    def _restore_stage(stage_id: str) -> dict[str, Any]:
-        restored = dag.load_stage_state(user_id, stage_id, prior_states=stage_states)
-        stage_states[stage_id] = restored
-        _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
-        _raise_if_restored_gate_failed(stage_id, restored)
-        return restored
-
-    async def _run_stage(stage_id: str, runner: Callable[[], Any]) -> dict[str, Any]:
-        logger.info(">>> %s starting", stage_id)
-        t0 = time.monotonic()
-        _emit_stage_progress_event(prefect_run_id, stage_id, "running")
-        try:
-            stage_state = runner()
-            if isawaitable(stage_state):
-                stage_state = await stage_state
-        except Exception as exc:
-            elapsed = time.monotonic() - t0
-            logger.error(">>> %s FAILED after %.1fs: %s", stage_id, elapsed, exc)
-            _emit_stage_progress_event(
-                prefect_run_id,
-                stage_id,
-                "failed",
-                error={"type": "execution_error", "message": str(exc)},
-            )
-            raise
-        # Include outcome from stage result if available
-        elapsed = time.monotonic() - t0
-        web_data = stage_state.get("web", {}) if isinstance(stage_state, dict) else {}
-        stage_outcome = web_data.get("outcome")
-        logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
-        _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
-        return stage_state
+    registry = get_stage_registry()
+    execution_order = get_execution_order()
 
     async def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
@@ -320,166 +304,51 @@ async def causal_inference_pipeline(
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
         return _partial_pipeline_result(user_id, stage_id, stage_states[stage_id])
 
-    stage0_idx = _stage_idx("stage-0")
-    if start_idx > stage0_idx:
-        stage0_state = _restore_stage("stage-0")
-    else:
-        stage0_state = await _run_stage("stage-0", lambda: dag.stage0_flow(user_id))
-        stage_states["stage-0"] = stage0_state
-    partial = await _maybe_finish("stage-0")
-    if partial is not None:
-        return partial
-    stage0_result = stage0_state["result"]
+    for stage_id in execution_order:
+        defn = registry[stage_id]
+        idx = _stage_idx(stage_id)
 
-    stage1a_idx = _stage_idx("stage-1a")
-    if start_idx > stage1a_idx:
-        stage1a_state = _restore_stage("stage-1a")
-    else:
-        if question is None:
-            raise ValueError("Question is required to execute stage-1a")
-        stage1a_state = await _run_stage(
-            "stage-1a",
-            lambda: dag.stage1a_flow(
-                question,
-                user_id,
-                override_payload=supported_overrides.get("stage-1a"),
-            ),
-        )
-        stage_states["stage-1a"] = stage1a_state
-    partial = await _maybe_finish("stage-1a")
-    if partial is not None:
-        return partial
-    stage1a_result = stage1a_state["result"]
+        if idx > end_idx:
+            break
 
-    stage1b_idx = _stage_idx("stage-1b")
-    if start_idx > stage1b_idx:
-        stage1b_state = _restore_stage("stage-1b")
-    else:
-        if question is None:
-            raise ValueError("Question is required to execute stage-1b")
-        stage1b_state = await _run_stage(
-            "stage-1b",
-            lambda: dag.stage1b_flow(
-                question,
-                stage0_result,
-                stage1a_result,
-                gates_overridden,
-                user_id,
-                override_payload=supported_overrides.get("stage-1b"),
-            ),
-        )
-        stage_states["stage-1b"] = stage1b_state
-    partial = await _maybe_finish("stage-1b")
-    if partial is not None:
-        return partial
-    stage1b_result = stage1b_state["result"]
-    stage1b_gate = stage1b_state["gate"]
+        if idx < start_idx:
+            # Restore from prior run (stages before the execution window)
+            if defn.skip_restore:
+                continue
+            restored = load_stage_state(user_id, stage_id, prior_states=stage_states)
+            stage_states[stage_id] = restored
+            _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
+            _raise_if_restored_gate_failed(stage_id, restored)
+        else:
+            # Execute this stage
+            if defn.question_required and question is None:
+                raise ValueError(f"Question is required to execute {stage_id}")
 
-    stage2_idx = _stage_idx("stage-2")
-    if start_idx > stage2_idx:
-        stage2_state = _restore_stage("stage-2")
-    else:
-        if question is None:
-            raise ValueError("Question is required to execute stage-2")
-        stage2_state = await _run_stage(
-            "stage-2",
-            lambda: dag.stage2_flow(
-                question, stage0_result, stage1b_result, user_id, prefect_run_id
-            ),
-        )
-        stage_states["stage-2"] = stage2_state
-    partial = await _maybe_finish("stage-2")
-    if partial is not None:
-        return partial
-    stage2_result = stage2_state["result"]
+            logger.info(">>> %s starting", stage_id)
+            t0 = time.monotonic()
+            _emit_stage_progress_event(prefect_run_id, stage_id, "running")
+            try:
+                state = await run_stage_flow(defn, ctx, stage_states)
+            except Exception as exc:
+                elapsed = time.monotonic() - t0
+                logger.error(">>> %s FAILED after %.1fs: %s", stage_id, elapsed, exc)
+                _emit_stage_progress_event(
+                    prefect_run_id,
+                    stage_id,
+                    "failed",
+                    error={"type": "execution_error", "message": str(exc)},
+                )
+                raise
+            elapsed = time.monotonic() - t0
+            web_data = state.get("web", {}) if isinstance(state, dict) else {}
+            stage_outcome = web_data.get("outcome")
+            logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
+            _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
+            stage_states[stage_id] = state
 
-    stage3_idx = _stage_idx("stage-3")
-    if start_idx > stage3_idx:
-        stage3_state = _restore_stage("stage-3")
-    else:
-        stage3_state = await _run_stage(
-            "stage-3",
-            lambda: dag.stage3_flow(stage1b_result, stage2_result, user_id),
-        )
-        stage_states["stage-3"] = stage3_state
-    partial = await _maybe_finish("stage-3")
-    if partial is not None:
-        return partial
-
-    stage4_idx = _stage_idx("stage-4")
-    if start_idx > stage4_idx:
-        stage4_state = _restore_stage("stage-4")
-    else:
-        if question is None:
-            raise ValueError("Question is required to execute stage-4")
-        stage4_state = await _run_stage(
-            "stage-4",
-            lambda: dag.stage4_flow(
-                question,
-                stage1b_result,
-                stage2_result,
-                lit_enabled,
-                user_id,
-                override_payload=supported_overrides.get("stage-4"),
-            ),
-        )
-        stage_states["stage-4"] = stage4_state
-    partial = await _maybe_finish("stage-4")
-    if partial is not None:
-        return partial
-    stage4_result = stage4_state["result"]
-
-    stage4b_idx = _stage_idx("stage-4b")
-    if start_idx > stage4b_idx:
-        stage4b_state = _restore_stage("stage-4b")
-    else:
-        stage4b_state = dag.stage4b_flow(stage4_result, stage2_result, gates_overridden, user_id)
-        stage_states["stage-4b"] = stage4b_state
-    partial = await _maybe_finish("stage-4b")
-    if partial is not None:
-        return partial
-
-    stage5a_idx = _stage_idx("stage-5a")
-    if start_idx > stage5a_idx:
-        pass  # stage-5a is best-effort preflight, no restore needed
-    else:
-        stage5a_state = dag.stage5a_flow(
-            stage4_result,
-            stage2_result,
-            user_id,
-        )
-        stage_states["stage-5a"] = stage5a_state
-    partial = await _maybe_finish("stage-5a")
-    if partial is not None:
-        return partial
-
-    stage5b_idx = _stage_idx("stage-5b")
-    if start_idx > stage5b_idx:
-        stage5b_state = _restore_stage("stage-5b")
-    else:
-        stage5b_state = dag.stage5b_flow(
-            stage4_result,
-            stage2_result,
-            inference_method,
-            user_id,
-        )
-        stage_states["stage-5b"] = stage5b_state
-    partial = await _maybe_finish("stage-5b")
-    if partial is not None:
-        return partial
-    stage5b_result = stage5b_state["result"]
-
-    stage6_state = dag.stage6_flow(
-        stage5b_result,
-        stage1a_result,
-        stage1b_result,
-        stage1b_gate,
-        user_id,
-    )
-    stage_states["stage-6"] = stage6_state
-    partial = await _maybe_finish("stage-6")
-    if partial is not None:
-        return partial
+        partial = await _maybe_finish(stage_id)
+        if partial is not None:
+            return partial
 
     raise AssertionError("Unreachable: pipeline did not terminate at a stage boundary")
 
