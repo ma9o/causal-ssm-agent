@@ -108,6 +108,20 @@ InferenceMethod = Literal[
 
 
 @dataclass
+class FittedArtifact:
+    """Canonical persisted output of inference.
+
+    This is the only shape persisted by Stage 5b and consumed by Stage 6.
+    Holds the inference result, builder, and times needed for downstream
+    intervention analysis.
+    """
+
+    result: InferenceResult
+    builder: Any  # SSMModelBuilder
+    times: Any  # jnp.ndarray | None
+
+
+@dataclass
 class InferenceResult:
     """Container for inference results across all backends.
 

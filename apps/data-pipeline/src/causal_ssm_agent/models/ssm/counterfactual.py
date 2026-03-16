@@ -210,8 +210,7 @@ def compute_interventions(
 ) -> list[dict[str, Any]]:
     """Compute intervention effects for all treatments from posterior samples.
 
-    Shared logic used by both local and GPU inference paths. Pure function
-    that takes posterior samples and returns intervention result dicts.
+    Pure function that takes posterior samples and returns intervention result dicts.
 
     Args:
         samples: Posterior samples dict with keys "drift", "cint", optionally "lambda".

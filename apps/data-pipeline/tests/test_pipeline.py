@@ -94,13 +94,12 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     def stage5b(
         stage4_result: dict,
-        stage1b_result: dict,
         stage2_result: dict,
         inference_method: str | None,
     ) -> dict:
-        calls.append(("stage5b", stage4_result, stage1b_result, stage2_result, inference_method))
+        calls.append(("stage5b", stage4_result, stage2_result, inference_method))
         return {
-            "_fitted_result": {"fitted": True},
+            "_fitted_artifact": None,
             "_ps_result": {},
             "_ppc_result": {},
             "power_scaling": [],
@@ -269,15 +268,25 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
     assert result == {"stage5b": True, "stage6": True}
 
 
-def test_stage6_recomputes_interventions_from_gpu_samples(monkeypatch):
-    fitted_payload = {
-        "fitted": True,
-        "intervention_results": [],
-        "posterior_samples": {"latent": np.array([[0.1, 0.2]])},
-        "latent_names": ["screen_time", "sleep_quality"],
-        "manifest_names": [],
-        "times": np.array([0.0, 1.0]),
-    }
+def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
+    from types import SimpleNamespace
+
+    from causal_ssm_agent.models.ssm.inference import FittedArtifact
+
+    # Build a minimal FittedArtifact with mock result and builder
+    mock_samples = {"latent": np.array([[0.1, 0.2]])}
+    mock_result = SimpleNamespace(get_samples=lambda: mock_samples)
+    mock_spec = SimpleNamespace(
+        latent_names=["screen_time", "sleep_quality"],
+        manifest_names=[],
+    )
+    mock_builder = SimpleNamespace(_spec=mock_spec)
+
+    fitted_artifact = FittedArtifact(
+        result=mock_result,
+        builder=mock_builder,
+        times=np.array([0.0, 1.0]),
+    )
     stage5b_result = {
         "_fitted_result_path": "unused.pkl",
         "_ppc_result": {"checked": True, "per_variable_warnings": []},
@@ -286,7 +295,7 @@ def test_stage6_recomputes_interventions_from_gpu_samples(monkeypatch):
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(dag, "load_pickle", lambda _path: fitted_payload)
+    monkeypatch.setattr(dag, "load_pickle", lambda _path: fitted_artifact)
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
 
     def fake_compute_interventions(**kwargs):

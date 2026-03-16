@@ -628,64 +628,47 @@ def stage5a(
 
 def stage5b(
     stage4: dict,
-    stage1b: dict,
     stage2: dict,
     inference_method: str | None,
 ) -> dict:
     """Fit model, run power-scaling and posterior predictive checks.
 
-    Returns: {ps_result, ppc_result, fitted_result, inference_metadata,
-              mcmc_diagnostics, svi_diagnostics, loo_diagnostics,
-              posterior_marginals, posterior_pairs, ps_list, outcome}
+    Returns: {_fitted_artifact, _ps_result, _ppc_result, power_scaling, ppc,
+              inference_metadata, mcmc_diagnostics, svi_diagnostics,
+              loo_diagnostics, posterior_marginals, posterior_pairs, outcome}
     """
+    from causal_ssm_agent.models.ssm.inference import FittedArtifact
     from causal_ssm_agent.utils.config import get_config
 
     from .stages import fit_model, run_power_scaling, run_ppc
 
     config = get_config()
     data_for_model = load_parquet(stage2["_data_for_model_path"])
-    causal_spec = stage1b["causal_spec"]
 
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
 
-    if config.inference.gpu:
-        from .gpu_inference import run_stage5b_gpu
+    fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
+    fitted_result = unwrap_task_result(fitted)
 
-        logger.info("Dispatching to Modal (%s GPU)...", config.inference.gpu)
-        gpu_result = run_stage5b_gpu(
-            stage4_result=stage4,
-            raw_data=data_for_model,
-            sampler_config=sampler_config,
-            treatments=[],  # filled by stage6
-            outcome="",
-            causal_spec=causal_spec,
-            gpu=config.inference.gpu,
-        )
-        ps_result = gpu_result["ps_result"]
-        ppc_result = gpu_result.get("ppc_result", {"checked": False})
-        fitted_result = gpu_result
-        mcmc_diagnostics = gpu_result.get("mcmc_diagnostics")
-        svi_diagnostics = gpu_result.get("svi_diagnostics")
-        loo_diagnostics = gpu_result.get("loo_diagnostics")
-        posterior_marginals = gpu_result.get("posterior_marginals")
-        posterior_pairs = gpu_result.get("posterior_pairs")
-        inf_method = gpu_result.get("inference_type", "unknown")
-    else:
-        fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
-        fitted_result = unwrap_task_result(fitted)
+    power_scaling = run_power_scaling(fitted_result, data_for_model)
+    ps_result = unwrap_task_result(power_scaling)
 
-        power_scaling = run_power_scaling(fitted_result, data_for_model)
-        ps_result = unwrap_task_result(power_scaling)
+    ppc_task = run_ppc(fitted_result, data_for_model)
+    ppc_result = unwrap_task_result(ppc_task)
 
-        ppc_task = run_ppc(fitted_result, data_for_model)
-        ppc_result = unwrap_task_result(ppc_task)
+    mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
+    svi_diagnostics = fitted_result.get("svi_diagnostics")
+    loo_diagnostics = fitted_result.get("loo_diagnostics")
+    posterior_marginals = fitted_result.get("posterior_marginals")
+    posterior_pairs = fitted_result.get("posterior_pairs")
+    inf_method = fitted_result.get("inference_type", "unknown")
 
-        mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
-        svi_diagnostics = fitted_result.get("svi_diagnostics")
-        loo_diagnostics = fitted_result.get("loo_diagnostics")
-        posterior_marginals = fitted_result.get("posterior_marginals")
-        posterior_pairs = fitted_result.get("posterior_pairs")
-        inf_method = fitted_result.get("inference_type", "unknown")
+    # Build FittedArtifact — the only shape persisted and consumed by stage 6
+    fitted_artifact = FittedArtifact(
+        result=fitted_result.get("result"),
+        builder=fitted_result.get("builder"),
+        times=fitted_result.get("times"),
+    )
 
     # Log power-scaling results
     logger.info("--- Power-Scaling Sensitivity ---")
@@ -740,7 +723,7 @@ def stage5b(
     outcome = "warn" if (has_ppc_warnings or has_ps_issues) else "success"
 
     return {
-        "_fitted_result": fitted_result,
+        "_fitted_artifact": fitted_artifact,
         "_ps_result": ps_result,
         "_ppc_result": ppc_result,
         "power_scaling": ps_list,
@@ -778,7 +761,7 @@ def stage6(
 
     from .stages import run_interventions
 
-    fitted_result = load_pickle(stage5b["_fitted_result_path"])
+    fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
@@ -788,38 +771,18 @@ def stage6(
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
 
-    if (
-        isinstance(fitted_result, dict)
-        and "intervention_results" in fitted_result
-        and fitted_result.get("intervention_results")
-        and not {"builder", "result"}.issubset(fitted_result)
-    ):
-        logger.info("Using precomputed intervention results from stage 5b")
-        intervention_results = list(fitted_result.get("intervention_results", []) or [])
-    elif (
-        isinstance(fitted_result, dict)
-        and "posterior_samples" in fitted_result
-        and not {"builder", "result"}.issubset(fitted_result)
-    ):
-        from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
-
-        logger.info("Computing interventions from GPU posterior samples")
-        intervention_results = compute_interventions(
-            samples=fitted_result["posterior_samples"],
-            treatments=treatments,
-            outcome=outcome_name,
-            latent_names=list(fitted_result.get("latent_names") or []),
-            causal_spec=causal_spec,
-            ppc_result=ppc_result,
-            manifest_names=list(fitted_result.get("manifest_names") or []),
-            ps_result=ps_result,
-            times=fitted_result.get("times"),
-        )
-    else:
-        results = run_interventions(
-            fitted_result, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
-        )
-        intervention_results = unwrap_task_result(results)
+    # FittedArtifact is the only persisted inference contract.
+    # Wrap it in the dict format run_interventions expects.
+    fitted_model = {
+        "fitted": fitted_artifact.result is not None,
+        "result": fitted_artifact.result,
+        "builder": fitted_artifact.builder,
+        "times": fitted_artifact.times,
+    }
+    results = run_interventions(
+        fitted_model, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
+    )
+    intervention_results = unwrap_task_result(results)
 
     # Log ranked results
     if intervention_results:
@@ -1154,16 +1117,15 @@ def stage5a_flow(
 @flow(name="stage-5b-flow", persist_result=False)
 def stage5b_flow(
     stage4_result: dict,
-    stage1b_result: dict,
     stage2_result: dict,
     inference_method: str | None,
     user_id: str,
 ) -> dict:
     logger.info("Stage 5b starting: fitting model and running diagnostics")
-    stage5b_result = stage5b(stage4_result, stage1b_result, stage2_result, inference_method)
-    fitted_result = stage5b_result.pop("_fitted_result")
+    stage5b_result = stage5b(stage4_result, stage2_result, inference_method)
+    fitted_artifact = stage5b_result.pop("_fitted_artifact")
     stage5b_result["_fitted_result_path"] = save_pickle(
-        fitted_result, user_id, "stage5b-fitted-result.pkl"
+        fitted_artifact, user_id, "stage5b-fitted-result.pkl"
     )
     state = finalize_stage("stage-5b", stage5b_result, user_id)
     web = state["web"]

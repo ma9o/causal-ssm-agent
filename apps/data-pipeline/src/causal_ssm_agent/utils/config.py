@@ -15,7 +15,7 @@ logger = get_prefect_logger(__name__)
 
 # Centralized .env loading — all modules that need env vars import from config.py
 # (or from modules that import config.py), so this runs once at import time.
-load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
+load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,6 @@ class InferenceConfig:
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
-    gpu: str | None = None
     svi: SVIConfig = SVIConfig()
     nuts: NUTSConfig = NUTSConfig()
     smc: SMCConfig = SMCConfig()
