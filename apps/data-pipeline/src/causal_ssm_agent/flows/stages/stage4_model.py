@@ -17,7 +17,7 @@ import polars as pl
 from prefect import flow, task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.utils.litellm_client import RpmLimiter
+from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
 
 from .. import get_prefect_logger
 
@@ -234,7 +234,10 @@ def validate_priors_task(
     raw_data: pl.DataFrame,
     causal_spec: dict | None = None,
 ) -> dict:
-    """Validate priors via prior predictive sampling.
+    """Validate priors via compile check + prior predictive sampling.
+
+    Uses the shared ``validate_assembly()`` pipeline, then optionally
+    forward-simulates prior predictive observations for web visualization.
 
     Args:
         model_spec: Model specification dict
@@ -243,18 +246,27 @@ def validate_priors_task(
         causal_spec: CausalSpec dict for DAG-constrained masks
 
     Returns:
-        Validation result dict with is_valid and issues
+        Validation result dict with is_valid, results, issues, prior_predictive_samples
     """
-    try:
-        from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
+    from .stage4_assembly import validate_assembly
 
-        is_valid, results, raw_samples = validate_prior_predictive(
-            model_spec, priors, raw_data, causal_spec=causal_spec
-        )
+    try:
+        validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
+
+        if not validation.compile_ok:
+            return {
+                "is_valid": False,
+                "results": [],
+                "issues": [f"Compile error: {validation.compile_error}"],
+                "prior_predictive_samples": {},
+            }
+
+        results = validation.pp_results
+        raw_samples = validation.pp_raw_samples
 
         # Forward-simulate per-variable prior predictive observations
         pp_samples: dict[str, list[float]] = {}
-        if is_valid and raw_samples:
+        if validation.pp_valid and raw_samples:
             try:
                 import jax.numpy as jnp
                 import numpy as np
@@ -280,18 +292,16 @@ def validate_priors_task(
                     manifest_links=manifest_links,
                     n_subsample=100,
                 )
-                # y_sim: (n_subsample, T, n_manifest) → flatten to per-variable lists
                 y_np = np.asarray(y_sim)
                 for j, name in enumerate(manifest_names):
                     col = y_np[:, :, j].flatten()
-                    # Filter out NaN/Inf from unstable draws
                     col = col[np.isfinite(col)]
                     pp_samples[name] = col.tolist()
             except Exception as e:
                 logger.warning("Prior predictive simulation failed: %s", e)
 
         return {
-            "is_valid": is_valid,
+            "is_valid": validation.pp_valid,
             "results": [r.model_dump() for r in results],
             "issues": [r.issue for r in results if not r.is_valid and r.issue],
             "prior_predictive_samples": pp_samples,
@@ -436,9 +446,7 @@ async def stage4_orchestrated_flow(
 
     # 2. Exa literature search per parameter (rate-limited to 8 req/s)
     if enable_literature:
-        from causal_ssm_agent.workers.prior_research import set_exa_limiter
-
-        set_exa_limiter(RpmLimiter(max_requests=8, window_seconds=1.0))
+        set_limiter("exa", RpmLimiter(max_requests=8, window_seconds=1.0))
         try:
             literature_futures = search_literature_task.map(parameter_specs)
             literature_by_name = {}
@@ -450,7 +458,7 @@ async def stage4_orchestrated_flow(
                     logger.warning("Literature search failed for %s: %s", name, e)
                     literature_by_name[name] = {"sources": [], "formatted": ""}
         finally:
-            set_exa_limiter(None)
+            set_limiter("exa", None)
     else:
         literature_by_name = {
             ps.get("name", f"param_{i}"): {"sources": [], "formatted": ""}
@@ -475,16 +483,6 @@ async def stage4_orchestrated_flow(
     for i, (ps, result) in enumerate(zip(parameter_specs, initial_results)):
         name = ps.get("name", f"param_{i}")
         priors[name] = result
-
-    # Smoke-test: compile with actual (not default) priors before the expensive
-    # prior predictive sampling.  Catches structural issues early (unrecognized
-    # distributions, param mismatches, constraint violations).
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact as _compile
-
-    try:
-        _compile(model_spec, priors, causal_spec=causal_spec)
-    except Exception as e:
-        logger.warning("Post-elicitation compile check failed: %s", e)
 
     # Compute data stats once for feedback messages
     data_stats = (

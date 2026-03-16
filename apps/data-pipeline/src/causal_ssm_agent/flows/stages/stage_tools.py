@@ -204,50 +204,19 @@ def stage4_grounding(
         state["priors"] = {**state.get("priors", {}), **new_priors}
         output["priors"] = state["priors"]  # full merged set
 
-    # --- Compile ---
+    # --- Compile + Prior Predictive validation ---
     model_spec = state.get("model_spec")
     if model_spec is None:
         return None, "COMPILE ERROR:\nNo model_spec available — submit model_spec first"
 
     priors = state.get("priors")
-    if priors:
-        # Real priors available — compile with them
-        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
 
-        try:
-            compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
-        except (ValueError, Exception) as e:
-            return None, f"COMPILE ERROR:\n{e}"
-    else:
-        # No priors yet — trial compile with defaults
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+    from .stage4_assembly import format_validation_feedback, validate_assembly
 
-        compile_error = trial_compile_model_spec(model_spec, causal_spec)
-        if compile_error:
-            return None, f"COMPILE ERROR:\n{compile_error}"
-
-    # --- Prior predictive (only with real priors + data) ---
-    if priors and raw_data is not None:
-        from causal_ssm_agent.models.prior_predictive import (
-            format_parameter_feedback,
-            validate_prior_predictive,
-        )
-
-        is_valid, results, _ = validate_prior_predictive(
-            model_spec, priors, raw_data, causal_spec=causal_spec
-        )
-        if not is_valid:
-            changed = list(new_priors) if new_priors else list(priors)
-            parts = []
-            for param_name in changed:
-                fb = format_parameter_feedback(
-                    parameter_name=param_name,
-                    results=results,
-                    prior=priors.get(param_name),
-                )
-                if fb:
-                    parts.append(fb)
-            return None, "\n\n".join(parts) if parts else "PRIOR PREDICTIVE CHECK FAILED"
+    validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
+    if not validation.is_valid:
+        changed = list(new_priors) if new_priors else list(priors or {})
+        return None, format_validation_feedback(validation, priors or {}, changed_params=changed)
 
     return output, "VALID"
 
