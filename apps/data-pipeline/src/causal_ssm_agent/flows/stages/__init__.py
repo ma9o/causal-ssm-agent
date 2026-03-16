@@ -27,7 +27,9 @@ from .stage4b_parametric_id import (
     stage4b_parametric_id_flow,
 )
 from .stage5_inference import (
+    PreparedModelRuntime,
     fit_model,
+    prepare_model_runtime,
     run_interventions,
     run_power_scaling,
     run_ppc,
@@ -53,7 +55,9 @@ __all__ = [
     "parametric_id_task",
     "stage4b_parametric_id_flow",
     # Stage 5
+    "PreparedModelRuntime",
     "fit_model",
+    "prepare_model_runtime",
     "run_interventions",
     "run_ppc",
     "run_power_scaling",

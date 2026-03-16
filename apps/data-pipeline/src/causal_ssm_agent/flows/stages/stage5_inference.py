@@ -4,8 +4,10 @@ Fits the SSM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
+import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
@@ -14,6 +16,70 @@ from causal_ssm_agent.utils.data import pivot_to_wide
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
+
+
+@dataclass
+class PreparedModelRuntime:
+    """Canonical prepared runtime context shared by pre-fit and post-fit diagnostics.
+
+    Bundles the builder, wide-format data, observation arrays, times, and
+    manifest metadata. Avoids repeated pivot_to_wide + array extraction
+    across stage 4b, 5a, and 5b.
+    """
+
+    builder: Any  # SSMModelBuilder
+    wide_data: pl.DataFrame
+    observations: jnp.ndarray  # (T, n_manifest)
+    times: jnp.ndarray  # (T,)
+    manifest_names: list[str]
+
+
+def prepare_model_runtime(
+    raw_data: pl.DataFrame,
+    compiled_ssm: dict | None = None,
+    sampler_config: dict | None = None,
+    builder: Any = None,
+) -> PreparedModelRuntime:
+    """Build or reuse a builder, pivot data, and extract arrays.
+
+    This is the single canonical entry point for model preparation.
+    Used by stage 4b (parametric ID), stage 5a (SVI preflight),
+    and stage 5b (full inference + diagnostics).
+
+    Args:
+        raw_data: Raw timestamped data (indicator, value, timestamp)
+        compiled_ssm: Serialized executable artifact from stage 4
+        sampler_config: Override sampler configuration
+        builder: Pre-built SSMModelBuilder (avoids rebuilding)
+
+    Returns:
+        PreparedModelRuntime with all arrays extracted
+    """
+    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+
+    if builder is None:
+        if compiled_ssm is None:
+            raise ValueError("Either builder or compiled_ssm must be provided")
+        builder = build_ssm_builder(
+            raw_data=raw_data,
+            sampler_config=sampler_config,
+            compiled_ssm=compiled_ssm,
+        )
+
+    X = pivot_to_wide(raw_data)
+    observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
+    times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
+    manifest_names = (
+        builder._spec.manifest_names if builder._spec else None
+    ) or [c for c in X.columns if c != "time"]
+
+    return PreparedModelRuntime(
+        builder=builder,
+        wide_data=X,
+        observations=observations,
+        times=times,
+        manifest_names=manifest_names,
+    )
 
 
 @task(persist_result=False)
@@ -37,8 +103,6 @@ def fit_model(
 
     NOTE: Uses NumPyro SSM implementation.
     """
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
-
     model_spec = stage4_result.get("model_spec", {})
     compiled_ssm = stage4_result.get("_compiled_ssm")
     logger.info(
@@ -51,31 +115,21 @@ def fit_model(
     )
 
     try:
-        if builder is None:
-            if compiled_ssm is None:
-                raise ValueError("Stage 4 result is missing the compiled SSM artifact")
-            builder = build_ssm_builder(
-                raw_data=raw_data,
-                sampler_config=sampler_config,
-                compiled_ssm=compiled_ssm,
-            )
-
-        X = pivot_to_wide(raw_data)
+        runtime = prepare_model_runtime(
+            raw_data=raw_data,
+            compiled_ssm=compiled_ssm,
+            sampler_config=sampler_config,
+            builder=builder,
+        )
 
         # Fit the model — returns InferenceResult (default: SVI)
-        result = builder.fit(X)
+        result = runtime.builder.fit(runtime.wide_data)
         logger.info(
             "Fit complete: method=%s wide_rows=%d manifest_vars=%d",
             result.method,
-            len(X),
-            len([col for col in X.columns if col != "time"]),
+            len(runtime.wide_data),
+            len(runtime.manifest_names),
         )
-
-        # Extract times for forward simulation in interventions
-        import jax.numpy as jnp
-
-        time_col = "time" if "time" in X.columns else None
-        fit_times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float32) if time_col else None
 
         # Extract serializable diagnostics (MCMC, SVI, or SMC)
         mcmc_diag = result.get_mcmc_diagnostics()
@@ -88,18 +142,18 @@ def fit_model(
         # fall back to the model's default backend.
         import functools
 
-        assert builder._model is not None
+        assert runtime.builder._model is not None
         loo_backend = result.diagnostics.get(
-            "likelihood_backend", builder._model.make_likelihood_backend()
+            "likelihood_backend", runtime.builder._model.make_likelihood_backend()
         )
         model_fn = functools.partial(
-            builder._model.model,
+            runtime.builder._model.model,
             likelihood_backend=loo_backend,
         )
         loo_diag = result.get_loo_diagnostics(
             model_fn=model_fn,
-            observations=jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32),
-            times=fit_times,
+            observations=runtime.observations,
+            times=runtime.times,
         )
 
         # Posterior marginals and pairs
@@ -110,8 +164,9 @@ def fit_model(
             "fitted": True,
             "inference_type": result.method,
             "result": result,
-            "builder": builder,
-            "times": fit_times,
+            "builder": runtime.builder,
+            "runtime": runtime,
+            "times": runtime.times,
             "mcmc_diagnostics": mcmc_diag,
             "svi_diagnostics": svi_diag,
             "smc_diagnostics": smc_diag,
@@ -135,21 +190,18 @@ def fit_model(
 
 
 @task(task_run_name="power-scaling-sensitivity", result_serializer="json")
-def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
+def run_power_scaling(fitted_result: dict) -> dict:
     """Post-fit power-scaling sensitivity diagnostic.
 
     Detects prior-dominated, well-identified, or conflicting parameters
     by perturbing prior/likelihood contributions and measuring posterior shift.
 
     Args:
-        fitted_result: Output from fit_model task
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        fitted_result: Output from fit_model task (includes runtime)
 
     Returns:
         Dict with power-scaling diagnostics
     """
-    import jax.numpy as jnp
-
     from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
 
     if not fitted_result.get("fitted", False):
@@ -157,20 +209,14 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 
     try:
         result = fitted_result["result"]
-        builder = fitted_result["builder"]
-        assert builder._model is not None
-        ssm_model = builder._model
-
-        # Convert data to wide format
-        X = pivot_to_wide(raw_data)
-
-        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
-        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
+        runtime: PreparedModelRuntime = fitted_result["runtime"]
+        assert runtime.builder._model is not None
+        ssm_model = runtime.builder._model
 
         ps_result = power_scaling_sensitivity(
             model=ssm_model,
-            observations=observations,
-            times=times,
+            observations=runtime.observations,
+            times=runtime.times,
             result=result,
         )
 
@@ -190,21 +236,18 @@ def run_power_scaling(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 
 
 @task(task_run_name="posterior-predictive-checks", result_serializer="json")
-def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
+def run_ppc(fitted_result: dict) -> dict:
     """Run posterior predictive checks on the fitted model.
 
     Forward-simulates from posterior draws and compares to observed data,
     producing per-variable warnings for calibration, autocorrelation, and variance.
 
     Args:
-        fitted_result: Output from fit_model task
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        fitted_result: Output from fit_model task (includes runtime)
 
     Returns:
         Dict with PPC diagnostics (PPCResult.model_dump())
     """
-    import jax.numpy as jnp
-
     from causal_ssm_agent.models.posterior_predictive import run_posterior_predictive_checks
 
     if not fitted_result.get("fitted", False):
@@ -212,23 +255,15 @@ def run_ppc(fitted_result: dict, raw_data: pl.DataFrame) -> dict:
 
     try:
         result = fitted_result["result"]
-        builder = fitted_result["builder"]
-        spec = builder._spec
+        runtime: PreparedModelRuntime = fitted_result["runtime"]
+        spec = runtime.builder._spec
         samples = result.get_samples()
-
-        # Convert data to wide format
-        X = pivot_to_wide(raw_data)
-
-        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
-        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
-
-        manifest_names = spec.manifest_names or [c for c in X.columns if c != "time"]
 
         ppc_result = run_posterior_predictive_checks(
             samples=samples,
-            observations=observations,
-            times=times,
-            manifest_names=manifest_names,
+            observations=runtime.observations,
+            times=runtime.times,
+            manifest_names=runtime.manifest_names,
             manifest_dist=spec.manifest_dist.value
             if hasattr(spec.manifest_dist, "value")
             else str(spec.manifest_dist),

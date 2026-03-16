@@ -15,8 +15,6 @@ from typing import Any
 import polars as pl
 from prefect import flow, task
 
-from causal_ssm_agent.utils.data import pivot_to_wide
-
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
@@ -55,24 +53,20 @@ def parametric_id_task(
     """
     import jax.numpy as jnp
 
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
     from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
-    try:
-        if builder is None:
-            if compiled_ssm is None:
-                raise ValueError("Stage 4 result is missing the compiled SSM artifact")
-            builder = build_ssm_builder(
-                raw_data=raw_data,
-                compiled_ssm=compiled_ssm,
-            )
-        assert builder._model is not None
-        ssm_model = builder._model
+    from .stage5_inference import prepare_model_runtime
 
-        # Extract observations and times
-        X = pivot_to_wide(raw_data)
-        observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
-        times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
+    try:
+        runtime = prepare_model_runtime(
+            raw_data=raw_data,
+            compiled_ssm=compiled_ssm,
+            builder=builder,
+        )
+        assert runtime.builder._model is not None
+        ssm_model = runtime.builder._model
+        observations = runtime.observations
+        times = runtime.times
         T = int(times.shape[0])
 
         # T-rule: fast necessary condition (hard gate)

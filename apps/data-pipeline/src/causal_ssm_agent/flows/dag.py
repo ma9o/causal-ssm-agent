@@ -650,10 +650,10 @@ def stage5b(
     fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
     fitted_result = unwrap_task_result(fitted)
 
-    power_scaling = run_power_scaling(fitted_result, data_for_model)
+    power_scaling = run_power_scaling(fitted_result)
     ps_result = unwrap_task_result(power_scaling)
 
-    ppc_task = run_ppc(fitted_result, data_for_model)
+    ppc_task = run_ppc(fitted_result)
     ppc_result = unwrap_task_result(ppc_task)
 
     mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
