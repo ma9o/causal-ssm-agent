@@ -194,14 +194,13 @@ def stage4_grounding(
 
     # --- Validate & merge priors ---
     if new_priors is not None:
-        from causal_ssm_agent.workers.schemas_prior import PriorProposal
+        from .stage4_assembly import merge_priors, validate_prior_proposals
 
-        for name, prior in new_priors.items():
-            try:
-                PriorProposal.model_validate(prior)
-            except Exception as e:
-                return None, f"SCHEMA ERRORS for prior '{name}':\n- {e}"
-        state["priors"] = {**state.get("priors", {}), **new_priors}
+        try:
+            validated_priors = validate_prior_proposals(new_priors)
+        except ValueError as exc:
+            return None, str(exc)
+        state["priors"] = merge_priors(state.get("priors"), validated_priors)
         output["priors"] = state["priors"]  # full merged set
 
     # --- Compile + Prior Predictive validation ---
@@ -211,14 +210,23 @@ def stage4_grounding(
 
     priors = state.get("priors")
 
-    from .stage4_assembly import format_validation_feedback, validate_assembly
+    from .stage4_assembly import format_validation_feedback, run_stage4_assembly
 
-    validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
+    validation, feedback = run_stage4_assembly(
+        model_spec,
+        priors,
+        raw_data,
+        causal_spec,
+        on_failure=lambda current: format_validation_feedback(
+            current,
+            priors or {},
+            changed_params=list(new_priors) if new_priors else list(priors or {}),
+        ),
+    )
     if not validation.is_valid:
-        changed = list(new_priors) if new_priors else list(priors or {})
-        return None, format_validation_feedback(validation, priors or {}, changed_params=changed)
+        return None, feedback
 
-    return output, "VALID"
+    return output, feedback
 
 
 # ---------------------------------------------------------------------------

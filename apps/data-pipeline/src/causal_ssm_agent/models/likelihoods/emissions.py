@@ -460,7 +460,11 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     extra_params = extra_params or {}
-    family_spec = FAMILY_REGISTRY.get(DistributionFamily(manifest_dist))
+    try:
+        dist = DistributionFamily(manifest_dist)
+    except ValueError:
+        return None
+    family_spec = FAMILY_REGISTRY.get(dist)
     if family_spec is None:
         return None
     link_key = str(link) if link else "default"
@@ -488,7 +492,15 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     extra_params = extra_params or {}
-    family_spec = FAMILY_REGISTRY.get(DistributionFamily(manifest_dist))
+    try:
+        dist = DistributionFamily(manifest_dist)
+    except ValueError as exc:
+        raise ValueError(
+            f"No emission function for manifest_dist='{manifest_dist}'. "
+            "Supported: gaussian, student_t, poisson, gamma, bernoulli, "
+            "negative_binomial, beta, ordered_logistic, categorical."
+        ) from exc
+    family_spec = FAMILY_REGISTRY.get(dist)
     if family_spec is None:
         raise ValueError(
             f"No emission function for manifest_dist='{manifest_dist}'. "

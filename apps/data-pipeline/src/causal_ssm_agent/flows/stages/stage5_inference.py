@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
+from causal_ssm_agent.models.ssm.inference import FittedArtifact
 from causal_ssm_agent.utils.data import pivot_to_wide
 
 from .. import get_prefect_logger
@@ -69,9 +70,9 @@ def prepare_model_runtime(
     X = pivot_to_wide(raw_data)
     observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
     times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
-    manifest_names = (
-        builder._spec.manifest_names if builder._spec else None
-    ) or [c for c in X.columns if c != "time"]
+    manifest_names = (builder._spec.manifest_names if builder._spec else None) or [
+        c for c in X.columns if c != "time"
+    ]
 
     return PreparedModelRuntime(
         builder=builder,
@@ -281,7 +282,7 @@ def run_ppc(fitted_result: dict) -> dict:
 
 @task(result_serializer="json")
 def run_interventions(
-    fitted_model: Any,
+    fitted_artifact: FittedArtifact,
     treatments: list[str],
     outcome: str,
     causal_spec: dict | None = None,
@@ -294,7 +295,7 @@ def run_interventions(
     the change in the outcome variable at steady state.
 
     Args:
-        fitted_model: The fitted model result from fit_model
+        fitted_artifact: Persisted fitted inference artifact
         treatments: List of treatment construct names
         outcome: Name of the outcome variable
         causal_spec: Optional CausalSpec with identifiability status
@@ -309,11 +310,11 @@ def run_interventions(
         "Running interventions: treatments=%d outcome=%s fitted=%s",
         len(treatments),
         outcome or "unknown",
-        fitted_model.get("fitted", False),
+        fitted_artifact.result is not None,
     )
 
     # If model not fitted, return skeleton results
-    if not fitted_model.get("fitted", False):
+    if fitted_artifact.result is None or fitted_artifact.builder is None:
         id_status = causal_spec.get("identifiability") if causal_spec else None
         non_identifiable: set[str] = set()
         if id_status:
@@ -327,8 +328,8 @@ def run_interventions(
             for t in treatments
         ]
 
-    builder = fitted_model["builder"]
-    result = fitted_model["result"]
+    builder = fitted_artifact.builder
+    result = fitted_artifact.result
     samples = result.get_samples()
     spec = builder._spec
 
@@ -347,7 +348,7 @@ def run_interventions(
         ppc_result=ppc_result,
         manifest_names=manifest_names,
         ps_result=ps_result,
-        times=fitted_model.get("times"),
+        times=fitted_artifact.times,
     )
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
     return results

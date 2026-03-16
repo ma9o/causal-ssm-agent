@@ -14,6 +14,7 @@ import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+from causal_ssm_agent.utils.litellm_client import acquire_limiter
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
     make_validation_tool,
@@ -36,15 +37,6 @@ from causal_ssm_agent.workers.schemas_prior import (
 )
 
 logger = get_prefect_logger(__name__)
-
-# Exa rate limiter (10 req/s limit) — set by stage 4 flow before literature search fanout
-_exa_limiter: RpmLimiter | None = None
-
-
-def set_exa_limiter(limiter: RpmLimiter | None) -> None:
-    """Set (or clear) the Exa API rate limiter."""
-    global _exa_limiter
-    _exa_limiter = limiter
 
 
 def _display_constraint(parameter: ParameterSpec) -> str:
@@ -121,8 +113,7 @@ async def search_parameter_literature(
             "Meta-analyses, systematic reviews, standardized effect sizes."
         )
 
-        if _exa_limiter is not None:
-            await _exa_limiter.acquire()
+        await acquire_limiter("exa")
 
         result = await exa.search_and_contents(
             query,

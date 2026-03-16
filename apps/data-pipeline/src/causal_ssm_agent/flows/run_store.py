@@ -9,7 +9,7 @@ should import from here instead of duplicating path logic.
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import cloudpickle
 
@@ -19,6 +19,9 @@ from causal_ssm_agent.utils.data import runs_dir
 from . import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # Filename constants for run artifacts
@@ -183,6 +186,7 @@ def finalize_stage(
     *,
     extras: dict[str, Any] | None = None,
     gate: dict[str, Any] | None = None,
+    contract: type[BaseModel] | None = None,
 ) -> dict[str, Any]:
     """Build web payload, persist it, save snapshot, return stage state.
 
@@ -192,7 +196,8 @@ def finalize_stage(
     from .stages import persist_web_result
     from .stages.contracts import STAGE_CONTRACTS, StageId
 
-    contract_fields = set(STAGE_CONTRACTS[cast("StageId", stage_id)].model_fields.keys())
+    stage_contract = contract or STAGE_CONTRACTS[cast("StageId", stage_id)]
+    contract_fields = set(stage_contract.model_fields.keys())
     web = {k: v for k, v in result.items() if k in contract_fields}
     if extras:
         web.update(extras)

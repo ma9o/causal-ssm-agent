@@ -10,7 +10,7 @@ from pathlib import Path
 import modal
 
 ROOT = Path(__file__).parent.parent  # apps/data-pipeline
-FIXTURE_DIR = ROOT.parent / "web" / "test" / "fixtures" / "doctolib"
+FIXTURE_DIR = ROOT.parent.parent / "packages" / "fixtures" / "doctolib"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
@@ -76,33 +76,103 @@ def run_laplace_doctolib():
             priors[new_name] = priors.pop(old_name)
 
     stage4_construct_names = {
-        "medication_adherence", "lipid_burden", "vascular_inflammation",
-        "glycemic_control", "arterial_pressure", "cardiovascular_risk",
+        "medication_adherence",
+        "lipid_burden",
+        "vascular_inflammation",
+        "glycemic_control",
+        "arterial_pressure",
+        "cardiovascular_risk",
     }
     measurement = {
         "indicators": [
-            ind for ind in stage1b["measurement"]["indicators"]
+            ind
+            for ind in stage1b["measurement"]["indicators"]
             if ind["construct_name"] in stage4_construct_names
         ]
     }
     causal_spec = {
         "latent": {
             "constructs": [
-                {"name": "medication_adherence", "description": "Prescription refill.", "role": "exogenous", "temporal_status": "time_varying", "temporal_scale": "monthly"},
-                {"name": "lipid_burden", "description": "Atherogenic lipid profile.", "role": "endogenous", "temporal_status": "time_varying", "temporal_scale": "monthly"},
-                {"name": "vascular_inflammation", "description": "Inflammatory state.", "role": "endogenous", "temporal_status": "time_varying", "temporal_scale": "monthly"},
-                {"name": "glycemic_control", "description": "Blood-glucose regulation.", "role": "endogenous", "temporal_status": "time_varying", "temporal_scale": "monthly"},
-                {"name": "arterial_pressure", "description": "Blood-pressure burden.", "role": "endogenous", "temporal_status": "time_varying", "temporal_scale": "monthly"},
-                {"name": "cardiovascular_risk", "description": "Cardiovascular risk.", "role": "endogenous", "is_outcome": True, "temporal_status": "time_varying", "temporal_scale": "monthly"},
+                {
+                    "name": "medication_adherence",
+                    "description": "Prescription refill.",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "lipid_burden",
+                    "description": "Atherogenic lipid profile.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "vascular_inflammation",
+                    "description": "Inflammatory state.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "glycemic_control",
+                    "description": "Blood-glucose regulation.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "arterial_pressure",
+                    "description": "Blood-pressure burden.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
+                {
+                    "name": "cardiovascular_risk",
+                    "description": "Cardiovascular risk.",
+                    "role": "endogenous",
+                    "is_outcome": True,
+                    "temporal_status": "time_varying",
+                    "temporal_scale": "monthly",
+                },
             ],
             "edges": [
-                {"cause": "medication_adherence", "effect": "lipid_burden", "description": "Adherence improves lipid control."},
-                {"cause": "medication_adherence", "effect": "arterial_pressure", "description": "Adherence improves BP."},
-                {"cause": "lipid_burden", "effect": "vascular_inflammation", "description": "Lipids raise inflammation."},
-                {"cause": "lipid_burden", "effect": "cardiovascular_risk", "description": "Lipids raise CV risk."},
-                {"cause": "vascular_inflammation", "effect": "cardiovascular_risk", "description": "Inflammation raises CV risk."},
-                {"cause": "glycemic_control", "effect": "cardiovascular_risk", "description": "Poor glycemia raises CV risk."},
-                {"cause": "arterial_pressure", "effect": "cardiovascular_risk", "description": "BP raises CV risk."},
+                {
+                    "cause": "medication_adherence",
+                    "effect": "lipid_burden",
+                    "description": "Adherence improves lipid control.",
+                },
+                {
+                    "cause": "medication_adherence",
+                    "effect": "arterial_pressure",
+                    "description": "Adherence improves BP.",
+                },
+                {
+                    "cause": "lipid_burden",
+                    "effect": "vascular_inflammation",
+                    "description": "Lipids raise inflammation.",
+                },
+                {
+                    "cause": "lipid_burden",
+                    "effect": "cardiovascular_risk",
+                    "description": "Lipids raise CV risk.",
+                },
+                {
+                    "cause": "vascular_inflammation",
+                    "effect": "cardiovascular_risk",
+                    "description": "Inflammation raises CV risk.",
+                },
+                {
+                    "cause": "glycemic_control",
+                    "effect": "cardiovascular_risk",
+                    "description": "Poor glycemia raises CV risk.",
+                },
+                {
+                    "cause": "arterial_pressure",
+                    "effect": "cardiovascular_risk",
+                    "description": "BP raises CV risk.",
+                },
             ],
         },
         "measurement": measurement,

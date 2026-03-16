@@ -248,64 +248,16 @@ def validate_priors_task(
     Returns:
         Validation result dict with is_valid, results, issues, prior_predictive_samples
     """
-    from .stage4_assembly import validate_assembly
+    from .stage4_assembly import build_validation_payload, validate_assembly
 
     try:
-        validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
-
-        if not validation.compile_ok:
-            return {
-                "is_valid": False,
-                "results": [],
-                "issues": [f"Compile error: {validation.compile_error}"],
-                "prior_predictive_samples": {},
-            }
-
-        results = validation.pp_results
-        raw_samples = validation.pp_raw_samples
-
-        # Forward-simulate per-variable prior predictive observations
-        pp_samples: dict[str, list[float]] = {}
-        if validation.pp_valid and raw_samples:
-            try:
-                import jax.numpy as jnp
-                import numpy as np
-
-                from causal_ssm_agent.models.posterior_predictive import (
-                    simulate_posterior_predictive,
-                )
-                from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
-
-                spec = (
-                    ModelSpec.model_validate(model_spec)
-                    if isinstance(model_spec, dict)
-                    else model_spec
-                )
-                manifest_names = [lik.variable for lik in spec.likelihoods]
-                manifest_dists = [lik.distribution.value for lik in spec.likelihoods]
-                manifest_links = [lik.link.value for lik in spec.likelihoods]
-
-                y_sim = simulate_posterior_predictive(
-                    raw_samples,
-                    times=jnp.arange(30, dtype=jnp.float32),
-                    manifest_dists=manifest_dists,
-                    manifest_links=manifest_links,
-                    n_subsample=100,
-                )
-                y_np = np.asarray(y_sim)
-                for j, name in enumerate(manifest_names):
-                    col = y_np[:, :, j].flatten()
-                    col = col[np.isfinite(col)]
-                    pp_samples[name] = col.tolist()
-            except Exception as e:
-                logger.warning("Prior predictive simulation failed: %s", e)
-
-        return {
-            "is_valid": validation.pp_valid,
-            "results": [r.model_dump() for r in results],
-            "issues": [r.issue for r in results if not r.is_valid and r.issue],
-            "prior_predictive_samples": pp_samples,
-        }
+        validation = validate_assembly(
+            model_spec,
+            priors,
+            raw_data,
+            causal_spec,
+        )
+        return build_validation_payload(validation, model_spec)
     except Exception as e:
         return {
             "is_valid": False,
@@ -333,33 +285,9 @@ def compile_model_task(
     Returns:
         Dict with compile/build status and serialized artifact
     """
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+    from .stage4_assembly import compile_model_artifact
 
-    try:
-        compiled_ssm = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
-        builder = build_ssm_builder(
-            raw_data=raw_data,
-            compiled_ssm=compiled_ssm,
-        )
-
-        return {
-            "model_built": True,
-            "model_type": builder._model_type,
-            "version": builder.version,
-            "compiled_ssm": compiled_ssm,
-        }
-
-    except NotImplementedError:
-        return {
-            "model_built": False,
-            "error": "SSM implementation not available",
-        }
-    except Exception as e:
-        return {
-            "model_built": False,
-            "error": str(e),
-        }
+    return compile_model_artifact(model_spec, priors, raw_data, causal_spec=causal_spec)
 
 
 @flow(name="stage4-orchestrated", log_prints=True, persist_result=True, result_serializer="json")
@@ -394,13 +322,16 @@ async def stage4_orchestrated_flow(
     """
     from prefect.utilities.annotations import unmapped
 
-    from causal_ssm_agent.models.prior_predictive import (
-        _compute_data_stats,
-        format_parameter_feedback,
-        get_failed_parameters,
-    )
+    from causal_ssm_agent.models.prior_predictive import _compute_data_stats
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+
+    from .stage4_assembly import (
+        build_retry_feedback,
+        build_validation_payload,
+        compile_model_artifact,
+        validate_assembly,
+        validate_spec,
+    )
 
     config = get_config()
     if max_prior_retries is None:
@@ -411,7 +342,6 @@ async def stage4_orchestrated_flow(
     # 1. Orchestrator proposes model specification. Stage 1b owns structural
     # validation, so stage 4 only performs a single compile-time assertion.
     # Retry up to 2 times if the LLM proposes unsupported distributions/structures.
-    from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
     from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
 
     max_spec_attempts = 3
@@ -423,7 +353,7 @@ async def stage4_orchestrated_flow(
 
         inject_marginalized_correlations(model_spec, causal_spec)
 
-        compile_error = trial_compile_model_spec(model_spec, causal_spec)
+        compile_error = validate_spec(model_spec, causal_spec)
         if compile_error is None:
             break
         logger.warning(
@@ -491,10 +421,15 @@ async def stage4_orchestrated_flow(
 
     # 4. Validation loop
     validation_result = None
+    validation_retries: list[dict[str, object]] = []
     for attempt in range(max_prior_retries + 1):
-        validation_result = validate_priors_task(
-            model_spec, priors, raw_data, causal_spec=causal_spec
+        validation = validate_assembly(
+            model_spec,
+            priors,
+            raw_data,
+            causal_spec,
         )
+        validation_result = build_validation_payload(validation, model_spec)
 
         if validation_result.get("is_valid", False):
             logger.info("Prior validation passed on attempt %d", attempt + 1)
@@ -507,12 +442,11 @@ async def stage4_orchestrated_flow(
             )
             break
 
-        # Identify which parameters need re-elicitation
-        vr_objects = [
-            PriorValidationResult.model_validate(r) for r in validation_result.get("results", [])
-        ]
-        failed_param_names = get_failed_parameters(
-            vr_objects, list(priors.keys()), causal_spec=causal_spec
+        failed_param_names, feedbacks = build_retry_feedback(
+            validation,
+            priors,
+            causal_spec=causal_spec,
+            data_stats=data_stats,
         )
 
         # If validation failed but no specific parameters identified (e.g., validator
@@ -525,6 +459,7 @@ async def stage4_orchestrated_flow(
                 failed_param_names = list(priors.keys())
             else:
                 break
+            feedbacks = dict.fromkeys(failed_param_names, "")
 
         logger.info(
             "Attempt %d: re-eliciting %d failed parameters: %s",
@@ -532,16 +467,15 @@ async def stage4_orchestrated_flow(
             len(failed_param_names),
             failed_param_names,
         )
-
-        # Build per-parameter feedback
-        feedbacks = {}
-        for param_name in failed_param_names:
-            feedbacks[param_name] = format_parameter_feedback(
-                parameter_name=param_name,
-                results=vr_objects,
-                prior=priors.get(param_name),
-                data_stats=data_stats,
-            )
+        validation_retries.append(
+            {
+                "attempt": attempt + 1,
+                "failed_params": failed_param_names,
+                "feedback": "\n\n".join(
+                    feedbacks[name] for name in failed_param_names if feedbacks.get(name)
+                ),
+            }
+        )
 
         # Re-elicit only failed parameters (concurrency-limited via task.map)
         failed_specs = [param_spec_by_name[n] for n in failed_param_names]
@@ -568,16 +502,14 @@ async def stage4_orchestrated_flow(
             priors[name] = result
 
     # 5. Compile the executable artifact (only after validation loop)
-    compile_task = compile_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-    from causal_ssm_agent.flows.run_store import unwrap_task_result
-
-    model_result = unwrap_task_result(compile_task)
+    model_result = compile_model_artifact(model_spec, priors, raw_data, causal_spec=causal_spec)
     compiled_ssm = model_result.pop("compiled_ssm", None)
 
     result = {
         "model_spec": model_spec,
         "priors": priors,
         "validation": validation_result,
+        "validation_retries": validation_retries or None,
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False) if validation_result else False,
         "causal_spec": causal_spec,

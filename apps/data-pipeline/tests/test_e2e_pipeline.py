@@ -453,7 +453,11 @@ def direct_fit_result():
     builder._model = model
     builder._result = result
 
-    return {"result": result, "builder": builder}
+    return {
+        "result": result,
+        "builder": builder,
+        "times": jnp.arange(T, dtype=jnp.float32),
+    }
 
 
 # ==============================================================================
@@ -560,12 +564,14 @@ class TestE2EPipeline:
 
     def test_interventions(self, direct_fit_result, latent_model, causal_spec):
         """run_interventions returns structured results for all treatments."""
+        from causal_ssm_agent.models.ssm.inference import FittedArtifact
+
         treatments = get_all_treatments(latent_model)
-        fitted = {
-            "fitted": True,
-            "result": direct_fit_result["result"],
-            "builder": direct_fit_result["builder"],
-        }
+        fitted = FittedArtifact(
+            result=direct_fit_result["result"],
+            builder=direct_fit_result["builder"],
+            times=direct_fit_result["times"],
+        )
 
         results = run_interventions.fn(fitted, treatments, "Perf", causal_spec)
 

@@ -16,9 +16,7 @@ import pytest
 from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
 from tests.helpers import assert_recovery_ci
 
-DOCTOLIB_FIXTURE_DIR = (
-    Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "doctolib"
-)
+DOCTOLIB_FIXTURE_DIR = Path(__file__).resolve().parents[3] / "packages" / "fixtures" / "doctolib"
 
 
 def _load_doctolib_fixture(name: str) -> dict:
@@ -605,12 +603,31 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     for parameter in model_spec["parameters"]:
         parameter["name"] = name_map.get(parameter["name"], parameter["name"])
         if parameter["role"] == "ar_coefficient":
-            parameter["constraint"] = "correlation"
+            parameter["constraint"] = "unit_interval"
 
     priors = json.loads(json.dumps(stage4["priors"]))
     for old_name, new_name in name_map.items():
         if old_name in priors:
             priors[new_name] = priors.pop(old_name)
+
+    beta_variables = {
+        likelihood["variable"]
+        for likelihood in model_spec["likelihoods"]
+        if likelihood["distribution"] == "beta"
+    }
+    if beta_variables:
+        eps = 1e-3
+        raw_data = raw_data.with_columns(
+            pl.when(pl.col("indicator").is_in(sorted(beta_variables)))
+            .then(
+                pl.col("value")
+                .cast(pl.Float64, strict=False)
+                .clip(lower_bound=eps, upper_bound=1.0 - eps)
+                .cast(pl.Utf8)
+            )
+            .otherwise(pl.col("value"))
+            .alias("value")
+        )
 
     stage4_construct_names = {
         "medication_adherence",

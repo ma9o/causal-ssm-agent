@@ -324,7 +324,9 @@ class TestSSMPriorConversion:
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
         builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, simple_model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
+            priors, simple_model_spec, ssm_spec=ssm_spec
+        )
 
         # Beta(2,2): E[X] = 0.5 → drift mu = -ln(0.5)/1.0 ≈ 0.693
         # Per-element with 1 entry: mu is a list [0.693]
@@ -355,9 +357,9 @@ class TestSSMPriorConversion:
 
     def test_uniform_prior_converts(self):
         """Uniform(-1, 1) converts to Normal(0, 0.5)."""
-        from causal_ssm_agent.models.ssm_builder import _normalize_prior_params
+        from causal_ssm_agent.models.ssm_compilation import normalize_prior_params
 
-        result = _normalize_prior_params("Uniform", {"lower": -1.0, "upper": 1.0})
+        result = normalize_prior_params("Uniform", {"lower": -1.0, "upper": 1.0})
         assert result["mu"] == 0.0
         assert result["sigma"] == 0.5
 

@@ -68,13 +68,29 @@ class RpmLimiter:
             await asyncio.sleep(min(wait_for + 0.05, 1.0))
 
 
-_rpm_limiter: RpmLimiter | None = None
+_limiters: dict[str, RpmLimiter] = {}
 
 
-def set_rpm_limiter(limiter: RpmLimiter | None) -> None:
-    """Set (or clear) the global RPM limiter applied to every ``call_model`` invocation."""
-    global _rpm_limiter
-    _rpm_limiter = limiter
+def set_limiter(name: str, limiter: RpmLimiter | None) -> None:
+    """Register (or clear) a named rate limiter.
+
+    Usage::
+
+        set_limiter("llm", RpmLimiter(450))          # 450 LLM calls / 60s
+        set_limiter("exa", RpmLimiter(8, 1.0))       # 8 Exa calls / 1s
+        set_limiter("llm", None)                      # remove
+    """
+    if limiter is None:
+        _limiters.pop(name, None)
+    else:
+        _limiters[name] = limiter
+
+
+async def acquire_limiter(name: str) -> None:
+    """Acquire a slot from the named limiter (no-op if not registered)."""
+    limiter = _limiters.get(name)
+    if limiter is not None:
+        await limiter.acquire()
 
 
 # LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
@@ -390,9 +406,7 @@ async def call_model(
 
     request = config or GenerateConfig()
 
-    # RPM rate limiting (set by stage 2 flow for high-fanout extraction)
-    if _rpm_limiter is not None:
-        await _rpm_limiter.acquire()
+    await acquire_limiter("llm")
 
     kwargs: dict[str, Any] = {
         "model": model_name,

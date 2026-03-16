@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows import dag, pipeline
+from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
 
@@ -181,9 +181,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
             }
         }
 
-    async def stage4(
-        question: str, stage1b: dict, stage2: dict, enable_literature: bool
-    ) -> dict:
+    async def stage4(question: str, stage1b: dict, stage2: dict, enable_literature: bool) -> dict:
         calls.append(("stage4", question, stage1b, stage2, enable_literature))
         return {
             "model_spec": {},
@@ -249,9 +247,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         calls.append(("stage1b", question, stage0, stage1a))
         return {"causal_spec": causal_spec}
 
-    async def stage4(
-        question: str, stage1b: dict, stage2: dict, enable_literature: bool
-    ) -> dict:
+    async def stage4(question: str, stage1b: dict, stage2: dict, enable_literature: bool) -> dict:
         raise AssertionError("stage4 should be skipped when an override is provided")
 
     def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
@@ -609,7 +605,17 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
         },
     }
     data_for_model = pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        {
+            "indicator": ["stress_score"] * 5,
+            "value": ["1.0", "2.0", "3.0", "4.0", "5.0"],
+            "timestamp": [
+                "2024-01-01",
+                "2024-01-02",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-05",
+            ],
+        }
     )
     data_path = tmp_path / "stage2-data.parquet"
     data_for_model.write_parquet(data_path)
@@ -628,12 +634,12 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
-                    "constraint": "correlation",
+                    "constraint": "unit_interval",
                     "description": "AR coefficient",
                     "search_context": "stress autocorrelation",
                 },
                 {
-                    "name": "sigma_stress_score",
+                    "name": "sigma_stress",
                     "role": "residual_sd",
                     "constraint": "positive",
                     "description": "Measurement noise",
@@ -643,24 +649,39 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
         },
         "priors": {
             "rho_stress": {
+                "parameter": "rho_stress",
                 "distribution": "Beta",
                 "params": {"alpha": 2.0, "beta": 2.0},
+                "reasoning": "Reasonable persistence prior",
+                "sources": [],
             },
-            "sigma_stress_score": {
+            "sigma_stress": {
+                "parameter": "sigma_stress",
                 "distribution": "HalfNormal",
                 "params": {"sigma": 1.0},
+                "reasoning": "Positive measurement noise prior",
+                "sources": [],
             },
         },
     }
 
+    ctx = stage_registry.PipelineContext(
+        user_id="test-user_id",
+        prefect_run_id="test-run-id",
+        question="why is this happening?",
+        gates_overridden=False,
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={"stage-4": override_payload},
+    )
     stage_state = asyncio.run(
-        dag.stage4_flow.fn(
-            "why is this happening?",
-            {"causal_spec": causal_spec},
-            {"_data_for_model_path": str(data_path)},
-            True,
-            "test-user_id",
-            override_payload=override_payload,
+        stage_registry.run_stage_flow(
+            stage_registry.get_stage_registry()["stage-4"],
+            ctx,
+            {
+                "stage-1b": {"result": {"causal_spec": causal_spec}},
+                "stage-2": {"result": {"_data_for_model_path": str(data_path)}},
+            },
         )
     )
 
