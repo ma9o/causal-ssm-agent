@@ -22,10 +22,8 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.likelihoods.emissions import (
     categorical_moments,
-    get_categorical_extra_params,
     get_emission_fn,
     get_emission_score_weight_fn,
-    get_ordered_logistic_extra_params,
     ordered_logistic_moments,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -334,18 +332,22 @@ def build_observation_kernel(
             Gaussian/Student-t (used as EKF pseudo-covariance). Ignored
             for GLM families.
     """
+    from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+
     extra_params = extra_params or {}
+    family_spec = FAMILY_REGISTRY.get(dist)
+    if family_spec is None:
+        raise ValueError(
+            f"No observation kernel for dist={dist!r}. "
+            f"Supported: {sorted(d.value for d in FAMILY_REGISTRY)}"
+        )
 
     # Emission log-prob (delegates to existing canonical functions)
     emission_fn = get_emission_fn(dist, extra_params, link=link)
 
     # Response function (inverse link)
-    if dist == DistributionFamily.ORDERED_LOGISTIC:
-        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
-        response_fn = _make_discrete_response_ordered_logistic(cutpoints, level_counts)
-    elif dist == DistributionFamily.CATEGORICAL:
-        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
-        response_fn = _make_discrete_response_categorical(intercepts, slopes, level_counts)
+    if family_spec.make_response_fn is not None:
+        response_fn = family_spec.make_response_fn(extra_params)
     else:
         response_fn = _RESPONSE_FNS.get(link)
         if response_fn is None:
@@ -355,56 +357,14 @@ def build_observation_kernel(
 
     # Variance function + is_gaussian flag
     is_gaussian = dist == DistributionFamily.GAUSSIAN
-
-    if dist in (DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T):
-        if manifest_cov is not None:
-            variance_fn = _make_variance_identity(manifest_cov)
-        else:
-            # Backends that skip EKF linearization (structured VI, DPF) don't
-            # call variance_fn, so a lazy error is appropriate.
-            def variance_fn(_mean: jnp.ndarray) -> jnp.ndarray:
-                raise RuntimeError(
-                    f"variance_fn for {dist} requires manifest_cov; "
-                    f"pass it to build_observation_kernel()"
-                )
-
-    elif dist == DistributionFamily.POISSON:
-        variance_fn = _make_variance_poisson()
-    elif dist == DistributionFamily.NEGATIVE_BINOMIAL:
-        r = extra_params.get("obs_r", 5.0)
-        variance_fn = _make_variance_negative_binomial(r)
-    elif dist == DistributionFamily.GAMMA:
-        shape = extra_params.get("obs_shape", 1.0)
-        variance_fn = _make_variance_gamma(shape)
-    elif dist == DistributionFamily.BERNOULLI:
-        variance_fn = _make_variance_bernoulli()
-    elif dist == DistributionFamily.BETA:
-        conc = extra_params.get("obs_concentration", 10.0)
-        variance_fn = _make_variance_beta(conc)
-    elif dist == DistributionFamily.ORDERED_LOGISTIC:
-        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
-        variance_fn = _make_discrete_variance_from_moments(
-            lambda eta: ordered_logistic_moments(eta, cutpoints, level_counts)
-        )
-    elif dist == DistributionFamily.CATEGORICAL:
-        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
-        variance_fn = _make_discrete_variance_from_moments(
-            lambda eta: categorical_moments(eta, intercepts, slopes, level_counts)
-        )
-    else:
-        raise ValueError(
-            f"No variance function for dist={dist!r}. "
-            f"Supported: gaussian, student_t, poisson, negative_binomial, "
-            "gamma, bernoulli, beta, ordered_logistic, categorical."
-        )
+    variance_fn = family_spec.make_variance_fn(extra_params, manifest_cov)
 
     # Build emission_grad_hess_fn (analytical, avoids jax.hessian on GPU)
-    if dist == DistributionFamily.GAUSSIAN:
+    if family_spec.grad_hess_strategy == "gaussian":
         emission_grad_hess_fn = _make_gaussian_grad_hess()
-    elif dist == DistributionFamily.STUDENT_T:
-        df_val = extra_params.get("obs_df", 5.0)
-        emission_grad_hess_fn = _make_student_t_grad_hess(df_val)
-    else:
+    elif family_spec.grad_hess_strategy == "student_t":
+        emission_grad_hess_fn = _make_student_t_grad_hess(extra_params.get("obs_df", 5.0))
+    else:  # "glm"
         sw_fn = get_emission_score_weight_fn(dist, extra_params, link=link)
         assert sw_fn is not None, f"No analytical score/weight fn for dist={dist!r}"
         emission_grad_hess_fn = _make_glm_grad_hess(sw_fn)
