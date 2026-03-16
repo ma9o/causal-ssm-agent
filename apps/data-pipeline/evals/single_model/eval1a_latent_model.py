@@ -24,7 +24,7 @@ import json
 from evals.common import (
     discover_questions,
     load_eval_config,
-    make_orchestrator_generate_fn,
+    make_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -131,7 +131,7 @@ def latent_model_solver():
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
-            generate_fn = make_orchestrator_generate_fn(model)
+            generate_fn = make_generate_fn(model)
 
             # Get metadata
             question = state.metadata.get("question", "")

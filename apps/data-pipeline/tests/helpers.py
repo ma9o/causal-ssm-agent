@@ -26,7 +26,7 @@ def make_mock_generate(responses: list[str]):
         responses: List of JSON strings to return in order
 
     Returns:
-        Async function matching OrchestratorGenerateFn signature
+        Async function matching GenerateFn signature
     """
     call_count = [0]  # Use list to allow mutation in closure
 

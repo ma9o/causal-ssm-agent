@@ -6,7 +6,7 @@ import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.config import get_config  # also loads .env
-from causal_ssm_agent.utils.llm import get_stage2_generate_config, make_generate_fn
+from causal_ssm_agent.utils.llm import get_generate_config, make_generate_fn
 
 from .core import (
     WorkerResult,
@@ -35,7 +35,7 @@ async def process_chunk_async(
     config = get_config()
     generate = make_generate_fn(
         config.stage2_workers.model,
-        config=get_stage2_generate_config(),
+        config=get_generate_config(),
     )
     return await run_worker_extraction(
         chunk_df=chunk_df,

@@ -8,7 +8,7 @@ Two-stage approach following Anderson & Gerbing (1988):
 import asyncio
 
 from causal_ssm_agent.utils.config import get_config  # also loads .env
-from causal_ssm_agent.utils.llm import make_orchestrator_generate_fn
+from causal_ssm_agent.utils.llm import make_generate_fn
 
 from .schemas import CausalSpec, LatentModel, MeasurementModel
 from .stage1a import run_stage1a
@@ -35,7 +35,7 @@ async def propose_latent_model_async(question: str) -> dict:
     Returns:
         LatentModel as a dictionary
     """
-    generate = make_orchestrator_generate_fn(get_config().stage1_structure_proposal.model)
+    generate = make_generate_fn(get_config().stage1_structure_proposal.model)
     result = await run_stage1a(question=question, generate=generate)
     return result.latent_model
 
@@ -82,7 +82,7 @@ async def propose_measurement_model_async(
     Returns:
         MeasurementModel as a dictionary
     """
-    generate = make_orchestrator_generate_fn(get_config().stage1_structure_proposal.model)
+    generate = make_generate_fn(get_config().stage1_structure_proposal.model)
     result = await run_stage1b(
         question=question,
         latent_model=latent_model,

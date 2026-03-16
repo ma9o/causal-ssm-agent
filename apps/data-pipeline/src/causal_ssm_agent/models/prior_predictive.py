@@ -17,14 +17,6 @@ from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidatio
 
 logger = get_prefect_logger(__name__)
 
-# Map ModelSpec parameter keywords to SSM sample site names
-# Same pattern as _PRIOR_RULES in ssm_builder.py
-_PARAM_TO_SITE: list[tuple[list[str], list[str], str]] = [
-    (["rho", "ar"], ["drift_diag_pop"], "positive"),
-    (["sigma", "sd"], ["diffusion_diag_pop", "manifest_var_diag"], "positive"),
-    (["beta"], ["drift_offdiag_pop"], "none"),
-]
-
 
 def _compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
     """Compute per-indicator mean, std, min, max from raw data."""

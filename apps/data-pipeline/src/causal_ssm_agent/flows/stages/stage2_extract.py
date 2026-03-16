@@ -253,12 +253,12 @@ async def extract_tick_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import LLMStageContext, get_stage2_generate_config
+    from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
-    generate_config = get_stage2_generate_config()
+    generate_config = get_generate_config()
     indicator_count = len(get_indicators(causal_spec))
     n_events = tick_text.count("\n")
     chunk_label = _chunk_log_label(chunk_idx, len(tick_ids), n_events)

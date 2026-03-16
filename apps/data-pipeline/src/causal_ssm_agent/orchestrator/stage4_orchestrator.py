@@ -29,7 +29,7 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 )
 from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
 from causal_ssm_agent.utils.llm import (
-    OrchestratorGenerateFn,
+    GenerateFn,
     make_validation_tool,
 )
 
@@ -185,7 +185,7 @@ async def propose_model_spec(
     causal_spec: dict,
     data_summary: str,
     question: str,
-    generate: OrchestratorGenerateFn,
+    generate: GenerateFn,
 ) -> Stage4OrchestratorResult:
     """Orchestrator proposes complete model specification.
 

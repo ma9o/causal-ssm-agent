@@ -19,7 +19,6 @@ from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
 from causal_ssm_agent.utils.data import (
-    DATA_DIR,
     PROCESSED_DIR,
     get_latest_preprocessed_file,
     get_orchestrator_chunk_size,
@@ -277,8 +276,6 @@ def make_generate_fn(
     return generate
 
 
-make_orchestrator_generate_fn = make_generate_fn
-make_worker_generate_fn = make_generate_fn
 
 
 def tool_assisted_generate(

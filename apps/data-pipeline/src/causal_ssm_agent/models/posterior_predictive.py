@@ -478,32 +478,15 @@ def simulate_posterior_predictive(
     t0_means_sub = t0_means[indices]
     cint_sub = cint_draws[indices] if cint_draws is not None else None
 
-    # Handle shared vs per-draw parameters
-    if lambda_mat.ndim == 2:
-        # Shared lambda — broadcast
-        lambda_sub = jnp.broadcast_to(lambda_mat, (n_use, *lambda_mat.shape))
-    else:
-        lambda_sub = lambda_mat[indices]
-
-    if manifest_cov.ndim == 2:
-        manifest_cov_sub = jnp.broadcast_to(manifest_cov, (n_use, *manifest_cov.shape))
-    else:
-        manifest_cov_sub = manifest_cov[indices]
-
-    if t0_cov.ndim == 2:
-        t0_cov_sub = jnp.broadcast_to(t0_cov, (n_use, *t0_cov.shape))
-    else:
-        t0_cov_sub = t0_cov[indices]
+    # Handle shared vs per-draw parameters using _broadcast_draw_param
+    lambda_sub = _broadcast_draw_param(lambda_mat, n_use, indices)
+    manifest_cov_sub = _broadcast_draw_param(manifest_cov, n_use, indices)
+    t0_cov_sub = _broadcast_draw_param(t0_cov, n_use, indices)
 
     n_manifest = lambda_sub.shape[1]
 
     if manifest_means_draws is not None:
-        if manifest_means_draws.ndim == 1:
-            manifest_means_sub = jnp.broadcast_to(
-                manifest_means_draws, (n_use, manifest_means_draws.shape[0])
-            )
-        else:
-            manifest_means_sub = manifest_means_draws[indices]
+        manifest_means_sub = _broadcast_draw_param(manifest_means_draws, n_use, indices)
     else:
         manifest_means_sub = jnp.zeros((n_use, n_manifest))
 
@@ -539,35 +522,22 @@ def simulate_posterior_predictive(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
 
-    # Check if link functions introduce mixing (e.g. all bernoulli but some probit)
-    has_nondefault_link = False
-    if effective_links is not None:
-        has_nondefault_link = any(
-            lk not in (LinkFunction.IDENTITY, "identity") for lk in effective_links
-        )
-
-    is_mixed = (effective_dists is not None and len(unique_dists) > 1) or (
-        has_nondefault_link and not all_gaussian
-    )
-
-    # When links force mixed path but dists are scalar, broadcast to per-channel
-    if is_mixed and effective_dists is None:
-        effective_dists = [manifest_dist] * n_manifest
-
     def _scalar(arr):
         """Collapse a posterior draw array to a scalar mean."""
         if arr is None:
             return None
         return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
 
+    # Cholesky decomposition of t0_cov (needed by all paths)
+    t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
+        t0_cov_sub
+    )
+
     if all_gaussian:
         # Fast path: correlated Gaussian observation noise via Cholesky
         manifest_chol_sub = vmap(
             lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
         )(manifest_cov_sub)
-        t0_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
-        )(t0_cov_sub)
 
         def sim_one(i):
             ci = cint_sub[i] if cint_sub is not None else None
@@ -586,67 +556,17 @@ def simulate_posterior_predictive(
 
         y_sim = vmap(sim_one)(jnp.arange(n_use))
 
-    elif is_mixed:
-        # Per-channel dispatch: different distributions/links for different channels
-        t0_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
-        )(t0_cov_sub)
+    else:
+        # Non-Gaussian path: per-channel dispatch via _simulate_one_draw_mixed
+        # Works for both mixed (heterogeneous) and uniform non-Gaussian cases
+        if effective_dists is None:
+            effective_dists = [manifest_dist] * n_manifest
 
-        assert effective_dists is not None
         dist_indices = _resolve_dist_indices(
             manifest_dist=manifest_dist,
             manifest_link=None,
             manifest_dists=effective_dists,
             manifest_links=effective_links,
-            n_manifest=n_manifest,
-        )
-
-        obs_df_val = _scalar(samples.get("obs_df")) or 5.0
-        obs_shape_val = _scalar(samples.get("obs_shape")) or 2.0
-        obs_r_val = _scalar(samples.get("obs_r")) or 5.0
-        obs_conc_val = _scalar(samples.get("obs_concentration")) or 10.0
-
-        def sim_one(i):
-            ci = cint_sub[i] if cint_sub is not None else None
-            return _simulate_one_draw_mixed(
-                drift=drift_sub[i],
-                diffusion_chol=diffusion_sub[i],
-                cint=ci,
-                lambda_mat=lambda_sub[i],
-                manifest_means=manifest_means_sub[i],
-                manifest_cov=manifest_cov_sub[i],
-                t0_mean=t0_means_sub[i],
-                t0_chol=t0_chol_sub[i],
-                dt_array=dt_array,
-                rng_key=draw_keys[i],
-                dist_indices=dist_indices,
-                obs_df=obs_df_val,
-                obs_shape=obs_shape_val,
-                obs_r=obs_r_val,
-                obs_concentration=obs_conc_val,
-                manifest_level_counts=level_counts,
-                ordered_cutpoints=ordered_cutpoints_sub[i]
-                if ordered_cutpoints_sub is not None
-                else None,
-                cat_intercepts=cat_intercepts_sub[i] if cat_intercepts_sub is not None else None,
-                cat_slopes=cat_slopes_sub[i] if cat_slopes_sub is not None else None,
-            )
-
-        y_sim = vmap(sim_one)(jnp.arange(n_use))
-
-    else:
-        # Uniform non-Gaussian: all channels share the same non-Gaussian distribution
-        t0_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
-        )(t0_cov_sub)
-
-        effective_dist = effective_dists[0] if effective_dists else manifest_dist
-        effective_link = effective_links[0] if effective_links else None
-        dist_indices = _resolve_dist_indices(
-            manifest_dist=effective_dist,
-            manifest_link=effective_link,
-            manifest_dists=None,
-            manifest_links=None,
             n_manifest=n_manifest,
         )
 

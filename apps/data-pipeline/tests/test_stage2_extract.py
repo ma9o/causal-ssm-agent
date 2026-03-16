@@ -117,7 +117,7 @@ def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog
         "get_indicators",
         lambda _causal_spec: [{"name": "indicator_a"}, {"name": "indicator_b"}],
     )
-    monkeypatch.setattr(llm_mod, "get_stage2_generate_config", lambda: generate_config)
+    monkeypatch.setattr(llm_mod, "get_generate_config", lambda: generate_config)
 
     def fake_make_generate_fn(model_name, config=None, **_kwargs):
         captured["model_name"] = model_name

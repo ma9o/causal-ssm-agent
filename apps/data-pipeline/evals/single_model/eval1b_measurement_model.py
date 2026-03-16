@@ -25,7 +25,7 @@ from evals.common import (
     get_questions_with_latent_model,
     get_sample_chunks_orchestrator,
     load_eval_config,
-    make_orchestrator_generate_fn,
+    make_generate_fn,
     select_questions,
 )
 from inspect_ai import Task, task
@@ -239,7 +239,7 @@ def measurement_model_solver():
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
-            generate_fn = make_orchestrator_generate_fn(model)
+            generate_fn = make_generate_fn(model)
 
             # Get metadata
             latent_model = state.metadata.get("latent_model", {})

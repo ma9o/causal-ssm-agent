@@ -798,9 +798,7 @@ def stage5b(
     data_for_model = _load_parquet(stage2["_data_for_model_path"])
     causal_spec = stage1b["causal_spec"]
 
-    sampler_config = (
-        config.inference.to_sampler_config(method_override=inference_method)
-    )
+    sampler_config = config.inference.to_sampler_config(method_override=inference_method)
 
     if config.inference.gpu:
         from .gpu_inference import run_stage5b_gpu

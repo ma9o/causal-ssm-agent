@@ -95,10 +95,6 @@ def _build_trace(all_messages: list[dict[str, Any]], output: dict[str, Any]) -> 
 
 GenerateFn = Callable[..., Awaitable[str]]
 
-# Backward-compatible aliases
-OrchestratorGenerateFn = GenerateFn
-WorkerGenerateFn = GenerateFn
-
 
 def _combine_log_label(*parts: str | None) -> str | None:
     """Join non-empty label fragments into a stable log scope."""
@@ -108,7 +104,7 @@ def _combine_log_label(*parts: str | None) -> str | None:
     return " / ".join(labels)
 
 
-def _scoped(label: str | None, msg: str) -> str:
+def scoped_log(label: str | None, msg: str) -> str:
     """Prefix a log format string with ``[label]`` when a label is provided."""
     return f"[{label}] {msg}" if label else msg
 
@@ -126,19 +122,6 @@ def get_generate_config() -> GenerateConfig:
         timeout=llm.timeout,
         reasoning_effort=llm.reasoning_effort,
         reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
-    )
-
-
-def get_stage2_generate_config() -> GenerateConfig:
-    """Get a Stage-2-tuned GenerateConfig for worker extraction."""
-    from causal_ssm_agent.utils.config import get_config
-
-    llm = get_config().llm
-    return GenerateConfig(
-        max_tokens=llm.max_tokens,
-        timeout=llm.timeout,
-        reasoning_effort=llm.reasoning_effort,
-        reasoning_history="all",  # Preserve reasoning across tool retries when validation fails.
     )
 
 
@@ -206,11 +189,6 @@ def make_generate_fn(
         return response["completion"]
 
     return generate
-
-
-# Backward-compatible aliases
-make_orchestrator_generate_fn = make_generate_fn
-make_worker_generate_fn = make_generate_fn
 
 
 def parse_json_response(content: str) -> dict:
@@ -526,7 +504,7 @@ async def _call_model_with_tool_repair(
             attempt += 1
             error_text = str(exc) or exc.__class__.__name__
             logger.warning(
-                _scoped(
+                scoped_log(
                     log_label,
                     "call_model failed during tool-context turn; retrying with repair prompt "
                     "(attempt %d/%d): %s",
@@ -565,7 +543,7 @@ async def _run_tool_loop(
         if turn > max_turns:
             elapsed = time.monotonic() - t0
             logger.error(
-                _scoped(scoped_label, "exceeded %d turns (elapsed=%.1fs). Terminating."),
+                scoped_log(scoped_label, "exceeded %d turns (elapsed=%.1fs). Terminating."),
                 max_turns,
                 elapsed,
             )
@@ -573,7 +551,9 @@ async def _run_tool_loop(
         if turn == warn_turns:
             elapsed = time.monotonic() - t0
             logger.warning(
-                _scoped(scoped_label, "reached %d turns (elapsed=%.1fs). Possible infinite loop."),
+                scoped_log(
+                    scoped_label, "reached %d turns (elapsed=%.1fs). Possible infinite loop."
+                ),
                 warn_turns,
                 elapsed,
             )
@@ -590,7 +570,7 @@ async def _run_tool_loop(
         elapsed_turn = time.monotonic() - t_turn
 
         logger.info(
-            _scoped(scoped_label, "turn=%d | %s"), turn, _summarize_output(output, elapsed_turn)
+            scoped_log(scoped_label, "turn=%d | %s"), turn, _summarize_output(output, elapsed_turn)
         )
 
         tool_messages: list[dict[str, Any]] = []
@@ -608,7 +588,7 @@ async def _run_tool_loop(
             tool_name, result_text = terminal_tool
             elapsed_total = time.monotonic() - t0
             logger.info(
-                _scoped(
+                scoped_log(
                     scoped_label, "terminal tool %s returned %r; stopping after %d turns in %.1fs"
                 ),
                 tool_name,
@@ -620,7 +600,9 @@ async def _run_tool_loop(
 
         if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
-            logger.info(_scoped(scoped_label, "completed: %d turns in %.1fs"), turn, elapsed_total)
+            logger.info(
+                scoped_log(scoped_label, "completed: %d turns in %.1fs"), turn, elapsed_total
+            )
             return messages, output
 
 
@@ -673,7 +655,7 @@ async def multi_turn_generate(
         follow_up_tools = tools or None
 
     logger.info(
-        _scoped(log_label, "multi_turn_generate starting (tools=%d, follow_ups=%d)"),
+        scoped_log(log_label, "multi_turn_generate starting (tools=%d, follow_ups=%d)"),
         len(tools or []),
         len(follow_ups),
     )
@@ -699,14 +681,16 @@ async def multi_turn_generate(
         )
         messages.append(output["message"])
         elapsed_gen = time.monotonic() - t_gen
-        logger.info(_scoped(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen))
+        logger.info(
+            scoped_log(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen)
+        )
 
     last_nonempty = output["completion"]
 
     # --- Follow-up turns ---
     for i, prompt in enumerate(follow_ups):
         follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
-        logger.info(_scoped(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
+        logger.info(scoped_log(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
         messages.append({"role": "user", "content": prompt})
 
         if follow_up_tools:
@@ -730,7 +714,7 @@ async def multi_turn_generate(
             messages.append(output["message"])
             elapsed_fu = time.monotonic() - t_fu
             logger.info(
-                _scoped(follow_up_label, "%d/%d | %s"),
+                scoped_log(follow_up_label, "%d/%d | %s"),
                 i + 1,
                 len(follow_ups),
                 _summarize_output(output, elapsed_fu),
@@ -744,7 +728,7 @@ async def multi_turn_generate(
         trace_capture["trace"] = _build_trace(messages, output)
 
     elapsed_total = time.monotonic() - t0
-    logger.info(_scoped(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
+    logger.info(scoped_log(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)
     return last_nonempty
 
 

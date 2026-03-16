@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.identifiability import analyze_unobserved_constructs
-from causal_ssm_agent.utils.llm import OrchestratorGenerateFn
+from causal_ssm_agent.utils.llm import GenerateFn
 
 from .prompts import measurement_model
 
@@ -59,7 +59,7 @@ async def run_stage1b(
     question: str,
     latent_model: dict,
     chunks: list[str],
-    generate: OrchestratorGenerateFn,
+    generate: GenerateFn,
     dataset_summary: str = "",
 ) -> Stage1bResult:
     """

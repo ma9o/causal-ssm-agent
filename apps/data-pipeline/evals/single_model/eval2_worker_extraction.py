@@ -24,7 +24,7 @@ from evals.common import (
     get_questions_with_causal_spec,
     get_sample_chunks_worker,
     load_eval_config,
-    make_worker_generate_fn,
+    make_generate_fn,
     select_question,
 )
 from inspect_ai import Task, task
@@ -216,7 +216,7 @@ def worker_extraction_solver(question: str | None = None):
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
             model = get_model()
-            generate_fn = make_worker_generate_fn(model)
+            generate_fn = make_generate_fn(model)
 
             # Get metadata
             question_text = state.metadata.get("question", "")

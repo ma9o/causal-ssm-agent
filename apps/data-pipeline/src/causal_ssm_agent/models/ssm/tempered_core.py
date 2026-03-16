@@ -37,6 +37,17 @@ from causal_ssm_agent.models.ssm.utils import (
 logger = get_prefect_logger(__name__)
 
 
+def _adapt_step_size(
+    eps: float,
+    avg_accept: float,
+    target_accept: float,
+    gain: float = 0.1,
+) -> float:
+    """Dual-averaging step size adaptation on log scale."""
+    log_eps = jnp.log(jnp.array(eps)) + gain * (avg_accept - target_accept)
+    return float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+
+
 def _build_tempered_smc_bundle(
     model,
     observations: jnp.ndarray,
@@ -295,9 +306,7 @@ def run_tempered_smc(
         particles = particles_new
 
         # Aggressive adaptation during pilot
-        log_eps = jnp.log(jnp.array(eps))
-        log_eps = log_eps + 0.5 * (avg_accept - target_accept)
-        eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+        eps = _adapt_step_size(eps, avg_accept, target_accept, gain=0.5)
 
         if pilot_step >= 5 and abs(avg_accept - target_accept) < 0.1:
             logger.info(
@@ -371,9 +380,7 @@ def run_tempered_smc(
             n_rounds = 1
 
             # Adapt step size
-            log_eps = jnp.log(jnp.array(eps))
-            log_eps = log_eps + 0.1 * (avg_accept - target_accept)
-            eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+            eps = _adapt_step_size(eps, avg_accept, target_accept)
         else:
             # Standard: resample if ESS < N/2, then adaptive mutation rounds
             did_resample = False
@@ -399,9 +406,7 @@ def run_tempered_smc(
 
                 # Adapt step size after each round
                 round_accept_rate = round_accepts / (N * n_mh_steps)
-                log_eps = jnp.log(jnp.array(eps))
-                log_eps = log_eps + 0.1 * (round_accept_rate - target_accept)
-                eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+                eps = _adapt_step_size(eps, round_accept_rate, target_accept)
 
                 # Stop early if acceptance is reasonable
                 if mutation_round > 0 and round_accept_rate > 0.2:
@@ -449,9 +454,7 @@ def run_tempered_smc(
             particles, n_accepts = _mutate_batch_jit(mutate_key, particles, 1.0, eps, chol_mass)
             mix_accept = float(jnp.mean(n_accepts) / n_mh_steps)
             # Adapt step size
-            log_eps = jnp.log(jnp.array(eps))
-            log_eps = log_eps + 0.1 * (mix_accept - target_accept)
-            eps = float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+            eps = _adapt_step_size(eps, mix_accept, target_accept)
         logger.info("    mixing done: accept=%.2f eps=%.4f", mix_accept, eps)
 
     # Posterior = all N particles at beta=1.0

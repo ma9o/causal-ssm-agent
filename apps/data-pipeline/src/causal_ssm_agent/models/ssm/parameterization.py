@@ -464,6 +464,22 @@ def _broadcast_fixed(
     return jnp.broadcast_to(value, (n_draws, *value.shape))
 
 
+def _assemble_diag_to_cov(
+    site: SiteDescriptor | None,
+    samples: dict[str, jnp.ndarray],
+    fixed_chol: jnp.ndarray | None,
+    n_draws: int,
+    dim: int,
+) -> jnp.ndarray | None:
+    """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
+    if site is not None and site.name in samples:
+        return jax.vmap(lambda d: jnp.diag(d**2))(samples[site.name])
+    if isinstance(fixed_chol, jnp.ndarray):
+        fixed_cov = fixed_chol @ fixed_chol.T
+        return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
+    return None
+
+
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
@@ -532,12 +548,11 @@ def assemble_deterministics_from_registry(
     elif isinstance(spec.manifest_means, jnp.ndarray):
         det["manifest_means"] = _broadcast_fixed(spec.manifest_means, n_draws)
 
-    manifest_var_site = by_kind.get(SiteKind.MANIFEST_VAR_DIAG)
-    if manifest_var_site is not None and manifest_var_site.name in samples:
-        det["manifest_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples[manifest_var_site.name])
-    elif isinstance(spec.manifest_var, jnp.ndarray):
-        fixed_cov = spec.manifest_var @ spec.manifest_var.T
-        det["manifest_cov"] = jnp.broadcast_to(fixed_cov, (n_draws, n_m, n_m))
+    manifest_cov = _assemble_diag_to_cov(
+        by_kind.get(SiteKind.MANIFEST_VAR_DIAG), samples, spec.manifest_var, n_draws, n_m
+    )
+    if manifest_cov is not None:
+        det["manifest_cov"] = manifest_cov
 
     t0_means_site = by_kind.get(SiteKind.T0_MEANS)
     if t0_means_site is not None and t0_means_site.name in samples:
@@ -545,12 +560,11 @@ def assemble_deterministics_from_registry(
     elif isinstance(spec.t0_means, jnp.ndarray):
         det["t0_means"] = _broadcast_fixed(spec.t0_means, n_draws)
 
-    t0_var_site = by_kind.get(SiteKind.T0_VAR_DIAG)
-    if t0_var_site is not None and t0_var_site.name in samples:
-        det["t0_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples[t0_var_site.name])
-    elif isinstance(spec.t0_var, jnp.ndarray):
-        fixed_cov = spec.t0_var @ spec.t0_var.T
-        det["t0_cov"] = jnp.broadcast_to(fixed_cov, (n_draws, n_l, n_l))
+    t0_cov = _assemble_diag_to_cov(
+        by_kind.get(SiteKind.T0_VAR_DIAG), samples, spec.t0_var, n_draws, n_l
+    )
+    if t0_cov is not None:
+        det["t0_cov"] = t0_cov
 
     return det
 
@@ -606,21 +620,6 @@ def _positive_log_prob(x, family_idx, scale, concentration, rate):
         lambda _s, c, r: _gamma_log_prob(x, c, r),
     ]
     return jax.lax.switch(family_idx, branches, scale, concentration, rate)
-
-
-# ---------------------------------------------------------------------------
-# Log-Jacobian helpers
-# ---------------------------------------------------------------------------
-
-
-def _transform_log_det(z, support: SupportClass):
-    """Log |det dT/dz| for the support transform T: R -> support."""
-    if support == SupportClass.REAL:
-        return jnp.array(0.0)
-    elif support == SupportClass.POSITIVE:
-        # T(z) = exp(z),  dT/dz = exp(z),  log|det| = sum(z)
-        return jnp.sum(z)
-    raise ValueError(f"Unsupported support class: {support}")
 
 
 # ---------------------------------------------------------------------------
@@ -852,15 +851,6 @@ def _params_from_prior_dict(
             scale=prior_dict.get("sigma", 1.0),
         )
     elif site.support == SupportClass.POSITIVE:
-        if "mu" in prior_dict:
-            # Prior dict has mu → not a pure scale prior.
-            # For POSITIVE support this shouldn't happen with default SSMPriors,
-            # but handle gracefully: treat as HalfNormal with given sigma.
-            return _make_positive_params(
-                site.shape,
-                family=0,
-                scale=prior_dict.get("sigma", 1.0),
-            )
         return _make_positive_params(
             site.shape,
             family=0,
