@@ -334,16 +334,15 @@ class TestBuilderMasks:
 
     def test_build_masks_from_causal_spec(self):
         """Builder constructs drift_mask and lambda_mask from CausalSpec."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
         causal_spec = _make_causal_spec_dict()
-        builder = SSMModelBuilder(causal_spec=causal_spec)
 
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
-        drift_mask, lambda_mat, lambda_mask, _edge_lag_days = builder._build_masks_from_causal_spec(
-            latent_names, manifest_cols, 3, 4
+        drift_mask, lambda_mat, lambda_mask, _edge_lag_days = build_masks_from_causal_spec(
+            latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
         )
 
         # Drift mask: diagonal + X→Y + Y→Z
@@ -370,11 +369,10 @@ class TestBuilderMasks:
 
     def test_no_causal_spec_no_masks(self):
         """Without causal_spec, masks are None."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
-        builder = SSMModelBuilder()
-        drift_mask, _lambda_mat, lambda_mask, _edge_lag_days = builder._build_masks_from_causal_spec(
-            ["X"], ["x1"], 1, 1
+        drift_mask, _lambda_mat, lambda_mask, _edge_lag_days = build_masks_from_causal_spec(
+            None, ["x1"], 1, 1, causal_spec=None
         )
         assert drift_mask is None
         assert lambda_mask is None
