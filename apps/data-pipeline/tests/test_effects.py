@@ -3,10 +3,10 @@
 Covers: build_digraph, get_outcome_name, get_all_treatments.
 """
 
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
-from causal_ssm_agent.utils.effects import (
+from causal_ssm_agent.utils.causal_spec import (
     build_digraph,
     get_all_treatments,
+    get_outcome_name,
 )
 
 # =============================================================================

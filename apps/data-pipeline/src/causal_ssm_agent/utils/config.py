@@ -218,32 +218,6 @@ def _find_config_path() -> Path:
     raise FileNotFoundError("config.yaml not found in any parent directory")
 
 
-def _env_bool(name: str) -> bool | None:
-    """Parse a boolean environment override, returning None when unset or invalid."""
-    raw = os.getenv(name)
-    if raw is None:
-        return None
-    normalized = raw.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    logger.warning("Ignoring invalid boolean override %s=%r", name, raw)
-    return None
-
-
-def _env_int(name: str) -> int | None:
-    """Parse an integer environment override, returning None when unset or invalid."""
-    raw = os.getenv(name)
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning("Ignoring invalid integer override %s=%r", name, raw)
-        return None
-
-
 @lru_cache(maxsize=1)
 def load_config() -> PipelineConfig:
     """Load and parse the pipeline configuration.

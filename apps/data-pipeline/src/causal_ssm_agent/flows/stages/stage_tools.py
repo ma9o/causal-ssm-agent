@@ -38,8 +38,7 @@ def stage1a_grounding(data: dict) -> tuple[dict | None, str]:
         stage_output = {"latent_model": data, "outcome_name": str, "treatments": [...]}
     """
     from causal_ssm_agent.orchestrator.schemas import validate_latent_model
-    from causal_ssm_agent.utils.causal_spec import get_outcome_name
-    from causal_ssm_agent.utils.effects import get_all_treatments
+    from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 
     _result, errors = validate_latent_model(data)
     if errors:

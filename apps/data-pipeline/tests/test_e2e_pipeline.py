@@ -24,8 +24,7 @@ from causal_ssm_agent.flows.stages.stage3_validation import (
 from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.orchestrator.schemas import CausalSpec
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
-from causal_ssm_agent.utils.effects import get_all_treatments
+from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 
 # ==============================================================================
 # Constants
