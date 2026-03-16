@@ -14,7 +14,6 @@ from causal_ssm_agent.utils.litellm_client import (
     call_model,
     execute_tools,
     normalize_message,
-    tool,
 )
 
 logger = get_prefect_logger(__name__)
@@ -260,129 +259,20 @@ def make_validation_tool(
 ) -> tuple[Tool, dict]:
     """Generic factory for JSON-validation tools.
 
-    Builds a Tool that parses JSON from the LLM, runs a validator, captures
-    valid results, and returns "VALID" or a formatted error list. All four
-    stage-specific validation tools share this core pattern.
+    Thin adapter over :func:`make_stage_tool` that bridges the
+    ``(result, errors)`` validator interface to the ``(stage_output, feedback)``
+    grounding interface.
     """
-    capture: dict = {}
+    from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool
 
-    async def _execute(**kwargs: str) -> str:
-        return _validate_json_and_format(
-            kwargs[param_name],
-            validator,
-            capture=capture,
-            capture_key=capture_key,
-            capture_result=capture_result,
-        )
+    def _adapted(data: dict) -> tuple[dict | None, str]:
+        result, errors = validator(data)
+        if errors:
+            return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
+        value = result if capture_result else data
+        return {capture_key: value}, "VALID"
 
-    return Tool(
-        name=name,
-        description=description,
-        parameters={
-            "type": "object",
-            "properties": {param_name: {"type": "string", "description": param_description}},
-            "required": [param_name],
-            "additionalProperties": False,
-        },
-        execute=_execute,
-        stop_on_success=True,
-        success_output="VALID",
-    ), capture
-
-
-@tool
-def calculate():
-    """Tool for evaluating simple arithmetic calculations."""
-
-    async def execute(expression: str) -> str:
-        """
-        Evaluate a simple arithmetic expression.
-
-        Args:
-            expression: A Python arithmetic expression (e.g., "2 + 3 * 4", "100 / 5", "(10 + 5) * 2", "10 % 3", "2 ** 8")
-
-        Returns:
-            The result of the calculation, or an error message if evaluation fails.
-        """
-        import ast
-        import operator
-
-        _OPERATORS: dict[type, object] = {
-            ast.Add: operator.add,
-            ast.Sub: operator.sub,
-            ast.Mult: operator.mul,
-            ast.Div: operator.truediv,
-            ast.FloorDiv: operator.floordiv,
-            ast.Mod: operator.mod,
-            ast.Pow: operator.pow,
-            ast.USub: operator.neg,
-            ast.UAdd: operator.pos,
-        }
-
-        def _safe_eval(node: ast.AST) -> float | int:
-            if isinstance(node, ast.Expression):
-                return _safe_eval(node.body)
-            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-                return node.value
-            if isinstance(node, ast.UnaryOp) and type(node.op) in _OPERATORS:
-                op = _OPERATORS[type(node.op)]
-                return op(_safe_eval(node.operand))
-            if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
-                op = _OPERATORS[type(node.op)]
-                return op(_safe_eval(node.left), _safe_eval(node.right))
-            raise ValueError(f"Unsupported expression: {ast.dump(node)}")
-
-        try:
-            tree = ast.parse(expression, mode="eval")
-            result = _safe_eval(tree)
-            return str(result)
-        except (SyntaxError, ZeroDivisionError, TypeError, ValueError) as e:
-            return f"Error evaluating expression: {e}"
-
-    return execute
-
-
-@tool
-def parse_date():
-    """Tool for parsing dates into a human-readable spelled out format."""
-
-    async def execute(date_string: str) -> str:
-        """
-        Parse a date or timestamp into spelled out format.
-
-        Args:
-            date_string: A date or timestamp string (e.g., "2024-03-15", "2024-03-15T10:30:00")
-
-        Returns:
-            Spelled out date (e.g., "Friday, March 15, 2024") or an error message if parsing fails.
-        """
-        from datetime import datetime
-
-        # Common formats to try
-        formats = [
-            "%Y-%m-%d",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S.%fZ",
-            "%Y-%m-%dT%H:%M:%S%z",
-            "%Y/%m/%d",
-            "%d-%m-%Y",
-            "%d/%m/%Y",
-            "%m-%d-%Y",
-            "%m/%d/%Y",
-        ]
-
-        for fmt in formats:
-            try:
-                dt = datetime.strptime(date_string.strip(), fmt)
-                return dt.strftime("%A, %B %d, %Y")  # e.g., "Friday, March 15, 2024"
-            except ValueError:
-                continue
-
-        return f"Could not parse date: {date_string}"
-
-    return execute
+    return make_stage_tool(name, description, param_name, param_description, _adapted)
 
 
 # ---------------------------------------------------------------------------
