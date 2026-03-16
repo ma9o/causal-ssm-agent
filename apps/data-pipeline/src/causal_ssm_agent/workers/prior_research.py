@@ -6,6 +6,8 @@ Each worker researches a single parameter using:
 3. Optional AutoElicit-style paraphrased prompting for robust aggregation
 """
 
+from __future__ import annotations
+
 import asyncio
 
 import numpy as np
@@ -34,6 +36,15 @@ from causal_ssm_agent.workers.schemas_prior import (
 )
 
 logger = get_prefect_logger(__name__)
+
+# Exa rate limiter (10 req/s limit) — set by stage 4 flow before literature search fanout
+_exa_limiter: RpmLimiter | None = None
+
+
+def set_exa_limiter(limiter: RpmLimiter | None) -> None:
+    """Set (or clear) the Exa API rate limiter."""
+    global _exa_limiter
+    _exa_limiter = limiter
 
 
 def _display_constraint(parameter: ParameterSpec) -> str:
@@ -105,46 +116,33 @@ async def search_parameter_literature(
         exa = AsyncExa(api_key=api_key)
 
         # Build search query from parameter context
-        query = f"""\
-Empirical effect sizes related to:
-
-{search_context}
-
-Focus on meta-analyses, systematic reviews, and large-scale longitudinal studies.
-Report standardized effect sizes (Cohen's d, correlation r, standardized beta).
-"""
-
-        output_schema = {
-            "type": "object",
-            "properties": {
-                "sources": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "url": {"type": "string"},
-                            "snippet": {"type": "string"},
-                            "effect_size": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        }
-
-        result = await exa.search(
-            query,
-            type="deep",
-            output_schema=output_schema,
+        query = (
+            f"Empirical effect sizes related to: {search_context}. "
+            "Meta-analyses, systematic reviews, standardized effect sizes."
         )
 
-        if not result.output or not result.output.content:
-            return []
+        if _exa_limiter is not None:
+            await _exa_limiter.acquire()
 
-        content = result.output.content
-        if isinstance(content, dict):
-            return content.get("sources", [])
-        return []
+        result = await exa.search_and_contents(
+            query,
+            num_results=5,
+            type="auto",
+            highlights=True,
+            category="research paper",
+        )
+
+        sources = []
+        for r in result.results:
+            sources.append(
+                {
+                    "title": r.title or "",
+                    "url": r.url or "",
+                    "snippet": " ".join(r.highlights) if r.highlights else (r.text or "")[:500],
+                    "effect_size": "",
+                }
+            )
+        return sources
 
     except Exception:
         logger.warning("Exa search failed; continuing without search results", exc_info=True)

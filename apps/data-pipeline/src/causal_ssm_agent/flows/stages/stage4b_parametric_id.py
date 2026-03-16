@@ -255,7 +255,7 @@ def stage4b_parametric_id_flow(
         model_spec,
         priors,
         raw_data,
-        causal_spec=causal_spec,
+        _causal_spec=causal_spec,
         compiled_ssm=compiled_ssm,
         builder=builder,
     )

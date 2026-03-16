@@ -17,6 +17,8 @@ import polars as pl
 from prefect import flow, task
 from prefect.cache_policies import INPUTS
 
+from causal_ssm_agent.utils.litellm_client import RpmLimiter
+
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
@@ -109,10 +111,9 @@ async def propose_model_task(
 
 
 @task(
-    cache_policy=INPUTS,
-    persist_result=True,
-    retries=2,
+    retries=3,
     retry_delay_seconds=5,
+    retry_jitter_factor=1.0,
     task_run_name="search-literature-{parameter_spec[name]}",
 )
 async def search_literature_task(
@@ -433,19 +434,23 @@ async def stage4_orchestrated_flow(
     # Build a lookup from parameter name -> spec dict
     param_spec_by_name = {ps.get("name", f"param_{i}"): ps for i, ps in enumerate(parameter_specs)}
 
-    # 2. Exa literature search per parameter (run once, cached for retries)
-    #    task.map() fans out all parameters; concurrency limit inside
-    #    the task caps how many actually hit the API simultaneously.
+    # 2. Exa literature search per parameter (rate-limited to 8 req/s)
     if enable_literature:
-        literature_futures = search_literature_task.map(parameter_specs)
-        literature_by_name = {}
-        for i, (ps, future) in enumerate(zip(parameter_specs, literature_futures)):
-            name = ps.get("name", f"param_{i}")
-            try:
-                literature_by_name[name] = future.result()
-            except Exception as e:
-                logger.warning("Literature search failed for %s: %s", name, e)
-                literature_by_name[name] = {"sources": [], "formatted": ""}
+        from causal_ssm_agent.workers.prior_research import set_exa_limiter
+
+        set_exa_limiter(RpmLimiter(max_requests=8, window_seconds=1.0))
+        try:
+            literature_futures = search_literature_task.map(parameter_specs)
+            literature_by_name = {}
+            for i, (ps, future) in enumerate(zip(parameter_specs, literature_futures)):
+                name = ps.get("name", f"param_{i}")
+                try:
+                    literature_by_name[name] = future.result()
+                except Exception as e:
+                    logger.warning("Literature search failed for %s: %s", name, e)
+                    literature_by_name[name] = {"sources": [], "formatted": ""}
+        finally:
+            set_exa_limiter(None)
     else:
         literature_by_name = {
             ps.get("name", f"param_{i}"): {"sources": [], "formatted": ""}
