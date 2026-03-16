@@ -117,15 +117,102 @@ class SiteDescriptor:
     is_runtime_prior_controlled: bool = True
 
 
+def _site_size(shape: tuple[int, ...]) -> int:
+    """Number of scalar elements in a site shape."""
+    size = 1
+    for d in shape:
+        size *= d
+    return size
+
+
+@dataclass
+class SiteRuntimeBundle:
+    """Reusable topology-only runtime components derived from site metadata."""
+
+    registry: list[SiteDescriptor]
+    transforms: dict[str, dist.transforms.Transform]
+    flat_dim: int
+    unravel_fn: Any
+
+    def constrain(self, z: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        """Map one unconstrained parameter vector to constrained site values."""
+        unconstrained = self.unravel_fn(z)
+        return {name: self.transforms[name](unconstrained[name]) for name in unconstrained}
+
+    def constrain_batched(self, z_samples: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        """Map a batch of unconstrained draws to constrained site samples."""
+        if self.flat_dim == 0:
+            return {}
+
+        unconstrained = jax.vmap(self.unravel_fn)(z_samples)
+        return {
+            site.name: jax.vmap(self.transforms[site.name])(unconstrained[site.name])
+            for site in self.registry
+        }
+
+    @property
+    def param_names(self) -> list[str]:
+        """Ordered list of sample site names."""
+        return [site.name for site in self.registry]
+
+    @property
+    def site_shapes(self) -> dict[str, tuple[int, ...]]:
+        """Map from site name to array shape."""
+        return {site.name: site.shape for site in self.registry}
+
+    @property
+    def scalar_names(self) -> list[str]:
+        """Flat list of per-element names (e.g. ``drift_diag_pop[0]``)."""
+        names: list[str] = []
+        for site in self.registry:
+            size = _site_size(site.shape)
+            if size == 1:
+                names.append(site.name)
+            else:
+                for k in range(size):
+                    names.append(f"{site.name}[{k}]")
+        return names
+
+    @property
+    def param_index(self) -> dict[str, tuple[int, int]]:
+        """Map from site name to ``(offset, size)`` in the flat vector."""
+        index: dict[str, tuple[int, int]] = {}
+        offset = 0
+        for site in self.registry:
+            size = _site_size(site.shape)
+            index[site.name] = (offset, size)
+            offset += size
+        return index
+
+
 @dataclass
 class PriorRuntimeBundle:
     """Reusable runtime components derived from compiled prior semantics."""
 
-    registry: list[SiteDescriptor]
+    site_runtime: SiteRuntimeBundle
     prior_state: PriorRuntimeState
-    transforms: dict[str, dist.transforms.Transform]
-    flat_dim: int
-    unravel_fn: Any
+
+    @property
+    def registry(self) -> list[SiteDescriptor]:
+        return self.site_runtime.registry
+
+    @property
+    def transforms(self) -> dict[str, dist.transforms.Transform]:
+        return self.site_runtime.transforms
+
+    @property
+    def flat_dim(self) -> int:
+        return self.site_runtime.flat_dim
+
+    @property
+    def unravel_fn(self) -> Any:
+        return self.site_runtime.unravel_fn
+
+    def constrain(self, z: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        return self.site_runtime.constrain(z)
+
+    def constrain_batched(self, z_samples: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        return self.site_runtime.constrain_batched(z_samples)
 
 
 def _site(
@@ -436,6 +523,29 @@ def build_unravel_fn(
     return flat.shape[0], unravel_fn
 
 
+def _build_site_runtime_bundle_from_registry(
+    registry: list[SiteDescriptor],
+) -> SiteRuntimeBundle:
+    """Build reusable topology-only runtime components from a site registry."""
+    transforms = build_transforms(registry)
+    flat_dim, unravel_fn = build_unravel_fn(registry)
+    return SiteRuntimeBundle(
+        registry=registry,
+        transforms=transforms,
+        flat_dim=flat_dim,
+        unravel_fn=unravel_fn,
+    )
+
+
+def build_site_runtime_bundle(
+    spec: SSMSpec,
+    assembler: SSMAssembler | None = None,
+) -> SiteRuntimeBundle:
+    """Build reusable topology-only runtime components from ``spec``."""
+    registry = build_site_registry(spec, assembler)
+    return _build_site_runtime_bundle_from_registry(registry)
+
+
 def group_sites_by_assembly_role(
     registry: list[SiteDescriptor],
 ) -> dict[str, list[SiteDescriptor]]:
@@ -444,6 +554,22 @@ def group_sites_by_assembly_role(
     for site in registry:
         grouped.setdefault(site.assembly_group, []).append(site)
     return grouped
+
+
+def select_site_samples(
+    samples: dict[str, jnp.ndarray],
+    registry: list[SiteDescriptor],
+    *,
+    assembly_group: str | None = None,
+) -> dict[str, jnp.ndarray]:
+    """Select sampled site values using registry metadata instead of name lists."""
+    selected: dict[str, jnp.ndarray] = {}
+    for site in registry:
+        if assembly_group is not None and site.assembly_group != assembly_group:
+            continue
+        if site.name in samples:
+            selected[site.name] = samples[site.name]
+    return selected
 
 
 def _resolve_num_draws(
@@ -567,6 +693,20 @@ def assemble_deterministics_from_registry(
         det["t0_cov"] = t0_cov
 
     return det
+
+
+def assemble_extra_params_from_registry(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+    registry: list[SiteDescriptor],
+) -> dict[str, jnp.ndarray]:
+    """Assemble likelihood extra parameters using registry metadata as authority."""
+    from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
+
+    return assemble_sampled_extra_params(
+        spec,
+        select_site_samples(samples, registry, assembly_group="likelihood"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1002,16 +1142,11 @@ def build_prior_runtime_bundle(
     priors: SSMPriors | None = None,
 ) -> PriorRuntimeBundle:
     """Build reusable runtime components directly from ``spec`` and ``priors``."""
-    registry = build_site_registry(spec)
-    prior_state = build_prior_runtime_state(registry, priors)
-    transforms = build_transforms(registry)
-    flat_dim, unravel_fn = build_unravel_fn(registry)
+    site_runtime = build_site_runtime_bundle(spec)
+    prior_state = build_prior_runtime_state(site_runtime.registry, priors)
     return PriorRuntimeBundle(
-        registry=registry,
+        site_runtime=site_runtime,
         prior_state=prior_state,
-        transforms=transforms,
-        flat_dim=flat_dim,
-        unravel_fn=unravel_fn,
     )
 
 
@@ -1027,14 +1162,10 @@ def load_prior_runtime_bundle(
 
     registry = deserialize_site_registry(compiled_prior_semantics["site_registry"])
     prior_state = deserialize_prior_runtime_state(compiled_prior_semantics["prior_state"], registry)
-    transforms = build_transforms(registry)
-    flat_dim, unravel_fn = build_unravel_fn(registry)
+    site_runtime = _build_site_runtime_bundle_from_registry(registry)
     return PriorRuntimeBundle(
-        registry=registry,
+        site_runtime=site_runtime,
         prior_state=prior_state,
-        transforms=transforms,
-        flat_dim=flat_dim,
-        unravel_fn=unravel_fn,
     )
 
 

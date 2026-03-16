@@ -6,20 +6,25 @@ Builds prior predictive samples directly from compiled prior semantics or
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import jax
 import jax.numpy as jnp
 import jax.random as random
 
 from causal_ssm_agent.models.posterior_predictive import simulate_posterior_predictive
-from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec, assemble_sampled_extra_params
 from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
+    assemble_extra_params_from_registry,
     build_prior_runtime_bundle,
     load_prior_runtime_bundle,
     sample_prior_unconstrained,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+if TYPE_CHECKING:
+    from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
 
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
@@ -36,21 +41,6 @@ def _ensure_discrete_metadata(spec: SSMSpec) -> None:
         )
 
 
-def _constrain_prior_samples(
-    z_samples: jnp.ndarray,
-    runtime: PriorRuntimeBundle,
-) -> dict[str, jnp.ndarray]:
-    """Map unconstrained prior draws to constrained site samples."""
-    if runtime.flat_dim == 0:
-        return {}
-
-    unconstrained = jax.vmap(runtime.unravel_fn)(z_samples)
-    constrained: dict[str, jnp.ndarray] = {}
-    for site in runtime.registry:
-        constrained[site.name] = jax.vmap(runtime.transforms[site.name])(unconstrained[site.name])
-    return constrained
-
-
 def _assemble_extra_params_batched(
     spec: SSMSpec,
     constrained_samples: dict[str, jnp.ndarray],
@@ -59,19 +49,14 @@ def _assemble_extra_params_batched(
     n_draws: int,
 ) -> dict[str, jnp.ndarray]:
     """Assemble per-draw observation/process hyperparameters."""
-    likelihood_sites = [
-        site.name for site in runtime.registry if site.assembly_group == "likelihood"
-    ]
-    if not likelihood_sites:
+    if not any(site.assembly_group == "likelihood" for site in runtime.registry):
         return {}
 
     def _assemble_one(draw_idx):
         sampled_values = {
-            site_name: constrained_samples[site_name][draw_idx]
-            for site_name in likelihood_sites
-            if site_name in constrained_samples
+            site_name: values[draw_idx] for site_name, values in constrained_samples.items()
         }
-        return assemble_sampled_extra_params(spec, sampled_values)
+        return assemble_extra_params_from_registry(spec, sampled_values, runtime.registry)
 
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
 
@@ -93,7 +78,7 @@ def sample_prior_predictive_from_runtime(
         runtime.prior_state,
         n_samples=num_samples,
     )
-    constrained_samples = _constrain_prior_samples(z_samples, runtime)
+    constrained_samples = runtime.constrain_batched(z_samples)
     deterministic_samples = assemble_deterministics_from_registry(
         constrained_samples,
         spec,

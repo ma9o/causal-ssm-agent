@@ -4,6 +4,7 @@ Functions used by hessmc2, pgas, tempered_smc, and parametric_id:
 - _discover_sites: trace model to discover sample sites
 - _assemble_deterministics: build SSM matrices from constrained samples
 - _build_eval_fns: build differentiable log-likelihood and log-prior evaluators
+- _build_runtime_eval_fns_from_registry: compile-stable evaluators for diagnostics
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ from numpyro import handlers
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.ssm.autoreparam import fixed_autoreparam_centering
 from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
-from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
 from causal_ssm_agent.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
+    assemble_extra_params_from_registry,
     build_site_registry,
 )
 
@@ -66,10 +67,11 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
 
 
 def _assemble_deterministics(
-    samples: dict[str, jnp.ndarray], spec: SSMSpec
+    samples: dict[str, jnp.ndarray], spec: SSMSpec, *, registry=None
 ) -> dict[str, jnp.ndarray]:
     """Thin wrapper over the registry-driven deterministic assembly path."""
-    registry = build_site_registry(spec)
+    if registry is None:
+        registry = build_site_registry(spec)
     return assemble_deterministics_from_registry(samples, spec, registry)
 
 
@@ -157,32 +159,10 @@ def _assemble_single_deterministics(
     return {name: value[0] for name, value in det.items()}
 
 
-def _build_extra_params(
-    samples: dict[str, jnp.ndarray],
-    spec: SSMSpec,
-) -> dict[str, jnp.ndarray]:
-    """Reconstruct extra likelihood hyperparameters from constrained sample sites."""
-    sampled_values = {
-        key: samples[key]
-        for key in (
-            "obs_df",
-            "obs_shape",
-            "obs_r",
-            "obs_concentration",
-            "obs_ordered_base",
-            "obs_ordered_gaps",
-            "obs_cat_intercepts",
-            "obs_cat_slopes",
-            "proc_df",
-        )
-        if key in samples
-    }
-    return assemble_sampled_extra_params(spec, sampled_values)
-
-
 def _assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
+    registry=None,
 ) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
     det = _assemble_single_deterministics(samples, spec)
@@ -227,7 +207,8 @@ def _assemble_likelihood_inputs(
         else:
             t0_cov = jnp.eye(n_l)
 
-    extra_params = _build_extra_params(samples, spec)
+    runtime_registry = registry if registry is not None else build_site_registry(spec)
+    extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
 
     return (
         CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint),
@@ -340,6 +321,9 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
+    runtime_registry = None
+    if sample_resolver is not None:
+        runtime_registry = build_site_registry(model.spec, model._assembler)
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
     from causal_ssm_agent.models.ssm.inference import _eval_model
 
@@ -358,6 +342,7 @@ def _build_eval_fns(
         ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
+            registry=runtime_registry,
         )
         lnc = likelihood_backend.compute_log_likelihood(
             ct_params,
@@ -382,92 +367,6 @@ def _build_eval_fns(
             jnp.sum(transforms[name].log_abs_det_jacobian(unc[name], con[name])) for name in unc
         )
         return lp + lj
-
-    return log_lik_fn, log_prior_unc_fn
-
-
-def _build_eval_fns_from_registry(
-    model,
-    observations,
-    times,
-    registry,
-    unravel_fn,
-    transforms,
-    likelihood_backend,
-    reparam=None,
-):
-    """Build differentiable log-likelihood and registry-based log-prior.
-
-    Unlike ``_build_eval_fns``, the returned ``log_prior_unc_fn`` takes
-    a ``PriorRuntimeState`` argument instead of closing over traced
-    distribution objects.  This means changing prior values or families
-    does **not** trigger JAX recompilation.
-
-    Returns:
-        log_lik_fn(z) -> scalar log p(y|theta)
-        log_prior_unc_fn(z, prior_state) -> scalar log p_unc(z)
-    """
-    from causal_ssm_agent.models.ssm.parameterization import log_prior_unconstrained
-
-    # --- log-likelihood (topology-dependent, compiled once) ----------------
-    model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
-    if reparam is not None:
-        model_fn = handlers.reparam(model_fn, config=reparam)
-
-    sample_resolver = None
-    if reparam is not None:
-        # Only traced reparameterized paths still need public-trace metadata.
-        rng_key = jax.random.PRNGKey(0)
-        site_info = _discover_sites(
-            model,
-            observations,
-            times,
-            rng_key,
-            likelihood_backend,
-            reparam,
-        )
-        sample_resolver = _build_original_sample_resolver(
-            site_info,
-            model=model,
-            observations=observations,
-            times=times,
-            reparam=reparam,
-        )
-    time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
-    from causal_ssm_agent.models.ssm.inference import _eval_model
-
-    def _constrain(z):
-        unc = unravel_fn(z)
-        return {name: transforms[name](unc[name]) for name in unc}, unc
-
-    def _log_lik_fn(z):
-        con, _ = _constrain(z)
-        if sample_resolver is None:
-            log_lik, _ = _eval_model(model_fn, con, observations, times)
-            return log_lik
-
-        original_samples = sample_resolver(con)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            original_samples,
-            model.spec,
-        )
-        lnc = likelihood_backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-            extra_params=extra_params,
-        )
-        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
-
-    log_lik_fn = jax.checkpoint(_log_lik_fn)
-
-    # --- log-prior (takes prior_state as argument) -------------------------
-
-    def log_prior_unc_fn(z, prior_state):
-        return log_prior_unconstrained(z, unravel_fn, registry, prior_state)
 
     return log_lik_fn, log_prior_unc_fn
 
@@ -497,6 +396,7 @@ def _build_runtime_eval_fns_from_registry(
         ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             con,
             spec,
+            registry=registry,
         )
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         lnc = likelihood_backend.compute_log_likelihood(
