@@ -209,6 +209,28 @@ class TestTRule:
         counts = count_free_params(spec)
         assert counts.get("obs_df") == 1
 
+    def test_count_free_params_per_channel_noise_hyperparams(self):
+        """Per-channel manifest_dists should contribute registry-defined noise sites."""
+        from causal_ssm_agent.utils.parametric_id import count_free_params
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=2,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(2, 1),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+            ],
+        )
+        counts = count_free_params(spec)
+        assert counts.get("obs_df") == 1
+
 
 class TestSimulateSSM:
     """Test forward simulator."""
@@ -294,10 +316,8 @@ class TestOutputSensitivity:
 
         with (
             patch.object(
-                pid, "build_site_registry", wraps=pid.build_site_registry
-            ) as build_registry,
-            patch.object(pid, "build_transforms", wraps=pid.build_transforms) as build_transforms,
-            patch.object(pid, "build_unravel_fn", wraps=pid.build_unravel_fn) as build_unravel_fn,
+                pid, "build_site_runtime_bundle", wraps=pid.build_site_runtime_bundle
+            ) as build_site_runtime,
             patch.object(
                 pid,
                 "_build_runtime_eval_fns_from_registry",
@@ -308,9 +328,7 @@ class TestOutputSensitivity:
             ctx_2 = pid.get_stage4b_sweep_context(model)
 
         assert ctx_1 is ctx_2
-        assert build_registry.call_count == 1
-        assert build_transforms.call_count == 1
-        assert build_unravel_fn.call_count == 1
+        assert build_site_runtime.call_count == 1
         assert build_eval_fns.call_count == 1
 
     def test_stage4b_sweep_context_separates_distinct_topologies(self):

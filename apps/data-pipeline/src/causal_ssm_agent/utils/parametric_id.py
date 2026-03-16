@@ -26,26 +26,22 @@ import jax.random as random
 import jax.scipy.optimize
 import numpy as np
 from jax import lax
-from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.parameterization import (
+    SiteRuntimeBundle,
+    assemble_deterministics_from_registry,
     build_prior_runtime_state,
     build_site_registry,
-    build_transforms,
-    build_unravel_fn,
+    build_site_runtime_bundle,
     sample_prior_unconstrained,
 )
 from causal_ssm_agent.models.ssm.utils import (
-    _assemble_deterministics,
-    _build_eval_fns,
     _build_runtime_eval_fns_from_registry,
-    _discover_sites,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -64,22 +60,53 @@ _STAGE4B_SWEEP_CONTEXT_CACHE_MAXSIZE = 8
 
 @dataclass(frozen=True)
 class Stage4bSweepContext:
-    """Reusable topology-dependent Stage 4b runtime state."""
+    """Reusable topology-dependent Stage 4b runtime state.
+
+    Delegates parameter-space metadata to :class:`SiteRuntimeBundle` to
+    avoid duplicating registry, transforms, unravel_fn, etc.
+    """
 
     cache_key: tuple[str, ...]
     spec: SSMSpec
-    registry: list
-    transforms: dict[str, Callable]
-    flat_dim: int
-    unravel_fn: Callable
-    param_names: list[str]
-    site_shapes: dict[str, tuple[int, ...]]
-    scalar_names: list[str]
-    param_index: dict[str, tuple[int, int]]
+    site_runtime: SiteRuntimeBundle
     predict_moments_fn: Callable
     jacobian_fn: Callable
     log_lik_fn: Callable
     log_prior_unc_fn: Callable
+
+    # -- Convenience accessors delegating to site_runtime ------------------
+
+    @property
+    def registry(self):
+        return self.site_runtime.registry
+
+    @property
+    def transforms(self):
+        return self.site_runtime.transforms
+
+    @property
+    def flat_dim(self):
+        return self.site_runtime.flat_dim
+
+    @property
+    def unravel_fn(self):
+        return self.site_runtime.unravel_fn
+
+    @property
+    def param_names(self):
+        return self.site_runtime.param_names
+
+    @property
+    def site_shapes(self):
+        return self.site_runtime.site_shapes
+
+    @property
+    def scalar_names(self):
+        return self.site_runtime.scalar_names
+
+    @property
+    def param_index(self):
+        return self.site_runtime.param_index
 
 
 _STAGE4B_SWEEP_CONTEXT_CACHE: OrderedDict[tuple[str, ...], Stage4bSweepContext] = OrderedDict()
@@ -144,36 +171,30 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
         _STAGE4B_SWEEP_CONTEXT_CACHE.move_to_end(cache_key)
         return cached
 
-    registry = build_site_registry(model.spec, model._assembler)
-    transforms = build_transforms(registry)
-    flat_dim, unravel_fn = build_unravel_fn(registry)
-    param_names = [site.name for site in registry]
-    site_shapes = {site.name: site.shape for site in registry}
-    scalar_names = _build_scalar_names_from_registry(param_names, site_shapes)
-    param_index = _build_param_index_from_registry(param_names, site_shapes)
+    site_runtime = build_site_runtime_bundle(model.spec, model._assembler)
     backend = model.make_likelihood_backend()
     log_lik_fn, log_prior_unc_fn = _build_runtime_eval_fns_from_registry(
         model.spec,
-        registry,
-        unravel_fn,
-        transforms,
+        site_runtime.registry,
+        site_runtime.unravel_fn,
+        site_runtime.transforms,
         backend,
     )
 
     def _predict(z_flat, times):
-        return _predict_moments(z_flat, unravel_fn, transforms, model.spec, times)
+        return _predict_moments(
+            z_flat,
+            site_runtime.unravel_fn,
+            site_runtime.transforms,
+            model.spec,
+            times,
+            registry=site_runtime.registry,
+        )
 
     context = Stage4bSweepContext(
         cache_key=cache_key,
         spec=model.spec,
-        registry=registry,
-        transforms=transforms,
-        flat_dim=flat_dim,
-        unravel_fn=unravel_fn,
-        param_names=param_names,
-        site_shapes=site_shapes,
-        scalar_names=scalar_names,
-        param_index=param_index,
+        site_runtime=site_runtime,
         predict_moments_fn=_predict,
         jacobian_fn=jax.jit(jax.jacrev(_predict, argnums=0)),
         log_lik_fn=log_lik_fn,
@@ -227,87 +248,10 @@ class TRuleResult(BaseModel):
 
 
 def count_free_params(spec: SSMSpec) -> dict[str, int]:
-    """Count free parameters in an SSMSpec, matching the model's sampling logic.
-
-    Returns a dict mapping parameter group name to the number of scalar
-    free parameters in that group. Follows SSMModel._sample_* methods exactly.
-
-    When drift_mask or lambda_mask is set, counts only the masked
-    positions instead of assuming fully free matrices.
-    """
-    n_l, n_m = spec.n_latent, spec.n_manifest
+    """Count free parameters using the canonical site registry as authority."""
     counts: dict[str, int] = {}
-
-    # -- Drift --
-    if isinstance(spec.drift, str) and spec.drift == "free":
-        counts["drift_diag_pop"] = n_l
-
-        # Count off-diagonal entries from mask or assume all free
-        if spec.drift_mask is not None:
-            import numpy as np
-
-            mask = np.asarray(spec.drift_mask)
-            # Off-diagonal = mask True AND not on diagonal
-            diag_mask = np.eye(n_l, dtype=bool)
-            n_offdiag = int(np.sum(mask & ~diag_mask))
-        else:
-            n_offdiag = n_l * n_l - n_l
-
-        if n_offdiag > 0:
-            counts["drift_offdiag_pop"] = n_offdiag
-
-    # -- Diffusion --
-    if isinstance(spec.diffusion, str):
-        counts["diffusion_diag_pop"] = n_l
-        if spec.diffusion == "free":
-            n_lower = n_l * (n_l - 1) // 2
-            if n_lower > 0:
-                counts["diffusion_lower"] = n_lower
-
-    # -- Continuous intercept --
-    if spec.cint is not None and isinstance(spec.cint, str) and spec.cint == "free":
-        counts["cint_pop"] = n_l
-
-    # -- Lambda (factor loadings) --
-    if isinstance(spec.lambda_mat, str) and spec.lambda_mat == "free":
-        n_free = max(0, n_m - n_l) * n_l
-        if n_free > 0:
-            counts["lambda_free"] = n_free
-    elif spec.lambda_mask is not None:
-        import numpy as np
-
-        n_free = int(np.sum(spec.lambda_mask))
-        if n_free > 0:
-            counts["lambda_free"] = n_free
-
-    # -- Manifest means --
-    if isinstance(spec.manifest_means, str) and spec.manifest_means == "free":
-        counts["manifest_means"] = n_m
-
-    # -- Manifest variance (always diagonal in current impl) --
-    if isinstance(spec.manifest_var, str):
-        counts["manifest_var_diag"] = n_m
-
-    # -- Initial state means --
-    if isinstance(spec.t0_means, str) and spec.t0_means == "free":
-        counts["t0_means_pop"] = n_l
-
-    # -- Initial state variance (always diagonal in current impl) --
-    if isinstance(spec.t0_var, str):
-        counts["t0_var_diag"] = n_l
-
-    # -- Noise family hyperparameters --
-    if spec.manifest_dist == DistributionFamily.STUDENT_T:
-        counts["obs_df"] = 1
-    if spec.manifest_dist == DistributionFamily.GAMMA:
-        counts["obs_shape"] = 1
-    if spec.manifest_dist == DistributionFamily.NEGATIVE_BINOMIAL:
-        counts["obs_r"] = 1
-    if spec.manifest_dist == DistributionFamily.BETA:
-        counts["obs_concentration"] = 1
-    if spec.diffusion_dist == DistributionFamily.STUDENT_T:
-        counts["proc_df"] = 1
-
+    for site in build_site_registry(spec):
+        counts[site.name] = int(np.prod(site.shape)) if site.shape else 1
     return counts
 
 
@@ -470,9 +414,13 @@ def simulate_ssm(
 # ---------------------------------------------------------------------------
 
 
-def _simulate_from_params(con_dict, spec, times, rng_key):
+def _simulate_from_params(con_dict, spec, times, rng_key, *, registry=None):
     """Simulate observations from constrained parameter dict."""
-    det = _assemble_deterministics({k: v[None, ...] for k, v in con_dict.items()}, spec)
+    if registry is None:
+        registry = build_site_registry(spec)
+    det = assemble_deterministics_from_registry(
+        {k: v[None, ...] for k, v in con_dict.items()}, spec, registry
+    )
     det = {k: v[0] for k, v in det.items()}
     n_l, n_m = spec.n_latent, spec.n_manifest
     return simulate_ssm(
@@ -507,75 +455,12 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
     return float(1.0 - jax.scipy.special.gammainc(df / 2.0, chi2 / 2.0))
 
 
-def _build_scalar_names(param_names, site_info):
-    """Build flat list of scalar element names from parameter groups."""
-    names = []
-    for name in param_names:
-        size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
-        if size == 1:
-            names.append(name)
-        else:
-            for k in range(size):
-                names.append(f"{name}[{k}]")
-    return names
-
-
-def _build_scalar_names_from_registry(param_names, site_shapes):
-    """Build flat list of scalar element names from registry shapes."""
-    names = []
-    for name in param_names:
-        size = int(jnp.prod(jnp.array(site_shapes[name]))) if site_shapes[name] else 1
-        if size == 1:
-            names.append(name)
-        else:
-            for k in range(size):
-                names.append(f"{name}[{k}]")
-    return names
-
-
-def _build_param_index(param_names, site_info):
-    """Build {param_name: (offset, size)} map into flat vector."""
-    index = {}
-    offset = 0
-    for name in param_names:
-        size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
-        index[name] = (offset, size)
-        offset += size
-    return index
-
-
-def _build_param_index_from_registry(param_names, site_shapes):
-    """Build {param_name: (offset, size)} map from registry shapes."""
-    index = {}
-    offset = 0
-    for name in param_names:
-        size = int(jnp.prod(jnp.array(site_shapes[name]))) if site_shapes[name] else 1
-        index[name] = (offset, size)
-        offset += size
-    return index
-
-
-def _sample_prior_unc(param_names, site_info, rng_key, n_samples=200):
-    """Sample from prior in unconstrained space. Returns (n_samples, D) array."""
-    samples = []
-    for _ in range(n_samples):
-        parts = []
-        for name in param_names:
-            info = site_info[name]
-            rng_key, sk = random.split(rng_key)
-            con = info["distribution"].sample(sk, ())
-            unc = info["transform"].inv(con)
-            parts.append(unc.reshape(-1))
-        samples.append(jnp.concatenate(parts))
-    return jnp.stack(samples), rng_key
-
-
 # ---------------------------------------------------------------------------
 # Output sensitivity analysis
 # ---------------------------------------------------------------------------
 
 
-def _predict_moments(z_flat, unravel_fn, transforms, spec, times):
+def _predict_moments(z_flat, unravel_fn, transforms, spec, times, *, registry=None):
     """Predicted observation means and variances from unconstrained params.
 
     Runs Kalman prediction equations (no data update) to propagate state
@@ -586,12 +471,14 @@ def _predict_moments(z_flat, unravel_fn, transforms, spec, times):
     and variance-dependent identifiability (diffusion, observation noise).
     Fully deterministic and JAX-differentiable.
     """
+    if registry is None:
+        registry = build_site_registry(spec)
     unc_dict = unravel_fn(z_flat)
     con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
 
     # Assemble matrices from constrained parameters (batch dim = 1)
     batched = {k: v[None, ...] for k, v in con_dict.items()}
-    det = _assemble_deterministics(batched, spec)
+    det = assemble_deterministics_from_registry(batched, spec, registry)
     det = {k: v[0] for k, v in det.items()}
 
     n_l, n_m = spec.n_latent, spec.n_manifest
@@ -731,7 +618,7 @@ def output_sensitivity_analysis(
         unc_dict = context.unravel_fn(z_0)
         con_dict = {name: context.transforms[name](unc_dict[name]) for name in unc_dict}
         batched = {k: v[None, ...] for k, v in con_dict.items()}
-        det = _assemble_deterministics(batched, context.spec)
+        det = assemble_deterministics_from_registry(batched, context.spec, context.registry)
         det = {k: v[0] for k, v in det.items()}
         manifest_cov = det.get("manifest_cov", jnp.eye(n_manifest))
         obs_sd = jnp.sqrt(jnp.diag(manifest_cov))
@@ -1202,18 +1089,23 @@ def sbc_check(
     rng_key = random.PRNGKey(seed)
     times = jnp.arange(T, dtype=jnp.float32) * dt
 
-    # Discover sites from dummy data
+    # Build registry-based runtime (no model tracing needed).
+    # The log_lik_fn is compiled once and reused across all replicates.
+    site_runtime = build_site_runtime_bundle(model.spec, model._assembler)
+    prior_state = build_prior_runtime_state(site_runtime.registry, model.priors)
     backend = model.make_likelihood_backend()
-    dummy_obs = jnp.zeros((T, model.spec.n_manifest))
-    rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, dummy_obs, times, trace_key, backend)
-    param_names = sorted(site_info.keys())
+    log_lik_fn, _ = _build_runtime_eval_fns_from_registry(
+        model.spec,
+        site_runtime.registry,
+        site_runtime.unravel_fn,
+        site_runtime.transforms,
+        backend,
+    )
 
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    _, unravel_fn = ravel_pytree(example_unc)
-
-    param_index = _build_param_index(param_names, site_info)
-    scalar_names = _build_scalar_names(param_names, site_info)
+    param_names = site_runtime.param_names
+    param_index = site_runtime.param_index
+    scalar_names = site_runtime.scalar_names
+    registry = site_runtime.registry
 
     all_ranks: dict[str, list[int]] = {sn: [] for sn in scalar_names}
     ll_ranks: list[int] = []
@@ -1221,21 +1113,15 @@ def sbc_check(
     n_failed = 0
 
     for rep in range(n_sbc):
-        # a. Draw true params from prior
-        true_con = {}
-        true_unc_parts = []
-        for name in param_names:
-            info = site_info[name]
-            rng_key, sk = random.split(rng_key)
-            con_sample = info["distribution"].sample(sk, ())
-            true_con[name] = con_sample
-            true_unc_parts.append(info["transform"].inv(con_sample).reshape(-1))
-        true_z = jnp.concatenate(true_unc_parts)
+        # a. Draw true params from prior (unconstrained, then constrain)
+        prior_z, rng_key = sample_prior_unconstrained(rng_key, registry, prior_state, n_samples=1)
+        true_z = prior_z[0]  # (D,)
+        true_con = site_runtime.constrain(true_z)
 
         # b+c. Simulate data
         rng_key, sim_key = random.split(rng_key)
         try:
-            y_star = _simulate_from_params(true_con, model.spec, times, sim_key)
+            y_star = _simulate_from_params(true_con, model.spec, times, sim_key, registry=registry)
         except Exception:
             logger.debug("SBC replicate %d: simulation failed", rep, exc_info=True)
             n_failed += 1
@@ -1276,29 +1162,27 @@ def sbc_check(
                 rank = int(jnp.sum(post_flat[:, k] < true_flat[k]))
                 all_ranks[sname].append(rank)
 
-        # g. Likelihood rank (data-dependent test quantity)
+        # g. Likelihood rank (reuse compile-stable log_lik_fn)
         if available:
-            # Can build unconstrained vectors from raw param samples
-            log_lik_fn, _ = _build_eval_fns(model, y_star, times, site_info, unravel_fn, backend)
-            true_ll = float(log_lik_fn(true_z))
+            true_ll = float(log_lik_fn(true_z, y_star, times))
 
             post_z_list = []
             for i in range(n_post):
                 parts = []
                 for name in param_names:
                     if name in samples:
-                        unc = site_info[name]["transform"].inv(samples[name][i])
+                        unc = site_runtime.transforms[name].inv(samples[name][i])
                         parts.append(unc.reshape(-1))
                 if parts:
                     post_z_list.append(jnp.concatenate(parts))
 
             if post_z_list:
                 post_z = jnp.stack(post_z_list)
-                batch_ll = jax.vmap(log_lik_fn)
+                batch_ll = jax.vmap(log_lik_fn, in_axes=(0, None, None))
                 post_lls = []
                 chunk_size = 32
                 for start in range(0, post_z.shape[0], chunk_size):
-                    post_lls.append(batch_ll(post_z[start : start + chunk_size]))
+                    post_lls.append(batch_ll(post_z[start : start + chunk_size], y_star, times))
                 post_lls = jnp.concatenate(post_lls)
                 ll_rank = int(jnp.sum(post_lls < true_ll))
             else:
