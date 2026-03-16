@@ -12,7 +12,7 @@ import numpy as np
 import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec
 from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
 
 logger = get_prefect_logger(__name__)
@@ -52,8 +52,12 @@ def _compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
 
 def _check_nan_inf(samples: dict[str, jnp.ndarray]) -> PriorValidationResult | None:
     """Check for NaN or Inf in any sample site."""
+    from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
+
     bad_sites = []
     for name, values in samples.items():
+        if name in INTERNAL_DIAGNOSTIC_SITES:
+            continue
         arr = np.asarray(values)
         if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
             bad_sites.append(name)
@@ -66,6 +70,26 @@ def _check_nan_inf(samples: dict[str, jnp.ndarray]) -> PriorValidationResult | N
             suggested_adjustment="Check for degenerate priors or numerical overflow",
         )
     return None
+
+
+def _dummy_values_for_distribution(distribution: DistributionFamily, n_rows: int) -> list[float]:
+    """Construct support-compatible dummy observations for model validation."""
+    if distribution.is_discrete:
+        return [float(i % 2) for i in range(n_rows)]
+    return [distribution.support_interior_point] * n_rows
+
+
+def _make_support_compatible_dummy_wide_data(
+    model_spec: ModelSpec,
+    n_rows: int = 10,
+) -> pl.DataFrame:
+    """Build minimal wide data that satisfy each likelihood family's support."""
+    cols: dict[str, list[float] | list[int]] = {"time": list(range(n_rows))}
+    manifest_cols: dict[str, type[pl.DataType]] = {}
+    for lik in model_spec.likelihoods:
+        cols[lik.variable] = _dummy_values_for_distribution(lik.distribution, n_rows)
+        manifest_cols[lik.variable] = pl.Float64
+    return pl.DataFrame(cols).cast(manifest_cols)
 
 
 def _check_constraint_violations(
@@ -341,10 +365,8 @@ def validate_prior_predictive(
                 compiled_ssm=compiled_ssm,
             )
         else:
-            # No raw data: create minimal dummy data for building
-            cols = {name: [0.0] * 10 for name in manifest_names}
-            cols["time"] = list(range(10))
-            X_wide = pl.DataFrame(cols).cast(dict.fromkeys(manifest_names, pl.Float64))
+            # No raw data: create dummy observations inside each family's support
+            X_wide = _make_support_compatible_dummy_wide_data(spec_obj)
             builder = make_builder_from_compiled_artifact(compiled_ssm)
             builder.build_model(X_wide)
     except Exception as e:

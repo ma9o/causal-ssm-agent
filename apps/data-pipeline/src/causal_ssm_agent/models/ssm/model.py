@@ -11,7 +11,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -148,6 +148,86 @@ class SSMPriors:
     t0_var_diag: dict = field(default_factory=lambda: {"sigma": 2.0})
 
 
+def assemble_sampled_extra_params(
+    spec: SSMSpec,
+    sampled_values: dict[str, jnp.ndarray],
+) -> dict[str, jnp.ndarray]:
+    """Assemble likelihood hyperparameters and derived observation metadata."""
+    extra_params: dict[str, jnp.ndarray] = {}
+    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+    manifest_dist_set = set(manifest_dists)
+
+    scalar_keys = (
+        "obs_df",
+        "obs_shape",
+        "obs_r",
+        "obs_concentration",
+        "proc_df",
+    )
+    for key in scalar_keys:
+        if key in sampled_values:
+            extra_params[key] = sampled_values[key]
+
+    if spec.manifest_level_counts is None:
+        return extra_params
+
+    level_counts_list = list(spec.manifest_level_counts)
+    level_counts = jnp.asarray(level_counts_list, dtype=jnp.int32)
+    extra_params["obs_level_counts"] = level_counts
+
+    max_levels = max(level_counts_list) if level_counts_list else 0
+    max_cutpoints = max(max_levels - 1, 0)
+
+    if (
+        DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set
+        or DistributionFamily.CATEGORICAL in manifest_dist_set
+    ) and max_cutpoints <= 0:
+        raise ValueError(
+            "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
+        )
+
+    if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
+        ordered_base = sampled_values["obs_ordered_base"]
+        if max_cutpoints > 1:
+            ordered_gaps = sampled_values["obs_ordered_gaps"]
+        else:
+            ordered_gaps = jnp.zeros((spec.n_manifest, 0), dtype=ordered_base.dtype)
+
+        raw_cutpoints = jnp.concatenate(
+            [
+                ordered_base[:, None],
+                ordered_base[:, None] + jnp.cumsum(ordered_gaps, axis=1),
+            ],
+            axis=1,
+        )
+        cutpoint_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
+            level_counts[:, None] - 1, 0
+        )
+        cutpoint_sum = jnp.sum(jnp.where(cutpoint_mask, raw_cutpoints, 0.0), axis=1)
+        cutpoint_count = jnp.maximum(level_counts - 1, 1)
+        cutpoint_center = cutpoint_sum / cutpoint_count
+        extra_params["obs_ordered_cutpoints"] = jnp.where(
+            cutpoint_mask,
+            raw_cutpoints - cutpoint_center[:, None],
+            0.0,
+        )
+
+    if DistributionFamily.CATEGORICAL in manifest_dist_set:
+        cat_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(level_counts[:, None] - 1, 0)
+        extra_params["obs_cat_intercepts"] = jnp.where(
+            cat_mask,
+            sampled_values["obs_cat_intercepts"],
+            0.0,
+        )
+        extra_params["obs_cat_slopes"] = jnp.where(
+            cat_mask,
+            sampled_values["obs_cat_slopes"],
+            0.0,
+        )
+
+    return extra_params
+
+
 def _make_prior_dist(prior: dict) -> dist.Distribution:
     """Build the appropriate numpyro distribution from a prior dict.
 
@@ -217,6 +297,13 @@ class SSMModel:
         self.pf_key = jax.random.PRNGKey(pf_seed)
         self.likelihood = likelihood
         self._assembler = SSMAssembler(spec)
+        self._artifact_cache: dict[tuple[Any, ...], Any] = {}
+
+    def get_cached_artifact(self, cache_key: tuple[Any, ...], factory) -> Any:
+        """Construct an artifact once per model instance and reuse it afterwards."""
+        if cache_key not in self._artifact_cache:
+            self._artifact_cache[cache_key] = factory()
+        return self._artifact_cache[cache_key]
 
     def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample drift matrix with stability constraints."""
@@ -398,7 +485,80 @@ class SSMModel:
         Callers that need a different backend (Laplace, Structured VI, DPF)
         construct it themselves instead of calling this.
         """
-        return make_likelihood_backend(self.spec, self.likelihood, self.n_particles, self.pf_key)
+        return self.get_cached_artifact(
+            ("backend", self.likelihood, self.n_particles),
+            lambda: make_likelihood_backend(
+                self.spec,
+                self.likelihood,
+                self.n_particles,
+                self.pf_key,
+            ),
+        )
+
+    def make_laplace_backend(self, n_ieks_iters: int):
+        """Construct or reuse the Laplace likelihood backend for this model."""
+        return self.get_cached_artifact(
+            ("backend", "laplace", n_ieks_iters),
+            lambda: _build_laplace_backend(self.spec, n_ieks_iters),
+        )
+
+    def _sample_likelihood_extra_params(self, spec: SSMSpec) -> dict[str, jnp.ndarray]:
+        """Sample likelihood hyperparameters and assemble backend-ready extras."""
+        sampled_values: dict[str, jnp.ndarray] = {}
+        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+        manifest_dist_set = set(manifest_dists)
+
+        if DistributionFamily.STUDENT_T in manifest_dist_set:
+            sampled_values["obs_df"] = numpyro.sample("obs_df", dist.Gamma(5.0, 1.0))
+        if DistributionFamily.GAMMA in manifest_dist_set:
+            sampled_values["obs_shape"] = numpyro.sample("obs_shape", dist.Gamma(2.0, 1.0))
+        if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
+            sampled_values["obs_r"] = numpyro.sample("obs_r", dist.Gamma(2.0, 0.5))
+        if DistributionFamily.BETA in manifest_dist_set:
+            sampled_values["obs_concentration"] = numpyro.sample(
+                "obs_concentration",
+                dist.Gamma(5.0, 0.5),
+            )
+
+        if spec.manifest_level_counts is not None:
+            level_counts_list = list(spec.manifest_level_counts)
+            max_levels = max(level_counts_list) if level_counts_list else 0
+            max_cutpoints = max(max_levels - 1, 0)
+
+            if (
+                DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set
+                or DistributionFamily.CATEGORICAL in manifest_dist_set
+            ) and max_cutpoints <= 0:
+                raise ValueError(
+                    "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
+                )
+
+            if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
+                sampled_values["obs_ordered_base"] = numpyro.sample(
+                    "obs_ordered_base",
+                    dist.Normal(0.0, 1.0).expand((spec.n_manifest,)),
+                )
+                if max_cutpoints > 1:
+                    sampled_values["obs_ordered_gaps"] = numpyro.sample(
+                        "obs_ordered_gaps",
+                        dist.HalfNormal(1.0).expand((spec.n_manifest, max_cutpoints - 1)),
+                    )
+
+            if DistributionFamily.CATEGORICAL in manifest_dist_set:
+                cat_shape = (spec.n_manifest, max_cutpoints)
+                sampled_values["obs_cat_intercepts"] = numpyro.sample(
+                    "obs_cat_intercepts",
+                    dist.Normal(0.0, 1.0).expand(cat_shape),
+                )
+                sampled_values["obs_cat_slopes"] = numpyro.sample(
+                    "obs_cat_slopes",
+                    dist.Normal(0.0, 1.0).expand(cat_shape),
+                )
+
+        if spec.diffusion_dist == DistributionFamily.STUDENT_T:
+            sampled_values["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
+
+        return assemble_sampled_extra_params(spec, sampled_values)
 
     def model(
         self,
@@ -423,7 +583,6 @@ class SSMModel:
 
         spec = self.spec
 
-        # Sample parameters
         drift = self._sample_drift(spec)
         diffusion_chol = self._sample_diffusion(spec)
         cint = self._sample_cint(spec)
@@ -431,90 +590,10 @@ class SSMModel:
         manifest_means, manifest_chol = self._sample_manifest_params(spec)
         t0_means, t0_chol = self._sample_t0_params(spec)
 
-        # Convert to covariances
         diffusion_cov = diffusion_chol @ diffusion_chol.T
         manifest_cov = manifest_chol @ manifest_chol.T
         t0_cov = t0_chol @ t0_chol.T
-
-        # Sample noise family hyperparameters
-        extra_params = {}
-        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-        manifest_dist_set = set(manifest_dists)
-
-        if DistributionFamily.STUDENT_T in manifest_dist_set:
-            extra_params["obs_df"] = numpyro.sample("obs_df", dist.Gamma(5.0, 1.0))
-        if DistributionFamily.GAMMA in manifest_dist_set:
-            extra_params["obs_shape"] = numpyro.sample("obs_shape", dist.Gamma(2.0, 1.0))
-        if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-            extra_params["obs_r"] = numpyro.sample("obs_r", dist.Gamma(2.0, 0.5))
-        if DistributionFamily.BETA in manifest_dist_set:
-            extra_params["obs_concentration"] = numpyro.sample(
-                "obs_concentration", dist.Gamma(5.0, 0.5)
-            )
-        if spec.manifest_level_counts is not None:
-            level_counts = jnp.asarray(spec.manifest_level_counts, dtype=jnp.int32)
-            extra_params["obs_level_counts"] = level_counts
-
-            max_levels = int(jnp.max(level_counts)) if level_counts.size else 0
-            max_cutpoints = max(max_levels - 1, 0)
-
-            if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
-                if max_cutpoints <= 0:
-                    raise ValueError(
-                        "ordered_logistic requires manifest_level_counts with at least 2 levels"
-                    )
-                ordered_base = numpyro.sample(
-                    "obs_ordered_base",
-                    dist.Normal(0.0, 1.0).expand((spec.n_manifest,)),
-                )
-                if max_cutpoints > 1:
-                    ordered_gaps = numpyro.sample(
-                        "obs_ordered_gaps",
-                        dist.HalfNormal(1.0).expand((spec.n_manifest, max_cutpoints - 1)),
-                    )
-                else:
-                    ordered_gaps = jnp.zeros((spec.n_manifest, 0))
-
-                raw_cutpoints = jnp.concatenate(
-                    [
-                        ordered_base[:, None],
-                        ordered_base[:, None] + jnp.cumsum(ordered_gaps, axis=1),
-                    ],
-                    axis=1,
-                )
-                cutpoint_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
-                    level_counts[:, None] - 1, 0
-                )
-                cutpoint_sum = jnp.sum(jnp.where(cutpoint_mask, raw_cutpoints, 0.0), axis=1)
-                cutpoint_count = jnp.maximum(level_counts - 1, 1)
-                cutpoint_center = cutpoint_sum / cutpoint_count
-                ordered_cutpoints = jnp.where(
-                    cutpoint_mask,
-                    raw_cutpoints - cutpoint_center[:, None],
-                    0.0,
-                )
-                extra_params["obs_ordered_cutpoints"] = ordered_cutpoints
-
-            if DistributionFamily.CATEGORICAL in manifest_dist_set:
-                if max_cutpoints <= 0:
-                    raise ValueError(
-                        "categorical requires manifest_level_counts with at least 2 levels"
-                    )
-                cat_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
-                    level_counts[:, None] - 1, 0
-                )
-                cat_intercepts = numpyro.sample(
-                    "obs_cat_intercepts",
-                    dist.Normal(0.0, 1.0).expand((spec.n_manifest, max_cutpoints)),
-                )
-                cat_slopes = numpyro.sample(
-                    "obs_cat_slopes",
-                    dist.Normal(0.0, 1.0).expand((spec.n_manifest, max_cutpoints)),
-                )
-                extra_params["obs_cat_intercepts"] = jnp.where(cat_mask, cat_intercepts, 0.0)
-                extra_params["obs_cat_slopes"] = jnp.where(cat_mask, cat_slopes, 0.0)
-        if spec.diffusion_dist == DistributionFamily.STUDENT_T:
-            extra_params["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
+        extra_params = self._sample_likelihood_extra_params(spec)
 
         ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint)
         meas_params = MeasurementParams(
@@ -548,6 +627,22 @@ class SSMModel:
             numpyro.factor("log_likelihood", total_ll)
             ll_per_timestep = jnp.diff(lnc, prepend=0.0)
             numpyro.deterministic("ll_per_timestep", ll_per_timestep)
+
+
+def _build_laplace_backend(spec: SSMSpec, n_ieks_iters: int):
+    from causal_ssm_agent.models.likelihoods.graph_analysis import (
+        get_per_channel_links,
+        get_per_channel_manifest,
+    )
+    from causal_ssm_agent.models.ssm.laplace_em import LaplaceLikelihood
+
+    return LaplaceLikelihood(
+        n_latent=spec.n_latent,
+        n_manifest=spec.n_manifest,
+        manifest_dists=get_per_channel_manifest(spec),
+        manifest_links=get_per_channel_links(spec),
+        n_ieks_iters=n_ieks_iters,
+    )
 
 
 # ---------------------------------------------------------------------------

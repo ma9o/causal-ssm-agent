@@ -17,8 +17,14 @@ import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree  # noqa: F401 — re-exported for callers
 from numpyro import handlers
 
-from causal_ssm_agent.models.ssm.assembler import SSMAssembler
-from causal_ssm_agent.models.ssm.inference import _eval_model
+from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
+from causal_ssm_agent.models.ssm.autoreparam import fixed_autoreparam_centering
+from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
+from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
+from causal_ssm_agent.models.ssm.parameterization import (
+    assemble_deterministics_from_registry,
+    build_site_registry,
+)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -42,7 +48,7 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
         if (
             site["type"] == "sample"
             and not site.get("is_observed", False)
-            and name != "log_likelihood"
+            and name not in INTERNAL_DIAGNOSTIC_SITES
         ):
             d = site["fn"]
             site_info[name] = {
@@ -62,59 +68,9 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
 def _assemble_deterministics(
     samples: dict[str, jnp.ndarray], spec: SSMSpec
 ) -> dict[str, jnp.ndarray]:
-    """Assemble deterministic sites from constrained samples, bypassing numpyro.
-
-    Each deterministic site is a matrix assembled from the raw sample sites
-    (e.g. drift_diag_pop, drift_offdiag_pop → drift matrix). Uses SSMAssembler
-    as the single source of truth for matrix construction (shared with
-    SSMModel._sample_*).
-    """
-    N = next(iter(samples.values())).shape[0]
-    n_l, n_m = spec.n_latent, spec.n_manifest
-    asm = SSMAssembler(spec)
-    det = {}
-
-    if "drift_diag_pop" in samples:
-        offdiag = samples.get(
-            "drift_offdiag_pop",
-            jnp.zeros((N, max(len(asm.offdiag_positions), 0))),
-        )
-        det["drift"] = jax.vmap(asm.assemble_drift)(samples["drift_diag_pop"], offdiag)
-
-    if "diffusion_diag_pop" in samples:
-        if "diffusion_lower" in samples:
-            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(
-                samples["diffusion_diag_pop"], samples["diffusion_lower"]
-            )
-        else:
-            det["diffusion"] = jax.vmap(asm.assemble_diffusion)(samples["diffusion_diag_pop"])
-
-    if "cint_pop" in samples:
-        det["cint"] = samples["cint_pop"]
-
-    if "lambda_free" in samples and len(asm.lambda_free_positions) > 0:
-        det["lambda"] = jax.vmap(asm.assemble_lambda)(samples["lambda_free"])
-    else:
-        det["lambda"] = jnp.broadcast_to(asm.lambda_template, (N, n_m, n_l))
-
-    if "manifest_var_diag" in samples:
-        det["manifest_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples["manifest_var_diag"])
-    elif isinstance(spec.manifest_var, jnp.ndarray):
-        fixed_cov = spec.manifest_var @ spec.manifest_var.T
-        det["manifest_cov"] = jnp.broadcast_to(fixed_cov, (N, n_m, n_m))
-
-    if "t0_means_pop" in samples:
-        det["t0_means"] = samples["t0_means_pop"]
-    elif isinstance(spec.t0_means, jnp.ndarray):
-        det["t0_means"] = jnp.broadcast_to(spec.t0_means, (N, n_l))
-
-    if "t0_var_diag" in samples:
-        det["t0_cov"] = jax.vmap(lambda d: jnp.diag(d**2))(samples["t0_var_diag"])
-    elif isinstance(spec.t0_var, jnp.ndarray):
-        fixed_cov = spec.t0_var @ spec.t0_var.T
-        det["t0_cov"] = jnp.broadcast_to(fixed_cov, (N, n_l, n_l))
-
-    return det
+    """Thin wrapper over the registry-driven deterministic assembly path."""
+    registry = build_site_registry(spec)
+    return assemble_deterministics_from_registry(samples, spec, registry)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +83,162 @@ class _DummyLikelihoodBackend:
 
     def compute_log_likelihood(self, *_args, **_kwargs):
         return jnp.array(0.0)
+
+
+def _unwrap_base_distribution(d: dist.Distribution) -> dist.Distribution:
+    """Unwrap lightweight distribution wrappers to access base parameters."""
+    while isinstance(d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
+        d = d.base_dist
+    return d
+
+
+def _build_original_sample_resolver(
+    site_info: dict,
+    *,
+    model,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    reparam=None,
+):
+    """Build a JAX-compatible resolver from reparameterized to original sample sites."""
+    if reparam is None:
+        return lambda samples: samples
+
+    centered = fixed_autoreparam_centering(reparam)
+    if centered is None:
+        return None
+
+    base_replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
+    with handlers.seed(rng_seed=0):
+        public_trace = handlers.trace(base_replay_fn).get_trace(observations, times)
+
+    passthrough_sites: list[str] = []
+    decentered_rules: list[tuple[str, str, jnp.ndarray, jnp.ndarray]] = []
+    for site_name, site in public_trace.items():
+        if (
+            site["type"] != "sample"
+            or site.get("is_observed", False)
+            or site_name in INTERNAL_DIAGNOSTIC_SITES
+        ):
+            continue
+
+        decentered_key = f"{site_name}_decentered"
+        if decentered_key in site_info:
+            d = _unwrap_base_distribution(site["fn"])
+            decentered_rules.append((site_name, decentered_key, d.loc, d.scale))
+        elif site_name in site_info:
+            passthrough_sites.append(site_name)
+
+    def _resolve(samples: dict[str, jnp.ndarray]) -> dict[str, jnp.ndarray]:
+        original_samples = {name: samples[name] for name in passthrough_sites}
+        for site_name, decentered_key, loc, scale in decentered_rules:
+            decentered_value = samples[decentered_key]
+            if centered == 0.0:
+                value = loc + scale * decentered_value
+            else:
+                delta = decentered_value - centered * loc
+                value = loc + jnp.power(scale, 1.0 - centered) * delta
+            original_samples[site_name] = value
+        return original_samples
+
+    return _resolve
+
+
+def _assemble_single_deterministics(
+    samples: dict[str, jnp.ndarray],
+    spec: SSMSpec,
+) -> dict[str, jnp.ndarray]:
+    """Assemble deterministic sites for a single constrained parameter draw."""
+    if not samples:
+        return {}
+    det = _assemble_deterministics(
+        {name: value[None, ...] for name, value in samples.items()}, spec
+    )
+    return {name: value[0] for name, value in det.items()}
+
+
+def _build_extra_params(
+    samples: dict[str, jnp.ndarray],
+    spec: SSMSpec,
+) -> dict[str, jnp.ndarray]:
+    """Reconstruct extra likelihood hyperparameters from constrained sample sites."""
+    sampled_values = {
+        key: samples[key]
+        for key in (
+            "obs_df",
+            "obs_shape",
+            "obs_r",
+            "obs_concentration",
+            "obs_ordered_base",
+            "obs_ordered_gaps",
+            "obs_cat_intercepts",
+            "obs_cat_slopes",
+            "proc_df",
+        )
+        if key in samples
+    }
+    return assemble_sampled_extra_params(spec, sampled_values)
+
+
+def _assemble_likelihood_inputs(
+    samples: dict[str, jnp.ndarray],
+    spec: SSMSpec,
+) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
+    """Build backend-ready parameter tuples from constrained sample sites."""
+    det = _assemble_single_deterministics(samples, spec)
+    n_l, n_m = spec.n_latent, spec.n_manifest
+
+    drift = det.get("drift")
+    if drift is None:
+        drift = spec.drift if isinstance(spec.drift, jnp.ndarray) else jnp.zeros((n_l, n_l))
+
+    diffusion_chol = det.get("diffusion")
+    if diffusion_chol is None:
+        diffusion_chol = spec.diffusion if isinstance(spec.diffusion, jnp.ndarray) else jnp.eye(n_l)
+    diffusion_cov = diffusion_chol @ diffusion_chol.T
+
+    cint = det.get("cint")
+    if cint is None and isinstance(spec.cint, jnp.ndarray):
+        cint = spec.cint
+
+    lambda_mat = det.get("lambda")
+    if lambda_mat is None:
+        lambda_mat = (
+            spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else jnp.eye(n_m, n_l)
+        )
+
+    manifest_means = samples.get("manifest_means")
+    if manifest_means is None:
+        if isinstance(spec.manifest_means, jnp.ndarray):
+            manifest_means = spec.manifest_means
+        else:
+            manifest_means = jnp.zeros(n_m)
+
+    manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
+
+    t0_means = det.get("t0_means")
+    if t0_means is None:
+        t0_means = spec.t0_means if isinstance(spec.t0_means, jnp.ndarray) else jnp.zeros(n_l)
+
+    t0_cov = det.get("t0_cov")
+    if t0_cov is None:
+        if isinstance(spec.t0_var, jnp.ndarray):
+            t0_cov = spec.t0_var @ spec.t0_var.T
+        else:
+            t0_cov = jnp.eye(n_l)
+
+    extra_params = _build_extra_params(samples, spec)
+
+    return (
+        CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint),
+        MeasurementParams(
+            lambda_mat=lambda_mat,
+            manifest_means=manifest_means,
+            manifest_cov=manifest_cov,
+        ),
+        InitialStateParams(mean=t0_means, cov=t0_cov),
+        extra_params or None,
+    )
 
 
 def extract_constrained_samples(
@@ -176,44 +288,20 @@ def extract_constrained_samples(
         samples.update(det_samples)
         return samples
 
-    # Reparam path: recover original parameter names + assemble deterministics.
-    #
-    # For AutoReparam(centered=0.0), LocScaleReparam creates auxiliary sample
-    # sites named "{name}_decentered" with N(0,1) prior, and the original value
-    # is: original = prior.loc + prior.scale * decentered.  This is a simple
-    # vectorized op, so we reverse it without N sequential model replays.
-    #
-    # Non-reparameterized sites (HalfNormal, Gamma, TruncatedNormal, etc.)
-    # keep their original names in the trace and are used directly.
+    sample_resolver = _build_original_sample_resolver(
+        site_info,
+        model=model,
+        observations=observations,
+        times=times,
+        reparam=reparam,
+    )
+    if sample_resolver is None:
+        raise ValueError(
+            "extract_constrained_samples only supports no reparameterization "
+            "or AutoReparam with fixed centering."
+        )
 
-    # Trace the non-reparameterized model to get original sample site distributions.
-    base_replay_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
-    with handlers.seed(rng_seed=0):
-        public_trace = handlers.trace(base_replay_fn).get_trace(observations, times)
-
-    # Recover original sample site values by reversing LocScaleReparam vectorized.
-    original_samples: dict[str, jnp.ndarray] = {}
-    for site_name, site in public_trace.items():
-        if (
-            site["type"] != "sample"
-            or site.get("is_observed", False)
-            or site_name in {"log_likelihood", "ll_per_timestep"}
-        ):
-            continue
-
-        decentered_key = f"{site_name}_decentered"
-        if decentered_key in samples:
-            # LocScaleReparam: original = loc + scale * decentered
-            # Unwrap Independent/Expanded/Masked to access loc/scale.
-            d = site["fn"]
-            while isinstance(
-                d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
-            ):
-                d = d.base_dist
-            original_samples[site_name] = d.loc + d.scale * samples[decentered_key]
-        elif site_name in samples:
-            # Not reparameterized — use directly
-            original_samples[site_name] = samples[site_name]
+    original_samples = sample_resolver(samples)
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
     det_samples = _assemble_deterministics(original_samples, spec)
@@ -245,6 +333,15 @@ def _build_eval_fns(
     model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
     if reparam is not None:
         model_fn = handlers.reparam(model_fn, config=reparam)
+    sample_resolver = _build_original_sample_resolver(
+        site_info,
+        model=model,
+        observations=observations,
+        times=times,
+        reparam=reparam,
+    )
+    time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+    from causal_ssm_agent.models.ssm.inference import _eval_model
 
     def _constrain(z):
         unc = unravel_fn(z)
@@ -253,8 +350,25 @@ def _build_eval_fns(
     def _log_lik_fn(z):
         """Log-likelihood p(y|theta) via PF or Kalman."""
         con, _ = _constrain(z)
-        log_lik, _ = _eval_model(model_fn, con, observations, times)
-        return log_lik
+        if sample_resolver is None:
+            log_lik, _ = _eval_model(model_fn, con, observations, times)
+            return log_lik
+
+        original_samples = sample_resolver(con)
+        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+            original_samples,
+            model.spec,
+        )
+        lnc = likelihood_backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            extra_params=extra_params,
+        )
+        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
+        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
 
     # Checkpoint: recompute PF intermediates during backward pass instead of
     # storing them. Trades ~2x compute for O(1) memory in time-series length.
@@ -268,5 +382,137 @@ def _build_eval_fns(
             jnp.sum(transforms[name].log_abs_det_jacobian(unc[name], con[name])) for name in unc
         )
         return lp + lj
+
+    return log_lik_fn, log_prior_unc_fn
+
+
+def _build_eval_fns_from_registry(
+    model,
+    observations,
+    times,
+    registry,
+    unravel_fn,
+    transforms,
+    likelihood_backend,
+    reparam=None,
+):
+    """Build differentiable log-likelihood and registry-based log-prior.
+
+    Unlike ``_build_eval_fns``, the returned ``log_prior_unc_fn`` takes
+    a ``PriorRuntimeState`` argument instead of closing over traced
+    distribution objects.  This means changing prior values or families
+    does **not** trigger JAX recompilation.
+
+    Returns:
+        log_lik_fn(z) -> scalar log p(y|theta)
+        log_prior_unc_fn(z, prior_state) -> scalar log p_unc(z)
+    """
+    from causal_ssm_agent.models.ssm.parameterization import log_prior_unconstrained
+
+    # --- log-likelihood (topology-dependent, compiled once) ----------------
+    model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
+    if reparam is not None:
+        model_fn = handlers.reparam(model_fn, config=reparam)
+
+    sample_resolver = None
+    if reparam is not None:
+        # Only traced reparameterized paths still need public-trace metadata.
+        rng_key = jax.random.PRNGKey(0)
+        site_info = _discover_sites(
+            model,
+            observations,
+            times,
+            rng_key,
+            likelihood_backend,
+            reparam,
+        )
+        sample_resolver = _build_original_sample_resolver(
+            site_info,
+            model=model,
+            observations=observations,
+            times=times,
+            reparam=reparam,
+        )
+    time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+    from causal_ssm_agent.models.ssm.inference import _eval_model
+
+    def _constrain(z):
+        unc = unravel_fn(z)
+        return {name: transforms[name](unc[name]) for name in unc}, unc
+
+    def _log_lik_fn(z):
+        con, _ = _constrain(z)
+        if sample_resolver is None:
+            log_lik, _ = _eval_model(model_fn, con, observations, times)
+            return log_lik
+
+        original_samples = sample_resolver(con)
+        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+            original_samples,
+            model.spec,
+        )
+        lnc = likelihood_backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            extra_params=extra_params,
+        )
+        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
+        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
+
+    log_lik_fn = jax.checkpoint(_log_lik_fn)
+
+    # --- log-prior (takes prior_state as argument) -------------------------
+
+    def log_prior_unc_fn(z, prior_state):
+        return log_prior_unconstrained(z, unravel_fn, registry, prior_state)
+
+    return log_lik_fn, log_prior_unc_fn
+
+
+def _build_runtime_eval_fns_from_registry(
+    spec,
+    registry,
+    unravel_fn,
+    transforms,
+    likelihood_backend,
+):
+    """Build compile-stable evaluators that do not close over traced model state.
+
+    This is intended for Stage 4b sweep-style diagnostics that repeatedly vary
+    prior values while keeping the model topology fixed. The returned
+    log-likelihood takes ``observations`` and ``times`` as runtime arguments so
+    the same compiled closure can be reused across many sweeps in one process.
+    """
+    from causal_ssm_agent.models.ssm.parameterization import log_prior_unconstrained
+
+    def _constrain(z):
+        unc = unravel_fn(z)
+        return {name: transforms[name](unc[name]) for name in unc}
+
+    def _log_lik_fn(z, observations, times):
+        con = _constrain(z)
+        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+            con,
+            spec,
+        )
+        time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+        lnc = likelihood_backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            extra_params=extra_params,
+        )
+        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
+        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
+
+    log_lik_fn = jax.checkpoint(_log_lik_fn)
+
+    def log_prior_unc_fn(z, prior_state):
+        return log_prior_unconstrained(z, unravel_fn, registry, prior_state)
 
     return log_lik_fn, log_prior_unc_fn
