@@ -180,6 +180,22 @@ class AutoReparam(Strategy):
         return _minimal_reparam(fn, msg.get("is_observed", False))
 
 
+def reparam_cache_key(reparam) -> tuple[str, object] | None:
+    """Return a stable cache token for supported reparameterization configs."""
+    if reparam is None:
+        return ("none", None)
+    if isinstance(reparam, AutoReparam):
+        return ("autoreparam", reparam.centered)
+    return None
+
+
+def fixed_autoreparam_centering(reparam) -> float | None:
+    """Return the fixed centering value when the config is a fixed AutoReparam."""
+    if isinstance(reparam, AutoReparam) and reparam.centered is not None:
+        return float(reparam.centered)
+    return None
+
+
 def _loc_scale_reparam(
     name: str, fn: dist.Distribution, centered: float | None
 ) -> LocScaleReparam | None:

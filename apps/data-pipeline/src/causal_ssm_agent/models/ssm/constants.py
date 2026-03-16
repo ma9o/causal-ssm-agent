@@ -5,3 +5,8 @@
 # sentinel to avoid division-by-zero in discretization while keeping the
 # initial-state contribution negligible.
 MIN_DT = 1e-6
+
+# Sites registered by SSMModel.model() that are internal diagnostics,
+# not user-facing parameter/latent sites.  All trace consumers that need
+# to distinguish "public" from "internal" should use this constant.
+INTERNAL_DIAGNOSTIC_SITES: frozenset[str] = frozenset({"log_likelihood", "ll_per_timestep"})

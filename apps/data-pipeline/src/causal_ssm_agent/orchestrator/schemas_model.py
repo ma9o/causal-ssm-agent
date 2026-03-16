@@ -29,6 +29,31 @@ class DistributionFamily(StrEnum):
     ORDERED_LOGISTIC = "ordered_logistic"
     CATEGORICAL = "categorical"
 
+    @property
+    def is_discrete(self) -> bool:
+        """Whether this family has discrete (integer) support."""
+        return self in {
+            DistributionFamily.BERNOULLI,
+            DistributionFamily.POISSON,
+            DistributionFamily.NEGATIVE_BINOMIAL,
+            DistributionFamily.ORDERED_LOGISTIC,
+            DistributionFamily.CATEGORICAL,
+        }
+
+    @property
+    def support_interior_point(self) -> float:
+        """A scalar strictly inside this family's support (for dummy observations).
+
+        For discrete families this returns 0.0; callers should use alternating
+        0/1 values instead (discrete models need at least two distinct levels
+        during tracing).
+        """
+        if self == DistributionFamily.GAMMA:
+            return 1.0
+        if self == DistributionFamily.BETA:
+            return 0.5
+        return 0.0
+
     @classmethod
     def _missing_(cls, value: object) -> DistributionFamily | None:
         """Allow case-insensitive and legacy PascalCase construction.
