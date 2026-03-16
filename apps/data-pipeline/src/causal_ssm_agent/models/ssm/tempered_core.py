@@ -19,6 +19,7 @@ from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.autoreparam import reparam_cache_key
 from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.mcmc_utils import (
     HMC_TARGET_ACCEPT,
@@ -34,6 +35,104 @@ from causal_ssm_agent.models.ssm.utils import (
 )
 
 logger = get_prefect_logger(__name__)
+
+
+def _build_tempered_smc_bundle(
+    model,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    trace_key,
+    likelihood_backend,
+    reparam,
+    n_mh_steps: int,
+    n_leapfrog: int,
+) -> dict[str, Any]:
+    """Build the cached traced/JITed artifacts for a tempered SMC configuration."""
+    site_info = _discover_sites(
+        model, observations, times, trace_key, likelihood_backend, reparam=reparam
+    )
+    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+    flat_example, unravel_fn = ravel_pytree(example_unc)
+    dim = flat_example.shape[0]
+
+    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
+        model,
+        observations,
+        times,
+        site_info,
+        unravel_fn,
+        likelihood_backend=likelihood_backend,
+        reparam=reparam,
+    )
+
+    def _safe_lik_val_and_grad(z):
+        val, grad = jax.value_and_grad(log_lik_fn)(z)
+        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
+        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+        return safe_val, safe_grad
+
+    batch_lik_val_and_grad = jax.jit(jax.vmap(_safe_lik_val_and_grad))
+
+    def _tempered_val_and_grad(z, beta):
+        lik_val, lik_grad = jax.value_and_grad(log_lik_fn)(z)
+        prior_val, prior_grad = jax.value_and_grad(log_prior_unc_fn)(z)
+        val = prior_val + beta * lik_val
+        grad = prior_grad + beta * lik_grad
+        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
+        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+        return safe_val, safe_grad
+
+    def _hmc_scan_body(carry, rng_key, beta, eps, chol_mass):
+        z, n_accept = carry
+
+        def tempered_vg(z_):
+            return _tempered_val_and_grad(z_, beta)
+
+        z_new, accepted, _ = hmc_step(rng_key, z, tempered_vg, eps, chol_mass, n_leapfrog)
+        return (z_new, n_accept + accepted.astype(jnp.int32)), None
+
+    def _mutate_particle(rng_key, z, beta, eps, chol_mass):
+        keys = random.split(rng_key, n_mh_steps)
+
+        def scan_fn(carry, key):
+            return _hmc_scan_body(carry, key, beta, eps, chol_mass)
+
+        (z_final, n_accept), _ = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
+        return z_final, n_accept
+
+    def _mutate_particle_wastefree(rng_key, z, beta, eps, chol_mass):
+        keys = random.split(rng_key, n_mh_steps)
+
+        def scan_fn(carry, key):
+            z_curr, n_acc = carry
+
+            def tempered_vg(z_):
+                return _tempered_val_and_grad(z_, beta)
+
+            z_new, accepted, _ = hmc_step(key, z_curr, tempered_vg, eps, chol_mass, n_leapfrog)
+            return (z_new, n_acc + accepted.astype(jnp.int32)), z_new
+
+        (_, n_acc), all_z = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
+        return all_z, n_acc
+
+    def _mutate_batch(rng_key, particles, beta, eps, chol_mass):
+        keys = random.split(rng_key, particles.shape[0])
+        return jax.vmap(lambda k, z: _mutate_particle(k, z, beta, eps, chol_mass))(keys, particles)
+
+    def _mutate_batch_wastefree(rng_key, particles_M, beta, eps, chol_mass):
+        keys = random.split(rng_key, particles_M.shape[0])
+        return jax.vmap(lambda k, z: _mutate_particle_wastefree(k, z, beta, eps, chol_mass))(
+            keys, particles_M
+        )
+
+    return {
+        "dim": dim,
+        "site_info": site_info,
+        "unravel_fn": unravel_fn,
+        "batch_lik_val_and_grad": batch_lik_val_and_grad,
+        "mutate_batch_jit": jax.jit(_mutate_batch),
+        "mutate_batch_wastefree_jit": jax.jit(_mutate_batch_wastefree),
+    }
 
 
 def run_tempered_smc(
@@ -108,97 +207,49 @@ def run_tempered_smc(
             "likelihood_backend is required. Use model.make_likelihood_backend() for the default."
         )
 
-    # 1. Discover model sites
     rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(
-        model, observations, times, trace_key, likelihood_backend, reparam=reparam
-    )
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
-    D = flat_example.shape[0]
-
-    # 2. Build differentiable evaluators
-    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model,
-        observations,
-        times,
-        site_info,
-        unravel_fn,
-        likelihood_backend=likelihood_backend,
-        reparam=reparam,
-    )
-
-    # Safe value-and-grad for log-likelihood
-    def _safe_lik_val_and_grad(z):
-        val, grad = jax.value_and_grad(log_lik_fn)(z)
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
-
-    batch_lik_val_and_grad = jax.jit(jax.vmap(_safe_lik_val_and_grad))
-
-    # Tempered target: log_prior + beta * log_lik
-    def _tempered_val_and_grad(z, beta):
-        lik_val, lik_grad = jax.value_and_grad(log_lik_fn)(z)
-        prior_val, prior_grad = jax.value_and_grad(log_prior_unc_fn)(z)
-        val = prior_val + beta * lik_val
-        grad = prior_grad + beta * lik_grad
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
-
-    # HMC mutation kernel (single particle)
-    def _hmc_scan_body(carry, rng_key, beta, eps, chol_mass):
-        z, n_accept = carry
-
-        def tempered_vg(z_):
-            return _tempered_val_and_grad(z_, beta)
-
-        z_new, accepted, _ = hmc_step(rng_key, z, tempered_vg, eps, chol_mass, n_leapfrog)
-        return (z_new, n_accept + accepted.astype(jnp.int32)), None
-
-    def _mutate_particle(rng_key, z, beta, eps, chol_mass):
-        """Run n_mh_steps of preconditioned HMC on a single particle."""
-        keys = random.split(rng_key, n_mh_steps)
-
-        def scan_fn(carry, key):
-            return _hmc_scan_body(carry, key, beta, eps, chol_mass)
-
-        (z_final, n_accept), _ = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
-        return z_final, n_accept
-
-    # Waste-free mutation: collect ALL intermediate states
-    def _mutate_particle_wastefree(rng_key, z, beta, eps, chol_mass):
-        """Run n_mh_steps of HMC, keeping all intermediate positions."""
-        keys = random.split(rng_key, n_mh_steps)
-
-        def scan_fn(carry, key):
-            z_curr, n_acc = carry
-
-            def tempered_vg(z_):
-                return _tempered_val_and_grad(z_, beta)
-
-            z_new, accepted, _ = hmc_step(key, z_curr, tempered_vg, eps, chol_mass, n_leapfrog)
-            return (z_new, n_acc + accepted.astype(jnp.int32)), z_new
-
-        (_, n_acc), all_z = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
-        return all_z, n_acc  # all_z: (n_mh_steps, D)
-
-    # Vmap over particles, JIT the whole batch mutation
-    def _mutate_batch(rng_key, particles, beta, eps, chol_mass):
-        keys = random.split(rng_key, particles.shape[0])
-        return jax.vmap(lambda k, z: _mutate_particle(k, z, beta, eps, chol_mass))(keys, particles)
-
-    def _mutate_batch_wastefree(rng_key, particles_M, beta, eps, chol_mass):
-        """Waste-free batch: mutate M particles, return (M, n_mh_steps, D)."""
-        M = particles_M.shape[0]
-        keys = random.split(rng_key, M)
-        return jax.vmap(lambda k, z: _mutate_particle_wastefree(k, z, beta, eps, chol_mass))(
-            keys, particles_M
+    reparam_key = reparam_cache_key(reparam)
+    if reparam_key is None:
+        cached_bundle = _build_tempered_smc_bundle(
+            model,
+            observations,
+            times,
+            trace_key,
+            likelihood_backend,
+            reparam,
+            n_mh_steps,
+            n_leapfrog,
+        )
+    else:
+        cache_key = (
+            "tempered_smc_core",
+            id(likelihood_backend),
+            tuple(observations.shape),
+            tuple(times.shape),
+            n_mh_steps,
+            n_leapfrog,
+            *reparam_key,
+        )
+        cached_bundle = model.get_cached_artifact(
+            cache_key,
+            lambda: _build_tempered_smc_bundle(
+                model,
+                observations,
+                times,
+                trace_key,
+                likelihood_backend,
+                reparam,
+                n_mh_steps,
+                n_leapfrog,
+            ),
         )
 
-    _mutate_batch_jit = jax.jit(_mutate_batch)
-    _mutate_batch_wastefree_jit = jax.jit(_mutate_batch_wastefree)
+    D = cached_bundle["dim"]
+    site_info = cached_bundle["site_info"]
+    unravel_fn = cached_bundle["unravel_fn"]
+    batch_lik_val_and_grad = cached_bundle["batch_lik_val_and_grad"]
+    _mutate_batch_jit = cached_bundle["mutate_batch_jit"]
+    _mutate_batch_wastefree_jit = cached_bundle["mutate_batch_wastefree_jit"]
 
     # 3. Initialize N particles from prior
     eps = param_step_size
