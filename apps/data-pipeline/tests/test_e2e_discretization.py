@@ -550,7 +550,9 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
         spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, two_construct_model_spec, ssm_spec=spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
+            priors, two_construct_model_spec, ssm_spec=spec
+        )
 
         assert ssm_priors.diffusion_diag == {"sigma": [0.1, 0.9]}
 
@@ -1001,7 +1003,9 @@ class TestE2ESpecToDiscretization:
         builder_d = SSMModelBuilder(
             model_spec=model_spec, priors=priors_daily, causal_spec=causal_spec
         )
-        ssm_priors_d, _idx = builder_d._convert_priors_to_ssm(priors_daily, model_spec, ssm_spec=ssm_spec)
+        ssm_priors_d, _idx = builder_d._convert_priors_to_ssm(
+            priors_daily, model_spec, ssm_spec=ssm_spec
+        )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
         mu_w = ssm_priors_w.drift_offdiag["mu"]
@@ -1326,53 +1330,15 @@ class TestExactMatrixLogConversion:
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
         """Builder stores edge lag metadata from causal spec during mask building."""
-        model_spec = {
-            "likelihoods": [
-                {
-                    "variable": "mood_rating",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "variable": "stress_self_report",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                    "search_context": "",
-                },
-                {
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                    "search_context": "",
-                },
-                {
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                    "search_context": "",
-                },
-            ],
-        }
-        builder = SSMModelBuilder(
-            model_spec=model_spec,
-            priors={},
-            causal_spec=two_construct_causal_spec,
-        )
+        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+
         # Building masks returns edge_lag_days as 4th value
-        _dm, _lm, _lmask, edge_lag_days = builder._build_masks_from_causal_spec(
-            ["mood", "stress"], ["mood_rating", "stress_self_report"], 2, 2
+        _dm, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+            ["mood", "stress"],
+            ["mood_rating", "stress_self_report"],
+            2,
+            2,
+            causal_spec=two_construct_causal_spec,
         )
 
         # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
@@ -1441,16 +1407,22 @@ class TestExactMatrixLogConversion:
             latent_names=["mood", "stress"],
             drift_mask=drift_mask,
         )
+        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+
         builder = SSMModelBuilder(
             model_spec=model_spec,
             priors=priors,
             causal_spec=two_construct_causal_spec,
         )
         # Build masks to get edge_lag_days, then pass explicitly
-        _dm, _lm, _lmask, edge_lag_days = builder._build_masks_from_causal_spec(
-            ["mood", "stress"], ["mood_rating", "stress_self_report"], 2, 2
+        _dm, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+            ["mood", "stress"],
+            ["mood_rating", "stress_self_report"],
+            2,
+            2,
+            causal_spec=two_construct_causal_spec,
         )
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.models.ssm_builder"):
+        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.models.ssm_compilation"):
             builder._convert_priors_to_ssm(
                 priors, model_spec, ssm_spec=ssm_spec, edge_lag_days=edge_lag_days
             )
