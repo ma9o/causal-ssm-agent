@@ -9,7 +9,18 @@ logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
 
-DATA_DIR = Path(__file__).resolve().parents[5] / "data"
+
+def _find_data_dir() -> Path:
+    """Find the repository data directory, tolerating alternate container layouts."""
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        candidate = parent / "data"
+        if candidate.exists():
+            return candidate
+    return Path.cwd() / "data"
+
+
+DATA_DIR = _find_data_dir()
 PROCESSED_DIR = DATA_DIR / "processed"
 
 
