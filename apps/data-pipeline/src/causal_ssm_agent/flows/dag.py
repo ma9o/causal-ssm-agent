@@ -28,6 +28,7 @@ from .run_store import (
     save_parquet,
     save_pickle,
     stage_state,
+    unwrap_task_result,
 )
 
 logger = get_prefect_logger(__name__)
@@ -421,9 +422,7 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
     raw_data = load_parquet(stage2["_raw_data_path"])
 
     validation_task = validate_extraction(causal_spec, [raw_data])
-    validation_report = (
-        validation_task.result() if hasattr(validation_task, "result") else validation_task
-    )
+    validation_report = unwrap_task_result(validation_task)
 
     if validation_report:
         issues = validation_report.get("issues", [])
@@ -505,27 +504,6 @@ async def stage4(
         raw_data=data_for_model,
         enable_literature=enable_literature,
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SSM builder (shared between stage 4b, 5)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def ssm_builder(stage4: dict, _stage1b: dict, stage2: dict) -> Any:
-    """Pre-build SSMModelBuilder once for downstream stages."""
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
-
-    try:
-        return build_ssm_builder(
-            raw_data=load_parquet(stage2["_data_for_model_path"]),
-            compiled_ssm=stage4["_compiled_ssm"],
-        )
-    except Exception:
-        logger.warning(
-            "Pre-building SSM builder failed; stages will build their own", exc_info=True
-        )
-        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -624,7 +602,7 @@ def stage5a(
     svi_config = {"method": "svi", "num_steps": 5000, "num_samples": 500}
 
     fitted = fit_model(stage4, data_for_model, sampler_config=svi_config, builder=None)
-    fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
+    fitted_result = unwrap_task_result(fitted)
 
     if not fitted_result.get("fitted", False):
         return {
@@ -694,13 +672,13 @@ def stage5b(
         inf_method = gpu_result.get("inference_type", "unknown")
     else:
         fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
-        fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
+        fitted_result = unwrap_task_result(fitted)
 
         power_scaling = run_power_scaling(fitted_result, data_for_model)
-        ps_result = power_scaling.result() if hasattr(power_scaling, "result") else power_scaling
+        ps_result = unwrap_task_result(power_scaling)
 
         ppc_task = run_ppc(fitted_result, data_for_model)
-        ppc_result = ppc_task.result() if hasattr(ppc_task, "result") else ppc_task
+        ppc_result = unwrap_task_result(ppc_task)
 
         mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
         svi_diagnostics = fitted_result.get("svi_diagnostics")
@@ -841,7 +819,7 @@ def stage6(
         results = run_interventions(
             fitted_result, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
         )
-        intervention_results = results.result() if hasattr(results, "result") else results
+        intervention_results = unwrap_task_result(results)
 
     # Log ranked results
     if intervention_results:
@@ -1075,9 +1053,7 @@ async def stage4_flow(
                 load_parquet(stage2_result["_data_for_model_path"]),
                 causal_spec=stage4_result["causal_spec"],
             )
-            compile_result = (
-                compile_task.result() if hasattr(compile_task, "result") else compile_task
-            )
+            compile_result = unwrap_task_result(compile_task)
             compiled_ssm = compile_result.pop("compiled_ssm", None)
             stage4_result.setdefault("model_info", compile_result)
             if compiled_ssm is not None:

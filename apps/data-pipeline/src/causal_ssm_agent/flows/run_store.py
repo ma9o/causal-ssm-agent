@@ -198,3 +198,19 @@ def finalize_stage(
     state = stage_state(result, web, gate=gate)
     save_stage_snapshot(stage_id, state, user_id)
     return state
+
+
+# ---------------------------------------------------------------------------
+# Task result helpers
+# ---------------------------------------------------------------------------
+
+
+def unwrap_task_result(task_or_value: Any) -> Any:
+    """Extract the result from a Prefect task return, or pass through raw values.
+
+    Prefect tasks may return either a raw value or a future-like object with a
+    ``.result()`` method.  This helper normalises both to a plain value.
+    """
+    if hasattr(task_or_value, "result"):
+        return task_or_value.result()
+    return task_or_value
