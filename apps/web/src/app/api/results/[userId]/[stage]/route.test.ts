@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:fs/promises", () => ({
-  readFile: vi.fn(),
+vi.mock("@/lib/storage", () => ({
+  readData: vi.fn(),
+  LOCAL_DATA_DIR: "/tmp/data",
 }));
 
-import { readFile } from "node:fs/promises";
+import { readData } from "@/lib/storage";
 import { GET } from "./route";
 
 describe("GET /api/results/[userId]/[stage]", () => {
@@ -13,7 +14,7 @@ describe("GET /api/results/[userId]/[stage]", () => {
   });
 
   it("unwraps Prefect payloads that contain non-finite numbers instead of returning a fake 404", async () => {
-    vi.mocked(readFile).mockResolvedValue(
+    vi.mocked(readData).mockResolvedValue(
       JSON.stringify({
         metadata: { storage_key: "/tmp/data/user/run/stage-5a.json" },
         result:
@@ -35,7 +36,7 @@ describe("GET /api/results/[userId]/[stage]", () => {
   });
 
   it("returns a parse error when the persisted payload is invalid", async () => {
-    vi.mocked(readFile).mockResolvedValue('{"metadata":{},"result":"{"}');
+    vi.mocked(readData).mockResolvedValue('{"metadata":{},"result":"{"}');
 
     const response = await GET(new Request("http://localhost/api/results/user/stage-5a"), {
       params: Promise.resolve({ userId: "user", stage: "stage-5a" }),

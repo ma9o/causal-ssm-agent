@@ -1,8 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
-
-const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
+import { readData } from "@/lib/storage";
 
 /**
  * POST /api/refine/apply
@@ -36,17 +34,11 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
-  const stagePath = resolve(
-    join(DATA_DIR, safeUserId, "run", `${safeStageId}.json`),
-  );
-  const draftPath = resolve(
-    join(DATA_DIR, safeUserId, "run", `${safeStageId}-draft.json`),
-  );
 
   // Read the draft from the last successful tool call
   let draft: Record<string, unknown>;
   try {
-    draft = JSON.parse(await readFile(draftPath, "utf-8"));
+    draft = JSON.parse(await readData(`${safeUserId}/run/${safeStageId}-draft.json`));
   } catch {
     return NextResponse.json(
       {
@@ -60,7 +52,7 @@ export async function POST(request: Request) {
   // Load original stage data for fields the draft doesn't cover
   let originalDomain: Record<string, unknown>;
   try {
-    const raw = await readFile(stagePath, "utf-8");
+    const raw = await readData(`${safeUserId}/run/${safeStageId}.json`);
     const currentData = JSON.parse(raw);
     // Strip internal fields — keep only domain data
     const {

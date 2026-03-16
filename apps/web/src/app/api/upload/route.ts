@@ -1,8 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
-
-const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
+import { writeBinary, ensureDir } from "@/lib/storage";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -30,18 +28,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
   }
 
-  const dir = join(DATA_DIR, safeUserId, "input");
-  await mkdir(dir, { recursive: true });
+  const relativePath = `${safeUserId}/input/${safeFileName}`;
+  await ensureDir(`${safeUserId}/input`);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const filePath = join(dir, safeFileName);
+  await writeBinary(relativePath, buffer);
 
-  // Final safety check: ensure resolved path stays within DATA_DIR
-  if (!resolve(filePath).startsWith(DATA_DIR)) {
-    return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
-  }
-
-  await writeFile(filePath, buffer);
-
-  return NextResponse.json({ path: filePath });
+  return NextResponse.json({ path: relativePath });
 }

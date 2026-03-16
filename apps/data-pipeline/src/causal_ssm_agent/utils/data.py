@@ -4,34 +4,28 @@ import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.config import get_config  # also loads .env
+from causal_ssm_agent.utils.storage import get_base_uri, join
 
 logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
 
+# Remote-aware base URI (``/abs/path/to/data`` locally, ``s3://bucket/prefix`` on R2)
+DATA_URI = get_base_uri()
 
-def _find_data_dir() -> Path:
-    """Find the repository data directory, tolerating alternate container layouts."""
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        candidate = parent / "data"
-        if candidate.exists():
-            return candidate
-    return Path.cwd() / "data"
-
-
-DATA_DIR = _find_data_dir()
+# Local-only Path — used by eval scripts and PROCESSED_DIR.  NOT remote-aware.
+DATA_DIR = Path(get_base_uri()) if not get_base_uri().startswith("s3://") else Path.cwd() / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 
 
-def input_dir(user_id: str) -> Path:
+def input_dir(user_id: str) -> str:
     """Return the input directory for a user ID: ``data/{user_id}/input/``."""
-    return DATA_DIR / user_id / "input"
+    return join(DATA_URI, user_id, "input")
 
 
-def runs_dir(user_id: str) -> Path:
+def runs_dir(user_id: str) -> str:
     """Return the single run directory for a user ID: ``data/{user_id}/run/``."""
-    return DATA_DIR / user_id / "run"
+    return join(DATA_URI, user_id, "run")
 
 
 def get_orchestrator_chunk_size() -> int:

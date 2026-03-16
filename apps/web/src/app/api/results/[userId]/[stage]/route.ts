@@ -1,8 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
-
-const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
+import { readData } from "@/lib/storage";
 
 function normalizeNonFiniteJsonTokens(serialized: string): string {
   let normalized = "";
@@ -78,13 +76,8 @@ export async function GET(
   const safeUserId = basename(userId);
   const safeStage = basename(stage);
 
-  const filePath = resolve(join(DATA_DIR, safeUserId, "run", `${safeStage}.json`));
-  if (!filePath.startsWith(DATA_DIR)) {
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
-  }
-
   try {
-    const raw = await readFile(filePath, "utf-8");
+    const raw = await readData(`${safeUserId}/run/${safeStage}.json`);
 
     try {
       return NextResponse.json(parseStoredStagePayload(raw));

@@ -1,8 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
+import { writeData, ensureDir } from "@/lib/storage";
 import {
-  DATA_DIR,
   appendSessionRootFlowRunId,
   normalizeSession,
   readSessions,
@@ -47,9 +46,8 @@ export async function POST(request: Request) {
   }
 
   // Materialize question to data/{userId}/query.txt
-  const userDir = join(DATA_DIR, normalizedUserId);
-  await mkdir(userDir, { recursive: true });
-  await writeFile(join(userDir, "query.txt"), question);
+  await ensureDir(normalizedUserId);
+  await writeData(`${normalizedUserId}/query.txt`, question);
 
   // Store session metadata (without question — it lives on disk)
   const sessions = await readSessions();

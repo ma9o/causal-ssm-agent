@@ -12,6 +12,7 @@ from zipfile import ZipFile, is_zipfile
 from prefect import task
 from prefect.cache_policies import INPUTS
 
+from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import input_dir
 from causal_ssm_agent.utils.llm import LLMStageContext
@@ -22,24 +23,35 @@ from .stage0_ingest import IngestionResult, run_agentic_ingestion
 logger = get_prefect_logger(__name__)
 
 
-def _find_raw_input(user_id: str) -> Path:
+def _find_raw_input(user_id: str) -> str:
     """Find the raw input file for a user ID.
 
     Searches data/{user_id}/input/ for the most recent uploaded file.
+    Returns a storage path (local absolute path or s3:// URI).
     """
     user_dir = input_dir(user_id)
-    if not user_dir.is_dir():
+    if not storage.exists(user_dir):
         raise FileNotFoundError(f"No raw data directory: {user_dir}")
 
-    files = sorted(
-        (path for path in user_dir.iterdir() if path.is_file() and not path.name.startswith(".")),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    if files:
-        return files[0]
+    entries = storage.listdir(user_dir)
+    files: list[tuple[str, float]] = []
+    for entry in entries:
+        name = entry.rsplit("/", 1)[-1]
+        if name.startswith("."):
+            continue
+        info = storage.file_info(entry)
+        if info.get("type") == "file":
+            mtime = info.get("last_modified", info.get("LastModified", info.get("mtime", 0)))
+            # Handle datetime objects from S3
+            if hasattr(mtime, "timestamp"):
+                mtime = mtime.timestamp()
+            files.append((entry, float(mtime)))
 
-    raise FileNotFoundError(f"No files in {user_dir}")
+    if not files:
+        raise FileNotFoundError(f"No files in {user_dir}")
+
+    files.sort(key=lambda x: x[1], reverse=True)
+    return files[0][0]
 
 
 def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
@@ -76,15 +88,24 @@ async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
     Returns:
         IngestionResult with DataFrame, source label, and column descriptions.
     """
-    raw_path = _find_raw_input(user_id)
-    logger.info("Ingesting %s from %s/", raw_path.name, raw_path.parent.name)
+    raw_storage_path = _find_raw_input(user_id)
+    raw_name = raw_storage_path.rsplit("/", 1)[-1]
+    logger.info("Ingesting %s for user %s", raw_name, user_id)
 
     config = get_config()
     async with LLMStageContext("stage-0") as ctx:
         generate = ctx.make_generate(config.stage0_ingestion.model)
 
         with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-            extract_dir = _prepare_raw_input(raw_path, Path(tmpdir))
+            # Localize file for sandbox processing (download from R2 if remote)
+            if storage.is_remote():
+                local_raw = Path(tmpdir) / "download" / raw_name
+                local_raw.parent.mkdir(parents=True, exist_ok=True)
+                storage.get_fs().get(raw_storage_path, str(local_raw))
+            else:
+                local_raw = Path(raw_storage_path)
+
+            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
             result = await run_agentic_ingestion(extract_dir, generate)
 
         # Attach trace for web persistence
