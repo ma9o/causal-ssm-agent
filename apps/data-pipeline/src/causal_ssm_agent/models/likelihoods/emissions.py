@@ -456,35 +456,20 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
     Returns Callable(y_t, eta, obs_mask_t) → (g_eta, w_eta) of shape (n_manifest,),
     or None for gaussian/student_t which require special handling in kernels.py.
     """
+    from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
     extra_params = extra_params or {}
-    if manifest_dist == "poisson":
-        return _score_weight_poisson
-    if manifest_dist == "bernoulli":
-        if link == "probit":
-            return _score_weight_bernoulli_probit
-        return _score_weight_bernoulli_logit
-    if manifest_dist == "beta":
-        conc = extra_params.get("obs_concentration", 10.0)
-        if link == "probit":
-            return lambda y, eta, m: _score_weight_beta_probit(y, eta, m, conc)
-        return lambda y, eta, m: _score_weight_beta_logit(y, eta, m, conc)
-    if manifest_dist == "gamma":
-        shape = extra_params.get("obs_shape", 1.0)
-        if link == "inverse":
-            return lambda y, eta, m: _score_weight_gamma_inverse(y, eta, m, shape)
-        return lambda y, eta, m: _score_weight_gamma_log(y, eta, m, shape)
-    if manifest_dist == "negative_binomial":
-        r = extra_params.get("obs_r", 5.0)
-        return lambda y, eta, m: _score_weight_negative_binomial(y, eta, m, r)
-    if manifest_dist == "ordered_logistic":
-        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
-        return lambda y, eta, m: _score_weight_ordered_logistic(y, eta, m, cutpoints, level_counts)
-    if manifest_dist == "categorical":
-        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
-        return lambda y, eta, m: _score_weight_categorical(
-            y, eta, m, intercepts, slopes, level_counts
-        )
-    return None  # gaussian and student_t handled separately
+    family_spec = FAMILY_REGISTRY.get(DistributionFamily(manifest_dist))
+    if family_spec is None:
+        return None
+    link_key = str(link) if link else "default"
+    factory = family_spec.score_weight_fns.get(link_key) or family_spec.score_weight_fns.get(
+        "default"
+    )
+    if factory is None:
+        return None
+    return factory(extra_params)
 
 
 def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
@@ -499,43 +484,21 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
     Returns:
         Callable(y_t, z_t, H, d, R, obs_mask_t) -> scalar log-prob.
     """
+    from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
     extra_params = extra_params or {}
-    if manifest_dist == "gaussian":
-        return emission_log_prob_gaussian
-    if manifest_dist == "poisson":
-        return emission_log_prob_poisson
-    if manifest_dist == "student_t":
-        df = extra_params.get("obs_df", 5.0)
-        return lambda y, z, H, d, R, m: emission_log_prob_student_t(y, z, H, d, R, m, df)
-    if manifest_dist == "gamma":
-        shape = extra_params.get("obs_shape", 1.0)
-        if link == "inverse":
-            return lambda y, z, H, d, R, m: emission_log_prob_gamma_inverse(y, z, H, d, R, m, shape)
-        return lambda y, z, H, d, R, m: emission_log_prob_gamma(y, z, H, d, R, m, shape)
-    if manifest_dist == "bernoulli":
-        if link == "probit":
-            return emission_log_prob_bernoulli_probit
-        return emission_log_prob_bernoulli
-    if manifest_dist == "negative_binomial":
-        r = extra_params.get("obs_r", 5.0)
-        return lambda y, z, H, d, R, m: emission_log_prob_negative_binomial(y, z, H, d, R, m, r)
-    if manifest_dist == "beta":
-        conc = extra_params.get("obs_concentration", 10.0)
-        if link == "probit":
-            return lambda y, z, H, d, R, m: emission_log_prob_beta_probit(y, z, H, d, R, m, conc)
-        return lambda y, z, H, d, R, m: emission_log_prob_beta(y, z, H, d, R, m, conc)
-    if manifest_dist == "ordered_logistic":
-        level_counts, cutpoints = get_ordered_logistic_extra_params(extra_params)
-        return lambda y, z, H, d, R, m: emission_log_prob_ordered_logistic(
-            y, z, H, d, R, m, cutpoints, level_counts
+    family_spec = FAMILY_REGISTRY.get(DistributionFamily(manifest_dist))
+    if family_spec is None:
+        raise ValueError(
+            f"No emission function for manifest_dist='{manifest_dist}'. "
+            f"Supported: gaussian, student_t, poisson, gamma, bernoulli, "
+            "negative_binomial, beta, ordered_logistic, categorical."
         )
-    if manifest_dist == "categorical":
-        level_counts, intercepts, slopes = get_categorical_extra_params(extra_params)
-        return lambda y, z, H, d, R, m: emission_log_prob_categorical(
-            y, z, H, d, R, m, intercepts, slopes, level_counts
+    link_key = str(link) if link else "default"
+    factory = family_spec.emission_fns.get(link_key) or family_spec.emission_fns.get("default")
+    if factory is None:
+        raise ValueError(
+            f"No emission function for manifest_dist='{manifest_dist}', link='{link}'."
         )
-    raise ValueError(
-        f"No emission function for manifest_dist='{manifest_dist}'. "
-        f"Supported: gaussian, student_t, poisson, gamma, bernoulli, "
-        "negative_binomial, beta, ordered_logistic, categorical."
-    )
+    return factory(extra_params)

@@ -1391,6 +1391,8 @@ class SSMModelBuilder:
 
     def _validate_observation_support(self, spec: SSMSpec, X: Any) -> None:
         """Reject likelihoods whose support is incompatible with observed data."""
+        from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+
         manifest_cols, manifest_dists = _resolve_manifest_metadata(spec, X)
 
         issues: list[str] = []
@@ -1405,33 +1407,17 @@ class SSMModelBuilder:
                 )
                 continue
 
-            invalid = np.zeros(values.shape, dtype=bool)
-            support = ""
-            if dist == DistributionFamily.GAMMA:
-                invalid = values <= 0.0
-                support = "gamma requires y > 0"
-            elif dist == DistributionFamily.BETA:
-                invalid = (values <= 0.0) | (values >= 1.0)
-                support = "beta requires 0 < y < 1"
-            elif dist in (DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL):
-                rounded = np.rint(values)
-                invalid = (values < 0.0) | (~np.isclose(values, rounded, atol=1e-6))
-                support = f"{dist.value} requires non-negative integer counts"
-            elif dist == DistributionFamily.BERNOULLI:
-                invalid = ~np.isin(values, [0.0, 1.0])
-                support = "bernoulli requires binary values in {0, 1}"
-            elif dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL):
-                rounded = np.rint(values)
-                invalid = (values < 0.0) | (~np.isclose(values, rounded, atol=1e-6))
-                support = f"{dist.value} requires non-negative integer-encoded levels"
-
+            family_spec = FAMILY_REGISTRY.get(dist)
+            if family_spec is None:
+                continue
+            invalid = family_spec.validate_support(values)
             if not np.any(invalid):
                 continue
 
             bad_values = values[invalid]
             issues.append(
                 f"- '{column}' uses {dist.value} emission but {bad_values.size}/{values.size} "
-                f"observations are outside support ({support}; "
+                f"observations are outside support ({family_spec.support_description}; "
                 f"min={float(values.min()):.3g}, max={float(values.max()):.3g})"
             )
 
