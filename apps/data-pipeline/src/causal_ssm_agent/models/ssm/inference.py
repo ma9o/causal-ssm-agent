@@ -28,12 +28,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import jax.numpy as jnp
 import jax.random as random
+from jax import tree_util
 from numpyro import handlers
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_median
 from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
 from numpyro.optim import ClippedAdam
 
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
+from causal_ssm_agent.models.ssm.autoreparam import AutoReparam, reparam_cache_key
+from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 from causal_ssm_agent.models.ssm.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -62,6 +64,34 @@ _AUTO_REPARAM = object()
 # Re-export for tests that import from here
 HIST_PADDING_RATIO = 0.05
 HIST_PADDING_DEFAULT = 0.5
+
+_AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
+    "svi": "svi_config",
+    "nuts": "nuts_config",
+    "laplace_em": "smc_config",
+    "tempered_smc": "smc_config",
+    "structured_vi": "smc_config",
+    "dpf": "smc_config",
+}
+
+
+def _make_prior_predictive_dummy_observations(spec: SSMSpec, times: jnp.ndarray) -> jnp.ndarray:
+    """Create support-compatible observations for prior predictive tracing."""
+    n_times = len(times)
+    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+    alternating_binary = (jnp.arange(n_times, dtype=jnp.float32) % 2).astype(jnp.float32)
+
+    cols = []
+    for dist in manifest_dists:
+        if dist.is_discrete:
+            cols.append(alternating_binary)
+        else:
+            cols.append(jnp.full((n_times,), dist.support_interior_point, dtype=jnp.float32))
+
+    if not cols:
+        return jnp.zeros((n_times, 0), dtype=jnp.float32)
+    return jnp.stack(cols, axis=1)
+
 
 InferenceMethod = Literal[
     "auto",
@@ -433,7 +463,7 @@ def _trace_public_sites(
     exclude: set[str] | None = None,
 ) -> set[str]:
     """Trace a model once and return user-facing sample/deterministic site names."""
-    excluded = {"log_likelihood"}
+    excluded = set(INTERNAL_DIAGNOSTIC_SITES)
     if exclude is not None:
         excluded.update(exclude)
 
@@ -456,6 +486,17 @@ def _filter_public_samples(
     if public_sites is None:
         return samples
     return {name: values for name, values in samples.items() if name in public_sites}
+
+
+def _all_numeric_leaves_finite(tree: Any) -> bool:
+    """Return ``True`` when every numeric leaf in a pytree is finite."""
+    for leaf in tree_util.tree_leaves(tree):
+        arr = jnp.asarray(leaf)
+        if arr.dtype.kind not in {"b", "i", "u", "f", "c"}:
+            continue
+        if not bool(jnp.all(jnp.isfinite(arr))):
+            return False
+    return True
 
 
 def _apply_reparam(model_fn, reparam_config):
@@ -483,6 +524,28 @@ def _resolve_reparam(reparam, method: InferenceMethod):
     if method == "pgas":
         return None
     return AutoReparam(centered=0.0)  # fully decentered
+
+
+def _resolve_auto_method_kwargs(
+    method: InferenceMethod,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge backend-specific config blocks emitted by ``method='auto'``."""
+    method_configs = {
+        "svi_config": kwargs.get("svi_config"),
+        "nuts_config": kwargs.get("nuts_config"),
+        "smc_config": kwargs.get("smc_config"),
+    }
+    resolved = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in {"svi_config", "nuts_config", "smc_config"}
+    }
+    config_key = _AUTO_METHOD_CONFIG_KEYS.get(method)
+    if config_key is None:
+        return resolved
+    method_config = method_configs.get(config_key) or {}
+    return {**method_config, **resolved}
 
 
 def fit(
@@ -515,6 +578,7 @@ def fit(
     """
     if method == "auto":
         method = select_default_method(model.spec)
+        kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)
     if method == "pgas" and reparam is not None:
@@ -566,9 +630,6 @@ def prior_predictive(
 ) -> dict[str, jnp.ndarray]:
     """Sample from the prior predictive distribution.
 
-    Uses handlers.block to skip the PF likelihood computation,
-    which is unnecessary and expensive for prior sampling.
-
     Args:
         model: SSMModel instance
         times: (T,) time points
@@ -578,12 +639,17 @@ def prior_predictive(
     Returns:
         Dict of prior predictive samples
     """
-    rng_key = random.PRNGKey(seed)
-    model_fn = functools.partial(model.model, likelihood_backend=model.make_likelihood_backend())
-    blocked_model = handlers.block(model_fn, hide=["log_likelihood"])
-    predictive = Predictive(blocked_model, num_samples=num_samples)
-    dummy_obs = jnp.zeros((len(times), model.spec.n_manifest))
-    return predictive(rng_key, dummy_obs, times)
+    from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+        sample_prior_predictive_from_priors,
+    )
+
+    return sample_prior_predictive_from_priors(
+        model.spec,
+        model.priors,
+        times,
+        num_samples=num_samples,
+        seed=seed,
+    )
 
 
 def _fit_nuts(
@@ -665,6 +731,7 @@ def _fit_svi(
     num_steps: int = 5000,
     num_samples: int = 1000,
     learning_rate: float = 0.01,
+    progress_bar: bool = False,
     seed: int = 0,
     reparam=None,
     **kwargs: Any,  # noqa: ARG001
@@ -689,23 +756,62 @@ def _fit_svi(
     Returns:
         InferenceResult with approximate posterior samples
     """
-    base_model_fn = functools.partial(
-        model.model, likelihood_backend=model.make_likelihood_backend()
-    )
-    public_sites = _trace_public_sites(base_model_fn, observations, times)
-    model_fn = _apply_reparam(base_model_fn, reparam)
     guide_cls = {
         "normal": AutoNormal,
         "mvn": AutoMultivariateNormal,
         "delta": AutoDelta,
     }[guide_type]
-    guide = guide_cls(model_fn)
+    base_model_fn = functools.partial(
+        model.model,
+        likelihood_backend=model.make_likelihood_backend(),
+    )
+    cache_key = None
+    reparam_key = reparam_cache_key(reparam)
+    if reparam_key is not None:
+        cache_key = (
+            "svi",
+            tuple(observations.shape),
+            tuple(times.shape),
+            guide_type,
+            float(learning_rate),
+            *reparam_key,
+        )
 
-    optimizer = ClippedAdam(step_size=learning_rate)
-    svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
+    def _build_svi_bundle():
+        public_sites = _trace_public_sites(base_model_fn, observations, times)
+        model_fn = _apply_reparam(base_model_fn, reparam)
+        guide = guide_cls(model_fn)
+        optimizer = ClippedAdam(step_size=learning_rate)
+        return {
+            "public_sites": public_sites,
+            "model_fn": model_fn,
+            "guide": guide,
+            "svi": SVI(model_fn, guide, optimizer, Trace_ELBO()),
+        }
+
+    if cache_key is None:
+        cached_bundle = _build_svi_bundle()
+    else:
+        cached_bundle = model.get_cached_artifact(cache_key, _build_svi_bundle)
+
+    public_sites = cached_bundle["public_sites"]
+    model_fn = cached_bundle["model_fn"]
+    guide = cached_bundle["guide"]
+    svi = cached_bundle["svi"]
 
     rng_key = random.PRNGKey(seed)
-    svi_result = svi.run(rng_key, num_steps, observations, times)
+    svi_result = svi.run(
+        rng_key,
+        num_steps,
+        observations,
+        times,
+        progress_bar=progress_bar,
+    )
+
+    if not _all_numeric_leaves_finite(svi_result.losses):
+        raise FloatingPointError("SVI produced non-finite losses")
+    if not _all_numeric_leaves_finite(svi_result.params):
+        raise FloatingPointError("SVI produced non-finite guide parameters")
 
     # Draw posterior samples from the fitted guide
     sample_key = random.PRNGKey(seed + 1)
@@ -718,6 +824,8 @@ def _fit_svi(
     raw_samples = predictive(sample_key, observations, times)
 
     samples = _filter_public_samples(raw_samples, public_sites)
+    if not _all_numeric_leaves_finite(samples):
+        raise FloatingPointError("SVI produced non-finite posterior samples")
 
     return InferenceResult(
         _samples=samples,

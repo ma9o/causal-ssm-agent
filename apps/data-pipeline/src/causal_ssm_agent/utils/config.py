@@ -139,16 +139,20 @@ class InferenceConfig:
             "num_chains": self.num_chains,
             "seed": self.seed,
         }
-        if method == "svi":
+        smc = dataclasses.asdict(self.smc)
+        smc = {k: v for k, v in smc.items() if v is not None}
+        if method == "auto":
+            config["svi_config"] = dataclasses.asdict(self.svi)
+            config["nuts_config"] = dataclasses.asdict(self.nuts)
+            config["smc_config"] = smc
+        elif method == "svi":
             config.update(dataclasses.asdict(self.svi))
         elif method == "nuts":
             config.update(dataclasses.asdict(self.nuts))
         elif method in ("laplace_em", "tempered_smc", "structured_vi", "dpf"):
-            smc = dataclasses.asdict(self.smc)
             if method != "laplace_em":
                 smc.pop("n_ieks_iters", None)
-            # Omit None values so receivers use their defaults
-            config.update({k: v for k, v in smc.items() if v is not None})
+            config.update(smc)
         return config
 
 
