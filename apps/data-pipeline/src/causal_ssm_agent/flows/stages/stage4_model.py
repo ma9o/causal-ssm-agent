@@ -566,7 +566,9 @@ async def stage4_orchestrated_flow(
 
     # 5. Compile the executable artifact (only after validation loop)
     compile_task = compile_model_task(model_spec, priors, raw_data, causal_spec=causal_spec)
-    model_result = compile_task.result() if hasattr(compile_task, "result") else compile_task
+    from causal_ssm_agent.flows.run_store import unwrap_task_result
+
+    model_result = unwrap_task_result(compile_task)
     compiled_ssm = model_result.pop("compiled_ssm", None)
 
     result = {
