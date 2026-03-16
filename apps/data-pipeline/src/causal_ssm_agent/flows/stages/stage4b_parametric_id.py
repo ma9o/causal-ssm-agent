@@ -24,12 +24,12 @@ logger = get_prefect_logger(__name__)
 
 @task(task_run_name="parametric-id-check")
 def parametric_id_task(
-    model_spec: dict,
-    priors: dict[str, dict],
+    _model_spec: dict,
+    _priors: dict[str, dict],
     raw_data: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
-    causal_spec: dict | None = None,
+    _causal_spec: dict | None = None,
     compiled_ssm: dict | None = None,
     builder: Any = None,
 ) -> dict:
@@ -93,12 +93,22 @@ def parametric_id_task(
                 ),
             }
 
+        from causal_ssm_agent.utils.parametric_id import get_stage4b_sweep_context
+
+        sweep_context = get_stage4b_sweep_context(ssm_model)
+
         # Sensitivity analysis: structural check (sufficient for local identifiability)
         sensitivity_payload = None
         try:
             from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
-            sa_result = output_sensitivity_analysis(ssm_model, times, n_draws=8, seed=42)
+            sa_result = output_sensitivity_analysis(
+                ssm_model,
+                times,
+                n_draws=8,
+                seed=42,
+                sweep_context=sweep_context,
+            )
             sa_result.print_report()
             sensitivity_payload = {
                 "singular_values": sa_result.singular_values,
@@ -141,6 +151,7 @@ def parametric_id_task(
             profile_indices=kalman_indices,
             n_grid=n_grid,
             confidence=confidence,
+            sweep_context=sweep_context,
         )
 
         result.print_report()

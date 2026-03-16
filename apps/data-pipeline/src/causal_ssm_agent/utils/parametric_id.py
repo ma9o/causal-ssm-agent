@@ -13,13 +13,18 @@ Post-fit diagnostics (power-scaling sensitivity) are in parametric_id_postfit.py
 
 from __future__ import annotations
 
+import hashlib
+import json
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.optimize
+import numpy as np
 from jax import lax
 from jax.flatten_util import ravel_pytree
 from pydantic import BaseModel
@@ -27,14 +32,24 @@ from pydantic import BaseModel
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.parameterization import (
+    build_prior_runtime_state,
+    build_site_registry,
+    build_transforms,
+    build_unravel_fn,
+    sample_prior_unconstrained,
+)
 from causal_ssm_agent.models.ssm.utils import (
     _assemble_deterministics,
     _build_eval_fns,
+    _build_runtime_eval_fns_from_registry,
     _discover_sites,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
 
 logger = get_prefect_logger(__name__)
@@ -44,6 +59,131 @@ logger = get_prefect_logger(__name__)
 # chi2(1, 0.01) / 2 = 6.635 / 2 ≈ 3.32 (99% confidence)
 CHI2_THRESHOLD_95 = 1.92
 CHI2_THRESHOLD_99 = 3.32
+_STAGE4B_SWEEP_CONTEXT_CACHE_MAXSIZE = 8
+
+
+@dataclass(frozen=True)
+class Stage4bSweepContext:
+    """Reusable topology-dependent Stage 4b runtime state."""
+
+    cache_key: tuple[str, ...]
+    spec: SSMSpec
+    registry: list
+    transforms: dict[str, Callable]
+    flat_dim: int
+    unravel_fn: Callable
+    param_names: list[str]
+    site_shapes: dict[str, tuple[int, ...]]
+    scalar_names: list[str]
+    param_index: dict[str, tuple[int, int]]
+    predict_moments_fn: Callable
+    jacobian_fn: Callable
+    log_lik_fn: Callable
+    log_prior_unc_fn: Callable
+
+
+_STAGE4B_SWEEP_CONTEXT_CACHE: OrderedDict[tuple[str, ...], Stage4bSweepContext] = OrderedDict()
+
+
+def _normalize_sweep_cache_value(value: Any):
+    """Convert spec/backend metadata into a stable JSON-serializable form."""
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (str, bool, int, float)) or value is None:
+        return value
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, jnp.ndarray):
+        value = np.asarray(value)
+    if isinstance(value, np.ndarray):
+        return {
+            "dtype": str(value.dtype),
+            "shape": list(value.shape),
+            "values": value.tolist(),
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_sweep_cache_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_sweep_cache_value(item) for item in value]
+    return repr(value)
+
+
+def _stage4b_context_key(model: SSMModel) -> tuple[str, ...]:
+    """Build a process-local cache key for topology-stable Stage 4b sweeps."""
+    spec_payload = {
+        field_name: _normalize_sweep_cache_value(field_value)
+        for field_name, field_value in vars(model.spec).items()
+    }
+    spec_fingerprint = hashlib.sha1(
+        json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    pf_key = tuple(str(int(v)) for v in np.asarray(model.pf_key).reshape(-1))
+    return (
+        "stage4b-sweep",
+        spec_fingerprint,
+        str(model.likelihood),
+        str(model.n_particles),
+        "reparam:none",
+        *pf_key,
+    )
+
+
+def clear_stage4b_sweep_context_cache() -> None:
+    """Clear the process-local Stage 4b sweep context cache."""
+    _STAGE4B_SWEEP_CONTEXT_CACHE.clear()
+
+
+def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
+    """Build or reuse a topology-keyed Stage 4b sweep context."""
+    cache_key = _stage4b_context_key(model)
+    cached = _STAGE4B_SWEEP_CONTEXT_CACHE.get(cache_key)
+    if cached is not None:
+        _STAGE4B_SWEEP_CONTEXT_CACHE.move_to_end(cache_key)
+        return cached
+
+    registry = build_site_registry(model.spec, model._assembler)
+    transforms = build_transforms(registry)
+    flat_dim, unravel_fn = build_unravel_fn(registry)
+    param_names = [site.name for site in registry]
+    site_shapes = {site.name: site.shape for site in registry}
+    scalar_names = _build_scalar_names_from_registry(param_names, site_shapes)
+    param_index = _build_param_index_from_registry(param_names, site_shapes)
+    backend = model.make_likelihood_backend()
+    log_lik_fn, log_prior_unc_fn = _build_runtime_eval_fns_from_registry(
+        model.spec,
+        registry,
+        unravel_fn,
+        transforms,
+        backend,
+    )
+
+    def _predict(z_flat, times):
+        return _predict_moments(z_flat, unravel_fn, transforms, model.spec, times)
+
+    context = Stage4bSweepContext(
+        cache_key=cache_key,
+        spec=model.spec,
+        registry=registry,
+        transforms=transforms,
+        flat_dim=flat_dim,
+        unravel_fn=unravel_fn,
+        param_names=param_names,
+        site_shapes=site_shapes,
+        scalar_names=scalar_names,
+        param_index=param_index,
+        predict_moments_fn=_predict,
+        jacobian_fn=jax.jit(jax.jacrev(_predict, argnums=0)),
+        log_lik_fn=log_lik_fn,
+        log_prior_unc_fn=log_prior_unc_fn,
+    )
+    _STAGE4B_SWEEP_CONTEXT_CACHE[cache_key] = context
+    _STAGE4B_SWEEP_CONTEXT_CACHE.move_to_end(cache_key)
+    while len(_STAGE4B_SWEEP_CONTEXT_CACHE) > _STAGE4B_SWEEP_CONTEXT_CACHE_MAXSIZE:
+        _STAGE4B_SWEEP_CONTEXT_CACHE.popitem(last=False)
+    return context
 
 
 # ---------------------------------------------------------------------------
@@ -380,12 +520,36 @@ def _build_scalar_names(param_names, site_info):
     return names
 
 
+def _build_scalar_names_from_registry(param_names, site_shapes):
+    """Build flat list of scalar element names from registry shapes."""
+    names = []
+    for name in param_names:
+        size = int(jnp.prod(jnp.array(site_shapes[name]))) if site_shapes[name] else 1
+        if size == 1:
+            names.append(name)
+        else:
+            for k in range(size):
+                names.append(f"{name}[{k}]")
+    return names
+
+
 def _build_param_index(param_names, site_info):
     """Build {param_name: (offset, size)} map into flat vector."""
     index = {}
     offset = 0
     for name in param_names:
         size = int(jnp.prod(jnp.array(site_info[name]["shape"])))
+        index[name] = (offset, size)
+        offset += size
+    return index
+
+
+def _build_param_index_from_registry(param_names, site_shapes):
+    """Build {param_name: (offset, size)} map from registry shapes."""
+    index = {}
+    offset = 0
+    for name in param_names:
+        size = int(jnp.prod(jnp.array(site_shapes[name]))) if site_shapes[name] else 1
         index[name] = (offset, size)
         offset += size
     return index
@@ -520,6 +684,7 @@ def output_sensitivity_analysis(
     times: jnp.ndarray,
     n_draws: int = 8,
     seed: int = 42,
+    sweep_context: Stage4bSweepContext | None = None,
 ) -> OutputSensitivityResult:
     """Pre-inference parametric identifiability via output sensitivity analysis.
 
@@ -537,41 +702,24 @@ def output_sensitivity_analysis(
     Returns:
         OutputSensitivityResult with SVD spectrum and per-parameter flags
     """
-    import functools
-
     rng_key = random.PRNGKey(seed)
     T_obs = times.shape[0]
-    n_manifest = model.spec.n_manifest
+    context = sweep_context or get_stage4b_sweep_context(model)
+    n_manifest = context.spec.n_manifest
 
-    # 1. Discover sites
-    backend = model.make_likelihood_backend()
-    dummy_obs = jnp.zeros((T_obs, n_manifest))
-    rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, dummy_obs, times, trace_key, backend)
-
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
-    P = flat_example.shape[0]
-    param_names = sorted(site_info.keys())
-    scalar_names = _build_scalar_names(param_names, site_info)
-
-    transforms = {name: site_info[name]["transform"] for name in site_info}
-
-    # 2. Build differentiable forward statistics function
-    forward_fn = functools.partial(
-        _predict_moments,
-        unravel_fn=unravel_fn,
-        transforms=transforms,
-        spec=model.spec,
-        times=times,
-    )
-
-    # JIT-compiled Jacobian (jacrev because discretization uses custom_vjp)
-    jac_fn = jax.jit(jax.jacrev(forward_fn))
+    # 1. Reuse topology-dependent registry metadata and rebuild only prior values.
+    P = context.flat_dim
+    scalar_names = context.scalar_names
+    prior_state = build_prior_runtime_state(context.registry, model.priors)
 
     # 3. Sample from prior (Jacobian draws + larger batch for prior std)
-    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key, n_samples=n_draws)
-    prior_z_std, rng_key = _sample_prior_unc(param_names, site_info, rng_key)
+    prior_z, rng_key = sample_prior_unconstrained(
+        rng_key,
+        context.registry,
+        prior_state,
+        n_samples=n_draws,
+    )
+    prior_z_std, rng_key = sample_prior_unconstrained(rng_key, context.registry, prior_state)
     prior_std = jnp.std(prior_z_std, axis=0)  # (P,) per-parameter prior SD
     # Guard against degenerate priors (zero std)
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
@@ -580,10 +728,10 @@ def output_sensitivity_analysis(
 
     # Helper to extract manifest_cov for a given parameter vector
     def _get_obs_noise_scales(z_0):
-        unc_dict = unravel_fn(z_0)
-        con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
+        unc_dict = context.unravel_fn(z_0)
+        con_dict = {name: context.transforms[name](unc_dict[name]) for name in unc_dict}
         batched = {k: v[None, ...] for k, v in con_dict.items()}
-        det = _assemble_deterministics(batched, model.spec)
+        det = _assemble_deterministics(batched, context.spec)
         det = {k: v[0] for k, v in det.items()}
         manifest_cov = det.get("manifest_cov", jnp.eye(n_manifest))
         obs_sd = jnp.sqrt(jnp.diag(manifest_cov))
@@ -612,7 +760,7 @@ def output_sensitivity_analysis(
 
     for i in range(n_draws):
         z_0 = prior_z[i]
-        S = jac_fn(z_0)  # (N_out, P) sensitivity matrix
+        S = context.jacobian_fn(z_0, times)  # (N_out, P) sensitivity matrix
 
         # --- Raw SVD ---
         _U, sv, Vt = jnp.linalg.svd(S, full_matrices=False)
@@ -832,6 +980,7 @@ def profile_likelihood(
     n_grid: int = 20,
     confidence: float = 0.95,
     seed: int = 42,
+    sweep_context: Stage4bSweepContext | None = None,
 ) -> ProfileLikelihoodResult:
     """Profile likelihood identifiability diagnostic.
 
@@ -839,6 +988,10 @@ def profile_likelihood(
     1. Fix the parameter at grid points around the MAP
     2. Optimize all other parameters (BFGS, 1st-order AD only)
     3. Classify based on profile shape vs chi-squared threshold
+
+    Uses the canonical site registry and compile-stable prior evaluation.
+    Changing prior values or families does not trigger JAX recompilation
+    as long as the model topology (shapes, support classes) is unchanged.
 
     Args:
         model: SSMModel instance
@@ -856,44 +1009,38 @@ def profile_likelihood(
         ProfileLikelihoodResult with per-parameter profiles and classifications
     """
     rng_key = random.PRNGKey(seed)
+    context = sweep_context or get_stage4b_sweep_context(model)
 
-    # 1. Discover sites
-    backend = model.make_likelihood_backend()
-    rng_key, trace_key = random.split(rng_key)
-    site_info = _discover_sites(model, observations, times, trace_key, backend)
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
-    D = flat_example.shape[0]
-    param_names = sorted(site_info.keys())
+    # 1. Reuse topology-dependent registry/evaluator state; rebuild only priors.
+    D = context.flat_dim
+    param_names = context.param_names
+    prior_state = build_prior_runtime_state(context.registry, model.priors)
 
-    # 2. Build eval fns
-    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, site_info, unravel_fn, backend
-    )
-
-    def neg_log_post(z):
-        val = -(log_lik_fn(z) + log_prior_unc_fn(z))
+    def neg_log_post(z, ps):
+        val = -(context.log_lik_fn(z, observations, times) + context.log_prior_unc_fn(z, ps))
         return jnp.where(jnp.isfinite(val), val, jnp.array(1e10))
 
     # 3. Prior stds in unconstrained space (for grid range)
-    prior_z, rng_key = _sample_prior_unc(param_names, site_info, rng_key)
+    prior_z, rng_key = sample_prior_unconstrained(rng_key, context.registry, prior_state)
     prior_stds = jnp.std(prior_z, axis=0)
     prior_stds = jnp.maximum(prior_stds, 0.1)
 
     # 4. Find MAP (optimize posterior for stability)
     z_init = jnp.median(prior_z, axis=0)
-    map_result = jax.scipy.optimize.minimize(neg_log_post, z_init, method="BFGS")
+    map_result = jax.scipy.optimize.minimize(
+        lambda z: neg_log_post(z, prior_state), z_init, method="BFGS"
+    )
     z_map = map_result.x
     if not jnp.all(jnp.isfinite(z_map)):
         z_map = z_init
     # Record log-LIKELIHOOD at MAP (not posterior) for profile comparison.
     # Raue et al. 2009: profile the likelihood to detect structural
     # non-identifiability; optimize the posterior for numerical stability.
-    mle_ll = float(log_lik_fn(z_map))
+    mle_ll = float(context.log_lik_fn(z_map, observations, times))
 
     # 5. Parameter index map
-    param_index = _build_param_index(param_names, site_info)
-    scalar_names = _build_scalar_names(param_names, site_info)
+    param_index = context.param_index
+    scalar_names = context.scalar_names
 
     # 6. Determine which scalar indices to profile
     if profile_indices is not None:
@@ -911,8 +1058,7 @@ def profile_likelihood(
     threshold = CHI2_THRESHOLD_99 if confidence >= 0.99 else CHI2_THRESHOLD_95
 
     # 7. Transforms for constrained mapping
-    transforms = {name: site_info[name]["transform"] for name in site_info}
-    unc_map = unravel_fn(z_map)
+    unc_map = context.unravel_fn(z_map)
 
     # 8. Profile each scalar element
     parameter_profiles = {}
@@ -932,26 +1078,26 @@ def profile_likelihood(
 
         if D > 1:
             # Build JIT-compiled profiler for this j.
-            # Optimize posterior (stable), return optimized z and LL.
+            # prior_state is a JIT argument — changing it does NOT recompile.
             _j = j  # capture for closure
 
             @jax.jit
-            def _profile_point(z_mj_init, z_j_val, _j=_j):
+            def _profile_point(z_mj_init, z_j_val, ps, _j=_j):
                 def _obj(z_mj):
                     z_full = jnp.concatenate([z_mj[:_j], z_j_val[None], z_mj[_j:]])
-                    return neg_log_post(z_full)
+                    return neg_log_post(z_full, ps)
 
                 res = jax.scipy.optimize.minimize(_obj, z_mj_init, method="BFGS")
                 # Evaluate log-LIKELIHOOD (not posterior) at optimum
                 z_opt = jnp.concatenate([res.x[:_j], z_j_val[None], res.x[_j:]])
-                ll_val = log_lik_fn(z_opt)
+                ll_val = context.log_lik_fn(z_opt, observations, times)
                 return res.x, ll_val
 
             z_mj_warm = jnp.concatenate([z_map[:j], z_map[j + 1 :]])
 
             for g_idx in range(n_grid):
                 g_val = grid_unc[g_idx]
-                z_mj_opt, ll_val = _profile_point(z_mj_warm, g_val)
+                z_mj_opt, ll_val = _profile_point(z_mj_warm, g_val, prior_state)
                 if jnp.all(jnp.isfinite(z_mj_opt)):
                     z_mj_warm = z_mj_opt
                 profile_ll.append(float(ll_val))
@@ -959,7 +1105,7 @@ def profile_likelihood(
             # D=1: no inner optimization, just evaluate likelihood
             for g_idx in range(n_grid):
                 z_full = grid_unc[g_idx : g_idx + 1]
-                profile_ll.append(float(log_lik_fn(z_full)))
+                profile_ll.append(float(context.log_lik_fn(z_full, observations, times)))
 
         profile_ll = jnp.array(profile_ll)
 
@@ -974,13 +1120,13 @@ def profile_likelihood(
                 con_vals = []
                 for g_val in grid_unc:
                     z_temp = z_map.at[j].set(g_val)
-                    unc_dict = unravel_fn(z_temp)
-                    con_val = transforms[name](unc_dict[name])
+                    unc_dict = context.unravel_fn(z_temp)
+                    con_val = context.transforms[name](unc_dict[name])
                     flat_con = con_val.reshape(-1)
                     con_vals.append(float(flat_con[local_idx]))
                 grid_con = jnp.array(con_vals)
                 # MLE value in constrained space
-                con_map = transforms[name](unc_map[name])
+                con_map = context.transforms[name](unc_map[name])
                 flat_map = con_map.reshape(-1)
                 mle_value = float(flat_map[local_idx])
                 break
@@ -993,7 +1139,7 @@ def profile_likelihood(
         }
 
     # MAP params in constrained space
-    mle_params = {name: transforms[name](unc_map[name]) for name in unc_map}
+    mle_params = {name: context.transforms[name](unc_map[name]) for name in unc_map}
 
     return ProfileLikelihoodResult(
         parameter_profiles=parameter_profiles,
