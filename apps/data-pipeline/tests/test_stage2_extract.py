@@ -103,7 +103,13 @@ def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog
     import causal_ssm_agent.workers.core as worker_core
 
     logger = logging.getLogger("test_stage2_extract")
-    generate_config = SimpleNamespace(max_tokens=1234, reasoning_effort="medium")
+    generate_config = SimpleNamespace(
+        max_tokens=1234,
+        reasoning_effort="medium",
+        timeout=None,
+        reasoning_history="summary",
+        max_tool_output=None,
+    )
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logger)
@@ -162,7 +168,8 @@ def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog
         "status": "completed",
     }
     assert captured["model_name"] == "mock-stage2-model"
-    assert captured["generate_config"] is generate_config
+    assert captured["generate_config"].max_tokens == generate_config.max_tokens
+    assert captured["generate_config"].reasoning_effort == generate_config.reasoning_effort
     worker_kwargs = captured["worker_kwargs"]
     assert isinstance(worker_kwargs, dict)
     assert worker_kwargs["tick_text"] == tick_text

@@ -19,7 +19,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from causal_ssm_agent.orchestrator.schemas_model import (
+    VALID_LINKS_FOR_DISTRIBUTION,
+    DistributionFamily,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -82,6 +85,22 @@ def _binary(values: np.ndarray) -> np.ndarray:
 
 def _no_levels(_values: np.ndarray) -> int | None:
     return None
+
+
+def _infer_contiguous_levels(values: np.ndarray) -> int | None:
+    if values.size == 0:
+        raise ValueError("discrete emission has no observed data")
+
+    rounded = np.rint(values)
+    if not np.allclose(values, rounded, atol=1e-6):
+        raise ValueError("data are not integer-encoded")
+
+    unique_levels = sorted({int(v) for v in rounded.tolist()})
+    if unique_levels[0] != 0 or unique_levels != list(range(unique_levels[-1] + 1)):
+        raise ValueError(f"encoded levels are not contiguous from 0: {unique_levels}")
+    if len(unique_levels) < 2:
+        raise ValueError(f"only {len(unique_levels)} level(s) are present")
+    return len(unique_levels)
 
 
 # ---------------------------------------------------------------------------
@@ -331,9 +350,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         requires_integer_encoding=False,
         emission_fns={
             "default": _emission_factory_gaussian,
+            "identity": _emission_factory_gaussian,
         },
         score_weight_fns={
             "default": _sw_factory_none,
+            "identity": _sw_factory_none,
         },
         make_variance_fn=_variance_factory_gaussian_like,
         grad_hess_strategy="gaussian",
@@ -347,9 +368,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         requires_integer_encoding=False,
         emission_fns={
             "default": _emission_factory_student_t,
+            "identity": _emission_factory_student_t,
         },
         score_weight_fns={
             "default": _sw_factory_none,
+            "identity": _sw_factory_none,
         },
         make_variance_fn=_variance_factory_gaussian_like,
         grad_hess_strategy="student_t",
@@ -363,9 +386,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         requires_integer_encoding=False,
         emission_fns={
             "default": _emission_factory_poisson,
+            "log": _emission_factory_poisson,
         },
         score_weight_fns={
             "default": _sw_factory_poisson,
+            "log": _sw_factory_poisson,
         },
         make_variance_fn=_variance_factory_poisson,
         grad_hess_strategy="glm",
@@ -419,9 +444,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         requires_integer_encoding=False,
         emission_fns={
             "default": _emission_factory_negbin,
+            "log": _emission_factory_negbin,
         },
         score_weight_fns={
             "default": _sw_factory_negbin,
+            "log": _sw_factory_negbin,
         },
         make_variance_fn=_variance_factory_negbin,
         grad_hess_strategy="glm",
@@ -451,13 +478,15 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
     DistributionFamily.ORDERED_LOGISTIC: ObservationFamilySpec(
         validate_support=_nonneg_integer,
         support_description="ordered_logistic requires non-negative integer-encoded levels",
-        hydrate_levels=_no_levels,  # hydration handled by _hydrate_discrete_manifest_metadata
+        hydrate_levels=_infer_contiguous_levels,
         requires_integer_encoding=True,
         emission_fns={
             "default": _emission_factory_ordered_logistic,
+            "cumulative_logit": _emission_factory_ordered_logistic,
         },
         score_weight_fns={
             "default": _sw_factory_ordered_logistic,
+            "cumulative_logit": _sw_factory_ordered_logistic,
         },
         make_variance_fn=_variance_factory_ordered_logistic,
         grad_hess_strategy="glm",
@@ -467,16 +496,39 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
     DistributionFamily.CATEGORICAL: ObservationFamilySpec(
         validate_support=_nonneg_integer,
         support_description="categorical requires non-negative integer-encoded levels",
-        hydrate_levels=_no_levels,  # hydration handled by _hydrate_discrete_manifest_metadata
+        hydrate_levels=_infer_contiguous_levels,
         requires_integer_encoding=True,
         emission_fns={
             "default": _emission_factory_categorical,
+            "softmax": _emission_factory_categorical,
         },
         score_weight_fns={
             "default": _sw_factory_categorical,
+            "softmax": _sw_factory_categorical,
         },
         make_variance_fn=_variance_factory_categorical,
         grad_hess_strategy="glm",
         make_response_fn=_response_factory_categorical,
     ),
 }
+
+
+def _validate_registry_links() -> None:
+    for dist, spec in FAMILY_REGISTRY.items():
+        expected = {link.value for link in VALID_LINKS_FOR_DISTRIBUTION[dist]}
+        emission_keys = {key for key in spec.emission_fns if key != "default"}
+        if emission_keys != expected:
+            raise ValueError(
+                f"ObservationFamilySpec for {dist.value} has emission links {sorted(emission_keys)} "
+                f"but expected {sorted(expected)}"
+            )
+
+        score_weight_keys = {key for key in spec.score_weight_fns if key != "default"}
+        if spec.grad_hess_strategy == "glm" and score_weight_keys != expected:
+            raise ValueError(
+                f"ObservationFamilySpec for {dist.value} has score-weight links "
+                f"{sorted(score_weight_keys)} but expected {sorted(expected)}"
+            )
+
+
+_validate_registry_links()

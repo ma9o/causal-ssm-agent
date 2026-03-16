@@ -36,6 +36,18 @@ OUTLIER_IQR_MULTIPLIER = 3.0
 MIN_ALIGNED_FOR_CFA = 10
 HALLUCINATION_DUPLICATE_THRESHOLD = 0.5
 
+_TIMESTAMP_FORMATS: tuple[tuple[str | None, bool], ...] = (
+    ("%Y-%m-%d %H:%M:%S", False),
+    ("%Y-%m-%d %H:%M", False),
+    ("%Y-%m-%d", False),
+    ("%Y-%m-%dT%H:%M:%S", False),
+    ("%Y-%m-%dT%H:%M:%S%.f", False),
+    ("%Y-%m-%dT%H:%M:%S%z", True),
+    ("%Y-%m-%dT%H:%M:%S%.f%z", True),
+    ("%Y-%m-%d %H:%M:%S%z", True),
+    ("%Y-%m-%d %H:%M%z", True),
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Core abstractions
@@ -79,6 +91,36 @@ class IndicatorContext:
 
 
 @dataclass(frozen=True)
+class ValidationContext:
+    """Dataset-level validation context with helpers for per-indicator views."""
+
+    combined: pl.DataFrame
+    indicators: list[dict]
+    indicator_names: set[str]
+    indicator_lookup: dict[str, dict]
+    construct_lookup: dict[str, dict]
+    model_clock_hours: float | None
+
+    def iter_indicators(self):
+        for ind_name in self.indicator_names:
+            ind_data = self.combined.filter(pl.col("indicator") == ind_name)
+            if ind_data.is_empty():
+                yield ind_name, ind_data, None
+                continue
+            yield (
+                ind_name,
+                ind_data,
+                _build_indicator_context(
+                    ind_name,
+                    ind_data,
+                    self.indicator_lookup,
+                    self.construct_lookup,
+                    self.model_clock_hours,
+                ),
+            )
+
+
+@dataclass(frozen=True)
 class ValidationRule:
     """Composable validation rule."""
 
@@ -105,12 +147,7 @@ def _check_timestamps(ind_data: pl.DataFrame, ind_name: str) -> tuple[list[dict]
     if n_total == 0:
         return issues, pl.Series("timestamp", [], dtype=pl.Datetime("us"))
 
-    try:
-        parsed = timestamps.str.to_datetime(
-            format="%Y-%m-%dT%H:%M:%S%z", strict=False
-        ).dt.replace_time_zone(None)
-    except pl.exceptions.ComputeError:
-        parsed = pl.Series("timestamp", [None] * n_total, dtype=pl.Datetime("us"))
+    parsed = _parse_timestamp_series(timestamps)
     n_unparseable = parsed.null_count()
 
     if n_unparseable == n_total:
@@ -378,10 +415,7 @@ def _check_construct_correlations(
                 data_a = (
                     combined.filter(pl.col("indicator") == name_a)
                     .select(
-                        pl.col("timestamp")
-                        .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%z", strict=False)
-                        .dt.replace_time_zone(None)
-                        .alias("ts"),
+                        _parsed_timestamp_expr("timestamp").alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_a"),
                     )
                     .drop_nulls()
@@ -390,10 +424,7 @@ def _check_construct_correlations(
                 data_b = (
                     combined.filter(pl.col("indicator") == name_b)
                     .select(
-                        pl.col("timestamp")
-                        .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%z", strict=False)
-                        .dt.replace_time_zone(None)
-                        .alias("ts"),
+                        _parsed_timestamp_expr("timestamp").alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_b"),
                     )
                     .drop_nulls()
@@ -693,12 +724,7 @@ def _build_indicator_context(
     # Parse timestamps once for all rules
     timestamps = ind_data["timestamp"]
     n_total_ts = len(timestamps)
-    try:
-        parsed = timestamps.str.to_datetime(
-            format="%Y-%m-%dT%H:%M:%S%z", strict=False
-        ).dt.replace_time_zone(None)
-    except pl.exceptions.ComputeError:
-        parsed = pl.Series("timestamp", [None] * n_total_ts, dtype=pl.Datetime("us"))
+    parsed = _parse_timestamp_series(timestamps)
     n_unparseable = parsed.null_count()
     parsed_ts = parsed.drop_nulls()
 
@@ -719,12 +745,7 @@ def _build_indicator_context(
 
 def run_rules(
     rules: list[ValidationRule],
-    combined: pl.DataFrame,
-    indicators: list[dict],
-    indicator_names: set[str],
-    indicator_lookup: dict[str, dict],
-    construct_lookup: dict[str, dict],
-    model_clock_hours: float | None,
+    ctx: ValidationContext,
 ) -> tuple[list[dict], list[dict]]:
     """Run all validation rules and reduce findings.
 
@@ -738,9 +759,7 @@ def run_rules(
     early_issues: list[dict] = []
     indicator_findings: dict[str, list[ValidationFindings]] = {}
 
-    for ind_name in indicator_names:
-        ind_data = combined.filter(pl.col("indicator") == ind_name)
-
+    for ind_name, ind_data, indicator_ctx in ctx.iter_indicators():
         if ind_data.is_empty():
             early_issues.append(
                 {
@@ -752,10 +771,7 @@ def run_rules(
             )
             continue
 
-        ctx = _build_indicator_context(
-            ind_name, ind_data, indicator_lookup, construct_lookup, model_clock_hours
-        )
-        if ctx is None:
+        if indicator_ctx is None:
             early_issues.append(
                 {
                     "indicator": ind_name,
@@ -768,13 +784,13 @@ def run_rules(
 
         findings: list[ValidationFindings] = []
         for rule in indicator_rules:
-            findings.append(rule.check(ctx))
+            findings.append(rule.check(indicator_ctx))
         indicator_findings[ind_name] = findings
 
     # Run dataset-wide rules
     dataset_issues: list[dict] = []
     for rule in dataset_rules:
-        f = rule.check(combined, indicators)
+        f = rule.check(ctx.combined, ctx.indicators)
         for issue in f.issues:
             dataset_issues.append(
                 {
@@ -866,14 +882,18 @@ def validate_extraction(
         with contextlib.suppress(ValueError):
             model_clock_hours = parse_duration_to_hours(model_clock_str)
 
+    validation_ctx = ValidationContext(
+        combined=combined,
+        indicators=indicators,
+        indicator_names=indicator_names,
+        indicator_lookup=indicator_lookup,
+        construct_lookup=construct_lookup,
+        model_clock_hours=model_clock_hours,
+    )
+
     issues, per_indicator_health = run_rules(
         RULES,
-        combined,
-        indicators,
-        indicator_names,
-        indicator_lookup,
-        construct_lookup,
-        model_clock_hours,
+        validation_ctx,
     )
 
     errors = [i for i in issues if i["severity"] == "error"]
@@ -884,3 +904,20 @@ def validate_extraction(
         "issues": issues,
         "per_indicator_health": per_indicator_health,
     }
+
+
+def _parsed_timestamp_expr(column: str) -> pl.Expr:
+    text = pl.col(column).cast(pl.Utf8, strict=False)
+    candidates: list[pl.Expr] = []
+    for fmt, has_tz in _TIMESTAMP_FORMATS:
+        parsed = text.str.to_datetime(format=fmt, strict=False)
+        if has_tz:
+            parsed = parsed.dt.replace_time_zone(None)
+        candidates.append(parsed)
+    return pl.coalesce(candidates)
+
+
+def _parse_timestamp_series(timestamps: pl.Series) -> pl.Series:
+    return pl.DataFrame({"timestamp": timestamps}).select(_parsed_timestamp_expr("timestamp"))[
+        "timestamp"
+    ]

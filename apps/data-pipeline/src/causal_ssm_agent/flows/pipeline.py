@@ -22,21 +22,25 @@ from causal_ssm_agent.utils.data import DATA_URI, runs_dir
 
 logger = get_prefect_logger(__name__)
 
-STAGE_SEQUENCE = (
-    "stage-0",
-    "stage-1a",
-    "stage-1b",
-    "stage-2",
-    "stage-3",
-    "stage-4",
-    "stage-4b",
-    "stage-5a",
-    "stage-5b",
-    "stage-6",
-)
-STAGE_INDEX = {stage_id: index for index, stage_id in enumerate(STAGE_SEQUENCE)}
-QUESTION_STAGES = frozenset({"stage-1a", "stage-1b", "stage-2", "stage-4"})
 STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
+
+
+def _stage_sequence() -> tuple[str, ...]:
+    from causal_ssm_agent.flows.stage_registry import get_execution_order
+
+    return tuple(get_execution_order())
+
+
+def _stage_index() -> dict[str, int]:
+    return {stage_id: index for index, stage_id in enumerate(_stage_sequence())}
+
+
+def _question_stages() -> frozenset[str]:
+    from causal_ssm_agent.flows.stage_registry import get_stage_registry
+
+    return frozenset(
+        stage_id for stage_id, defn in get_stage_registry().items() if defn.question_required
+    )
 
 
 def _preview(text: str, *, limit: int = 120) -> str:
@@ -47,11 +51,12 @@ def _preview(text: str, *, limit: int = 120) -> str:
 
 
 def _stage_idx(stage_id: str) -> int:
+    stage_index = _stage_index()
     try:
-        return STAGE_INDEX[stage_id]
+        return stage_index[stage_id]
     except KeyError as exc:
         raise ValueError(
-            f"Unknown stage '{stage_id}'. Expected one of: {', '.join(STAGE_SEQUENCE)}"
+            f"Unknown stage '{stage_id}'. Expected one of: {', '.join(_stage_sequence())}"
         ) from exc
 
 
@@ -70,12 +75,13 @@ def _resolve_stage_window(
     start_stage: str | None,
     end_stage: str | None,
 ) -> tuple[str, int, str, int]:
+    stage_sequence = _stage_sequence()
     if start_stage is None:
-        start_stage = STAGE_SEQUENCE[0]
+        start_stage = stage_sequence[0]
 
     start_idx = _stage_idx(start_stage)
 
-    resolved_end_stage = end_stage or STAGE_SEQUENCE[-1]
+    resolved_end_stage = end_stage or stage_sequence[-1]
     end_idx = _stage_idx(resolved_end_stage)
     if end_idx < start_idx:
         raise ValueError(
@@ -102,8 +108,10 @@ def _resolve_question(
     previously-materialized file instead.
     """
     query_path = storage.join(DATA_URI, user_id, "query.txt")
+    stage_sequence = _stage_sequence()
+    question_stages = _question_stages()
     requires_question = any(
-        stage_id in QUESTION_STAGES for stage_id in STAGE_SEQUENCE[start_idx : end_idx + 1]
+        stage_id in question_stages for stage_id in stage_sequence[start_idx : end_idx + 1]
     )
     if query:
         question = query.strip()
@@ -171,18 +179,11 @@ def _raise_if_restored_gate_failed(stage_id: str, state: dict[str, Any]) -> None
     gate = state.get("gate")
     if gate is None or not gate.get("gate_failed") or gate.get("gate_overridden"):
         return
-    if stage_id == "stage-1b":
-        raise RuntimeError(
-            "No identifiable treatment effects remain after filtering. "
-            "All treatments are blocked by unobserved confounders."
-        )
-    if stage_id == "stage-4b":
-        t_rule = gate.get("t_rule", {})
-        raise RuntimeError(
-            f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
-            f"> {t_rule.get('n_moments')} moment conditions. "
-            "Model is provably non-identified. Halting pipeline."
-        )
+    from causal_ssm_agent.flows.stage_registry import get_stage_registry
+
+    defn = get_stage_registry()[stage_id]
+    if defn.gate_error is not None:
+        raise RuntimeError(defn.gate_error(gate))
 
 
 @flow(

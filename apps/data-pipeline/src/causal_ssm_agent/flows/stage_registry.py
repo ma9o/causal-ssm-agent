@@ -34,6 +34,8 @@ from .run_store import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from pydantic import BaseModel
+
 logger = get_prefect_logger(__name__)
 
 
@@ -56,6 +58,19 @@ class PipelineContext:
 
 
 @dataclass(frozen=True)
+class StageMaterializer:
+    """Restore/persist/finalize behavior for a stage as one cohesive concern."""
+
+    restore: Callable[[str, dict, dict[str, dict]], dict] = field(
+        default_factory=lambda: _restore_default
+    )
+    persist: Callable[[dict, str], dict] = field(default_factory=lambda: _persist_noop)
+    finalize_extras: Callable[[dict, str], dict[str, Any]] = field(
+        default_factory=lambda: _finalize_noop
+    )
+
+
+@dataclass(frozen=True)
 class StageDefinition:
     """Declarative stage metadata with behavior carried as first-class functions.
 
@@ -65,6 +80,7 @@ class StageDefinition:
 
     stage_id: str
     depends_on: frozenset[str]
+    contract: type[BaseModel]
 
     # (PipelineContext, stage_states) -> kwargs for runner
     bind_inputs: Callable[[PipelineContext, dict[str, dict]], dict[str, Any]]
@@ -75,15 +91,7 @@ class StageDefinition:
     # (result, stage_states, gates_overridden) -> gate_result | None
     gate: Callable[[dict, dict[str, dict], bool], dict] | None = None
 
-    # (result, user_id) -> (result, extras_dict)
-    persist: Callable[[dict, str], tuple[dict, dict[str, Any]]] = field(
-        default_factory=lambda: _persist_noop
-    )
-
-    # (user_id, web, prior_states) -> result
-    restore: Callable[[str, dict, dict[str, dict]], dict] = field(
-        default_factory=lambda: _restore_default
-    )
+    materializer: StageMaterializer = field(default_factory=StageMaterializer)
 
     # Error message for gate failure (receives gate_result)
     gate_error: Callable[[dict], str] | None = None
@@ -129,7 +137,8 @@ async def run_stage_flow(
             result = await result
 
     # Persist artifacts (save_parquet, save_pickle, etc.)
-    result, extras = defn.persist(result, ctx.user_id)
+    result = defn.materializer.persist(result, ctx.user_id)
+    extras = defn.materializer.finalize_extras(result, ctx.user_id)
 
     # Gate check
     gate_result = None
@@ -140,7 +149,12 @@ async def run_stage_flow(
 
     # Finalize (validate contract, persist JSON, save snapshot)
     state = finalize_stage(
-        defn.stage_id, result, ctx.user_id, extras=extras or None, gate=gate_result
+        defn.stage_id,
+        result,
+        ctx.user_id,
+        extras=extras or None,
+        gate=gate_result,
+        contract=defn.contract,
     )
 
     # Raise on hard gate failure
@@ -177,7 +191,7 @@ def load_stage_state(
     web = load_public_payload(user_id, stage_id)
     defn = get_stage_registry()[stage_id]
 
-    result = defn.restore(user_id, web, prior_states)
+    result = defn.materializer.restore(user_id, web, prior_states)
 
     gate_result = None
     if defn.gate is not None:
@@ -202,8 +216,12 @@ def _gate_extras(defn: StageDefinition, gate_result: dict) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _persist_noop(result: dict, user_id: str) -> tuple[dict, dict]:
-    return result, {}
+def _persist_noop(result: dict, user_id: str) -> dict:
+    return result
+
+
+def _finalize_noop(result: dict, user_id: str) -> dict[str, Any]:
+    return {}
 
 
 def _restore_default(user_id: str, web: dict, prior_states: dict) -> dict:
@@ -267,29 +285,34 @@ def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _persist_stage0(result: dict, user_id: str) -> tuple[dict, dict]:
+def _persist_stage0(result: dict, user_id: str) -> dict:
     raw_df = result.pop("_df")
     result["_df_path"] = save_parquet(raw_df, user_id, "stage0-raw-input.parquet")
-    return result, {}
+    return result
 
 
-def _persist_stage2(result: dict, user_id: str) -> tuple[dict, dict]:
+def _persist_stage2(result: dict, user_id: str) -> dict:
     raw_data = result.pop("_raw_data")
     data_for_model = result.pop("_data_for_model")
+    result["_raw_data_row_count"] = len(raw_data)
     result["_raw_data_path"] = save_parquet(raw_data, user_id, "stage2-raw-data.parquet")
     result["_data_for_model_path"] = save_parquet(
         data_for_model, user_id, "stage2-model-data.parquet"
     )
-    extras = {"outcome": "success" if len(raw_data) > 0 else "fail"}
-    return result, extras
+    return result
 
 
-def _persist_stage5b(result: dict, user_id: str) -> tuple[dict, dict]:
+def _finalize_stage2_extras(result: dict, user_id: str) -> dict[str, Any]:
+    row_count = int(result.get("_raw_data_row_count", 0))
+    return {"outcome": "success" if row_count > 0 else "fail"}
+
+
+def _persist_stage5b(result: dict, user_id: str) -> dict:
     fitted_artifact = result.pop("_fitted_artifact")
     result["_fitted_result_path"] = save_pickle(
         fitted_artifact, user_id, "stage5b-fitted-result.pkl"
     )
-    return result, {}
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -630,20 +653,25 @@ def _log_stage6(web: dict) -> None:
 def _build_registry() -> dict[str, StageDefinition]:
     """Build the stage registry with lazy imports to avoid circular dependencies."""
     from . import dag
+    from .stages.contracts import STAGE_CONTRACTS
 
     return {
         "stage-0": StageDefinition(
             stage_id="stage-0",
             depends_on=frozenset(),
+            contract=STAGE_CONTRACTS["stage-0"],
             bind_inputs=_bind_stage0,
             runner=dag.stage0,
-            persist=_persist_stage0,
-            restore=_restore_stage0,
+            materializer=StageMaterializer(
+                restore=_restore_stage0,
+                persist=_persist_stage0,
+            ),
             log_summary=_log_stage0,
         ),
         "stage-1a": StageDefinition(
             stage_id="stage-1a",
             depends_on=frozenset(),
+            contract=STAGE_CONTRACTS["stage-1a"],
             bind_inputs=_bind_stage1a,
             runner=dag.stage1a,
             question_required=True,
@@ -653,11 +681,12 @@ def _build_registry() -> dict[str, StageDefinition]:
         "stage-1b": StageDefinition(
             stage_id="stage-1b",
             depends_on=frozenset({"stage-0", "stage-1a"}),
+            contract=STAGE_CONTRACTS["stage-1b"],
             bind_inputs=_bind_stage1b,
             runner=dag.stage1b,
             gate=_gate_stage1b,
             gate_error=_gate_error_stage1b,
-            restore=_restore_stage1b,
+            materializer=StageMaterializer(restore=_restore_stage1b),
             question_required=True,
             override_eligible=True,
             log_summary=_log_stage1b,
@@ -665,16 +694,21 @@ def _build_registry() -> dict[str, StageDefinition]:
         "stage-2": StageDefinition(
             stage_id="stage-2",
             depends_on=frozenset({"stage-0", "stage-1b"}),
+            contract=STAGE_CONTRACTS["stage-2"],
             bind_inputs=_bind_stage2,
             runner=dag.stage2,
-            persist=_persist_stage2,
-            restore=_restore_stage2,
+            materializer=StageMaterializer(
+                restore=_restore_stage2,
+                persist=_persist_stage2,
+                finalize_extras=_finalize_stage2_extras,
+            ),
             question_required=True,
             log_summary=_log_stage2,
         ),
         "stage-3": StageDefinition(
             stage_id="stage-3",
             depends_on=frozenset({"stage-1b", "stage-2"}),
+            contract=STAGE_CONTRACTS["stage-3"],
             bind_inputs=_bind_stage3,
             runner=dag.stage3,
             log_summary=_log_stage3,
@@ -682,9 +716,10 @@ def _build_registry() -> dict[str, StageDefinition]:
         "stage-4": StageDefinition(
             stage_id="stage-4",
             depends_on=frozenset({"stage-1b", "stage-2"}),
+            contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
-            restore=_restore_stage4,
+            materializer=StageMaterializer(restore=_restore_stage4),
             question_required=True,
             override_eligible=True,
             prepare_override=_prepare_override_stage4,
@@ -693,16 +728,18 @@ def _build_registry() -> dict[str, StageDefinition]:
         "stage-4b": StageDefinition(
             stage_id="stage-4b",
             depends_on=frozenset({"stage-4", "stage-2"}),
+            contract=STAGE_CONTRACTS["stage-4b"],
             bind_inputs=_bind_stage4b,
             runner=dag.stage4b,
             gate=_gate_stage4b,
             gate_error=_gate_error_stage4b,
-            restore=_restore_stage4b,
+            materializer=StageMaterializer(restore=_restore_stage4b),
             log_summary=_log_stage4b,
         ),
         "stage-5a": StageDefinition(
             stage_id="stage-5a",
             depends_on=frozenset({"stage-4", "stage-2"}),
+            contract=STAGE_CONTRACTS["stage-5a"],
             bind_inputs=_bind_stage5a,
             runner=dag.stage5a,
             skip_restore=True,
@@ -711,15 +748,19 @@ def _build_registry() -> dict[str, StageDefinition]:
         "stage-5b": StageDefinition(
             stage_id="stage-5b",
             depends_on=frozenset({"stage-4", "stage-2"}),
+            contract=STAGE_CONTRACTS["stage-5b"],
             bind_inputs=_bind_stage5b,
             runner=dag.stage5b,
-            persist=_persist_stage5b,
-            restore=_restore_stage5b,
+            materializer=StageMaterializer(
+                restore=_restore_stage5b,
+                persist=_persist_stage5b,
+            ),
             log_summary=_log_stage5b,
         ),
         "stage-6": StageDefinition(
             stage_id="stage-6",
             depends_on=frozenset({"stage-5b", "stage-1a", "stage-1b"}),
+            contract=STAGE_CONTRACTS["stage-6"],
             bind_inputs=_bind_stage6,
             runner=dag.stage6,
             log_summary=_log_stage6,

@@ -616,16 +616,13 @@ def stage6(
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
 
-    # FittedArtifact is the only persisted inference contract.
-    # Wrap it in the dict format run_interventions expects.
-    fitted_model = {
-        "fitted": fitted_artifact.result is not None,
-        "result": fitted_artifact.result,
-        "builder": fitted_artifact.builder,
-        "times": fitted_artifact.times,
-    }
     results = run_interventions(
-        fitted_model, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
+        fitted_artifact,
+        treatments,
+        outcome_name,
+        causal_spec,
+        ppc_result,
+        ps_result=ps_result,
     )
     intervention_results = unwrap_task_result(results)
 

@@ -262,9 +262,12 @@ async def extract_tick_chunk_task(
     config = get_config()
     generate_config = get_generate_config()
     # Use shorter timeout for extraction workers (prevents hung LLM calls)
+    worker_timeout = getattr(
+        config.stage2_workers, "worker_timeout", getattr(generate_config, "timeout", None)
+    )
     generate_config = GenerateConfig(
         max_tokens=generate_config.max_tokens,
-        timeout=config.stage2_workers.worker_timeout,
+        timeout=worker_timeout,
         reasoning_effort=generate_config.reasoning_effort,
         reasoning_history=generate_config.reasoning_history,
         max_tool_output=generate_config.max_tool_output,
@@ -355,7 +358,7 @@ async def stage2_extraction_flow(
     from causal_ssm_agent.utils.causal_spec import get_indicators, make_extraction_context
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.data import detect_time_column
-    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_rpm_limiter
+    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
 
     config = get_config()
     ticks_per_chunk = config.stage2_workers.ticks_per_chunk
@@ -451,7 +454,7 @@ async def stage2_extraction_flow(
 
             # Activate RPM limiter for the duration of extraction
             if config.stage2_workers.max_rpm:
-                set_rpm_limiter(RpmLimiter(config.stage2_workers.max_rpm))
+                set_limiter("llm", RpmLimiter(config.stage2_workers.max_rpm))
 
             try:
                 # Submit ALL chunks at once — the thread pool controls concurrency,
@@ -489,7 +492,7 @@ async def stage2_extraction_flow(
                     root_run_id=root_run_id,
                 )
             finally:
-                set_rpm_limiter(None)
+                set_limiter("llm", None)
 
     # ── Merge results ───────────────────────────────────────────────────
     all_dicts = computed_dicts + semantic_dicts

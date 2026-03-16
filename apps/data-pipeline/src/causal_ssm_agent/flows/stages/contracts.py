@@ -235,6 +235,29 @@ INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4
 # ---------------------------------------------------------------------------
 
 
+class BaseStageContract(BaseModel):
+    """Shared base for persisted stage payloads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["success", "warn", "fail"] = "success"
+
+    def summary_level(self) -> int:
+        return logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO
+
+    def summary_message(self) -> str:
+        raise NotImplementedError
+
+    def summarize(self) -> tuple[int, str]:
+        return self.summary_level(), self.summary_message()
+
+
+class LLMStageContract(BaseStageContract):
+    """Base contract for stages that surface an LLM trace."""
+
+    llm_trace: LLMTrace | None = None
+
+
 class GateOverrideContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -256,65 +279,50 @@ class ColumnDescriptionContract(BaseModel):
     description: str
 
 
-class Stage0Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage0Contract(LLMStageContract):
     source_label: str
     n_records: int
     n_columns: int
     date_range: DateRangeContract
     sample: list[dict[str, str | None]]
     column_descriptions: list[ColumnDescriptionContract]
-    llm_trace: LLMTrace | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         return (
-            logging.INFO,
             f"Stage 0 summary: source={self.source_label} "
             f"records={self.n_records} columns={self.n_columns} "
-            f"date_range={self.date_range.start}..{self.date_range.end}",
+            f"date_range={self.date_range.start}..{self.date_range.end}"
         )
 
 
-class Stage1aContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage1aContract(LLMStageContract):
     latent_model: LatentModel
     outcome_name: str
     treatments: list[str]
-    llm_trace: LLMTrace | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         return (
-            logging.INFO,
             f"Stage 1a summary: constructs={len(self.latent_model.constructs)} "
             f"edges={len(self.latent_model.edges)} "
             f"treatments={len(self.treatments)} "
-            f"outcome={self.outcome_name or 'unknown'}",
+            f"outcome={self.outcome_name or 'unknown'}"
         )
 
 
-class Stage1bContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage1bContract(LLMStageContract):
     causal_spec: CausalSpec
-    llm_trace: LLMTrace | None = None
     gate_overridden: GateOverrideContract | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         non_id = (
             self.causal_spec.identifiability.non_identifiable_treatments
             if self.causal_spec.identifiability
             else {}
         ) or {}
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 1b summary: constructs={len(self.causal_spec.latent.constructs)} "
             f"indicators={len(self.causal_spec.measurement.indicators)} "
-            f"filtered_treatments={len(non_id)} outcome={self.outcome}",
+            f"filtered_treatments={len(non_id)} outcome={self.outcome}"
         )
 
 
@@ -336,23 +344,18 @@ class ExtractionContract(BaseModel):
     tick: str | None
 
 
-class Stage2Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage2Contract(LLMStageContract):
     workers: list[WorkerStatusContract]
     combined_extractions_sample: list[ExtractionContract]
     per_indicator_counts: dict[str, int]
-    llm_trace: LLMTrace | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         completed = sum(1 for w in self.workers if w.status == "completed")
         failed = sum(1 for w in self.workers if w.status == "failed")
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 2 summary: workers={len(self.workers)} completed={completed} "
             f"failed={failed} sample_rows={len(self.combined_extractions_sample)} "
-            f"indicators={len(self.per_indicator_counts)} outcome={self.outcome}",
+            f"indicators={len(self.per_indicator_counts)} outcome={self.outcome}"
         )
 
 
@@ -387,21 +390,17 @@ class ValidationReportContract(BaseModel):
     per_indicator_health: list[IndicatorHealthContract]
 
 
-class Stage3Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage3Contract(BaseStageContract):
     validation_report: ValidationReportContract
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         rpt = self.validation_report
         errors = sum(1 for i in rpt.issues if i.severity == "error")
         warnings = sum(1 for i in rpt.issues if i.severity == "warning")
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 3 summary: is_valid={rpt.is_valid} "
             f"issues={len(rpt.issues)} "
-            f"errors={errors} warnings={warnings} outcome={self.outcome}",
+            f"errors={errors} warnings={warnings} outcome={self.outcome}"
         )
 
 
@@ -413,45 +412,36 @@ class ValidationRetryContract(BaseModel):
     feedback: str
 
 
-class Stage4Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage4Contract(LLMStageContract):
     model_spec: ModelSpec
     priors: dict[str, PriorProposal]
     validation_retries: list[ValidationRetryContract] | None = None
-    llm_trace: LLMTrace | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         return (
-            logging.INFO,
             f"Stage 4 summary: parameters={len(self.model_spec.parameters)} "
             f"likelihoods={len(self.model_spec.likelihoods)} "
             f"priors={len(self.priors)} "
-            f"prior_predictive_channels={len(self.prior_predictive_samples or {})}",
+            f"prior_predictive_channels={len(self.prior_predictive_samples or {})}"
         )
 
 
-class Stage4bContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage4bContract(BaseStageContract):
     parametric_id: ParametricIdResult
     rb_partition: RBPartitionResult | None = None
     gate_overridden: GateOverrideContract | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         pid = self.parametric_id
         t_pass = "pass" if (pid.t_rule is None or pid.t_rule.satisfies) else "fail"
         s = pid.summary
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 4b summary: checked={pid.checked} "
             f"t_rule={t_pass} "
             f"structural_issues={len(s.structural_issues if s else [])} "
             f"boundary_issues={len(s.boundary_issues if s else [])} "
-            f"weak_params={len(s.weak_params if s else [])} outcome={self.outcome}",
+            f"weak_params={len(s.weak_params if s else [])} outcome={self.outcome}"
         )
 
 
@@ -497,29 +487,20 @@ class InferenceMetadataContract(BaseModel):
     duration_seconds: float
 
 
-class Stage5aContract(BaseModel):
+class Stage5aContract(BaseStageContract):
     """SVI preflight: fast approximate fit before expensive inference."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
     inference_metadata: InferenceMetadataContract
     svi_diagnostics: SVIDiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         converged = self.svi_diagnostics is not None
-        return (
-            logging.INFO,
-            f"Stage 5a summary: method=svi converged={converged} outcome={self.outcome}",
-        )
+        return f"Stage 5a summary: method=svi converged={converged} outcome={self.outcome}"
 
 
-class Stage5bContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage5bContract(BaseStageContract):
     power_scaling: list[PowerScalingResultContract]
     ppc: PPCResultContract
     inference_metadata: InferenceMetadataContract
@@ -530,7 +511,7 @@ class Stage5bContract(BaseModel):
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         ps_issues = sum(
             1
             for item in self.power_scaling
@@ -538,27 +519,22 @@ class Stage5bContract(BaseModel):
         )
         ppc_warnings = len(self.ppc.per_variable_warnings)
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 5b summary: method={self.inference_metadata.method} "
             f"samples={self.inference_metadata.n_samples} "
-            f"power_scaling_issues={ps_issues} ppc_warnings={ppc_warnings} outcome={self.outcome}",
+            f"power_scaling_issues={ps_issues} ppc_warnings={ppc_warnings} outcome={self.outcome}"
         )
 
 
-class Stage6Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: Literal["success", "warn", "fail"] = "success"
+class Stage6Contract(BaseStageContract):
     intervention_results: list[TreatmentEffectContract]
 
-    def summarize(self) -> tuple[int, str]:
+    def summary_message(self) -> str:
         warnings = sum(
             1 for r in self.intervention_results if r.ppc_warnings or r.prior_sensitivity_warning
         )
         return (
-            logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO,
             f"Stage 6 summary: treatments_ranked={len(self.intervention_results)} "
-            f"warnings={warnings} outcome={self.outcome}",
+            f"warnings={warnings} outcome={self.outcome}"
         )
 
 

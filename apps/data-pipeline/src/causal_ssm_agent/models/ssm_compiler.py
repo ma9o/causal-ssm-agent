@@ -18,12 +18,12 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     ModelSpec,
     ParameterRole,
 )
+from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 if TYPE_CHECKING:
     import polars as pl
 
     from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 CompiledSSMArtifact = dict[str, Any]
 
@@ -294,7 +294,7 @@ def compile_ssm_artifact(
 ) -> CompiledSSMArtifact:
     """Compile user-facing specs into an executable, serializable SSM artifact."""
     from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+    from causal_ssm_agent.models.ssm_builder import compile_ssm_inputs
 
     validated_model_spec, errors = validate_model_spec_for_compilation(
         model_spec, causal_spec=causal_spec
@@ -303,18 +303,21 @@ def compile_ssm_artifact(
         raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
 
     assert validated_model_spec is not None
-    builder = SSMModelBuilder(
-        model_spec=validated_model_spec,
-        priors=priors,
+    raw_priors: dict[str, dict] = {
+        key: value.model_dump() if isinstance(value, PriorProposal) else value
+        for key, value in priors.items()
+    }
+    spec, ssm_priors, parameter_bindings = compile_ssm_inputs(
+        validated_model_spec,
+        raw_priors,
         causal_spec=causal_spec,
     )
-    spec, ssm_priors = builder.compile_inputs()
 
     return {
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
-        "parameter_bindings": list(builder._parameter_bindings or []),
+        "parameter_bindings": parameter_bindings,
     }
 
 
