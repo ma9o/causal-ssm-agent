@@ -459,7 +459,6 @@ async def causal_inference_pipeline(
     else:
         stage5b_state = dag.stage5b_flow(
             stage4_result,
-            stage1b_result,
             stage2_result,
             inference_method,
             user_id,
