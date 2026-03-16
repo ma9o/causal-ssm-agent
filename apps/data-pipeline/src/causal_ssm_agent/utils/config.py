@@ -41,9 +41,11 @@ class Stage2Config:
     model: str
     ticks_per_chunk: int = 1
     max_concurrent_workers: int = 4
-    submission_batch_size: int = 50
     max_events_per_tick: int = 300
+    max_rpm: int = 450
+    worker_timeout: int = 120
     # Deprecated: kept for config.yaml backward compat, ignored at runtime
+    submission_batch_size: int = 50
     chunk_size: int = 50
 
 

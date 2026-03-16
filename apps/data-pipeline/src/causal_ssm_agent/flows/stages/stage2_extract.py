@@ -229,6 +229,7 @@ def _collect_batch_results(
 @task(
     retries=2,
     retry_delay_seconds=10,
+    timeout_seconds=300,
     task_run_name="extract-ticks-{chunk_idx}",
 )
 async def extract_tick_chunk_task(
@@ -253,12 +254,21 @@ async def extract_tick_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.utils.litellm_client import GenerateConfig
     from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
     generate_config = get_generate_config()
+    # Use shorter timeout for extraction workers (prevents hung LLM calls)
+    generate_config = GenerateConfig(
+        max_tokens=generate_config.max_tokens,
+        timeout=config.stage2_workers.worker_timeout,
+        reasoning_effort=generate_config.reasoning_effort,
+        reasoning_history=generate_config.reasoning_history,
+        max_tool_output=generate_config.max_tool_output,
+    )
     indicator_count = len(get_indicators(causal_spec))
     n_events = tick_text.count("\n")
     chunk_label = _chunk_log_label(chunk_idx, len(tick_ids), n_events)
@@ -345,11 +355,11 @@ async def stage2_extraction_flow(
     from causal_ssm_agent.utils.causal_spec import get_indicators, make_extraction_context
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.data import detect_time_column
+    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_rpm_limiter
 
     config = get_config()
     ticks_per_chunk = config.stage2_workers.ticks_per_chunk
     max_events_per_tick = config.stage2_workers.max_events_per_tick
-    submission_batch_size = config.stage2_workers.submission_batch_size
 
     # Load DataFrame and detect time column
     raw_df = pl.read_parquet(Path(raw_df_path))
@@ -428,72 +438,58 @@ async def stage2_extraction_flow(
                 chunk_texts.append(text)
                 chunk_tick_ids.append(ids)
 
+            all_indices = list(range(len(chunks)))
+            all_n_ticks = [len(ids) for ids in chunk_tick_ids]
+
             logger.info(
-                "Stage 2: %d chunks of up to %d ticks each (max_concurrent_workers=%d, submission_batch_size=%d)",
+                "Stage 2: %d chunks of up to %d ticks each (max_concurrent_workers=%d, max_rpm=%d)",
                 len(chunks),
                 ticks_per_chunk,
                 config.stage2_workers.max_concurrent_workers,
-                submission_batch_size,
+                config.stage2_workers.max_rpm,
             )
 
-            # Fan out and collect results
-            n_finished = 0
-            for batch_start in range(0, len(chunks), submission_batch_size):
-                batch_end = min(batch_start + submission_batch_size, len(chunks))
-                batch_texts = chunk_texts[batch_start:batch_end]
-                batch_ids = chunk_tick_ids[batch_start:batch_end]
-                batch_indices = list(range(batch_start, batch_end))
-                batch_n_ticks = [len(ids) for ids in batch_ids]
+            # Activate RPM limiter for the duration of extraction
+            if config.stage2_workers.max_rpm:
+                set_rpm_limiter(RpmLimiter(config.stage2_workers.max_rpm))
 
-                logger.info(
-                    "Stage 2: submitting chunk batch %d-%d (%d tasks, submitted=%d/%d)",
-                    batch_indices[0],
-                    batch_indices[-1],
-                    len(batch_texts),
-                    batch_indices[-1] + 1,
-                    len(chunks),
-                )
+            try:
+                # Submit ALL chunks at once — the thread pool controls concurrency,
+                # the RPM limiter gates individual LLM calls to stay under the limit.
+                # No more batch loop: one hung worker cannot block others.
                 results = extract_tick_chunk_task.map(
-                    batch_texts,
-                    tick_ids=batch_ids,
-                    chunk_idx=batch_indices,
+                    chunk_texts,
+                    tick_ids=chunk_tick_ids,
+                    chunk_idx=all_indices,
                     question=unmapped(question),
                     causal_spec=unmapped(extraction_ctx),
                 )
                 if root_run_id:
-                    for idx, n_t in zip(batch_indices, batch_n_ticks, strict=True):
+                    for idx, n_t in zip(all_indices, all_n_ticks, strict=True):
                         _emit_worker_event(
                             root_run_id,
                             worker_id=idx,
                             status="submitted",
                             total_workers=len(chunks),
-                            completed_count=n_finished,
+                            completed_count=0,
                             n_ticks=n_t,
                         )
-                batch_rows, batch_statuses, batch_total, batch_trace = _collect_batch_results(
+                (
+                    semantic_dicts,
+                    worker_statuses,
+                    n_semantic_total,
+                    sampled_llm_trace,
+                ) = _collect_batch_results(
                     futures=results,
-                    batch_indices=batch_indices,
-                    batch_n_ticks=batch_n_ticks,
+                    batch_indices=all_indices,
+                    batch_n_ticks=all_n_ticks,
                     logger=logger,
-                    completed_before=n_finished,
+                    completed_before=0,
                     total_chunks=len(chunks),
                     root_run_id=root_run_id,
                 )
-                n_finished += len(batch_statuses)
-                n_semantic_total += batch_total
-                semantic_dicts.extend(batch_rows)
-                worker_statuses.extend(batch_statuses)
-                if sampled_llm_trace is None and batch_trace is not None:
-                    sampled_llm_trace = batch_trace
-                batch_failed = sum(1 for s in batch_statuses if s["status"] == "failed")
-                logger.info(
-                    "Stage 2: batch %d-%d finished (completed=%d, failed=%d, cumulative_extractions=%d)",
-                    batch_indices[0],
-                    batch_indices[-1],
-                    len(batch_statuses) - batch_failed,
-                    batch_failed,
-                    n_semantic_total,
-                )
+            finally:
+                set_rpm_limiter(None)
 
     # ── Merge results ───────────────────────────────────────────────────
     all_dicts = computed_dicts + semantic_dicts
