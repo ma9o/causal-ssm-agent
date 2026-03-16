@@ -7,10 +7,13 @@ LiteLLM does not cover for us directly.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
+import threading
+from collections import deque
 from dataclasses import dataclass
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Literal, cast
 
 import litellm
@@ -21,6 +24,52 @@ from pydantic import Field, create_model
 from causal_ssm_agent.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# RPM (requests-per-minute) rate limiter
+# ---------------------------------------------------------------------------
+
+
+class RpmLimiter:
+    """Thread-safe async sliding-window rate limiter.
+
+    Tracks LLM API calls over a rolling 60-second window and blocks when the
+    configured ``max_rpm`` would be exceeded.  Uses ``threading.Lock`` for
+    cross-thread safety (Prefect ThreadPoolTaskRunner) and ``asyncio.sleep``
+    to yield control while waiting.
+    """
+
+    def __init__(self, max_rpm: int) -> None:
+        self.max_rpm = max_rpm
+        self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def _purge(self, now: float) -> None:
+        while self._timestamps and self._timestamps[0] <= now - 60:
+            self._timestamps.popleft()
+
+    async def acquire(self) -> None:
+        """Wait until a request slot is available within the RPM window."""
+        while True:
+            with self._lock:
+                now = monotonic()
+                self._purge(now)
+                if len(self._timestamps) < self.max_rpm:
+                    self._timestamps.append(now)
+                    return
+                # Calculate how long until the oldest entry expires
+                wait_for = self._timestamps[0] + 60 - now
+            await asyncio.sleep(min(wait_for + 0.05, 1.0))
+
+
+_rpm_limiter: RpmLimiter | None = None
+
+
+def set_rpm_limiter(limiter: RpmLimiter | None) -> None:
+    """Set (or clear) the global RPM limiter applied to every ``call_model`` invocation."""
+    global _rpm_limiter
+    _rpm_limiter = limiter
 
 # LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
 # They drown out the stage-level logs we rely on during Prefect runs.
@@ -334,6 +383,11 @@ async def call_model(
     """Call LiteLLM and normalize the first choice into a plain dict."""
 
     request = config or GenerateConfig()
+
+    # RPM rate limiting (set by stage 2 flow for high-fanout extraction)
+    if _rpm_limiter is not None:
+        await _rpm_limiter.acquire()
+
     kwargs: dict[str, Any] = {
         "model": model_name,
         "messages": [normalize_message(message) for message in messages],
