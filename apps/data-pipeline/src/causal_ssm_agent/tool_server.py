@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -28,6 +27,7 @@ from causal_ssm_agent.flows.stages.stage_tools import (
     stage1b_grounding,
     stage4_grounding,
 )
+from causal_ssm_agent.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +45,10 @@ app.add_middleware(
 # Result loading
 # ---------------------------------------------------------------------------
 
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
-
-
-def _run_dir(user_id: str) -> Path:
-    return _DATA_DIR / user_id / "run"
-
 
 def _load_stage_result(user_id: str, stage_id: str) -> dict[str, Any]:
     """Load a persisted stage result from disk."""
-    path = _run_dir(user_id) / f"{stage_id}.json"
+    path = runs_dir(user_id) / f"{stage_id}.json"
     if not path.exists():
         raise HTTPException(404, f"Stage result not found: {path}")
     return json.loads(path.read_text())
@@ -64,7 +58,7 @@ def _load_raw_data(user_id: str) -> Any:
     """Load raw_data parquet for prior predictive checks."""
     import polars as pl
 
-    path = _run_dir(user_id) / "stage-4-data.parquet"
+    path = runs_dir(user_id) / "stage-4-data.parquet"
     if path.exists():
         return pl.read_parquet(path)
     return None
@@ -166,11 +160,11 @@ def _load_stage4_current(user_id: str) -> dict[str, Any] | None:
     tool call saves a draft; subsequent calls merge new proposals with the
     accumulated state (original result + draft overlay).
     """
-    path = _run_dir(user_id) / "stage-4.json"
+    path = runs_dir(user_id) / "stage-4.json"
     if not path.exists():
         return None
     state = json.loads(path.read_text())
-    draft_path = _run_dir(user_id) / "stage-4-draft.json"
+    draft_path = runs_dir(user_id) / "stage-4-draft.json"
     if draft_path.exists():
         state.update(json.loads(draft_path.read_text()))
     return state

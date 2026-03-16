@@ -8,6 +8,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows import dag, pipeline
+from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
 
 
@@ -18,7 +19,7 @@ def _redirect_storage(monkeypatch, tmp_path, user_id: str = "test_user") -> None
     def _mock_runs_dir(c: str) -> type(run_dir):
         return tmp_path / "data" / c / "run"
 
-    monkeypatch.setattr(dag, "runs_dir", _mock_runs_dir)
+    monkeypatch.setattr(run_store_module, "runs_dir", _mock_runs_dir)
     monkeypatch.setattr(data_module, "runs_dir", _mock_runs_dir)
     monkeypatch.setattr(pipeline, "runs_dir", _mock_runs_dir)
     monkeypatch.setattr(pipeline, "DATA_DIR", tmp_path / "data")
@@ -284,7 +285,7 @@ def test_stage6_recomputes_interventions_from_gpu_samples(monkeypatch):
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(dag, "_load_pickle", lambda _path: fitted_payload)
+    monkeypatch.setattr(dag, "load_pickle", lambda _path: fitted_payload)
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
 
     def fake_compute_interventions(**kwargs):
