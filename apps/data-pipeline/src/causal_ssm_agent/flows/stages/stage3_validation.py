@@ -1,19 +1,21 @@
 """Stage 3: Validate extracted data.
 
-Validation checks (semantic only - Polars handles structural validation):
-1. Variance: Indicator has variance > 0 (constant values = zero information)
-2. Sample size: Enough observations for temporal modeling
-3. Timestamps: Parseable and covering sufficient time span
-4. Dtype range: Values match declared measurement dtype
-5. Timestamp gaps: No excessively large gaps between observations
-6. Hallucination signals: Suspicious patterns from LLM extraction
-7. Construct correlations: Cross-indicator coherence within constructs
+Validation is expressed as composable ``ValidationRule`` entries. Each rule
+returns ``ValidationFindings`` (issues with ``cell_key`` + raw metrics).
+A single ``reduce_findings()`` derives cell statuses from issues, so
+threshold logic lives inside rules and status derivation is centralized.
+
+Adding a new validation check = appending one entry to ``RULES``.
 
 See docs/reference/pipeline.md for full specification.
 """
 
+from __future__ import annotations
+
 import math
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 import polars as pl
 from prefect import task
@@ -23,10 +25,11 @@ from causal_ssm_agent.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
-# Minimum observations for temporal modeling
-MIN_OBSERVATIONS = 10  # Reasonable minimum for temporal modeling
+# ══════════════════════════════════════════════════════════════════════════════
+# Constants
+# ══════════════════════════════════════════════════════════════════════════════
 
-# Validation constants
+MIN_OBSERVATIONS = 10
 MIN_COVERAGE_PERIODS = 10
 MAX_GAP_MULTIPLIER = 5
 OUTLIER_IQR_MULTIPLIER = 3.0
@@ -35,7 +38,57 @@ HALLUCINATION_DUPLICATE_THRESHOLD = 0.5
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VALIDATION HELPERS
+# Core abstractions
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True)
+class Issue:
+    """A single validation issue linked to a metric via ``cell_key``."""
+
+    indicator: str
+    issue_type: str
+    severity: str  # "warning" or "error"
+    message: str
+    cell_key: str  # metric this pertains to, e.g. "n_obs", "variance"
+
+
+@dataclass
+class ValidationFindings:
+    """Output of a single rule: issues (with cell_keys) + raw metrics."""
+
+    issues: list[Issue] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class IndicatorContext:
+    """Pre-computed per-indicator state shared across rules."""
+
+    name: str
+    ind_data: pl.DataFrame
+    values: pl.Series  # numeric Float64, nulls dropped
+    n_obs: int
+    variance: float | None
+    dtype: str | None
+    is_time_invariant: bool
+    model_clock_hours: float | None
+    parsed_ts: pl.Series  # parsed timestamps, nulls dropped
+    n_unparseable: int
+    n_total_ts: int
+
+
+@dataclass(frozen=True)
+class ValidationRule:
+    """Composable validation rule."""
+
+    name: str
+    scope: str  # "indicator" or "dataset"
+    check: Any  # (IndicatorContext) -> ValidationFindings or dataset check callable
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Low-level check functions (preserved for direct testability)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -57,7 +110,6 @@ def _check_timestamps(ind_data: pl.DataFrame, ind_name: str) -> tuple[list[dict]
             format="%Y-%m-%dT%H:%M:%S%z", strict=False
         ).dt.replace_time_zone(None)
     except pl.exceptions.ComputeError:
-        # Polars can't infer any format — treat all as unparseable
         parsed = pl.Series("timestamp", [None] * n_total, dtype=pl.Datetime("us"))
     n_unparseable = parsed.null_count()
 
@@ -254,14 +306,12 @@ def _check_hallucination_signals(
     if n < 2:
         return issues, duplicate_pct, arithmetic_sequence_detected
 
-    # Compute duplicate percentage for all types
     vc = values.value_counts()
     max_count_raw = vc["count"].max()
     assert isinstance(max_count_raw, (int, float))
     max_count = int(max_count_raw)
     duplicate_pct = max_count / n if n > 0 else 0.0
 
-    # Excessive duplicates (only for continuous/ordinal data with variance > 0)
     if dtype not in ("binary", "count"):
         var_raw = values.var()
         assert isinstance(var_raw, (int, float))
@@ -284,7 +334,6 @@ def _check_hallucination_signals(
                 }
             )
 
-    # Arithmetic sequence check
     if n >= 5:
         sorted_vals = values.sort()
         diffs = sorted_vals.diff().drop_nulls()
@@ -311,7 +360,6 @@ def _check_construct_correlations(
     """Check cross-indicator correlations within constructs."""
     issues: list[dict] = []
 
-    # Group indicators by construct
     construct_indicators: dict[str, list[str]] = {}
     for ind in indicators:
         cname = ind.get("construct_name", "")
@@ -351,8 +399,6 @@ def _check_construct_correlations(
                     .drop_nulls()
                 )
 
-                # Bucket to daily resolution so indicators with different
-                # sub-day timestamps can still align for correlation checks.
                 data_a = (
                     data_a.with_columns(pl.col("ts").dt.truncate("1d").alias("day"))
                     .group_by("day")
@@ -389,7 +435,364 @@ def _check_construct_correlations(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TASKS
+# Rule check functions (return ValidationFindings)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _rule_timestamps(ctx: IndicatorContext) -> ValidationFindings:
+    """Timestamp parseability."""
+    issues = []
+    if ctx.n_total_ts > 0:
+        if ctx.n_unparseable == ctx.n_total_ts:
+            issues.append(
+                Issue(
+                    ctx.name,
+                    "unparseable_timestamps",
+                    "error",
+                    f"All {ctx.n_total_ts} timestamps are unparseable",
+                    cell_key="n_obs",
+                )
+            )
+        elif ctx.n_unparseable > ctx.n_total_ts * 0.5:
+            issues.append(
+                Issue(
+                    ctx.name,
+                    "unparseable_timestamps",
+                    "warning",
+                    f"{ctx.n_unparseable}/{ctx.n_total_ts} timestamps are unparseable (>50%)",
+                    cell_key="n_obs",
+                )
+            )
+    return ValidationFindings(issues=issues)
+
+
+def _rule_sample_size(ctx: IndicatorContext) -> ValidationFindings:
+    """Minimum observation count."""
+    issues = []
+    if ctx.n_obs < MIN_OBSERVATIONS:
+        issues.append(
+            Issue(
+                ctx.name,
+                "low_n",
+                "warning",
+                f"Only {ctx.n_obs} observations (recommend >= {MIN_OBSERVATIONS})",
+                cell_key="n_obs",
+            )
+        )
+    return ValidationFindings(issues=issues, metrics={"n_obs": ctx.n_obs})
+
+
+def _rule_variance(ctx: IndicatorContext) -> ValidationFindings:
+    """Zero-variance check."""
+    issues = []
+    if ctx.variance is not None and ctx.variance == 0:
+        const_val = ctx.values.first()
+        issues.append(
+            Issue(
+                ctx.name,
+                "no_variance",
+                "error",
+                f"Zero variance (constant value = {const_val})",
+                cell_key="variance",
+            )
+        )
+    return ValidationFindings(issues=issues, metrics={"variance": ctx.variance})
+
+
+def _rule_dtype_range(ctx: IndicatorContext) -> ValidationFindings:
+    """Dtype range conformance."""
+    if not ctx.dtype:
+        return ValidationFindings(metrics={"dtype_violations": 0})
+    raw_issues, violation_count = _check_dtype_range(ctx.values, ctx.dtype, ctx.name)
+    issues = [
+        Issue(
+            d["indicator"],
+            d["issue_type"],
+            d["severity"],
+            d["message"],
+            cell_key="dtype_violations",
+        )
+        for d in raw_issues
+    ]
+    return ValidationFindings(issues=issues, metrics={"dtype_violations": violation_count})
+
+
+def _rule_time_coverage(ctx: IndicatorContext) -> ValidationFindings:
+    """Time span coverage."""
+    if ctx.is_time_invariant or ctx.model_clock_hours is None:
+        return ValidationFindings(metrics={"time_coverage_ratio": None})
+    raw_issues, ratio = _check_time_coverage(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
+    issues = [
+        Issue(
+            d["indicator"],
+            d["issue_type"],
+            d["severity"],
+            d["message"],
+            cell_key="time_coverage_ratio",
+        )
+        for d in raw_issues
+    ]
+    return ValidationFindings(issues=issues, metrics={"time_coverage_ratio": ratio})
+
+
+def _rule_timestamp_gaps(ctx: IndicatorContext) -> ValidationFindings:
+    """Max consecutive gap."""
+    if ctx.is_time_invariant or ctx.model_clock_hours is None:
+        return ValidationFindings(metrics={"max_gap_ratio": None})
+    raw_issues, ratio = _check_timestamp_gaps(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
+    issues = [
+        Issue(
+            d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key="max_gap_ratio"
+        )
+        for d in raw_issues
+    ]
+    return ValidationFindings(issues=issues, metrics={"max_gap_ratio": ratio})
+
+
+def _rule_hallucination_signals(ctx: IndicatorContext) -> ValidationFindings:
+    """Suspicious LLM extraction patterns."""
+    raw_issues, duplicate_pct, arith_seq = _check_hallucination_signals(
+        ctx.values, ctx.dtype or "continuous", ctx.name
+    )
+    # Split issues by cell_key: duplicate → "duplicate_pct", sequence → "arithmetic_sequence_detected"
+    issues = []
+    for d in raw_issues:
+        if "arithmetic sequence" in d["message"]:
+            cell_key = "arithmetic_sequence_detected"
+        else:
+            cell_key = "duplicate_pct"
+        issues.append(
+            Issue(d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key=cell_key)
+        )
+    return ValidationFindings(
+        issues=issues,
+        metrics={"duplicate_pct": duplicate_pct, "arithmetic_sequence_detected": arith_seq},
+    )
+
+
+def _rule_construct_correlations(
+    combined: pl.DataFrame, indicators: list[dict]
+) -> ValidationFindings:
+    """Cross-indicator construct correlations (dataset-wide)."""
+    raw_issues = _check_construct_correlations(combined, indicators)
+    issues = [
+        Issue(d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key="")
+        for d in raw_issues
+    ]
+    return ValidationFindings(issues=issues)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Rule registry
+# ══════════════════════════════════════════════════════════════════════════════
+
+RULES: list[ValidationRule] = [
+    ValidationRule("timestamps", "indicator", _rule_timestamps),
+    ValidationRule("sample_size", "indicator", _rule_sample_size),
+    ValidationRule("variance", "indicator", _rule_variance),
+    ValidationRule("dtype_range", "indicator", _rule_dtype_range),
+    ValidationRule("time_coverage", "indicator", _rule_time_coverage),
+    ValidationRule("timestamp_gaps", "indicator", _rule_timestamp_gaps),
+    ValidationRule("hallucination_signals", "indicator", _rule_hallucination_signals),
+    ValidationRule("construct_correlations", "dataset", _rule_construct_correlations),
+]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Reducer + runner
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Metrics that get cell_status entries in per_indicator_health
+_CELL_STATUS_KEYS = frozenset(
+    {
+        "n_obs",
+        "variance",
+        "time_coverage_ratio",
+        "max_gap_ratio",
+        "dtype_violations",
+        "duplicate_pct",
+        "arithmetic_sequence_detected",
+    }
+)
+
+
+def reduce_findings(
+    indicator_findings: dict[str, list[ValidationFindings]],
+) -> tuple[list[dict], list[dict]]:
+    """Reduce per-indicator findings into issues list + per_indicator_health.
+
+    Cell statuses are derived purely from issues: for each metric key,
+    the worst severity among matching issues wins (error > warning > ok).
+    Rules own threshold logic; the reducer only aggregates.
+    """
+    all_issues: list[dict] = []
+    per_indicator_health: list[dict] = []
+
+    for ind_name, findings_list in indicator_findings.items():
+        merged_metrics: dict[str, Any] = {}
+        ind_issues: list[Issue] = []
+        for f in findings_list:
+            ind_issues.extend(f.issues)
+            merged_metrics.update(f.metrics)
+
+        # Convert Issue dataclasses to dicts for output
+        for issue in ind_issues:
+            all_issues.append(
+                {
+                    "indicator": issue.indicator,
+                    "issue_type": issue.issue_type,
+                    "severity": issue.severity,
+                    "message": issue.message,
+                }
+            )
+
+        # Derive cell statuses from issues (error > warning > ok)
+        cell_statuses: dict[str, str] = {k: "ok" for k in _CELL_STATUS_KEYS if k in merged_metrics}
+        for issue in ind_issues:
+            if issue.cell_key in cell_statuses and cell_statuses[issue.cell_key] != "error":
+                cell_statuses[issue.cell_key] = issue.severity
+
+        per_indicator_health.append(
+            {
+                "indicator": ind_name,
+                **{k: v for k, v in merged_metrics.items() if k in _CELL_STATUS_KEYS},
+                "cell_statuses": cell_statuses,
+            }
+        )
+
+    return all_issues, per_indicator_health
+
+
+def _build_indicator_context(
+    ind_name: str,
+    ind_data: pl.DataFrame,
+    indicator_lookup: dict[str, dict],
+    construct_lookup: dict[str, dict],
+    model_clock_hours: float | None,
+) -> IndicatorContext | None:
+    """Build an IndicatorContext, or None if the indicator lacks numeric data."""
+    values_df = ind_data.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
+    n_obs = len(values_df)
+    if n_obs == 0:
+        return None
+
+    values = values_df["value"]
+    variance: float | None = None
+    try:
+        _var = values.var()
+        variance = float(_var) if _var is not None else None
+    except Exception:
+        pass
+
+    ind_meta = indicator_lookup.get(ind_name, {})
+    dtype = ind_meta.get("measurement_dtype")
+    construct_name = ind_meta.get("construct_name")
+    construct_meta = construct_lookup.get(construct_name, {}) if construct_name else {}
+    is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
+
+    # Parse timestamps once for all rules
+    timestamps = ind_data["timestamp"]
+    n_total_ts = len(timestamps)
+    try:
+        parsed = timestamps.str.to_datetime(
+            format="%Y-%m-%dT%H:%M:%S%z", strict=False
+        ).dt.replace_time_zone(None)
+    except pl.exceptions.ComputeError:
+        parsed = pl.Series("timestamp", [None] * n_total_ts, dtype=pl.Datetime("us"))
+    n_unparseable = parsed.null_count()
+    parsed_ts = parsed.drop_nulls()
+
+    return IndicatorContext(
+        name=ind_name,
+        ind_data=ind_data,
+        values=values,
+        n_obs=n_obs,
+        variance=variance,
+        dtype=dtype,
+        is_time_invariant=is_time_invariant,
+        model_clock_hours=model_clock_hours,
+        parsed_ts=parsed_ts,
+        n_unparseable=n_unparseable,
+        n_total_ts=n_total_ts,
+    )
+
+
+def run_rules(
+    rules: list[ValidationRule],
+    combined: pl.DataFrame,
+    indicators: list[dict],
+    indicator_names: set[str],
+    indicator_lookup: dict[str, dict],
+    construct_lookup: dict[str, dict],
+    model_clock_hours: float | None,
+) -> tuple[list[dict], list[dict]]:
+    """Run all validation rules and reduce findings.
+
+    Returns:
+        (all_issues, per_indicator_health) — same shape as before.
+    """
+    indicator_rules = [r for r in rules if r.scope == "indicator"]
+    dataset_rules = [r for r in rules if r.scope == "dataset"]
+
+    # Collect early-exit issues (missing, no_numeric) separately
+    early_issues: list[dict] = []
+    indicator_findings: dict[str, list[ValidationFindings]] = {}
+
+    for ind_name in indicator_names:
+        ind_data = combined.filter(pl.col("indicator") == ind_name)
+
+        if ind_data.is_empty():
+            early_issues.append(
+                {
+                    "indicator": ind_name,
+                    "issue_type": "missing",
+                    "severity": "warning",
+                    "message": "No data extracted for this indicator",
+                }
+            )
+            continue
+
+        ctx = _build_indicator_context(
+            ind_name, ind_data, indicator_lookup, construct_lookup, model_clock_hours
+        )
+        if ctx is None:
+            early_issues.append(
+                {
+                    "indicator": ind_name,
+                    "issue_type": "no_numeric",
+                    "severity": "error",
+                    "message": "No numeric values extracted",
+                }
+            )
+            continue
+
+        findings: list[ValidationFindings] = []
+        for rule in indicator_rules:
+            findings.append(rule.check(ctx))
+        indicator_findings[ind_name] = findings
+
+    # Run dataset-wide rules
+    dataset_issues: list[dict] = []
+    for rule in dataset_rules:
+        f = rule.check(combined, indicators)
+        for issue in f.issues:
+            dataset_issues.append(
+                {
+                    "indicator": issue.indicator,
+                    "issue_type": issue.issue_type,
+                    "severity": issue.severity,
+                    "message": issue.message,
+                }
+            )
+
+    all_issues, per_indicator_health = reduce_findings(indicator_findings)
+    all_issues = early_issues + all_issues + dataset_issues
+
+    return all_issues, per_indicator_health
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Task
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -400,14 +803,8 @@ def validate_extraction(
 ) -> dict:
     """Validate semantic properties of extracted data.
 
-    Checks extracted data for:
-    - Variance > 0 (constant values are uninformative)
-    - Sample size (enough observations for temporal modeling)
-    - Timestamp parseability and coverage
-    - Dtype range conformance
-    - Timestamp gap detection
-    - Hallucination signal detection
-    - Cross-indicator construct correlations
+    Runs all ``RULES`` against the extracted data and reduces findings
+    into issues + per_indicator_health with centralized cell-status derivation.
 
     Args:
         causal_spec: The full causal spec with measurement model
@@ -419,7 +816,6 @@ def validate_extraction(
             - issues: list of {indicator, issue_type, severity, message}
             - per_indicator_health: list of per-indicator metrics
     """
-    # Filter out empty/None
     dataframes = [df for df in dataframes if df is not None and not df.is_empty()]
     if not dataframes:
         return {
@@ -460,164 +856,25 @@ def validate_extraction(
     constructs = get_constructs(causal_spec)
     construct_lookup = {c["name"]: c for c in constructs if c.get("name")}
 
-    issues: list[dict] = []
-    per_indicator_health: list[dict] = []
+    model_clock_str = causal_spec.get("measurement", {}).get("model_clock")
+    model_clock_hours: float | None = None
+    if model_clock_str:
+        import contextlib
 
-    # Check each indicator in the extracted data
-    for ind_name in indicator_names:
-        ind_data = combined.filter(pl.col("indicator") == ind_name)
+        from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 
-        if ind_data.is_empty():
-            issues.append(
-                {
-                    "indicator": ind_name,
-                    "issue_type": "missing",
-                    "severity": "warning",
-                    "message": "No data extracted for this indicator",
-                }
-            )
-            continue
+        with contextlib.suppress(ValueError):
+            model_clock_hours = parse_duration_to_hours(model_clock_str)
 
-        # Coerce values to numeric for validation
-        values = ind_data.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
-
-        n_obs = len(values)
-
-        if n_obs == 0:
-            issues.append(
-                {
-                    "indicator": ind_name,
-                    "issue_type": "no_numeric",
-                    "severity": "error",
-                    "message": "No numeric values extracted",
-                }
-            )
-            continue
-
-        # Check sample size
-        if n_obs < MIN_OBSERVATIONS:
-            issues.append(
-                {
-                    "indicator": ind_name,
-                    "issue_type": "low_n",
-                    "severity": "warning",
-                    "message": f"Only {n_obs} observations (recommend >= {MIN_OBSERVATIONS})",
-                }
-            )
-
-        # Check variance
-        variance: float | None = None
-        try:
-            _var = values["value"].var()
-            variance = float(_var) if _var is not None else None
-            if variance is not None and variance == 0:
-                const_val = values["value"].first()
-                issues.append(
-                    {
-                        "indicator": ind_name,
-                        "issue_type": "no_variance",
-                        "severity": "error",
-                        "message": f"Zero variance (constant value = {const_val})",
-                    }
-                )
-        except Exception as e:
-            logger.debug("Variance check failed for indicator: %s", e)
-
-        # ── Validation checks with metric collection ─────────────────────
-
-        # Get indicator metadata for dtype/construct lookups
-        ind_meta = indicator_lookup.get(ind_name, {})
-        dtype = ind_meta.get("measurement_dtype")
-        construct_name = ind_meta.get("construct_name")
-        construct_meta = construct_lookup.get(construct_name, {}) if construct_name else {}
-        is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
-
-        # Get model_clock_hours from measurement model
-        model_clock_str = causal_spec.get("measurement", {}).get("model_clock")
-        model_clock_hours: float | None = None
-        if model_clock_str:
-            import contextlib
-
-            from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
-
-            with contextlib.suppress(ValueError):
-                model_clock_hours = parse_duration_to_hours(model_clock_str)
-
-        # 1. Timestamp parseability
-        ts_issues, parsed_ts = _check_timestamps(ind_data, ind_name)
-        issues.extend(ts_issues)
-
-        # 2. Dtype range conformance
-        dtype_violations = 0
-        if dtype:
-            dtype_issues, dtype_violations = _check_dtype_range(values["value"], dtype, ind_name)
-            issues.extend(dtype_issues)
-
-        # 3-4. Time coverage and gaps (skip for time-invariant constructs)
-        time_coverage_ratio: float | None = None
-        max_gap_ratio: float | None = None
-        if not is_time_invariant and model_clock_hours is not None:
-            coverage_issues, time_coverage_ratio = _check_time_coverage(
-                parsed_ts, model_clock_hours, ind_name
-            )
-            issues.extend(coverage_issues)
-            gap_issues, max_gap_ratio = _check_timestamp_gaps(
-                parsed_ts, model_clock_hours, ind_name
-            )
-            issues.extend(gap_issues)
-
-        # 5. Hallucination signals
-        halluc_issues, duplicate_pct, arithmetic_sequence_detected = _check_hallucination_signals(
-            values["value"], dtype or "continuous", ind_name
-        )
-        issues.extend(halluc_issues)
-
-        # Derive per-cell pass/fail statuses for frontend color coding.
-        # These mirror the issue severity decisions above so the frontend
-        # never needs to re-derive domain thresholds.
-        cell_statuses: dict[str, str] = {
-            "n_obs": "warning" if n_obs < MIN_OBSERVATIONS else "ok",
-            "variance": ("error" if variance is not None and variance == 0 else "ok"),
-            "time_coverage_ratio": (
-                "warning" if time_coverage_ratio is not None and time_coverage_ratio < 1.0 else "ok"
-            ),
-            "max_gap_ratio": (
-                "warning" if max_gap_ratio is not None and max_gap_ratio > 1.0 else "ok"
-            ),
-            "dtype_violations": (
-                "error"
-                if dtype_violations > 0 and dtype in ("binary", "count")
-                else "warning"
-                if dtype_violations > 0
-                else "ok"
-            ),
-            "duplicate_pct": (
-                "warning"
-                if duplicate_pct > HALLUCINATION_DUPLICATE_THRESHOLD
-                and dtype not in ("binary", "count")
-                and variance is not None
-                and variance > 0
-                else "ok"
-            ),
-            "arithmetic_sequence_detected": ("warning" if arithmetic_sequence_detected else "ok"),
-        }
-
-        per_indicator_health.append(
-            {
-                "indicator": ind_name,
-                "n_obs": n_obs,
-                "variance": variance,
-                "time_coverage_ratio": time_coverage_ratio,
-                "max_gap_ratio": max_gap_ratio,
-                "dtype_violations": dtype_violations,
-                "duplicate_pct": duplicate_pct,
-                "arithmetic_sequence_detected": arithmetic_sequence_detected,
-                "cell_statuses": cell_statuses,
-            }
-        )
-
-    # 6. Cross-indicator construct correlations
-    issues.extend(_check_construct_correlations(combined, indicators))
+    issues, per_indicator_health = run_rules(
+        RULES,
+        combined,
+        indicators,
+        indicator_names,
+        indicator_lookup,
+        construct_lookup,
+        model_clock_hours,
+    )
 
     errors = [i for i in issues if i["severity"] == "error"]
     is_valid = len(errors) == 0
