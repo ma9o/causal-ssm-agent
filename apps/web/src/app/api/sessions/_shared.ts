@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { getLatestRootFlowRunId, mergeRootFlowRunIds } from "@/lib/root-flow-runs";
+import { readData, writeData, LOCAL_DATA_DIR } from "@/lib/storage";
 
-export const DATA_DIR = join(process.cwd(), "..", "..", "data");
+export const DATA_DIR = LOCAL_DATA_DIR;
 export const SESSIONS_PATH = join(DATA_DIR, "sessions.json");
 export const SESSIONS_SEED_PATH = join(DATA_DIR, "sessions.seed.json");
 
@@ -32,9 +32,9 @@ export function appendSessionRootFlowRunId(
   };
 }
 
-async function readSessionFile(path: string): Promise<Record<string, Session>> {
+async function readSessionFile(relativePath: string): Promise<Record<string, Session>> {
   try {
-    const parsed = JSON.parse(await readFile(path, "utf-8")) as Record<string, Session>;
+    const parsed = JSON.parse(await readData(relativePath)) as Record<string, Session>;
     return Object.fromEntries(
       Object.entries(parsed).map(([userId, session]) => [
         userId,
@@ -49,15 +49,14 @@ async function readSessionFile(path: string): Promise<Record<string, Session>> {
 export async function readSessions(): Promise<Record<string, Session>> {
   // Merge tracked seed (fixture sessions) with runtime sessions.json
   return {
-    ...(await readSessionFile(SESSIONS_SEED_PATH)),
-    ...(await readSessionFile(SESSIONS_PATH)),
+    ...(await readSessionFile("sessions.seed.json")),
+    ...(await readSessionFile("sessions.json")),
   };
 }
 
 export async function writeSessions(sessions: Record<string, Session>): Promise<void> {
-  await mkdir(dirname(SESSIONS_PATH), { recursive: true });
-  await writeFile(
-    SESSIONS_PATH,
+  await writeData(
+    "sessions.json",
     JSON.stringify(
       Object.fromEntries(
         Object.entries(sessions).map(([userId, session]) => [
@@ -74,7 +73,7 @@ export async function writeSessions(sessions: Record<string, Session>): Promise<
 /** Read the research question from ``data/{userId}/query.txt``. */
 export async function readQuestion(userId: string): Promise<string | undefined> {
   try {
-    const text = await readFile(join(DATA_DIR, userId, "query.txt"), "utf-8");
+    const text = await readData(`${userId}/query.txt`);
     return text.trim() || undefined;
   } catch {
     return undefined;

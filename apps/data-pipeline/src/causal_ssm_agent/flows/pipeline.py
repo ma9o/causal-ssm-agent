@@ -18,7 +18,8 @@ from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
-from causal_ssm_agent.utils.data import DATA_DIR, runs_dir
+from causal_ssm_agent.utils import storage
+from causal_ssm_agent.utils.data import DATA_URI, runs_dir
 
 logger = get_prefect_logger(__name__)
 
@@ -101,17 +102,16 @@ def _resolve_question(
     On a resume run ``query`` is typically None; the function reads from the
     previously-materialized file instead.
     """
-    query_path = DATA_DIR / user_id / "query.txt"
+    query_path = storage.join(DATA_URI, user_id, "query.txt")
     requires_question = any(
         stage_id in QUESTION_STAGES for stage_id in STAGE_SEQUENCE[start_idx : end_idx + 1]
     )
     if query:
         question = query.strip()
-        query_path.parent.mkdir(parents=True, exist_ok=True)
-        query_path.write_text(question)
+        storage.write_text(query_path, question)
         return question
-    if query_path.exists():
-        return query_path.read_text().strip()
+    if storage.exists(query_path):
+        return storage.read_text(query_path).strip()
     if requires_question:
         raise ValueError("A query is required when running stages 1a, 1b, 2, or 4.")
     return None
@@ -272,8 +272,7 @@ async def causal_inference_pipeline(
     prefect_run_id = str(get_run_context().flow_run.id)
 
     # Ensure the run directory exists
-    run_dir = runs_dir(user_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    storage.makedirs(runs_dir(user_id))
 
     stage_states: dict[str, dict[str, Any]] = {}
 

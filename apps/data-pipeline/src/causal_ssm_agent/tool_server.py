@@ -27,6 +27,7 @@ from causal_ssm_agent.flows.stages.stage_tools import (
     stage1b_grounding,
     stage4_grounding,
 )
+from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
@@ -47,20 +48,20 @@ app.add_middleware(
 
 
 def _load_stage_result(user_id: str, stage_id: str) -> dict[str, Any]:
-    """Load a persisted stage result from disk."""
-    path = runs_dir(user_id) / f"{stage_id}.json"
-    if not path.exists():
+    """Load a persisted stage result from storage."""
+    path = storage.join(runs_dir(user_id), f"{stage_id}.json")
+    if not storage.exists(path):
         raise HTTPException(404, f"Stage result not found: {path}")
-    return json.loads(path.read_text())
+    return storage.read_json(path)
 
 
 def _load_raw_data(user_id: str) -> Any:
     """Load raw_data parquet for prior predictive checks."""
     import polars as pl
 
-    path = runs_dir(user_id) / "stage-4-data.parquet"
-    if path.exists():
-        return pl.read_parquet(path)
+    path = storage.join(runs_dir(user_id), "stage-4-data.parquet")
+    if storage.exists(path):
+        return pl.read_parquet(path, storage_options=storage.polars_storage_options())
     return None
 
 
@@ -160,13 +161,13 @@ def _load_stage4_current(user_id: str) -> dict[str, Any] | None:
     tool call saves a draft; subsequent calls merge new proposals with the
     accumulated state (original result + draft overlay).
     """
-    path = runs_dir(user_id) / "stage-4.json"
-    if not path.exists():
+    path = storage.join(runs_dir(user_id), "stage-4.json")
+    if not storage.exists(path):
         return None
-    state = json.loads(path.read_text())
-    draft_path = runs_dir(user_id) / "stage-4-draft.json"
-    if draft_path.exists():
-        state.update(json.loads(draft_path.read_text()))
+    state = storage.read_json(path)
+    draft_path = storage.join(runs_dir(user_id), "stage-4-draft.json")
+    if storage.exists(draft_path):
+        state.update(storage.read_json(draft_path))
     return state
 
 

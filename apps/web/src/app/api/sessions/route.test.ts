@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:fs/promises", () => ({
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/storage", () => ({
+  writeData: vi.fn().mockResolvedValue(undefined),
+  ensureDir: vi.fn().mockResolvedValue(undefined),
+  LOCAL_DATA_DIR: "/tmp/data",
 }));
 
 vi.mock("./_shared", () => ({
-  DATA_DIR: "/tmp/data",
-  SESSIONS_PATH: "/tmp/data/sessions.json",
   readSessions: vi.fn().mockResolvedValue({}),
   normalizeSession: vi.fn((session) => ({
     createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
@@ -20,7 +19,7 @@ vi.mock("./_shared", () => ({
   writeSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeData, ensureDir } from "@/lib/storage";
 import { readSessions, writeSessions } from "./_shared";
 import { POST } from "./route";
 
@@ -44,10 +43,10 @@ describe("POST /api/sessions", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
 
-    // Should write query.txt to data/{userId}/
-    expect(mkdir).toHaveBeenCalledWith("/tmp/data/openrouter-user-123", { recursive: true });
-    expect(writeFile).toHaveBeenCalledWith(
-      "/tmp/data/openrouter-user-123/query.txt",
+    // Should create user directory and write query.txt
+    expect(ensureDir).toHaveBeenCalledWith("openrouter-user-123");
+    expect(writeData).toHaveBeenCalledWith(
+      "openrouter-user-123/query.txt",
       "How does screen time affect sleep?",
     );
 

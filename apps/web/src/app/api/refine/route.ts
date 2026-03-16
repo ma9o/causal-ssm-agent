@@ -2,14 +2,13 @@ import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { jsonSchema, streamText, tool } from "ai";
-import { basename, join, resolve } from "node:path";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { basename } from "node:path";
 import { NextResponse } from "next/server";
 
 import { resolveApiKey } from "@/lib/api/resolve-api-key";
+import { readData, writeData, ensureDir } from "@/lib/storage";
 import { traceToModelMessages } from "@/lib/utils/trace-to-core";
 
-const DATA_DIR = resolve(process.cwd(), "..", "..", "data");
 const TOOL_SERVER = process.env.TOOL_SERVER_URL ?? "http://localhost:8100";
 
 /**
@@ -41,10 +40,7 @@ export async function POST(req: Request) {
   let traceContext: ReturnType<typeof traceToModelMessages> = [];
   if (safeUserId && safeStageId) {
     try {
-      const stagePath = resolve(
-        join(DATA_DIR, safeUserId, "run", `${safeStageId}.json`),
-      );
-      const raw = await readFile(stagePath, "utf-8");
+      const raw = await readData(`${safeUserId}/run/${safeStageId}.json`);
       const stageData = JSON.parse(raw);
 
       if (stageData.llm_trace) {
@@ -85,10 +81,9 @@ export async function POST(req: Request) {
 
           // Persist draft on successful tool call (stage_output is set)
           if (data.stage_output) {
-            const draftDir = resolve(join(DATA_DIR, safeUserId, "run"));
-            await mkdir(draftDir, { recursive: true });
-            await writeFile(
-              resolve(join(draftDir, `${safeStageId}-draft.json`)),
+            await ensureDir(`${safeUserId}/run`);
+            await writeData(
+              `${safeUserId}/run/${safeStageId}-draft.json`,
               JSON.stringify(data.stage_output),
             );
           }

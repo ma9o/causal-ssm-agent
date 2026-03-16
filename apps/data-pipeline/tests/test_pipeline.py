@@ -14,15 +14,16 @@ from causal_ssm_agent.utils import data as data_module
 
 def _redirect_storage(monkeypatch, tmp_path, user_id: str = "test_user") -> None:
     """Point runs_dir and input_dir to tmp_path so tests don't touch real data/."""
-    run_dir = tmp_path / "data" / user_id / "run"
+    base = str(tmp_path / "data")
 
-    def _mock_runs_dir(c: str) -> type(run_dir):
-        return tmp_path / "data" / c / "run"
+    def _mock_runs_dir(c: str) -> str:
+        return f"{base}/{c}/run"
 
     monkeypatch.setattr(run_store_module, "runs_dir", _mock_runs_dir)
     monkeypatch.setattr(data_module, "runs_dir", _mock_runs_dir)
+    monkeypatch.setattr(data_module, "DATA_URI", base)
     monkeypatch.setattr(pipeline, "runs_dir", _mock_runs_dir)
-    monkeypatch.setattr(pipeline, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(pipeline, "DATA_URI", base)
 
 
 def _stub_config() -> SimpleNamespace:

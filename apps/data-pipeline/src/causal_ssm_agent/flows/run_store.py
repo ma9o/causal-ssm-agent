@@ -9,11 +9,11 @@ should import from here instead of duplicating path logic.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, cast
 
 import cloudpickle
 
+from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.data import runs_dir
 
 from . import get_prefect_logger
@@ -34,17 +34,17 @@ STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 # ---------------------------------------------------------------------------
 
 
-def ensure_run_dir(user_id: str) -> Path:
+def ensure_run_dir(user_id: str) -> str:
     """Return the run directory, creating it if needed."""
     path = runs_dir(user_id)
-    path.mkdir(parents=True, exist_ok=True)
+    storage.makedirs(path)
     return path
 
 
-def existing_run_dir(user_id: str) -> Path:
+def existing_run_dir(user_id: str) -> str:
     """Return the run directory, raising if it doesn't exist."""
     path = runs_dir(user_id)
-    if not path.exists():
+    if not storage.exists(path):
         raise FileNotFoundError(f"No results directory found for user_id {user_id}")
     return path
 
@@ -56,16 +56,20 @@ def existing_run_dir(user_id: str) -> Path:
 
 def save_parquet(df: Any, user_id: str, filename: str) -> str:
     """Write a Polars DataFrame to parquet in the run directory."""
-    path = ensure_run_dir(user_id) / filename
-    df.write_parquet(path)
-    return str(path)
+    path = storage.join(ensure_run_dir(user_id), filename)
+    if storage.is_remote():
+        with storage.get_fs().open(path, "wb") as f:
+            df.write_parquet(f)
+    else:
+        df.write_parquet(path)
+    return path
 
 
 def load_parquet(path: str) -> Any:
     """Read a Polars DataFrame from a parquet path."""
     import polars as pl
 
-    return pl.read_parquet(path)
+    return pl.read_parquet(path, storage_options=storage.polars_storage_options())
 
 
 # ---------------------------------------------------------------------------
@@ -75,15 +79,15 @@ def load_parquet(path: str) -> Any:
 
 def save_pickle(value: Any, user_id: str, filename: str) -> str:
     """Pickle a value into the run directory."""
-    path = ensure_run_dir(user_id) / filename
-    with path.open("wb") as f:
+    path = storage.join(ensure_run_dir(user_id), filename)
+    with storage.open_file(path, "wb") as f:
         cloudpickle.dump(value, f)
-    return str(path)
+    return path
 
 
 def load_pickle(path: str) -> Any:
-    """Unpickle a value from disk."""
-    with Path(path).open("rb") as f:
+    """Unpickle a value from storage."""
+    with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
 
 
@@ -94,17 +98,17 @@ def load_pickle(path: str) -> Any:
 
 def save_stage_snapshot(stage_id: str, state: dict[str, Any], user_id: str) -> None:
     """Persist full stage state (result + web + gate) for resume."""
-    path = ensure_run_dir(user_id) / f"{stage_id}-state.pkl"
-    with path.open("wb") as f:
+    path = storage.join(ensure_run_dir(user_id), f"{stage_id}-state.pkl")
+    with storage.open_file(path, "wb") as f:
         cloudpickle.dump(state, f)
 
 
 def load_stage_snapshot(user_id: str, stage_id: str) -> dict[str, Any]:
     """Load a previously saved stage snapshot."""
-    path = existing_run_dir(user_id) / f"{stage_id}-state.pkl"
-    if not path.exists():
+    path = storage.join(existing_run_dir(user_id), f"{stage_id}-state.pkl")
+    if not storage.exists(path):
         raise FileNotFoundError(f"No stage snapshot found for {stage_id} in user_id {user_id}")
-    with path.open("rb") as f:
+    with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
 
 
@@ -127,13 +131,12 @@ def _unwrap_persisted_result(raw: Any) -> Any:
 
 def load_public_payload(user_id: str, stage_id: str) -> dict[str, Any]:
     """Load a persisted web-facing stage payload."""
-    path = existing_run_dir(user_id) / f"{stage_id}.json"
-    if not path.exists():
+    path = storage.join(existing_run_dir(user_id), f"{stage_id}.json")
+    if not storage.exists(path):
         raise FileNotFoundError(
             f"No public stage payload found for {stage_id} in user_id {user_id}"
         )
-    with path.open() as f:
-        raw = json.load(f)
+    raw = storage.read_json(path)
     payload = _unwrap_persisted_result(raw)
     if not isinstance(payload, dict):
         raise TypeError(f"Persisted payload for {stage_id} in user_id {user_id} is not a dict")
@@ -149,9 +152,9 @@ def find_run_artifact(user_id: str, filenames: tuple[str, ...]) -> str:
     """Return the path of the first existing artifact from a list of candidates."""
     run_dir = existing_run_dir(user_id)
     for filename in filenames:
-        path = run_dir / filename
-        if path.exists():
-            return str(path)
+        path = storage.join(run_dir, filename)
+        if storage.exists(path):
+            return path
     expected = ", ".join(filenames)
     raise FileNotFoundError(f"None of [{expected}] exist for user_id {user_id}")
 
