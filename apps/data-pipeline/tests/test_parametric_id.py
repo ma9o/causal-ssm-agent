@@ -13,6 +13,8 @@ Tests:
 9. Recovery: profile_likelihood correctly classifies identified vs non-identified
 """
 
+from unittest.mock import patch
+
 import jax.numpy as jnp
 import jax.random as random
 import pytest
@@ -283,6 +285,52 @@ class TestSimulateSSM:
 class TestOutputSensitivity:
     """Test output sensitivity analysis."""
 
+    def test_stage4b_sweep_context_reuses_cached_topology_bundle(self):
+        """Identical topology should reuse one cached Stage 4b sweep context."""
+        from causal_ssm_agent.utils import parametric_id as pid
+
+        model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        pid.clear_stage4b_sweep_context_cache()
+
+        with (
+            patch.object(
+                pid, "build_site_registry", wraps=pid.build_site_registry
+            ) as build_registry,
+            patch.object(pid, "build_transforms", wraps=pid.build_transforms) as build_transforms,
+            patch.object(pid, "build_unravel_fn", wraps=pid.build_unravel_fn) as build_unravel_fn,
+            patch.object(
+                pid,
+                "_build_runtime_eval_fns_from_registry",
+                wraps=pid._build_runtime_eval_fns_from_registry,
+            ) as build_eval_fns,
+        ):
+            ctx_1 = pid.get_stage4b_sweep_context(model)
+            ctx_2 = pid.get_stage4b_sweep_context(model)
+
+        assert ctx_1 is ctx_2
+        assert build_registry.call_count == 1
+        assert build_transforms.call_count == 1
+        assert build_unravel_fn.call_count == 1
+        assert build_eval_fns.call_count == 1
+
+    def test_stage4b_sweep_context_separates_distinct_topologies(self):
+        """A topology change should create a different cached sweep context."""
+        from causal_ssm_agent.utils.parametric_id import (
+            clear_stage4b_sweep_context_cache,
+            get_stage4b_sweep_context,
+        )
+
+        clear_stage4b_sweep_context_cache()
+        ctx_1 = get_stage4b_sweep_context(
+            _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        )
+        ctx_2 = get_stage4b_sweep_context(
+            _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman")
+        )
+
+        assert ctx_1 is not ctx_2
+        assert ctx_1.cache_key != ctx_2.cache_key
+
     def test_identified_model_mostly_identifiable(self):
         """Well-identified 1D LGSS: all params should be flagged identifiable."""
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
@@ -346,6 +394,49 @@ class TestOutputSensitivity:
 
 class TestProfileLikelihood:
     """Test profile likelihood function."""
+
+    def test_profile_likelihood_accepts_cached_sweep_context(self):
+        """Explicitly reusing a cached Stage 4b context should still work."""
+        from causal_ssm_agent.utils.parametric_id import (
+            get_stage4b_sweep_context,
+            output_sensitivity_analysis,
+            profile_likelihood,
+            simulate_ssm,
+        )
+
+        model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        times = jnp.linspace(0, 6, 8)
+        observations = simulate_ssm(
+            drift=jnp.array([[-0.4]]),
+            diffusion_chol=jnp.array([[0.3]]),
+            lambda_mat=jnp.eye(1),
+            manifest_chol=jnp.array([[0.2]]),
+            t0_means=jnp.zeros(1),
+            t0_chol=jnp.eye(1) * 0.5,
+            times=times,
+            rng_key=random.PRNGKey(7),
+        )
+        sweep_context = get_stage4b_sweep_context(model)
+
+        sa_result = output_sensitivity_analysis(
+            model,
+            times,
+            n_draws=2,
+            seed=7,
+            sweep_context=sweep_context,
+        )
+        result = profile_likelihood(
+            model=model,
+            observations=observations,
+            times=times,
+            n_grid=3,
+            seed=7,
+            sweep_context=sweep_context,
+        )
+
+        assert sa_result.n_parameters > 0
+        assert result.parameter_names
+        assert jnp.isfinite(result.mle_ll)
 
     @pytest.mark.slow
     def test_identified_model(self):

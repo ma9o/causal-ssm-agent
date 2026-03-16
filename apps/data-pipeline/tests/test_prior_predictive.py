@@ -7,6 +7,7 @@ get_failed_parameters.
 
 import jax.numpy as jnp
 import polars as pl
+import pytest
 
 from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
@@ -17,6 +18,12 @@ from causal_ssm_agent.models.prior_predictive import (
     format_validation_report,
     get_failed_parameters,
 )
+from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
+from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+    sample_prior_predictive_from_compiled_semantics,
+)
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 # =============================================================================
@@ -52,6 +59,14 @@ class TestCheckNanInf:
         assert result is not None
         assert "a" in result.issue
         assert "b" in result.issue
+
+    def test_likelihood_diagnostics_ignored(self):
+        samples = {
+            "ll_per_timestep": jnp.array([float("-inf")]),
+            "log_likelihood": jnp.array([float("nan")]),
+            "drift_diag_pop": jnp.array([0.1, 0.2]),
+        }
+        assert _check_nan_inf(samples) is None
 
 
 # =============================================================================
@@ -282,3 +297,54 @@ class TestComputeDataStats:
         df = pl.DataFrame({"indicator": ["x", "x"], "value": ["1.5", "2.5"]})
         stats = _compute_data_stats(df)
         assert abs(stats["x"]["mean"] - 2.0) < 1e-6
+
+
+# =============================================================================
+# Compiled prior predictive runtime
+# =============================================================================
+
+
+class TestCompiledPriorPredictiveRuntime:
+    def test_mixed_likelihood_samples_are_finite(self):
+        """Compiled runtime handles mixed observation families without tracing."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=2,
+            lambda_mat=jnp.array([[1.0], [1.0]], dtype=jnp.float32),
+            diffusion="diag",
+            manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.BERNOULLI],
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOGIT],
+        )
+        semantics = compile_prior_semantics(spec, SSMPriors())
+        samples = sample_prior_predictive_from_compiled_semantics(
+            spec,
+            semantics,
+            jnp.arange(6, dtype=jnp.float32),
+            num_samples=8,
+            seed=7,
+        )
+
+        assert samples["observations"].shape == (8, 6, 2)
+        assert bool(jnp.isfinite(samples["drift"]).all())
+        assert bool(jnp.isfinite(samples["diffusion"]).all())
+        assert bool(jnp.isfinite(samples["observations"]).all())
+
+    def test_ordered_likelihood_requires_hydrated_level_counts(self):
+        """Discrete emissions fail clearly until hydration provides level counts."""
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1, dtype=jnp.float32),
+            diffusion="diag",
+            manifest_dist=DistributionFamily.ORDERED_LOGISTIC,
+        )
+        semantics = compile_prior_semantics(spec, SSMPriors())
+
+        with pytest.raises(ValueError, match="manifest_level_counts"):
+            sample_prior_predictive_from_compiled_semantics(
+                spec,
+                semantics,
+                jnp.arange(4, dtype=jnp.float32),
+                num_samples=3,
+                seed=0,
+            )

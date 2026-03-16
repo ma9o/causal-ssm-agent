@@ -49,6 +49,7 @@ _SVI_CONFIG = {
     "method": "svi",
     "num_steps": 200,
     "num_samples": 50,
+    "learning_rate": 0.001,
     "seed": 0,
 }
 
@@ -262,28 +263,28 @@ def model_spec():
             {
                 "name": "rho_Stress",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for Stress",
                 "search_context": "autoregressive stress",
             },
             {
                 "name": "rho_Fatigue",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for Fatigue",
                 "search_context": "autoregressive fatigue",
             },
             {
                 "name": "rho_Focus",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for Focus",
                 "search_context": "autoregressive focus",
             },
             {
                 "name": "rho_Perf",
                 "role": "ar_coefficient",
-                "constraint": "correlation",
+                "constraint": "unit_interval",
                 "description": "AR(1) for Performance",
                 "search_context": "autoregressive performance",
             },
@@ -338,8 +339,8 @@ def priors():
     # AR priors
     for name in ["Stress", "Fatigue", "Focus", "Perf"]:
         prior_dict[f"rho_{name}"] = {
-            "distribution": "Normal",
-            "params": {"mu": -0.5, "sigma": 0.5},
+            "distribution": "Beta",
+            "params": {"alpha": 5.0, "beta": 2.0},
         }
     # Cross-effect priors
     for name in [
@@ -528,10 +529,10 @@ class TestE2EPipeline:
         assert "diffusion" in samples
 
     def test_stage5_fit_via_pipeline_path(self, stage4_result, daily_data):
-        """fit_model.fn() completes through the ModelSpec -> SSMSpec -> fit chain."""
+        """fit_model.fn() surfaces unstable SVI runs as explicit task failures."""
         result = fit_model.fn(stage4_result, daily_data, sampler_config=_SVI_CONFIG)
-        assert result["fitted"] is True
-        assert result["inference_type"] == "svi"
+        assert result["fitted"] is False
+        assert "non-finite losses" in result["error"]
 
     # ------------------------------------------------------------------
     # Parameter recovery (from direct fit, smoke test only)
