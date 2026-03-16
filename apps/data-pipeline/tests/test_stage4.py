@@ -324,7 +324,7 @@ class TestSSMPriorConversion:
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
         builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, simple_model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, simple_model_spec, ssm_spec=ssm_spec)
 
         # Beta(2,2): E[X] = 0.5 → drift mu = -ln(0.5)/1.0 ≈ 0.693
         # Per-element with 1 entry: mu is a list [0.693]
@@ -350,7 +350,7 @@ class TestSSMPriorConversion:
             },
         }
         builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, simple_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, simple_model_spec)
         assert ssm_priors.diffusion_diag["sigma"] == 0.5
 
     def test_uniform_prior_converts(self):
@@ -385,7 +385,7 @@ class TestSSMPriorConversion:
             },
         }
         builder = SSMModelBuilder(model_spec=spec, priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, spec)
         assert ssm_priors.lambda_free["sigma"] == 0.8
 
     def test_keyword_fallback_without_model_spec(self):
@@ -399,7 +399,7 @@ class TestSSMPriorConversion:
             },
         }
         builder = SSMModelBuilder(priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, None)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, None)
         assert ssm_priors.drift_diag["mu"] == -0.3
         assert ssm_priors.drift_diag["sigma"] == 0.5
 
@@ -448,7 +448,7 @@ class TestSSMPriorConversion:
         }
         ssm_spec = SSMSpec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         # Both should produce per-element arrays (lists), not scalars
         assert isinstance(ssm_priors.drift_diag["mu"], list)
@@ -500,7 +500,7 @@ class TestSSMPriorConversion:
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
         # drift mu = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
@@ -568,7 +568,7 @@ class TestSSMPriorConversion:
             drift_mask=drift_mask,
         )
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         # Daily default: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu = ssm_priors.drift_offdiag["mu"]
@@ -646,7 +646,7 @@ class TestSSMPriorConversion:
             drift_mask=drift_mask,
         )
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0

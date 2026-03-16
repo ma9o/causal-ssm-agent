@@ -342,7 +342,7 @@ class TestBuilderMasks:
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
-        drift_mask, lambda_mat, lambda_mask = builder._build_masks_from_causal_spec(
+        drift_mask, lambda_mat, lambda_mask, _edge_lag_days = builder._build_masks_from_causal_spec(
             latent_names, manifest_cols, 3, 4
         )
 
@@ -373,7 +373,7 @@ class TestBuilderMasks:
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder()
-        drift_mask, _lambda_mat, lambda_mask = builder._build_masks_from_causal_spec(
+        drift_mask, _lambda_mat, lambda_mask, _edge_lag_days = builder._build_masks_from_causal_spec(
             ["X"], ["x1"], 1, 1
         )
         assert drift_mask is None

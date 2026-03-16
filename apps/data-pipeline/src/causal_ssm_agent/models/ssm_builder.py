@@ -234,10 +234,13 @@ class SSMModelBuilder:
 
     def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
         """Compile user-facing specs into executable SSM inputs."""
+        edge_lag_days: dict[tuple[int, int], float] = {}
+        index_maps = None
+
         if self._ssm_spec is not None:
             spec = self._ssm_spec
         elif self._model_spec is not None:
-            spec = self._convert_spec_to_ssm(self._model_spec)
+            spec, edge_lag_days = self._convert_spec_to_ssm(self._model_spec)
         else:
             raise ValueError("Cannot compile SSM inputs without model_spec or ssm_spec")
 
@@ -248,10 +251,14 @@ class SSMModelBuilder:
                 k: v.model_dump() if isinstance(v, PriorProposal) else v
                 for k, v in self._priors.items()
             }
-            priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+            priors, index_maps = self._convert_priors_to_ssm(
+                raw_priors, self._model_spec or {}, ssm_spec=spec, edge_lag_days=edge_lag_days
+            )
 
         if self._parameter_bindings is None and self._model_spec is not None:
-            self._parameter_bindings = self._compile_parameter_bindings(spec, self._model_spec)
+            self._parameter_bindings = self._compile_parameter_bindings(
+                spec, self._model_spec, index_maps=index_maps
+            )
 
         return spec, priors
 
@@ -358,7 +365,9 @@ class SSMModelBuilder:
 
         return None
 
-    def _convert_spec_to_ssm(self, model_spec: ModelSpec | dict) -> SSMSpec:
+    def _convert_spec_to_ssm(
+        self, model_spec: ModelSpec | dict
+    ) -> tuple[SSMSpec, dict[tuple[int, int], float]]:
         """Convert ModelSpec to SSMSpec.
 
         When causal_spec is provided, builds drift_mask and lambda_mask from
@@ -368,7 +377,8 @@ class SSMModelBuilder:
             model_spec: Model specification
 
         Returns:
-            SSMSpec for continuous-time model
+            (SSMSpec, edge_lag_days) — the spec for continuous-time model and
+            a dict mapping (effect_idx, cause_idx) → lag in days.
         """
         if isinstance(model_spec, dict):
             from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
@@ -436,16 +446,18 @@ class SSMModelBuilder:
                 break
 
         # Build masks from causal_spec if available
-        drift_mask, lambda_mat, lambda_mask = self._build_masks_from_causal_spec(
+        drift_mask, lambda_mat, lambda_mask, edge_lag_days = self._build_masks_from_causal_spec(
             latent_names, manifest_cols, n_latent, n_manifest
         )
+        # Store for builder lifecycle (build_model flow)
+        self._edge_lag_days = edge_lag_days
 
         # Enable off-diagonal diffusion when correlation parameters exist
         # (marginalized confounders induce correlated process noise)
         has_correlation = any(p.role == ParameterRole.CORRELATION for p in model_spec.parameters)
         diffusion_mode: str = "free" if has_correlation else "diag"
 
-        return SSMSpec(
+        spec = SSMSpec(
             n_latent=n_latent,
             n_manifest=n_manifest,
             lambda_mat=lambda_mat,
@@ -466,6 +478,7 @@ class SSMModelBuilder:
             lambda_mask=lambda_mask,
             time_invariant_mask=time_invariant_mask,
         )
+        return spec, edge_lag_days
 
     def _build_masks_from_causal_spec(
         self,
@@ -473,7 +486,7 @@ class SSMModelBuilder:
         manifest_cols: list[str],
         n_latent: int,
         n_manifest: int,
-    ) -> tuple[np.ndarray | None, jnp.ndarray, np.ndarray | None]:
+    ) -> tuple[np.ndarray | None, jnp.ndarray, np.ndarray | None, dict[tuple[int, int], float]]:
         """Build drift_mask and lambda_mask from CausalSpec.
 
         Args:
@@ -483,11 +496,12 @@ class SSMModelBuilder:
             n_manifest: Number of manifest variables
 
         Returns:
-            (drift_mask, lambda_mat, lambda_mask) — masks are None when
-            causal_spec is not available (backward-compatible).
+            (drift_mask, lambda_mat, lambda_mask, edge_lag_days) — masks are
+            None when causal_spec is not available (backward-compatible).
+            edge_lag_days maps (effect_idx, cause_idx) → lag in days.
         """
         if self._causal_spec is None or latent_names is None:
-            return None, jnp.eye(n_manifest, n_latent), None
+            return None, jnp.eye(n_manifest, n_latent), None, {}
 
         causal_spec = self._causal_spec
         edges = get_edges(causal_spec)
@@ -518,8 +532,8 @@ class SSMModelBuilder:
         # Diagonal always True (AR effects); off-diagonal True only where
         # a CausalEdge exists between two constructs.
         drift_mask = np.eye(n_latent, dtype=bool)
-        # Store edge metadata: (effect_idx, cause_idx) → lag_days
-        self._edge_lag_days: dict[tuple[int, int], float] = {}
+        # Accumulate edge metadata: (effect_idx, cause_idx) → lag_days
+        edge_lag_days: dict[tuple[int, int], float] = {}
         for edge in edges:
             cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
             effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
@@ -533,7 +547,7 @@ class SSMModelBuilder:
                 dt_days = self._get_construct_dt_days("")  # model_clock is global
                 lag_hours = (dt_days * 24.0) if lagged else 0
                 if lag_hours > 0:
-                    self._edge_lag_days[(ei, ci)] = lag_hours / 24.0
+                    edge_lag_days[(ei, ci)] = lag_hours / 24.0
 
         # --- Lambda mask ---
         # Build from measurement model indicators → construct mapping.
@@ -584,14 +598,24 @@ class SSMModelBuilder:
                 f"{unmatched_manifests}"
             )
 
-        return drift_mask, lambda_mat, lambda_mask
+        return drift_mask, lambda_mat, lambda_mask, edge_lag_days
 
     def _convert_priors_to_ssm(
         self,
         priors: dict[str, dict],
         model_spec: ModelSpec | dict | None,
         ssm_spec: SSMSpec | None = None,
-    ) -> SSMPriors:
+        edge_lag_days: dict[tuple[int, int], float] | None = None,
+    ) -> tuple[
+        SSMPriors,
+        tuple[
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+        ],
+    ]:
         """Convert prior proposals to SSMPriors.
 
         Uses ParameterRole from ModelSpec to determine which SSMPriors field
@@ -608,9 +632,11 @@ class SSMModelBuilder:
             priors: Prior proposals from workers
             model_spec: Model specification for context (optional)
             ssm_spec: SSMSpec for per-element prior positioning (optional)
+            edge_lag_days: Pre-computed edge lag metadata from mask building (optional)
 
         Returns:
-            SSMPriors for the model
+            (SSMPriors, index_maps) — the priors and the 5-tuple of index maps
+            from ``_build_prior_index_maps`` for downstream reuse.
         """
         ssm_priors = SSMPriors()
 
@@ -802,9 +828,16 @@ class SSMModelBuilder:
 
         # Check consistency between CT drift rates and edge lag_hours
         if ssm_spec:
-            self._check_drift_lag_consistency(ssm_priors, ssm_spec)
+            self._check_drift_lag_consistency(ssm_priors, ssm_spec, edge_lag_days=edge_lag_days)
 
-        return ssm_priors
+        index_maps = (
+            offdiag_param_index,
+            lambda_param_index,
+            diag_param_index,
+            diffusion_diag_param_index,
+            diffusion_offdiag_param_index,
+        )
+        return ssm_priors, index_maps
 
     @staticmethod
     def _warn_first_order_approximation(ssm_priors: SSMPriors) -> None:
@@ -858,6 +891,7 @@ class SSMModelBuilder:
         self,
         ssm_priors: SSMPriors,
         ssm_spec: SSMSpec,
+        edge_lag_days: dict[tuple[int, int], float] | None = None,
     ) -> None:
         """Check CT drift rates against expected lag from causal edge metadata.
 
@@ -867,7 +901,9 @@ class SSMModelBuilder:
         literature prior may be calibrated to a different timescale than
         the causal model expects.
         """
-        edge_lags = getattr(self, "_edge_lag_days", {})
+        edge_lags = (
+            edge_lag_days if edge_lag_days is not None else getattr(self, "_edge_lag_days", {})
+        )
         if not edge_lags:
             return
 
@@ -1141,15 +1177,32 @@ class SSMModelBuilder:
         self,
         ssm_spec: SSMSpec,
         model_spec: ModelSpec | dict | None,
+        index_maps: tuple[
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+            dict[str, tuple[str, int]],
+        ]
+        | None = None,
     ) -> list[dict[str, Any]]:
         """Compile semantic parameter bindings to NumPyro sample sites."""
-        (
-            offdiag_index,
-            lambda_index,
-            diag_index,
-            diffusion_diag_index,
-            diffusion_offdiag_index,
-        ) = self._build_prior_index_maps(ssm_spec, model_spec)
+        if index_maps is not None:
+            (
+                offdiag_index,
+                lambda_index,
+                diag_index,
+                diffusion_diag_index,
+                diffusion_offdiag_index,
+            ) = index_maps
+        else:
+            (
+                offdiag_index,
+                lambda_index,
+                diag_index,
+                diffusion_diag_index,
+                diffusion_offdiag_index,
+            ) = self._build_prior_index_maps(ssm_spec, model_spec)
 
         bindings: list[dict[str, Any]] = []
         index_maps = (
@@ -1203,7 +1256,9 @@ class SSMModelBuilder:
                 k: v.model_dump() if isinstance(v, PriorProposal) else v
                 for k, v in self._priors.items()
             }
-            priors = self._convert_priors_to_ssm(raw_priors, self._model_spec or {}, ssm_spec=spec)
+            priors, _index_maps = self._convert_priors_to_ssm(
+                raw_priors, self._model_spec or {}, ssm_spec=spec
+            )
         else:
             spec, priors = self.compile_inputs()
 
@@ -1508,6 +1563,62 @@ class SSMModelBuilder:
                     }
                 )
         return pl.DataFrame(summary_data)
+
+
+def translate_spec(
+    model_spec: ModelSpec | dict,
+    causal_spec: dict | None = None,
+) -> tuple[SSMSpec, dict[tuple[int, int], float]]:
+    """Pure function: convert ModelSpec to SSMSpec with edge lags.
+
+    Returns (spec, edge_lag_days) with explicit data flow.
+    """
+    builder = SSMModelBuilder(model_spec=model_spec, causal_spec=causal_spec)
+    spec, edge_lag_days = builder._convert_spec_to_ssm(model_spec)
+    return spec, edge_lag_days
+
+
+def compile_priors(
+    raw_priors: dict[str, dict],
+    model_spec: ModelSpec | dict,
+    ssm_spec: SSMSpec,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+    causal_spec: dict | None = None,
+) -> tuple[
+    SSMPriors,
+    tuple[
+        dict[str, tuple[str, int]],
+        dict[str, tuple[str, int]],
+        dict[str, tuple[str, int]],
+        dict[str, tuple[str, int]],
+        dict[str, tuple[str, int]],
+    ],
+]:
+    """Pure function: convert prior proposals to SSMPriors.
+
+    Returns (ssm_priors, index_maps) with explicit data flow.
+    """
+    builder = SSMModelBuilder(model_spec=model_spec, priors=raw_priors, causal_spec=causal_spec)
+    return builder._convert_priors_to_ssm(
+        raw_priors, model_spec, ssm_spec=ssm_spec, edge_lag_days=edge_lag_days
+    )
+
+
+def compile_ssm_inputs(
+    model_spec: ModelSpec | dict,
+    priors: dict[str, dict],
+    causal_spec: dict | None = None,
+) -> tuple[SSMSpec, SSMPriors, list[dict[str, Any]]]:
+    """Pure function: full compilation pipeline as function composition.
+
+    Combines translate_spec -> compile_priors -> bind_parameters with
+    explicit data flow (no hidden instance state).
+    """
+    spec, edge_lag_days = translate_spec(model_spec, causal_spec)
+    ssm_priors, index_maps = compile_priors(priors, model_spec, spec, edge_lag_days, causal_spec)
+    builder = SSMModelBuilder(model_spec=model_spec, causal_spec=causal_spec)
+    bindings = builder._compile_parameter_bindings(spec, model_spec, index_maps=index_maps)
+    return spec, ssm_priors, bindings
 
 
 def build_ssm_builder(

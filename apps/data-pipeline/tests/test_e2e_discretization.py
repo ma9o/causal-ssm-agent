@@ -251,7 +251,7 @@ class TestE2ESpecToDiscretization:
             priors={},
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
 
         # Dimensions
         assert spec.n_latent == 2  # mood, stress
@@ -389,8 +389,8 @@ class TestE2ESpecToDiscretization:
         }
 
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        spec = builder._convert_spec_to_ssm(model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
+        spec, _elags = builder._convert_spec_to_ssm(model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
@@ -451,7 +451,7 @@ class TestE2ESpecToDiscretization:
             priors=priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(model_spec)
+        spec, _elags = builder._convert_spec_to_ssm(model_spec)
 
         with pytest.raises(ValueError, match="AR parameter does not reference a construct"):
             builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
@@ -549,8 +549,8 @@ class TestE2ESpecToDiscretization:
             priors=priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(priors, two_construct_model_spec, ssm_spec=spec)
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, two_construct_model_spec, ssm_spec=spec)
 
         assert ssm_priors.diffusion_diag == {"sigma": [0.1, 0.9]}
 
@@ -570,8 +570,8 @@ class TestE2ESpecToDiscretization:
             priors=weekly_study_priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
             weekly_study_priors, two_construct_model_spec, ssm_spec=spec
         )
 
@@ -617,8 +617,8 @@ class TestE2ESpecToDiscretization:
             priors=weekly_study_priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
             weekly_study_priors, two_construct_model_spec, ssm_spec=spec
         )
 
@@ -664,8 +664,8 @@ class TestE2ESpecToDiscretization:
             priors=weekly_study_priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
             weekly_study_priors, two_construct_model_spec, ssm_spec=spec
         )
 
@@ -734,8 +734,8 @@ class TestE2ESpecToDiscretization:
             priors=weekly_study_priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
             weekly_study_priors, two_construct_model_spec, ssm_spec=spec
         )
 
@@ -793,8 +793,8 @@ class TestE2ESpecToDiscretization:
             priors=weekly_study_priors,
             causal_spec=two_construct_causal_spec,
         )
-        spec = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors = builder._convert_priors_to_ssm(
+        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(
             weekly_study_priors, two_construct_model_spec, ssm_spec=spec
         )
 
@@ -994,14 +994,14 @@ class TestE2ESpecToDiscretization:
         builder_w = SSMModelBuilder(
             model_spec=model_spec, priors=priors_weekly, causal_spec=causal_spec
         )
-        ssm_priors_w = builder_w._convert_priors_to_ssm(
+        ssm_priors_w, _idx = builder_w._convert_priors_to_ssm(
             priors_weekly, model_spec, ssm_spec=ssm_spec
         )
 
         builder_d = SSMModelBuilder(
             model_spec=model_spec, priors=priors_daily, causal_spec=causal_spec
         )
-        ssm_priors_d = builder_d._convert_priors_to_ssm(priors_daily, model_spec, ssm_spec=ssm_spec)
+        ssm_priors_d, _idx = builder_d._convert_priors_to_ssm(priors_daily, model_spec, ssm_spec=ssm_spec)
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
         mu_w = ssm_priors_w.drift_offdiag["mu"]
@@ -1315,7 +1315,7 @@ class TestExactMatrixLogConversion:
             priors=priors,
             causal_spec=two_construct_causal_spec,
         )
-        ssm_priors = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         drift_diag = ssm_priors.drift_diag["mu"]
         drift_offdiag = ssm_priors.drift_offdiag["mu"]
@@ -1370,16 +1370,16 @@ class TestExactMatrixLogConversion:
             priors={},
             causal_spec=two_construct_causal_spec,
         )
-        # Building masks populates _edge_lag_days
-        builder._build_masks_from_causal_spec(
+        # Building masks returns edge_lag_days as 4th value
+        _dm, _lm, _lmask, edge_lag_days = builder._build_masks_from_causal_spec(
             ["mood", "stress"], ["mood_rating", "stress_self_report"], 2, 2
         )
 
         # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
-        assert len(builder._edge_lag_days) == 1
+        assert len(edge_lag_days) == 1
         # effect_idx=0 (mood), cause_idx=1 (stress)
-        assert (0, 1) in builder._edge_lag_days
-        assert abs(builder._edge_lag_days[(0, 1)] - 1.0) < 0.01
+        assert (0, 1) in edge_lag_days
+        assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
 
     def test_drift_lag_consistency_warns(self, two_construct_causal_spec, caplog):
         """Builder warns when CT drift implies timescale far from edge lag."""
@@ -1446,12 +1446,14 @@ class TestExactMatrixLogConversion:
             priors=priors,
             causal_spec=two_construct_causal_spec,
         )
-        # Must build masks first to populate _edge_lag_days
-        builder._build_masks_from_causal_spec(
+        # Build masks to get edge_lag_days, then pass explicitly
+        _dm, _lm, _lmask, edge_lag_days = builder._build_masks_from_causal_spec(
             ["mood", "stress"], ["mood_rating", "stress_self_report"], 2, 2
         )
         with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.models.ssm_builder"):
-            builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+            builder._convert_priors_to_ssm(
+                priors, model_spec, ssm_spec=ssm_spec, edge_lag_days=edge_lag_days
+            )
 
         # Large beta_CT → implied timescale << 1 day, edge lag = 1 day → warning
         lag_warnings = [r for r in caplog.records if "mismatch" in r.message.lower()]
