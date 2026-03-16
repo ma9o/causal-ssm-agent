@@ -1,120 +1,36 @@
-"""Stage helpers and wrapper flows for the causal inference pipeline.
+"""Stage computation and wrapper flows for the causal inference pipeline.
 
-This module keeps the stage-level computation, stage result persistence, and
-user-facing stage subflows in one place. The top-level pipeline flow invokes
-the stage wrapper flows so the UI can track canonical stage executions instead
-of persistence-only plumbing tasks.
+Stage computation functions (stage0, stage1a, …) implement the core logic
+for each stage.  Wrapper flows (stage0_flow, stage1a_flow, …) orchestrate
+artifact persistence and progress logging via ``run_store``.
 """
 
 from __future__ import annotations
 
 import inspect
-import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-import cloudpickle
 from prefect import flow
 
-from causal_ssm_agent.utils.data import runs_dir
-
 from . import get_prefect_logger
+from .run_store import (
+    STAGE0_PARQUET_FILENAMES,
+    STAGE2_MODEL_PARQUET_FILENAMES,
+    STAGE2_RAW_PARQUET_FILENAMES,
+    STAGE5B_PICKLE_FILENAMES,
+    finalize_stage,
+    find_run_artifact,
+    load_parquet,
+    load_pickle,
+    load_public_payload,
+    load_stage_snapshot,
+    save_parquet,
+    save_pickle,
+    stage_state,
+)
 
 logger = get_prefect_logger(__name__)
-STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
-STAGE2_RAW_PARQUET_FILENAMES = ("stage2-raw-data.parquet",)
-STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
-STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
-
-
-def _run_dir(user_id: str) -> Path:
-    path = runs_dir(user_id)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _existing_run_dir(user_id: str) -> Path:
-    path = runs_dir(user_id)
-    if not path.exists():
-        raise FileNotFoundError(f"No results directory found for user_id {user_id}")
-    return path
-
-
-def _save_parquet(df: Any, user_id: str, filename: str) -> str:
-    path = _run_dir(user_id) / filename
-    df.write_parquet(path)
-    return str(path)
-
-
-def _load_parquet(path: str) -> Any:
-    import polars as pl
-
-    return pl.read_parquet(path)
-
-
-def _save_pickle(value: Any, user_id: str, filename: str) -> str:
-    path = _run_dir(user_id) / filename
-    with path.open("wb") as f:
-        cloudpickle.dump(value, f)
-    return str(path)
-
-
-def _load_pickle(path: str) -> Any:
-    with Path(path).open("rb") as f:
-        return cloudpickle.load(f)
-
-
-def _stage_snapshot_path(user_id: str, stage_id: str) -> Path:
-    return _run_dir(user_id) / f"{stage_id}-state.pkl"
-
-
-def _save_stage_snapshot(stage_id: str, state: dict[str, Any], user_id: str) -> None:
-    path = _stage_snapshot_path(user_id, stage_id)
-    with path.open("wb") as f:
-        cloudpickle.dump(state, f)
-
-
-def _load_stage_snapshot(user_id: str, stage_id: str) -> dict[str, Any]:
-    path = _existing_run_dir(user_id) / f"{stage_id}-state.pkl"
-    if not path.exists():
-        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in user_id {user_id}")
-    with path.open("rb") as f:
-        return cloudpickle.load(f)
-
-
-def _unwrap_persisted_result(raw: Any) -> Any:
-    if isinstance(raw, dict) and "result" in raw:
-        raw = raw["result"]
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return raw
-    return raw
-
-
-def _load_public_stage_payload(user_id: str, stage_id: str) -> dict[str, Any]:
-    path = _existing_run_dir(user_id) / f"{stage_id}.json"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"No public stage payload found for {stage_id} in user_id {user_id}"
-        )
-    with path.open() as f:
-        raw = json.load(f)
-    payload = _unwrap_persisted_result(raw)
-    if not isinstance(payload, dict):
-        raise TypeError(f"Persisted payload for {stage_id} in user_id {user_id} is not a dict")
-    return payload
-
-
-def _find_run_artifact(user_id: str, filenames: tuple[str, ...]) -> str:
-    run_dir = _existing_run_dir(user_id)
-    for filename in filenames:
-        path = run_dir / filename
-        if path.exists():
-            return str(path)
-    expected = ", ".join(filenames)
-    raise FileNotFoundError(f"None of [{expected}] exist for user_id {user_id}")
 
 
 def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
@@ -165,40 +81,6 @@ def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
     return error_count, warning_count
 
 
-def _web_payload(
-    stage_id: str,
-    result: dict[str, Any],
-    user_id: str,
-    *,
-    extras: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build, validate, and persist the web payload for a stage.
-
-    Extracts only fields defined in the stage contract from *result*,
-    merges any *extras* (e.g. gate-derived ``outcome`` / ``gate_overridden``),
-    validates against the contract, and persists to disk.
-    """
-    from .stages import persist_web_result
-    from .stages.contracts import STAGE_CONTRACTS, StageId
-
-    contract_fields = set(STAGE_CONTRACTS[cast("StageId", stage_id)].model_fields.keys())
-    web = {k: v for k, v in result.items() if k in contract_fields}
-    if extras:
-        web.update(extras)
-    return persist_web_result(stage_id, web, user_id)
-
-
-def _stage_state(
-    result: dict[str, Any],
-    web: dict[str, Any],
-    gate: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    state = {"result": result, "web": web}
-    if gate is not None:
-        state["gate"] = gate
-    return state
-
-
 def _raise_if_gate_failed(gate_result: dict[str, Any], message: str) -> None:
     if gate_result["gate_failed"] and not gate_result["gate_overridden"]:
         raise RuntimeError(message)
@@ -212,7 +94,7 @@ def load_stage_state(
     """Load a stage state snapshot, reconstructing from public payloads when needed."""
 
     try:
-        return _load_stage_snapshot(user_id, stage_id)
+        return load_stage_snapshot(user_id, stage_id)
     except FileNotFoundError:
         logger.info(
             "Reconstructing %s state from public payloads for user_id %s",
@@ -221,16 +103,16 @@ def load_stage_state(
         )
 
     prior_states = prior_states or {}
-    web = _load_public_stage_payload(user_id, stage_id)
+    web = load_public_payload(user_id, stage_id)
 
     if stage_id == "stage-0":
         result = dict(web)
-        result["_df_path"] = _find_run_artifact(user_id, STAGE0_PARQUET_FILENAMES)
+        result["_df_path"] = find_run_artifact(user_id, STAGE0_PARQUET_FILENAMES)
         result["_column_descriptions"] = _column_descriptions_from_web(web)
-        return _stage_state(result, web)
+        return stage_state(result, web)
 
     if stage_id == "stage-1a":
-        return _stage_state(dict(web), web)
+        return stage_state(dict(web), web)
 
     if stage_id == "stage-1b":
         stage1a_state = prior_states.get("stage-1a")
@@ -242,31 +124,31 @@ def load_stage_state(
             result,
             override_gates=bool(web.get("gate_overridden")),
         )
-        return _stage_state(result, web, gate=gate)
+        return stage_state(result, web, gate=gate)
 
     if stage_id == "stage-2":
         workers = list(web.get("workers", []) or [])
         result = dict(web)
         result["workers"] = workers
         result["_worker_statuses"] = workers
-        result["_raw_data_path"] = _find_run_artifact(user_id, STAGE2_RAW_PARQUET_FILENAMES)
-        result["_data_for_model_path"] = _find_run_artifact(user_id, STAGE2_MODEL_PARQUET_FILENAMES)
-        return _stage_state(result, web)
+        result["_raw_data_path"] = find_run_artifact(user_id, STAGE2_RAW_PARQUET_FILENAMES)
+        result["_data_for_model_path"] = find_run_artifact(user_id, STAGE2_MODEL_PARQUET_FILENAMES)
+        return stage_state(result, web)
 
     if stage_id == "stage-3":
-        return _stage_state(dict(web), web)
+        return stage_state(dict(web), web)
 
     if stage_id == "stage-4":
         result = dict(web)
         stage1b_state = prior_states.get("stage-1b")
         if stage1b_state is not None:
             result.setdefault("causal_spec", stage1b_state["result"]["causal_spec"])
-        return _stage_state(result, web)
+        return stage_state(result, web)
 
     if stage_id == "stage-4b":
         result = {"parametric_id": web.get("parametric_id", {})}
         gate = stage4b_gate(result, override_gates=bool(web.get("gate_overridden")))
-        return _stage_state(result, web, gate=gate)
+        return stage_state(result, web, gate=gate)
 
     if stage_id == "stage-5b":
         power_scaling = list(web.get("power_scaling", []) or [])
@@ -282,26 +164,14 @@ def load_stage_state(
             "loo_diagnostics": web.get("loo_diagnostics"),
             "posterior_marginals": web.get("posterior_marginals"),
             "posterior_pairs": web.get("posterior_pairs"),
-            "_fitted_result_path": _find_run_artifact(user_id, STAGE5B_PICKLE_FILENAMES),
+            "_fitted_result_path": find_run_artifact(user_id, STAGE5B_PICKLE_FILENAMES),
         }
-        return _stage_state(result, web)
+        return stage_state(result, web)
 
     if stage_id == "stage-6":
-        return _stage_state(dict(web), web)
+        return stage_state(dict(web), web)
 
     raise ValueError(f"Unsupported stage id: {stage_id}")
-
-
-def _finalize_stage_state(
-    stage_id: str,
-    result: dict[str, Any],
-    web: dict[str, Any],
-    user_id: str,
-    gate: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    state = _stage_state(result, web, gate=gate)
-    _save_stage_snapshot(stage_id, state, user_id)
-    return state
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -358,7 +228,7 @@ async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
     from .pipeline_helpers import format_schema_for_llm
     from .stages import propose_measurement_with_identifiability_fix
 
-    ingested_df = _load_parquet(stage0["_df_path"])
+    ingested_df = load_parquet(stage0["_df_path"])
     column_descriptions = stage0["_column_descriptions"]
     latent_model = stage1a["latent_model"]
 
@@ -548,7 +418,7 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
     from .stages import validate_extraction
 
     causal_spec = stage1b["causal_spec"]
-    raw_data = _load_parquet(stage2["_raw_data_path"])
+    raw_data = load_parquet(stage2["_raw_data_path"])
 
     validation_task = validate_extraction(causal_spec, [raw_data])
     validation_report = (
@@ -627,7 +497,7 @@ async def stage4(
     from .stages import stage4_orchestrated_flow
 
     causal_spec = stage1b["causal_spec"]
-    data_for_model = _load_parquet(stage2["_data_for_model_path"])
+    data_for_model = load_parquet(stage2["_data_for_model_path"])
 
     return await stage4_orchestrated_flow(
         causal_spec=causal_spec,
@@ -648,7 +518,7 @@ def ssm_builder(stage4: dict, _stage1b: dict, stage2: dict) -> Any:
 
     try:
         return build_ssm_builder(
-            raw_data=_load_parquet(stage2["_data_for_model_path"]),
+            raw_data=load_parquet(stage2["_data_for_model_path"]),
             compiled_ssm=stage4["_compiled_ssm"],
         )
     except Exception:
@@ -672,7 +542,7 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
 
     return stage4b_parametric_id_flow(
         stage4,
-        raw_data=_load_parquet(stage2["_data_for_model_path"]),
+        raw_data=load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
     )
 
@@ -749,7 +619,7 @@ def stage5a(
     """
     from .stages import fit_model
 
-    data_for_model = _load_parquet(stage2["_data_for_model_path"])
+    data_for_model = load_parquet(stage2["_data_for_model_path"])
 
     svi_config = {"method": "svi", "num_steps": 5000, "num_samples": 500}
 
@@ -795,7 +665,7 @@ def stage5b(
     from .stages import fit_model, run_power_scaling, run_ppc
 
     config = get_config()
-    data_for_model = _load_parquet(stage2["_data_for_model_path"])
+    data_for_model = load_parquet(stage2["_data_for_model_path"])
     causal_spec = stage1b["causal_spec"]
 
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
@@ -930,7 +800,7 @@ def stage6(
 
     from .stages import run_interventions
 
-    fitted_result = _load_pickle(stage5b["_fitted_result_path"])
+    fitted_result = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
@@ -1031,8 +901,9 @@ async def stage0_flow(user_id: str) -> dict:
     logger.info("Stage 0 starting: ingesting raw input for user_id=%s", user_id)
     stage0_result = await stage0(user_id)
     raw_df = stage0_result.pop("_df")
-    stage0_result["_df_path"] = _save_parquet(raw_df, user_id, "stage0-raw-input.parquet")
-    web = _web_payload("stage-0", stage0_result, user_id)
+    stage0_result["_df_path"] = save_parquet(raw_df, user_id, "stage0-raw-input.parquet")
+    state = finalize_stage("stage-0", stage0_result, user_id)
+    web = state["web"]
     date_range = web.get("date_range", {})
     logger.info(
         "Stage 0 complete: source=%s records=%d columns=%d date_range=%s..%s",
@@ -1042,7 +913,7 @@ async def stage0_flow(user_id: str) -> dict:
         date_range.get("start") or "?",
         date_range.get("end") or "?",
     )
-    return _finalize_stage_state("stage-0", stage0_result, web, user_id)
+    return state
 
 
 @flow(name="stage-1a-flow", persist_result=False)
@@ -1053,7 +924,8 @@ async def stage1a_flow(
 ) -> dict:
     logger.info("Stage 1a starting: proposing latent model")
     stage1a_result = override_payload if override_payload is not None else await stage1a(question)
-    web = _web_payload("stage-1a", stage1a_result, user_id)
+    state = finalize_stage("stage-1a", stage1a_result, user_id)
+    web = state["web"]
     latent_model = web.get("latent_model", {})
     logger.info(
         "Stage 1a complete: constructs=%d edges=%d treatments=%d outcome=%s",
@@ -1062,7 +934,7 @@ async def stage1a_flow(
         len(web.get("treatments", [])),
         web.get("outcome_name", "") or "unknown",
     )
-    return _finalize_stage_state("stage-1a", stage1a_result, web, user_id)
+    return state
 
 
 @flow(name="stage-1b-flow", persist_result=False)
@@ -1086,13 +958,8 @@ async def stage1b_flow(
         extras["gate_overridden"] = {
             "reason": "No identifiable treatments remain — all blocked by unobserved confounders"
         }
-    web = _web_payload("stage-1b", stage1b_result, user_id, extras=extras)
-    state = _finalize_stage_state(
-        "stage-1b",
-        stage1b_result,
-        web,
-        user_id,
-        gate=stage1b_gate_result,
+    state = finalize_stage(
+        "stage-1b", stage1b_result, user_id, extras=extras, gate=stage1b_gate_result
     )
     _raise_if_gate_failed(
         stage1b_gate_result,
@@ -1131,16 +998,17 @@ async def stage2_flow(
     )
     raw_data = stage2_result.pop("_raw_data")
     data_for_model = stage2_result.pop("_data_for_model")
-    stage2_result["_raw_data_path"] = _save_parquet(raw_data, user_id, "stage2-raw-data.parquet")
-    stage2_result["_data_for_model_path"] = _save_parquet(
+    stage2_result["_raw_data_path"] = save_parquet(raw_data, user_id, "stage2-raw-data.parquet")
+    stage2_result["_data_for_model_path"] = save_parquet(
         data_for_model, user_id, "stage2-model-data.parquet"
     )
-    web = _web_payload(
+    state = finalize_stage(
         "stage-2",
         stage2_result,
         user_id,
         extras={"outcome": "success" if len(raw_data) > 0 else "fail"},
     )
+    web = state["web"]
     worker_statuses = stage2_result.get("_worker_statuses", [])
     worker_counts: dict[str, int] = {}
     for worker in worker_statuses:
@@ -1154,14 +1022,15 @@ async def stage2_flow(
         worker_counts,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-2", stage2_result, web, user_id)
+    return state
 
 
 @flow(name="stage-3-flow", persist_result=False)
 def stage3_flow(stage1b_result: dict, stage2_result: dict, user_id: str) -> dict:
     logger.info("Stage 3 starting: validating extracted measurements")
     stage3_result = stage3(stage1b_result, stage2_result)
-    web = _web_payload("stage-3", stage3_result, user_id)
+    state = finalize_stage("stage-3", stage3_result, user_id)
+    web = state["web"]
     report = web.get("validation_report", {})
     error_count, warning_count = _validation_issue_counts(report)
     logger.info(
@@ -1172,7 +1041,7 @@ def stage3_flow(stage1b_result: dict, stage2_result: dict, user_id: str) -> dict
         warning_count,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-3", stage3_result, web, user_id)
+    return state
 
 
 @flow(name="stage-4-flow", persist_result=False)
@@ -1191,8 +1060,8 @@ async def stage4_flow(
     logger.info("Stage 4 starting: building model specification and priors")
 
     # Persist raw_data for the refinement tool_server (prior predictive gate)
-    data_for_model = _load_parquet(stage2_result["_data_for_model_path"])
-    _save_parquet(data_for_model, user_id, "stage-4-data.parquet")
+    data_for_model = load_parquet(stage2_result["_data_for_model_path"])
+    save_parquet(data_for_model, user_id, "stage-4-data.parquet")
 
     if override_payload is None:
         stage4_result = await stage4(question, stage1b_result, stage2_result, enable_literature)
@@ -1203,7 +1072,7 @@ async def stage4_flow(
             compile_task = compile_model_task(
                 stage4_result.get("model_spec", {}),
                 stage4_result.get("priors", {}),
-                _load_parquet(stage2_result["_data_for_model_path"]),
+                load_parquet(stage2_result["_data_for_model_path"]),
                 causal_spec=stage4_result["causal_spec"],
             )
             compile_result = (
@@ -1227,7 +1096,7 @@ async def stage4_flow(
     )
     if inspect.isawaitable(artifact_result):
         await artifact_result
-    web = _web_payload("stage-4", stage4_result, user_id)
+    state = finalize_stage("stage-4", stage4_result, user_id)
     logger.info(
         "Stage 4 complete: parameters=%d likelihoods=%d priors=%d validation_ok=%s model_built=%s",
         len(model_spec.get("parameters", [])),
@@ -1236,7 +1105,7 @@ async def stage4_flow(
         validation.get("is_valid", False),
         model_info.get("model_built", False),
     )
-    return _finalize_stage_state("stage-4", stage4_result, web, user_id)
+    return state
 
 
 @flow(name="stage-4b-flow", persist_result=False)
@@ -1258,13 +1127,8 @@ def stage4b_flow(
                 f"> {t_rule.get('n_moments')} moment conditions"
             )
         }
-    web = _web_payload("stage-4b", stage4b_result, user_id, extras=extras_4b)
-    state = _finalize_stage_state(
-        "stage-4b",
-        stage4b_result,
-        web,
-        user_id,
-        gate=stage4b_gate_result,
+    state = finalize_stage(
+        "stage-4b", stage4b_result, user_id, extras=extras_4b, gate=stage4b_gate_result
     )
     t_rule = stage4b_gate_result["t_rule"]
     _raise_if_gate_failed(
@@ -1301,13 +1165,14 @@ def stage5a_flow(
 ) -> dict:
     logger.info("Stage 5a starting: SVI preflight")
     result = stage5a(stage4_result, stage2_result)
-    web = _web_payload("stage-5a", result, user_id)
+    state = finalize_stage("stage-5a", result, user_id)
+    web = state["web"]
     logger.info(
         "Stage 5a complete: svi_converged=%s outcome=%s",
         web.get("svi_diagnostics") is not None,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-5a", result, web, user_id)
+    return state
 
 
 @flow(name="stage-5b-flow", persist_result=False)
@@ -1321,10 +1186,11 @@ def stage5b_flow(
     logger.info("Stage 5b starting: fitting model and running diagnostics")
     stage5b_result = stage5b(stage4_result, stage1b_result, stage2_result, inference_method)
     fitted_result = stage5b_result.pop("_fitted_result")
-    stage5b_result["_fitted_result_path"] = _save_pickle(
+    stage5b_result["_fitted_result_path"] = save_pickle(
         fitted_result, user_id, "stage5b-fitted-result.pkl"
     )
-    web = _web_payload("stage-5b", stage5b_result, user_id)
+    state = finalize_stage("stage-5b", stage5b_result, user_id)
+    web = state["web"]
     ps_list = web.get("power_scaling", [])
     ps_issues = sum(
         1
@@ -1339,7 +1205,7 @@ def stage5b_flow(
         ppc_warnings,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-5b", stage5b_result, web, user_id)
+    return state
 
 
 @flow(name="stage-6-flow", persist_result=False)
@@ -1352,7 +1218,8 @@ def stage6_flow(
 ) -> dict:
     logger.info("Stage 6 starting: estimating intervention effects")
     stage6_result = stage6(stage5b_result, stage1a_result, stage1b_result, stage1b_gate_result)
-    web = _web_payload("stage-6", stage6_result, user_id)
+    state = finalize_stage("stage-6", stage6_result, user_id)
+    web = state["web"]
     intervention_results = web.get("intervention_results", [])
     warning_count = sum(
         1
@@ -1367,4 +1234,4 @@ def stage6_flow(
         warning_count,
         web.get("outcome", "success"),
     )
-    return _finalize_stage_state("stage-6", stage6_result, web, user_id)
+    return state
