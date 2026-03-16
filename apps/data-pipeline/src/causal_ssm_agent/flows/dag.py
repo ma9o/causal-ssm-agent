@@ -800,15 +800,13 @@ def stage5b(
 
     sampler_config = (
         config.inference.to_sampler_config(method_override=inference_method)
-        if inference_method
-        else None
     )
 
     if config.inference.gpu:
-        from .gpu_inference import run_stage5_gpu
+        from .gpu_inference import run_stage5b_gpu
 
         logger.info("Dispatching to Modal (%s GPU)...", config.inference.gpu)
-        gpu_result = run_stage5_gpu(
+        gpu_result = run_stage5b_gpu(
             stage4_result=stage4,
             raw_data=data_for_model,
             sampler_config=sampler_config,
@@ -825,11 +823,7 @@ def stage5b(
         loo_diagnostics = gpu_result.get("loo_diagnostics")
         posterior_marginals = gpu_result.get("posterior_marginals")
         posterior_pairs = gpu_result.get("posterior_pairs")
-        inf_method = (
-            gpu_result.get("mcmc_diagnostics", {}).get("method", "unknown")
-            if gpu_result.get("mcmc_diagnostics")
-            else "unknown"
-        )
+        inf_method = gpu_result.get("inference_type", "unknown")
     else:
         fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
         fitted_result = fitted.result() if hasattr(fitted, "result") else fitted
@@ -948,10 +942,38 @@ def stage6(
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
 
-    results = run_interventions(
-        fitted_result, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
-    )
-    intervention_results = results.result() if hasattr(results, "result") else results
+    if (
+        isinstance(fitted_result, dict)
+        and "intervention_results" in fitted_result
+        and fitted_result.get("intervention_results")
+        and not {"builder", "result"}.issubset(fitted_result)
+    ):
+        logger.info("Using precomputed intervention results from stage 5b")
+        intervention_results = list(fitted_result.get("intervention_results", []) or [])
+    elif (
+        isinstance(fitted_result, dict)
+        and "posterior_samples" in fitted_result
+        and not {"builder", "result"}.issubset(fitted_result)
+    ):
+        from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
+
+        logger.info("Computing interventions from GPU posterior samples")
+        intervention_results = compute_interventions(
+            samples=fitted_result["posterior_samples"],
+            treatments=treatments,
+            outcome=outcome_name,
+            latent_names=list(fitted_result.get("latent_names") or []),
+            causal_spec=causal_spec,
+            ppc_result=ppc_result,
+            manifest_names=list(fitted_result.get("manifest_names") or []),
+            ps_result=ps_result,
+            times=fitted_result.get("times"),
+        )
+    else:
+        results = run_interventions(
+            fitted_result, treatments, outcome_name, causal_spec, ppc_result, ps_result=ps_result
+        )
+        intervention_results = results.result() if hasattr(results, "result") else results
 
     # Log ranked results
     if intervention_results:

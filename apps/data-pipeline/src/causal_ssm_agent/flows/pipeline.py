@@ -117,11 +117,11 @@ def _resolve_question(
     return None
 
 
-def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
+async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
     causal_spec = stage1b_web.get("causal_spec", {})
     latent = causal_spec.get("latent", {})
     measurement = causal_spec.get("measurement", {})
-    create_markdown_artifact(
+    artifact = create_markdown_artifact(
         key="causal-spec",
         markdown=(
             f"## Causal Specification\n\n"
@@ -130,6 +130,8 @@ def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
             f"- **Indicators**: {len(measurement.get('indicators', []))}\n"
         ),
     )
+    if isawaitable(artifact):
+        await artifact
 
 
 def _emit_stage_progress_event(
@@ -308,11 +310,11 @@ async def causal_inference_pipeline(
         _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
         return stage_state
 
-    def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
+    async def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
             return None
         if "stage-1b" in stage_states:
-            _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
+            await _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
         if stage_id == "stage-6":
             logger.info("Pipeline complete: run finished successfully")
             return {**stage_states["stage-5b"]["web"], **stage_states["stage-6"]["web"]}
@@ -325,7 +327,7 @@ async def causal_inference_pipeline(
     else:
         stage0_state = await _run_stage("stage-0", lambda: dag.stage0_flow(user_id))
         stage_states["stage-0"] = stage0_state
-    partial = _maybe_finish("stage-0")
+    partial = await _maybe_finish("stage-0")
     if partial is not None:
         return partial
     stage0_result = stage0_state["result"]
@@ -345,7 +347,7 @@ async def causal_inference_pipeline(
             ),
         )
         stage_states["stage-1a"] = stage1a_state
-    partial = _maybe_finish("stage-1a")
+    partial = await _maybe_finish("stage-1a")
     if partial is not None:
         return partial
     stage1a_result = stage1a_state["result"]
@@ -368,7 +370,7 @@ async def causal_inference_pipeline(
             ),
         )
         stage_states["stage-1b"] = stage1b_state
-    partial = _maybe_finish("stage-1b")
+    partial = await _maybe_finish("stage-1b")
     if partial is not None:
         return partial
     stage1b_result = stage1b_state["result"]
@@ -387,7 +389,7 @@ async def causal_inference_pipeline(
             ),
         )
         stage_states["stage-2"] = stage2_state
-    partial = _maybe_finish("stage-2")
+    partial = await _maybe_finish("stage-2")
     if partial is not None:
         return partial
     stage2_result = stage2_state["result"]
@@ -401,7 +403,7 @@ async def causal_inference_pipeline(
             lambda: dag.stage3_flow(stage1b_result, stage2_result, user_id),
         )
         stage_states["stage-3"] = stage3_state
-    partial = _maybe_finish("stage-3")
+    partial = await _maybe_finish("stage-3")
     if partial is not None:
         return partial
 
@@ -423,7 +425,7 @@ async def causal_inference_pipeline(
             ),
         )
         stage_states["stage-4"] = stage4_state
-    partial = _maybe_finish("stage-4")
+    partial = await _maybe_finish("stage-4")
     if partial is not None:
         return partial
     stage4_result = stage4_state["result"]
@@ -434,7 +436,7 @@ async def causal_inference_pipeline(
     else:
         stage4b_state = dag.stage4b_flow(stage4_result, stage2_result, gates_overridden, user_id)
         stage_states["stage-4b"] = stage4b_state
-    partial = _maybe_finish("stage-4b")
+    partial = await _maybe_finish("stage-4b")
     if partial is not None:
         return partial
 
@@ -448,7 +450,7 @@ async def causal_inference_pipeline(
             user_id,
         )
         stage_states["stage-5a"] = stage5a_state
-    partial = _maybe_finish("stage-5a")
+    partial = await _maybe_finish("stage-5a")
     if partial is not None:
         return partial
 
@@ -464,7 +466,7 @@ async def causal_inference_pipeline(
             user_id,
         )
         stage_states["stage-5b"] = stage5b_state
-    partial = _maybe_finish("stage-5b")
+    partial = await _maybe_finish("stage-5b")
     if partial is not None:
         return partial
     stage5b_result = stage5b_state["result"]
@@ -477,7 +479,7 @@ async def causal_inference_pipeline(
         user_id,
     )
     stage_states["stage-6"] = stage6_state
-    partial = _maybe_finish("stage-6")
+    partial = await _maybe_finish("stage-6")
     if partial is not None:
         return partial
 

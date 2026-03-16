@@ -21,6 +21,7 @@ logger = get_prefect_logger(__name__)
     result_serializer="json",
     result_storage_key="{parameters[user_id]}/run/{parameters[stage_id]}.json",
     task_run_name="persist-{stage_id}",
+    refresh_cache=True,
 )
 def persist_web_result(stage_id: str, data: dict, user_id: str) -> dict:
     """Persist stage result for web frontend consumption.

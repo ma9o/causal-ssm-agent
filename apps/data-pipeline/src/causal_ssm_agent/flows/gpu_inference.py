@@ -6,6 +6,8 @@ Modal GPU container so JAX arrays never cross the serialization boundary.
 
 from __future__ import annotations
 
+import dataclasses
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +19,23 @@ if TYPE_CHECKING:
 logger = get_prefect_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[3]  # project root
+
+
+def _to_plain_data(value: Any) -> Any:
+    """Recursively coerce payloads to builtins for Modal serialization."""
+    if hasattr(value, "model_dump"):
+        return _to_plain_data(value.model_dump(mode="json"))
+    if dataclasses.is_dataclass(value):
+        return _to_plain_data(dataclasses.asdict(value))
+    if isinstance(value, dict):
+        return {str(k): _to_plain_data(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_plain_data(v) for v in value]
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Path):
+        return str(value)
+    return value
 
 
 def _make_image(gpu: str):
@@ -33,6 +52,7 @@ def _make_image(gpu: str):
         .uv_sync(uv_project_dir=str(ROOT), groups=["dev"], frozen=True)
         .uv_pip_install("jax[cuda12]", gpu=gpu)
         .env({"PYTHONPATH": "/root"})
+        .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
         .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/causal_ssm_agent")
     )
 
@@ -51,13 +71,21 @@ def _stage5b_on_gpu(
     Python types (no JAX arrays cross the boundary).
     """
     import io
+    import logging
 
     import jax.numpy as jnp
+    import numpy as np
     import polars as pl_inner
 
     from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
-    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
     from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+        force=True,
+    )
 
     # ---------- reconstruct data ----------
     raw_data = pl_inner.read_ipc(io.BytesIO(data_bytes))
@@ -67,20 +95,29 @@ def _stage5b_on_gpu(
         if dtype == pl_inner.Float32:
             raw_data = raw_data.with_columns(pl_inner.col(col_name).cast(pl_inner.Float64))
 
-    # ---------- fit ----------
-    model_spec = stage4_result.get("model_spec", {})
-    priors = stage4_result.get("priors", {})
-    cs = stage4_result.get("causal_spec")
-
-    builder = SSMModelBuilder(
-        model_spec=model_spec, priors=priors, sampler_config=sampler_config, causal_spec=cs
-    )
-
     if raw_data.is_empty():
         return {
             "ps_result": {"checked": False, "error": "No data"},
             "intervention_results": [],
         }
+
+    # ---------- fit ----------
+    model_spec = stage4_result.get("model_spec", {})
+    priors = stage4_result.get("priors", {})
+    cs = stage4_result.get("causal_spec")
+    compiled_ssm = stage4_result.get("_compiled_ssm")
+    logger.info(
+        "Building GPU stage 5b model: compiled_artifact=%s",
+        compiled_ssm is not None,
+    )
+    builder = build_ssm_builder(
+        raw_data=raw_data,
+        model_spec=model_spec,
+        priors=priors,
+        causal_spec=cs,
+        sampler_config=sampler_config,
+        compiled_ssm=compiled_ssm,
+    )
 
     from causal_ssm_agent.utils.data import pivot_to_wide
 
@@ -173,29 +210,32 @@ def _stage5b_on_gpu(
         ppc_result = {"checked": False, "error": "see logs for traceback"}
 
     # ---------- interventions ----------
-    try:
-        samples = result.get_samples()
-        spec = builder._spec
-        assert spec is not None
-        latent_names = spec.latent_names
-        if latent_names is None:
-            logger.warning(
-                "SSMSpec.latent_names is None; falling back to manifest_names"
-                " — intervention indices may be incorrect"
-            )
-            latent_names = spec.manifest_names or []
-
-        intervention_results = compute_interventions(
-            samples=samples,
-            treatments=treatments,
-            outcome=outcome,
-            latent_names=latent_names,
-            causal_spec=causal_spec,
-            ppc_result=ppc_result,
-            manifest_names=spec.manifest_names or [],
-            ps_result=ps_result,
-            times=times,
+    samples = result.get_samples()
+    spec = builder._spec
+    assert spec is not None
+    latent_names = spec.latent_names
+    if latent_names is None:
+        logger.warning(
+            "SSMSpec.latent_names is None; falling back to manifest_names"
+            " — intervention indices may be incorrect"
         )
+        latent_names = spec.manifest_names or []
+
+    try:
+        if treatments and outcome:
+            intervention_results = compute_interventions(
+                samples=samples,
+                treatments=treatments,
+                outcome=outcome,
+                latent_names=latent_names,
+                causal_spec=causal_spec,
+                ppc_result=ppc_result,
+                manifest_names=spec.manifest_names or [],
+                ps_result=ps_result,
+                times=times,
+            )
+        else:
+            intervention_results = []
     except Exception as e:
         logger.exception("Intervention analysis failed")
         intervention_results = [
@@ -209,6 +249,8 @@ def _stage5b_on_gpu(
         ]
 
     return {
+        "fitted": True,
+        "inference_type": result.method,
         "ps_result": ps_result,
         "ppc_result": ppc_result,
         "intervention_results": intervention_results,
@@ -217,6 +259,10 @@ def _stage5b_on_gpu(
         "loo_diagnostics": loo_diag,
         "posterior_marginals": posterior_marginals,
         "posterior_pairs": posterior_pairs,
+        "posterior_samples": {name: np.asarray(value) for name, value in samples.items()},
+        "latent_names": list(latent_names),
+        "manifest_names": list(spec.manifest_names or []),
+        "times": np.asarray(times),
     }
 
 
@@ -260,15 +306,25 @@ def run_stage5b_gpu(
     buf = io.BytesIO()
     raw_data.write_ipc(buf)
     data_bytes = buf.getvalue()
+    stage4_payload = _to_plain_data(
+        {
+            "model_spec": stage4_result.get("model_spec"),
+            "priors": stage4_result.get("priors"),
+            "causal_spec": stage4_result.get("causal_spec"),
+            "_compiled_ssm": stage4_result.get("_compiled_ssm"),
+        }
+    )
 
     logger.info("Dispatching stage 5b to Modal (%s GPU)...", gpu)
 
-    with app.run():
-        return stage5b_fn.remote(
-            stage4_result=stage4_result,
-            data_bytes=data_bytes,
-            sampler_config=sampler_config,
-            treatments=treatments,
-            outcome=outcome,
-            causal_spec=causal_spec,
-        )
+    with modal.enable_output() as output:
+        output.set_timestamps(True)
+        with app.run():
+            return stage5b_fn.remote(
+                stage4_result=stage4_payload,
+                data_bytes=data_bytes,
+                sampler_config=sampler_config,
+                treatments=treatments,
+                outcome=outcome,
+                causal_spec=causal_spec,
+            )
