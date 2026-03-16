@@ -21,7 +21,6 @@ from causal_ssm_agent.models.ssm import (
     SSMSpec,
     fit,
 )
-from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
     LinkFunction,
@@ -74,6 +73,8 @@ _SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "diffusion_offdiag": "diffusion_lower",
     "lambda_free": "lambda_free",
 }
+
+_NON_MANIFEST_COLUMNS = {"time", "time_bucket"}
 
 
 def _normalize_prior_params(distribution: str, params: dict) -> dict:
@@ -146,6 +147,41 @@ def _split_compound_name(
     return None
 
 
+def _default_manifest_columns(X: Any) -> list[str]:
+    """Infer manifest columns from a wide dataframe-like object."""
+    return [c for c in X.columns if c not in _NON_MANIFEST_COLUMNS and not str(c).endswith("_lag1")]
+
+
+def _resolve_manifest_metadata(spec: SSMSpec, X: Any) -> tuple[list[str], list[DistributionFamily]]:
+    """Resolve manifest column names and distribution families from spec and data."""
+    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+    manifest_cols = spec.manifest_names or _default_manifest_columns(X)
+    if len(manifest_cols) != spec.n_manifest:
+        raise ValueError(
+            "Wide data columns do not match SSMSpec manifest dimensionality: "
+            f"{len(manifest_cols)} vs {spec.n_manifest}"
+        )
+    return manifest_cols, manifest_dists
+
+
+def _extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
+    """Extract one manifest column as float64, dropping nulls but not infinities."""
+    if isinstance(X, pl.DataFrame):
+        values = X.select(pl.col(column).cast(pl.Float64, strict=False)).to_series().to_numpy()
+    else:
+        series = X[column]
+        if hasattr(series, "to_numpy"):
+            try:
+                values = series.to_numpy(dtype=np.float64, na_value=np.nan)
+            except TypeError:
+                values = series.to_numpy()
+        else:
+            values = np.asarray(series)
+        values = np.asarray(values, dtype=np.float64)
+
+    return values[~np.isnan(values)]
+
+
 class SSMModelBuilder:
     """Model builder for SSM using NumPyro.
 
@@ -162,6 +198,7 @@ class SSMModelBuilder:
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         ssm_spec: SSMSpec | None = None,
         ssm_priors: SSMPriors | None = None,
+        compiled_prior_semantics: dict | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
         causal_spec: dict | None = None,
@@ -184,6 +221,7 @@ class SSMModelBuilder:
         self._priors = priors or {}
         self._ssm_spec = ssm_spec
         self._ssm_priors = ssm_priors
+        self._compiled_prior_semantics = compiled_prior_semantics
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
         self._causal_spec = causal_spec
@@ -239,6 +277,8 @@ class SSMModelBuilder:
         )
         if model_clock:
             try:
+                from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
+
                 return parse_duration_to_hours(model_clock) / 24.0
             except ValueError:
                 return 1.0
@@ -1153,9 +1193,7 @@ class SSMModelBuilder:
         # Determine specification
         if self._ssm_spec is None and self._model_spec is None:
             # Auto-detect from data
-            manifest_cols = [
-                c for c in X.columns if c not in ["time", "time_bucket"] and not c.endswith("_lag1")
-            ]
+            manifest_cols = _default_manifest_columns(X)
             spec = SSMSpec(
                 n_latent=len(manifest_cols),
                 n_manifest=len(manifest_cols),
@@ -1170,6 +1208,7 @@ class SSMModelBuilder:
             spec, priors = self.compile_inputs()
 
         spec = self._hydrate_discrete_manifest_metadata(spec, X)
+        self._validate_observation_support(spec, X)
 
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
@@ -1224,22 +1263,13 @@ class SSMModelBuilder:
 
     def _hydrate_discrete_manifest_metadata(self, spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
         """Infer per-channel discrete level counts from encoded wide data."""
-        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+        manifest_cols, manifest_dists = _resolve_manifest_metadata(spec, X)
         needs_levels = any(
             dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
             for dist in manifest_dists
         )
         if not needs_levels:
             return spec
-
-        manifest_cols = spec.manifest_names or [
-            c for c in X.columns if c not in ["time", "time_bucket"] and not c.endswith("_lag1")
-        ]
-        if len(manifest_cols) != spec.n_manifest:
-            raise ValueError(
-                "Wide data columns do not match SSMSpec manifest dimensionality: "
-                f"{len(manifest_cols)} vs {spec.n_manifest}"
-            )
 
         inferred_counts = [0] * spec.n_manifest
         for idx, (column, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
@@ -1304,6 +1334,55 @@ class SSMModelBuilder:
 
         return replace(spec, manifest_level_counts=resolved_counts)
 
+    def _validate_observation_support(self, spec: SSMSpec, X: Any) -> None:
+        """Reject likelihoods whose support is incompatible with observed data."""
+        manifest_cols, manifest_dists = _resolve_manifest_metadata(spec, X)
+
+        issues: list[str] = []
+        for column, dist in zip(manifest_cols, manifest_dists, strict=False):
+            values = _extract_numeric_column_values(X, column)
+            if values.size == 0:
+                continue
+            if np.any(~np.isfinite(values)):
+                issues.append(
+                    f"- '{column}' uses {dist.value} emission but observed data contain "
+                    "non-finite values"
+                )
+                continue
+
+            invalid = np.zeros(values.shape, dtype=bool)
+            support = ""
+            if dist == DistributionFamily.GAMMA:
+                invalid = values <= 0.0
+                support = "gamma requires y > 0"
+            elif dist == DistributionFamily.BETA:
+                invalid = (values <= 0.0) | (values >= 1.0)
+                support = "beta requires 0 < y < 1"
+            elif dist in (DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL):
+                rounded = np.rint(values)
+                invalid = (values < 0.0) | (~np.isclose(values, rounded, atol=1e-6))
+                support = f"{dist.value} requires non-negative integer counts"
+            elif dist == DistributionFamily.BERNOULLI:
+                invalid = ~np.isin(values, [0.0, 1.0])
+                support = "bernoulli requires binary values in {0, 1}"
+            elif dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL):
+                rounded = np.rint(values)
+                invalid = (values < 0.0) | (~np.isclose(values, rounded, atol=1e-6))
+                support = f"{dist.value} requires non-negative integer-encoded levels"
+
+            if not np.any(invalid):
+                continue
+
+            bad_values = values[invalid]
+            issues.append(
+                f"- '{column}' uses {dist.value} emission but {bad_values.size}/{values.size} "
+                f"observations are outside support ({support}; "
+                f"min={float(values.min()):.3g}, max={float(values.max()):.3g})"
+            )
+
+        if issues:
+            raise ValueError("Observation support check failed:\n" + "\n".join(issues))
+
     def _prepare_data(self, X: pl.DataFrame) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Prepare data for SSM fitting.
 
@@ -1320,9 +1399,7 @@ class SSMModelBuilder:
         if self._spec is not None and self._spec.manifest_names:
             manifest_cols = self._spec.manifest_names
         else:
-            manifest_cols = [
-                c for c in X.columns if c not in ["time", "time_bucket"] and not c.endswith("_lag1")
-            ]
+            manifest_cols = _default_manifest_columns(X)
 
         # Extract observations
         observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float32)
@@ -1347,14 +1424,53 @@ class SSMModelBuilder:
         Returns:
             Prior predictive samples
         """
-        from causal_ssm_agent.models.ssm.inference import prior_predictive
-
-        if self._model is None:
-            raise ValueError("Model must be built before sampling prior predictive")
-
         if times is None:
             times = jnp.arange(10, dtype=jnp.float32)
-        return prior_predictive(self._model, times, num_samples=samples)
+
+        spec = self._spec
+        if spec is None:
+            if self._model is not None:
+                spec = self._model.spec
+            elif self._ssm_spec is not None:
+                spec = self._ssm_spec
+            elif self._model_spec is not None:
+                spec, _priors = self.compile_inputs()
+            else:
+                raise ValueError("Cannot sample prior predictive without an SSM specification")
+
+        from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+            sample_prior_predictive_from_compiled_semantics,
+            sample_prior_predictive_from_priors,
+        )
+        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+        needs_hydration = any(
+            dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
+            for dist in manifest_dists
+        )
+        if needs_hydration and spec.manifest_level_counts is None:
+            raise ValueError(
+                "Prior predictive for ordered/categorical emissions requires hydrated "
+                "manifest_level_counts. Build the model with data first."
+            )
+
+        if self._compiled_prior_semantics is not None and self._spec is None:
+            return sample_prior_predictive_from_compiled_semantics(
+                spec,
+                self._compiled_prior_semantics,
+                times,
+                num_samples=samples,
+            )
+
+        compiled_spec, priors = self.compile_inputs()
+        runtime_spec = self._spec if self._spec is not None else compiled_spec
+        return sample_prior_predictive_from_priors(
+            runtime_spec,
+            priors,
+            times,
+            num_samples=samples,
+        )
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
         """Get posterior samples.

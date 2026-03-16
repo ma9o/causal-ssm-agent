@@ -504,18 +504,7 @@ def fit_laplace_em(
     if model.likelihood == "kalman":
         backend = model.make_likelihood_backend()
     else:
-        from causal_ssm_agent.models.likelihoods.graph_analysis import (
-            get_per_channel_links,
-            get_per_channel_manifest,
-        )
-
-        backend = LaplaceLikelihood(
-            n_latent=model.spec.n_latent,
-            n_manifest=model.spec.n_manifest,
-            manifest_dists=get_per_channel_manifest(model.spec),
-            manifest_links=get_per_channel_links(model.spec),
-            n_ieks_iters=n_ieks_iters,
-        )
+        backend = model.make_laplace_backend(n_ieks_iters)
     return run_tempered_smc(
         model,
         observations,

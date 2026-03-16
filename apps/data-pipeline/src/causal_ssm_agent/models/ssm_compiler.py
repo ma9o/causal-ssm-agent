@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm import SSMSpec
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
     LinkFunction,
@@ -75,11 +75,6 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     return {field.name: _to_jsonable(getattr(spec, field.name)) for field in fields(SSMSpec)}
 
 
-def serialize_ssm_priors(priors: SSMPriors) -> dict[str, Any]:
-    """Convert SSMPriors into a JSON-serializable payload."""
-    return {field.name: _to_jsonable(getattr(priors, field.name)) for field in fields(SSMPriors)}
-
-
 def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
     kwargs: dict[str, Any] = {}
@@ -98,11 +93,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             kwargs[key] = value
 
     return SSMSpec(**kwargs)
-
-
-def deserialize_ssm_priors(payload: dict[str, Any]) -> SSMPriors:
-    """Restore SSMPriors from a serialized artifact."""
-    return SSMPriors(**payload)
 
 
 def _normalize_measurement_instruction(text: str) -> str:
@@ -303,6 +293,7 @@ def compile_ssm_artifact(
     causal_spec: dict | None = None,
 ) -> CompiledSSMArtifact:
     """Compile user-facing specs into an executable, serializable SSM artifact."""
+    from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
     validated_model_spec, errors = validate_model_spec_for_compilation(
@@ -322,9 +313,36 @@ def compile_ssm_artifact(
     return {
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
-        "priors": serialize_ssm_priors(ssm_priors),
+        "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": list(builder._parameter_bindings or []),
     }
+
+
+def _reconstruct_priors_from_compiled_semantics(
+    compiled_ssm: CompiledSSMArtifact,
+):
+    """Reconstruct builder priors from the canonical compiled semantics block."""
+    from causal_ssm_agent.models.ssm.parameterization import (
+        load_prior_runtime_bundle,
+        reconstruct_ssm_priors,
+    )
+
+    semantics = compiled_ssm.get("compiled_prior_semantics")
+    if semantics is None:
+        raise ValueError(
+            "Compiled artifact is missing required 'compiled_prior_semantics'. "
+            "Recompile the artifact with the current compiler."
+        )
+
+    missing_keys = [key for key in ("site_registry", "prior_state") if key not in semantics]
+    if missing_keys:
+        missing = ", ".join(sorted(missing_keys))
+        raise ValueError(
+            f"Compiled artifact has incomplete 'compiled_prior_semantics': missing {missing}."
+        )
+
+    bundle = load_prior_runtime_bundle(semantics)
+    return reconstruct_ssm_priors(bundle.registry, bundle.prior_state)
 
 
 def make_builder_from_compiled_artifact(
@@ -333,14 +351,20 @@ def make_builder_from_compiled_artifact(
     model_config: dict | None = None,
     sampler_config: dict | None = None,
 ):
-    """Instantiate an SSMModelBuilder directly from a compiled artifact."""
+    """Instantiate an SSMModelBuilder directly from a compiled artifact.
+
+    Reads builder priors from ``compiled_prior_semantics``, which is now the
+    only supported cross-stage prior representation.
+    """
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
     spec = deserialize_ssm_spec(compiled_ssm["spec"])
-    priors = deserialize_ssm_priors(compiled_ssm["priors"])
+    priors = _reconstruct_priors_from_compiled_semantics(compiled_ssm)
+
     return SSMModelBuilder(
         ssm_spec=spec,
         ssm_priors=priors,
+        compiled_prior_semantics=compiled_ssm.get("compiled_prior_semantics"),
         model_config=model_config,
         sampler_config=sampler_config,
         parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),
