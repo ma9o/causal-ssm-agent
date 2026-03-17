@@ -9,6 +9,7 @@ from causal_ssm_agent.orchestrator.prompts.model_proposal import (
     format_ambiguous_indicators,
     format_constructs,
     format_edges,
+    format_full_causal_spec,
     format_indicators,
     format_loading_params,
     format_parameters,
@@ -208,6 +209,52 @@ class TestFormatLoadingParams:
         assert "Parameter" in result
         assert "Indicator" in result
         assert "|" in result
+
+
+# =============================================================================
+# format_full_causal_spec
+# =============================================================================
+
+
+class TestFormatFullCausalSpec:
+    def test_empty_spec(self):
+        result = format_full_causal_spec({})
+        assert "none" in result.lower()
+
+    def test_includes_full_json_without_truncation(self):
+        spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "stress",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                        "description": "Perceived psychological stress",
+                    }
+                ],
+                "edges": [{"cause": "stress", "effect": "sleep", "lagged": True}],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "pss_score",
+                        "construct_name": "stress",
+                        "how_to_measure": "Use the pss column directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "source_columns": ["pss"],
+                        "extraction_mode": "computed",
+                    }
+                ],
+            },
+        }
+        result = format_full_causal_spec(spec)
+        assert result.startswith("```json")
+        assert '"how_to_measure": "Use the pss column directly"' in result
+        assert '"source_columns": [' in result
+        assert '"model_clock": "1d"' in result
+        assert result.endswith("\n```")
 
 
 # =============================================================================

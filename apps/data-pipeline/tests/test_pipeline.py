@@ -782,7 +782,7 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
             },
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_orchestrated_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_agentic_flow", stub)
 
     result = asyncio.run(
         dag.stage4(
