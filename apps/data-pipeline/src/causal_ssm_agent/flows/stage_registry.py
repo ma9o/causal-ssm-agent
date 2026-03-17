@@ -102,6 +102,9 @@ class StageDefinition:
     # (override_payload, ctx, stage_states) -> prepared result
     prepare_override: Callable[[dict, PipelineContext, dict[str, dict]], dict] | None = None
 
+    # (result, ctx, stage_states) -> result with derived/runtime fields materialized
+    materialize_result: Callable[[dict, PipelineContext, dict[str, dict]], dict] | None = None
+
     # True for stage-5a (best-effort preflight, no restore on resume)
     skip_restore: bool = False
 
@@ -132,6 +135,9 @@ async def run_stage_flow(
         result = defn.runner(**inputs)
         if inspect.isawaitable(result):
             result = await result
+
+    if defn.materialize_result is not None:
+        result = defn.materialize_result(result, ctx, stage_states)
 
     # Persist artifacts (save_parquet, save_pickle, etc.)
     result = defn.materializer.persist(result, ctx.user_id)
@@ -233,36 +239,6 @@ def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _power_scaling_list_to_result(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    diagnosis = {
-        str(entry.get("parameter")): str(entry.get("diagnosis"))
-        for entry in entries
-        if entry.get("parameter") is not None and entry.get("diagnosis") is not None
-    }
-    prior_sensitivity = {
-        str(entry.get("parameter")): float(entry.get("prior_sensitivity", 0.0))
-        for entry in entries
-        if entry.get("parameter") is not None
-    }
-    likelihood_sensitivity = {
-        str(entry.get("parameter")): float(entry.get("likelihood_sensitivity", 0.0))
-        for entry in entries
-        if entry.get("parameter") is not None
-    }
-    psis_k_hat = {
-        str(entry.get("parameter")): float(entry.get("psis_k_hat", 0.0))
-        for entry in entries
-        if entry.get("parameter") is not None and entry.get("psis_k_hat") is not None
-    }
-    return {
-        "checked": bool(entries),
-        "diagnosis": diagnosis,
-        "prior_sensitivity": prior_sensitivity,
-        "likelihood_sensitivity": likelihood_sensitivity,
-        "psis_k_hat": psis_k_hat,
-    }
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Per-stage persist callbacks
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -337,12 +313,11 @@ def _restore_stage5b(user_id: str, web: dict, prior_states: dict) -> dict:
     return {
         "outcome": web.get("outcome", "success"),
         "power_scaling": power_scaling,
-        "_ps_result": _power_scaling_list_to_result(power_scaling),
-        "_ppc_result": dict(web.get("ppc", {}) or {}),
         "ppc": dict(web.get("ppc", {}) or {}),
         "inference_metadata": dict(web.get("inference_metadata", {}) or {}),
         "mcmc_diagnostics": web.get("mcmc_diagnostics"),
         "svi_diagnostics": web.get("svi_diagnostics"),
+        "smc_diagnostics": web.get("smc_diagnostics"),
         "loo_diagnostics": web.get("loo_diagnostics"),
         "posterior_marginals": web.get("posterior_marginals"),
         "posterior_pairs": web.get("posterior_pairs"),
@@ -471,30 +446,24 @@ def _gate_error_stage4b(gate_result: dict) -> str:
 
 
 def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) -> dict:
-    """Prepare a stage-4 override: inject causal_spec, compile if needed."""
-    from .run_store import load_parquet, unwrap_task_result
+    """Prepare a stage-4 override by keeping only authored fields."""
+    from .stages.stage4_assembly import coerce_stage4_override_payload
 
-    result = dict(payload)
+    return coerce_stage4_override_payload(payload)
+
+
+def _materialize_stage4(result: dict, ctx: PipelineContext, states: dict) -> dict:
+    """Derive the full stage-4 result from authored state + upstream context."""
+    from .run_store import load_parquet
+    from .stages.stage4_assembly import materialize_stage4_result
+
     stage1b_result = states["stage-1b"]["result"]
     stage2_result = states["stage-2"]["result"]
-    result.setdefault("causal_spec", stage1b_result["causal_spec"])
-
-    if "_compiled_ssm" not in result:
-        from .stages.stage4_model import compile_model_task
-
-        compile_task = compile_model_task(
-            result.get("model_spec", {}),
-            result.get("priors", {}),
-            load_parquet(stage2_result["_data_for_model_path"]),
-            causal_spec=result["causal_spec"],
-        )
-        compile_result = unwrap_task_result(compile_task)
-        compiled_ssm = compile_result.pop("compiled_ssm", None)
-        result.setdefault("model_info", compile_result)
-        if compiled_ssm is not None:
-            result["_compiled_ssm"] = compiled_ssm
-
-    return result
+    return materialize_stage4_result(
+        authored_state=result,
+        raw_data=load_parquet(stage2_result["_data_for_model_path"]),
+        causal_spec=stage1b_result["causal_spec"],
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -565,6 +534,7 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
+            materialize_result=_materialize_stage4,
             materializer=StageMaterializer(restore=_restore_stage4),
             question_required=True,
             override_eligible=True,

@@ -333,10 +333,10 @@ async def stage4(
     stage2: dict,
     enable_literature: bool,
 ) -> dict:
-    """Propose model spec, elicit priors, validate.
+    """Propose the authored stage-4 state.
 
-    Returns: {model_spec, priors, validation, model_info, causal_spec,
-              prior_predictive_samples, _compiled_ssm, llm_trace?}
+    The stage registry materializer derives validation/model artifacts from the
+    returned ``model_spec`` + ``priors`` payload before persistence.
     """
     from .stages import stage4_orchestrated_flow
 
@@ -478,8 +478,8 @@ def stage5b(
 ) -> dict:
     """Fit model, run power-scaling and posterior predictive checks.
 
-    Returns: {_fitted_artifact, _ps_result, _ppc_result, power_scaling, ppc,
-              inference_metadata, mcmc_diagnostics, svi_diagnostics,
+    Returns: {_fitted_artifact, power_scaling, ppc,
+              inference_metadata, mcmc_diagnostics, svi_diagnostics, smc_diagnostics,
               loo_diagnostics, posterior_marginals, posterior_pairs, outcome}
     """
     from causal_ssm_agent.models.ssm.inference import FittedArtifact
@@ -503,6 +503,7 @@ def stage5b(
 
     mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
     svi_diagnostics = fitted_result.get("svi_diagnostics")
+    smc_diagnostics = fitted_result.get("smc_diagnostics")
     loo_diagnostics = fitted_result.get("loo_diagnostics")
     posterior_marginals = fitted_result.get("posterior_marginals")
     posterior_pairs = fitted_result.get("posterior_pairs")
@@ -513,6 +514,8 @@ def stage5b(
         result=fitted_result.get("result"),
         builder=fitted_result.get("builder"),
         times=fitted_result.get("times"),
+        ppc_result=ppc_result,
+        power_scaling_result=ps_result,
     )
 
     # Log power-scaling results
@@ -569,8 +572,6 @@ def stage5b(
 
     return {
         "_fitted_artifact": fitted_artifact,
-        "_ps_result": ps_result,
-        "_ppc_result": ppc_result,
         "power_scaling": ps_list,
         "ppc": ppc_result,
         "inference_metadata": {
@@ -580,6 +581,7 @@ def stage5b(
         },
         "mcmc_diagnostics": mcmc_diagnostics,
         "svi_diagnostics": svi_diagnostics,
+        "smc_diagnostics": smc_diagnostics,
         "loo_diagnostics": loo_diagnostics,
         "posterior_marginals": posterior_marginals,
         "posterior_pairs": posterior_pairs,
@@ -610,8 +612,6 @@ def stage6(
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
     causal_spec = stage1b["causal_spec"]
-    ppc_result = stage5b["_ppc_result"]
-    ps_result = stage5b["_ps_result"]
 
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
@@ -621,8 +621,6 @@ def stage6(
         treatments,
         outcome_name,
         causal_spec,
-        ppc_result,
-        ps_result=ps_result,
     )
     intervention_results = unwrap_task_result(results)
 

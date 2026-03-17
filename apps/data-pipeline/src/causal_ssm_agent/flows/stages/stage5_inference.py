@@ -4,80 +4,17 @@ Fits the SSM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 """
 
-from dataclasses import dataclass
 from typing import Any
 
-import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
 from causal_ssm_agent.models.ssm.inference import FittedArtifact
-from causal_ssm_agent.utils.data import pivot_to_wide
+from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
 
 from .. import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
-
-
-@dataclass
-class PreparedModelRuntime:
-    """Canonical prepared runtime context shared by pre-fit and post-fit diagnostics.
-
-    Bundles the builder, wide-format data, observation arrays, times, and
-    manifest metadata. Avoids repeated pivot_to_wide + array extraction
-    across stage 4b, 5a, and 5b.
-    """
-
-    builder: Any  # SSMModelBuilder
-    wide_data: pl.DataFrame
-    observations: jnp.ndarray  # (T, n_manifest)
-    times: jnp.ndarray  # (T,)
-    manifest_names: list[str]
-
-
-def prepare_model_runtime(
-    raw_data: pl.DataFrame,
-    compiled_ssm: dict | None = None,
-    sampler_config: dict | None = None,
-    builder: Any = None,
-) -> PreparedModelRuntime:
-    """Build or reuse a builder, pivot data, and extract arrays.
-
-    This is the single canonical entry point for model preparation.
-    Used by stage 4b (parametric ID), stage 5a (SVI preflight),
-    and stage 5b (full inference + diagnostics).
-
-    Args:
-        raw_data: Raw timestamped data (indicator, value, timestamp)
-        compiled_ssm: Serialized executable artifact from stage 4
-        sampler_config: Override sampler configuration
-        builder: Pre-built SSMModelBuilder (avoids rebuilding)
-
-    Returns:
-        PreparedModelRuntime with all arrays extracted
-    """
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
-
-    wide_data = pivot_to_wide(raw_data)
-
-    if builder is None:
-        if compiled_ssm is None:
-            raise ValueError("Either builder or compiled_ssm must be provided")
-        builder = build_ssm_builder(
-            wide_data=wide_data,
-            sampler_config=sampler_config,
-            compiled_ssm=compiled_ssm,
-        )
-
-    observations, times, manifest_names = builder.prepare_fit_inputs(wide_data)
-
-    return PreparedModelRuntime(
-        builder=builder,
-        wide_data=wide_data,
-        observations=observations,
-        times=times,
-        manifest_names=manifest_names,
-    )
 
 
 @task(persist_result=False)
@@ -283,8 +220,6 @@ def run_interventions(
     treatments: list[str],
     outcome: str,
     causal_spec: dict | None = None,
-    ppc_result: dict | None = None,
-    ps_result: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size.
 
@@ -296,7 +231,6 @@ def run_interventions(
         treatments: List of treatment construct names
         outcome: Name of the outcome variable
         causal_spec: Optional CausalSpec with identifiability status
-        ppc_result: Optional PPC result dict for per-treatment warnings
 
     Returns:
         List of intervention results, sorted by |effect_size| descending
@@ -342,9 +276,9 @@ def run_interventions(
         outcome=outcome,
         latent_names=latent_names,
         causal_spec=causal_spec,
-        ppc_result=ppc_result,
+        ppc_result=fitted_artifact.ppc_result,
         manifest_names=manifest_names,
-        ps_result=ps_result,
+        ps_result=fitted_artifact.power_scaling_result,
         times=fitted_artifact.times,
     )
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
