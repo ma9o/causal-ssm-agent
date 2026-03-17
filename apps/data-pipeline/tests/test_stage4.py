@@ -14,7 +14,6 @@ causal_spec context, SSM prior conversion, sparsity, trial compile,
 and compile ownership.
 """
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -33,6 +32,7 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs,
 )
+from causal_ssm_agent.orchestrator.stage4 import Stage4Messages
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
@@ -117,6 +117,93 @@ def simple_data() -> pd.DataFrame:
             "subject_id": np.repeat(np.arange(5), 10),
         }
     )
+
+
+# --- Prompt assembly tests ---
+
+
+class TestStage4Messages:
+    def test_proposal_messages_include_full_causal_spec_as_context(self):
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "stress",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                        "description": "Perceived stress",
+                    },
+                    {
+                        "name": "sleep",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [{"cause": "stress", "effect": "sleep", "lagged": True}],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "pss_score",
+                        "construct_name": "stress",
+                        "how_to_measure": "Use the pss column directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "source_columns": ["pss"],
+                    }
+                ],
+            },
+        }
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            causal_spec=causal_spec,
+            resolved_likelihoods=[],
+            ambiguous_indicators=[],
+            all_params=[
+                {
+                    "name": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "Effect of stress on sleep",
+                }
+            ],
+            loading_params=[],
+            data_summary="Data Summary",
+        )
+
+        messages = msgs.proposal_messages()
+        user_content = messages[1]["content"]
+
+        assert "## Full Causal Model Context" in user_content
+        assert '"how_to_measure": "Use the pss column directly"' in user_content
+        assert '"source_columns": [' in user_content
+        assert '"model_clock": "1d"' in user_content
+
+    def test_proposal_messages_separate_context_from_decision_surface(self):
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            causal_spec={
+                "latent": {"constructs": [], "edges": []},
+                "measurement": {"indicators": []},
+            },
+            resolved_likelihoods=[],
+            ambiguous_indicators=[],
+            all_params=[],
+            loading_params=[],
+            data_summary="No data available.",
+        )
+
+        messages = msgs.proposal_messages()
+        user_content = messages[1]["content"]
+
+        assert (
+            "It is provided so you can see the entire latent model and measurement model"
+            in user_content
+        )
+        assert "Only the items below require judgment from you" in user_content
+        assert "The parameter list is fixed; only the prior choices are yours." in user_content
 
 
 # --- SSMModelBuilder Tests ---
@@ -379,50 +466,6 @@ class TestFailedParameters:
         assert "beta_stress_mood" in failed  # contains "mood"
         assert "rho_stress" not in failed
         assert "sigma_stress" not in failed
-
-
-class TestRetryFeedback:
-    """Test Stage 4 retry feedback shaping."""
-
-    def test_build_retry_feedback_global_failure_returns_shared_summary(self):
-        from causal_ssm_agent.flows.stages.stage4_assembly import build_retry_feedback
-
-        validation = SimpleNamespace(
-            pp_valid=False,
-            pp_results=[
-                PriorValidationResult(
-                    parameter="model_build",
-                    is_valid=False,
-                    issue=(
-                        "Model build failed:\n"
-                        "Observation support check failed:\n"
-                        "- 'ide_focus_gaps' uses gamma emission but 29/125 "
-                        "observations are outside support (gamma requires y > 0; min=0, max=24)"
-                    ),
-                    suggested_adjustment="Fix model_spec or priors to enable model construction",
-                )
-            ],
-        )
-        priors = {
-            "rho_focus_time": {
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-            },
-            "sigma_focus_time": {
-                "distribution": "HalfNormal",
-                "params": {"sigma": 1.0},
-            },
-        }
-
-        failed, feedbacks, global_summary = build_retry_feedback(validation, priors)
-
-        assert set(failed) == set(priors)
-        assert feedbacks == {}
-        assert global_summary is not None
-        assert "Validation FAILED (global issue" in global_summary
-        assert "'ide_focus_gaps' uses gamma emission" in global_summary
-        assert "Model build failed" not in global_summary
-        assert "Consider changing the distribution family" in global_summary
 
 
 # --- SSM Prior Conversion Tests ---
@@ -953,81 +996,64 @@ class TestTrialCompile:
 
 
 class TestStage4CompileOwnership:
-    """Stage 4 should assert compilation, not retry via LLM feedback."""
+    """Stage 4 grounding should surface compile and global validation failures."""
 
-    def test_stage4_compile_failure_raises_immediately(self, monkeypatch):
-        """Compile failures should stop stage 4 instead of triggering retries."""
-        from causal_ssm_agent.flows.stages.stage4_model import stage4_orchestrated_flow
-
-        async def stub_propose_model_task(causal_spec: dict, question: str, raw_data: pl.DataFrame):
-            return {"likelihoods": [], "parameters": [], "llm_trace": {"messages": []}}
-
-        def stub_inject_marginalized_correlations(model_spec: dict, causal_spec: dict) -> None:
-            return None
-
-        def stub_trial_compile_model_spec(model_spec: dict, causal_spec: dict) -> str:
-            return "dimension mismatch in drift matrix"
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_model.propose_model_task",
-            stub_propose_model_task,
+    def test_compile_failure_surfaces_in_grounding(self, monkeypatch):
+        """Compile failures should surface as feedback from the grounding function."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            AssemblyValidation,
         )
-        monkeypatch.setattr(
-            "causal_ssm_agent.utils.identifiability.inject_marginalized_correlations",
-            stub_inject_marginalized_correlations,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.trial_compile_model_spec",
-            stub_trial_compile_model_spec,
-        )
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
 
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "Outcome",
-                        "role": "endogenous",
-                        "description": "Outcome",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    }
-                ],
-                "edges": [],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "outcome_score",
-                        "construct_name": "Outcome",
-                        "how_to_measure": "Use the outcome column directly",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            },
-            "identifiability": {
-                "identifiable_treatments": {},
-                "non_identifiable_treatments": {},
-            },
-        }
-
-        with pytest.raises(ValueError, match="Stage 4 model spec failed compilation"):
-            asyncio.run(
-                stage4_orchestrated_flow(
-                    causal_spec=causal_spec,
-                    question="Does treatment affect outcome?",
-                    raw_data=pl.DataFrame(schema={"indicator": pl.Utf8, "value": pl.Float64}),
-                    enable_literature=False,
-                )
+        def stub_validate_assembly(model_spec, priors, raw_data, causal_spec):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=False,
+                compile_error="dimension mismatch in drift matrix",
             )
 
-    def test_stage4_global_validation_failure_skips_prior_retries(self, monkeypatch):
-        """Global validation failures should stop the prior retry loop immediately."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
-        from causal_ssm_agent.flows.stages.stage4_model import stage4_orchestrated_flow
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
 
-        proposed_spec = {
+        data = {
+            "model_spec": {"likelihoods": [], "parameters": []},
+            "priors": {
+                "rho_outcome": {
+                    "parameter": "rho_outcome",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "test prior",
+                }
+            },
+        }
+        output, feedback = stage4_grounding(data, causal_spec={}, current=None, raw_data=None)
+
+        assert output is None
+        assert "COMPILE ERROR" in feedback
+        assert "dimension mismatch" in feedback
+
+    def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
+        """Global validation failures should produce actionable feedback."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            AssemblyValidation,
+            build_validation_payload,
+        )
+
+        global_failure = PriorValidationResult(
+            parameter="model_build",
+            is_valid=False,
+            issue=(
+                "Model build failed:\n"
+                "Observation support check failed:\n"
+                "- 'outcome_score' uses gamma emission but 1/10 observations are outside support"
+            ),
+            suggested_adjustment="Fix model_spec or priors to enable model construction",
+        )
+
+        model_spec = {
             "likelihoods": [
                 {
                     "variable": "outcome_score",
@@ -1042,127 +1068,20 @@ class TestStage4CompileOwnership:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "AR coefficient",
-                    "search_context": "outcome autocorrelation",
                 }
             ],
-            "llm_trace": {"messages": []},
         }
-        global_failure = PriorValidationResult(
-            parameter="model_build",
-            is_valid=False,
-            issue=(
-                "Model build failed:\n"
-                "Observation support check failed:\n"
-                "- 'outcome_score' uses gamma emission but 1/10 observations are outside support"
-            ),
-            suggested_adjustment="Fix model_spec or priors to enable model construction",
+
+        validation = AssemblyValidation(
+            normalized_model_spec=model_spec,
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            pp_results=[global_failure],
         )
 
-        async def stub_propose_model_task(causal_spec: dict, question: str, raw_data: pl.DataFrame):
-            return proposed_spec
-
-        def stub_validate_assembly(model_spec: dict, priors, raw_data, causal_spec):
-            if priors is None:
-                return AssemblyValidation(
-                    normalized_model_spec=model_spec,
-                    compile_ok=True,
-                )
-            return AssemblyValidation(
-                normalized_model_spec=model_spec,
-                compile_ok=True,
-                pp_checked=True,
-                pp_valid=False,
-                pp_results=[global_failure],
-            )
-
-        class _MapResult:
-            def __init__(self, results: list[dict]):
-                self._results = results
-
-            def result(self) -> list[dict]:
-                return self._results
-
-        class _FakeElicitTask:
-            def __init__(self):
-                self.calls: list[list[str]] = []
-
-            def map(self, parameter_specs, **_kwargs):
-                names = [spec["name"] for spec in parameter_specs]
-                self.calls.append(names)
-                if len(self.calls) > 1:
-                    raise AssertionError("unexpected retry on global validation failure")
-                return _MapResult(
-                    [
-                        {
-                            "parameter": name,
-                            "distribution": "Beta",
-                            "params": {"alpha": 2.0, "beta": 2.0},
-                            "sources": [],
-                            "reasoning": "test",
-                        }
-                        for name in names
-                    ]
-                )
-
-        fake_elicit_task = _FakeElicitTask()
-
-        def stub_compile_model_artifact(*_args, **_kwargs):
-            return {"model_built": False, "error": "global validation failure"}
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_model.propose_model_task",
-            stub_propose_model_task,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_model.elicit_prior_task",
-            fake_elicit_task,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
-            stub_validate_assembly,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.compile_model_artifact",
-            stub_compile_model_artifact,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.utils.config.get_config",
-            lambda: SimpleNamespace(
-                pipeline=SimpleNamespace(max_prior_retries=3),
-                stage4_prior_elicitation=SimpleNamespace(
-                    paraphrasing=SimpleNamespace(enabled=False, n_paraphrases=1)
-                ),
-            ),
-        )
-
-        result = asyncio.run(
-            stage4_orchestrated_flow(
-                causal_spec={
-                    "measurement": {
-                        "model_clock": "1d",
-                        "indicators": [
-                            {
-                                "name": "outcome_score",
-                                "construct_name": "outcome",
-                            }
-                        ],
-                    }
-                },
-                question="Does treatment affect outcome?",
-                raw_data=pl.DataFrame({"indicator": ["outcome_score"], "value": [1.0]}),
-                enable_literature=False,
-            )
-        )
-
-        assert fake_elicit_task.calls == [["rho_outcome"]]
-        assert result["validation_retries"] is None
-        assert result["is_valid"] is False
-        assert result["validation"]["issues"] == [
-            "Validation FAILED (global issue — affects all parameters):\n"
-            "- Observation support check failed: 'outcome_score' uses gamma emission "
-            "but 1/10 observations are outside support\n"
-            "  Suggested: Fix model_spec or priors to enable model construction\n\n"
-            "NOTE: This is a model_spec issue (likelihood family incompatible "
-            "with observed data). Consider changing the distribution family "
-            "rather than adjusting priors."
-        ]
+        payload = build_validation_payload(validation, model_spec)
+        assert payload["is_valid"] is False
+        assert len(payload["issues"]) == 1
+        assert "global issue" in payload["issues"][0]
+        assert "model_spec issue" in payload["issues"][0]
