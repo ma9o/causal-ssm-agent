@@ -343,22 +343,6 @@ class LatentModel(BaseModel):
 
         return self
 
-    def to_networkx(self):
-        """Convert to NetworkX DiGraph."""
-        import networkx as nx
-
-        G = nx.DiGraph()
-        for construct in self.constructs:
-            G.add_node(construct.name, **construct.model_dump())
-        for edge in self.edges:
-            G.add_edge(
-                edge.cause,
-                edge.effect,
-                description=edge.description,
-                lagged=edge.lagged,
-            )
-        return G
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MEASUREMENT MODEL (operational - how constructs are observed)
@@ -611,35 +595,6 @@ class CausalSpec(BaseModel):
     def get_edge_lag_hours(self, edge: CausalEdge) -> float:
         """Compute lag in hours for a causal edge."""
         return self.measurement.model_clock_hours if edge.lagged else 0
-
-    def to_networkx(self):
-        """Convert to NetworkX DiGraph with computed lag_hours."""
-        import networkx as nx
-
-        G = nx.DiGraph()
-
-        # Add construct nodes
-        for construct in self.latent.constructs:
-            G.add_node(construct.name, node_type="construct", **construct.model_dump())
-
-        # Add indicator nodes
-        for indicator in self.measurement.indicators:
-            G.add_node(indicator.name, node_type="indicator", **indicator.model_dump())
-            # Add loading edge: construct → indicator (reflective model)
-            G.add_edge(indicator.construct_name, indicator.name, edge_type="loading")
-
-        # Add causal edges with computed lag_hours
-        for edge in self.latent.edges:
-            G.add_edge(
-                edge.cause,
-                edge.effect,
-                edge_type="causal",
-                description=edge.description,
-                lagged=edge.lagged,
-                lag_hours=self.get_edge_lag_hours(edge),
-            )
-
-        return G
 
 
 # ══════════════════════════════════════════════════════════════════════════════
