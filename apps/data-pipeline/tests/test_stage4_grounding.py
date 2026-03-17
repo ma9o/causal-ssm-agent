@@ -299,7 +299,8 @@ class TestStage4GroundingStateMerging:
         )
         assert output is not None
         assert feedback == "VALID"
-        assert output["model_spec"] is model_spec
+        assert output["model_spec"] == model_spec
+        assert "extra_field" not in output["model_spec"]
 
 
 # ---------------------------------------------------------------------------

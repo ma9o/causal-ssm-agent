@@ -58,25 +58,22 @@ def prepare_model_runtime(
     """
     from causal_ssm_agent.models.ssm_builder import build_ssm_builder
 
+    wide_data = pivot_to_wide(raw_data)
+
     if builder is None:
         if compiled_ssm is None:
             raise ValueError("Either builder or compiled_ssm must be provided")
         builder = build_ssm_builder(
-            raw_data=raw_data,
+            wide_data=wide_data,
             sampler_config=sampler_config,
             compiled_ssm=compiled_ssm,
         )
 
-    X = pivot_to_wide(raw_data)
-    observations = jnp.array(X.drop("time").to_numpy(), dtype=jnp.float32)
-    times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
-    manifest_names = (builder._spec.manifest_names if builder._spec else None) or [
-        c for c in X.columns if c != "time"
-    ]
+    observations, times, manifest_names = builder.prepare_fit_inputs(wide_data)
 
     return PreparedModelRuntime(
         builder=builder,
-        wide_data=X,
+        wide_data=wide_data,
         observations=observations,
         times=times,
         manifest_names=manifest_names,
@@ -124,7 +121,7 @@ def fit_model(
         )
 
         # Fit the model — returns InferenceResult (default: SVI)
-        result = runtime.builder.fit(runtime.wide_data)
+        result = runtime.builder.fit_prepared(runtime.observations, runtime.times)
         logger.info(
             "Fit complete: method=%s wide_rows=%d manifest_vars=%d",
             result.method,

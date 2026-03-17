@@ -9,14 +9,13 @@ once here.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from causal_ssm_agent.flows import get_prefect_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     import polars as pl
 
 logger = get_prefect_logger(__name__)
@@ -26,8 +25,10 @@ logger = get_prefect_logger(__name__)
 class AssemblyValidation:
     """Result of stage 4 assembly validation (compile + prior predictive)."""
 
+    normalized_model_spec: dict[str, Any] | None = None
     compile_ok: bool = True
     compile_error: str | None = None
+    compiled_ssm: dict[str, Any] | None = None
     pp_checked: bool = False
     pp_valid: bool = True
     pp_results: list = field(default_factory=list)  # list[PriorValidationResult]
@@ -36,21 +37,6 @@ class AssemblyValidation:
     @property
     def is_valid(self) -> bool:
         return self.compile_ok and self.pp_valid
-
-
-def run_stage4_assembly(
-    model_spec: dict,
-    priors: dict | None,
-    raw_data: pl.DataFrame | None,
-    causal_spec: dict | None,
-    on_failure: Callable[[AssemblyValidation], str],
-) -> tuple[AssemblyValidation, str]:
-    """Run the shared Stage 4 assembly pipeline with an injected failure policy."""
-
-    validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
-    if validation.is_valid:
-        return validation, "VALID"
-    return validation, on_failure(validation)
 
 
 def validate_assembly(
@@ -71,44 +57,60 @@ def validate_assembly(
     Returns:
         AssemblyValidation with structured results.
     """
-    from causal_ssm_agent.models.ssm_compiler import (
-        compile_ssm_artifact,
-        trial_compile_model_spec,
-    )
+    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
 
-    # Step 1: Compile check
+    candidate = _prepare_model_spec(model_spec, causal_spec)
     if priors:
         try:
-            compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
-        except Exception as e:
-            return AssemblyValidation(compile_ok=False, compile_error=str(e))
+            compiled_ssm = compile_ssm_artifact(candidate, priors, causal_spec=causal_spec)
+        except Exception as exc:
+            return AssemblyValidation(
+                normalized_model_spec=candidate,
+                compile_ok=False,
+                compile_error=str(exc),
+            )
     else:
-        compile_error = trial_compile_model_spec(model_spec, causal_spec)
+        compile_error = trial_compile_model_spec(candidate, causal_spec)
         if compile_error:
-            return AssemblyValidation(compile_ok=False, compile_error=compile_error)
+            return AssemblyValidation(
+                normalized_model_spec=candidate,
+                compile_ok=False,
+                compile_error=compile_error,
+            )
+        compiled_ssm = None
 
-    # Step 2: Prior predictive validation (only with real priors + data)
     if priors and raw_data is not None:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
 
         is_valid, results, raw_samples = validate_prior_predictive(
-            model_spec, priors, raw_data, causal_spec=causal_spec
+            candidate, priors, raw_data, causal_spec=causal_spec
         )
         return AssemblyValidation(
+            normalized_model_spec=candidate,
+            compiled_ssm=compiled_ssm,
             pp_checked=True,
             pp_valid=is_valid,
             pp_results=results,
             pp_raw_samples=raw_samples,
         )
 
-    return AssemblyValidation()
+    return AssemblyValidation(
+        normalized_model_spec=candidate,
+        compiled_ssm=compiled_ssm,
+    )
 
 
-def validate_spec(model_spec: dict, causal_spec: dict | None) -> str | None:
-    """Run the compile-time Stage 4 spec validation owned by the compiler."""
-    from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+def _prepare_model_spec(
+    model_spec: dict,
+    causal_spec: dict | None,
+) -> dict[str, Any]:
+    """Normalize a Stage 4 model spec before any compile-time work."""
+    from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
 
-    return trial_compile_model_spec(model_spec, causal_spec)
+    candidate = deepcopy(model_spec)
+    if causal_spec is not None:
+        inject_marginalized_correlations(candidate, causal_spec)
+    return candidate
 
 
 def merge_priors(existing: dict[str, dict] | None, new: dict[str, dict] | None) -> dict[str, dict]:
@@ -176,6 +178,7 @@ def build_validation_payload(
     model_spec: dict,
 ) -> dict[str, Any]:
     """Convert ``AssemblyValidation`` into the web-facing validation payload."""
+    payload_spec = validation.normalized_model_spec or model_spec
     if not validation.compile_ok:
         return {
             "is_valid": False,
@@ -191,7 +194,7 @@ def build_validation_payload(
         "issues": [
             result.issue for result in validation.pp_results if not result.is_valid and result.issue
         ],
-        "prior_predictive_samples": build_prior_predictive_samples(validation, model_spec),
+        "prior_predictive_samples": build_prior_predictive_samples(validation, payload_spec),
     }
 
 
@@ -233,22 +236,28 @@ def compile_model_artifact(
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
     causal_spec: dict | None = None,
+    compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
     from causal_ssm_agent.models.ssm_builder import build_ssm_builder
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+    from causal_ssm_agent.utils.data import pivot_to_wide
 
     try:
-        compiled_ssm = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
+        artifact = compiled_ssm or compile_ssm_artifact(
+            _prepare_model_spec(model_spec, causal_spec),
+            priors,
+            causal_spec=causal_spec,
+        )
         builder = build_ssm_builder(
-            raw_data=raw_data,
-            compiled_ssm=compiled_ssm,
+            wide_data=pivot_to_wide(raw_data),
+            compiled_ssm=artifact,
         )
         return {
             "model_built": True,
             "model_type": builder._model_type,
             "version": builder.version,
-            "compiled_ssm": compiled_ssm,
+            "compiled_ssm": artifact,
         }
     except NotImplementedError:
         return {

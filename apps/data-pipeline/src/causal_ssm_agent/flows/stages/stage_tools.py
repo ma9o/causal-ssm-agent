@@ -171,9 +171,6 @@ def stage4_grounding(
     2. Compile (default priors if none available, real priors otherwise)
     3. Prior predictive (only when real priors + raw_data present)
     """
-    from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-
     state = dict(current or {})
     output: dict = {}
 
@@ -183,14 +180,9 @@ def stage4_grounding(
     if new_model_spec is None and new_priors is None:
         return None, "VALIDATION ERRORS:\n- data must contain 'model_spec' and/or 'priors'"
 
-    # --- Validate & merge model_spec ---
+    # --- Merge model_spec ---
     if new_model_spec is not None:
-        indicators = get_indicators(causal_spec)
-        _, errors = validate_model_spec_dict(new_model_spec, indicators=indicators or None)
-        if errors:
-            return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
         state["model_spec"] = new_model_spec
-        output["model_spec"] = new_model_spec
 
     # --- Validate & merge priors ---
     if new_priors is not None:
@@ -210,23 +202,20 @@ def stage4_grounding(
 
     priors = state.get("priors")
 
-    from .stage4_assembly import format_validation_feedback, run_stage4_assembly
+    from .stage4_assembly import format_validation_feedback, validate_assembly
 
-    validation, feedback = run_stage4_assembly(
-        model_spec,
-        priors,
-        raw_data,
-        causal_spec,
-        on_failure=lambda current: format_validation_feedback(
-            current,
-            priors or {},
-            changed_params=list(new_priors) if new_priors else list(priors or {}),
-        ),
+    validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
+    if new_model_spec is not None and validation.normalized_model_spec is not None:
+        output["model_spec"] = validation.normalized_model_spec
+    if validation.is_valid:
+        return output, "VALID"
+
+    feedback = format_validation_feedback(
+        validation,
+        priors or {},
+        changed_params=list(new_priors) if new_priors else list(priors or {}),
     )
-    if not validation.is_valid:
-        return None, feedback
-
-    return output, feedback
+    return None, feedback
 
 
 # ---------------------------------------------------------------------------
