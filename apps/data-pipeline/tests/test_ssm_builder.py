@@ -9,6 +9,7 @@ import pytest
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.models.ssm_compilation import (
+    compile_priors,
     normalize_prior_params,
     split_compound_name,
 )
@@ -210,10 +211,9 @@ class TestBuilderPriorConversion:
             }
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
 
         with pytest.raises(ValueError, match="DT persistence scale"):
-            builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+            compile_priors(priors, model_spec, ssm_spec=ssm_spec)
 
 
 class TestObservationSupportValidation:

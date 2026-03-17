@@ -18,7 +18,7 @@ from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidatio
 logger = get_prefect_logger(__name__)
 
 
-def _compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
+def compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
     """Compute per-indicator mean, std, min, max from raw data."""
     stats = {}
     for row in (
@@ -332,6 +332,7 @@ def validate_prior_predictive(
         compile_ssm_artifact,
         make_builder_from_compiled_artifact,
     )
+    from causal_ssm_agent.utils.data import pivot_to_wide
 
     priors_dict = {}
     for name, prior in priors.items():
@@ -353,7 +354,7 @@ def validate_prior_predictive(
         compiled_ssm = compile_ssm_artifact(model_spec, priors_dict, causal_spec=causal_spec)
         if raw_data is not None and not raw_data.is_empty():
             builder = build_ssm_builder(
-                raw_data=raw_data,
+                wide_data=pivot_to_wide(raw_data),
                 compiled_ssm=compiled_ssm,
             )
         else:
@@ -408,7 +409,7 @@ def validate_prior_predictive(
 
     # Check 4: Scale plausibility (only if raw_data provided)
     if raw_data is not None and not raw_data.is_empty():
-        data_stats = _compute_data_stats(raw_data)
+        data_stats = compute_data_stats(raw_data)
         results.extend(_check_scale_plausibility(samples, data_stats, manifest_names))
 
     is_valid = all(r.is_valid for r in results)
@@ -470,9 +471,10 @@ def format_parameter_feedback(
     Returns:
         Formatted feedback string for inclusion in re-elicitation prompt
     """
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+
     # Find results relevant to this parameter
     # Global failures (affect all parameters) are always included
-    _GLOBAL_FAILURES = {"prior_predictive", "dynamics_stability", "model_build", "prior_sampling"}
     param_lower = parameter_name.lower()
     relevant = [
         r
@@ -482,7 +484,7 @@ def format_parameter_feedback(
             r.parameter == parameter_name
             or param_lower in r.parameter.lower()
             or r.parameter.lower().startswith("scale_")  # scale mismatch affects all
-            or r.parameter in _GLOBAL_FAILURES
+            or r.parameter in GLOBAL_FAILURE_SITES
         )
     ]
 
@@ -549,24 +551,15 @@ def get_failed_parameters(
     if not failed_results:
         return []
 
+    from causal_ssm_agent.models.ssm_compilation_common import (
+        GLOBAL_FAILURE_SITES,
+        NUISANCE_SITES,
+        SITE_TO_KEYWORDS,
+    )
+
     # Check for global failures that affect all parameters
-    global_failures = {"prior_predictive", "model_build", "prior_sampling"}
-    if any(r.parameter in global_failures for r in failed_results):
+    if any(r.parameter in GLOBAL_FAILURE_SITES for r in failed_results):
         return list(parameter_names)
-
-    # Nuisance sites: SSM parameters with fixed default priors that are not
-    # in ModelSpec and cannot be re-elicited. Skip these when mapping failures
-    # back to ModelSpec parameters (otherwise they trigger blanket re-elicitation).
-    _NUISANCE_SITES = {"cint_pop", "cint", "t0_means_pop", "t0_means", "t0_var_diag", "t0_cov"}
-
-    # Map SSM site names back to parameter names using keyword matching
-    # Same keyword patterns as _PRIOR_RULES in ssm_builder.py
-    _SITE_TO_KEYWORDS: dict[str, list[str]] = {
-        "drift_diag": ["rho", "ar"],
-        "drift_offdiag": ["beta"],
-        "diffusion_diag": ["sigma", "sd"],
-        "dynamics_stability": ["rho", "ar", "sigma", "sd"],  # drift + diffusion
-    }
 
     # Build indicator→construct lookup from causal_spec
     indicator_to_construct: dict[str, str] = {}
@@ -584,7 +577,7 @@ def get_failed_parameters(
         result_param = r.parameter.lower()
 
         # Skip nuisance sites — they can't be re-elicited
-        if result_param in _NUISANCE_SITES:
+        if result_param in NUISANCE_SITES:
             logger.info(
                 "Skipping nuisance site '%s' in failed parameter mapping "
                 "(not in ModelSpec, uses fixed default prior)",
@@ -599,7 +592,7 @@ def get_failed_parameters(
                 continue
 
         # Keyword-based match via SSM site names
-        for site_prefix, keywords in _SITE_TO_KEYWORDS.items():
+        for site_prefix, keywords in SITE_TO_KEYWORDS.items():
             if site_prefix in result_param:
                 for param_name in parameter_names:
                     if any(kw in param_name.lower() for kw in keywords):

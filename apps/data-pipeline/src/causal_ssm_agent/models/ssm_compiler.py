@@ -12,18 +12,19 @@ import jax.numpy as jnp
 import numpy as np
 
 from causal_ssm_agent.models.ssm import SSMSpec
+from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
     LinkFunction,
     ModelSpec,
     ParameterRole,
 )
-from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 if TYPE_CHECKING:
     import polars as pl
 
     from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
+    from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 CompiledSSMArtifact = dict[str, Any]
 
@@ -259,54 +260,16 @@ def validate_model_spec_for_compilation(
     return spec_obj, []
 
 
-def trial_compile_model_spec(
-    model_spec: ModelSpec | dict,
-    causal_spec: dict | None = None,
-) -> str | None:
-    """Try compiling a ModelSpec with default priors to catch structural errors early.
-
-    Returns None on success, or an error message string on failure.
-    """
-    from causal_ssm_agent.orchestrator.schemas_model import ModelSpec as ModelSpecCls
-    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
-    from causal_ssm_agent.workers.prior_research import get_default_prior
-
-    spec_obj = (
-        ModelSpecCls.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
-    )
-
-    default_priors: dict[str, dict] = {}
-    for param in spec_obj.parameters:
-        ps = param if isinstance(param, ParameterSpec) else ParameterSpec.model_validate(param)
-        default_priors[ps.name] = get_default_prior(ps).model_dump()
-
-    try:
-        compile_ssm_artifact(model_spec, default_priors, causal_spec=causal_spec)
-    except Exception as e:
-        return str(e)
-    return None
-
-
-def compile_ssm_artifact(
-    model_spec: ModelSpec | dict,
-    priors: dict[str, PriorProposal] | dict[str, dict],
+def _compile_validated_ssm_artifact(
+    validated_model_spec: ModelSpec,
+    raw_priors: dict[str, dict],
+    *,
     causal_spec: dict | None = None,
 ) -> CompiledSSMArtifact:
-    """Compile user-facing specs into an executable, serializable SSM artifact."""
+    """Compile an already-validated ``ModelSpec`` into a serialized SSM artifact."""
     from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-    from causal_ssm_agent.models.ssm_builder import compile_ssm_inputs
+    from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 
-    validated_model_spec, errors = validate_model_spec_for_compilation(
-        model_spec, causal_spec=causal_spec
-    )
-    if errors:
-        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
-
-    assert validated_model_spec is not None
-    raw_priors: dict[str, dict] = {
-        key: value.model_dump() if isinstance(value, PriorProposal) else value
-        for key, value in priors.items()
-    }
     spec, ssm_priors, parameter_bindings = compile_ssm_inputs(
         validated_model_spec,
         raw_priors,
@@ -319,6 +282,60 @@ def compile_ssm_artifact(
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": parameter_bindings,
     }
+
+
+def trial_compile_model_spec(
+    model_spec: ModelSpec | dict,
+    causal_spec: dict | None = None,
+) -> str | None:
+    """Try compiling a ModelSpec with default priors to catch structural errors early.
+
+    Returns None on success, or an error message string on failure.
+    """
+    from causal_ssm_agent.workers.prior_research import get_default_prior
+
+    validated_model_spec, errors = validate_model_spec_for_compilation(
+        model_spec,
+        causal_spec=causal_spec,
+    )
+    if errors:
+        return "ModelSpec failed compiler validation:\n" + "\n".join(errors)
+
+    default_priors: dict[str, dict] = {}
+    assert validated_model_spec is not None
+    for parameter in validated_model_spec.parameters:
+        default_priors[parameter.name] = get_default_prior(parameter).model_dump()
+
+    try:
+        _compile_validated_ssm_artifact(
+            validated_model_spec,
+            default_priors,
+            causal_spec=causal_spec,
+        )
+    except Exception as e:
+        return str(e)
+    return None
+
+
+def compile_ssm_artifact(
+    model_spec: ModelSpec | dict,
+    priors: dict[str, PriorProposal] | dict[str, dict],
+    causal_spec: dict | None = None,
+) -> CompiledSSMArtifact:
+    """Compile user-facing specs into an executable, serializable SSM artifact."""
+    validated_model_spec, errors = validate_model_spec_for_compilation(
+        model_spec, causal_spec=causal_spec
+    )
+    if errors:
+        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+
+    assert validated_model_spec is not None
+    raw_priors = dump_prior_payloads(priors)
+    return _compile_validated_ssm_artifact(
+        validated_model_spec,
+        raw_priors,
+        causal_spec=causal_spec,
+    )
 
 
 def _reconstruct_priors_from_compiled_semantics(
@@ -376,15 +393,13 @@ def make_builder_from_compiled_artifact(
 
 def build_compiled_ssm_builder(
     compiled_ssm: CompiledSSMArtifact,
-    raw_data: pl.DataFrame,
+    wide_data: pl.DataFrame,
     *,
     model_config: dict | None = None,
     sampler_config: dict | None = None,
 ):
     """Build a ready-to-fit SSMModelBuilder from a compiled artifact."""
-    from causal_ssm_agent.utils.data import pivot_to_wide
-
-    if raw_data.is_empty():
+    if wide_data.is_empty():
         raise ValueError("Cannot build SSM model from empty data")
 
     builder = make_builder_from_compiled_artifact(
@@ -392,6 +407,5 @@ def build_compiled_ssm_builder(
         model_config=model_config,
         sampler_config=sampler_config,
     )
-    X = pivot_to_wide(raw_data)
-    builder.build_model(X)
+    builder.build_model(wide_data)
     return builder

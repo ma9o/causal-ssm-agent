@@ -743,6 +743,7 @@ class TestCompiledArtifactIntegration:
 
         from causal_ssm_agent.models.ssm_builder import build_ssm_builder
         from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+        from causal_ssm_agent.utils.data import pivot_to_wide
 
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
@@ -756,7 +757,7 @@ class TestCompiledArtifactIntegration:
                 "timestamp": list(range(n)),
             }
         )
-        builder = build_ssm_builder(raw_data=raw_data, compiled_ssm=artifact)
+        builder = build_ssm_builder(wide_data=pivot_to_wide(raw_data), compiled_ssm=artifact)
         assert builder._model is not None
         samples = builder.sample_prior_predictive(samples=5)
         assert samples is not None

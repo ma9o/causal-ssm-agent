@@ -26,6 +26,7 @@ from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
 )
+from causal_ssm_agent.models.ssm_compilation import compile_priors as compile_ssm_priors
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
@@ -311,7 +312,6 @@ class TestSSMPriorConversion:
         import math
 
         from causal_ssm_agent.models.ssm import SSMSpec
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         priors = {
             "rho_mood": {
@@ -323,10 +323,7 @@ class TestSSMPriorConversion:
             },
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
-        builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            priors, simple_model_spec, ssm_spec=ssm_spec
-        )
+        ssm_priors, _idx = compile_ssm_priors(priors, simple_model_spec, ssm_spec=ssm_spec)
 
         # Beta(2,2): E[X] = 0.5 → drift mu = -ln(0.5)/1.0 ≈ 0.693
         # Per-element with 1 entry: mu is a list [0.693]
@@ -340,8 +337,6 @@ class TestSSMPriorConversion:
 
     def test_halfnormal_prior_preserves_sigma(self, simple_model_spec):
         """HalfNormal(0.5) prior preserves sigma."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
         priors = {
             "sigma_mood_score": {
                 "parameter": "sigma_mood_score",
@@ -351,8 +346,7 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        builder = SSMModelBuilder(model_spec=simple_model_spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, simple_model_spec)
+        ssm_priors, _idx = compile_ssm_priors(priors, simple_model_spec, ssm_spec=None)
         assert ssm_priors.diffusion_diag["sigma"] == 0.5
 
     def test_uniform_prior_converts(self):
@@ -365,8 +359,6 @@ class TestSSMPriorConversion:
 
     def test_role_based_mapping_covers_loading(self, simple_model_spec):
         """LOADING role maps to lambda_free SSMPriors field."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
         spec = dict(simple_model_spec)
         spec["parameters"] = [
             {
@@ -386,22 +378,18 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        builder = SSMModelBuilder(model_spec=spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, spec)
+        ssm_priors, _idx = compile_ssm_priors(priors, spec, ssm_spec=None)
         assert ssm_priors.lambda_free["sigma"] == 0.8
 
     def test_keyword_fallback_without_model_spec(self):
         """Without ModelSpec, keywords still map priors (no AR transform)."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
         priors = {
             "rho_x": {
                 "distribution": "Normal",
                 "params": {"mu": -0.3, "sigma": 0.5},
             },
         }
-        builder = SSMModelBuilder(priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, None)
+        ssm_priors, _idx = compile_ssm_priors(priors, {}, ssm_spec=None)
         assert ssm_priors.drift_diag["mu"] == -0.3
         assert ssm_priors.drift_diag["sigma"] == 0.5
 
@@ -410,7 +398,6 @@ class TestSSMPriorConversion:
         import math
 
         from causal_ssm_agent.models.ssm import SSMSpec
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         model_spec = {
             "likelihoods": [
@@ -449,8 +436,7 @@ class TestSSMPriorConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 5.0}},
         }
         ssm_spec = SSMSpec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
 
         # Both should produce per-element arrays (lists), not scalars
         assert isinstance(ssm_priors.drift_diag["mu"], list)
@@ -469,7 +455,6 @@ class TestSSMPriorConversion:
         import math
 
         from causal_ssm_agent.models.ssm import SSMSpec
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         model_spec = {
             "likelihoods": [
@@ -501,8 +486,12 @@ class TestSSMPriorConversion:
             "measurement": {"model_clock": "1h", "indicators": []},
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+            causal_spec=causal_spec,
+        )
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
         # drift mu = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
@@ -515,7 +504,6 @@ class TestSSMPriorConversion:
     def test_beta_prior_dt_to_ct_transform(self):
         """FIXED_EFFECT beta priors are converted via element-wise beta/dt scaling."""
         from causal_ssm_agent.models.ssm import SSMSpec
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         model_spec = {
             "likelihoods": [
@@ -569,8 +557,7 @@ class TestSSMPriorConversion:
             latent_names=["mood", "stress"],
             drift_mask=drift_mask,
         )
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
 
         # Daily default: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu = ssm_priors.drift_offdiag["mu"]
@@ -580,7 +567,6 @@ class TestSSMPriorConversion:
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
         from causal_ssm_agent.models.ssm import SSMSpec
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         model_spec = {
             "likelihoods": [
@@ -647,8 +633,12 @@ class TestSSMPriorConversion:
             latent_names=["heart_rate", "activity"],
             drift_mask=drift_mask,
         )
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+            causal_spec=causal_spec,
+        )
 
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0
@@ -695,7 +685,7 @@ class TestTrialCompile:
             ],
         }
         with patch(
-            "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+            "causal_ssm_agent.models.ssm_compiler._compile_validated_ssm_artifact",
             side_effect=ValueError("dimension mismatch in drift matrix"),
         ):
             result = trial_compile_model_spec(spec)

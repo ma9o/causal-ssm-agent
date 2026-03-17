@@ -33,7 +33,7 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
 from causal_ssm_agent.models.prior_predictive import (
-    _compute_data_stats,
+    compute_data_stats,
     format_parameter_feedback,
     get_failed_parameters,
     validate_prior_predictive,
@@ -244,7 +244,7 @@ def prior_elicitation_solver():
 
             # Compute data stats for feedback (if raw_data available)
             data_stats = (
-                _compute_data_stats(raw_data)
+                compute_data_stats(raw_data)
                 if raw_data is not None and not raw_data.is_empty()
                 else {}
             )
