@@ -3,7 +3,7 @@
 from .persist import (
     persist_web_result,
 )
-from .stage0_preprocess import (
+from .stage0_ingest import (
     agentic_ingest,
 )
 from .stage1a_latent import (
