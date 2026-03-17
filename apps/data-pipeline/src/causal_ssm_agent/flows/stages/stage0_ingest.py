@@ -1,18 +1,29 @@
-"""Stage 0: Agentic ingestion core logic.
+"""Stage 0: Agentic ingestion logic and Prefect entrypoint.
 
 An LLM agent explores a prepared input directory, writes Python code to parse
 the contents, and produces a single Polars DataFrame. Code execution happens
 inside a Modal CPU sandbox for isolation.
 """
 
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from zipfile import ZipFile, is_zipfile
 
 import polars as pl
+from prefect import task
+from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.utils.llm import GenerateFn
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.utils import storage
+from causal_ssm_agent.utils.config import get_config
+from causal_ssm_agent.utils.data import input_dir
+from causal_ssm_agent.utils.llm import GenerateFn, LLMStageContext
 
 from .stage0_tools import ModalCodeSandbox, make_ingestion_tools
+
+logger = get_prefect_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -192,3 +203,74 @@ async def run_agentic_ingestion(
         source_label=source_label,
         column_descriptions=column_descriptions,
     )
+
+
+def _find_raw_input(user_id: str) -> str:
+    """Find the most recent uploaded file for a user."""
+    user_dir = input_dir(user_id)
+    if not storage.exists(user_dir):
+        raise FileNotFoundError(f"No raw data directory: {user_dir}")
+
+    entries = storage.listdir(user_dir)
+    files: list[tuple[str, float]] = []
+    for entry in entries:
+        name = entry.rsplit("/", 1)[-1]
+        if name.startswith("."):
+            continue
+        info = storage.file_info(entry)
+        if info.get("type") == "file":
+            mtime = info.get("last_modified", info.get("LastModified", info.get("mtime", 0)))
+            if hasattr(mtime, "timestamp"):
+                mtime = mtime.timestamp()
+            files.append((entry, float(mtime)))
+
+    if not files:
+        raise FileNotFoundError(f"No files in {user_dir}")
+
+    files.sort(key=lambda item: item[1], reverse=True)
+    return files[0][0]
+
+
+def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
+    """Prepare an uploaded file tree for the ingestion agent."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    if is_zipfile(raw_path):
+        with ZipFile(raw_path, "r") as archive:
+            archive.extractall(dest_dir)
+        return dest_dir
+
+    shutil.copy2(raw_path, dest_dir / raw_path.name)
+    return dest_dir
+
+
+@task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
+async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
+    """Run Stage 0 end to end for the latest uploaded file."""
+    raw_storage_path = _find_raw_input(user_id)
+    raw_name = raw_storage_path.rsplit("/", 1)[-1]
+    logger.info("Ingesting %s for user %s", raw_name, user_id)
+
+    config = get_config()
+    async with LLMStageContext("stage-0") as ctx:
+        generate = ctx.make_generate(config.stage0_ingestion.model)
+
+        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+            if storage.is_remote():
+                local_raw = Path(tmpdir) / "download" / raw_name
+                local_raw.parent.mkdir(parents=True, exist_ok=True)
+                storage.get_fs().get(raw_storage_path, str(local_raw))
+            else:
+                local_raw = Path(raw_storage_path)
+
+            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
+            result = await run_agentic_ingestion(extract_dir, generate)
+
+        trace_out = ctx.finalize({})
+        if "llm_trace" in trace_out:
+            result.llm_trace = trace_out["llm_trace"]
+
+        logger.info(
+            "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
+        )
+        return result

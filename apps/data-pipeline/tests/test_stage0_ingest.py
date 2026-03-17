@@ -234,8 +234,8 @@ class TestIngestionTools:
 
 class TestFindRawInput:
     def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
-        from causal_ssm_agent.flows.stages.stage0_preprocess import _find_raw_input
+        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+        from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
 
         user_dir = tmp_path / "test_user"
         user_dir.mkdir()
@@ -254,8 +254,8 @@ class TestFindRawInput:
         assert result.endswith("/notes.txt")
 
     def test_no_files_raises(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_preprocess as mod
-        from causal_ssm_agent.flows.stages.stage0_preprocess import _find_raw_input
+        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+        from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
 
         user_dir = tmp_path / "empty_user"
         user_dir.mkdir()
@@ -267,7 +267,7 @@ class TestFindRawInput:
 
 class TestPrepareRawInput:
     def test_extracts_zip_archives(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0_preprocess import _prepare_raw_input
+        from causal_ssm_agent.flows.stages.stage0_ingest import _prepare_raw_input
 
         raw_zip = tmp_path / "input.zip"
         with zipfile.ZipFile(raw_zip, "w") as zf:
@@ -280,7 +280,7 @@ class TestPrepareRawInput:
         assert (prepared_dir / "nested" / "data.csv").read_text() == "date,value\n2024-01-01,1\n"
 
     def test_copies_non_archive_files(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0_preprocess import _prepare_raw_input
+        from causal_ssm_agent.flows.stages.stage0_ingest import _prepare_raw_input
 
         raw_text = tmp_path / "input.txt"
         raw_text.write_text("line one\nline two\n")
