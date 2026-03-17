@@ -15,13 +15,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.flows import get_prefect_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_prefect_logger(__name__)
 
@@ -91,6 +94,15 @@ class IndicatorContext:
 
 
 @dataclass(frozen=True)
+class IndicatorRuleInput:
+    """One indicator's raw data plus any derived numeric/timestamp context."""
+
+    name: str
+    ind_data: pl.DataFrame
+    ctx: IndicatorContext | None
+
+
+@dataclass(frozen=True)
 class ValidationContext:
     """Dataset-level validation context with helpers for per-indicator views."""
 
@@ -126,7 +138,43 @@ class ValidationRule:
 
     name: str
     scope: str  # "indicator" or "dataset"
-    check: Any  # (IndicatorContext) -> ValidationFindings or dataset check callable
+    check: Any  # (IndicatorRuleInput) -> ValidationFindings or dataset check callable
+
+
+def _issue_from_raw(
+    raw_issue: dict[str, Any],
+    *,
+    cell_key: str,
+) -> Issue:
+    return Issue(
+        raw_issue["indicator"],
+        raw_issue["issue_type"],
+        raw_issue["severity"],
+        raw_issue["message"],
+        cell_key=cell_key,
+    )
+
+
+def _issues_from_raw(
+    raw_issues: list[dict[str, Any]],
+    *,
+    cell_key: str | Callable[[dict[str, Any]], str],
+) -> list[Issue]:
+    """Convert raw issue dicts into Issue dataclasses with centralized cell-key mapping."""
+    issues: list[Issue] = []
+    for raw_issue in raw_issues:
+        resolved_cell_key = cell_key(raw_issue) if callable(cell_key) else cell_key
+        issues.append(_issue_from_raw(raw_issue, cell_key=resolved_cell_key))
+    return issues
+
+
+def _issue_payload(issue: Issue) -> dict[str, str]:
+    return {
+        "indicator": issue.indicator,
+        "issue_type": issue.issue_type,
+        "severity": issue.severity,
+        "message": issue.message,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -134,42 +182,18 @@ class ValidationRule:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def _check_timestamps(ind_data: pl.DataFrame, ind_name: str) -> tuple[list[dict], pl.Series]:
-    """Check timestamp parseability.
-
-    Returns:
-        Tuple of (issues, parsed_timestamps_without_nulls).
-    """
-    issues: list[dict] = []
-    timestamps = ind_data["timestamp"]
-    n_total = len(timestamps)
-
+def _timestamp_issue_specs(
+    n_total: int,
+    n_unparseable: int,
+) -> list[tuple[str, str]]:
+    """Return normalized timestamp-parseability issues from aggregate counts."""
     if n_total == 0:
-        return issues, pl.Series("timestamp", [], dtype=pl.Datetime("us"))
-
-    parsed = _parse_timestamp_series(timestamps)
-    n_unparseable = parsed.null_count()
-
+        return []
     if n_unparseable == n_total:
-        issues.append(
-            {
-                "indicator": ind_name,
-                "issue_type": "unparseable_timestamps",
-                "severity": "error",
-                "message": f"All {n_total} timestamps are unparseable",
-            }
-        )
-    elif n_unparseable > n_total * 0.5:
-        issues.append(
-            {
-                "indicator": ind_name,
-                "issue_type": "unparseable_timestamps",
-                "severity": "warning",
-                "message": f"{n_unparseable}/{n_total} timestamps are unparseable (>50%)",
-            }
-        )
-
-    return issues, parsed.drop_nulls()
+        return [("error", f"All {n_total} timestamps are unparseable")]
+    if n_unparseable > n_total * 0.5:
+        return [("warning", f"{n_unparseable}/{n_total} timestamps are unparseable (>50%)")]
+    return []
 
 
 def _check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[list[dict], int]:
@@ -470,35 +494,64 @@ def _check_construct_correlations(
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def _rule_timestamps(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_missing(entry: IndicatorRuleInput) -> ValidationFindings:
+    """Indicator declared in the causal spec but absent from extracted data."""
+    if not entry.ind_data.is_empty():
+        return ValidationFindings()
+    return ValidationFindings(
+        issues=[
+            Issue(
+                entry.name,
+                "missing",
+                "warning",
+                "No data extracted for this indicator",
+                cell_key="",
+            )
+        ]
+    )
+
+
+def _rule_no_numeric(entry: IndicatorRuleInput) -> ValidationFindings:
+    """Indicator has rows but no numeric values after coercion."""
+    if entry.ind_data.is_empty() or entry.ctx is not None:
+        return ValidationFindings()
+    return ValidationFindings(
+        issues=[
+            Issue(
+                entry.name,
+                "no_numeric",
+                "error",
+                "No numeric values extracted",
+                cell_key="",
+            )
+        ]
+    )
+
+
+def _rule_timestamps(entry: IndicatorRuleInput) -> ValidationFindings:
     """Timestamp parseability."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     issues = []
-    if ctx.n_total_ts > 0:
-        if ctx.n_unparseable == ctx.n_total_ts:
-            issues.append(
-                Issue(
-                    ctx.name,
-                    "unparseable_timestamps",
-                    "error",
-                    f"All {ctx.n_total_ts} timestamps are unparseable",
-                    cell_key="n_obs",
-                )
+    for severity, message in _timestamp_issue_specs(ctx.n_total_ts, ctx.n_unparseable):
+        issues.append(
+            Issue(
+                ctx.name,
+                "unparseable_timestamps",
+                severity,
+                message,
+                cell_key="n_obs",
             )
-        elif ctx.n_unparseable > ctx.n_total_ts * 0.5:
-            issues.append(
-                Issue(
-                    ctx.name,
-                    "unparseable_timestamps",
-                    "warning",
-                    f"{ctx.n_unparseable}/{ctx.n_total_ts} timestamps are unparseable (>50%)",
-                    cell_key="n_obs",
-                )
-            )
+        )
     return ValidationFindings(issues=issues)
 
 
-def _rule_sample_size(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_sample_size(entry: IndicatorRuleInput) -> ValidationFindings:
     """Minimum observation count."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     issues = []
     if ctx.n_obs < MIN_OBSERVATIONS:
         issues.append(
@@ -513,8 +566,11 @@ def _rule_sample_size(ctx: IndicatorContext) -> ValidationFindings:
     return ValidationFindings(issues=issues, metrics={"n_obs": ctx.n_obs})
 
 
-def _rule_variance(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_variance(entry: IndicatorRuleInput) -> ValidationFindings:
     """Zero-variance check."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     issues = []
     if ctx.variance is not None and ctx.variance == 0:
         const_val = ctx.values.first()
@@ -530,71 +586,58 @@ def _rule_variance(ctx: IndicatorContext) -> ValidationFindings:
     return ValidationFindings(issues=issues, metrics={"variance": ctx.variance})
 
 
-def _rule_dtype_range(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_dtype_range(entry: IndicatorRuleInput) -> ValidationFindings:
     """Dtype range conformance."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     if not ctx.dtype:
         return ValidationFindings(metrics={"dtype_violations": 0})
     raw_issues, violation_count = _check_dtype_range(ctx.values, ctx.dtype, ctx.name)
-    issues = [
-        Issue(
-            d["indicator"],
-            d["issue_type"],
-            d["severity"],
-            d["message"],
-            cell_key="dtype_violations",
-        )
-        for d in raw_issues
-    ]
+    issues = _issues_from_raw(raw_issues, cell_key="dtype_violations")
     return ValidationFindings(issues=issues, metrics={"dtype_violations": violation_count})
 
 
-def _rule_time_coverage(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_time_coverage(entry: IndicatorRuleInput) -> ValidationFindings:
     """Time span coverage."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     if ctx.is_time_invariant or ctx.model_clock_hours is None:
         return ValidationFindings(metrics={"time_coverage_ratio": None})
     raw_issues, ratio = _check_time_coverage(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
-    issues = [
-        Issue(
-            d["indicator"],
-            d["issue_type"],
-            d["severity"],
-            d["message"],
-            cell_key="time_coverage_ratio",
-        )
-        for d in raw_issues
-    ]
+    issues = _issues_from_raw(raw_issues, cell_key="time_coverage_ratio")
     return ValidationFindings(issues=issues, metrics={"time_coverage_ratio": ratio})
 
 
-def _rule_timestamp_gaps(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_timestamp_gaps(entry: IndicatorRuleInput) -> ValidationFindings:
     """Max consecutive gap."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     if ctx.is_time_invariant or ctx.model_clock_hours is None:
         return ValidationFindings(metrics={"max_gap_ratio": None})
     raw_issues, ratio = _check_timestamp_gaps(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
-    issues = [
-        Issue(
-            d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key="max_gap_ratio"
-        )
-        for d in raw_issues
-    ]
+    issues = _issues_from_raw(raw_issues, cell_key="max_gap_ratio")
     return ValidationFindings(issues=issues, metrics={"max_gap_ratio": ratio})
 
 
-def _rule_hallucination_signals(ctx: IndicatorContext) -> ValidationFindings:
+def _rule_hallucination_signals(entry: IndicatorRuleInput) -> ValidationFindings:
     """Suspicious LLM extraction patterns."""
+    ctx = entry.ctx
+    if ctx is None:
+        return ValidationFindings()
     raw_issues, duplicate_pct, arith_seq = _check_hallucination_signals(
         ctx.values, ctx.dtype or "continuous", ctx.name
     )
-    # Split issues by cell_key: duplicate → "duplicate_pct", sequence → "arithmetic_sequence_detected"
-    issues = []
-    for d in raw_issues:
-        if "arithmetic sequence" in d["message"]:
-            cell_key = "arithmetic_sequence_detected"
-        else:
-            cell_key = "duplicate_pct"
-        issues.append(
-            Issue(d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key=cell_key)
-        )
+    issues = _issues_from_raw(
+        raw_issues,
+        cell_key=lambda raw_issue: (
+            "arithmetic_sequence_detected"
+            if "arithmetic sequence" in raw_issue["message"]
+            else "duplicate_pct"
+        ),
+    )
     return ValidationFindings(
         issues=issues,
         metrics={"duplicate_pct": duplicate_pct, "arithmetic_sequence_detected": arith_seq},
@@ -606,10 +649,7 @@ def _rule_construct_correlations(
 ) -> ValidationFindings:
     """Cross-indicator construct correlations (dataset-wide)."""
     raw_issues = _check_construct_correlations(combined, indicators)
-    issues = [
-        Issue(d["indicator"], d["issue_type"], d["severity"], d["message"], cell_key="")
-        for d in raw_issues
-    ]
+    issues = _issues_from_raw(raw_issues, cell_key="")
     return ValidationFindings(issues=issues)
 
 
@@ -618,6 +658,8 @@ def _rule_construct_correlations(
 # ══════════════════════════════════════════════════════════════════════════════
 
 RULES: list[ValidationRule] = [
+    ValidationRule("missing", "indicator", _rule_missing),
+    ValidationRule("no_numeric", "indicator", _rule_no_numeric),
     ValidationRule("timestamps", "indicator", _rule_timestamps),
     ValidationRule("sample_size", "indicator", _rule_sample_size),
     ValidationRule("variance", "indicator", _rule_variance),
@@ -666,18 +708,12 @@ def reduce_findings(
             ind_issues.extend(f.issues)
             merged_metrics.update(f.metrics)
 
-        # Convert Issue dataclasses to dicts for output
         for issue in ind_issues:
-            all_issues.append(
-                {
-                    "indicator": issue.indicator,
-                    "issue_type": issue.issue_type,
-                    "severity": issue.severity,
-                    "message": issue.message,
-                }
-            )
+            all_issues.append(_issue_payload(issue))
 
-        # Derive cell statuses from issues (error > warning > ok)
+        if not merged_metrics:
+            continue
+
         cell_statuses: dict[str, str] = {k: "ok" for k in _CELL_STATUS_KEYS if k in merged_metrics}
         for issue in ind_issues:
             if issue.cell_key in cell_statuses and cell_statuses[issue.cell_key] != "error":
@@ -755,54 +791,20 @@ def run_rules(
     indicator_rules = [r for r in rules if r.scope == "indicator"]
     dataset_rules = [r for r in rules if r.scope == "dataset"]
 
-    # Collect early-exit issues (missing, no_numeric) separately
-    early_issues: list[dict] = []
     indicator_findings: dict[str, list[ValidationFindings]] = {}
 
     for ind_name, ind_data, indicator_ctx in ctx.iter_indicators():
-        if ind_data.is_empty():
-            early_issues.append(
-                {
-                    "indicator": ind_name,
-                    "issue_type": "missing",
-                    "severity": "warning",
-                    "message": "No data extracted for this indicator",
-                }
-            )
-            continue
+        rule_input = IndicatorRuleInput(ind_name, ind_data, indicator_ctx)
+        indicator_findings[ind_name] = [rule.check(rule_input) for rule in indicator_rules]
 
-        if indicator_ctx is None:
-            early_issues.append(
-                {
-                    "indicator": ind_name,
-                    "issue_type": "no_numeric",
-                    "severity": "error",
-                    "message": "No numeric values extracted",
-                }
-            )
-            continue
-
-        findings: list[ValidationFindings] = []
-        for rule in indicator_rules:
-            findings.append(rule.check(indicator_ctx))
-        indicator_findings[ind_name] = findings
-
-    # Run dataset-wide rules
     dataset_issues: list[dict] = []
     for rule in dataset_rules:
         f = rule.check(ctx.combined, ctx.indicators)
         for issue in f.issues:
-            dataset_issues.append(
-                {
-                    "indicator": issue.indicator,
-                    "issue_type": issue.issue_type,
-                    "severity": issue.severity,
-                    "message": issue.message,
-                }
-            )
+            dataset_issues.append(_issue_payload(issue))
 
     all_issues, per_indicator_health = reduce_findings(indicator_findings)
-    all_issues = early_issues + all_issues + dataset_issues
+    all_issues.extend(dataset_issues)
 
     return all_issues, per_indicator_health
 

@@ -672,8 +672,3 @@ def stage6(
         "intervention_results": intervention_results,
         "outcome": "warn" if has_warnings else "success",
     }
-
-
-# Re-export load_stage_state from stage_registry for backward compatibility
-# (tests and other code may import it from here)
-from .stage_registry import load_stage_state  # noqa: E402, F401
