@@ -176,7 +176,7 @@ export function InfoTable<TData>({
           )}
         </div>
       )}
-      <div ref={parentRef} className={cn(maxHeight, "overflow-y-auto")} {...containerProps}>
+      <div ref={parentRef} className={cn(maxHeight, "overflow-auto")} {...containerProps}>
         <Table>
           <TableHeader className="sticky top-0 bg-background z-10 shadow-[0_1px_0_var(--border)]">
             {table.getHeaderGroups().map((hg) => (
