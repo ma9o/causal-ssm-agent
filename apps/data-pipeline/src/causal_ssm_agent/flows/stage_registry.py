@@ -479,7 +479,7 @@ def _gate_error_stage1b(gate_result: dict) -> str:
 
 
 def _gate_error_stage4b(gate_result: dict) -> str:
-    t_rule = gate_result.get("t_rule", {})
+    t_rule = gate_result.get("t_rule") or {}
     return (
         f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
         f"> {t_rule.get('n_moments')} moment conditions. "
@@ -593,8 +593,8 @@ def _log_stage4(web: dict) -> None:
 
 
 def _log_stage4b(web: dict) -> None:
-    parametric_id = web.get("parametric_id", {})
-    t_rule = parametric_id.get("t_rule", {})
+    parametric_id = web.get("parametric_id") or {}
+    t_rule = parametric_id.get("t_rule") or {}
     logger.info(
         "Stage 4b complete: checked=%s t_rule=%s(%s/%s) outcome=%s",
         parametric_id.get("checked", False),
@@ -620,10 +620,10 @@ def _log_stage5b(web: dict) -> None:
         for entry in ps_list
         if entry.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
     )
-    ppc_warnings = len(web.get("ppc", {}).get("per_variable_warnings", []) or [])
+    ppc_warnings = len((web.get("ppc") or {}).get("per_variable_warnings") or [])
     logger.info(
         "Stage 5b complete: method=%s power_scaling_issues=%d ppc_warnings=%d outcome=%s",
-        web.get("inference_metadata", {}).get("method", "unknown"),
+        (web.get("inference_metadata") or {}).get("method", "unknown"),
         ps_issues,
         ppc_warnings,
         web.get("outcome", "success"),
