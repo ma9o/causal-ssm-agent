@@ -27,7 +27,7 @@ def fit_model(
     """Fit the SSM model to data.
 
     Args:
-        stage4_result: Result from stage4_orchestrated_flow containing
+        stage4_result: Result from stage4_agentic_flow containing
             model_spec, priors, and model_info
         raw_data: Raw timestamped data (indicator, value, timestamp)
         sampler_config: Override sampler configuration (None uses config defaults)

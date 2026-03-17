@@ -1,39 +1,17 @@
-"""Stage 4 Orchestrator: Model Specification Proposal.
+"""Stage 4 Orchestrator: Deterministic Model Specification Helpers.
 
-The orchestrator proposes a complete model specification based on the CausalSpec,
-enumerating all parameters needing priors with search context for literature.
+Pre-computes everything that can be determined from the CausalSpec without
+LLM judgment: parameter enumeration, unambiguous distribution/link choices,
+and role-based constraints.
 
-Deterministic parts (parameter enumeration, unambiguous distributions/links,
-role-based constraints) are pre-computed from the CausalSpec. The LLM only
-provides genuine decisions: distribution choices for ambiguous dtypes, loading
-constraints, search_context strings, and reasoning.
+The agentic LLM logic now lives in ``orchestrator/stage4.py``.
 """
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.orchestrator.prompts.model_proposal import (
-    SYSTEM as MODEL_PROPOSAL_SYSTEM,
-)
-from causal_ssm_agent.orchestrator.prompts.model_proposal import (
-    USER as MODEL_PROPOSAL_USER,
-)
-from causal_ssm_agent.orchestrator.prompts.model_proposal import (
-    format_ambiguous_indicators,
-    format_loading_params,
-    format_parameters,
-    format_resolved_likelihoods,
-)
 from causal_ssm_agent.orchestrator.schemas_model import (
     VALID_LIKELIHOODS_FOR_DTYPE,
     VALID_LINKS_FOR_DISTRIBUTION,
-    Stage4OrchestratorResult,
 )
 from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
-from causal_ssm_agent.utils.llm import (
-    GenerateFn,
-    make_validation_tool,
-)
-
-logger = get_prefect_logger(__name__)
 
 
 def derive_deterministic_spec(
@@ -179,127 +157,3 @@ def derive_deterministic_spec(
                 )
 
     return resolved_likelihoods, ambiguous_indicators, parameters, loading_params
-
-
-async def propose_model_spec(
-    causal_spec: dict,
-    data_summary: str,
-    question: str,
-    generate: GenerateFn,
-) -> Stage4OrchestratorResult:
-    """Orchestrator proposes complete model specification.
-
-    Pre-computes deterministic parts from the CausalSpec, then asks the LLM
-    only for genuine decisions (ambiguous distributions, loading constraints,
-    search contexts, and reasoning).
-
-    Args:
-        causal_spec: The full CausalSpec dict (latent + measurement)
-        data_summary: Summary of the data (time points, subjects, etc.)
-        question: The research question for context
-        generate: Async generate function (messages, tools, follow_ups) -> str
-
-    Returns:
-        Stage4OrchestratorResult with ModelSpec
-    """
-    # Pre-compute everything deterministic
-    resolved_likelihoods, ambiguous_indicators, parameters, loading_params = (
-        derive_deterministic_spec(causal_spec)
-    )
-
-    # All parameters (including loadings) for the prompt
-    all_params = parameters + [
-        {k: v for k, v in lp.items() if k not in ("indicator", "construct")}
-        for lp in loading_params
-    ]
-
-    # Format for the prompt
-    resolved_str = format_resolved_likelihoods(resolved_likelihoods)
-    ambiguous_str = format_ambiguous_indicators(ambiguous_indicators)
-    params_str = format_parameters(all_params)
-    loading_str = format_loading_params(loading_params)
-
-    # Build messages
-    messages = [
-        {"role": "system", "content": MODEL_PROPOSAL_SYSTEM},
-        {
-            "role": "user",
-            "content": MODEL_PROPOSAL_USER.format(
-                question=question,
-                resolved_likelihoods=resolved_str,
-                ambiguous_indicators=ambiguous_str,
-                parameters=params_str,
-                loading_params=loading_str,
-                data_summary=data_summary,
-            ),
-        },
-    ]
-
-    # Generate with validation feedback loop
-    from causal_ssm_agent.orchestrator.schemas_model import (
-        validate_model_spec_decisions_dict,
-    )
-
-    def _validator(data: dict) -> tuple[object, list[str]]:
-        return validate_model_spec_decisions_dict(
-            data,
-            resolved_likelihoods=resolved_likelihoods,
-            ambiguous_indicators=ambiguous_indicators or [],
-            parameters=all_params,
-        )
-
-    tool, capture = make_validation_tool(
-        name="validate_model_spec",
-        description="Validate model specification JSON.",
-        param_name="model_spec_json",
-        param_description="The JSON string containing the model spec.",
-        validator=_validator,
-        capture_key="spec",
-        capture_result=True,
-    )
-    completion = await generate(messages, [tool], None)
-
-    # Use the captured spec from the validation tool
-    model_spec = capture.get("spec")
-    if model_spec is None:
-        raise ValueError("Model spec validation never passed. Raw response:\n" + completion[:500])
-
-    return Stage4OrchestratorResult(
-        model_spec=model_spec,
-        raw_response=completion,
-    )
-
-
-def build_data_summary(measurements_data: dict) -> str:
-    """Build a summary of the measurement data for the orchestrator.
-
-    Args:
-        measurements_data: Dict of granularity -> polars DataFrame
-
-    Returns:
-        Human-readable summary string
-    """
-    lines = ["### Data Overview\n"]
-
-    for granularity, df in measurements_data.items():
-        if granularity == "time_invariant":
-            n_indicators = len([c for c in df.columns if c != "time_bucket"])
-            lines.append(f"- **Time-invariant**: {n_indicators} indicators")
-        else:
-            n_rows = df.height
-            n_indicators = len([c for c in df.columns if c != "time_bucket"])
-            lines.append(f"- **{granularity}**: {n_rows} time points × {n_indicators} indicators")
-
-            # Add basic stats for numeric columns
-            if n_rows > 0:
-                sample_cols = [c for c in df.columns if c != "time_bucket"][:3]
-                for col in sample_cols:
-                    try:
-                        mean = df[col].mean()
-                        std = df[col].std()
-                        if mean is not None and std is not None:
-                            lines.append(f"    {col}: mean={mean:.2f}, std={std:.2f}")
-                    except Exception:
-                        logger.debug("Could not compute stats for column %s", col)
-
-    return "\n".join(lines)

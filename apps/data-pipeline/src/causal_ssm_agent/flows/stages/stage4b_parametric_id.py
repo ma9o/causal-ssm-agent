@@ -229,7 +229,7 @@ def stage4b_parametric_id_flow(
     returns augmented result with parametric ID info.
 
     Args:
-        stage4_result: Output from stage4_orchestrated_flow
+        stage4_result: Output from stage4_agentic_flow
         raw_data: Raw timestamped data (indicator, value, timestamp)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 

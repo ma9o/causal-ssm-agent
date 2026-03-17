@@ -95,16 +95,3 @@ class AggregatedPrior(BaseModel):
         default=None, description="Standard deviations of GMM components"
     )
     n_samples: int = Field(description="Number of paraphrase samples aggregated")
-
-
-class PriorResearchResult(BaseModel):
-    """Result of researching a single parameter's prior."""
-
-    parameter: str = Field(description="Name of the parameter")
-    proposal: PriorProposal = Field(description="The proposed prior distribution")
-    literature_found: bool = Field(description="Whether relevant literature was found")
-    raw_response: str = Field(description="Raw LLM response for debugging")
-    # AutoElicit-style aggregation fields (optional)
-    aggregation: AggregatedPrior | None = Field(
-        default=None, description="Aggregated prior from paraphrased elicitations (if enabled)"
-    )
