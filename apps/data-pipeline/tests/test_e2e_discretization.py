@@ -26,6 +26,34 @@ import pytest
 
 from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+from causal_ssm_agent.models.ssm_compilation import (
+    compile_priors as compile_ssm_priors,
+)
+from causal_ssm_agent.models.ssm_compilation import (
+    translate_spec as translate_ssm_spec,
+)
+
+
+def _translate_spec_for_test(model_spec: dict, causal_spec: dict | None = None):
+    return translate_ssm_spec(model_spec, causal_spec=causal_spec)
+
+
+def _compile_priors_for_test(
+    priors: dict[str, dict],
+    model_spec: dict,
+    *,
+    ssm_spec: SSMSpec | None = None,
+    causal_spec: dict | None = None,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+):
+    return compile_ssm_priors(
+        priors,
+        model_spec,
+        ssm_spec,
+        edge_lag_days=edge_lag_days,
+        causal_spec=causal_spec,
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # FIXTURES
@@ -244,14 +272,10 @@ class TestE2ESpecToDiscretization:
 
     def test_ssm_spec_structure_from_dag(self, two_construct_causal_spec, two_construct_model_spec):
         """SSMModelBuilder produces correct SSMSpec from DAG structure."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors={},
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
 
         # Dimensions
         assert spec.n_latent == 2  # mood, stress
@@ -388,9 +412,13 @@ class TestE2ESpecToDiscretization:
             "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
         }
 
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors, causal_spec=causal_spec)
-        spec, _elags = builder._convert_spec_to_ssm(model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
+        spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
+        ssm_priors, _idx = _compile_priors_for_test(
+            priors,
+            model_spec,
+            ssm_spec=spec,
+            causal_spec=causal_spec,
+        )
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
@@ -446,15 +474,18 @@ class TestE2ESpecToDiscretization:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
         }
 
-        builder = SSMModelBuilder(
-            model_spec=model_spec,
-            priors=priors,
+        spec, _elags = _translate_spec_for_test(
+            model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(model_spec)
 
         with pytest.raises(ValueError, match="AR parameter does not reference a construct"):
-            builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=spec)
+            _compile_priors_for_test(
+                priors,
+                model_spec,
+                ssm_spec=spec,
+                causal_spec=two_construct_causal_spec,
+            )
 
     def test_compiled_artifact_roundtrips_grounded_structure(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
@@ -464,6 +495,7 @@ class TestE2ESpecToDiscretization:
             build_compiled_ssm_builder,
             compile_ssm_artifact,
         )
+        from causal_ssm_agent.utils.data import pivot_to_wide
 
         compiled = compile_ssm_artifact(
             two_construct_model_spec,
@@ -513,7 +545,7 @@ class TestE2ESpecToDiscretization:
             }
         )
 
-        builder = build_compiled_ssm_builder(compiled, raw_data)
+        builder = build_compiled_ssm_builder(compiled, pivot_to_wide(raw_data))
         assert builder._spec is not None
         assert builder._spec.latent_names == ["mood", "stress"]
         assert builder._spec.drift_mask is not None
@@ -530,8 +562,6 @@ class TestE2ESpecToDiscretization:
         self, two_construct_causal_spec, two_construct_model_spec
     ):
         """Construct-specific sigma priors compile to per-latent diffusion scales."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
         priors = {
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 3.0, "beta": 2.0}},
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
@@ -544,14 +574,15 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         assert ssm_priors.diffusion_diag == {"sigma": [0.1, 0.9]}
@@ -565,16 +596,15 @@ class TestE2ESpecToDiscretization:
         rho_stress has no reference_interval_days → falls back to dt=1
         beta_stress_mood has reference_interval_days=7 → dt=7
         """
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            weekly_study_priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            weekly_study_priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
@@ -612,16 +642,15 @@ class TestE2ESpecToDiscretization:
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
         """The CT drift matrix from converted priors has all eigenvalues with Re < 0."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            weekly_study_priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            weekly_study_priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         # Build the drift matrix from priors (using mu values)
@@ -659,16 +688,15 @@ class TestE2ESpecToDiscretization:
 
         rho_mood = 0.6 from weekly study → CT drift → discretize at dt=7 → recover ≈ 0.6
         """
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            weekly_study_priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            weekly_study_priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         # Build drift matrix at prior means
@@ -729,16 +757,15 @@ class TestE2ESpecToDiscretization:
         → CT rate = 0.3/7 → discretize at dt=7 → F[mood,stress] ≈ 0.3
         (first-order approximation; exact requires matrix exponential)
         """
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            weekly_study_priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            weekly_study_priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         # Build drift matrix
@@ -788,16 +815,15 @@ class TestE2ESpecToDiscretization:
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
         """discretize_system produces valid F, Q, c from converted priors."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
+        spec, _elags = _translate_spec_for_test(
+            two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
         )
-        spec, _elags = builder._convert_spec_to_ssm(two_construct_model_spec)
-        ssm_priors, _idx = builder._convert_priors_to_ssm(
-            weekly_study_priors, two_construct_model_spec, ssm_spec=spec
+        ssm_priors, _idx = _compile_priors_for_test(
+            weekly_study_priors,
+            two_construct_model_spec,
+            ssm_spec=spec,
+            causal_spec=two_construct_causal_spec,
         )
 
         # Build drift and diffusion at prior means
@@ -852,7 +878,6 @@ class TestE2ESpecToDiscretization:
         import polars as pl
 
         from causal_ssm_agent.models.ssm.inference import prior_predictive
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
             model_spec=two_construct_model_spec,
@@ -898,8 +923,6 @@ class TestE2ESpecToDiscretization:
         beta=0.3 from daily  (dt=1) → CT rate ≈ 0.300
         This is the Kuiper & Ryan (2018) sign-reversal effect in action.
         """
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-
         causal_spec = {
             "latent": {
                 "constructs": [
@@ -993,18 +1016,18 @@ class TestE2ESpecToDiscretization:
             drift_mask=drift_mask,
         )
 
-        builder_w = SSMModelBuilder(
-            model_spec=model_spec, priors=priors_weekly, causal_spec=causal_spec
-        )
-        ssm_priors_w, _idx = builder_w._convert_priors_to_ssm(
-            priors_weekly, model_spec, ssm_spec=ssm_spec
+        ssm_priors_w, _idx = _compile_priors_for_test(
+            priors_weekly,
+            model_spec,
+            ssm_spec=ssm_spec,
+            causal_spec=causal_spec,
         )
 
-        builder_d = SSMModelBuilder(
-            model_spec=model_spec, priors=priors_daily, causal_spec=causal_spec
-        )
-        ssm_priors_d, _idx = builder_d._convert_priors_to_ssm(
-            priors_daily, model_spec, ssm_spec=ssm_spec
+        ssm_priors_d, _idx = _compile_priors_for_test(
+            priors_daily,
+            model_spec,
+            ssm_spec=ssm_spec,
+            causal_spec=causal_spec,
         )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
@@ -1314,12 +1337,12 @@ class TestExactMatrixLogConversion:
             drift_mask=drift_mask,
         )
 
-        builder = SSMModelBuilder(
-            model_spec=model_spec,
-            priors=priors,
+        ssm_priors, _idx = _compile_priors_for_test(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
             causal_spec=two_construct_causal_spec,
         )
-        ssm_priors, _idx = builder._convert_priors_to_ssm(priors, model_spec, ssm_spec=ssm_spec)
 
         drift_diag = ssm_priors.drift_diag["mu"]
         drift_offdiag = ssm_priors.drift_offdiag["mu"]
@@ -1409,11 +1432,6 @@ class TestExactMatrixLogConversion:
         )
         from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
-        builder = SSMModelBuilder(
-            model_spec=model_spec,
-            priors=priors,
-            causal_spec=two_construct_causal_spec,
-        )
         # Build masks to get edge_lag_days, then pass explicitly
         _dm, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
             ["mood", "stress"],
@@ -1423,8 +1441,12 @@ class TestExactMatrixLogConversion:
             causal_spec=two_construct_causal_spec,
         )
         with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.models.ssm_compilation"):
-            builder._convert_priors_to_ssm(
-                priors, model_spec, ssm_spec=ssm_spec, edge_lag_days=edge_lag_days
+            _compile_priors_for_test(
+                priors,
+                model_spec,
+                ssm_spec=ssm_spec,
+                causal_spec=two_construct_causal_spec,
+                edge_lag_days=edge_lag_days,
             )
 
         # Large beta_CT → implied timescale << 1 day, edge lag = 1 day → warning

@@ -756,7 +756,7 @@ class TestLaplaceEMDoctolib:
             causal_spec=causal_spec,
         )
         builder = build_ssm_builder(
-            raw_data=raw_data,
+            wide_data=pivot_to_wide(raw_data),
             compiled_ssm=compiled,
             sampler_config={
                 "method": "laplace_em",

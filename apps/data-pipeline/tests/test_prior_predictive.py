@@ -1,7 +1,7 @@
 """Tests for prior predictive validation checks.
 
 Covers: _check_nan_inf, _check_constraint_violations, _check_extreme_values,
-_compute_data_stats, format_validation_report, format_parameter_feedback,
+compute_data_stats, format_validation_report, format_parameter_feedback,
 get_failed_parameters.
 """
 
@@ -13,7 +13,7 @@ from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
     _check_nan_inf,
-    _compute_data_stats,
+    compute_data_stats,
     format_parameter_feedback,
     format_validation_report,
     get_failed_parameters,
@@ -254,14 +254,14 @@ class TestGetFailedParameters:
 
 
 # =============================================================================
-# _compute_data_stats
+# compute_data_stats
 # =============================================================================
 
 
 class TestComputeDataStats:
     def test_basic_stats(self):
         df = pl.DataFrame({"indicator": ["mood", "mood", "mood"], "value": [1.0, 2.0, 3.0]})
-        stats = _compute_data_stats(df)
+        stats = compute_data_stats(df)
         assert "mood" in stats
         assert abs(stats["mood"]["mean"] - 2.0) < 1e-6
         assert stats["mood"]["min"] == 1.0
@@ -274,20 +274,20 @@ class TestComputeDataStats:
                 "value": [1.0, 3.0, 10.0, 20.0],
             }
         )
-        stats = _compute_data_stats(df)
+        stats = compute_data_stats(df)
         assert len(stats) == 2
         assert abs(stats["mood"]["mean"] - 2.0) < 1e-6
         assert abs(stats["sleep"]["mean"] - 15.0) < 1e-6
 
     def test_std_computed(self):
         df = pl.DataFrame({"indicator": ["x", "x", "x", "x"], "value": [0.0, 0.0, 10.0, 10.0]})
-        stats = _compute_data_stats(df)
+        stats = compute_data_stats(df)
         assert stats["x"]["std"] is not None
         assert stats["x"]["std"] > 0
 
     def test_single_value(self):
         df = pl.DataFrame({"indicator": ["a"], "value": [5.0]})
-        stats = _compute_data_stats(df)
+        stats = compute_data_stats(df)
         assert stats["a"]["mean"] == 5.0
         assert stats["a"]["min"] == 5.0
         assert stats["a"]["max"] == 5.0
@@ -295,7 +295,7 @@ class TestComputeDataStats:
     def test_string_values_cast(self):
         """String-typed values should be cast to float."""
         df = pl.DataFrame({"indicator": ["x", "x"], "value": ["1.5", "2.5"]})
-        stats = _compute_data_stats(df)
+        stats = compute_data_stats(df)
         assert abs(stats["x"]["mean"] - 2.0) < 1e-6
 
 
