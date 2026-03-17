@@ -1,7 +1,7 @@
 """Shared tempered SMC loop for parameter inference.
 
-Provides `run_tempered_smc()`, the single implementation of the tempered SMC
-algorithm used by tempered_smc, laplace_em, structured_vi, and dpf.
+Provides `fit_tempered_smc()` and `run_tempered_smc()`, the single
+implementation site for tempered-SMC-backed inference.
 
 Bridges the prior-posterior gap via a tempering ladder beta_0=0 -> beta_K=1,
 with MH-corrected HMC mutations at each level. Supports adaptive tempering,
@@ -494,4 +494,47 @@ def run_tempered_smc(
         _samples=samples,
         method=method_name,
         diagnostics=diagnostics,
+    )
+
+
+def fit_tempered_smc(
+    model,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    n_outer: int = 100,
+    n_csmc_particles: int = 20,
+    n_mh_steps: int = 10,
+    param_step_size: float = 0.1,
+    n_warmup: int | None = None,
+    target_accept: float | None = None,
+    seed: int = 0,
+    adaptive_tempering: bool = True,
+    target_ess_ratio: float = 0.5,
+    waste_free: bool = False,
+    n_leapfrog: int = 5,
+    reparam=None,
+    **kwargs: Any,  # noqa: ARG001
+) -> InferenceResult:
+    """Fit SSM parameters with the canonical tempered SMC entrypoint."""
+    backend = model.make_likelihood_backend()
+    return run_tempered_smc(
+        model,
+        observations,
+        times,
+        n_outer=n_outer,
+        n_csmc_particles=n_csmc_particles,
+        n_mh_steps=n_mh_steps,
+        param_step_size=param_step_size,
+        n_warmup=n_warmup,
+        target_accept=target_accept,
+        seed=seed,
+        adaptive_tempering=adaptive_tempering,
+        target_ess_ratio=target_ess_ratio,
+        waste_free=waste_free,
+        n_leapfrog=n_leapfrog,
+        method_name="tempered_smc",
+        likelihood_backend=backend,
+        extra_diagnostics={"likelihood_backend": backend},
+        print_prefix="Tempered SMC",
+        reparam=reparam,
     )
