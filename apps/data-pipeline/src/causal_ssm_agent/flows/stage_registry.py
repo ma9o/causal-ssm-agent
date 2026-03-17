@@ -102,9 +102,6 @@ class StageDefinition:
     # (override_payload, ctx, stage_states) -> prepared result
     prepare_override: Callable[[dict, PipelineContext, dict[str, dict]], dict] | None = None
 
-    # (result, ctx, stage_states) -> result with derived/runtime fields materialized
-    materialize_result: Callable[[dict, PipelineContext, dict[str, dict]], dict] | None = None
-
     # True for stage-5a (best-effort preflight, no restore on resume)
     skip_restore: bool = False
 
@@ -135,9 +132,6 @@ async def run_stage_flow(
         result = defn.runner(**inputs)
         if inspect.isawaitable(result):
             result = await result
-
-    if defn.materialize_result is not None:
-        result = defn.materialize_result(result, ctx, stage_states)
 
     # Persist artifacts (save_parquet, save_pickle, etc.)
     result = defn.materializer.persist(result, ctx.user_id)
@@ -446,23 +440,20 @@ def _gate_error_stage4b(gate_result: dict) -> str:
 
 
 def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) -> dict:
-    """Prepare a stage-4 override by keeping only authored fields."""
-    from .stages.stage4_assembly import coerce_stage4_override_payload
-
-    return coerce_stage4_override_payload(payload)
-
-
-def _materialize_stage4(result: dict, ctx: PipelineContext, states: dict) -> dict:
-    """Derive the full stage-4 result from authored state + upstream context."""
+    """Prepare a stage-4 override via the same stage-owned finalizer as normal runs."""
     from .run_store import load_parquet
-    from .stages.stage4_assembly import materialize_stage4_result
+    from .stages.stage4_assembly import coerce_stage4_override_payload, materialize_stage4_result
 
     stage1b_result = states["stage-1b"]["result"]
     stage2_result = states["stage-2"]["result"]
+    authored = coerce_stage4_override_payload(payload)
     return materialize_stage4_result(
-        authored_state=result,
+        model_spec=authored["model_spec"],
+        priors=authored["priors"],
         raw_data=load_parquet(stage2_result["_data_for_model_path"]),
         causal_spec=stage1b_result["causal_spec"],
+        validation_retries=authored.get("validation_retries"),
+        llm_trace=authored.get("llm_trace"),
     )
 
 
@@ -534,7 +525,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
-            materialize_result=_materialize_stage4,
             materializer=StageMaterializer(restore=_restore_stage4),
             question_required=True,
             override_eligible=True,
