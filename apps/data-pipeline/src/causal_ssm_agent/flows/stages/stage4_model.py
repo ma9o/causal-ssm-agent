@@ -8,8 +8,8 @@ Orchestrator-Worker architecture with SSM grounding:
    - Validate priors
    - On failure, re-elicit only failed parameters with feedback
    - Max N retries, reusing cached Exa results
-5. Return authored stage-4 state; the pipeline materializer derives validation
-   and compiled artifacts once, in one place.
+5. Return the grounded stage-4 result, using shared stage-4 validation/finalization
+   logic for both the normal path and replay/override path.
 
 See docs/modeling/functional_spec.md for design rationale.
 """
@@ -246,8 +246,8 @@ async def stage4_orchestrated_flow(
        - On failure, re-elicit only failed parameters in parallel
        - Feed validation issues + data scale back to LLM
        - Max N retries, reusing cached Exa results
-    5. Return the authored stage-4 state; the registry materializer derives the
-       executable/runtime payload once after orchestration completes
+    5. Return the grounded stage-4 result with validation and executable/runtime
+       artifacts derived by the shared stage-4 finalizer
 
     Args:
         causal_spec: Full CausalSpec dict
@@ -257,8 +257,7 @@ async def stage4_orchestrated_flow(
         max_prior_retries: Maximum validation retry attempts
 
     Returns:
-        Authored Stage 4 state (model_spec + priors + provenance). The pipeline
-        materializer derives validation/model artifacts from this state.
+        Full grounded Stage 4 result.
     """
     from prefect.utilities.annotations import unmapped
 
@@ -267,7 +266,7 @@ async def stage4_orchestrated_flow(
 
     from .stage4_assembly import (
         build_retry_feedback,
-        build_stage4_authored_state,
+        materialize_stage4_result,
         validate_assembly,
     )
 
@@ -446,10 +445,12 @@ async def stage4_orchestrated_flow(
             priors[name] = result
 
     assert validation is not None
-    return build_stage4_authored_state(
+    return materialize_stage4_result(
         model_spec=model_spec,
         priors=priors,
+        raw_data=raw_data,
+        causal_spec=causal_spec,
         validation_retries=validation_retries or None,
         llm_trace=llm_trace,
-        assembly_validation=validation,
+        validation=validation,
     )

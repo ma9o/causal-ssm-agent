@@ -135,27 +135,6 @@ def validate_prior_proposals(priors: dict[str, dict] | None) -> dict[str, dict]:
     return validated
 
 
-def build_stage4_authored_state(
-    *,
-    model_spec: dict,
-    priors: dict[str, dict],
-    validation_retries: list[dict[str, Any]] | None = None,
-    llm_trace: dict[str, Any] | None = None,
-    assembly_validation: AssemblyValidation | None = None,
-) -> dict[str, Any]:
-    """Build the authored stage-4 state before derived fields are materialized."""
-    result: dict[str, Any] = {
-        "model_spec": model_spec,
-        "priors": priors,
-        "validation_retries": validation_retries,
-    }
-    if llm_trace is not None:
-        result["llm_trace"] = llm_trace
-    if assembly_validation is not None:
-        result["_assembly_validation"] = assembly_validation
-    return result
-
-
 def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept a replay payload and keep only authored stage-4 fields."""
     model_spec = payload.get("model_spec")
@@ -166,12 +145,12 @@ def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(priors, dict):
         raise ValueError("Stage 4 replay requires a 'priors' object")
 
-    return build_stage4_authored_state(
-        model_spec=model_spec,
-        priors=validate_prior_proposals(priors),
-        validation_retries=payload.get("validation_retries"),
-        llm_trace=payload.get("llm_trace"),
-    )
+    return {
+        "model_spec": model_spec,
+        "priors": validate_prior_proposals(priors),
+        "validation_retries": payload.get("validation_retries"),
+        "llm_trace": payload.get("llm_trace"),
+    }
 
 
 def build_prior_predictive_samples(
@@ -413,19 +392,16 @@ def compile_model_artifact(
 
 def materialize_stage4_result(
     *,
-    authored_state: dict[str, Any],
+    model_spec: dict[str, Any],
+    priors: dict[str, dict],
     raw_data: pl.DataFrame,
     causal_spec: dict | None,
+    validation_retries: list[dict[str, Any]] | None = None,
+    llm_trace: dict[str, Any] | None = None,
+    validation: AssemblyValidation | None = None,
 ) -> dict[str, Any]:
-    """Turn authored stage-4 state into the full derived stage result."""
-    model_spec = authored_state["model_spec"]
-    priors = authored_state["priors"]
-    cached_validation = authored_state.get("_assembly_validation")
-    validation = (
-        cached_validation
-        if isinstance(cached_validation, AssemblyValidation)
-        else validate_assembly(model_spec, priors, raw_data, causal_spec)
-    )
+    """Build the full grounded stage-4 result from authored inputs."""
+    validation = validation or validate_assembly(model_spec, priors, raw_data, causal_spec)
     normalized_model_spec = validation.normalized_model_spec or model_spec
     validation_result = build_validation_payload(validation, normalized_model_spec)
     model_result = compile_model_artifact(
@@ -440,7 +416,7 @@ def materialize_stage4_result(
     result = {
         "model_spec": normalized_model_spec,
         "priors": priors,
-        "validation_retries": authored_state.get("validation_retries"),
+        "validation_retries": validation_retries,
         "validation": validation_result,
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False),
@@ -449,8 +425,8 @@ def materialize_stage4_result(
     }
     if compiled_ssm is not None:
         result["_compiled_ssm"] = compiled_ssm
-    if authored_state.get("llm_trace") is not None:
-        result["llm_trace"] = authored_state["llm_trace"]
+    if llm_trace is not None:
+        result["llm_trace"] = llm_trace
     return result
 
 
