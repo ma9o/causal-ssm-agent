@@ -614,7 +614,7 @@ def fit(
 
         return fit_pgas(model, observations, times, reparam=reparam, **kwargs)
     if method == "tempered_smc":
-        from causal_ssm_agent.models.ssm.tempered_smc import fit_tempered_smc
+        from causal_ssm_agent.models.ssm.tempered_core import fit_tempered_smc
 
         return fit_tempered_smc(model, observations, times, reparam=reparam, **kwargs)
     if method == "laplace_em":
