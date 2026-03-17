@@ -15,6 +15,12 @@
       "e8a74818-3d49-4edd-9a20-89f04a31c1aa"
     ]
   },
+  "SMALLGOLDEN": {
+    "createdAt": "2026-03-17T00:00:00.000Z",
+    "rootFlowRunIds": [
+      "352ba074-a605-484c-b940-6cb9948aca3c"
+    ]
+  },
   "GOLDEN2": {
     "createdAt": "2026-03-16T14:46:52.020Z",
     "rootFlowRunIds": [
@@ -35,7 +41,8 @@
       "5c1e295c-8393-4d4f-9c45-97931332f198",
       "005b4d4e-058f-4d65-8f94-6155566750fa",
       "b63d4ec5-8a6b-4ee0-84c5-f82b0db5f578",
-      "229c8ac7-3da5-4575-9eda-ff48d9546161"
+      "229c8ac7-3da5-4575-9eda-ff48d9546161",
+      "54bc3ee9-2e64-4b60-a5e5-d2141d0a4c04"
     ]
   }
 }
