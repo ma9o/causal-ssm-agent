@@ -4,6 +4,10 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
+from causal_ssm_agent.models.likelihoods.observation_families import (
+    POSTERIOR_PREDICTIVE_SWITCH_ORDER,
+    get_posterior_predictive_switch_index,
+)
 from causal_ssm_agent.models.posterior_predictive import (
     PPCResult,
     _check_calibration,
@@ -78,6 +82,20 @@ def _make_samples(
 
 class TestForwardSimulation:
     """Tests for simulate_posterior_predictive."""
+
+    def test_switch_indices_follow_registry_order(self):
+        """Posterior predictive dispatch indices come from the shared registry order."""
+        for idx, (dist, link) in enumerate(POSTERIOR_PREDICTIVE_SWITCH_ORDER):
+            assert get_posterior_predictive_switch_index(dist, link=link) == idx
+
+    def test_switch_default_link_uses_explicit_family_default(self):
+        """Omitting the link should resolve to the first registered branch for that family."""
+        first_index_by_dist = {}
+        for idx, (dist, _link) in enumerate(POSTERIOR_PREDICTIVE_SWITCH_ORDER):
+            first_index_by_dist.setdefault(dist, idx)
+
+        for dist, first_idx in first_index_by_dist.items():
+            assert get_posterior_predictive_switch_index(dist) == first_idx
 
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""

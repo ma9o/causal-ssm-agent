@@ -15,6 +15,7 @@ and compile ownership.
 """
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -26,7 +27,12 @@ from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
 )
-from causal_ssm_agent.models.ssm_compilation import compile_priors as compile_ssm_priors
+from causal_ssm_agent.models.ssm_compilation import (
+    compile_priors as compile_ssm_priors,
+)
+from causal_ssm_agent.models.ssm_compilation import (
+    compile_ssm_inputs,
+)
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
@@ -257,16 +263,90 @@ class TestPriorPredictiveValidation:
         assert is_valid is True
         assert not any(r.parameter == "model_build" for r in results)
 
-    def test_validate_priors_task_delegates(self, simple_model_spec, simple_priors):
-        """Prefect task.fn() -> returns dict with expected keys."""
-        from causal_ssm_agent.flows.stages.stage4_model import validate_priors_task
+    def test_build_validation_payload_from_assembly(self, simple_model_spec, simple_priors):
+        """Shared Stage 4 assembly helpers return the expected payload shape."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            build_validation_payload,
+            validate_assembly,
+        )
 
         raw_data = _make_polars_data()
-        result = validate_priors_task.fn(simple_model_spec, simple_priors, raw_data)
+        validation = validate_assembly(simple_model_spec, simple_priors, raw_data, None)
+        result = build_validation_payload(validation, simple_model_spec)
         assert isinstance(result, dict)
         assert "is_valid" in result
         assert "results" in result
         assert "issues" in result
+
+    def test_validate_assembly_reuses_compiled_artifact_for_prior_checks(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Stage 4 should compile once per validation attempt and pass that artifact through."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import validate_assembly
+
+        compiled_artifact = {"schema_version": 1}
+        seen_compiled: list[dict] = []
+
+        def stub_validate_prior_predictive(*args, compiled_ssm=None, **kwargs):
+            seen_compiled.append(compiled_ssm)
+            return True, [], {}
+
+        with (
+            patch(
+                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                return_value=compiled_artifact,
+            ) as compile_mock,
+            patch(
+                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                side_effect=stub_validate_prior_predictive,
+            ),
+        ):
+            validation = validate_assembly(
+                simple_model_spec,
+                simple_priors,
+                _make_polars_data(),
+                None,
+            )
+
+        assert compile_mock.call_count == 1
+        assert seen_compiled == [compiled_artifact]
+        assert validation.compiled_ssm == compiled_artifact
+
+    def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Explicit compiled_ssm should bypass compile_ssm_artifact entirely."""
+
+        class _DummyBuilder:
+            def sample_prior_predictive(self, samples: int = 500):
+                return {"drift_diag_pop": np.ones((samples, 1))}
+
+        runtime = SimpleNamespace(builder=_DummyBuilder())
+
+        with (
+            patch(
+                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                side_effect=AssertionError("compile should not be called"),
+            ),
+            patch(
+                "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+                return_value=runtime,
+            ),
+        ):
+            is_valid, results, _samples = validate_prior_predictive(
+                simple_model_spec,
+                simple_priors,
+                _make_polars_data(),
+                n_samples=3,
+                compiled_ssm={"schema_version": 1},
+            )
+
+        assert is_valid is True
+        assert results
 
 
 class TestFailedParameters:
@@ -299,6 +379,50 @@ class TestFailedParameters:
         assert "beta_stress_mood" in failed  # contains "mood"
         assert "rho_stress" not in failed
         assert "sigma_stress" not in failed
+
+
+class TestRetryFeedback:
+    """Test Stage 4 retry feedback shaping."""
+
+    def test_build_retry_feedback_global_failure_returns_shared_summary(self):
+        from causal_ssm_agent.flows.stages.stage4_assembly import build_retry_feedback
+
+        validation = SimpleNamespace(
+            pp_valid=False,
+            pp_results=[
+                PriorValidationResult(
+                    parameter="model_build",
+                    is_valid=False,
+                    issue=(
+                        "Model build failed:\n"
+                        "Observation support check failed:\n"
+                        "- 'ide_focus_gaps' uses gamma emission but 29/125 "
+                        "observations are outside support (gamma requires y > 0; min=0, max=24)"
+                    ),
+                    suggested_adjustment="Fix model_spec or priors to enable model construction",
+                )
+            ],
+        )
+        priors = {
+            "rho_focus_time": {
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+            },
+            "sigma_focus_time": {
+                "distribution": "HalfNormal",
+                "params": {"sigma": 1.0},
+            },
+        }
+
+        failed, feedbacks, global_summary = build_retry_feedback(validation, priors)
+
+        assert set(failed) == set(priors)
+        assert feedbacks == {}
+        assert global_summary is not None
+        assert "Validation FAILED (global issue" in global_summary
+        assert "'ide_focus_gaps' uses gamma emission" in global_summary
+        assert "Model build failed" not in global_summary
+        assert "Consider changing the distribution family" in global_summary
 
 
 # --- SSM Prior Conversion Tests ---
@@ -356,6 +480,15 @@ class TestSSMPriorConversion:
         result = normalize_prior_params("Uniform", {"lower": -1.0, "upper": 1.0})
         assert result["mu"] == 0.0
         assert result["sigma"] == 0.5
+
+    def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
+        """Compilation should validate a dict spec once, then pass the parsed object through."""
+        from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+
+        with patch.object(ModelSpec, "model_validate", wraps=ModelSpec.model_validate) as validate:
+            compile_ssm_inputs(simple_model_spec, simple_priors)
+
+        assert validate.call_count == 1
 
     def test_role_based_mapping_covers_loading(self, simple_model_spec):
         """LOADING role maps to lambda_free SSMPriors field."""
@@ -888,3 +1021,166 @@ class TestStage4CompileOwnership:
                     enable_literature=False,
                 )
             )
+
+    def test_stage4_global_validation_failure_skips_prior_retries(self, monkeypatch):
+        """Global validation failures should stop the prior retry loop immediately."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            AssemblyValidation,
+            materialize_stage4_result,
+        )
+        from causal_ssm_agent.flows.stages.stage4_model import stage4_orchestrated_flow
+
+        proposed_spec = {
+            "likelihoods": [
+                {
+                    "variable": "outcome_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_outcome",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "AR coefficient",
+                    "search_context": "outcome autocorrelation",
+                }
+            ],
+            "llm_trace": {"messages": []},
+        }
+        global_failure = PriorValidationResult(
+            parameter="model_build",
+            is_valid=False,
+            issue=(
+                "Model build failed:\n"
+                "Observation support check failed:\n"
+                "- 'outcome_score' uses gamma emission but 1/10 observations are outside support"
+            ),
+            suggested_adjustment="Fix model_spec or priors to enable model construction",
+        )
+
+        async def stub_propose_model_task(causal_spec: dict, question: str, raw_data: pl.DataFrame):
+            return proposed_spec
+
+        def stub_validate_assembly(model_spec: dict, priors, raw_data, causal_spec):
+            if priors is None:
+                return AssemblyValidation(
+                    normalized_model_spec=model_spec,
+                    compile_ok=True,
+                )
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=False,
+                pp_results=[global_failure],
+            )
+
+        class _MapResult:
+            def __init__(self, results: list[dict]):
+                self._results = results
+
+            def result(self) -> list[dict]:
+                return self._results
+
+        class _FakeElicitTask:
+            def __init__(self):
+                self.calls: list[list[str]] = []
+
+            def map(self, parameter_specs, **_kwargs):
+                names = [spec["name"] for spec in parameter_specs]
+                self.calls.append(names)
+                if len(self.calls) > 1:
+                    raise AssertionError("unexpected retry on global validation failure")
+                return _MapResult(
+                    [
+                        {
+                            "parameter": name,
+                            "distribution": "Beta",
+                            "params": {"alpha": 2.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "test",
+                        }
+                        for name in names
+                    ]
+                )
+
+        fake_elicit_task = _FakeElicitTask()
+
+        def stub_compile_model_artifact(*_args, **_kwargs):
+            return {"model_built": False, "error": "global validation failure"}
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_model.propose_model_task",
+            stub_propose_model_task,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_model.elicit_prior_task",
+            fake_elicit_task,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.compile_model_artifact",
+            stub_compile_model_artifact,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.config.get_config",
+            lambda: SimpleNamespace(
+                pipeline=SimpleNamespace(max_prior_retries=3),
+                stage4_prior_elicitation=SimpleNamespace(
+                    paraphrasing=SimpleNamespace(enabled=False, n_paraphrases=1)
+                ),
+            ),
+        )
+
+        authored_state = asyncio.run(
+            stage4_orchestrated_flow(
+                causal_spec={
+                    "measurement": {
+                        "model_clock": "1d",
+                        "indicators": [
+                            {
+                                "name": "outcome_score",
+                                "construct_name": "outcome",
+                            }
+                        ],
+                    }
+                },
+                question="Does treatment affect outcome?",
+                raw_data=pl.DataFrame({"indicator": ["outcome_score"], "value": [1.0]}),
+                enable_literature=False,
+            )
+        )
+        result = materialize_stage4_result(
+            authored_state=authored_state,
+            raw_data=pl.DataFrame({"indicator": ["outcome_score"], "value": [1.0]}),
+            causal_spec={
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "outcome_score",
+                            "construct_name": "outcome",
+                        }
+                    ],
+                }
+            },
+        )
+
+        assert fake_elicit_task.calls == [["rho_outcome"]]
+        assert result["validation_retries"] is None
+        assert result["is_valid"] is False
+        assert result["validation"]["issues"] == [
+            "Validation FAILED (global issue — affects all parameters):\n"
+            "- Observation support check failed: 'outcome_score' uses gamma emission "
+            "but 1/10 observations are outside support\n"
+            "  Suggested: Fix model_spec or priors to enable model construction\n\n"
+            "NOTE: This is a model_spec issue (likelihood family incompatible "
+            "with observed data). Consider changing the distribution family "
+            "rather than adjusting priors."
+        ]
