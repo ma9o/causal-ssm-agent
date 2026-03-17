@@ -57,7 +57,7 @@ export function ReplayButton({
   if (!canReplay) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
+    <div className="mt-3 rounded-lg border-t border-dashed border-muted-foreground/30 p-3">
       <button
         type="button"
         onClick={handleReplay}
@@ -76,9 +76,6 @@ export function ReplayButton({
           </>
         )}
       </button>
-      <p className="mt-1.5 text-center text-xs text-muted-foreground">
-        Re-runs all downstream stages with this output.
-      </p>
     </div>
   );
 }
