@@ -251,20 +251,31 @@ def compile_priors(
             _append_structured_prior(per_element, attr, idx, normalized)
             continue
 
+        # --- Scalar fallback paths ---
+        # The index maps above assign per-element array priors (e.g. drift_diag.mu = [0.5, 0.3]).
+        # When structural resolution is unavailable (ssm_spec is None, or the parameter
+        # references an unknown construct), these fallbacks set a uniform scalar prior
+        # on the entire SSM field instead.  This is a degraded but safe default.
         role = role_by_name.get(param_name)
         if role and role in ROLE_TO_SSM:
             attr, defaults = ROLE_TO_SSM[role]
             merged = {key: normalized.get(key, value) for key, value in defaults.items()}
             setattr(ssm_priors, attr, merged)
+            logger.info(
+                "Prior '%s': role-based scalar fallback -> %s (no structural index)",
+                param_name,
+                attr,
+            )
             continue
 
+        # Last resort: substring match on parameter name.
         name_lower = param_name.lower()
         matched = False
         for keywords, attr, defaults in KEYWORD_RULES:
             matching_kw = [kw for kw in keywords if kw in name_lower]
             if not matching_kw:
                 continue
-            logger.debug(
+            logger.info(
                 "Prior '%s': keyword fallback matched '%s' -> %s",
                 param_name,
                 matching_kw[0],

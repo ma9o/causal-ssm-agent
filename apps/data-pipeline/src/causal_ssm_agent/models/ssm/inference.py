@@ -75,24 +75,6 @@ _AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
 }
 
 
-def _make_prior_predictive_dummy_observations(spec: SSMSpec, times: jnp.ndarray) -> jnp.ndarray:
-    """Create support-compatible observations for prior predictive tracing."""
-    n_times = len(times)
-    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-    alternating_binary = (jnp.arange(n_times, dtype=jnp.float32) % 2).astype(jnp.float32)
-
-    cols = []
-    for dist in manifest_dists:
-        if dist.is_discrete:
-            cols.append(alternating_binary)
-        else:
-            cols.append(jnp.full((n_times,), dist.support_interior_point, dtype=jnp.float32))
-
-    if not cols:
-        return jnp.zeros((n_times, 0), dtype=jnp.float32)
-    return jnp.stack(cols, axis=1)
-
-
 InferenceMethod = Literal[
     "auto",
     "nuts",
@@ -112,13 +94,15 @@ class FittedArtifact:
     """Canonical persisted output of inference.
 
     This is the only shape persisted by Stage 5b and consumed by Stage 6.
-    Holds the inference result, builder, and times needed for downstream
-    intervention analysis.
+    Holds the inference result, diagnostics, and runtime metadata needed for
+    downstream intervention analysis.
     """
 
-    result: InferenceResult
-    builder: Any  # SSMModelBuilder
+    result: InferenceResult | None
+    builder: Any | None  # SSMModelBuilder
     times: Any  # jnp.ndarray | None
+    ppc_result: dict[str, Any] | None = None
+    power_scaling_result: dict[str, Any] | None = None
 
 
 @dataclass

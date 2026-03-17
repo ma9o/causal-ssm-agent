@@ -303,6 +303,7 @@ def validate_prior_predictive(
     n_samples: int = 500,
     constraint_tolerance: float = 0.05,
     causal_spec: dict | None = None,
+    compiled_ssm: dict | None = None,
 ) -> tuple[bool, list[PriorValidationResult], dict]:
     """Validate priors via prior predictive sampling.
 
@@ -321,25 +322,25 @@ def validate_prior_predictive(
         constraint_tolerance: Fraction of positive-constraint violations to
             tolerate before flagging failure (default 5%).
         causal_spec: CausalSpec dict for DAG-constrained masks
+        compiled_ssm: Optional precompiled artifact to reuse within a Stage 4
+            validation pass and avoid recompiling identical inputs.
 
     Returns:
         Tuple of (is_valid, validation results, raw prior predictive samples).
         The samples dict can be passed to simulate_posterior_predictive() to
         generate per-variable observation samples for visualization.
     """
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+    from causal_ssm_agent.models.ssm_builder import (
+        prepare_model_runtime,
+        prepare_wide_model_runtime,
+    )
+    from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
     from causal_ssm_agent.models.ssm_compiler import (
         compile_ssm_artifact,
         make_builder_from_compiled_artifact,
     )
-    from causal_ssm_agent.utils.data import pivot_to_wide
 
-    priors_dict = {}
-    for name, prior in priors.items():
-        if isinstance(prior, PriorProposal):
-            priors_dict[name] = prior.model_dump()
-        else:
-            priors_dict[name] = prior
+    priors_dict = dump_prior_payloads(priors)
 
     # Parse model_spec for manifest names
     if isinstance(model_spec, dict):
@@ -351,17 +352,18 @@ def validate_prior_predictive(
 
     # 1. Build model
     try:
-        compiled_ssm = compile_ssm_artifact(model_spec, priors_dict, causal_spec=causal_spec)
+        artifact = compiled_ssm or compile_ssm_artifact(
+            model_spec, priors_dict, causal_spec=causal_spec
+        )
         if raw_data is not None and not raw_data.is_empty():
-            builder = build_ssm_builder(
-                wide_data=pivot_to_wide(raw_data),
-                compiled_ssm=compiled_ssm,
-            )
+            builder = prepare_model_runtime(raw_data, compiled_ssm=artifact).builder
         else:
             # No raw data: create dummy observations inside each family's support
             X_wide = _make_support_compatible_dummy_wide_data(spec_obj)
-            builder = make_builder_from_compiled_artifact(compiled_ssm)
-            builder.build_model(X_wide)
+            builder = prepare_wide_model_runtime(
+                X_wide,
+                builder=make_builder_from_compiled_artifact(artifact),
+            ).builder
     except Exception as e:
         return (
             False,
@@ -506,21 +508,32 @@ def format_parameter_feedback(
         if r.suggested_adjustment:
             lines.append(f"  Suggested: {r.suggested_adjustment}")
 
-    # Add data scale context if available
+    # Add data scale context only for scale-mismatch failures, scoped to the
+    # specific indicators that triggered the mismatch.  Global failures
+    # (model_build, prior_sampling) and constraint/extreme-value checks don't
+    # benefit from a full data-stats dump.
     if data_stats:
-        scale_lines = []
-        for indicator, stats in data_stats.items():
-            std = stats.get("std")
-            mean = stats.get("mean")
-            if std is not None and mean is not None:
-                scale_lines.append(f"  {indicator}: mean={mean:.2g}, std={std:.2g}")
-        if scale_lines:
-            lines.append("")
-            lines.append("Data scale reference:")
-            lines.extend(scale_lines)
+        scale_indicators = {
+            r.parameter.removeprefix("scale_")
+            for r in relevant
+            if r.parameter.lower().startswith("scale_")
+        }
+        if scale_indicators:
+            scale_lines = []
+            for indicator in sorted(scale_indicators):
+                if indicator in data_stats:
+                    stats = data_stats[indicator]
+                    std = stats.get("std")
+                    mean = stats.get("mean")
+                    if std is not None and mean is not None:
+                        scale_lines.append(f"  {indicator}: mean={mean:.2g}, std={std:.2g}")
+            if scale_lines:
+                lines.append("")
+                lines.append("Data scale reference:")
+                lines.extend(scale_lines)
 
     lines.append("")
-    lines.append("Please revise your prior to be consistent with the data scale.")
+    lines.append("Please revise your prior to address the issues above.")
 
     return "\n".join(lines)
 

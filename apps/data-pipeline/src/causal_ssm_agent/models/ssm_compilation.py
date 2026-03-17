@@ -22,10 +22,10 @@ from causal_ssm_agent.models.ssm_spec_translation import (
     get_structural_latent_layout,
     translate_spec,
 )
+from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
-    from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
 
 def compile_ssm_inputs(
@@ -37,24 +37,28 @@ def compile_ssm_inputs(
     causal_spec: dict | None = None,
 ) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]]]:
     """Resolve executable SSM inputs from either semantic specs or precompiled state."""
+    resolved_model_spec = (
+        ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
+    )
+
     edge_lag_days: dict[tuple[int, int], float] = {}
     if ssm_spec is None:
-        if model_spec is None:
+        if resolved_model_spec is None:
             raise ValueError("Cannot compile SSM inputs without model_spec or ssm_spec")
-        ssm_spec, edge_lag_days = translate_spec(model_spec, causal_spec)
+        ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
 
     index_maps = None
     if ssm_priors is None:
         ssm_priors, index_maps = compile_priors(
             priors or {},
-            model_spec,
+            resolved_model_spec,
             ssm_spec,
             edge_lag_days=edge_lag_days,
             causal_spec=causal_spec,
         )
 
     bindings = bind_parameters(
-        model_spec,
+        resolved_model_spec,
         ssm_spec,
         index_maps=index_maps,
         causal_spec=causal_spec,
