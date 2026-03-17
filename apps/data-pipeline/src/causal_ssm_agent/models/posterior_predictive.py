@@ -17,46 +17,15 @@ import jax.numpy as jnp
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
-from causal_ssm_agent.models.likelihoods.emissions import (
-    categorical_probabilities,
-    ordered_logistic_probabilities,
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
+from causal_ssm_agent.models.likelihoods.observation_families import (
+    POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
+    any_family_needs_level_metadata,
+    get_posterior_predictive_switch_index,
 )
-from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-# Integer indices for jax.lax.switch dispatch (per-channel distribution + link)
-# Default link entries (backward-compatible indices 0-6)
-_DIST_IDX: dict[str, int] = {
-    DistributionFamily.GAUSSIAN: 0,
-    DistributionFamily.STUDENT_T: 1,
-    DistributionFamily.POISSON: 2,
-    DistributionFamily.GAMMA: 3,
-    DistributionFamily.BERNOULLI: 4,
-    DistributionFamily.NEGATIVE_BINOMIAL: 5,
-    DistributionFamily.BETA: 6,
-    DistributionFamily.ORDERED_LOGISTIC: 10,
-    DistributionFamily.CATEGORICAL: 11,
-}
-
-# Combined (dist, link) dispatch — adds non-default link variants
-_DIST_LINK_IDX: dict[tuple[str, str], int] = {
-    (DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY): 0,
-    (DistributionFamily.STUDENT_T, LinkFunction.IDENTITY): 1,
-    (DistributionFamily.POISSON, LinkFunction.LOG): 2,
-    (DistributionFamily.GAMMA, LinkFunction.LOG): 3,
-    (DistributionFamily.BERNOULLI, LinkFunction.LOGIT): 4,
-    (DistributionFamily.NEGATIVE_BINOMIAL, LinkFunction.LOG): 5,
-    (DistributionFamily.BETA, LinkFunction.LOGIT): 6,
-    # Non-default link variants
-    (DistributionFamily.GAMMA, LinkFunction.INVERSE): 7,
-    (DistributionFamily.BERNOULLI, LinkFunction.PROBIT): 8,
-    (DistributionFamily.BETA, LinkFunction.PROBIT): 9,
-    (DistributionFamily.ORDERED_LOGISTIC, LinkFunction.CUMULATIVE_LOGIT): 10,
-    (DistributionFamily.CATEGORICAL, LinkFunction.SOFTMAX): 11,
-}
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 # ---------------------------------------------------------------------------
 # PPC models
@@ -135,14 +104,6 @@ def _broadcast_draw_param(
     return jnp.broadcast_to(value, (n_use, *value.shape))
 
 
-def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:
-    return jax.random.categorical(
-        key,
-        jnp.log(jnp.maximum(probs, NUMERICAL_EPSILON)),
-        axis=-1,
-    ).astype(jnp.float32)
-
-
 def _simulate_one_draw_gaussian(
     drift: jnp.ndarray,
     diffusion_chol: jnp.ndarray,
@@ -212,106 +173,10 @@ def _sample_channel(
     cat_intercepts,
     cat_slopes,
 ):
-    """Sample one observation from a channel's distribution using jax.lax.switch.
-
-    All distribution+link combos are compiled but only the matching one executes.
-    Uses raw JAX random functions for switch-compatibility.
-    Indices 0-6: default link; 7: gamma+inverse; 8: bernoulli+probit; 9: beta+probit;
-    10: ordered_logistic; 11: categorical+softmax.
-    """
-
-    def _gauss(loc, k, s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
-        return loc + s * jax.random.normal(k, ())
-
-    def _student_t(loc, k, s, df_v, _sh, _r, _ph, _lc, _cp, _ci, _cs):
-        # t-distribution via normal / sqrt(chi2/df); chi2(df) = 2*Gamma(df/2)
-        k1, k2 = jax.random.split(k)
-        z = jax.random.normal(k1, ())
-        chi2 = 2.0 * jax.random.gamma(k2, df_v / 2.0)
-        t_val = z * jnp.sqrt(df_v / jnp.maximum(chi2, NUMERICAL_EPSILON))
-        return loc + s * t_val
-
-    def _poisson(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
-        rate = jnp.exp(jnp.clip(loc, -20.0, 20.0))
-        return jax.random.poisson(k, rate).astype(jnp.float32)
-
-    def _gamma(loc, k, _s, _df, shape_v, _r, _ph, _lc, _cp, _ci, _cs):
-        mean = jnp.exp(jnp.clip(loc, -20.0, 20.0))
-        scale = jnp.maximum(mean / jnp.maximum(shape_v, 1e-8), 1e-8)
-        return jax.random.gamma(k, shape_v) * scale
-
-    def _bernoulli(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
-        p = jax.nn.sigmoid(loc)
-        return jax.random.bernoulli(k, p).astype(jnp.float32)
-
-    def _negbin(loc, k, _s, _df, _sh, r_v, _ph, _lc, _cp, _ci, _cs):
-        # Gamma-Poisson mixture: g ~ Gamma(r, 1), y ~ Poisson(g * mu / r)
-        mu = jnp.exp(jnp.clip(loc, -20.0, 20.0))
-        k1, k2 = jax.random.split(k)
-        g = jax.random.gamma(k1, r_v) * mu / jnp.maximum(r_v, 1e-8)
-        return jax.random.poisson(k2, jnp.maximum(g, NUMERICAL_EPSILON)).astype(jnp.float32)
-
-    def _beta(loc, k, _s, _df, _sh, _r, phi_v, _lc, _cp, _ci, _cs):
-        mean = jax.nn.sigmoid(loc)
-        alpha = jnp.maximum(mean * phi_v, 1e-4)
-        beta_p = jnp.maximum((1.0 - mean) * phi_v, 1e-4)
-        k1, k2 = jax.random.split(k)
-        g1 = jax.random.gamma(k1, alpha)
-        g2 = jax.random.gamma(k2, beta_p)
-        return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
-
-    def _gamma_inv(loc, k, _s, _df, shape_v, _r, _ph, _lc, _cp, _ci, _cs):
-        mean = 1.0 / jnp.clip(loc, 1e-6, None)
-        scale = jnp.maximum(mean / jnp.maximum(shape_v, 1e-8), 1e-8)
-        return jax.random.gamma(k, shape_v) * scale
-
-    def _bernoulli_probit(loc, k, _s, _df, _sh, _r, _ph, _lc, _cp, _ci, _cs):
-        p = jax.scipy.stats.norm.cdf(loc)
-        return jax.random.bernoulli(k, p).astype(jnp.float32)
-
-    def _beta_probit(loc, k, _s, _df, _sh, _r, phi_v, _lc, _cp, _ci, _cs):
-        mean = jax.scipy.stats.norm.cdf(loc)
-        alpha = jnp.maximum(mean * phi_v, 1e-4)
-        beta_p = jnp.maximum((1.0 - mean) * phi_v, 1e-4)
-        k1, k2 = jax.random.split(k)
-        g1 = jax.random.gamma(k1, alpha)
-        g2 = jax.random.gamma(k2, beta_p)
-        return g1 / jnp.maximum(g1 + g2, NUMERICAL_EPSILON)
-
-    def _ordered_logistic(loc, k, _s, _df, _sh, _r, _ph, lc, cp, _ci, _cs):
-        probs = ordered_logistic_probabilities(
-            jnp.asarray([loc]),
-            cp[None, :],
-            jnp.asarray([lc], dtype=jnp.int32),
-        )[0]
-        return _sample_discrete_from_probs(k, probs)
-
-    def _categorical(loc, k, _s, _df, _sh, _r, _ph, lc, _cp, ci, cs):
-        probs = categorical_probabilities(
-            jnp.asarray([loc]),
-            ci[None, :],
-            cs[None, :],
-            jnp.asarray([lc], dtype=jnp.int32),
-        )[0]
-        return _sample_discrete_from_probs(k, probs)
-
-    branches = [
-        _gauss,
-        _student_t,
-        _poisson,
-        _gamma,
-        _bernoulli,
-        _negbin,
-        _beta,
-        _gamma_inv,
-        _bernoulli_probit,
-        _beta_probit,
-        _ordered_logistic,
-        _categorical,
-    ]
+    """Sample one observation from a channel's distribution using registry dispatch."""
     return jax.lax.switch(
         dist_idx,
-        branches,
+        POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
         loc_j,
         key,
         std_j,
@@ -337,9 +202,7 @@ def _resolve_dist_indices(
     effective_links = manifest_links or [manifest_link] * n_manifest
     return jnp.array(
         [
-            _DIST_LINK_IDX.get((dist, link), _DIST_IDX.get(dist, 0))
-            if link is not None
-            else _DIST_IDX.get(dist, 0)
+            get_posterior_predictive_switch_index(dist, link=link)
             for dist, link in zip(effective_dists, effective_links, strict=False)
         ]
     )
@@ -373,7 +236,7 @@ def _simulate_one_draw_mixed(
 
     Args:
         dist_indices: (n_manifest,) integer array mapping each channel to
-            a combined distribution+link type index (see _DIST_LINK_IDX).
+            a combined distribution+link type index.
 
     Returns:
         y_sim: (T, n_manifest) simulated observations
