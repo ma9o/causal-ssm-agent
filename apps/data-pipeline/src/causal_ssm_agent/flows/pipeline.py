@@ -24,24 +24,6 @@ logger = get_prefect_logger(__name__)
 STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
 
 
-def _stage_sequence() -> tuple[str, ...]:
-    from causal_ssm_agent.flows.stage_registry import get_execution_order
-
-    return tuple(get_execution_order())
-
-
-def _stage_index() -> dict[str, int]:
-    return {stage_id: index for index, stage_id in enumerate(_stage_sequence())}
-
-
-def _question_stages() -> frozenset[str]:
-    from causal_ssm_agent.flows.stage_registry import get_stage_registry
-
-    return frozenset(
-        stage_id for stage_id, defn in get_stage_registry().items() if defn.question_required
-    )
-
-
 def _preview(text: str, *, limit: int = 120) -> str:
     compact = " ".join(text.split())
     if len(compact) <= limit:
@@ -49,22 +31,11 @@ def _preview(text: str, *, limit: int = 120) -> str:
     return f"{compact[: limit - 3]}..."
 
 
-def _stage_idx(stage_id: str) -> int:
-    stage_index = _stage_index()
-    try:
-        return stage_index[stage_id]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unknown stage '{stage_id}'. Expected one of: {', '.join(_stage_sequence())}"
-        ) from exc
-
-
-def _filter_stage_overrides(stage_overrides: dict[str, dict] | None) -> dict[str, dict]:
-    from causal_ssm_agent.flows.stage_registry import get_stage_registry
-
-    overrideable_stages = {
-        stage_id for stage_id, defn in get_stage_registry().items() if defn.override_eligible
-    }
+def _filter_stage_overrides(
+    stage_overrides: dict[str, dict] | None,
+    *,
+    overrideable_stages: frozenset[str],
+) -> dict[str, dict]:
     supported: dict[str, dict] = {}
     for stage_id, payload in (stage_overrides or {}).items():
         if stage_id not in overrideable_stages:
@@ -78,15 +49,24 @@ def _resolve_stage_window(
     *,
     start_stage: str | None,
     end_stage: str | None,
+    execution_order: tuple[str, ...],
+    stage_index: dict[str, int],
 ) -> tuple[str, int, str, int]:
-    stage_sequence = _stage_sequence()
     if start_stage is None:
-        start_stage = stage_sequence[0]
+        start_stage = execution_order[0]
 
-    start_idx = _stage_idx(start_stage)
+    try:
+        start_idx = stage_index[start_stage]
+    except KeyError as exc:
+        known = ", ".join(execution_order)
+        raise ValueError(f"Unknown stage '{start_stage}'. Expected one of: {known}") from exc
 
-    resolved_end_stage = end_stage or stage_sequence[-1]
-    end_idx = _stage_idx(resolved_end_stage)
+    resolved_end_stage = end_stage or execution_order[-1]
+    try:
+        end_idx = stage_index[resolved_end_stage]
+    except KeyError as exc:
+        known = ", ".join(execution_order)
+        raise ValueError(f"Unknown stage '{resolved_end_stage}'. Expected one of: {known}") from exc
     if end_idx < start_idx:
         raise ValueError(
             f"end_stage {resolved_end_stage} cannot come before start_stage {start_stage}"
@@ -99,8 +79,8 @@ def _resolve_question(
     *,
     query: str | None,
     user_id: str,
-    start_idx: int,
-    end_idx: int,
+    relevant_stage_ids: tuple[str, ...],
+    question_stages: frozenset[str],
 ) -> str | None:
     """Resolve the research question, materializing it to disk.
 
@@ -112,11 +92,7 @@ def _resolve_question(
     previously-materialized file instead.
     """
     query_path = storage.join(DATA_URI, user_id, "query.txt")
-    stage_sequence = _stage_sequence()
-    question_stages = _question_stages()
-    requires_question = any(
-        stage_id in question_stages for stage_id in stage_sequence[start_idx : end_idx + 1]
-    )
+    requires_question = any(stage_id in question_stages for stage_id in relevant_stage_ids)
     if query:
         question = query.strip()
         storage.write_text(query_path, question)
@@ -179,13 +155,10 @@ def _partial_pipeline_result(user_id: str, stage_id: str, state: dict[str, Any])
     }
 
 
-def _raise_if_restored_gate_failed(stage_id: str, state: dict[str, Any]) -> None:
+def _raise_if_restored_gate_failed(defn: Any, state: dict[str, Any]) -> None:
     gate = state.get("gate")
     if gate is None or not gate.get("gate_failed") or gate.get("gate_overridden"):
         return
-    from causal_ssm_agent.flows.stage_registry import get_stage_registry
-
-    defn = get_stage_registry()[stage_id]
     if defn.gate_error is not None:
         raise RuntimeError(defn.gate_error(gate))
 
@@ -241,16 +214,31 @@ async def causal_inference_pipeline(
     from causal_ssm_agent.utils.config import get_config
 
     config = get_config()
-    supported_overrides = _filter_stage_overrides(stage_overrides)
+    registry = get_stage_registry()
+    execution_order = get_execution_order()
+    stage_index = {stage_id: idx for idx, stage_id in enumerate(execution_order)}
+    question_stages = frozenset(
+        stage_id for stage_id, defn in registry.items() if defn.question_required
+    )
+    overrideable_stages = frozenset(
+        stage_id for stage_id, defn in registry.items() if defn.override_eligible
+    )
+
+    supported_overrides = _filter_stage_overrides(
+        stage_overrides,
+        overrideable_stages=overrideable_stages,
+    )
     effective_start_stage, start_idx, effective_end_stage, end_idx = _resolve_stage_window(
         start_stage=start_stage,
         end_stage=end_stage,
+        execution_order=execution_order,
+        stage_index=stage_index,
     )
     question = _resolve_question(
         query=query,
         user_id=user_id,
-        start_idx=start_idx,
-        end_idx=end_idx,
+        relevant_stage_ids=execution_order[start_idx : end_idx + 1],
+        question_stages=question_stages,
     )
 
     gates_overridden = (
@@ -295,8 +283,6 @@ async def causal_inference_pipeline(
     )
 
     stage_states: dict[str, dict[str, Any]] = {}
-    registry = get_stage_registry()
-    execution_order = get_execution_order()
 
     async def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
@@ -309,9 +295,8 @@ async def causal_inference_pipeline(
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
         return _partial_pipeline_result(user_id, stage_id, stage_states[stage_id])
 
-    for stage_id in execution_order:
+    for idx, stage_id in enumerate(execution_order):
         defn = registry[stage_id]
-        idx = _stage_idx(stage_id)
 
         if idx > end_idx:
             break
@@ -323,7 +308,7 @@ async def causal_inference_pipeline(
             restored = load_stage_state(user_id, stage_id, prior_states=stage_states)
             stage_states[stage_id] = restored
             _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
-            _raise_if_restored_gate_failed(stage_id, restored)
+            _raise_if_restored_gate_failed(defn, restored)
         else:
             # Execute this stage
             if defn.question_required and question is None:

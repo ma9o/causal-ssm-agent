@@ -8,7 +8,8 @@ Orchestrator-Worker architecture with SSM grounding:
    - Validate priors
    - On failure, re-elicit only failed parameters with feedback
    - Max N retries, reusing cached Exa results
-5. Build SSMModel (only if validation passes or retries exhausted)
+5. Return authored stage-4 state; the pipeline materializer derives validation
+   and compiled artifacts once, in one place.
 
 See docs/modeling/functional_spec.md for design rationale.
 """
@@ -227,69 +228,6 @@ async def elicit_prior_task(
         return get_default_prior(param).model_dump()
 
 
-@task(retries=1, task_run_name="validate-priors")
-def validate_priors_task(
-    model_spec: dict,
-    priors: dict[str, dict],
-    raw_data: pl.DataFrame,
-    causal_spec: dict | None = None,
-) -> dict:
-    """Validate priors via compile check + prior predictive sampling.
-
-    Uses the shared ``validate_assembly()`` pipeline, then optionally
-    forward-simulates prior predictive observations for web visualization.
-
-    Args:
-        model_spec: Model specification dict
-        priors: Prior proposals by parameter name
-        raw_data: Raw timestamped data
-        causal_spec: CausalSpec dict for DAG-constrained masks
-
-    Returns:
-        Validation result dict with is_valid, results, issues, prior_predictive_samples
-    """
-    from .stage4_assembly import build_validation_payload, validate_assembly
-
-    try:
-        validation = validate_assembly(
-            model_spec,
-            priors,
-            raw_data,
-            causal_spec,
-        )
-        return build_validation_payload(validation, model_spec)
-    except Exception as e:
-        return {
-            "is_valid": False,
-            "results": [],
-            "issues": [f"Prior validation error: {e}"],
-            "prior_predictive_samples": {},
-        }
-
-
-@task(task_run_name="compile-ssm-model")
-def compile_model_task(
-    model_spec: dict,
-    priors: dict[str, dict],
-    raw_data: pl.DataFrame,
-    causal_spec: dict | None = None,
-) -> dict:
-    """Compile and verify an executable SSM artifact.
-
-    Args:
-        model_spec: Model specification
-        priors: Prior proposals
-        raw_data: Raw timestamped data (indicator, value, timestamp)
-        causal_spec: CausalSpec dict for DAG-constrained masks
-
-    Returns:
-        Dict with compile/build status and serialized artifact
-    """
-    from .stage4_assembly import compile_model_artifact
-
-    return compile_model_artifact(model_spec, priors, raw_data, causal_spec=causal_spec)
-
-
 @flow(name="stage4-orchestrated", log_prints=True, persist_result=True, result_serializer="json")
 async def stage4_orchestrated_flow(
     causal_spec: dict,
@@ -308,7 +246,8 @@ async def stage4_orchestrated_flow(
        - On failure, re-elicit only failed parameters in parallel
        - Feed validation issues + data scale back to LLM
        - Max N retries, reusing cached Exa results
-    5. Compile the executable SSM artifact (only when validation passes or retries exhausted)
+    5. Return the authored stage-4 state; the registry materializer derives the
+       executable/runtime payload once after orchestration completes
 
     Args:
         causal_spec: Full CausalSpec dict
@@ -318,7 +257,8 @@ async def stage4_orchestrated_flow(
         max_prior_retries: Maximum validation retry attempts
 
     Returns:
-        Stage 4 result dict with model_spec, priors, validation
+        Authored Stage 4 state (model_spec + priors + provenance). The pipeline
+        materializer derives validation/model artifacts from this state.
     """
     from prefect.utilities.annotations import unmapped
 
@@ -327,8 +267,7 @@ async def stage4_orchestrated_flow(
 
     from .stage4_assembly import (
         build_retry_feedback,
-        build_validation_payload,
-        compile_model_artifact,
+        build_stage4_authored_state,
         validate_assembly,
     )
 
@@ -420,7 +359,6 @@ async def stage4_orchestrated_flow(
 
     # 4. Validation loop
     validation = None
-    validation_result = None
     validation_retries: list[dict[str, object]] = []
     for attempt in range(max_prior_retries + 1):
         validation = validate_assembly(
@@ -429,9 +367,7 @@ async def stage4_orchestrated_flow(
             raw_data,
             causal_spec,
         )
-        validation_result = build_validation_payload(validation, model_spec)
-
-        if validation_result.get("is_valid", False):
+        if validation.is_valid:
             logger.info("Prior validation passed on attempt %d", attempt + 1)
             break
 
@@ -442,7 +378,7 @@ async def stage4_orchestrated_flow(
             )
             break
 
-        failed_param_names, feedbacks = build_retry_feedback(
+        failed_param_names, feedbacks, global_summary = build_retry_feedback(
             validation,
             priors,
             causal_spec=causal_spec,
@@ -452,7 +388,7 @@ async def stage4_orchestrated_flow(
         # If validation failed but no specific parameters identified (e.g., validator
         # exception returned empty results), treat as global failure: re-elicit all.
         if not failed_param_names:
-            if not validation_result.get("is_valid", False):
+            if not validation.is_valid:
                 logger.warning(
                     "Validation failed with no per-parameter results; re-eliciting all parameters"
                 )
@@ -460,6 +396,14 @@ async def stage4_orchestrated_flow(
             else:
                 break
             feedbacks = dict.fromkeys(failed_param_names, "")
+
+        if global_summary:
+            logger.warning(
+                "Attempt %d: global validation failure; skipping prior re-elicitation.\n%s",
+                attempt + 1,
+                global_summary,
+            )
+            break
 
         logger.info(
             "Attempt %d: re-eliciting %d failed parameters: %s",
@@ -501,28 +445,11 @@ async def stage4_orchestrated_flow(
         for name, result in zip(failed_param_names, re_results):
             priors[name] = result
 
-    # 5. Compile the executable artifact (only after validation loop)
-    model_result = compile_model_artifact(
-        model_spec,
-        priors,
-        raw_data,
-        causal_spec=causal_spec,
-        compiled_ssm=validation.compiled_ssm if validation is not None else None,
+    assert validation is not None
+    return build_stage4_authored_state(
+        model_spec=model_spec,
+        priors=priors,
+        validation_retries=validation_retries or None,
+        llm_trace=llm_trace,
+        assembly_validation=validation,
     )
-    compiled_ssm = model_result.pop("compiled_ssm", None)
-
-    result = {
-        "model_spec": model_spec,
-        "priors": priors,
-        "validation": validation_result,
-        "validation_retries": validation_retries or None,
-        "model_info": model_result,
-        "is_valid": validation_result.get("is_valid", False) if validation_result else False,
-        "causal_spec": causal_spec,
-        "prior_predictive_samples": (validation_result or {}).get("prior_predictive_samples", {}),
-    }
-    if compiled_ssm is not None:
-        result["_compiled_ssm"] = compiled_ssm
-    if llm_trace is not None:
-        result["llm_trace"] = llm_trace
-    return result

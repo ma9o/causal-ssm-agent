@@ -53,9 +53,8 @@ def parametric_id_task(
     """
     import jax.numpy as jnp
 
+    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
     from causal_ssm_agent.utils.parametric_id import profile_likelihood
-
-    from .stage5_inference import prepare_model_runtime
 
     try:
         runtime = prepare_model_runtime(

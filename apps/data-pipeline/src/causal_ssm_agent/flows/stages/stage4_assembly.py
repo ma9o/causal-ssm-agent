@@ -48,7 +48,7 @@ def validate_assembly(
     """Validate stage 4 assembly: compile check + prior predictive.
 
     This is the single source of truth for the validation sequence.
-    Both ``stage4_grounding()`` and ``validate_priors_task()`` use this.
+    Both ``stage4_grounding()`` and ``stage4_orchestrated_flow()`` use this.
 
     Steps:
         1. Compile check: trial compile (no priors) or real compile (with priors)
@@ -83,7 +83,11 @@ def validate_assembly(
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
 
         is_valid, results, raw_samples = validate_prior_predictive(
-            candidate, priors, raw_data, causal_spec=causal_spec
+            candidate,
+            priors,
+            raw_data,
+            causal_spec=causal_spec,
+            compiled_ssm=compiled_ssm,
         )
         return AssemblyValidation(
             normalized_model_spec=candidate,
@@ -129,6 +133,45 @@ def validate_prior_proposals(priors: dict[str, dict] | None) -> dict[str, dict]:
         except Exception as exc:
             raise ValueError(f"SCHEMA ERRORS for prior '{name}':\n- {exc}") from exc
     return validated
+
+
+def build_stage4_authored_state(
+    *,
+    model_spec: dict,
+    priors: dict[str, dict],
+    validation_retries: list[dict[str, Any]] | None = None,
+    llm_trace: dict[str, Any] | None = None,
+    assembly_validation: AssemblyValidation | None = None,
+) -> dict[str, Any]:
+    """Build the authored stage-4 state before derived fields are materialized."""
+    result: dict[str, Any] = {
+        "model_spec": model_spec,
+        "priors": priors,
+        "validation_retries": validation_retries,
+    }
+    if llm_trace is not None:
+        result["llm_trace"] = llm_trace
+    if assembly_validation is not None:
+        result["_assembly_validation"] = assembly_validation
+    return result
+
+
+def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept a replay payload and keep only authored stage-4 fields."""
+    model_spec = payload.get("model_spec")
+    if not isinstance(model_spec, dict):
+        raise ValueError("Stage 4 replay requires a 'model_spec' object")
+
+    priors = payload.get("priors")
+    if not isinstance(priors, dict):
+        raise ValueError("Stage 4 replay requires a 'priors' object")
+
+    return build_stage4_authored_state(
+        model_spec=model_spec,
+        priors=validate_prior_proposals(priors),
+        validation_retries=payload.get("validation_retries"),
+        llm_trace=payload.get("llm_trace"),
+    )
 
 
 def build_prior_predictive_samples(
@@ -178,6 +221,8 @@ def build_validation_payload(
     model_spec: dict,
 ) -> dict[str, Any]:
     """Convert ``AssemblyValidation`` into the web-facing validation payload."""
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+
     payload_spec = validation.normalized_model_spec or model_spec
     if not validation.compile_ok:
         return {
@@ -188,14 +233,93 @@ def build_validation_payload(
         }
 
     results = [result.model_dump() for result in validation.pp_results]
+    global_results = [
+        result
+        for result in validation.pp_results
+        if not result.is_valid and result.parameter in GLOBAL_FAILURE_SITES
+    ]
     return {
         "is_valid": validation.pp_valid,
         "results": results,
-        "issues": [
-            result.issue for result in validation.pp_results if not result.is_valid and result.issue
-        ],
+        "issues": (
+            [_format_global_failure_summary(global_results)]
+            if global_results
+            else [
+                result.issue
+                for result in validation.pp_results
+                if not result.is_valid and result.issue
+            ]
+        ),
         "prior_predictive_samples": build_prior_predictive_samples(validation, payload_spec),
     }
+
+
+def _summarize_issue_text(issue: str | None, *, max_chars: int = 240) -> str:
+    """Reduce verbose exception text to the actionable root cause."""
+    if not issue:
+        return "Unknown validation issue"
+
+    lines = [line.strip() for line in issue.splitlines() if line.strip()]
+    if not lines:
+        return "Unknown validation issue"
+
+    summary = lines[0]
+    for prefix in ("Model build failed:", "Prior predictive sampling failed:"):
+        if summary.startswith(prefix):
+            summary = summary.removeprefix(prefix).strip()
+    if not summary and len(lines) > 1:
+        summary = lines[1]
+        for prefix in ("Model build failed:", "Prior predictive sampling failed:"):
+            if summary.startswith(prefix):
+                summary = summary.removeprefix(prefix).strip()
+
+    bullet_lines = [
+        line.lstrip("- ").strip() for line in lines[1:] if line.lstrip().startswith("-")
+    ]
+    if bullet_lines:
+        summary = f"{summary} {bullet_lines[0]}"
+        if len(bullet_lines) > 1:
+            summary += f" (+{len(bullet_lines) - 1} more)"
+
+    summary = " ".join(summary.split())
+    if len(summary) <= max_chars:
+        return summary
+
+    truncated = summary[: max_chars - 3].rstrip()
+    if " " in truncated:
+        truncated = truncated.rsplit(" ", 1)[0]
+    return truncated + "..."
+
+
+def _format_global_failure_summary(results: list) -> str:
+    """Format a concise summary for global validation failures.
+
+    Produces a single block instead of repeating the same error for every
+    parameter.  Also classifies whether the root cause is a model_spec issue
+    (e.g. likelihood family incompatible with data) vs a prior issue.
+    """
+    lines = ["Validation FAILED (global issue — affects all parameters):"]
+    seen_issues: set[str] = set()
+    for r in results:
+        summarized_issue = _summarize_issue_text(r.issue)
+        if summarized_issue in seen_issues:
+            continue
+        seen_issues.add(summarized_issue)
+        lines.append(f"- {summarized_issue}")
+        if r.suggested_adjustment:
+            lines.append(f"  Suggested: {r.suggested_adjustment}")
+
+    # Heuristic: observation-support errors are model_spec issues, not prior issues.
+    issues_text = " ".join(r.issue or "" for r in results)
+    if "support check" in issues_text.lower() or "outside support" in issues_text.lower():
+        lines.append("")
+        lines.append(
+            "NOTE: This is a model_spec issue (likelihood family incompatible "
+            "with observed data). Consider changing the distribution family "
+            "rather than adjusting priors."
+        )
+
+    return "\n".join(lines)
 
 
 def build_retry_feedback(
@@ -204,12 +328,22 @@ def build_retry_feedback(
     *,
     causal_spec: dict | None = None,
     data_stats: dict | None = None,
-) -> tuple[list[str], dict[str, str]]:
-    """Identify failed parameters and build per-parameter retry feedback."""
+) -> tuple[list[str], dict[str, str], str | None]:
+    """Identify failed parameters and build per-parameter retry feedback.
+
+    For global failures (model_build, prior_sampling) produces a concise
+    shared summary instead of repeating the same error per parameter.
+
+    Returns:
+        (failed_param_names, per_param_feedbacks, global_summary_or_None).
+        ``global_summary`` is a compact log-friendly string when the failure
+        is global, otherwise ``None``.
+    """
     from causal_ssm_agent.models.prior_predictive import (
         format_parameter_feedback,
         get_failed_parameters,
     )
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     failed_param_names = get_failed_parameters(
         validation.pp_results,
@@ -219,6 +353,15 @@ def build_retry_feedback(
     if not failed_param_names and not validation.pp_valid:
         failed_param_names = list(priors.keys())
 
+    # Global failures → one concise summary shared by all parameters
+    global_results = [
+        r for r in validation.pp_results if not r.is_valid and r.parameter in GLOBAL_FAILURE_SITES
+    ]
+    if global_results:
+        global_summary = _format_global_failure_summary(global_results)
+        return failed_param_names, {}, global_summary
+
+    # Per-parameter failures → targeted feedback with scoped data stats
     feedbacks = {
         param_name: format_parameter_feedback(
             parameter_name=param_name,
@@ -228,7 +371,7 @@ def build_retry_feedback(
         )
         for param_name in failed_param_names
     }
-    return failed_param_names, feedbacks
+    return failed_param_names, feedbacks, None
 
 
 def compile_model_artifact(
@@ -239,9 +382,8 @@ def compile_model_artifact(
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
-    from causal_ssm_agent.models.ssm_builder import build_ssm_builder
+    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
-    from causal_ssm_agent.utils.data import pivot_to_wide
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
@@ -249,10 +391,8 @@ def compile_model_artifact(
             priors,
             causal_spec=causal_spec,
         )
-        builder = build_ssm_builder(
-            wide_data=pivot_to_wide(raw_data),
-            compiled_ssm=artifact,
-        )
+        runtime = prepare_model_runtime(raw_data, compiled_ssm=artifact)
+        builder = runtime.builder
         return {
             "model_built": True,
             "model_type": builder._model_type,
@@ -269,6 +409,49 @@ def compile_model_artifact(
             "model_built": False,
             "error": str(exc),
         }
+
+
+def materialize_stage4_result(
+    *,
+    authored_state: dict[str, Any],
+    raw_data: pl.DataFrame,
+    causal_spec: dict | None,
+) -> dict[str, Any]:
+    """Turn authored stage-4 state into the full derived stage result."""
+    model_spec = authored_state["model_spec"]
+    priors = authored_state["priors"]
+    cached_validation = authored_state.get("_assembly_validation")
+    validation = (
+        cached_validation
+        if isinstance(cached_validation, AssemblyValidation)
+        else validate_assembly(model_spec, priors, raw_data, causal_spec)
+    )
+    normalized_model_spec = validation.normalized_model_spec or model_spec
+    validation_result = build_validation_payload(validation, normalized_model_spec)
+    model_result = compile_model_artifact(
+        normalized_model_spec,
+        priors,
+        raw_data,
+        causal_spec=causal_spec,
+        compiled_ssm=validation.compiled_ssm,
+    )
+    compiled_ssm = model_result.pop("compiled_ssm", None)
+
+    result = {
+        "model_spec": normalized_model_spec,
+        "priors": priors,
+        "validation_retries": authored_state.get("validation_retries"),
+        "validation": validation_result,
+        "model_info": model_result,
+        "is_valid": validation_result.get("is_valid", False),
+        "causal_spec": causal_spec,
+        "prior_predictive_samples": validation_result.get("prior_predictive_samples", {}),
+    }
+    if compiled_ssm is not None:
+        result["_compiled_ssm"] = compiled_ssm
+    if authored_state.get("llm_trace") is not None:
+        result["llm_trace"] = authored_state["llm_trace"]
+    return result
 
 
 def format_validation_feedback(
@@ -288,6 +471,15 @@ def format_validation_feedback(
 
     if not validation.pp_checked or validation.pp_valid:
         return "VALID"
+
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+
+    # Global failures → single concise summary, not one block per parameter
+    global_results = [
+        r for r in validation.pp_results if not r.is_valid and r.parameter in GLOBAL_FAILURE_SITES
+    ]
+    if global_results:
+        return f"PRIOR PREDICTIVE FEEDBACK:\n{_format_global_failure_summary(global_results)}"
 
     from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
 
