@@ -322,7 +322,7 @@ async def stage4_orchestrated_flow(
     """
     from prefect.utilities.annotations import unmapped
 
-    from causal_ssm_agent.models.prior_predictive import _compute_data_stats
+    from causal_ssm_agent.models.prior_predictive import compute_data_stats
     from causal_ssm_agent.utils.config import get_config
 
     from .stage4_assembly import (
@@ -330,7 +330,6 @@ async def stage4_orchestrated_flow(
         build_validation_payload,
         compile_model_artifact,
         validate_assembly,
-        validate_spec,
     )
 
     config = get_config()
@@ -342,19 +341,18 @@ async def stage4_orchestrated_flow(
     # 1. Orchestrator proposes model specification. Stage 1b owns structural
     # validation, so stage 4 only performs a single compile-time assertion.
     # Retry up to 2 times if the LLM proposes unsupported distributions/structures.
-    from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
-
     max_spec_attempts = 3
     compile_error = None
     llm_trace = None
+    model_spec = None
     for spec_attempt in range(max_spec_attempts):
-        model_spec = await propose_model_task(causal_spec, question, raw_data)
-        llm_trace = model_spec.pop("llm_trace", None)
+        proposed_spec = await propose_model_task(causal_spec, question, raw_data)
+        llm_trace = proposed_spec.pop("llm_trace", None)
 
-        inject_marginalized_correlations(model_spec, causal_spec)
-
-        compile_error = validate_spec(model_spec, causal_spec)
-        if compile_error is None:
+        validation = validate_assembly(proposed_spec, None, None, causal_spec)
+        compile_error = validation.compile_error
+        if validation.compile_ok and validation.normalized_model_spec is not None:
+            model_spec = validation.normalized_model_spec
             break
         logger.warning(
             "Stage 4: model spec attempt %d/%d failed compilation: %s",
@@ -366,6 +364,7 @@ async def stage4_orchestrated_flow(
         raise ValueError(
             f"Stage 4 model spec failed compilation after {max_spec_attempts} attempts: {compile_error}"
         )
+    assert model_spec is not None
 
     parameter_specs = model_spec.get("parameters", [])
 
@@ -416,10 +415,11 @@ async def stage4_orchestrated_flow(
 
     # Compute data stats once for feedback messages
     data_stats = (
-        _compute_data_stats(raw_data) if raw_data is not None and not raw_data.is_empty() else {}
+        compute_data_stats(raw_data) if raw_data is not None and not raw_data.is_empty() else {}
     )
 
     # 4. Validation loop
+    validation = None
     validation_result = None
     validation_retries: list[dict[str, object]] = []
     for attempt in range(max_prior_retries + 1):
@@ -502,7 +502,13 @@ async def stage4_orchestrated_flow(
             priors[name] = result
 
     # 5. Compile the executable artifact (only after validation loop)
-    model_result = compile_model_artifact(model_spec, priors, raw_data, causal_spec=causal_spec)
+    model_result = compile_model_artifact(
+        model_spec,
+        priors,
+        raw_data,
+        causal_spec=causal_spec,
+        compiled_ssm=validation.compiled_ssm if validation is not None else None,
+    )
     compiled_ssm = model_result.pop("compiled_ssm", None)
 
     result = {
