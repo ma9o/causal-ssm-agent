@@ -24,32 +24,15 @@ from causal_ssm_agent.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
 )
 from causal_ssm_agent.workers.prompts.prior_research import (
-    USER as PRIOR_RESEARCH_USER,
-)
-from causal_ssm_agent.workers.prompts.prior_research import (
     generate_paraphrased_prompts,
 )
 from causal_ssm_agent.workers.schemas_prior import (
     AggregatedPrior,
     PriorProposal,
-    PriorResearchResult,
     RawPriorSample,
 )
 
 logger = get_prefect_logger(__name__)
-
-
-def _display_constraint(parameter: ParameterSpec) -> str:
-    """Render the worker-facing constraint label for a parameter.
-
-    AR coefficients are elicited as discrete-time persistence values in (0, 1),
-    even though older ModelSpec payloads may still label them as correlations.
-    """
-    from causal_ssm_agent.orchestrator.schemas_model import ParameterConstraint, ParameterRole
-
-    if parameter.role == ParameterRole.AR_COEFFICIENT:
-        return ParameterConstraint.UNIT_INTERVAL.value
-    return parameter.constraint.value
 
 
 def _make_prior_tool() -> tuple[object, dict]:
@@ -138,6 +121,66 @@ async def search_parameter_literature(
     except Exception:
         logger.warning("Exa search failed; continuing without search results", exc_info=True)
         return []
+
+
+async def run_gmm_elicitation(
+    parameter_name: str,
+    parameter_role: str,
+    parameter_constraint: str,
+    context: str,
+    question: str,
+    model_name: str,
+    n_paraphrases: int = 10,
+) -> str:
+    """Run paraphrased prior elicitation and return GMM-aggregated result.
+
+    Used as the implementation behind the ``elicit_prior_gmm`` tool in the
+    agentic Stage 4 flow.
+
+    Returns:
+        Formatted string with the aggregated prior for the LLM to use.
+    """
+    from causal_ssm_agent.utils.llm import make_generate_fn
+
+    prompts = generate_paraphrased_prompts(
+        parameter_name=parameter_name,
+        parameter_role=parameter_role,
+        parameter_constraint=parameter_constraint,
+        parameter_description=context,
+        question=question,
+        literature_context="",
+        n_paraphrases=n_paraphrases,
+    )
+
+    generate = make_generate_fn(model_name)
+    tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
+    results = await asyncio.gather(*tasks)
+
+    samples = [r for r in results if r is not None]
+    if not samples:
+        return (
+            f"GMM elicitation failed for {parameter_name}: "
+            "all paraphrase prompts returned errors. Use domain reasoning."
+        )
+
+    aggregated = aggregate_prior_samples(samples)
+
+    lines = [
+        f"GMM-aggregated prior for '{parameter_name}' "
+        f"(from {aggregated.n_samples} prompts, method={aggregated.method}):",
+        f"  Pooled: Normal(mu={aggregated.mu:.4f}, sigma={aggregated.sigma:.4f})",
+    ]
+    if aggregated.mixture_weights and len(aggregated.mixture_weights) > 1:
+        for k, (w, m, s) in enumerate(
+            zip(
+                aggregated.mixture_weights,
+                aggregated.mixture_means or [],
+                aggregated.mixture_stds or [],
+            )
+        ):
+            lines.append(f"  Component {k + 1} (w={w:.2f}): Normal(mu={m:.4f}, sigma={s:.4f})")
+
+    return "\n".join(lines)
 
 
 async def _elicit_single_paraphrase(
@@ -287,232 +330,6 @@ def _aggregate_gmm(
         mixture_means=means,
         mixture_stds=stds,
         n_samples=len(samples),
-    )
-
-
-async def elicit_prior_paraphrased(
-    parameter: ParameterSpec,
-    question: str,
-    generate: GenerateFn,
-    literature_context: str,
-    literature_sources: list[dict] | None = None,
-    feedback: str | None = None,
-    n_paraphrases: int = 8,
-) -> PriorResearchResult:
-    """Elicit a prior via AutoElicit-style paraphrased prompting with GMM aggregation.
-
-    For single-shot elicitation, use run_prior_elicitation() instead (fat tool path).
-
-    Args:
-        parameter: The parameter spec from ModelSpec
-        question: The research question for context
-        generate: Async generate function (messages, tools) -> str
-        literature_context: Pre-formatted literature evidence string
-        literature_sources: Raw source dicts (for metadata)
-        feedback: Optional validation feedback from a previous failed attempt
-        n_paraphrases: Number of paraphrased prompts
-
-    Returns:
-        PriorResearchResult with proposed prior
-    """
-    if literature_sources is None:
-        literature_sources = []
-
-    return await _research_single_prior_paraphrased(
-        parameter=parameter,
-        question=question,
-        generate=generate,
-        literature_context=literature_context,
-        literature_sources=literature_sources,
-        n_paraphrases=n_paraphrases,
-        feedback=feedback,
-    )
-
-
-async def run_prior_elicitation(
-    parameter: ParameterSpec,
-    question: str,
-    generate: GenerateFn,
-    literature_context: str = "",
-    feedback: str | None = None,
-    model_spec: dict | None = None,
-    current_priors: dict | None = None,
-    raw_data=None,
-    causal_spec: dict | None = None,
-) -> dict:
-    """Fat-tool prior elicitation: single LLM conversation with self-correction.
-
-    Replaces the single-shot path (n_paraphrases=1) with a richer tool loop.
-    The LLM has both a search tool (for additional literature lookups) and a
-    validate_model tool (schema + compile + optional PP feedback).
-
-    Args:
-        parameter: The parameter spec requiring a prior
-        question: The research question for context
-        generate: Async generate function (messages, tools) -> str
-        literature_context: Pre-fetched literature evidence string
-        feedback: Prior predictive feedback from a previous failed attempt
-        model_spec: Current model spec (enables compile + PP in validate_model)
-        current_priors: Existing priors for other parameters
-        raw_data: Polars DataFrame for prior predictive checks
-        causal_spec: CausalSpec dict for compilation
-
-    Returns:
-        PriorProposal as dict
-
-    Raises:
-        ValueError: If no valid prior was produced
-    """
-    from causal_ssm_agent.flows.stages.stage_tools import (
-        make_search_tool,
-        make_stage_tool,
-        stage4_grounding,
-    )
-
-    msgs = _build_prior_messages(parameter, question, literature_context, feedback)
-
-    search_tool = make_search_tool()
-    validate_tool, capture = make_stage_tool(
-        name="validate_model",
-        description="Submit prior proposals for validation.",
-        param_name="model_json",
-        param_description="JSON with 'priors' dict mapping parameter names to prior proposals.",
-        compute_fn=lambda data: stage4_grounding(
-            data,
-            causal_spec or {},
-            current={"model_spec": model_spec, "priors": current_priors or {}}
-            if model_spec
-            else None,
-            raw_data=raw_data,
-        ),
-    )
-
-    await generate(msgs, [search_tool, validate_tool])
-
-    priors = capture.get("priors")
-    if not priors or parameter.name not in priors:
-        raise ValueError(f"No valid prior produced for {parameter.name}")
-    return priors[parameter.name]
-
-
-def _build_prior_messages(
-    parameter: ParameterSpec,
-    question: str,
-    literature_context: str,
-    feedback: str | None,
-) -> list[dict]:
-    """Build chat messages for fat-tool prior elicitation."""
-    user_content = PRIOR_RESEARCH_USER.format(
-        parameter_name=parameter.name,
-        parameter_role=parameter.role.value,
-        parameter_constraint=_display_constraint(parameter),
-        parameter_description=parameter.description,
-        question=question,
-        literature_context=literature_context,
-    )
-
-    if feedback:
-        user_content += f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
-
-    return [
-        {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
-        {"role": "user", "content": user_content},
-    ]
-
-
-async def _research_single_prior_single_shot(
-    parameter: ParameterSpec,
-    question: str,
-    generate: GenerateFn,
-    literature_context: str,
-    literature_sources: list[dict],
-    feedback: str | None = None,
-) -> PriorResearchResult:
-    """Schema-only single-shot elicitation (used as paraphrasing fallback).
-
-    For the primary single-shot path, use run_prior_elicitation() instead.
-    """
-    messages = _build_prior_messages(parameter, question, literature_context, feedback)
-
-    # Generate prior proposal with validation tool
-    tool, capture = _make_prior_tool()
-    completion = await generate(messages, [tool])
-
-    # Prefer captured result from the validation tool
-    prior_data = capture.get("prior")
-    if prior_data is None:
-        prior_data = parse_json_response(completion)
-
-    return PriorResearchResult(
-        parameter=parameter.name,
-        proposal=PriorProposal.model_validate({**prior_data, "parameter": parameter.name}),
-        literature_found=len(literature_sources) > 0,
-        raw_response=completion,
-    )
-
-
-async def _research_single_prior_paraphrased(
-    parameter: ParameterSpec,
-    question: str,
-    generate: GenerateFn,
-    literature_context: str,
-    literature_sources: list[dict],
-    n_paraphrases: int,
-    feedback: str | None = None,
-) -> PriorResearchResult:
-    """AutoElicit-style paraphrased prior elicitation with GMM aggregation."""
-    # Generate paraphrased prompts
-    prompts = generate_paraphrased_prompts(
-        parameter_name=parameter.name,
-        parameter_role=parameter.role.value,
-        parameter_constraint=_display_constraint(parameter),
-        parameter_description=parameter.description,
-        question=question,
-        literature_context=literature_context,
-        n_paraphrases=n_paraphrases,
-    )
-
-    # Append validation feedback to each prompt if provided
-    if feedback:
-        feedback_section = f"\n\n## Validation Feedback (from previous attempt)\n\n{feedback}"
-        prompts = [p + feedback_section for p in prompts]
-
-    # Elicit priors in parallel
-    tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
-    results = await asyncio.gather(*tasks)
-
-    # Filter out failed elicitations
-    samples = [r for r in results if r is not None]
-
-    if not samples:
-        # All paraphrases failed, fall back to single-shot
-        return await _research_single_prior_single_shot(
-            parameter=parameter,
-            question=question,
-            generate=generate,
-            literature_context=literature_context,
-            literature_sources=literature_sources,
-            feedback=feedback,
-        )
-
-    # Aggregate samples using GMM
-    aggregated = aggregate_prior_samples(samples)
-
-    # Build proposal using aggregated values
-    proposal = PriorProposal(
-        parameter=parameter.name,
-        distribution="Normal",  # Aggregation produces Normal params
-        params={"mu": aggregated.mu, "sigma": aggregated.sigma},
-        sources=[],  # Sources come from literature, not paraphrases
-        reasoning=f"Aggregated from {len(samples)} paraphrased elicitations using GMM.",
-    )
-
-    return PriorResearchResult(
-        parameter=parameter.name,
-        proposal=proposal,
-        literature_found=len(literature_sources) > 0,
-        raw_response=f"Aggregated {len(samples)} paraphrase responses",
-        aggregation=aggregated,
     )
 
 

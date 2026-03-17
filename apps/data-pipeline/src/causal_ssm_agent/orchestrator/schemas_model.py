@@ -178,7 +178,8 @@ class ParameterSpec(BaseModel):
         description="Human-readable description of what this parameter represents"
     )
     search_context: str = Field(
-        description="Context for Exa literature search to find relevant effect sizes"
+        default="",
+        description="Context for Exa literature search to find relevant effect sizes",
     )
 
 
@@ -552,11 +553,8 @@ def merge_decisions_to_spec(
         param = dict(p)
         if param["role"] == "loading" and param["name"] in loading_overrides:
             param["constraint"] = loading_overrides[param["name"]]
-        # Inject search_context from decisions
-        sc = decisions.search_contexts.get(param["name"], "")
-        if not sc:
-            errors.append(f"missing search_context for parameter '{param['name']}'")
-        param["search_context"] = sc
+        # Inject search_context from decisions (optional in agentic flow)
+        param["search_context"] = decisions.search_contexts.get(param["name"], "")
         final_params.append(param)
 
     if errors:
@@ -657,13 +655,3 @@ def validate_model_spec_decisions_dict(
         return None, [f"Schema validation error: {e}"]
 
     return merge_decisions_to_spec(resolved_likelihoods, parameters, decisions)
-
-
-# Result schemas for the orchestrator stage
-
-
-class Stage4OrchestratorResult(BaseModel):
-    """Result of Stage 4 orchestrator: proposed model specification."""
-
-    model_spec: ModelSpec = Field(description="The proposed model specification")
-    raw_response: str = Field(description="Raw LLM response for debugging")

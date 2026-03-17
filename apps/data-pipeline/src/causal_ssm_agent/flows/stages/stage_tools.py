@@ -347,3 +347,129 @@ def make_stage_tool(
         stop_on_success=True,
         success_output=success_feedback,
     ), capture
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 agentic grounding (decisions-merge wrapper)
+# ---------------------------------------------------------------------------
+
+
+def _agentic_stage4_grounding(
+    data: dict,
+    causal_spec: dict,
+    current: dict | None,
+    raw_data: Any,
+    *,
+    resolved_likelihoods: list[dict],
+    ambiguous_indicators: list[dict],
+    all_params: list[dict],
+) -> tuple[dict | None, str]:
+    """Agentic grounding for Stage 4: handles decisions-merge then delegates.
+
+    On the first call the LLM typically submits ``distribution_choices`` +
+    ``loading_constraints`` + ``priors``.  This wrapper merges the decisions
+    with the pre-computed skeleton to produce a full ``ModelSpec``, then
+    delegates to :func:`stage4_grounding` for compile + prior-predictive
+    validation.
+
+    On subsequent calls (prior refinement only) the data contains just
+    ``priors`` and the wrapper delegates directly.
+    """
+    if "distribution_choices" in data:
+        from causal_ssm_agent.orchestrator.schemas_model import (
+            validate_model_spec_decisions_dict,
+        )
+
+        decisions_data = {
+            "distribution_choices": data.get("distribution_choices", []),
+            "loading_constraints": data.get("loading_constraints", []),
+            "search_contexts": data.get("search_contexts", {}),
+        }
+        model_spec_result, errors = validate_model_spec_decisions_dict(
+            decisions_data,
+            resolved_likelihoods=resolved_likelihoods,
+            ambiguous_indicators=ambiguous_indicators,
+            parameters=all_params,
+        )
+        if errors:
+            return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
+
+        merged_data: dict[str, Any] = {
+            "model_spec": model_spec_result.model_dump(mode="json"),
+        }
+        if "priors" in data:
+            merged_data["priors"] = data["priors"]
+        return stage4_grounding(merged_data, causal_spec, current=current, raw_data=raw_data)
+
+    # No decisions — delegate directly (model_spec and/or priors only)
+    return stage4_grounding(data, causal_spec, current=current, raw_data=raw_data)
+
+
+# ---------------------------------------------------------------------------
+# GMM elicitation tool factory
+# ---------------------------------------------------------------------------
+
+
+def make_elicit_prior_gmm_tool(
+    question: str,
+    model_name: str,
+    n_paraphrases: int = 10,
+) -> Any:
+    """Create an ``elicit_prior_gmm`` tool for the agentic Stage 4 flow.
+
+    The tool runs N paraphrased LLM calls for a single parameter and
+    aggregates them via GMM, returning a formatted summary to the outer
+    agentic conversation.
+    """
+    from causal_ssm_agent.utils.litellm_client import Tool
+
+    async def _execute(
+        *,
+        parameter_name: str,
+        parameter_role: str,
+        parameter_constraint: str,
+        context: str,
+    ) -> str:
+        from causal_ssm_agent.workers.prior_research import run_gmm_elicitation
+
+        return await run_gmm_elicitation(
+            parameter_name=parameter_name,
+            parameter_role=parameter_role,
+            parameter_constraint=parameter_constraint,
+            context=context,
+            question=question,
+            model_name=model_name,
+            n_paraphrases=n_paraphrases,
+        )
+
+    return Tool(
+        name="elicit_prior_gmm",
+        description=(
+            "Run robust paraphrased prior elicitation with GMM aggregation "
+            "for a single parameter. Returns an aggregated prior estimate."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "parameter_name": {
+                    "type": "string",
+                    "description": "Name of the parameter (e.g. 'beta_stress_depression')",
+                },
+                "parameter_role": {
+                    "type": "string",
+                    "description": "Role: fixed_effect, ar_coefficient, residual_sd, loading",
+                },
+                "parameter_constraint": {
+                    "type": "string",
+                    "description": "Constraint: none, positive, unit_interval, correlation",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "What this parameter represents, for literature grounding",
+                },
+            },
+            "required": ["parameter_name", "parameter_role", "parameter_constraint", "context"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+    )

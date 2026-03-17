@@ -20,7 +20,7 @@ from .stage3_validation import (
     validate_extraction,
 )
 from .stage4_model import (
-    stage4_orchestrated_flow,
+    stage4_agentic_flow,
 )
 from .stage4b_parametric_id import (
     parametric_id_task,
@@ -48,7 +48,7 @@ __all__ = [
     # Persistence
     "persist_web_result",
     # Stage 4
-    "stage4_orchestrated_flow",
+    "stage4_agentic_flow",
     # Stage 4b
     "parametric_id_task",
     "stage4b_parametric_id_flow",

@@ -62,16 +62,16 @@ class ParaphrasingConfig:
 
     enabled: bool = False  # Off by default (cost)
     n_paraphrases: int = 10
+    gmm_model: str | None = None  # Cheap model for inner paraphrase calls; defaults to stage4 model
 
 
 @dataclass(frozen=True)
 class Stage4Config:
-    """Stage 4: Prior Elicitation (Orchestrator-Worker Architecture)."""
+    """Stage 4: Model Specification & Prior Elicitation (Single Agentic Conversation)."""
 
     model: str
     literature_search: LiteratureSearchConfig = LiteratureSearchConfig()
     paraphrasing: ParaphrasingConfig = ParaphrasingConfig()
-    worker_model: str | None = None  # If None, uses stage2_workers.model
 
 
 @dataclass(frozen=True)
@@ -241,7 +241,6 @@ def load_config() -> PipelineConfig:
         paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
         if paraphrasing_raw
         else ParaphrasingConfig(),
-        worker_model=stage4_raw.get("worker_model"),
     )
 
     # Parse inference section (optional)

@@ -334,12 +334,12 @@ async def stage4(
     enable_literature: bool,
 ) -> dict:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
-    from .stages import stage4_orchestrated_flow
+    from .stages import stage4_agentic_flow
 
     causal_spec = stage1b["causal_spec"]
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 
-    return await stage4_orchestrated_flow(
+    return await stage4_agentic_flow(
         causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,

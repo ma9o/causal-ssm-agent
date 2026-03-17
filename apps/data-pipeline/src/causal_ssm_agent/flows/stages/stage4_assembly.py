@@ -1,7 +1,7 @@
 """Stage 4 Assembly Validation.
 
 Shared compile + prior-predictive validation pipeline used by both
-``stage4_grounding()`` (interactive) and ``stage4_orchestrated_flow()`` (batch).
+``stage4_grounding()`` (interactive) and ``stage4_agentic_flow()`` (batch).
 
 The two paths differ only in their failure policy — domain logic is defined
 once here.
@@ -48,7 +48,7 @@ def validate_assembly(
     """Validate stage 4 assembly: compile check + prior predictive.
 
     This is the single source of truth for the validation sequence.
-    Both ``stage4_grounding()`` and ``stage4_orchestrated_flow()`` use this.
+    Both ``stage4_grounding()`` and ``stage4_agentic_flow()`` use this.
 
     Steps:
         1. Compile check: trial compile (no priors) or real compile (with priors)
@@ -299,58 +299,6 @@ def _format_global_failure_summary(results: list) -> str:
         )
 
     return "\n".join(lines)
-
-
-def build_retry_feedback(
-    validation: AssemblyValidation,
-    priors: dict[str, dict],
-    *,
-    causal_spec: dict | None = None,
-    data_stats: dict | None = None,
-) -> tuple[list[str], dict[str, str], str | None]:
-    """Identify failed parameters and build per-parameter retry feedback.
-
-    For global failures (model_build, prior_sampling) produces a concise
-    shared summary instead of repeating the same error per parameter.
-
-    Returns:
-        (failed_param_names, per_param_feedbacks, global_summary_or_None).
-        ``global_summary`` is a compact log-friendly string when the failure
-        is global, otherwise ``None``.
-    """
-    from causal_ssm_agent.models.prior_predictive import (
-        format_parameter_feedback,
-        get_failed_parameters,
-    )
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
-
-    failed_param_names = get_failed_parameters(
-        validation.pp_results,
-        list(priors.keys()),
-        causal_spec=causal_spec,
-    )
-    if not failed_param_names and not validation.pp_valid:
-        failed_param_names = list(priors.keys())
-
-    # Global failures → one concise summary shared by all parameters
-    global_results = [
-        r for r in validation.pp_results if not r.is_valid and r.parameter in GLOBAL_FAILURE_SITES
-    ]
-    if global_results:
-        global_summary = _format_global_failure_summary(global_results)
-        return failed_param_names, {}, global_summary
-
-    # Per-parameter failures → targeted feedback with scoped data stats
-    feedbacks = {
-        param_name: format_parameter_feedback(
-            parameter_name=param_name,
-            results=validation.pp_results,
-            prior=priors.get(param_name),
-            data_stats=data_stats,
-        )
-        for param_name in failed_param_names
-    }
-    return failed_param_names, feedbacks, None
 
 
 def compile_model_artifact(
