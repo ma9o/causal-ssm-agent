@@ -49,9 +49,15 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   ├── src/causal_ssm_agent/
 │   │   │   ├── orchestrator/      # LLM model specification (latent + measurement)
 │   │   │   ├── workers/           # Indicator extraction + prior research LLMs
-│   │   │   ├── models/            # NumPyro SSM, compiler, likelihoods, prior/posterior predictive
+│   │   │   ├── models/            # NumPyro SSM, pure compilation pipeline, likelihoods, prior/posterior predictive
+│   │   │   │   ├── ssm_compilation.py             # Public pure compilation entrypoint (translate -> compile priors -> bind)
+│   │   │   │   ├── ssm_spec_translation.py        # ModelSpec -> SSMSpec translation and causal mask construction
+│   │   │   │   ├── ssm_prior_indexing.py          # Semantic parameter name -> SSMPriors slot mapping
+│   │   │   │   ├── ssm_prior_compilation.py       # Prior transforms, lag checks, and sample-site bindings
+│   │   │   │   ├── ssm_observation_metadata.py    # Observation-family metadata hydration and support validation
 │   │   │   │   └── ssm/prior_predictive_runtime.py  # Compile-stable prior predictive runtime from serialized semantics
 │   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
+│   │   │   │   └── stages/llm_stage_task.py       # Shared Prefect task factory for LLM-backed stages
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
 │   │   ├── evals/                 # Inspect AI evals + filesystem-discovered questions
