@@ -224,7 +224,7 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
     ],
 }
 
-# Stages with an interactive LLM trace panel (refinement chat + replay).
+# Stages with an interactive LLM trace panel in the refinement UI.
 # Stage 0 is excluded (tools depend on sandbox/filesystem state).
 # Stage 2 is excluded (parallel worker extraction, not a single LLM conversation).
 INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4"})

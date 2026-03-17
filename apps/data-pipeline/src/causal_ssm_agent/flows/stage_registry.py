@@ -96,9 +96,6 @@ class StageDefinition:
     # Error message for gate failure (receives gate_result)
     gate_error: Callable[[dict], str] | None = None
 
-    # (web_dict) -> None; logs completion summary
-    log_summary: Callable[[dict], None] = field(default_factory=lambda: _log_noop)
-
     question_required: bool = False
     override_eligible: bool = False
 
@@ -166,9 +163,6 @@ async def run_stage_flow(
     ):
         raise RuntimeError(defn.gate_error(gate_result))
 
-    # Log summary
-    defn.log_summary(state["web"])
-
     return state
 
 
@@ -228,10 +222,6 @@ def _restore_default(user_id: str, web: dict, prior_states: dict) -> dict:
     return dict(web)
 
 
-def _log_noop(web: dict) -> None:
-    pass
-
-
 def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
     column_descriptions = web.get("column_descriptions", [])
     if not isinstance(column_descriptions, list):
@@ -271,13 +261,6 @@ def _power_scaling_list_to_result(entries: list[dict[str, Any]]) -> dict[str, An
         "likelihood_sensitivity": likelihood_sensitivity,
         "psis_k_hat": psis_k_hat,
     }
-
-
-def _validation_issue_counts(report: dict[str, Any]) -> tuple[int, int]:
-    issues = report.get("issues", []) or []
-    error_count = sum(1 for issue in issues if issue.get("severity") == "error")
-    warning_count = sum(1 for issue in issues if issue.get("severity") == "warning")
-    return error_count, warning_count
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -325,11 +308,6 @@ def _restore_stage0(user_id: str, web: dict, prior_states: dict) -> dict:
     result["_df_path"] = find_run_artifact(user_id, STAGE0_PARQUET_FILENAMES)
     result["_column_descriptions"] = _column_descriptions_from_web(web)
     return result
-
-
-def _restore_stage1b(user_id: str, web: dict, prior_states: dict) -> dict:
-    # Gate is reconstructed separately by the combinator via defn.gate
-    return dict(web)
 
 
 def _restore_stage2(user_id: str, web: dict, prior_states: dict) -> dict:
@@ -520,132 +498,6 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Per-stage log summaries
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _log_stage0(web: dict) -> None:
-    date_range = web.get("date_range", {})
-    logger.info(
-        "Stage 0 complete: source=%s records=%d columns=%d date_range=%s..%s",
-        web.get("source_label", "unknown"),
-        web.get("n_records", 0),
-        web.get("n_columns", 0),
-        date_range.get("start") or "?",
-        date_range.get("end") or "?",
-    )
-
-
-def _log_stage1a(web: dict) -> None:
-    latent_model = web.get("latent_model", {})
-    logger.info(
-        "Stage 1a complete: constructs=%d edges=%d treatments=%d outcome=%s",
-        len(latent_model.get("constructs", [])),
-        len(latent_model.get("edges", [])),
-        len(web.get("treatments", [])),
-        web.get("outcome_name", "") or "unknown",
-    )
-
-
-def _log_stage1b(web: dict) -> None:
-    causal_spec = web.get("causal_spec", {})
-    latent = causal_spec.get("latent", {})
-    measurement = causal_spec.get("measurement", {})
-    logger.info(
-        "Stage 1b complete: constructs=%d indicators=%d",
-        len(latent.get("constructs", [])),
-        len(measurement.get("indicators", [])),
-    )
-
-
-def _log_stage2(web: dict) -> None:
-    logger.info(
-        "Stage 2 complete: outcome=%s",
-        web.get("outcome", "success"),
-    )
-
-
-def _log_stage3(web: dict) -> None:
-    report = web.get("validation_report", {})
-    error_count, warning_count = _validation_issue_counts(report)
-    logger.info(
-        "Stage 3 complete: is_valid=%s issues=%d errors=%d warnings=%d outcome=%s",
-        report.get("is_valid", False),
-        len(report.get("issues", []) or []),
-        error_count,
-        warning_count,
-        web.get("outcome", "success"),
-    )
-
-
-def _log_stage4(web: dict) -> None:
-    model_spec = web.get("model_spec", {})
-    validation = web.get("validation", {})
-    model_info = web.get("model_info", {})
-    logger.info(
-        "Stage 4 complete: parameters=%d likelihoods=%d priors=%d validation_ok=%s model_built=%s",
-        len(model_spec.get("parameters", [])),
-        len(model_spec.get("likelihoods", [])),
-        len(web.get("priors", {})),
-        validation.get("is_valid", False),
-        model_info.get("model_built", False),
-    )
-
-
-def _log_stage4b(web: dict) -> None:
-    parametric_id = web.get("parametric_id") or {}
-    t_rule = parametric_id.get("t_rule") or {}
-    logger.info(
-        "Stage 4b complete: checked=%s t_rule=%s(%s/%s) outcome=%s",
-        parametric_id.get("checked", False),
-        "pass" if t_rule.get("satisfies", True) else "fail",
-        t_rule.get("n_free_params", "?"),
-        t_rule.get("n_moments", "?"),
-        web.get("outcome", "success"),
-    )
-
-
-def _log_stage5a(web: dict) -> None:
-    logger.info(
-        "Stage 5a complete: svi_converged=%s outcome=%s",
-        web.get("svi_diagnostics") is not None,
-        web.get("outcome", "success"),
-    )
-
-
-def _log_stage5b(web: dict) -> None:
-    ps_list = web.get("power_scaling", [])
-    ps_issues = sum(
-        1
-        for entry in ps_list
-        if entry.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
-    )
-    ppc_warnings = len((web.get("ppc") or {}).get("per_variable_warnings") or [])
-    logger.info(
-        "Stage 5b complete: method=%s power_scaling_issues=%d ppc_warnings=%d outcome=%s",
-        (web.get("inference_metadata") or {}).get("method", "unknown"),
-        ps_issues,
-        ppc_warnings,
-        web.get("outcome", "success"),
-    )
-
-
-def _log_stage6(web: dict) -> None:
-    intervention_results = web.get("intervention_results", [])
-    warning_count = sum(
-        1
-        for r in intervention_results
-        if r.get("warning") or r.get("ppc_warnings") or r.get("prior_sensitivity_warning")
-    )
-    logger.info(
-        "Stage 6 complete: treatments_ranked=%d warnings=%d outcome=%s",
-        len(intervention_results),
-        warning_count,
-        web.get("outcome", "success"),
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # Stage registry
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -666,7 +518,6 @@ def _build_registry() -> dict[str, StageDefinition]:
                 restore=_restore_stage0,
                 persist=_persist_stage0,
             ),
-            log_summary=_log_stage0,
         ),
         "stage-1a": StageDefinition(
             stage_id="stage-1a",
@@ -676,7 +527,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage1a,
             question_required=True,
             override_eligible=True,
-            log_summary=_log_stage1a,
         ),
         "stage-1b": StageDefinition(
             stage_id="stage-1b",
@@ -686,10 +536,8 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage1b,
             gate=_gate_stage1b,
             gate_error=_gate_error_stage1b,
-            materializer=StageMaterializer(restore=_restore_stage1b),
             question_required=True,
             override_eligible=True,
-            log_summary=_log_stage1b,
         ),
         "stage-2": StageDefinition(
             stage_id="stage-2",
@@ -703,7 +551,6 @@ def _build_registry() -> dict[str, StageDefinition]:
                 finalize_extras=_finalize_stage2_extras,
             ),
             question_required=True,
-            log_summary=_log_stage2,
         ),
         "stage-3": StageDefinition(
             stage_id="stage-3",
@@ -711,7 +558,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-3"],
             bind_inputs=_bind_stage3,
             runner=dag.stage3,
-            log_summary=_log_stage3,
         ),
         "stage-4": StageDefinition(
             stage_id="stage-4",
@@ -723,7 +569,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             question_required=True,
             override_eligible=True,
             prepare_override=_prepare_override_stage4,
-            log_summary=_log_stage4,
         ),
         "stage-4b": StageDefinition(
             stage_id="stage-4b",
@@ -734,7 +579,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             gate=_gate_stage4b,
             gate_error=_gate_error_stage4b,
             materializer=StageMaterializer(restore=_restore_stage4b),
-            log_summary=_log_stage4b,
         ),
         "stage-5a": StageDefinition(
             stage_id="stage-5a",
@@ -743,7 +587,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             bind_inputs=_bind_stage5a,
             runner=dag.stage5a,
             skip_restore=True,
-            log_summary=_log_stage5a,
         ),
         "stage-5b": StageDefinition(
             stage_id="stage-5b",
@@ -755,7 +598,6 @@ def _build_registry() -> dict[str, StageDefinition]:
                 restore=_restore_stage5b,
                 persist=_persist_stage5b,
             ),
-            log_summary=_log_stage5b,
         ),
         "stage-6": StageDefinition(
             stage_id="stage-6",
@@ -763,7 +605,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-6"],
             bind_inputs=_bind_stage6,
             runner=dag.stage6,
-            log_summary=_log_stage6,
         ),
     }
 
@@ -782,35 +623,13 @@ def _ensure_initialized() -> None:
     _execution_order = tuple(graphlib.TopologicalSorter(dep_graph).static_order())
 
 
-@property
-def _get_registry():
+def get_stage_registry() -> dict[str, StageDefinition]:
     _ensure_initialized()
+    assert _registry is not None
     return _registry
 
 
-class _RegistryAccessor:
-    """Module-level accessor for lazily-initialized registry and execution order."""
-
-    @staticmethod
-    def get_registry() -> dict[str, StageDefinition]:
-        _ensure_initialized()
-        assert _registry is not None
-        return _registry
-
-    @staticmethod
-    def get_execution_order() -> tuple[str, ...]:
-        _ensure_initialized()
-        assert _execution_order is not None
-        return _execution_order
-
-
-# Public API
-STAGES = _RegistryAccessor()
-
-
-def get_stage_registry() -> dict[str, StageDefinition]:
-    return STAGES.get_registry()
-
-
 def get_execution_order() -> tuple[str, ...]:
-    return STAGES.get_execution_order()
+    _ensure_initialized()
+    assert _execution_order is not None
+    return _execution_order

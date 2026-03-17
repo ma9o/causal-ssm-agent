@@ -16,7 +16,6 @@ from prefect.artifacts import create_markdown_artifact
 from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.data import DATA_URI, runs_dir
 
@@ -61,9 +60,14 @@ def _stage_idx(stage_id: str) -> int:
 
 
 def _filter_stage_overrides(stage_overrides: dict[str, dict] | None) -> dict[str, dict]:
+    from causal_ssm_agent.flows.stage_registry import get_stage_registry
+
+    overrideable_stages = {
+        stage_id for stage_id, defn in get_stage_registry().items() if defn.override_eligible
+    }
     supported: dict[str, dict] = {}
     for stage_id, payload in (stage_overrides or {}).items():
-        if stage_id not in INTERACTIVE_STAGES:
+        if stage_id not in overrideable_stages:
             logger.warning("Ignoring unsupported stage override: %s", stage_id)
             continue
         supported[stage_id] = payload

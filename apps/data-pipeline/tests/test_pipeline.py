@@ -562,7 +562,7 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
         },
     )
 
-    state = dag.load_stage_state(user_id, "stage-5b")
+    state = stage_registry.load_stage_state(user_id, "stage-5b")
 
     assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
     assert state["result"]["_ps_result"]["checked"] is True
