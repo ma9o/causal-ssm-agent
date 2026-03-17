@@ -110,13 +110,12 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         calls.append(("stage5b", stage4, stage2, inference_method))
         return {
             "_fitted_artifact": None,
-            "_ps_result": {},
-            "_ppc_result": {},
             "power_scaling": [],
             "ppc": {},
             "inference_metadata": {},
             "mcmc_diagnostics": None,
             "svi_diagnostics": None,
+            "smc_diagnostics": None,
             "loo_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,
@@ -295,11 +294,11 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         result=mock_result,
         builder=mock_builder,
         times=np.array([0.0, 1.0]),
+        ppc_result={"checked": True, "per_variable_warnings": []},
+        power_scaling_result={"checked": True, "diagnosis": {}},
     )
     stage5b_result = {
         "_fitted_result_path": "unused.pkl",
-        "_ppc_result": {"checked": True, "per_variable_warnings": []},
-        "_ps_result": {"checked": True, "diagnosis": {}},
     }
 
     captured: dict[str, object] = {}
@@ -556,6 +555,7 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
             "inference_metadata": {"method": "svi"},
             "mcmc_diagnostics": None,
             "svi_diagnostics": {"loss": [1.0]},
+            "smc_diagnostics": {"beta_schedule": [0.1, 1.0]},
             "loo_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,
@@ -565,9 +565,9 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     state = stage_registry.load_stage_state(user_id, "stage-5b")
 
     assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
-    assert state["result"]["_ps_result"]["checked"] is True
-    assert state["result"]["_ps_result"]["diagnosis"] == {"beta_x": "prior_dominated"}
-    assert state["result"]["_ppc_result"]["checked"] is True
+    assert state["result"]["power_scaling"][0]["diagnosis"] == "prior_dominated"
+    assert state["result"]["ppc"]["checked"] is True
+    assert state["result"]["smc_diagnostics"] == {"beta_schedule": [0.1, 1.0]}
 
 
 def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
@@ -663,6 +663,9 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                 "sources": [],
             },
         },
+        "causal_spec": {"measurement": {"indicators": [{"name": "stale"}]}},
+        "model_info": {"model_built": False, "error": "stale compile result"},
+        "_compiled_ssm": {"manifest_names": ["stale"]},
     }
 
     ctx = stage_registry.PipelineContext(
@@ -688,6 +691,8 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
     stage4_result = stage_state["result"]
     assert stage4_result["causal_spec"] == causal_spec
     assert stage4_result["model_info"]["model_built"] is True
+    assert stage4_result["model_info"] != override_payload["model_info"]
+    assert stage4_result["_compiled_ssm"] != override_payload["_compiled_ssm"]
     assert "_compiled_ssm" in stage4_result
 
 

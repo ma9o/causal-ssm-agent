@@ -195,8 +195,10 @@ class TestLatentModel:
                 edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
             )
 
-    def test_to_networkx(self, construct_factory):
-        """Structure converts to NetworkX graph."""
+    def test_build_digraph(self, construct_factory):
+        """Latent model dict converts to NetworkX graph via build_digraph."""
+        from causal_ssm_agent.utils.causal_spec import build_digraph
+
         structure = LatentModel(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
@@ -208,7 +210,7 @@ class TestLatentModel:
                 )
             ],
         )
-        G = structure.to_networkx()
+        G = build_digraph(structure.model_dump())
         assert "stress" in G.nodes
         assert "mood" in G.nodes
         assert ("stress", "mood") in G.edges
@@ -503,8 +505,10 @@ class TestCausalSpec:
         assert len(causal_spec.latent.constructs) == 2
         assert len(causal_spec.measurement.indicators) == 1
 
-    def test_to_networkx_includes_loading_edges(self, construct_factory, indicator_factory):
-        """CausalSpec.to_networkx includes construct→indicator loading edges."""
+    def test_build_digraph_from_causal_spec(self, construct_factory, indicator_factory):
+        """build_digraph produces correct topology from a CausalSpec's latent model."""
+        from causal_ssm_agent.utils.causal_spec import build_digraph
+
         latent = LatentModel(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
@@ -519,15 +523,11 @@ class TestCausalSpec:
             ],
         )
         causal_spec = CausalSpec(latent=latent, measurement=measurement)
-        G = causal_spec.to_networkx()
+        G = build_digraph(causal_spec.latent.model_dump())
 
-        # Both construct and indicator nodes exist
+        assert "stress" in G.nodes
         assert "mood" in G.nodes
-        assert "mood_rating" in G.nodes
-
-        # Loading edge exists
-        assert ("mood", "mood_rating") in G.edges
-        assert G.edges["mood", "mood_rating"]["edge_type"] == "loading"
+        assert ("stress", "mood") in G.edges
 
     def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
         """CausalSpec.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
