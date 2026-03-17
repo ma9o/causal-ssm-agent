@@ -1,5 +1,6 @@
 """SSM Model Builder for causal SSM pipeline integration."""
 
+from dataclasses import dataclass
 from typing import Any
 
 import jax.numpy as jnp
@@ -21,7 +22,19 @@ from causal_ssm_agent.models.ssm_observation_metadata import (
     validate_observation_support,
 )
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+from causal_ssm_agent.utils.data import pivot_to_wide
 from causal_ssm_agent.workers.schemas_prior import PriorProposal
+
+
+@dataclass
+class PreparedModelRuntime:
+    """Canonical prepared runtime context shared by validation and inference."""
+
+    builder: Any  # SSMModelBuilder
+    wide_data: pl.DataFrame
+    observations: jnp.ndarray  # (T, n_manifest)
+    times: jnp.ndarray  # (T,)
+    manifest_names: list[str]
 
 
 class SSMModelBuilder:
@@ -356,3 +369,46 @@ def build_ssm_builder(
     )
     builder.build_model(wide_data)
     return builder
+
+
+def prepare_wide_model_runtime(
+    wide_data: pl.DataFrame,
+    compiled_ssm: dict | None = None,
+    sampler_config: dict | None = None,
+    builder: Any = None,
+) -> PreparedModelRuntime:
+    """Build or reuse a builder from wide data and extract fit-ready arrays."""
+    if builder is None:
+        if compiled_ssm is None:
+            raise ValueError("Either builder or compiled_ssm must be provided")
+        builder = build_ssm_builder(
+            wide_data=wide_data,
+            sampler_config=sampler_config,
+            compiled_ssm=compiled_ssm,
+        )
+    elif getattr(builder, "_model", None) is None:
+        builder.build_model(wide_data)
+
+    observations, times, manifest_names = builder.prepare_fit_inputs(wide_data)
+    return PreparedModelRuntime(
+        builder=builder,
+        wide_data=wide_data,
+        observations=observations,
+        times=times,
+        manifest_names=manifest_names,
+    )
+
+
+def prepare_model_runtime(
+    raw_data: pl.DataFrame,
+    compiled_ssm: dict | None = None,
+    sampler_config: dict | None = None,
+    builder: Any = None,
+) -> PreparedModelRuntime:
+    """Canonical entry point for preparing raw stage data for model work."""
+    return prepare_wide_model_runtime(
+        pivot_to_wide(raw_data),
+        compiled_ssm=compiled_ssm,
+        sampler_config=sampler_config,
+        builder=builder,
+    )
