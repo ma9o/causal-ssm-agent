@@ -55,21 +55,20 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
 
 def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
     """Infer per-channel discrete level counts from encoded wide data."""
-    from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+    from causal_ssm_agent.models.likelihoods.observation_families import (
+        any_family_needs_level_metadata,
+        get_family_spec,
+    )
 
     manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
-    needs_levels = any(
-        (family_spec := FAMILY_REGISTRY.get(dist)) is not None
-        and family_spec.requires_integer_encoding
-        for dist in manifest_dists
-    )
+    needs_levels = any_family_needs_level_metadata(manifest_dists)
     if not needs_levels:
         return spec
 
     inferred_counts = [0] * spec.n_manifest
     for idx, (column, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
-        family_spec = FAMILY_REGISTRY.get(dist)
-        if family_spec is None or not family_spec.requires_integer_encoding:
+        family_spec = get_family_spec(dist)
+        if family_spec is None or not family_spec.needs_level_metadata:
             continue
 
         values = (
@@ -122,7 +121,7 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
 
 def validate_observation_support(spec: SSMSpec, X: Any) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
-    from causal_ssm_agent.models.likelihoods.observation_families import FAMILY_REGISTRY
+    from causal_ssm_agent.models.likelihoods.observation_families import get_family_spec
 
     manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
 
@@ -137,7 +136,7 @@ def validate_observation_support(spec: SSMSpec, X: Any) -> None:
             )
             continue
 
-        family_spec = FAMILY_REGISTRY.get(dist)
+        family_spec = get_family_spec(dist)
         if family_spec is None:
             continue
         invalid = family_spec.validate_support(values)

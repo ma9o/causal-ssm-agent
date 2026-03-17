@@ -22,6 +22,7 @@ from causal_ssm_agent.models.likelihoods.emissions import (
     categorical_probabilities,
     ordered_logistic_probabilities,
 )
+from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -514,10 +515,7 @@ def simulate_posterior_predictive(
     unique_dists = set(effective_dists) if effective_dists else {manifest_dist}
     all_gaussian = unique_dists == {DistributionFamily.GAUSSIAN} or unique_dists == {"gaussian"}
 
-    if level_counts is None and any(
-        dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
-        for dist in unique_dists
-    ):
+    if level_counts is None and any_family_needs_level_metadata(unique_dists):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
