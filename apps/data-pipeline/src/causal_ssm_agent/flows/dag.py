@@ -333,11 +333,7 @@ async def stage4(
     stage2: dict,
     enable_literature: bool,
 ) -> dict:
-    """Propose the authored stage-4 state.
-
-    The stage registry materializer derives validation/model artifacts from the
-    returned ``model_spec`` + ``priors`` payload before persistence.
-    """
+    """Propose model spec, elicit priors, and return the grounded stage-4 result."""
     from .stages import stage4_orchestrated_flow
 
     causal_spec = stage1b["causal_spec"]

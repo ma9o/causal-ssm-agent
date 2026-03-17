@@ -1024,10 +1024,7 @@ class TestStage4CompileOwnership:
 
     def test_stage4_global_validation_failure_skips_prior_retries(self, monkeypatch):
         """Global validation failures should stop the prior retry loop immediately."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import (
-            AssemblyValidation,
-            materialize_stage4_result,
-        )
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
         from causal_ssm_agent.flows.stages.stage4_model import stage4_orchestrated_flow
 
         proposed_spec = {
@@ -1138,7 +1135,7 @@ class TestStage4CompileOwnership:
             ),
         )
 
-        authored_state = asyncio.run(
+        result = asyncio.run(
             stage4_orchestrated_flow(
                 causal_spec={
                     "measurement": {
@@ -1155,21 +1152,6 @@ class TestStage4CompileOwnership:
                 raw_data=pl.DataFrame({"indicator": ["outcome_score"], "value": [1.0]}),
                 enable_literature=False,
             )
-        )
-        result = materialize_stage4_result(
-            authored_state=authored_state,
-            raw_data=pl.DataFrame({"indicator": ["outcome_score"], "value": [1.0]}),
-            causal_spec={
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {
-                            "name": "outcome_score",
-                            "construct_name": "outcome",
-                        }
-                    ],
-                }
-            },
         )
 
         assert fake_elicit_task.calls == [["rho_outcome"]]
