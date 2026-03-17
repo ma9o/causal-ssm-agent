@@ -177,6 +177,21 @@ def _issue_payload(issue: Issue) -> dict[str, str]:
     }
 
 
+def _no_data_validation_result() -> dict[str, Any]:
+    return {
+        "is_valid": False,
+        "issues": [
+            {
+                "indicator": "all",
+                "issue_type": "no_data",
+                "severity": "error",
+                "message": "No data extracted",
+            }
+        ],
+        "per_indicator_health": [],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Low-level check functions (preserved for direct testability)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -221,7 +236,10 @@ def _check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[li
 
     elif dtype == "count":
         negative = values.filter(values < 0)
-        fractional = values.filter((values % 1) != 0)
+        # Use the same tolerance as observation_families._nonneg_integer (atol=1e-6)
+        # so values that pass stage 3 also pass at SSM build time.
+        rounded = values.round(0)
+        fractional = values.filter((values - rounded).abs() > 1e-6)
         violation_count = len(negative) + len(fractional)
         if len(negative) > 0:
             issues.append(
@@ -836,34 +854,12 @@ def validate_extraction(
     """
     dataframes = [df for df in dataframes if df is not None and not df.is_empty()]
     if not dataframes:
-        return {
-            "is_valid": False,
-            "issues": [
-                {
-                    "indicator": "all",
-                    "issue_type": "no_data",
-                    "severity": "error",
-                    "message": "No data extracted",
-                }
-            ],
-            "per_indicator_health": [],
-        }
+        return _no_data_validation_result()
 
     combined = pl.concat(dataframes, how="vertical")
 
     if combined.is_empty():
-        return {
-            "is_valid": False,
-            "issues": [
-                {
-                    "indicator": "all",
-                    "issue_type": "no_data",
-                    "severity": "error",
-                    "message": "No data extracted",
-                }
-            ],
-            "per_indicator_health": [],
-        }
+        return _no_data_validation_result()
 
     from causal_ssm_agent.utils.causal_spec import get_constructs, get_indicators
 
