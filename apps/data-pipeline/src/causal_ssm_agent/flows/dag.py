@@ -372,7 +372,7 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
 
 def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
     """Check parametric identifiability gate."""
-    param_id = stage4b.get("parametric_id", {})
+    param_id = stage4b.get("parametric_id") or {}
     gate_failed = False
     gate_overridden = False
     t_rule: dict = {}

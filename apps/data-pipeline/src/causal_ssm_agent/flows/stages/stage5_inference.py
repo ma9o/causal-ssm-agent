@@ -252,7 +252,7 @@ def run_ppc(fitted_result: dict) -> dict:
     from causal_ssm_agent.models.posterior_predictive import run_posterior_predictive_checks
 
     if not fitted_result.get("fitted", False):
-        return {"checked": False, "error": "Model not fitted"}
+        return {"checked": False, "per_variable_warnings": []}
 
     try:
         result = fitted_result["result"]
@@ -275,9 +275,9 @@ def run_ppc(fitted_result: dict) -> dict:
 
         return ppc_result.model_dump(mode="json")
 
-    except Exception as e:
+    except Exception:
         logger.exception("PPC check failed")
-        return {"checked": False, "error": str(e)}
+        return {"checked": False, "per_variable_warnings": []}
 
 
 @task(result_serializer="json")
