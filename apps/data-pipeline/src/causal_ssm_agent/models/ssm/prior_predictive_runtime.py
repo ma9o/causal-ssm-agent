@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
+from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.posterior_predictive import simulate_posterior_predictive
 from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
@@ -21,7 +22,6 @@ from causal_ssm_agent.models.ssm.parameterization import (
     load_prior_runtime_bundle,
     sample_prior_unconstrained,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
@@ -30,10 +30,7 @@ if TYPE_CHECKING:
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
     """Require hydrated level counts before sampling discrete emissions."""
     manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-    needs_levels = any(
-        dist in (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL)
-        for dist in manifest_dists
-    )
+    needs_levels = any_family_needs_level_metadata(manifest_dists)
     if needs_levels and spec.manifest_level_counts is None:
         raise ValueError(
             "Prior predictive for ordered/categorical emissions requires hydrated "

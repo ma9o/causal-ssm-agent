@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
+from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -178,10 +179,7 @@ def assemble_sampled_extra_params(
     max_levels = max(level_counts_list) if level_counts_list else 0
     max_cutpoints = max(max_levels - 1, 0)
 
-    if (
-        DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set
-        or DistributionFamily.CATEGORICAL in manifest_dist_set
-    ) and max_cutpoints <= 0:
+    if any_family_needs_level_metadata(manifest_dist_set) and max_cutpoints <= 0:
         raise ValueError(
             "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
         )
@@ -525,10 +523,7 @@ class SSMModel:
             max_levels = max(level_counts_list) if level_counts_list else 0
             max_cutpoints = max(max_levels - 1, 0)
 
-            if (
-                DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set
-                or DistributionFamily.CATEGORICAL in manifest_dist_set
-            ) and max_cutpoints <= 0:
+            if any_family_needs_level_metadata(manifest_dist_set) and max_cutpoints <= 0:
                 raise ValueError(
                     "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
                 )

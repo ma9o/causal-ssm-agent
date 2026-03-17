@@ -39,8 +39,8 @@ class ObservationFamilySpec:
     """Human-readable constraint for error messages."""
     hydrate_levels: Callable[[np.ndarray], int | None]
     """column_values -> level_count or None if not a discrete family."""
-    requires_integer_encoding: bool
-    """Whether this family needs integer-encoded observations."""
+    needs_level_metadata: bool
+    """Whether this family requires hydrated manifest_level_counts."""
 
     # --- emissions.py concerns ---
     emission_fns: dict[str, Callable]
@@ -118,6 +118,17 @@ def _get_kernels():
     from causal_ssm_agent.models.likelihoods import kernels as kr
 
     return kr
+
+
+def _coerce_distribution_family(
+    dist: DistributionFamily | str,
+) -> DistributionFamily | None:
+    if isinstance(dist, DistributionFamily):
+        return dist
+    try:
+        return DistributionFamily(dist)
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +358,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_no_constraint,
         support_description="",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_gaussian,
             "identity": _emission_factory_gaussian,
@@ -365,7 +376,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_no_constraint,
         support_description="",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_student_t,
             "identity": _emission_factory_student_t,
@@ -383,7 +394,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_nonneg_integer,
         support_description="poisson requires non-negative integer counts",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_poisson,
             "log": _emission_factory_poisson,
@@ -401,7 +412,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_positive_only,
         support_description="gamma requires y > 0",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_gamma_log,
             "log": _emission_factory_gamma_log,
@@ -421,7 +432,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_binary,
         support_description="bernoulli requires binary values in {0, 1}",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_bernoulli_logit,
             "logit": _emission_factory_bernoulli_logit,
@@ -441,7 +452,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_nonneg_integer,
         support_description="negative_binomial requires non-negative integer counts",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_negbin,
             "log": _emission_factory_negbin,
@@ -459,7 +470,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_unit_interval,
         support_description="beta requires 0 < y < 1",
         hydrate_levels=_no_levels,
-        requires_integer_encoding=False,
+        needs_level_metadata=False,
         emission_fns={
             "default": _emission_factory_beta_logit,
             "logit": _emission_factory_beta_logit,
@@ -479,7 +490,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_nonneg_integer,
         support_description="ordered_logistic requires non-negative integer-encoded levels",
         hydrate_levels=_infer_contiguous_levels,
-        requires_integer_encoding=True,
+        needs_level_metadata=True,
         emission_fns={
             "default": _emission_factory_ordered_logistic,
             "cumulative_logit": _emission_factory_ordered_logistic,
@@ -497,7 +508,7 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
         validate_support=_nonneg_integer,
         support_description="categorical requires non-negative integer-encoded levels",
         hydrate_levels=_infer_contiguous_levels,
-        requires_integer_encoding=True,
+        needs_level_metadata=True,
         emission_fns={
             "default": _emission_factory_categorical,
             "softmax": _emission_factory_categorical,
@@ -532,3 +543,27 @@ def _validate_registry_links() -> None:
 
 
 _validate_registry_links()
+
+
+def supported_distribution_families() -> frozenset[DistributionFamily]:
+    """Return the set of supported observation families."""
+    return frozenset(FAMILY_REGISTRY)
+
+
+def get_family_spec(
+    dist: DistributionFamily | str,
+) -> ObservationFamilySpec | None:
+    """Look up an observation-family spec, accepting enums or serialized strings."""
+    family = _coerce_distribution_family(dist)
+    if family is None:
+        return None
+    return FAMILY_REGISTRY.get(family)
+
+
+def any_family_needs_level_metadata(
+    dists: list[DistributionFamily] | set[DistributionFamily] | set[str],
+) -> bool:
+    """Return True when any requested family requires hydrated level counts."""
+    return any(
+        spec.needs_level_metadata for dist in dists if (spec := get_family_spec(dist)) is not None
+    )
