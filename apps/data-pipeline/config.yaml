@@ -22,8 +22,8 @@ stage2_workers:
   max_rpm: 450                 # OpenRouter sliding-window RPM limit
   worker_timeout: 120          # Per-LLM-call timeout in seconds (prevents hung workers)
 
-# Stage 3: Identifiability & Sensitivity Analysis
-# Uses y0 (Pearl's ID algorithm) - no LLM needed
+# Stage 3: Validation
+# Rule-based extraction validation and indicator audits - no LLM needed
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
@@ -36,7 +36,7 @@ stage4_prior_elicitation:
     enabled: false       # Off by default (increases LLM cost)
     n_paraphrases: 10    # Number of paraphrased prompts per parameter
 
-# Stage 5: Intervention Analysis
+# Stages 5a/5b: Inference preflight + full inference
 # Uses NumPyro SSM - no LLM needed
 
 # Inference settings (shared across pipeline and benchmarks)
