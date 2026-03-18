@@ -8,20 +8,6 @@
     "rootFlowRunIds": []
   },
   "GOLDEN": {
-    "createdAt": "2026-03-13T18:33:26.268Z",
-    "rootFlowRunIds": [
-      "6ad78821-0728-486b-b132-1bf7b7a003b4",
-      "a1c62d7f-3184-4f10-a4a9-2574ef8d9381",
-      "e8a74818-3d49-4edd-9a20-89f04a31c1aa"
-    ]
-  },
-  "SMALLGOLDEN": {
-    "createdAt": "2026-03-17T00:00:00.000Z",
-    "rootFlowRunIds": [
-      "352ba074-a605-484c-b940-6cb9948aca3c"
-    ]
-  },
-  "GOLDEN2": {
     "createdAt": "2026-03-16T14:46:52.020Z",
     "rootFlowRunIds": [
       "a4ad3ea0-9ca2-4c4c-8819-3a1917d2dd4d",
@@ -45,6 +31,12 @@
       "54bc3ee9-2e64-4b60-a5e5-d2141d0a4c04",
       "79f4c1db-6cdf-4386-ac18-14f7a564de7c",
       "f845592d-8c3a-4e2b-ac1b-ac52953efa4c"
+    ]
+  },
+  "SMALLGOLDEN": {
+    "createdAt": "2026-03-17T00:00:00.000Z",
+    "rootFlowRunIds": [
+      "352ba074-a605-484c-b940-6cb9948aca3c"
     ]
   }
 }

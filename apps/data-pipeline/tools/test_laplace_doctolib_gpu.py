@@ -10,7 +10,7 @@ from pathlib import Path
 import modal
 
 ROOT = Path(__file__).parent.parent  # apps/data-pipeline
-FIXTURE_DIR = ROOT.parent.parent / "packages" / "fixtures" / "doctolib"
+FIXTURE_DIR = ROOT.parent.parent / "data" / "DOCTOLIB" / "run"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
