@@ -2,8 +2,8 @@
 """Modal-backed runners for expensive pipeline stages.
 
 When DEPLOYMENT_ENV=production, the stage registry swaps local runners for
-these Modal-backed versions.  Stages 2 (LLM extraction) and 5b (NumPyro
-inference) run on Modal's compute; all other stages run locally on Prefect.
+these Modal-backed versions. Stages 2, 4, and 5b run on Modal's compute; the
+remaining stages run locally on Prefect.
 """
 
 from __future__ import annotations
@@ -69,6 +69,20 @@ def _run_stage5b(
     return _persist_stage5b(result, user_id)
 
 
+@app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
+async def _run_stage4(
+    question: str,
+    stage1b: dict,
+    stage2: dict,
+    stage3: dict,
+    enable_literature: bool,
+) -> dict:
+    """Run stage 4 on Modal."""
+    from causal_ssm_agent.flows.dag import stage4
+
+    return await stage4(question, stage1b, stage2, stage3, enable_literature)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Runner callables (bound by the registry)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -93,6 +107,17 @@ def modal_stage5b_runner(
 ) -> dict:
     """Invoke stage 5b on Modal."""
     return _run_stage5b.remote(stage4, stage2, inference_method, user_id)
+
+
+async def modal_stage4_runner(
+    question: str,
+    stage1b: dict,
+    stage2: dict,
+    stage3: dict,
+    enable_literature: bool,
+) -> dict:
+    """Invoke stage 4 on Modal."""
+    return await _run_stage4.remote.aio(question, stage1b, stage2, stage3, enable_literature)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

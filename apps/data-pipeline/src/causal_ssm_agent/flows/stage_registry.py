@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import graphlib
 import inspect
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -471,7 +472,6 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
 
 def _build_registry() -> dict[str, StageDefinition]:
     """Build the stage registry with lazy imports to avoid circular dependencies."""
-    import os
     from dataclasses import replace
 
     from . import dag
@@ -578,14 +578,22 @@ def _build_registry() -> dict[str, StageDefinition]:
         ),
     }
 
-    # In production, offload stages 2 and 5b to Modal
+    # In production, offload stages 2, 4, and 5b to Modal
     if os.environ.get("DEPLOYMENT_ENV") == "production":
-        from .modal_runners import modal_stage2_runner, modal_stage5b_runner, persist_noop
+        from .modal_runners import (
+            modal_stage2_runner,
+            modal_stage4_runner,
+            modal_stage5b_runner,
+            persist_noop,
+        )
 
         def _bind_stage2_modal(ctx: PipelineContext, states: dict) -> dict:
             base = _bind_stage2(ctx, states)
             base["user_id"] = ctx.user_id
             return base
+
+        def _bind_stage4_modal(ctx: PipelineContext, states: dict) -> dict:
+            return _bind_stage4(ctx, states)
 
         def _bind_stage5b_modal(ctx: PipelineContext, states: dict) -> dict:
             base = _bind_stage5b(ctx, states)
@@ -610,6 +618,11 @@ def _build_registry() -> dict[str, StageDefinition]:
                 restore=_restore_stage5b,
                 persist=persist_noop,
             ),
+        )
+        registry["stage-4"] = replace(
+            registry["stage-4"],
+            bind_inputs=_bind_stage4_modal,
+            runner=modal_stage4_runner,
         )
 
     return registry
