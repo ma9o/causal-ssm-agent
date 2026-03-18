@@ -7,6 +7,7 @@ handled by the stage registry (``stage_registry.py``).
 
 from __future__ import annotations
 
+from inspect import isawaitable
 from pathlib import Path
 from typing import Any
 
@@ -259,7 +260,12 @@ async def stage2(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def stage3(stage1b: dict, stage2: dict) -> dict:
+async def _await_artifact(artifact: Any) -> None:
+    if isawaitable(artifact):
+        await artifact
+
+
+async def stage3(stage1b: dict, stage2: dict) -> dict:
     """Audit extracted data: validation plus per-indicator empirical profiles.
 
     Returns: {is_valid, indicators, dataset_issues, outcome}
@@ -305,18 +311,20 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
                 )
 
         if all_issues:
-            create_table_artifact(
-                key="validation-issues",
-                table=[
-                    {
-                        "indicator": i.get("indicator") or "dataset",
-                        "type": i["issue_type"],
-                        "severity": i["severity"],
-                        "message": i["message"],
-                    }
-                    for i in all_issues
-                ],
-                description="Stage 3 extraction validation issues",
+            await _await_artifact(
+                create_table_artifact(
+                    key="validation-issues",
+                    table=[
+                        {
+                            "indicator": i.get("indicator") or "dataset",
+                            "type": i["issue_type"],
+                            "severity": i["severity"],
+                            "message": i["message"],
+                        }
+                        for i in all_issues
+                    ],
+                    description="Stage 3 extraction validation issues",
+                )
             )
 
     report = audit_result or {
@@ -608,7 +616,7 @@ def stage5b(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def stage6(
+async def stage6(
     stage5b: dict,
     stage1a: dict,
     stage1b: dict,
@@ -657,23 +665,29 @@ def stage6(
                 warning = entry.get("warning", "no estimate")
                 logger.info("%-5d %-30s %10s %8s %4s  (%s)", rank, name, "—", "", ident, warning)
 
-        create_table_artifact(
-            key="treatment-ranking",
-            table=[
-                {
-                    "rank": i + 1,
-                    "treatment": r["treatment"],
-                    "effect": (
-                        f"{r['effect_size']:+.4f}" if r.get("effect_size") is not None else "---"
-                    ),
-                    "P(>0)": (
-                        f"{r['prob_positive']:.2f}" if r.get("prob_positive") is not None else ""
-                    ),
-                    "identifiable": "yes" if r.get("identifiable", True) else "NO",
-                }
-                for i, r in enumerate(intervention_results)
-            ],
-            description="Final treatment effect ranking",
+        await _await_artifact(
+            create_table_artifact(
+                key="treatment-ranking",
+                table=[
+                    {
+                        "rank": i + 1,
+                        "treatment": r["treatment"],
+                        "effect": (
+                            f"{r['effect_size']:+.4f}"
+                            if r.get("effect_size") is not None
+                            else "---"
+                        ),
+                        "P(>0)": (
+                            f"{r['prob_positive']:.2f}"
+                            if r.get("prob_positive") is not None
+                            else ""
+                        ),
+                        "identifiable": "yes" if r.get("identifiable", True) else "NO",
+                    }
+                    for i, r in enumerate(intervention_results)
+                ],
+                description="Final treatment effect ranking",
+            )
         )
 
     has_warnings = any(
