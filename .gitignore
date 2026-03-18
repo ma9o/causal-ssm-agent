@@ -18,9 +18,11 @@ build/
 .DS_Store
 
 # Data (monorepo root) — runtime session dirs and outputs are gitignored
-# Tracked: GOLDEN/ (submodule), DEFAULT/, DOCTOLIB/, queries/, eval/
+# .private/ is the private test-data submodule; GOLDEN/ and SMALLGOLDEN/ are symlinks into it
 data/*/
-!data/GOLDEN/
+!data/.private/
+!data/GOLDEN
+!data/SMALLGOLDEN
 !data/DEFAULT/
 !data/DOCTOLIB/
 !data/queries/
@@ -33,6 +35,9 @@ apps/data-pipeline/logs/
 
 # Local scratchpad
 scratchpad/**
+
+# Claude Code local state
+.claude/
 
 repomix-output.xml
 
