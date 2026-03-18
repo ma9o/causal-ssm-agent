@@ -180,4 +180,5 @@ async def run_stage4(
         model_spec=model_spec,
         priors=priors,
         search_queries=search_captures,
+        validation=capture.get("validation"),
     )
