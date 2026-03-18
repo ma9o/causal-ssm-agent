@@ -86,11 +86,10 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
 │   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
 │   └── sessions.json              # Runtime run metadata keyed by user ID (gitignored)
-├── docs/                          # Project documentation
-│   ├── modeling/                  # Theoretical foundations
-│   ├── reference/                 # Technical specifications
-│   ├── guides/                    # Practical usage guides
-│   └── literature.md              # Reference papers (links + summaries)
+├── docs/                          # Project documentation (see docs/index.md)
+│   ├── modeling/                  # Theoretical foundations + SSM compilation pipeline
+│   ├── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing
+│   └── literature.md              # Consolidated bibliography
 └── scratchpad/                    # Temporary work files (gitignored)
 ```
 

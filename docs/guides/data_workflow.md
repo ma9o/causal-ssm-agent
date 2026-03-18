@@ -42,6 +42,8 @@ from `data/processed/`. If you already have a preprocessed text file there, you
 can sample representative chunks for prompt testing with:
 
 ```bash
+cd apps/data-pipeline
+
 uv run python evals/scripts/sample_data_chunks.py -n 20
 
 # Sample from a specific preprocessed file
@@ -51,4 +53,4 @@ uv run python evals/scripts/sample_data_chunks.py -i google_activity_20251208.tx
 uv run python evals/scripts/sample_data_chunks.py --prompt
 ```
 
-Output goes to `data/processed/orchestrator-samples-manual.txt`.
+Output goes to `data/processed/orchestrator-samples-manual.txt`. The `data/processed/` directory is created at runtime (gitignored).

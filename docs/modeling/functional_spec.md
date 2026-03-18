@@ -28,27 +28,9 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 
 The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via the `observation_model` field in the model spec.
 
-**1.2 Temporal Structure (from A3 Markov assumption)**
+**1.2 Temporal Structure:** AR(1) for all endogenous time-varying constructs. See [assumptions.md](assumptions.md) A3.
 
-All endogenous time-varying constructs receive AR(1) per [assumptions.md](assumptions.md) A3:
-```
-Construct_t = ρ · Construct_{t-1} + Σ β_j · Parent_j + ε_t
-```
-
-**1.3 Measurement Model Structure (from [A6/A9](assumptions.md))**
-
-| Indicator count | Structure | Loadings |
-|-----------------|-----------|----------|
-| Single (=1) | Construct ≡ Indicator | λ = 1 (fixed) |
-| Multiple (≥2) | CFA structure | λ_1 = 1, λ_2+ estimated |
-
-The measurement equation follows the standard factor analysis form:
-
-```
-x_i = τ_i + λ_i · ξ + ε_i
-```
-
-Where x is the observed indicator, τ is the intercept, λ is the factor loading, ξ is the latent construct, and ε is measurement error. The first loading is fixed to 1.0 to establish the measurement scale; remaining loadings are estimated freely.
+**1.3 Measurement Model Structure:** Single-indicator constructs fix λ=1; multi-indicator constructs use CFA with first loading fixed. See [assumptions.md](assumptions.md) A6/A9.
 
 **1.4 Cross-Timescale Aggregation**
 
@@ -146,46 +128,9 @@ From N elicited priors {(μ_k, σ_k)}:
 
 ---
 
-## Output Schema
+## Output
 
-Stage 4 produces a model specification dict that is consumed by `SSMModelBuilder` to construct an `SSMSpec`/`SSMModel`:
-
-```python
-{
-    "constructs": {
-        "mood": {
-            "type": "endogenous",
-            "temporal": "time_varying",
-            "granularity": "daily",
-            "ar_prior": {"dist": "Uniform", "lower": 0, "upper": 1},
-        },
-        ...
-    },
-    "edges": {
-        "β_mood_stress": {
-            "cause": "stress",
-            "effect": "mood",
-            "lagged": True,
-            "prior": {"dist": "Normal", "mean": -0.3, "std": 0.2},
-        },
-        ...
-    },
-    "measurement": {
-        "hrv": {
-            "construct": "stress",
-            "dtype": "continuous",
-            "link": "identity",
-            "loading_prior": {"dist": "HalfNormal", "sigma": 1},
-        },
-        ...
-    },
-    "residuals": {
-        "σ²_mood": {"dist": "Exponential", "scale": 1},
-        ...
-    },
-    "time_index": "daily",  # Model clock (finest endogenous outcome)
-}
-```
+Stage 4 produces a `ModelSpec` (see `orchestrator/schemas_model.py`) consumed by the SSM compilation pipeline (see [compilation.md](compilation.md)) to build a NumPyro-ready `SSMModel`.
 
 ---
 
@@ -205,29 +150,9 @@ See `stage4b_parametric_id.py` and `parametric_id.py` for implementation.
 
 ---
 
-## Literature Foundation
+## Literature
 
-### LLM-Assisted Prior Elicitation
-
-| Paper | Key Contribution |
-|-------|------------------|
-| [LLM-BI](https://arxiv.org/abs/2508.08300) (2025) | Full model specification (priors + likelihood) from NL |
-| [AutoElicit](https://arxiv.org/abs/2411.17284) (2024) | Paraphrased prompting + mixture aggregation |
-| [LLM-Prior](https://arxiv.org/abs/2508.03766) (2025) | Coupling LLM with tractable generative model |
-| [Riegler et al.](https://www.nature.com/articles/s41598-025-18425-9) (2025) | Tested Claude/Gemini on real datasets with reflection |
-
-### Key Findings
-
-1. **Low-data regime**: LLM priors most beneficial when training data is scarce
-2. **Paraphrasing handles overconfidence**: Variance across phrasings captures uncertainty
-3. **Rule constraints improve reliability**: Restricting allowed distributions helps
-4. **Clinical validation**: LLM priors reduced required sample sizes in trials
-
-### Limitations
-
-- LLM priors may not match "true" internal knowledge (Selby et al., 2024)
-- Performance is task-dependent
-- No replacement for genuine domain expertise when available
+See [literature.md](../literature.md) for the full bibliography. Key papers for Stage 4: AutoElicit (Capstick et al. 2024), LLM-BI (Chen et al. 2025), LLM-Prior (Huang 2025).
 
 ---
 
@@ -315,35 +240,4 @@ Bayesian model validation uses predictive checks at two points in the workflow. 
 
 ### Why Not CFA First?
 
-Traditional SEM uses a two-step approach (Anderson & Gerbing, 1988): validate the measurement model via CFA, then fit the structural model. This is a frequentist computational convenience.
-
-In Bayesian workflow (Gelman et al., 2020; Betancourt, 2018):
-- The full generative model (measurement + structural) is specified and fit together
-- Prior predictive checks validate the model specification before seeing data
-- Posterior predictive checks validate model adequacy after fitting
-- There is no separate "measurement validation" step
-
-The question "is this indicator a good proxy?" is answered by the posterior predictive distribution, not by a pre-fitting validation gate.
-
-### References
-
-- Gelman, A., et al. (2020). Bayesian Workflow. arXiv:2011.01808.
-- Betancourt, M. (2018). Towards a Principled Bayesian Workflow. https://betanalpha.github.io/
-- Gabry, J., et al. (2019). Visualization in Bayesian Workflow. JRSS-A, 182(2), 389-402.
-- Stan Development Team. Posterior and Prior Predictive Checks. https://mc-stan.org/docs/stan-users-guide/posterior-predictive-checks.html
-
----
-
-## References
-
-### Bayesian SEM
-
-- PyMC Development Team. [Confirmatory Factor Analysis and Structural Equation Models in Psychometrics](https://www.pymc.io/projects/examples/en/latest/case_studies/CFA_SEM.html). PyMC Example Gallery. (Reference for CFA/SEM theory; implementation uses NumPyro/JAX.)
-
-### LLM-Assisted Prior Elicitation
-
-- Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling. arXiv:2411.17284.
-- Huang, Y. (2025). LLM-Prior: A Framework for Knowledge-Driven Prior Elicitation and Aggregation. arXiv:2508.03766.
-- Chen, Z., et al. (2025). LLM-BI: Towards Fully Automated Bayesian Inference with Large Language Models. arXiv:2508.08300.
-- Riegler, M., et al. (2025). Using large language models to suggest informative prior distributions in Bayesian regression analysis. Scientific Reports.
-- Selby, J., et al. (2024). Had Enough of Experts? Elicitation and Evaluation of Bayesian Priors from Large Language Models. NeurIPS BDU Workshop.
+Traditional SEM validates the measurement model via CFA before fitting the structural model (Anderson & Gerbing, 1988). In Bayesian workflow, the full generative model is specified and fit together; prior/posterior predictive checks replace the separate CFA validation step. See Gelman et al. (2020), Betancourt (2018).
