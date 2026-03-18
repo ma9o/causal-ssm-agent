@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
+import causal_ssm_agent.models.posterior_predictive as posterior_predictive_module
 from causal_ssm_agent.models.likelihoods.observation_families import (
     POSTERIOR_PREDICTIVE_SWITCH_ORDER,
     get_posterior_predictive_switch_index,
@@ -116,6 +117,84 @@ class TestForwardSimulation:
         y_sim = simulate_posterior_predictive(samples=samples, times=times, n_subsample=10)
 
         assert y_sim.shape[0] == 10
+
+    def test_forward_simulate_uses_t0_for_first_observation(self, monkeypatch):
+        """The first observation is emitted from the initial state, not a fake transition."""
+        samples = {
+            "drift": jnp.array([[[-0.1]]]),
+            "diffusion": jnp.zeros((1, 1, 1)),
+            "lambda": jnp.array([[[1.0]]]),
+            "manifest_cov": jnp.array([[[0.0]]]),
+            "t0_means": jnp.array([[2.0]]),
+            "t0_cov": jnp.array([[[0.0]]]),
+        }
+        times = jnp.array([0.0, 1.0, 2.0])
+
+        def fake_discretize_system_batched(drift, diffusion_cov, cint, dt_array):
+            del drift, diffusion_cov, cint
+            assert dt_array.shape == (2,)
+            Ad = jnp.array([[[10.0]], [[1.0]]])
+            Qd = jnp.zeros((2, 1, 1))
+            cd = jnp.array([[5.0], [0.0]])
+            return Ad, Qd, cd
+
+        monkeypatch.setattr(
+            posterior_predictive_module,
+            "discretize_system_batched",
+            fake_discretize_system_batched,
+        )
+
+        y_sim = posterior_predictive_module.simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            n_subsample=1,
+            rng_seed=0,
+        )
+
+        assert y_sim.shape == (1, 3, 1)
+        assert abs(float(y_sim[0, 0, 0]) - 2.0) < 0.01
+
+    def test_forward_simulate_mixed_repairs_slightly_indefinite_process_covariance(
+        self, monkeypatch
+    ):
+        """Mixed-family simulation stays finite when discretization is numerically indefinite."""
+        samples = _make_samples(n_draws=3, n_latent=2, n_manifest=3, obs_sd=0.1)
+        samples["lambda"] = jnp.broadcast_to(samples["lambda"], (3, *samples["lambda"].shape))
+        samples["manifest_cov"] = jnp.broadcast_to(
+            samples["manifest_cov"], (3, *samples["manifest_cov"].shape)
+        )
+        samples["t0_cov"] = jnp.broadcast_to(samples["t0_cov"], (3, *samples["t0_cov"].shape))
+        times = jnp.array([0.0, 1.0, 2.0])
+
+        def fake_discretize_system_batched(drift, diffusion_cov, cint, dt_array):
+            del drift, diffusion_cov, cint
+            assert dt_array.shape == (2,)
+            Ad = jnp.broadcast_to(jnp.eye(2), (2, 2, 2))
+            Qd = jnp.array(
+                [
+                    [[1.0e-8, 0.0], [0.0, -1.5e-8]],
+                    [[1.0e-3, 0.0], [0.0, 1.0e-3]],
+                ]
+            )
+            cd = jnp.zeros((2, 2))
+            return Ad, Qd, cd
+
+        monkeypatch.setattr(
+            posterior_predictive_module,
+            "discretize_system_batched",
+            fake_discretize_system_batched,
+        )
+
+        y_sim = posterior_predictive_module.simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            manifest_dists=["gaussian", "bernoulli", "gaussian"],
+            n_subsample=3,
+            rng_seed=0,
+        )
+
+        assert y_sim.shape == (3, 3, 3)
+        assert jnp.all(jnp.isfinite(y_sim))
 
     def test_forward_simulate_poisson(self):
         """Poisson noise family produces non-negative observations."""

@@ -104,6 +104,28 @@ def _broadcast_draw_param(
     return jnp.broadcast_to(value, (n_use, *value.shape))
 
 
+def _stable_cholesky(cov: jnp.ndarray) -> jnp.ndarray:
+    """Return a Cholesky factor after symmetrizing and repairing tiny PSD violations."""
+    cov_sym = 0.5 * (cov + cov.T)
+    min_eig = jnp.min(jnp.linalg.eigvalsh(cov_sym))
+    jitter = jnp.maximum(CHOL_JITTER, -min_eig + CHOL_JITTER)
+    eye = jnp.eye(cov.shape[0], dtype=cov.dtype)
+    return jnp.linalg.cholesky(cov_sym + jitter * eye)
+
+
+def _sample_gaussian_observation(
+    eta: jnp.ndarray,
+    lambda_mat: jnp.ndarray,
+    manifest_means: jnp.ndarray,
+    manifest_chol: jnp.ndarray,
+    obs_key: jax.Array,
+) -> jnp.ndarray:
+    """Sample one Gaussian observation vector from the current latent state."""
+    n_manifest = lambda_mat.shape[0]
+    delta = jax.random.normal(obs_key, (n_manifest,))
+    return lambda_mat @ eta + manifest_means + manifest_chol @ delta
+
+
 def _simulate_one_draw_gaussian(
     drift: jnp.ndarray,
     diffusion_chol: jnp.ndarray,
@@ -113,7 +135,8 @@ def _simulate_one_draw_gaussian(
     manifest_chol: jnp.ndarray,
     t0_mean: jnp.ndarray,
     t0_chol: jnp.ndarray,
-    dt_array: jnp.ndarray,
+    transition_dt_array: jnp.ndarray,
+    n_timepoints: int,
     rng_key: jax.Array,
 ) -> jnp.ndarray:
     """Simulate one trajectory for Gaussian observation noise.
@@ -122,41 +145,52 @@ def _simulate_one_draw_gaussian(
         y_sim: (T, n_manifest) simulated observations
     """
     n_latent = drift.shape[0]
-    n_manifest = lambda_mat.shape[0]
-    T = dt_array.shape[0]
-
-    diffusion_cov = diffusion_chol @ diffusion_chol.T
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
-
-    # If cd is None, use zeros
-    if cd is None:
-        cd = jnp.zeros((T, n_latent))
+    T = n_timepoints
 
     # Split rng keys
     key_init, key_proc, key_obs = jax.random.split(rng_key, 3)
 
     # Initial state
     eta_0 = t0_mean + t0_chol @ jax.random.normal(key_init, (n_latent,))
+    obs_keys = jax.random.split(key_obs, T)
+    y_0 = _sample_gaussian_observation(
+        eta=eta_0,
+        lambda_mat=lambda_mat,
+        manifest_means=manifest_means,
+        manifest_chol=manifest_chol,
+        obs_key=obs_keys[0],
+    )
+
+    if T == 1:
+        return y_0[None, :]
+
+    diffusion_cov = diffusion_chol @ diffusion_chol.T
+    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, transition_dt_array)
+
+    # If cd is None, use zeros
+    if cd is None:
+        cd = jnp.zeros((T - 1, n_latent))
 
     # Process noise keys
-    proc_keys = jax.random.split(key_proc, T)
-    obs_keys = jax.random.split(key_obs, T)
+    proc_keys = jax.random.split(key_proc, T - 1)
 
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        # Cholesky of Qd_t (with jitter for PSD)
-        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
-        Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
+        Qd_chol = _stable_cholesky(Qd_t)
         eps = jax.random.normal(pkey, (n_latent,))
         eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
 
-        # Observation
-        delta = jax.random.normal(okey, (n_manifest,))
-        y_t = lambda_mat @ eta_t + manifest_means + manifest_chol @ delta
+        y_t = _sample_gaussian_observation(
+            eta=eta_t,
+            lambda_mat=lambda_mat,
+            manifest_means=manifest_means,
+            manifest_chol=manifest_chol,
+            obs_key=okey,
+        )
         return eta_t, y_t
 
-    _, y_sim = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys))
-    return y_sim  # (T, n_manifest)
+    _, y_rest = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys[1:]))
+    return jnp.concatenate((y_0[None, :], y_rest), axis=0)  # (T, n_manifest)
 
 
 def _sample_channel(
@@ -191,6 +225,44 @@ def _sample_channel(
     )
 
 
+def _sample_mixed_observation(
+    eta: jnp.ndarray,
+    lambda_mat: jnp.ndarray,
+    manifest_means: jnp.ndarray,
+    obs_key: jax.Array,
+    dist_indices: jnp.ndarray,
+    manifest_std: jnp.ndarray,
+    obs_df: float,
+    obs_shape: float,
+    obs_r: float,
+    obs_concentration: float,
+    manifest_level_counts: jnp.ndarray | None = None,
+    ordered_cutpoints: jnp.ndarray | None = None,
+    cat_intercepts: jnp.ndarray | None = None,
+    cat_slopes: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Sample one mixed-family observation vector from the current latent state."""
+    n_manifest = lambda_mat.shape[0]
+    loc = lambda_mat @ eta + manifest_means
+    channel_keys = jax.random.split(obs_key, n_manifest)
+    return vmap(_sample_channel)(
+        loc,
+        channel_keys,
+        dist_indices,
+        manifest_std,
+        jnp.full(n_manifest, obs_df),
+        jnp.full(n_manifest, obs_shape),
+        jnp.full(n_manifest, obs_r),
+        jnp.full(n_manifest, obs_concentration),
+        manifest_level_counts
+        if manifest_level_counts is not None
+        else jnp.ones(n_manifest, dtype=jnp.int32),
+        ordered_cutpoints if ordered_cutpoints is not None else jnp.zeros((n_manifest, 1)),
+        cat_intercepts if cat_intercepts is not None else jnp.zeros((n_manifest, 1)),
+        cat_slopes if cat_slopes is not None else jnp.zeros((n_manifest, 1)),
+    )
+
+
 def _resolve_dist_indices(
     manifest_dist: str,
     manifest_link: str | None,
@@ -217,7 +289,8 @@ def _simulate_one_draw_mixed(
     manifest_cov: jnp.ndarray,
     t0_mean: jnp.ndarray,
     t0_chol: jnp.ndarray,
-    dt_array: jnp.ndarray,
+    transition_dt_array: jnp.ndarray,
+    n_timepoints: int,
     rng_key: jax.Array,
     dist_indices: jnp.ndarray,
     obs_df: float = 5.0,
@@ -242,50 +315,65 @@ def _simulate_one_draw_mixed(
         y_sim: (T, n_manifest) simulated observations
     """
     n_latent = drift.shape[0]
-    n_manifest = lambda_mat.shape[0]
-    T = dt_array.shape[0]
-
-    diffusion_cov = diffusion_chol @ diffusion_chol.T
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
-    if cd is None:
-        cd = jnp.zeros((T, n_latent))
+    T = n_timepoints
 
     key_init, key_proc, key_obs = jax.random.split(rng_key, 3)
     eta_0 = t0_mean + t0_chol @ jax.random.normal(key_init, (n_latent,))
-    proc_keys = jax.random.split(key_proc, T)
-    obs_keys = jax.random.split(key_obs, T)
-
     manifest_std = jnp.sqrt(jnp.diag(manifest_cov))
+    obs_keys = jax.random.split(key_obs, T)
+    y_0 = _sample_mixed_observation(
+        eta=eta_0,
+        lambda_mat=lambda_mat,
+        manifest_means=manifest_means,
+        obs_key=obs_keys[0],
+        dist_indices=dist_indices,
+        manifest_std=manifest_std,
+        obs_df=obs_df,
+        obs_shape=obs_shape,
+        obs_r=obs_r,
+        obs_concentration=obs_concentration,
+        manifest_level_counts=manifest_level_counts,
+        ordered_cutpoints=ordered_cutpoints,
+        cat_intercepts=cat_intercepts,
+        cat_slopes=cat_slopes,
+    )
+
+    if T == 1:
+        return y_0[None, :]
+
+    diffusion_cov = diffusion_chol @ diffusion_chol.T
+    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, transition_dt_array)
+    if cd is None:
+        cd = jnp.zeros((T - 1, n_latent))
+
+    proc_keys = jax.random.split(key_proc, T - 1)
 
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        Qd_t_safe = Qd_t + CHOL_JITTER * jnp.eye(n_latent)
-        Qd_chol = jnp.linalg.cholesky(Qd_t_safe)
+        Qd_chol = _stable_cholesky(Qd_t)
         eps = jax.random.normal(pkey, (n_latent,))
         eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
 
-        loc = lambda_mat @ eta_t + manifest_means
-        channel_keys = jax.random.split(okey, n_manifest)
-        y_t = vmap(_sample_channel)(
-            loc,
-            channel_keys,
-            dist_indices,
-            manifest_std,
-            jnp.full(n_manifest, obs_df),
-            jnp.full(n_manifest, obs_shape),
-            jnp.full(n_manifest, obs_r),
-            jnp.full(n_manifest, obs_concentration),
-            manifest_level_counts
-            if manifest_level_counts is not None
-            else jnp.ones(n_manifest, dtype=jnp.int32),
-            ordered_cutpoints if ordered_cutpoints is not None else jnp.zeros((n_manifest, 1)),
-            cat_intercepts if cat_intercepts is not None else jnp.zeros((n_manifest, 1)),
-            cat_slopes if cat_slopes is not None else jnp.zeros((n_manifest, 1)),
+        y_t = _sample_mixed_observation(
+            eta=eta_t,
+            lambda_mat=lambda_mat,
+            manifest_means=manifest_means,
+            obs_key=okey,
+            dist_indices=dist_indices,
+            manifest_std=manifest_std,
+            obs_df=obs_df,
+            obs_shape=obs_shape,
+            obs_r=obs_r,
+            obs_concentration=obs_concentration,
+            manifest_level_counts=manifest_level_counts,
+            ordered_cutpoints=ordered_cutpoints,
+            cat_intercepts=cat_intercepts,
+            cat_slopes=cat_slopes,
         )
         return eta_t, y_t
 
-    _, y_sim = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys))
-    return y_sim  # (T, n_manifest)
+    _, y_rest = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys[1:]))
+    return jnp.concatenate((y_0[None, :], y_rest), axis=0)  # (T, n_manifest)
 
 
 def simulate_posterior_predictive(
@@ -365,9 +453,8 @@ def simulate_posterior_predictive(
         else None
     )
 
-    # Compute dt array
-    dt_array = jnp.diff(times, prepend=times[0])
-    dt_array = jnp.maximum(dt_array, MIN_DT)
+    n_timepoints = int(times.shape[0])
+    transition_dt_array = jnp.maximum(jnp.diff(times), MIN_DT)
 
     rng = jax.random.PRNGKey(rng_seed)
     draw_keys = jax.random.split(rng, n_use)
@@ -390,15 +477,11 @@ def simulate_posterior_predictive(
         return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
 
     # Cholesky decomposition of t0_cov (needed by all paths)
-    t0_chol_sub = vmap(lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0])))(
-        t0_cov_sub
-    )
+    t0_chol_sub = vmap(_stable_cholesky)(t0_cov_sub)
 
     if all_gaussian:
         # Fast path: correlated Gaussian observation noise via Cholesky
-        manifest_chol_sub = vmap(
-            lambda cov: jnp.linalg.cholesky(cov + CHOL_JITTER * jnp.eye(cov.shape[0]))
-        )(manifest_cov_sub)
+        manifest_chol_sub = vmap(_stable_cholesky)(manifest_cov_sub)
 
         def sim_one(i):
             ci = cint_sub[i] if cint_sub is not None else None
@@ -411,7 +494,8 @@ def simulate_posterior_predictive(
                 manifest_chol=manifest_chol_sub[i],
                 t0_mean=t0_means_sub[i],
                 t0_chol=t0_chol_sub[i],
-                dt_array=dt_array,
+                transition_dt_array=transition_dt_array,
+                n_timepoints=n_timepoints,
                 rng_key=draw_keys[i],
             )
 
@@ -447,7 +531,8 @@ def simulate_posterior_predictive(
                 manifest_cov=manifest_cov_sub[i],
                 t0_mean=t0_means_sub[i],
                 t0_chol=t0_chol_sub[i],
-                dt_array=dt_array,
+                transition_dt_array=transition_dt_array,
+                n_timepoints=n_timepoints,
                 rng_key=draw_keys[i],
                 dist_indices=dist_indices,
                 obs_df=obs_df_val,
