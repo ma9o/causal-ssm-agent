@@ -1,13 +1,23 @@
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { formatNumber } from "@/lib/utils/format";
-import type { CellStatus, IndicatorHealth } from "@causal-ssm/api-types";
+import type {
+  CellStatus,
+  IndicatorAudit,
+  IndicatorEmpiricalProfile,
+  IndicatorValidation,
+} from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
 
-const col = createColumnHelper<IndicatorHealth>();
+type IndicatorAuditRow = {
+  indicator: string;
+  profile: IndicatorEmpiricalProfile | null | undefined;
+  validation: IndicatorValidation;
+};
 
-/** Map a backend cell status to severity. */
+const col = createColumnHelper<IndicatorAuditRow>();
+
 function cellSeverity(status: CellStatus | undefined): "fail" | "warn" | undefined {
   if (status === "error") return "fail";
   if (status === "warning") return "warn";
@@ -15,24 +25,38 @@ function cellSeverity(status: CellStatus | undefined): "fail" | "warn" | undefin
 }
 
 type ColumnIssueSummary = { count: number; hasError: boolean };
+type StatusField =
+  | "n_obs"
+  | "variance"
+  | "n_unparseable_timestamps"
+  | "time_coverage_ratio"
+  | "max_gap_ratio"
+  | "dtype_violations"
+  | "duplicate_pct"
+  | "arithmetic_sequence_detected";
 
-const STATUS_FIELDS = [
+const STATUS_FIELDS: StatusField[] = [
   "n_obs",
   "variance",
+  "n_unparseable_timestamps",
   "time_coverage_ratio",
   "max_gap_ratio",
   "dtype_violations",
   "duplicate_pct",
   "arithmetic_sequence_detected",
-] as const;
+];
 
-function computeColumnSummaries(rows: IndicatorHealth[]): Record<string, ColumnIssueSummary> {
-  const summaries: Record<string, ColumnIssueSummary> = {};
+function rowStatus(row: IndicatorAuditRow, field: StatusField): CellStatus | undefined {
+  return row.validation.checks?.[field];
+}
+
+function computeColumnSummaries(rows: IndicatorAuditRow[]): Record<StatusField, ColumnIssueSummary> {
+  const summaries = {} as Record<StatusField, ColumnIssueSummary>;
   for (const field of STATUS_FIELDS) {
     let count = 0;
     let hasError = false;
     for (const row of rows) {
-      const status = row.cell_statuses?.[field];
+      const status = rowStatus(row, field);
       if (status === "warning") count++;
       if (status === "error") {
         count++;
@@ -56,11 +80,11 @@ function IssueBadge({ summary }: { summary: ColumnIssueSummary | undefined }) {
   );
 }
 
-function rowIssueSummary(row: IndicatorHealth): ColumnIssueSummary {
+function rowIssueSummary(row: IndicatorAuditRow): ColumnIssueSummary {
   let count = 0;
   let hasError = false;
   for (const field of STATUS_FIELDS) {
-    const status = row.cell_statuses?.[field];
+    const status = rowStatus(row, field);
     if (status === "warning") count++;
     if (status === "error") {
       count++;
@@ -70,7 +94,17 @@ function rowIssueSummary(row: IndicatorHealth): ColumnIssueSummary {
   return { count, hasError };
 }
 
-function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
+function buildRows(audits: Record<string, IndicatorAudit | undefined>): IndicatorAuditRow[] {
+  return Object.entries(audits)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([indicator, audit]) => ({
+      indicator,
+      profile: audit?.profile,
+      validation: audit?.validation ?? { issues: [], checks: {} },
+    }));
+}
+
+function buildColumns(summaries: Record<StatusField, ColumnIssueSummary>) {
   return [
     col.accessor("indicator", {
       header: "Indicator",
@@ -94,117 +128,167 @@ function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
       },
       meta: { align: "right" },
     }),
-    col.accessor("n_obs", {
+    col.accessor((row) => row.profile?.n_obs, {
+      id: "n_obs",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
             label="Obs"
-            tooltip="Number of non-null observations after extraction. More observations generally yield more reliable estimates."
+            tooltip="Number of model-ready observations available for this indicator."
           />
           <IssueBadge summary={summaries.n_obs} />
         </span>
       ),
-      cell: (info) => info.getValue().toLocaleString(),
+      cell: (info) => {
+        const value = info.getValue();
+        return value == null ? "--" : value.toLocaleString();
+      },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.n_obs),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "n_obs")),
       },
     }),
-    col.accessor("variance", {
+    col.accessor((row) => row.profile?.mean, {
+      id: "mean",
+      header: () => (
+        <HeaderWithTooltip
+          label="Mean"
+          tooltip="Average of the model-ready numeric values. Useful for judging the observed scale."
+        />
+      ),
+      cell: (info) => {
+        const value = info.getValue();
+        return value == null ? "--" : formatNumber(value);
+      },
+      meta: { align: "right" },
+    }),
+    col.accessor((row) => row.profile?.variance, {
+      id: "variance",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
             label="Variance"
-            tooltip="Sample variance of the indicator values. Near-zero variance means the series is effectively constant and carries no information."
+            tooltip="Sample variance of the model-ready values. Near-zero variance means the series is effectively constant."
           />
           <IssueBadge summary={summaries.variance} />
         </span>
       ),
       cell: (info) => {
-        const v = info.getValue();
-        return v === null ? "--" : formatNumber(v);
+        const value = info.getValue();
+        return value == null ? "--" : formatNumber(value);
       },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.variance),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "variance")),
       },
     }),
-    col.accessor("time_coverage_ratio", {
+    col.accessor((row) => row.profile?.n_unparseable_timestamps, {
+      id: "n_unparseable_timestamps",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
-            label="Time Coverage"
-            tooltip="Fraction of the requested time range that has data. Values close to 1.0 indicate good temporal coverage."
+            label="Bad TS"
+            tooltip="Count of timestamps that could not be parsed during validation."
+          />
+          <IssueBadge summary={summaries.n_unparseable_timestamps} />
+        </span>
+      ),
+      cell: (info) => {
+        const value = info.getValue();
+        return value == null ? "--" : String(value);
+      },
+      meta: {
+        align: "right",
+        severity: (_v, row) => cellSeverity(rowStatus(row, "n_unparseable_timestamps")),
+      },
+    }),
+    col.accessor((row) => row.profile?.time_coverage_ratio, {
+      id: "time_coverage_ratio",
+      header: () => (
+        <span className="inline-flex items-center">
+          <HeaderWithTooltip
+            label="Coverage"
+            tooltip="Fraction of the requested time span covered by extracted observations."
           />
           <IssueBadge summary={summaries.time_coverage_ratio} />
         </span>
       ),
       cell: (info) => {
-        const v = info.getValue();
-        return v === null ? "--" : formatNumber(v);
+        const value = info.getValue();
+        return value == null ? "--" : formatNumber(value);
       },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.time_coverage_ratio),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "time_coverage_ratio")),
       },
     }),
-    col.accessor("max_gap_ratio", {
+    col.accessor((row) => row.profile?.max_gap_ratio, {
+      id: "max_gap_ratio",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
             label="Max Gap"
-            tooltip="Longest consecutive gap without data as a fraction of the total time range. Large values indicate periods where the indicator is missing."
+            tooltip="Largest timestamp gap relative to the acceptable gap threshold."
           />
           <IssueBadge summary={summaries.max_gap_ratio} />
         </span>
       ),
       cell: (info) => {
-        const v = info.getValue();
-        return v === null ? "--" : formatNumber(v);
+        const value = info.getValue();
+        return value == null ? "--" : formatNumber(value);
       },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.max_gap_ratio),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "max_gap_ratio")),
       },
     }),
-    col.accessor("dtype_violations", {
+    col.accessor((row) => row.profile?.dtype_violations, {
+      id: "dtype_violations",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
-            label="Dtype Violations"
-            tooltip="Number of values that could not be converted to the expected numeric type. Non-zero counts suggest data quality issues at the source."
+            label="Type Viol."
+            tooltip="Number of values that violated the expected measurement dtype."
           />
           <IssueBadge summary={summaries.dtype_violations} />
         </span>
       ),
-      cell: (info) => info.getValue(),
+      cell: (info) => {
+        const value = info.getValue();
+        return value == null ? "--" : String(value);
+      },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.dtype_violations),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "dtype_violations")),
       },
     }),
-    col.accessor("duplicate_pct", {
+    col.accessor((row) => row.profile?.duplicate_pct, {
+      id: "duplicate_pct",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
             label="Dup %"
-            tooltip="Percentage of duplicate timestamp-value pairs. High duplication may indicate redundant data or extraction errors."
+            tooltip="Share of repeated values that may indicate extraction artifacts."
           />
           <IssueBadge summary={summaries.duplicate_pct} />
         </span>
       ),
-      cell: (info) => formatNumber(info.getValue()),
+      cell: (info) => {
+        const value = info.getValue();
+        return value == null ? "--" : formatNumber(value);
+      },
       meta: {
         align: "right",
-        severity: (_v, row) => cellSeverity(row.cell_statuses?.duplicate_pct),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "duplicate_pct")),
       },
     }),
-    col.accessor("arithmetic_sequence_detected", {
+    col.accessor((row) => row.profile?.arithmetic_sequence_detected, {
+      id: "arithmetic_sequence_detected",
       header: () => (
         <span className="inline-flex items-center">
           <HeaderWithTooltip
             label="Arith. Seq."
-            tooltip="Whether the values form an arithmetic sequence (constant step between consecutive observations). Detected sequences often indicate synthetic or interpolated data rather than real measurements."
+            tooltip="Whether the indicator values form a suspicious arithmetic sequence."
           />
           <IssueBadge summary={summaries.arithmetic_sequence_detected} />
         </span>
@@ -212,14 +296,19 @@ function buildColumns(summaries: Record<string, ColumnIssueSummary>) {
       cell: (info) =>
         info.getValue() ? "detected" : <span className="text-muted-foreground">none</span>,
       meta: {
-        severity: (v: boolean) => (v ? "warn" : undefined),
+        severity: (_v, row) => cellSeverity(rowStatus(row, "arithmetic_sequence_detected")),
       },
     }),
   ];
 }
 
-export function IndicatorHealthTable({ rows }: { rows: IndicatorHealth[] }) {
+export function IndicatorHealthTable({
+  audits,
+}: {
+  audits: Record<string, IndicatorAudit | undefined>;
+}) {
+  const rows = useMemo(() => buildRows(audits), [audits]);
   const summaries = useMemo(() => computeColumnSummaries(rows), [rows]);
   const columns = useMemo(() => buildColumns(summaries), [summaries]);
-  return <InfoTable columns={columns as ColumnDef<IndicatorHealth, unknown>[]} data={rows} />;
+  return <InfoTable columns={columns as ColumnDef<IndicatorAuditRow, unknown>[]} data={rows} />;
 }
