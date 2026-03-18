@@ -1,36 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Web Frontend
 
-## Getting Started
-
-First, run the development server:
+Next.js app for session management and pipeline stage visualization. Part of the [causal-ssm-agent](../../README.md) monorepo.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun run dev    # Start dev server on port 3000
+bun run build  # Production build
+bun run test   # Vitest unit tests
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Server-side routes default to local pipeline services:
+- `PREFECT_API_URL=http://localhost:4200/api`
+- `TOOL_SERVER_URL=http://localhost:8100`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Browser-side Prefect events can be overridden with `NEXT_PUBLIC_PREFECT_EVENTS_URL`.
+If `OPENROUTER_API_KEY` is not present in the web runtime env, the app falls back to the monorepo root `.env`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See the root README for full project context and [`docs/guides/`](../../docs/guides/) for usage guides.
