@@ -6,8 +6,6 @@ A single ``reduce_findings()`` derives cell statuses from issues, so
 threshold logic lives inside rules and status derivation is centralized.
 
 Adding a new validation check = appending one entry to ``RULES``.
-
-See docs/reference/pipeline.md for full specification.
 """
 
 from __future__ import annotations

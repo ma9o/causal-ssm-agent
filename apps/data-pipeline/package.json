@@ -2,7 +2,7 @@
   "name": "@causal-ssm/data-pipeline",
   "private": true,
   "scripts": {
-    "dev": "uv run uvicorn api:app --reload",
+    "dev": "uv run uvicorn causal_ssm_agent.tool_server:app --reload --port 8100",
     "test": "uv run pytest tests/",
     "lint": "uv run ruff check src/ tests/",
     "format": "uv run ruff format src/ tests/",
