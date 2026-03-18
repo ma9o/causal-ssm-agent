@@ -87,7 +87,12 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     def stage3(stage1b: dict, stage2: dict) -> dict:
         calls.append(("stage3", stage1b, stage2))
-        return {"validation_report": {}, "outcome": "success"}
+        return {
+            "is_valid": True,
+            "indicators": {},
+            "dataset_issues": [],
+            "outcome": "success",
+        }
 
     def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
         calls.append(("stage4b", stage4, stage2, ssm_builder))
@@ -180,8 +185,14 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
             }
         }
 
-    async def stage4(question: str, stage1b: dict, stage2: dict, enable_literature: bool) -> dict:
-        calls.append(("stage4", question, stage1b, stage2, enable_literature))
+    async def stage4(
+        question: str,
+        stage1b: dict,
+        stage2: dict,
+        stage3: dict,
+        enable_literature: bool,
+    ) -> dict:
+        calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature))
         return {
             "model_spec": {},
             "priors": {},
@@ -246,7 +257,13 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         calls.append(("stage1b", question, stage0, stage1a))
         return {"causal_spec": causal_spec}
 
-    async def stage4(question: str, stage1b: dict, stage2: dict, enable_literature: bool) -> dict:
+    async def stage4(
+        question: str,
+        stage1b: dict,
+        stage2: dict,
+        stage3: dict,
+        enable_literature: bool,
+    ) -> dict:
         raise AssertionError("stage4 should be skipped when an override is provided")
 
     def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
@@ -636,14 +653,12 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "AR coefficient",
-                    "search_context": "stress autocorrelation",
                 },
                 {
                     "name": "sigma_stress",
                     "role": "residual_sd",
                     "constraint": "positive",
                     "description": "Measurement noise",
-                    "search_context": "stress score measurement error",
                 },
             ],
         },
@@ -684,6 +699,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
             {
                 "stage-1b": {"result": {"causal_spec": causal_spec}},
                 "stage-2": {"result": {"_data_for_model_path": str(data_path)}},
+                "stage-3": {"result": {"indicators": {}, "dataset_issues": [], "is_valid": True}},
             },
         )
     )
@@ -794,6 +810,7 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
                 }
             },
             {"_data_for_model_path": str(data_path)},
+            {"indicators": {}, "dataset_issues": [], "is_valid": True},
             enable_literature=True,
         )
     )

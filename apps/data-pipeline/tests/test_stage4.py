@@ -58,21 +58,18 @@ def simple_model_spec() -> dict:
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Intercept for mood",
-                "search_context": "mood baseline population mean",
             },
             {
                 "name": "rho_mood",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) coefficient for mood",
-                "search_context": "mood autocorrelation daily",
             },
             {
                 "name": "sigma_mood_score",
                 "role": "residual_sd",
                 "constraint": "positive",
                 "description": "Residual SD for mood",
-                "search_context": "mood variability within-person",
             },
         ],
     }
@@ -123,87 +120,150 @@ def simple_data() -> pd.DataFrame:
 
 
 class TestStage4Messages:
-    def test_proposal_messages_include_full_causal_spec_as_context(self):
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "stress",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                        "description": "Perceived stress",
-                    },
-                    {
-                        "name": "sleep",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                ],
-                "edges": [{"cause": "stress", "effect": "sleep", "lagged": True}],
-            },
-            "measurement": {
+    def test_proposal_messages_include_compact_model_context(self):
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={
                 "model_clock": "1d",
-                "indicators": [
+                "model_interval_days": 1.0,
+                "outcome": "sleep",
+                "latent_edges": [
                     {
-                        "name": "pss_score",
-                        "construct_name": "stress",
-                        "how_to_measure": "Use the pss column directly",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                        "source_columns": ["pss"],
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "description": "Stress reduces subsequent sleep quality.",
                     }
                 ],
             },
-        }
-        msgs = Stage4Messages(
-            question="Does stress affect sleep?",
-            causal_spec=causal_spec,
-            resolved_likelihoods=[],
-            ambiguous_indicators=[],
-            all_params=[
+            distribution_cards=[
                 {
-                    "name": "beta_stress_sleep",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "Effect of stress on sleep",
+                    "variable": "pss_score",
+                    "construct": "stress",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "how_to_measure": "Use the pss column directly",
+                    "options": [
+                        {"distribution": "gaussian", "links": ["identity"]},
+                    ],
+                    "profile": {
+                        "n_obs": 40,
+                        "mean": 12.0,
+                        "std": 3.5,
+                        "min": 3.0,
+                        "max": 21.0,
+                    },
+                    "validation_issues": [],
                 }
             ],
             loading_params=[],
-            data_summary="Data Summary",
+            construct_scale_cards=[
+                {
+                    "construct": "stress",
+                    "description": "Perceived stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": False,
+                    "reference_indicator": "pss_score",
+                    "indicators": [
+                        {
+                            "indicator": "pss_score",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "how_to_measure": "Use the pss column directly",
+                            "is_reference": True,
+                            "has_distribution_decision_card": True,
+                            "profile": {
+                                "n_obs": 40,
+                                "mean": 12.0,
+                                "std": 3.5,
+                                "min": 3.0,
+                                "max": 21.0,
+                            },
+                        }
+                    ],
+                }
+            ],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                }
+            ],
         )
 
         messages = msgs.proposal_messages()
         user_content = messages[1]["content"]
 
-        assert "## Full Causal Model Context" in user_content
-        assert '"how_to_measure": "Use the pss column directly"' in user_content
-        assert '"source_columns": [' in user_content
-        assert '"model_clock": "1d"' in user_content
+        assert "## Model Topology" in user_content
+        assert "Stress reduces subsequent sleep quality." in user_content
+        assert "Use the pss column directly" in user_content
+        assert "model_interval_days" in user_content
+        assert "### 3. Construct Scale Cards" in user_content
+        assert "see distribution decision card" in user_content
 
     def test_proposal_messages_separate_context_from_decision_surface(self):
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
-            causal_spec={
-                "latent": {"constructs": [], "edges": []},
-                "measurement": {"indicators": []},
-            },
-            resolved_likelihoods=[],
-            ambiguous_indicators=[],
-            all_params=[],
+            model_topology={},
+            distribution_cards=[],
             loading_params=[],
-            data_summary="No data available.",
+            construct_scale_cards=[],
+            prior_cards=[],
         )
 
         messages = msgs.proposal_messages()
         user_content = messages[1]["content"]
 
-        assert (
-            "It is provided so you can see the entire latent model and measurement model"
-            in user_content
+        assert "## Fixed Model Context" in user_content
+        assert "## Your Decisions" in user_content
+        assert "Provide exactly one prior for EVERY parameter below." in user_content
+        assert "Indicators not shown already have deterministic likelihoods." in user_content
+
+    def test_proposal_messages_include_parameter_prior_cards(self):
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[
+                {
+                    "construct": "stress",
+                    "description": "Perceived stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": False,
+                    "reference_indicator": "pss_score",
+                    "indicators": [],
+                }
+            ],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                }
+            ],
         )
-        assert "Only the items below require judgment from you" in user_content
-        assert "The parameter list is fixed; only the prior choices are yours." in user_content
+
+        messages = msgs.proposal_messages()
+        user_content = messages[1]["content"]
+
+        assert "### 4. Parameter Prior Cards" in user_content
+        assert "#### Fixed Effects" in user_content
+        assert "| beta_stress_sleep | stress | sleep | lagged | none |" in user_content
+        assert "### 3. Construct Scale Cards" in user_content
 
 
 # --- SSMModelBuilder Tests ---
@@ -282,7 +342,6 @@ class TestPriorPredictiveValidation:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "AR coeff",
-                    "search_context": "",
                 }
             ],
         }
@@ -325,7 +384,6 @@ class TestPriorPredictiveValidation:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "AR coefficient",
-                    "search_context": "",
                 }
             ],
         }
@@ -358,7 +416,7 @@ class TestPriorPredictiveValidation:
         )
 
         raw_data = _make_polars_data()
-        validation = validate_assembly(simple_model_spec, simple_priors, raw_data, None)
+        validation = validate_assembly(simple_model_spec, simple_priors, raw_data, None, None)
         result = build_validation_payload(validation, simple_model_spec)
         assert isinstance(result, dict)
         assert "is_valid" in result
@@ -394,6 +452,7 @@ class TestPriorPredictiveValidation:
                 simple_model_spec,
                 simple_priors,
                 _make_polars_data(),
+                None,
                 None,
             )
 
@@ -542,7 +601,6 @@ class TestSSMPriorConversion:
                 "role": "loading",
                 "constraint": "positive",
                 "description": "Factor loading",
-                "search_context": "test",
             },
         ]
         priors = {
@@ -596,14 +654,12 @@ class TestSSMPriorConversion:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
             ],
         }
@@ -642,7 +698,6 @@ class TestSSMPriorConversion:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
             ],
         }
@@ -702,21 +757,18 @@ class TestSSMPriorConversion:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
                 {
                     "name": "rho_stress",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
                 {
                     "name": "beta_stress_mood",
                     "role": "fixed_effect",
                     "constraint": "none",
                     "description": "",
-                    "search_context": "",
                 },
             ],
         }
@@ -760,21 +812,18 @@ class TestSSMPriorConversion:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
                 {
                     "name": "rho_activity",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 },
                 {
                     "name": "beta_activity_heart_rate",
                     "role": "fixed_effect",
                     "constraint": "none",
                     "description": "",
-                    "search_context": "",
                 },
             ],
         }
@@ -856,7 +905,6 @@ class TestTrialCompile:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "test",
-                    "search_context": "",
                 }
             ],
         }
@@ -887,14 +935,12 @@ class TestTrialCompile:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "test",
-                    "search_context": "",
                 },
                 {
                     "name": "sigma_x",
                     "role": "residual_sd",
                     "constraint": "none",
                     "description": "test",
-                    "search_context": "",
                 },
             ],
         }
@@ -923,7 +969,6 @@ class TestTrialCompile:
                     "role": "residual_sd",
                     "constraint": "positive",
                     "description": "test",
-                    "search_context": "",
                 }
             ],
         }
@@ -952,7 +997,6 @@ class TestTrialCompile:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "test",
-                    "search_context": "",
                 }
             ],
         }
@@ -1005,7 +1049,7 @@ class TestStage4CompileOwnership:
         )
         from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
 
-        def stub_validate_assembly(model_spec, priors, raw_data, causal_spec):
+        def stub_validate_assembly(model_spec, priors, raw_data, indicator_audits, causal_spec):
             return AssemblyValidation(
                 normalized_model_spec=model_spec,
                 compile_ok=False,

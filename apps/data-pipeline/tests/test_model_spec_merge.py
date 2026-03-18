@@ -35,7 +35,6 @@ def _valid_spec_dict():
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Effect of stress on mood",
-                "search_context": "stress mood effect size",
             }
         ],
         "reasoning": "Standard linear model",
@@ -168,7 +167,6 @@ class TestValidateModelSpecDict:
             "role": "ar_coefficient",
             "constraint": "correlation",
             "description": "AR(1) persistence for mood",
-            "search_context": "mood autocorrelation",
         }
         spec, errors = validate_model_spec_dict(d)
         assert spec is None
@@ -201,7 +199,6 @@ class TestMergeDecisionsToSpec:
         decisions = ModelSpecDecisions(
             distribution_choices=[],
             loading_constraints=[],
-            search_contexts={"beta_x": "X effect size meta-analysis"},
             reasoning="Standard model",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
@@ -209,12 +206,16 @@ class TestMergeDecisionsToSpec:
         assert spec is not None
         assert len(spec.likelihoods) == 1
         assert spec.likelihoods[0].variable == "mood_score"
-        assert spec.parameters[0].search_context == "X effect size meta-analysis"
 
     def test_with_distribution_choices(self):
         resolved = []
         params = [
-            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "test"},
+            {
+                "name": "beta_x",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "test",
+            },
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[
@@ -225,7 +226,6 @@ class TestMergeDecisionsToSpec:
                     reasoning="Count data",
                 ),
             ],
-            search_contexts={"beta_x": "search query"},
             reasoning="model reason",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
@@ -255,27 +255,12 @@ class TestMergeDecisionsToSpec:
                     reasoning="Positive loading expected",
                 ),
             ],
-            search_contexts={"lambda_mood_pss": "factor loading mood"},
             reasoning="test",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
         assert errors == []
         assert spec is not None
         assert spec.parameters[0].constraint == ParameterConstraint.POSITIVE
-
-    def test_missing_search_context(self):
-        resolved = []
-        params = [
-            {"name": "beta_x", "role": "fixed_effect", "constraint": "none", "description": "test"},
-        ]
-        decisions = ModelSpecDecisions(
-            distribution_choices=[],
-            search_contexts={},  # missing for beta_x
-            reasoning="test",
-        )
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
-        assert spec is None
-        assert any("search_context" in e and "beta_x" in e for e in errors)
 
     def test_resolved_and_choices_combined(self):
         resolved = [
@@ -287,7 +272,12 @@ class TestMergeDecisionsToSpec:
             },
         ]
         params = [
-            {"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d1"},
+            {
+                "name": "p1",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "d1",
+            },
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[
@@ -298,7 +288,6 @@ class TestMergeDecisionsToSpec:
                     reasoning="count",
                 ),
             ],
-            search_contexts={"p1": "query"},
             reasoning="test",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
@@ -329,7 +318,14 @@ class TestValidateModelSpecDecisionsDict:
         ]
 
     def _params(self):
-        return [{"name": "p1", "role": "fixed_effect", "constraint": "none", "description": "d"}]
+        return [
+            {
+                "name": "p1",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "d",
+            }
+        ]
 
     def test_valid_decisions(self):
         data = {
@@ -341,7 +337,6 @@ class TestValidateModelSpecDecisionsDict:
                     "reasoning": "count",
                 },
             ],
-            "search_contexts": {"p1": "query"},
             "reasoning": "test",
         }
         spec, errors = validate_model_spec_decisions_dict(
@@ -360,7 +355,6 @@ class TestValidateModelSpecDecisionsDict:
     def test_missing_ambiguous_decision(self):
         data = {
             "distribution_choices": [],  # missing decision for 'steps'
-            "search_contexts": {"p1": "q"},
             "reasoning": "test",
         }
         spec, errors = validate_model_spec_decisions_dict(
@@ -374,7 +368,6 @@ class TestValidateModelSpecDecisionsDict:
             "distribution_choices": [
                 {"variable": "steps", "distribution": "bad_dist", "link": "log", "reasoning": "r"},
             ],
-            "search_contexts": {"p1": "q"},
             "reasoning": "test",
         }
         spec, errors = validate_model_spec_decisions_dict(
@@ -391,7 +384,6 @@ class TestValidateModelSpecDecisionsDict:
             "loading_constraints": [
                 {"parameter": "lam", "constraint": "bad_constraint", "reasoning": "r"},
             ],
-            "search_contexts": {"p1": "q"},
             "reasoning": "test",
         }
         spec, errors = validate_model_spec_decisions_dict(
@@ -400,25 +392,10 @@ class TestValidateModelSpecDecisionsDict:
         assert spec is None
         assert any("bad_constraint" in e for e in errors)
 
-    def test_search_contexts_not_dict(self):
-        data = {
-            "distribution_choices": [
-                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "r"},
-            ],
-            "search_contexts": "not a dict",
-            "reasoning": "test",
-        }
-        spec, errors = validate_model_spec_decisions_dict(
-            data, self._resolved(), self._ambiguous(), self._params()
-        )
-        assert spec is None
-        assert any("search_contexts" in e for e in errors)
-
     def test_no_ambiguous_indicators(self):
         """When no ambiguous indicators, no distribution_choices needed."""
         data = {
             "distribution_choices": [],
-            "search_contexts": {"p1": "query"},
             "reasoning": "test",
         }
         spec, errors = validate_model_spec_decisions_dict(

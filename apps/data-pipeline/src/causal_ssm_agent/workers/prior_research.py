@@ -1,7 +1,7 @@
 """Stage 4 Worker: Per-Parameter Prior Research.
 
 Each worker researches a single parameter using:
-1. Targeted Exa literature search based on search_context (cacheable, run once)
+1. Targeted Exa literature search (cacheable, run once)
 2. LLM prior elicitation based on evidence (can be retried with feedback)
 3. Optional AutoElicit-style paraphrased prompting for robust aggregation
 """
@@ -9,12 +9,15 @@ Each worker researches a single parameter using:
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
 from causal_ssm_agent.utils.litellm_client import acquire_limiter
+
+if TYPE_CHECKING:
+    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
     make_validation_tool,
@@ -57,9 +60,9 @@ def _make_prior_tool() -> tuple[object, dict]:
 
 
 async def search_parameter_literature(
-    parameter_or_query: ParameterSpec | str,
+    query: str,
 ) -> list[dict]:
-    """Search Exa for literature relevant to a parameter or free-text query.
+    """Search Exa for literature relevant to a query.
 
     This is separated from elicitation so results can be cached and reused
     across retry loops without re-hitting the Exa API.
@@ -67,8 +70,7 @@ async def search_parameter_literature(
     Uses Exa deep search with structured output schema.
 
     Args:
-        parameter_or_query: Either a ParameterSpec (uses search_context) or a
-            plain query string
+        query: Search query string
 
     Returns:
         List of source dicts with title, url, snippet, effect_size
@@ -79,27 +81,20 @@ async def search_parameter_literature(
     if not api_key:
         return []
 
-    search_context = (
-        parameter_or_query.search_context
-        if isinstance(parameter_or_query, ParameterSpec)
-        else parameter_or_query
-    )
-
     try:
         from exa_py import AsyncExa
 
         exa = AsyncExa(api_key=api_key)
 
-        # Build search query from parameter context
-        query = (
-            f"Empirical effect sizes related to: {search_context}. "
+        exa_query = (
+            f"Empirical effect sizes related to: {query}. "
             "Meta-analyses, systematic reviews, standardized effect sizes."
         )
 
         await acquire_limiter("exa")
 
         result = await exa.search_and_contents(
-            query,
+            exa_query,
             num_results=5,
             type="auto",
             highlights=True,

@@ -17,13 +17,19 @@ from typing import TYPE_CHECKING, Any
 from .prompts.model_proposal import (
     AGENTIC_SYSTEM,
     AGENTIC_USER,
-    format_ambiguous_indicators,
-    format_full_causal_spec,
+    format_construct_scale_cards,
+    format_distribution_cards,
     format_loading_params,
-    format_parameters,
-    format_resolved_likelihoods,
+    format_model_topology,
+    format_prior_cards,
 )
-from .stage4_orchestrator import derive_deterministic_spec
+from .stage4_orchestrator import (
+    build_construct_scale_cards,
+    build_distribution_cards,
+    build_model_topology,
+    build_prior_cards,
+    derive_deterministic_spec,
+)
 
 if TYPE_CHECKING:
     import polars as pl
@@ -38,6 +44,7 @@ class Stage4Result:
 
     model_spec: dict[str, Any]
     priors: dict[str, dict]
+    search_queries: dict[str, str] = field(default_factory=dict)
     validation: AssemblyValidation | None = None
 
 
@@ -46,12 +53,11 @@ class Stage4Messages:
     """Message builders for the agentic Stage 4 prompts."""
 
     question: str
-    causal_spec: dict[str, Any] = field(default_factory=dict)
-    resolved_likelihoods: list[dict] = field(default_factory=list)
-    ambiguous_indicators: list[dict] = field(default_factory=list)
-    all_params: list[dict] = field(default_factory=list)
+    model_topology: dict[str, Any] = field(default_factory=dict)
+    distribution_cards: list[dict[str, Any]] = field(default_factory=list)
     loading_params: list[dict] = field(default_factory=list)
-    data_summary: str = ""
+    construct_scale_cards: list[dict[str, Any]] = field(default_factory=list)
+    prior_cards: list[dict[str, Any]] = field(default_factory=list)
 
     def proposal_messages(self) -> list[dict]:
         """Build messages for the agentic model-spec + prior proposal."""
@@ -61,63 +67,21 @@ class Stage4Messages:
                 "role": "user",
                 "content": AGENTIC_USER.format(
                     question=self.question,
-                    full_causal_model=format_full_causal_spec(self.causal_spec),
-                    resolved_likelihoods=format_resolved_likelihoods(self.resolved_likelihoods),
-                    ambiguous_indicators=format_ambiguous_indicators(self.ambiguous_indicators),
-                    parameters=format_parameters(self.all_params),
+                    model_topology=format_model_topology(self.model_topology),
+                    distribution_cards=format_distribution_cards(self.distribution_cards),
                     loading_params=format_loading_params(self.loading_params),
-                    data_summary=self.data_summary,
+                    construct_scale_cards=format_construct_scale_cards(self.construct_scale_cards),
+                    prior_cards=format_prior_cards(self.prior_cards),
                 ),
             },
         ]
-
-
-def build_raw_data_summary(raw_data: pl.DataFrame) -> str:
-    """Build a summary of data for the agentic prompt.
-
-    Args:
-        raw_data: DataFrame with columns: indicator, value, and either
-            timestamp (raw) or time_bucket (aggregated).
-
-    Returns:
-        Text summary of the data
-    """
-    import polars as _pl
-
-    if raw_data.is_empty():
-        return "No data available."
-
-    time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
-    lines = [f"Data Summary (observations, time column: {time_col}):"]
-
-    n_obs = len(raw_data)
-    lines.append(f"  Total observations: {n_obs}")
-
-    indicator_stats = (
-        raw_data.group_by("indicator")
-        .agg(
-            [
-                _pl.col("value").cast(_pl.Float64, strict=False).count().alias("n_obs"),
-                _pl.col("value").cast(_pl.Float64, strict=False).mean().alias("mean"),
-                _pl.col("value").cast(_pl.Float64, strict=False).std().alias("std"),
-            ]
-        )
-        .sort("indicator")
-    )
-
-    lines.append("  Per indicator:")
-    for row in indicator_stats.iter_rows(named=True):
-        mean_str = f"{row['mean']:.2f}" if row["mean"] is not None else "N/A"
-        std_str = f"{row['std']:.2f}" if row["std"] is not None else "N/A"
-        lines.append(f"    {row['indicator']}: n={row['n_obs']}, mean={mean_str}, std={std_str}")
-
-    return "\n".join(lines)
 
 
 async def run_stage4(
     causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
+    indicator_audits: dict[str, dict[str, Any]],
     generate: GenerateFn,
     *,
     enable_literature: bool = True,
@@ -134,6 +98,7 @@ async def run_stage4(
         causal_spec: Full CausalSpec dict
         question: Research question
         raw_data: Raw timestamped data
+        indicator_audits: Stage 3 per-indicator empirical profiles + validations
         generate: Async function (messages, tools) -> completion
         enable_literature: Whether to offer the search_literature tool
         enable_paraphrasing: Whether to offer the elicit_prior_gmm tool
@@ -151,21 +116,21 @@ async def run_stage4(
     )
 
     # 1. Pre-compute deterministic spec from CausalSpec
-    resolved, ambiguous, parameters, loading_params = derive_deterministic_spec(causal_spec)
-    all_params = parameters + [
-        {k: v for k, v in lp.items() if k not in ("indicator", "construct")}
-        for lp in loading_params
-    ]
+    skeleton = derive_deterministic_spec(causal_spec)
+    all_params = skeleton.all_params
+    model_topology = build_model_topology(causal_spec)
+    distribution_cards = build_distribution_cards(causal_spec, indicator_audits, skeleton)
+    construct_scale_cards = build_construct_scale_cards(causal_spec, indicator_audits, skeleton)
+    prior_cards = build_prior_cards(skeleton)
 
     # 2. Build messages
     msgs = Stage4Messages(
         question=question,
-        causal_spec=causal_spec,
-        resolved_likelihoods=resolved,
-        ambiguous_indicators=ambiguous,
-        all_params=all_params,
-        loading_params=loading_params,
-        data_summary=build_raw_data_summary(raw_data),
+        model_topology=model_topology,
+        distribution_cards=distribution_cards,
+        loading_params=skeleton.loading_params,
+        construct_scale_cards=construct_scale_cards,
+        prior_cards=prior_cards,
     )
 
     # 3. Build tools
@@ -182,15 +147,17 @@ async def run_stage4(
             causal_spec,
             current=capture,
             raw_data=raw_data,
-            resolved_likelihoods=resolved,
-            ambiguous_indicators=ambiguous,
+            indicator_audits=indicator_audits,
+            resolved_likelihoods=skeleton.resolved_likelihoods,
+            ambiguous_indicators=skeleton.ambiguous_indicators,
             all_params=all_params,
         ),
     )
 
+    search_captures: dict[str, str] = {}
     tools = [validate_tool]
     if enable_literature:
-        tools.append(make_search_tool())
+        tools.append(make_search_tool(search_captures))
     if enable_paraphrasing:
         tools.append(
             make_elicit_prior_gmm_tool(
@@ -209,4 +176,8 @@ async def run_stage4(
     if not model_spec or not priors:
         raise ValueError("Stage 4 agentic flow did not produce a valid model_spec + priors")
 
-    return Stage4Result(model_spec=model_spec, priors=priors)
+    return Stage4Result(
+        model_spec=model_spec,
+        priors=priors,
+        search_queries=search_captures,
+    )

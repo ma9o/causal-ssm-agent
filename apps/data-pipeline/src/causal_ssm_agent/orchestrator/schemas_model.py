@@ -162,10 +162,6 @@ class LikelihoodSpec(BaseModel):
         default_factory=list,
         description="Literature sources supporting this likelihood choice",
     )
-    search_context: str = Field(
-        default="",
-        description="Search query used to find literature supporting this likelihood choice",
-    )
 
 
 class ParameterSpec(BaseModel):
@@ -176,10 +172,6 @@ class ParameterSpec(BaseModel):
     constraint: ParameterConstraint = Field(description="Constraint on parameter values")
     description: str = Field(
         description="Human-readable description of what this parameter represents"
-    )
-    search_context: str = Field(
-        default="",
-        description="Context for Exa literature search to find relevant effect sizes",
     )
 
 
@@ -503,9 +495,6 @@ class ModelSpecDecisions(BaseModel):
         default_factory=list,
         description="Constraint decisions for loading parameters",
     )
-    search_contexts: dict[str, str] = Field(
-        description="Parameter name → literature search query for each parameter"
-    )
 
 
 def merge_decisions_to_spec(
@@ -553,8 +542,6 @@ def merge_decisions_to_spec(
         param = dict(p)
         if param["role"] == "loading" and param["name"] in loading_overrides:
             param["constraint"] = loading_overrides[param["name"]]
-        # Inject search_context from decisions (optional in agentic flow)
-        param["search_context"] = decisions.search_contexts.get(param["name"], "")
         final_params.append(param)
 
     if errors:
@@ -639,11 +626,6 @@ def validate_model_spec_decisions_dict(
                 f"loading_constraints[{i}]: constraint '{c}' invalid; "
                 f"must be one of {sorted(valid_constraints)}"
             )
-
-    # Check search_contexts is a dict
-    search_contexts = data.get("search_contexts", {})
-    if not isinstance(search_contexts, dict):
-        errors.append("'search_contexts' must be a dictionary")
 
     if errors:
         return None, errors

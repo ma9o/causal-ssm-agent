@@ -150,6 +150,9 @@ class SearchLiteratureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(description="Search query for empirical literature about effect sizes.")
+    parameter_name: str = Field(
+        description="Name of the parameter this search is for (e.g. 'beta_stress_sleep')."
+    )
 
 
 class ValidateModelInput(BaseModel):
@@ -362,44 +365,67 @@ class Stage2Contract(LLMStageContract):
 class ValidationIssueContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    indicator: str
+    indicator: str | None = None
     issue_type: str
     severity: Literal["error", "warning", "info"]
     message: str
 
 
-class IndicatorHealthContract(BaseModel):
+class IndicatorEmpiricalProfileContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    indicator: str
+    measurement_dtype: str | None = None
     n_obs: int
+    mean: float | None = None
+    std: float | None = None
+    min: float | None = None
+    max: float | None = None
+    q25: float | None = None
+    q50: float | None = None
+    q75: float | None = None
     variance: float | None
     time_coverage_ratio: float | None
     max_gap_ratio: float | None
-    dtype_violations: int
-    duplicate_pct: float
+    dtype_violations: int | None = None
+    duplicate_pct: float | None = None
     arithmetic_sequence_detected: bool
-    cell_statuses: dict[str, Literal["ok", "warning", "error"]]
+    n_unparseable_timestamps: int | None = None
+    zero_fraction: float | None = None
+    is_nonnegative: bool | None = None
+    is_unit_interval: bool | None = None
+    looks_integer_valued: bool | None = None
+    variance_to_mean_ratio: float | None = None
 
 
-class ValidationReportContract(BaseModel):
+class IndicatorValidationContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    is_valid: bool
     issues: list[ValidationIssueContract]
-    per_indicator_health: list[IndicatorHealthContract]
+    checks: dict[str, Literal["ok", "warning", "error"]]
+
+
+class IndicatorAuditContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: IndicatorEmpiricalProfileContract | None = None
+    validation: IndicatorValidationContract
 
 
 class Stage3Contract(BaseStageContract):
-    validation_report: ValidationReportContract
+    is_valid: bool
+    indicators: dict[str, IndicatorAuditContract]
+    dataset_issues: list[ValidationIssueContract]
 
     def summary_message(self) -> str:
-        rpt = self.validation_report
-        errors = sum(1 for i in rpt.issues if i.severity == "error")
-        warnings = sum(1 for i in rpt.issues if i.severity == "warning")
+        indicator_issues = [
+            issue for audit in self.indicators.values() for issue in audit.validation.issues
+        ]
+        all_issues = [*indicator_issues, *self.dataset_issues]
+        errors = sum(1 for i in all_issues if i.severity == "error")
+        warnings = sum(1 for i in all_issues if i.severity == "warning")
         return (
-            f"Stage 3 summary: is_valid={rpt.is_valid} "
-            f"issues={len(rpt.issues)} "
+            f"Stage 3 summary: is_valid={self.is_valid} "
+            f"issues={len(all_issues)} "
             f"errors={errors} warnings={warnings} outcome={self.outcome}"
         )
 
@@ -415,6 +441,7 @@ class ValidationRetryContract(BaseModel):
 class Stage4Contract(LLMStageContract):
     model_spec: ModelSpec
     priors: dict[str, PriorProposal]
+    search_queries: dict[str, str] | None = None
     validation_retries: list[ValidationRetryContract] | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
 

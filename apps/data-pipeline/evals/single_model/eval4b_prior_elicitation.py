@@ -196,7 +196,6 @@ def _add_correlation_parameters(
                         f"Residual correlation between {s1} and {s2} "
                         f"(marginalized confounder: {confounder})"
                     ),
-                    "search_context": "",
                 }
             )
             existing_names.add(name)

@@ -18,7 +18,6 @@ def _make_param(
         role=role,
         constraint=constraint,
         description="test param",
-        search_context="test",
     )
 
 

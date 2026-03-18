@@ -116,31 +116,48 @@ def valid_stage_payloads() -> dict[str, dict]:
             "per_indicator_counts": {"stress_score": 2, "late_night": 1},
         },
         "stage-3": {
-            "validation_report": {
-                "is_valid": True,
-                "issues": [],
-                "per_indicator_health": [
-                    {
-                        "indicator": "stress_score",
+            "is_valid": True,
+            "indicators": {
+                "stress_score": {
+                    "profile": {
+                        "measurement_dtype": "continuous",
                         "n_obs": 10,
+                        "mean": 3.2,
+                        "std": 1.1,
+                        "min": 1.0,
+                        "max": 5.0,
+                        "q25": 2.0,
+                        "q50": 3.0,
+                        "q75": 4.0,
                         "variance": 1.2,
                         "time_coverage_ratio": 1.0,
                         "max_gap_ratio": 0.2,
                         "dtype_violations": 0,
                         "duplicate_pct": 0.1,
                         "arithmetic_sequence_detected": False,
-                        "cell_statuses": {
+                        "n_unparseable_timestamps": 0,
+                        "zero_fraction": 0.0,
+                        "is_nonnegative": True,
+                        "is_unit_interval": False,
+                        "looks_integer_valued": True,
+                        "variance_to_mean_ratio": 0.375,
+                    },
+                    "validation": {
+                        "issues": [],
+                        "checks": {
                             "n_obs": "ok",
                             "variance": "ok",
+                            "n_unparseable_timestamps": "ok",
                             "time_coverage_ratio": "ok",
                             "max_gap_ratio": "ok",
                             "dtype_violations": "ok",
                             "duplicate_pct": "ok",
                             "arithmetic_sequence_detected": "ok",
                         },
-                    }
-                ],
-            }
+                    },
+                }
+            },
+            "dataset_issues": [],
         },
         "stage-4": {
             "model_spec": {
@@ -158,7 +175,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                         "role": "ar_coefficient",
                         "constraint": "unit_interval",
                         "description": "AR coefficient",
-                        "search_context": "stress autoregression",
                     }
                 ],
             },
@@ -269,7 +285,7 @@ def test_persist_web_result_logs_warning_summary_for_warn_stage(
     """Warn/fail outcomes should be surfaced at warning level in persisted stage logs."""
     payload = deepcopy(valid_stage_payloads["stage-3"])
     payload["outcome"] = "warn"
-    payload["validation_report"]["issues"] = [
+    payload["indicators"]["stress_score"]["validation"]["issues"] = [
         {
             "indicator": "stress_score",
             "issue_type": "insufficient_coverage",

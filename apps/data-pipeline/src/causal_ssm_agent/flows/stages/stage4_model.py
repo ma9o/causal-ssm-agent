@@ -22,6 +22,7 @@ async def stage4_agentic_flow(
     causal_spec: dict,
     question: str,
     raw_data: pl.DataFrame,
+    indicator_audits: dict[str, dict],
     enable_literature: bool = True,
 ) -> dict:
     """Stage 4 agentic flow: single multi-turn LLM conversation.
@@ -53,6 +54,7 @@ async def stage4_agentic_flow(
             causal_spec=causal_spec,
             question=question,
             raw_data=raw_data,
+            indicator_audits=indicator_audits,
             generate=generate,
             enable_literature=enable_literature and s4.literature_search.enabled,
             enable_paraphrasing=s4.paraphrasing.enabled,
@@ -64,7 +66,9 @@ async def stage4_agentic_flow(
             model_spec=result.model_spec,
             priors=result.priors,
             raw_data=raw_data,
+            indicator_audits=indicator_audits,
             causal_spec=causal_spec,
             validation=result.validation,
+            search_queries=result.search_queries,
         )
         return ctx.finalize(materialized)
