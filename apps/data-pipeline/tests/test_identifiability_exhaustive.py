@@ -2784,27 +2784,6 @@ class TestSpecialIVStructures:
         assert_identifiable(result, "D", "R is valid instrument for D")
         assert "IV(R)" in get_estimand(result, "D")
 
-    @pytest.mark.skip(reason="DID requires parallel trends assumption - not graph-identifiable")
-    def test_diff_in_diff_like(self):
-        """Diff-in-diff-like structure: group and time as instruments.
-
-        Group -> D <- Time
-        Group -> Y <- Time
-        D -> Y
-        U -> D, U -> Y
-
-        This is actually confounded... Both Group and Time affect Y directly.
-        Not a clean DID setup for our purposes.
-
-        DID identification relies on the parallel trends assumption which is
-        not testable from the graph structure alone. It's a substantive
-        assumption about counterfactual trends, not a graphical criterion.
-        """
-        # DID is fundamentally different from graphical identification
-        # It requires assuming parallel trends in potential outcomes
-        # which cannot be encoded in a causal DAG
-        pytest.skip("DID requires parallel trends assumption")
-
     def test_mendelian_randomization(self):
         """Mendelian randomization: genetic variant as instrument.
 

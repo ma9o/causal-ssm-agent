@@ -707,6 +707,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
         lit_enabled=True,
         inference_method=None,
         supported_overrides={"stage-4": override_payload},
+        is_byok=False,
     )
     stage_state = asyncio.run(
         stage_registry.run_stage_flow(
