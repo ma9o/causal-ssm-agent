@@ -141,16 +141,33 @@ def merge_priors(existing: dict[str, dict] | None, new: dict[str, dict] | None) 
     return {**(existing or {}), **(new or {})}
 
 
-def validate_prior_proposals(priors: dict[str, dict] | None) -> dict[str, dict]:
-    """Schema-validate prior proposals before Stage 4 assembly."""
+def partition_prior_proposals(
+    priors: dict[str, dict] | None,
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Split prior proposals into schema-valid payloads and per-prior errors."""
     from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
     validated: dict[str, dict] = {}
+    errors: dict[str, str] = {}
     for name, prior in (priors or {}).items():
         try:
             validated[name] = PriorProposal.model_validate(prior).model_dump(mode="json")
         except Exception as exc:
-            raise ValueError(f"SCHEMA ERRORS for prior '{name}':\n- {exc}") from exc
+            errors[name] = str(exc)
+    return validated, errors
+
+
+def format_prior_proposal_errors(errors: dict[str, str]) -> str:
+    """Render prior schema errors in the user-facing stage-4 format."""
+    blocks = [f"SCHEMA ERRORS for prior '{name}':\n- {error}" for name, error in errors.items()]
+    return "\n\n".join(blocks)
+
+
+def validate_prior_proposals(priors: dict[str, dict] | None) -> dict[str, dict]:
+    """Schema-validate prior proposals before Stage 4 assembly."""
+    validated, errors = partition_prior_proposals(priors)
+    if errors:
+        raise ValueError(format_prior_proposal_errors(errors))
     return validated
 
 
