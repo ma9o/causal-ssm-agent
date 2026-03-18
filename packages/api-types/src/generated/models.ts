@@ -70,6 +70,7 @@ export interface CausalSSMContracts {
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
+  llm_trace?: LLMTrace | null;
   source_label: string;
   n_records: number;
   n_columns: number;
@@ -78,16 +79,6 @@ export interface Stage0Contract {
     [k: string]: (string | null) | undefined;
   }[];
   column_descriptions: ColumnDescriptionContract[];
-  llm_trace?: LLMTrace | null;
-}
-export interface DateRangeContract {
-  start: string;
-  end: string;
-}
-export interface ColumnDescriptionContract {
-  name: string;
-  dtype: string;
-  description: string;
 }
 /**
  * Full trace of an LLM multi-turn conversation.
@@ -123,12 +114,21 @@ export interface TraceUsage {
   output_tokens: number;
   reasoning_tokens?: number | null;
 }
+export interface DateRangeContract {
+  start: string;
+  end: string;
+}
+export interface ColumnDescriptionContract {
+  name: string;
+  dtype: string;
+  description: string;
+}
 export interface Stage1AContract {
   outcome: "success" | "warn" | "fail";
+  llm_trace?: LLMTrace | null;
   latent_model: LatentModel;
   outcome_name: string;
   treatments: string[];
-  llm_trace?: LLMTrace | null;
 }
 /**
  * Theoretical causal structure over constructs (the latent model).
@@ -191,8 +191,8 @@ export interface CausalEdge {
 }
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
-  causal_spec: CausalSpec;
   llm_trace?: LLMTrace | null;
+  causal_spec: CausalSpec;
   gate_overridden?: GateOverrideContract | null;
 }
 /**
@@ -323,12 +323,12 @@ export interface GateOverrideContract {
 }
 export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";
+  llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
   combined_extractions_sample: ExtractionContract[];
   per_indicator_counts: {
     [k: string]: number | undefined;
   };
-  llm_trace?: LLMTrace | null;
 }
 export interface WorkerStatusContract {
   worker_id: number;
@@ -344,40 +344,59 @@ export interface ExtractionContract {
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";
-  validation_report: ValidationReportContract;
-}
-export interface ValidationReportContract {
   is_valid: boolean;
+  indicators: {
+    [k: string]: IndicatorAuditContract | undefined;
+  };
+  dataset_issues: ValidationIssueContract[];
+}
+export interface IndicatorAuditContract {
+  profile?: IndicatorEmpiricalProfileContract | null;
+  validation: IndicatorValidationContract;
+}
+export interface IndicatorEmpiricalProfileContract {
+  measurement_dtype?: string | null;
+  n_obs: number;
+  mean?: number | null;
+  std?: number | null;
+  min?: number | null;
+  max?: number | null;
+  q25?: number | null;
+  q50?: number | null;
+  q75?: number | null;
+  variance: number | null;
+  time_coverage_ratio: number | null;
+  max_gap_ratio: number | null;
+  dtype_violations?: number | null;
+  duplicate_pct?: number | null;
+  arithmetic_sequence_detected: boolean;
+  n_unparseable_timestamps?: number | null;
+  zero_fraction?: number | null;
+  is_nonnegative?: boolean | null;
+  is_unit_interval?: boolean | null;
+  looks_integer_valued?: boolean | null;
+  variance_to_mean_ratio?: number | null;
+}
+export interface IndicatorValidationContract {
   issues: ValidationIssueContract[];
-  per_indicator_health: IndicatorHealthContract[];
+  checks: {
+    [k: string]: ("ok" | "warning" | "error") | undefined;
+  };
 }
 export interface ValidationIssueContract {
-  indicator: string;
+  indicator?: string | null;
   issue_type: string;
   severity: "error" | "warning" | "info";
   message: string;
 }
-export interface IndicatorHealthContract {
-  indicator: string;
-  n_obs: number;
-  variance: number | null;
-  time_coverage_ratio: number | null;
-  max_gap_ratio: number | null;
-  dtype_violations: number;
-  duplicate_pct: number;
-  arithmetic_sequence_detected: boolean;
-  cell_statuses: {
-    [k: string]: ("ok" | "warning" | "error") | undefined;
-  };
-}
 export interface Stage4Contract {
   outcome: "success" | "warn" | "fail";
+  llm_trace?: LLMTrace | null;
   model_spec: ModelSpec;
   priors: {
     [k: string]: PriorProposal | undefined;
   };
   validation_retries?: ValidationRetryContract[] | null;
-  llm_trace?: LLMTrace | null;
   prior_predictive_samples?: {
     [k: string]: number[] | undefined;
   } | null;
@@ -484,7 +503,7 @@ export interface PriorProposal {
    */
   reasoning: string;
   /**
-   * Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT→CT conversion: drift = beta / reference_interval_days.
+   * Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT→CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for persistence).
    */
   reference_interval_days?: number | null;
   /**
