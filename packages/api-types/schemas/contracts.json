@@ -446,16 +446,132 @@
       "title": "Indicator",
       "type": "object"
     },
-    "IndicatorHealthContract": {
+    "IndicatorAuditContract": {
       "additionalProperties": false,
       "properties": {
-        "indicator": {
-          "title": "Indicator",
-          "type": "string"
+        "profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndicatorEmpiricalProfileContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "validation": {
+          "$ref": "#/$defs/IndicatorValidationContract"
+        }
+      },
+      "required": [
+        "validation"
+      ],
+      "title": "IndicatorAuditContract",
+      "type": "object"
+    },
+    "IndicatorEmpiricalProfileContract": {
+      "additionalProperties": false,
+      "properties": {
+        "measurement_dtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measurement Dtype"
         },
         "n_obs": {
           "title": "N Obs",
           "type": "integer"
+        },
+        "mean": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean"
+        },
+        "std": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Std"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "q25": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q25"
+        },
+        "q50": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q50"
+        },
+        "q75": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Q75"
         },
         "variance": {
           "anyOf": [
@@ -491,18 +607,127 @@
           "title": "Max Gap Ratio"
         },
         "dtype_violations": {
-          "title": "Dtype Violations",
-          "type": "integer"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dtype Violations"
         },
         "duplicate_pct": {
-          "title": "Duplicate Pct",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Pct"
         },
         "arithmetic_sequence_detected": {
           "title": "Arithmetic Sequence Detected",
           "type": "boolean"
         },
-        "cell_statuses": {
+        "n_unparseable_timestamps": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Unparseable Timestamps"
+        },
+        "zero_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Zero Fraction"
+        },
+        "is_nonnegative": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Nonnegative"
+        },
+        "is_unit_interval": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Unit Interval"
+        },
+        "looks_integer_valued": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Looks Integer Valued"
+        },
+        "variance_to_mean_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variance To Mean Ratio"
+        }
+      },
+      "required": [
+        "arithmetic_sequence_detected",
+        "max_gap_ratio",
+        "n_obs",
+        "time_coverage_ratio",
+        "variance"
+      ],
+      "title": "IndicatorEmpiricalProfileContract",
+      "type": "object"
+    },
+    "IndicatorValidationContract": {
+      "additionalProperties": false,
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssueContract"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "checks": {
           "additionalProperties": {
             "enum": [
               "ok",
@@ -511,22 +736,15 @@
             ],
             "type": "string"
           },
-          "title": "Cell Statuses",
+          "title": "Checks",
           "type": "object"
         }
       },
       "required": [
-        "arithmetic_sequence_detected",
-        "cell_statuses",
-        "dtype_violations",
-        "duplicate_pct",
-        "indicator",
-        "max_gap_ratio",
-        "n_obs",
-        "time_coverage_ratio",
-        "variance"
+        "checks",
+        "issues"
       ],
-      "title": "IndicatorHealthContract",
+      "title": "IndicatorValidationContract",
       "type": "object"
     },
     "InferenceMetadataContract": {
@@ -1386,6 +1604,7 @@
           "type": "string"
         },
         "search_context": {
+          "default": "",
           "description": "Context for Exa literature search to find relevant effect sizes",
           "title": "Search Context",
           "type": "string"
@@ -1712,7 +1931,7 @@
             }
           ],
           "default": null,
-          "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion: drift = beta / reference_interval_days.",
+          "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for persistence).",
           "title": "Reference Interval Days"
         },
         "density_points": {
@@ -2088,6 +2307,17 @@
           "title": "Outcome",
           "type": "string"
         },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "source_label": {
           "title": "Source Label",
           "type": "string"
@@ -2126,17 +2356,6 @@
           },
           "title": "Column Descriptions",
           "type": "array"
-        },
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2164,6 +2383,17 @@
           "title": "Outcome",
           "type": "string"
         },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "latent_model": {
           "$ref": "#/$defs/LatentModel"
         },
@@ -2177,17 +2407,6 @@
           },
           "title": "Treatments",
           "type": "array"
-        },
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2212,9 +2431,6 @@
           "title": "Outcome",
           "type": "string"
         },
-        "causal_spec": {
-          "$ref": "#/$defs/CausalSpec"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2225,6 +2441,9 @@
             }
           ],
           "default": null
+        },
+        "causal_spec": {
+          "$ref": "#/$defs/CausalSpec"
         },
         "gate_overridden": {
           "anyOf": [
@@ -2258,6 +2477,17 @@
           "title": "Outcome",
           "type": "string"
         },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "workers": {
           "items": {
             "$ref": "#/$defs/WorkerStatusContract"
@@ -2278,17 +2508,6 @@
           },
           "title": "Per Indicator Counts",
           "type": "object"
-        },
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2313,13 +2532,30 @@
           "title": "Outcome",
           "type": "string"
         },
-        "validation_report": {
-          "$ref": "#/$defs/ValidationReportContract"
+        "is_valid": {
+          "title": "Is Valid",
+          "type": "boolean"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/IndicatorAuditContract"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "dataset_issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssueContract"
+          },
+          "title": "Dataset Issues",
+          "type": "array"
         }
       },
       "required": [
-        "outcome",
-        "validation_report"
+        "dataset_issues",
+        "indicators",
+        "is_valid",
+        "outcome"
       ],
       "title": "Stage3Contract",
       "type": "object"
@@ -2336,6 +2572,17 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "model_spec": {
           "$ref": "#/$defs/ModelSpec"
@@ -2361,17 +2608,6 @@
           ],
           "default": null,
           "title": "Validation Retries"
-        },
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "prior_predictive_samples": {
           "anyOf": [
@@ -3023,8 +3259,16 @@
       "additionalProperties": false,
       "properties": {
         "indicator": {
-          "title": "Indicator",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Indicator"
         },
         "issue_type": {
           "title": "Issue Type",
@@ -3045,42 +3289,11 @@
         }
       },
       "required": [
-        "indicator",
         "issue_type",
         "message",
         "severity"
       ],
       "title": "ValidationIssueContract",
-      "type": "object"
-    },
-    "ValidationReportContract": {
-      "additionalProperties": false,
-      "properties": {
-        "is_valid": {
-          "title": "Is Valid",
-          "type": "boolean"
-        },
-        "issues": {
-          "items": {
-            "$ref": "#/$defs/ValidationIssueContract"
-          },
-          "title": "Issues",
-          "type": "array"
-        },
-        "per_indicator_health": {
-          "items": {
-            "$ref": "#/$defs/IndicatorHealthContract"
-          },
-          "title": "Per Indicator Health",
-          "type": "array"
-        }
-      },
-      "required": [
-        "is_valid",
-        "issues",
-        "per_indicator_health"
-      ],
-      "title": "ValidationReportContract",
       "type": "object"
     },
     "ValidationRetryContract": {

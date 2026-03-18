@@ -51,9 +51,12 @@ export type { ExtractionContract as Extraction } from "./generated/models";
 export type { WorkerStatusContract as WorkerStatus } from "./generated/models";
 
 // Validation types
-export type { ValidationReportContract as ValidationReport } from "./generated/models";
 export type { ValidationIssueContract as ValidationIssue } from "./generated/models";
-export type { IndicatorHealthContract as IndicatorHealth } from "./generated/models";
+export type { IndicatorAuditContract as IndicatorAudit } from "./generated/models";
+export type {
+  IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
+} from "./generated/models";
+export type { IndicatorValidationContract as IndicatorValidation } from "./generated/models";
 
 // Model spec types
 export type {
