@@ -15,7 +15,7 @@ to support different inference strategies.
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
-from jax import vmap
+from jax import lax, vmap
 
 
 def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
@@ -99,6 +99,7 @@ def compute_discrete_diffusion(
     diffusion_cov: jnp.ndarray,
     dt: float,
     discrete_drift: jnp.ndarray | None = None,
+    asymptotic_diffusion: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute discrete-time diffusion covariance for time interval dt.
 
@@ -111,12 +112,18 @@ def compute_discrete_diffusion(
         diffusion_cov: n x n diffusion covariance (G*G')
         dt: time interval
         discrete_drift: Pre-computed exp(A*dt), or None to compute internally.
+        asymptotic_diffusion: Pre-computed stationary covariance Q_inf, or
+            None to solve the Lyapunov equation internally.
 
     Returns:
         Q_dt: n x n discrete diffusion covariance
     """
     # Compute asymptotic diffusion
-    Q_inf = compute_asymptotic_diffusion(drift, diffusion_cov)
+    Q_inf = (
+        asymptotic_diffusion
+        if asymptotic_diffusion is not None
+        else compute_asymptotic_diffusion(drift, diffusion_cov)
+    )
 
     # Compute discrete drift (reuse if provided)
     if discrete_drift is None:
@@ -189,11 +196,19 @@ def discretize_system(
     Returns:
         Tuple of (discrete_drift, discrete_Q, discrete_cint)
     """
+    asymptotic_diffusion = compute_asymptotic_diffusion(drift, diffusion_cov)
+
     # Discrete drift via matrix exponential (computed once, shared)
     discrete_drift = jla.expm(drift * dt)
 
     # Discrete diffusion via Lyapunov solution
-    discrete_Q = compute_discrete_diffusion(drift, diffusion_cov, dt, discrete_drift=discrete_drift)
+    discrete_Q = compute_discrete_diffusion(
+        drift,
+        diffusion_cov,
+        dt,
+        discrete_drift=discrete_drift,
+        asymptotic_diffusion=asymptotic_diffusion,
+    )
 
     # Discrete intercept
     discrete_cint = None
@@ -208,6 +223,7 @@ def _discretize_system_with_cint(
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray,
     dt: float,
+    asymptotic_diffusion: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Discretize with cint always present (vmap-compatible).
 
@@ -215,7 +231,13 @@ def _discretize_system_with_cint(
     making it safe for use with jax.vmap over the dt axis.
     """
     discrete_drift = jla.expm(drift * dt)
-    discrete_Q = compute_discrete_diffusion(drift, diffusion_cov, dt, discrete_drift=discrete_drift)
+    discrete_Q = compute_discrete_diffusion(
+        drift,
+        diffusion_cov,
+        dt,
+        discrete_drift=discrete_drift,
+        asymptotic_diffusion=asymptotic_diffusion,
+    )
     discrete_cint = compute_discrete_cint(drift, cint, dt, discrete_drift=discrete_drift)
     return discrete_drift, discrete_Q, discrete_cint
 
@@ -224,11 +246,25 @@ def _discretize_system_no_cint(
     drift: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
     dt: float,
+    asymptotic_diffusion: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Discretize without cint (vmap-compatible)."""
     discrete_drift = jla.expm(drift * dt)
-    discrete_Q = compute_discrete_diffusion(drift, diffusion_cov, dt, discrete_drift=discrete_drift)
+    discrete_Q = compute_discrete_diffusion(
+        drift,
+        diffusion_cov,
+        dt,
+        discrete_drift=discrete_drift,
+        asymptotic_diffusion=asymptotic_diffusion,
+    )
     return discrete_drift, discrete_Q
+
+
+def _normalize_batched_cint(discrete_cint: jnp.ndarray) -> jnp.ndarray:
+    """Drop the trailing singleton axis some solve paths emit for cint."""
+    if discrete_cint.ndim > 0 and discrete_cint.shape[-1] == 1:
+        return discrete_cint.squeeze(-1)
+    return discrete_cint
 
 
 def discretize_system_batched(
@@ -253,13 +289,73 @@ def discretize_system_batched(
         Qd: (T, n, n) discrete process noise covariances
         cd: (T, n) discrete intercepts, or None if cint is None
     """
-    if cint is not None:
-        Ad, Qd, cd = vmap(lambda dt: _discretize_system_with_cint(drift, diffusion_cov, cint, dt))(
-            dt_array
-        )
-        # cd comes out as (T, n, 1) from compute_discrete_cint — squeeze
-        if cd.ndim == 3:
-            cd = cd.squeeze(-1)
+    n_steps = dt_array.shape[0]
+    n_latent = drift.shape[0]
+
+    if n_steps == 0:
+        Ad = jnp.empty((0, n_latent, n_latent), dtype=drift.dtype)
+        Qd = jnp.empty((0, n_latent, n_latent), dtype=diffusion_cov.dtype)
+        if cint is None:
+            return Ad, Qd, None
+        cint_arr = _normalize_batched_cint(jnp.asarray(cint))
+        cd = jnp.empty((0, *cint_arr.shape), dtype=cint_arr.dtype)
         return Ad, Qd, cd
-    Ad, Qd = vmap(lambda dt: _discretize_system_no_cint(drift, diffusion_cov, dt))(dt_array)
+
+    asymptotic_diffusion = compute_asymptotic_diffusion(drift, diffusion_cov)
+    same_dt = jnp.all(jnp.isclose(dt_array, dt_array[0]))
+
+    if cint is not None:
+
+        def _all_same_dt(_):
+            Ad_single, Qd_single, cd_single = _discretize_system_with_cint(
+                drift,
+                diffusion_cov,
+                cint,
+                dt_array[0],
+                asymptotic_diffusion,
+            )
+            cd_single = _normalize_batched_cint(cd_single)
+            return (
+                jnp.broadcast_to(Ad_single, (n_steps, *Ad_single.shape)),
+                jnp.broadcast_to(Qd_single, (n_steps, *Qd_single.shape)),
+                jnp.broadcast_to(cd_single, (n_steps, *cd_single.shape)),
+            )
+
+        def _varying_dt(_):
+            Ad, Qd, cd = vmap(
+                lambda dt: _discretize_system_with_cint(
+                    drift,
+                    diffusion_cov,
+                    cint,
+                    dt,
+                    asymptotic_diffusion,
+                )
+            )(dt_array)
+            return Ad, Qd, _normalize_batched_cint(cd)
+
+        return lax.cond(same_dt, _all_same_dt, _varying_dt, operand=None)
+
+    def _all_same_dt_no_cint(_):
+        Ad_single, Qd_single = _discretize_system_no_cint(
+            drift,
+            diffusion_cov,
+            dt_array[0],
+            asymptotic_diffusion,
+        )
+        return (
+            jnp.broadcast_to(Ad_single, (n_steps, *Ad_single.shape)),
+            jnp.broadcast_to(Qd_single, (n_steps, *Qd_single.shape)),
+        )
+
+    def _varying_dt_no_cint(_):
+        return vmap(
+            lambda dt: _discretize_system_no_cint(
+                drift,
+                diffusion_cov,
+                dt,
+                asymptotic_diffusion,
+            )
+        )(dt_array)
+
+    Ad, Qd = lax.cond(same_dt, _all_same_dt_no_cint, _varying_dt_no_cint, operand=None)
     return Ad, Qd, None
