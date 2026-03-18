@@ -54,3 +54,4 @@ node_modules/
 
 # Always track gitkeeps (must be last to override above patterns)
 !**/.gitkeep
+.vercel
