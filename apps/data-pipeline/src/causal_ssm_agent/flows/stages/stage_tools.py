@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = get_prefect_logger(__name__)
+MAX_STAGE4_PRIOR_BATCH_SIZE = 8
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +173,14 @@ def stage4_grounding(
     2. Compile (default priors if none available, real priors otherwise)
     3. Prior predictive (only when real priors + raw_data present)
     """
+    from .stage4_assembly import (
+        format_prior_proposal_errors,
+        format_validation_feedback,
+        merge_priors,
+        partition_prior_proposals,
+        validate_assembly,
+    )
+
     state = dict(current or {})
     output: dict = {}
 
@@ -181,35 +190,79 @@ def stage4_grounding(
     if new_model_spec is None and new_priors is None:
         return None, "VALIDATION ERRORS:\n- data must contain 'model_spec' and/or 'priors'"
 
+    if new_model_spec is not None and new_priors is not None:
+        return (
+            None,
+            "UPDATE TOO BROAD:\n"
+            "- submit model decisions and priors in separate calls\n"
+            "- lock the model spec first, then add priors in later calls\n\n"
+            "Previously accepted state is retained. Resubmit only the fields you changed.",
+        )
+
+    if new_model_spec is not None and new_model_spec == state.get("model_spec"):
+        return (
+            None,
+            _format_redundant_stage4_update_feedback(
+                "model decisions",
+                _collect_model_spec_targets(new_model_spec),
+            ),
+        )
+
+    if new_priors is not None:
+        prior_names = sorted(name for name in new_priors if isinstance(name, str))
+        if len(prior_names) > MAX_STAGE4_PRIOR_BATCH_SIZE:
+            return None, _format_prior_batch_limit_feedback(prior_names)
+
+        redundant_priors = _find_redundant_prior_updates(new_priors, state.get("priors"))
+        if redundant_priors:
+            return None, _format_redundant_stage4_update_feedback("priors", redundant_priors)
+
     # --- Merge model_spec ---
     if new_model_spec is not None:
         state["model_spec"] = new_model_spec
+        output["model_spec"] = new_model_spec
 
     # --- Validate & merge priors ---
     if new_priors is not None:
-        from .stage4_assembly import merge_priors, validate_prior_proposals
+        validated_priors, prior_errors = partition_prior_proposals(new_priors)
+        if validated_priors:
+            state["priors"] = merge_priors(state.get("priors"), validated_priors)
+            output["priors"] = state["priors"]  # full merged set
+        if prior_errors:
+            return output or None, format_prior_proposal_errors(prior_errors)
 
-        try:
-            validated_priors = validate_prior_proposals(new_priors)
-        except ValueError as exc:
-            return None, str(exc)
-        state["priors"] = merge_priors(state.get("priors"), validated_priors)
-        output["priors"] = state["priors"]  # full merged set
-
-    # --- Compile + Prior Predictive validation ---
     model_spec = state.get("model_spec")
     if model_spec is None:
-        return None, "COMPILE ERROR:\nNo model_spec available — submit model_spec first"
+        guidance = "Previously accepted state is retained. Submit only the missing model fields."
+        message = "COMPILE ERROR:\nNo model_spec available — submit model_spec first"
+        return output or None, f"{message}\n\n{guidance}" if output else message
 
     priors = state.get("priors")
+    required_priors = _required_prior_names(model_spec)
+    missing_priors = [name for name in required_priors if name not in (priors or {})]
 
-    from .stage4_assembly import format_validation_feedback, validate_assembly
+    # First lock in the model spec, then accumulate priors incrementally.
+    validation = validate_assembly(
+        model_spec,
+        priors if not missing_priors else None,
+        raw_data,
+        indicator_audits,
+        causal_spec,
+    )
 
-    validation = validate_assembly(model_spec, priors, raw_data, indicator_audits, causal_spec)
     if new_model_spec is not None and validation.normalized_model_spec is not None:
         output["model_spec"] = validation.normalized_model_spec
+    output["validation"] = validation
+
+    if not validation.compile_ok:
+        return output or None, _with_stateful_retry_guidance(
+            f"COMPILE ERROR:\n{validation.compile_error}"
+        )
+
+    if missing_priors:
+        return output, _format_missing_priors_feedback(missing_priors)
+
     if validation.is_valid:
-        output["validation"] = validation
         return output, "VALID"
 
     feedback = format_validation_feedback(
@@ -217,7 +270,100 @@ def stage4_grounding(
         priors or {},
         changed_params=list(new_priors) if new_priors else list(priors or {}),
     )
-    return None, feedback
+    return output, _with_stateful_retry_guidance(feedback)
+
+
+def _required_prior_names(model_spec: dict | None) -> list[str]:
+    """Return the parameter names that still need priors."""
+    names: list[str] = []
+    for parameter in (model_spec or {}).get("parameters") or []:
+        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str):
+            names.append(parameter["name"])
+    return names
+
+
+def _collect_model_spec_targets(model_spec: dict | None) -> list[str]:
+    """Collect human-readable model decision targets from a full model spec."""
+    targets: list[str] = []
+    seen: set[str] = set()
+
+    for likelihood in (model_spec or {}).get("likelihoods") or []:
+        variable = likelihood.get("variable") if isinstance(likelihood, dict) else None
+        if isinstance(variable, str) and variable not in seen:
+            seen.add(variable)
+            targets.append(variable)
+
+    for parameter in (model_spec or {}).get("parameters") or []:
+        if not isinstance(parameter, dict):
+            continue
+        if parameter.get("role") != "loading":
+            continue
+        name = parameter.get("name")
+        if isinstance(name, str) and name not in seen:
+            seen.add(name)
+            targets.append(name)
+
+    return targets
+
+
+def _summarize_names(names: list[str], *, limit: int = 8) -> str:
+    """Render a compact preview of missing or updated parameter names."""
+    if not names:
+        return "(none)"
+    preview = ", ".join(f"`{name}`" for name in names[:limit])
+    if len(names) <= limit:
+        return preview
+    return f"{preview}, ... (+{len(names) - limit} more)"
+
+
+def _format_missing_priors_feedback(missing_priors: list[str]) -> str:
+    """Guide the LLM to submit only the unresolved priors."""
+    return (
+        "MODEL STATE SAVED:\n"
+        f"- missing priors for {len(missing_priors)} parameters: {_summarize_names(missing_priors)}\n"
+        f"- submit priors in small batches (max {MAX_STAGE4_PRIOR_BATCH_SIZE} per call)\n"
+        "- do not resend unchanged fields\n"
+        "- submit only the missing priors or any corrections"
+    )
+
+
+def _find_redundant_prior_updates(
+    submitted_priors: dict[str, dict] | None,
+    current_priors: dict[str, dict] | None,
+) -> list[str]:
+    """Return submitted prior names that exactly match accepted state."""
+    redundant: list[str] = []
+    current = current_priors or {}
+    for name, prior in (submitted_priors or {}).items():
+        if isinstance(name, str) and name in current and current[name] == prior:
+            redundant.append(name)
+    return sorted(redundant)
+
+
+def _format_prior_batch_limit_feedback(prior_names: list[str]) -> str:
+    """Tell the LLM to split a large prior submission into smaller batches."""
+    return (
+        "PRIOR UPDATE TOO LARGE:\n"
+        f"- submitted {len(prior_names)} priors; max is {MAX_STAGE4_PRIOR_BATCH_SIZE} per call\n"
+        f"- split this update into smaller batches: {_summarize_names(prior_names)}\n\n"
+        "Previously accepted state is retained. Resubmit only the fields you changed."
+    )
+
+
+def _format_redundant_stage4_update_feedback(kind: str, names: list[str]) -> str:
+    """Tell the LLM not to resend already accepted stage-4 fields."""
+    summary = _summarize_names(names)
+    return (
+        f"REDUNDANT {kind.upper()} UPDATE:\n"
+        f"- already accepted and unchanged: {summary}\n"
+        "- do not resend unchanged fields\n\n"
+        "Previously accepted state is retained. Resubmit only the fields you changed."
+    )
+
+
+def _with_stateful_retry_guidance(feedback: str) -> str:
+    """Remind the LLM that accepted stage-4 state is preserved across retries."""
+    return f"{feedback}\n\nPreviously accepted state is retained. Resubmit only the fields you changed."
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +448,7 @@ def make_stage_tool(
     compute_fn: Callable[[dict], tuple[dict | None, str]],
     success_feedback: str = "VALID",
     capture_failures: bool = False,
-    failed_params_fn: Callable[[dict], list[str]] | None = None,
+    failed_params_fn: Callable[[dict, dict | None, str, dict], list[str]] | None = None,
 ) -> tuple[Any, dict]:
     """Create a fat tool for pipeline use wrapping a compute function.
 
@@ -335,9 +481,11 @@ def make_stage_tool(
         t0 = time.monotonic()
         stage_output, feedback = compute_fn(data)
         elapsed = time.monotonic() - t0
+        is_success = feedback == success_feedback
 
         if stage_output is not None:
             capture.update(stage_output)
+        if is_success:
             logger.info("[%s] grounding passed (%.1fs)", name, elapsed)
         else:
             if capture_failures:
@@ -346,7 +494,7 @@ def make_stage_tool(
                     {
                         "attempt": len(retries) + 1,
                         "failed_params": (
-                            failed_params_fn(data)
+                            failed_params_fn(data, stage_output, feedback, capture)
                             if failed_params_fn is not None
                             else sorted((data.get("priors") or {}).keys())
                         ),
@@ -402,15 +550,33 @@ def _agentic_stage4_grounding(
     On subsequent calls (prior refinement only) the data contains just
     ``priors`` and the wrapper delegates directly.
     """
-    if "distribution_choices" in data:
+    if ("distribution_choices" in data or "loading_constraints" in data) and "priors" in data:
+        return (
+            None,
+            "UPDATE TOO BROAD:\n"
+            "- submit model decisions and priors in separate calls\n"
+            "- validate model decisions first, then add priors in later calls\n\n"
+            "Previously accepted state is retained. Resubmit only the fields you changed.",
+        )
+
+    if "distribution_choices" in data or "loading_constraints" in data:
         from causal_ssm_agent.orchestrator.schemas_model import (
             validate_model_spec_decisions_dict,
         )
 
-        decisions_data = {
-            "distribution_choices": data.get("distribution_choices", []),
-            "loading_constraints": data.get("loading_constraints", []),
-        }
+        redundant_decisions = _find_redundant_decision_updates(data, current=current)
+        if redundant_decisions:
+            return None, _format_redundant_stage4_update_feedback(
+                "model decisions",
+                redundant_decisions,
+            )
+
+        decisions_data = _merge_stage4_decision_updates(
+            data,
+            current=current,
+            ambiguous_indicators=ambiguous_indicators,
+            all_params=all_params,
+        )
         model_spec_result, errors = validate_model_spec_decisions_dict(
             decisions_data,
             resolved_likelihoods=resolved_likelihoods,
@@ -441,6 +607,114 @@ def _agentic_stage4_grounding(
         raw_data=raw_data,
         indicator_audits=indicator_audits,
     )
+
+
+def _find_redundant_decision_updates(
+    data: dict[str, Any],
+    *,
+    current: dict | None,
+) -> list[str]:
+    """Return decision targets whose accepted values were resubmitted unchanged."""
+    current_model_spec = (current or {}).get("model_spec") or {}
+
+    current_likelihoods: dict[str, dict[str, Any]] = {}
+    for likelihood in current_model_spec.get("likelihoods") or []:
+        if not isinstance(likelihood, dict):
+            continue
+        variable = likelihood.get("variable")
+        if isinstance(variable, str):
+            current_likelihoods[variable] = likelihood
+
+    current_loadings: dict[str, dict[str, Any]] = {}
+    for parameter in current_model_spec.get("parameters") or []:
+        if not isinstance(parameter, dict):
+            continue
+        name = parameter.get("name")
+        if isinstance(name, str):
+            current_loadings[name] = parameter
+
+    redundant: list[str] = []
+    for choice in data.get("distribution_choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        variable = choice.get("variable")
+        accepted = current_likelihoods.get(variable) if isinstance(variable, str) else None
+        if (
+            accepted is not None
+            and accepted.get("distribution") == choice.get("distribution")
+            and accepted.get("link") == choice.get("link")
+        ):
+            redundant.append(variable)
+
+    for constraint in data.get("loading_constraints") or []:
+        if not isinstance(constraint, dict):
+            continue
+        parameter = constraint.get("parameter")
+        accepted = current_loadings.get(parameter) if isinstance(parameter, str) else None
+        if accepted is not None and accepted.get("constraint") == constraint.get("constraint"):
+            redundant.append(parameter)
+
+    return sorted(name for name in redundant if isinstance(name, str))
+
+
+def _merge_stage4_decision_updates(
+    data: dict[str, Any],
+    *,
+    current: dict | None,
+    ambiguous_indicators: list[dict],
+    all_params: list[dict],
+) -> dict[str, list[dict[str, Any]]]:
+    """Merge decision deltas with the currently accepted stage-4 model spec."""
+    current_model_spec = (current or {}).get("model_spec") or {}
+
+    ambiguous_vars = {
+        indicator["variable"]
+        for indicator in ambiguous_indicators
+        if isinstance(indicator, dict) and isinstance(indicator.get("variable"), str)
+    }
+    current_dist_choices: dict[str, dict[str, Any]] = {}
+    for likelihood in current_model_spec.get("likelihoods") or []:
+        if not isinstance(likelihood, dict):
+            continue
+        variable = likelihood.get("variable")
+        if isinstance(variable, str) and variable in ambiguous_vars:
+            current_dist_choices[variable] = {
+                "variable": variable,
+                "distribution": likelihood.get("distribution"),
+                "link": likelihood.get("link"),
+                "reasoning": likelihood.get("reasoning")
+                or "Retained from previously accepted state.",
+            }
+    for choice in data.get("distribution_choices") or []:
+        if isinstance(choice, dict) and isinstance(choice.get("variable"), str):
+            current_dist_choices[choice["variable"]] = choice
+
+    loading_param_names = {
+        parameter["name"]
+        for parameter in all_params
+        if isinstance(parameter, dict)
+        and parameter.get("role") == "loading"
+        and isinstance(parameter.get("name"), str)
+    }
+    current_loading_constraints: dict[str, dict[str, Any]] = {}
+    for parameter in current_model_spec.get("parameters") or []:
+        if not isinstance(parameter, dict):
+            continue
+        name = parameter.get("name")
+        if isinstance(name, str) and name in loading_param_names:
+            current_loading_constraints[name] = {
+                "parameter": name,
+                "constraint": parameter.get("constraint"),
+                "reasoning": "Retained from previously accepted state.",
+            }
+    for constraint in data.get("loading_constraints") or []:
+        if isinstance(constraint, dict) and isinstance(constraint.get("parameter"), str):
+            current_loading_constraints[constraint["parameter"]] = constraint
+
+    return {
+        "distribution_choices": list(current_dist_choices.values()),
+        "loading_constraints": list(current_loading_constraints.values()),
+    }
 
 
 # ---------------------------------------------------------------------------

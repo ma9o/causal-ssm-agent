@@ -1068,7 +1068,6 @@ class TestStage4CompileOwnership:
         )
 
         data = {
-            "model_spec": {"likelihoods": [], "parameters": []},
             "priors": {
                 "rho_outcome": {
                     "parameter": "rho_outcome",
@@ -1079,11 +1078,182 @@ class TestStage4CompileOwnership:
                 }
             },
         }
-        output, feedback = stage4_grounding(data, causal_spec={}, current=None, raw_data=None)
+        output, feedback = stage4_grounding(
+            data,
+            causal_spec={},
+            current={"model_spec": {"likelihoods": [], "parameters": []}},
+            raw_data=None,
+        )
 
-        assert output is None
+        assert output is not None
+        assert output["priors"]["rho_outcome"]["distribution"] == "Beta"
+        assert output["validation"].compile_ok is False
         assert "COMPILE ERROR" in feedback
         assert "dimension mismatch" in feedback
+        assert "Resubmit only the fields you changed" in feedback
+
+    def test_schema_error_keeps_valid_priors_and_model_state(self):
+        """Schema-invalid priors should not discard valid state from the same submission."""
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        current = {
+            "model_spec": {
+                "likelihoods": [
+                    {"variable": "mood_score", "distribution": "gaussian", "link": "identity"}
+                ],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"},
+                    {"name": "sigma_mood", "role": "residual_sd", "constraint": "positive"},
+                ],
+            }
+        }
+        data = {
+            "priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "valid prior",
+                },
+                "sigma_mood": {
+                    "parameter": "sigma_mood",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 1.0},
+                    "sources": ["not a structured source"],
+                    "reasoning": "invalid source payload",
+                },
+            },
+        }
+
+        output, feedback = stage4_grounding(data, causal_spec={}, current=current, raw_data=None)
+
+        assert output is not None
+        assert sorted(output["priors"]) == ["rho_mood"]
+        assert "SCHEMA ERRORS for prior 'sigma_mood'" in feedback
+
+    def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, simple_model_spec):
+        """Stage 4 should accept a model spec before the full prior set is available."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        output, feedback = stage4_grounding(
+            {"model_spec": simple_model_spec},
+            causal_spec={},
+            current=None,
+            raw_data=None,
+        )
+
+        assert output is not None
+        assert output["model_spec"]["parameters"][0]["name"] == "intercept_mood_score"
+        assert output["validation"].compile_ok is True
+        assert "MODEL STATE SAVED" in feedback
+        assert "missing priors" in feedback
+
+    def test_rejects_mixed_model_and_prior_updates(self):
+        """Stage 4 should reject combined model+prior submissions."""
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        output, feedback = stage4_grounding(
+            {
+                "model_spec": {"likelihoods": [], "parameters": []},
+                "priors": {
+                    "rho_mood": {
+                        "parameter": "rho_mood",
+                        "distribution": "Beta",
+                        "params": {"alpha": 2, "beta": 2},
+                        "sources": [],
+                        "reasoning": "test prior",
+                    }
+                },
+            },
+            causal_spec={},
+            current=None,
+            raw_data=None,
+        )
+
+        assert output is None
+        assert "UPDATE TOO BROAD" in feedback
+        assert "separate calls" in feedback
+
+    def test_rejects_large_prior_batches(self):
+        """Stage 4 should force prior updates into small batches."""
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        current = {
+            "model_spec": {
+                "likelihoods": [],
+                "parameters": [
+                    {"name": f"rho_{idx}", "role": "ar_coefficient", "constraint": "unit_interval"}
+                    for idx in range(9)
+                ],
+            }
+        }
+        priors = {
+            f"rho_{idx}": {
+                "parameter": f"rho_{idx}",
+                "distribution": "Beta",
+                "params": {"alpha": 2, "beta": 2},
+                "sources": [],
+                "reasoning": "test prior",
+            }
+            for idx in range(9)
+        }
+
+        output, feedback = stage4_grounding(
+            {"priors": priors},
+            causal_spec={},
+            current=current,
+            raw_data=None,
+        )
+
+        assert output is None
+        assert "PRIOR UPDATE TOO LARGE" in feedback
+        assert "max is 8 per call" in feedback
+
+    def test_rejects_redundant_prior_updates(self):
+        """Already-accepted priors should not be resent unchanged."""
+        from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        current = {
+            "model_spec": {
+                "likelihoods": [],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
+                ],
+            },
+            "priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "test prior",
+                }
+            },
+        }
+
+        output, feedback = stage4_grounding(
+            {"priors": dict(current["priors"])},
+            causal_spec={},
+            current=current,
+            raw_data=None,
+        )
+
+        assert output is None
+        assert "REDUNDANT PRIORS UPDATE" in feedback
+        assert "`rho_mood`" in feedback
 
     def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
         """Global validation failures should produce actionable feedback."""
@@ -1220,105 +1390,238 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     assert result.validation_retries == capture["validation_retries"]
 
 
-def test_infer_validation_retry_targets_prefers_schema_prior_name():
-    submission = {
-        "priors": {
-            "rho_burnout_level": {"distribution": "Beta"},
-            "rho_productivity": {"distribution": "Beta"},
-        }
-    }
-    feedback = (
-        "SCHEMA ERRORS for prior 'rho_burnout_level':\n- 1 validation error for PriorProposal"
+def test_agentic_stage4_grounding_merges_distribution_choice_delta(monkeypatch):
+    from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+    forwarded: dict[str, dict] = {}
+
+    def fake_stage4_grounding(data, causal_spec, current, raw_data, indicator_audits):
+        del causal_spec, current, raw_data, indicator_audits
+        forwarded.update(data)
+        return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+        fake_stage4_grounding,
     )
 
-    failed_targets = stage4_module._infer_validation_retry_targets(feedback, submission, None)
-
-    assert failed_targets == ["rho_burnout_level"]
-
-
-def test_infer_validation_retry_targets_extracts_observation_support_indicator():
-    previous_submission = {
-        "priors": {
-            "rho_burnout_level": {
-                "distribution": "Beta",
-                "sources": ["bad schema"],
-            }
-        }
-    }
-    submission = {
-        "distribution_choices": [
-            {"variable": "ide_focus_gaps", "distribution": "gamma", "link": "log"},
-            {"variable": "search_query_length", "distribution": "gamma", "link": "log"},
-        ],
-        "priors": {
-            "rho_burnout_level": {
-                "distribution": "Beta",
-                "sources": [{"title": "fixed", "snippet": "fixed"}],
+    output, feedback = _agentic_stage4_grounding(
+        data={
+            "distribution_choices": [
+                {
+                    "variable": "ide_focus_gaps",
+                    "distribution": "student_t",
+                    "link": "identity",
+                    "reasoning": "Updated choice for zero-heavy duration data.",
+                }
+            ]
+        },
+        causal_spec={},
+        current={
+            "model_spec": {
+                "likelihoods": [
+                    {
+                        "variable": "dev_platform_activity",
+                        "distribution": "bernoulli",
+                        "link": "logit",
+                        "reasoning": "Deterministic.",
+                    },
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "gamma",
+                        "link": "log",
+                        "reasoning": "Old choice.",
+                    },
+                    {
+                        "variable": "advanced_tech_searches",
+                        "distribution": "bernoulli",
+                        "link": "logit",
+                        "reasoning": "Retained choice.",
+                    },
+                ],
+                "parameters": [
+                    {
+                        "name": "lambda_stackoverflow_visits_productivity",
+                        "role": "loading",
+                        "constraint": "positive",
+                        "description": "loading",
+                    }
+                ],
             }
         },
-    }
-    feedback = (
-        "PRIOR PREDICTIVE FEEDBACK:\n"
-        "Validation FAILED (global issue — affects all parameters):\n"
-        "- Observation support check failed: 'ide_focus_gaps' uses gamma emission but "
-        "29/125 observations are outside support (gamma requires y > 0; min=0, max=24) (+2 more)\n"
-        "  Suggested: Fix model_spec or priors to enable model construction"
-    )
-
-    failed_targets = stage4_module._infer_validation_retry_targets(
-        feedback,
-        submission,
-        previous_submission,
-    )
-
-    assert failed_targets == ["ide_focus_gaps"]
-
-
-def test_infer_validation_retry_targets_falls_back_to_changed_submission_targets():
-    previous_submission = {
-        "distribution_choices": [
-            {"variable": "dev_platform_activity", "distribution": "bernoulli", "link": "logit"},
-            {"variable": "ide_focus_gaps", "distribution": "gamma", "link": "log"},
-            {"variable": "search_query_length", "distribution": "gamma", "link": "log"},
-            {"variable": "inferred_sleep_duration", "distribution": "gamma", "link": "log"},
-        ],
-        "priors": {
-            "rho_productivity": {"distribution": "Beta", "params": {"alpha": 3, "beta": 2}},
-        },
-    }
-    submission = {
-        "distribution_choices": [
-            {"variable": "dev_platform_activity", "distribution": "bernoulli", "link": "logit"},
-            {"variable": "ide_focus_gaps", "distribution": "student_t", "link": "identity"},
-            {"variable": "search_query_length", "distribution": "student_t", "link": "identity"},
+        raw_data=None,
+        indicator_audits=None,
+        resolved_likelihoods=[
             {
-                "variable": "inferred_sleep_duration",
-                "distribution": "student_t",
-                "link": "identity",
-            },
+                "variable": "dev_platform_activity",
+                "distribution": "bernoulli",
+                "link": "logit",
+            }
         ],
-        "priors": {
-            "rho_productivity": {"distribution": "Beta", "params": {"alpha": 3, "beta": 2}},
-        },
+        ambiguous_indicators=[
+            {"variable": "ide_focus_gaps"},
+            {"variable": "advanced_tech_searches"},
+        ],
+        all_params=[
+            {
+                "name": "lambda_stackoverflow_visits_productivity",
+                "role": "loading",
+                "constraint": "none",
+                "description": "loading",
+            }
+        ],
+    )
+
+    assert feedback == "MODEL STATE SAVED"
+    assert output is not None
+    merged_likelihoods = {
+        likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
     }
-    feedback = (
-        "PRIOR PREDICTIVE FEEDBACK:\n"
-        "Validation FAILED (global issue — affects all parameters):\n"
-        "- NaN/Inf detected in sample sites: observations\n"
-        "  Suggested: Check for degenerate priors or numerical overflow"
+    assert merged_likelihoods["ide_focus_gaps"]["distribution"] == "student_t"
+    assert merged_likelihoods["advanced_tech_searches"]["distribution"] == "bernoulli"
+
+
+def test_agentic_stage4_grounding_rejects_mixed_updates():
+    from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+    output, feedback = _agentic_stage4_grounding(
+        data={
+            "distribution_choices": [
+                {
+                    "variable": "ide_focus_gaps",
+                    "distribution": "student_t",
+                    "link": "identity",
+                    "reasoning": "Changed likelihood.",
+                }
+            ],
+            "priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "test prior",
+                }
+            },
+        },
+        causal_spec={},
+        current={},
+        raw_data=None,
+        indicator_audits=None,
+        resolved_likelihoods=[],
+        ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+        all_params=[],
     )
 
-    failed_targets = stage4_module._infer_validation_retry_targets(
-        feedback,
-        submission,
-        previous_submission,
+    assert output is None
+    assert "UPDATE TOO BROAD" in feedback
+
+
+def test_agentic_stage4_grounding_rejects_redundant_decision_update():
+    from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+    output, feedback = _agentic_stage4_grounding(
+        data={
+            "distribution_choices": [
+                {
+                    "variable": "ide_focus_gaps",
+                    "distribution": "student_t",
+                    "link": "identity",
+                    "reasoning": "Same decision, different words.",
+                }
+            ]
+        },
+        causal_spec={},
+        current={
+            "model_spec": {
+                "likelihoods": [
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "student_t",
+                        "link": "identity",
+                        "reasoning": "Accepted choice.",
+                    }
+                ],
+                "parameters": [],
+            }
+        },
+        raw_data=None,
+        indicator_audits=None,
+        resolved_likelihoods=[],
+        ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+        all_params=[],
     )
 
-    assert failed_targets == [
-        "ide_focus_gaps",
-        "search_query_length",
-        "inferred_sleep_duration",
-    ]
+    assert output is None
+    assert "REDUNDANT MODEL DECISIONS UPDATE" in feedback
+
+
+def test_agentic_stage4_grounding_accepts_loading_constraint_delta(monkeypatch):
+    from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+    forwarded: dict[str, dict] = {}
+
+    def fake_stage4_grounding(data, causal_spec, current, raw_data, indicator_audits):
+        del causal_spec, current, raw_data, indicator_audits
+        forwarded.update(data)
+        return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+        fake_stage4_grounding,
+    )
+
+    output, feedback = _agentic_stage4_grounding(
+        data={
+            "loading_constraints": [
+                {
+                    "parameter": "lambda_stackoverflow_visits_productivity",
+                    "constraint": "positive",
+                    "reasoning": "Updated loading sign.",
+                }
+            ]
+        },
+        causal_spec={},
+        current={
+            "model_spec": {
+                "likelihoods": [
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "student_t",
+                        "link": "identity",
+                        "reasoning": "Accepted choice.",
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "lambda_stackoverflow_visits_productivity",
+                        "role": "loading",
+                        "constraint": "none",
+                        "description": "loading",
+                    }
+                ],
+            }
+        },
+        raw_data=None,
+        indicator_audits=None,
+        resolved_likelihoods=[],
+        ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+        all_params=[
+            {
+                "name": "lambda_stackoverflow_visits_productivity",
+                "role": "loading",
+                "constraint": "none",
+                "description": "loading",
+            }
+        ],
+    )
+
+    assert feedback == "MODEL STATE SAVED"
+    assert output is not None
+    merged_params = {
+        parameter["name"]: parameter for parameter in forwarded["model_spec"]["parameters"]
+    }
+    assert merged_params["lambda_stackoverflow_visits_productivity"]["constraint"] == "positive"
 
 
 def test_make_stage_tool_captures_validation_retries():
@@ -1327,9 +1630,11 @@ def test_make_stage_tool_captures_validation_retries():
         description="Validate model proposals.",
         param_name="model_json",
         param_description="JSON payload.",
-        compute_fn=lambda _data: (None, "VALIDATION ERRORS:\n- prior invalid"),
+        compute_fn=lambda _data: (
+            {"model_spec": {"parameters": []}},
+            "VALIDATION ERRORS:\n- prior invalid",
+        ),
         capture_failures=True,
-        failed_params_fn=lambda data: sorted((data.get("priors") or {}).keys()),
     )
 
     feedback = asyncio.run(
@@ -1346,6 +1651,7 @@ def test_make_stage_tool_captures_validation_retries():
     )
 
     assert feedback == "VALIDATION ERRORS:\n- prior invalid"
+    assert capture["model_spec"] == {"parameters": []}
     assert capture["validation_retries"] == [
         {
             "attempt": 1,
