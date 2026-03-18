@@ -361,6 +361,7 @@ def _bind_stage4(ctx: PipelineContext, states: dict) -> dict:
         "question": ctx.question,
         "stage1b": states["stage-1b"]["result"],
         "stage2": states["stage-2"]["result"],
+        "stage3": states["stage-3"]["result"],
         "enable_literature": ctx.lit_enabled,
     }
 
@@ -446,11 +447,13 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
 
     stage1b_result = states["stage-1b"]["result"]
     stage2_result = states["stage-2"]["result"]
+    stage3_result = states["stage-3"]["result"]
     authored = coerce_stage4_override_payload(payload)
     return materialize_stage4_result(
         model_spec=authored["model_spec"],
         priors=authored["priors"],
         raw_data=load_parquet(stage2_result["_data_for_model_path"]),
+        indicator_audits=stage3_result["indicators"],
         causal_spec=stage1b_result["causal_spec"],
         validation_retries=authored.get("validation_retries"),
         llm_trace=authored.get("llm_trace"),
@@ -464,10 +467,13 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
 
 def _build_registry() -> dict[str, StageDefinition]:
     """Build the stage registry with lazy imports to avoid circular dependencies."""
+    import os
+    from dataclasses import replace
+
     from . import dag
     from .stages.contracts import STAGE_CONTRACTS
 
-    return {
+    registry = {
         "stage-0": StageDefinition(
             stage_id="stage-0",
             depends_on=frozenset(),
@@ -521,7 +527,7 @@ def _build_registry() -> dict[str, StageDefinition]:
         ),
         "stage-4": StageDefinition(
             stage_id="stage-4",
-            depends_on=frozenset({"stage-1b", "stage-2"}),
+            depends_on=frozenset({"stage-1b", "stage-2", "stage-3"}),
             contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
@@ -567,6 +573,42 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage6,
         ),
     }
+
+    # In production, offload stages 2 and 5b to Modal
+    if os.environ.get("DEPLOYMENT_ENV") == "production":
+        from .modal_runners import modal_stage2_runner, modal_stage5b_runner, persist_noop
+
+        def _bind_stage2_modal(ctx: PipelineContext, states: dict) -> dict:
+            base = _bind_stage2(ctx, states)
+            base["user_id"] = ctx.user_id
+            return base
+
+        def _bind_stage5b_modal(ctx: PipelineContext, states: dict) -> dict:
+            base = _bind_stage5b(ctx, states)
+            base["user_id"] = ctx.user_id
+            return base
+
+        registry["stage-2"] = replace(
+            registry["stage-2"],
+            bind_inputs=_bind_stage2_modal,
+            runner=modal_stage2_runner,
+            materializer=StageMaterializer(
+                restore=_restore_stage2,
+                persist=persist_noop,
+                finalize_extras=_finalize_stage2_extras,
+            ),
+        )
+        registry["stage-5b"] = replace(
+            registry["stage-5b"],
+            bind_inputs=_bind_stage5b_modal,
+            runner=modal_stage5b_runner,
+            materializer=StageMaterializer(
+                restore=_restore_stage5b,
+                persist=persist_noop,
+            ),
+        )
+
+    return registry
 
 
 # Lazily initialized at first access
