@@ -6,10 +6,11 @@ import { basename } from "node:path";
 import { NextResponse } from "next/server";
 
 import { resolveApiKey } from "@/lib/api/resolve-api-key";
+import { getToolServerUrl } from "@/lib/runtime-urls";
 import { readData, writeData, ensureDir } from "@/lib/storage";
 import { traceToModelMessages } from "@/lib/utils/trace-to-core";
 
-const TOOL_SERVER = process.env.TOOL_SERVER_URL ?? "http://localhost:8100";
+const TOOL_SERVER = getToolServerUrl();
 
 /**
  * POST /api/refine

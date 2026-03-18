@@ -11,8 +11,9 @@ import {
   readQuestion,
   readSessions,
 } from "../sessions/_shared";
+import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
-const PREFECT_API = "http://localhost:4200/api";
+const PREFECT_API = getPrefectApiUrl();
 
 interface PrefectFlowRun {
   id: string;

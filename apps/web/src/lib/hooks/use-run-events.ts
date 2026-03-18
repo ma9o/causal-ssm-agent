@@ -6,6 +6,7 @@ import {
   type AnalysisStageTaskRun,
 } from "@/lib/api/analysis";
 import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
+import { getPrefectEventsUrl } from "@/lib/runtime-urls";
 import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -231,8 +232,9 @@ function createRunEventSocket(
   updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => void,
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4200";
-  const wsUrl = `${apiBase.replace(/^http/, "ws")}/api/events/out`;
+  // In dev, connect directly to the Prefect server (Next.js rewrites don't proxy WS).
+  // In prod, a reverse proxy forwards WS at /prefect/ — derive from window.location.
+  const wsUrl = getPrefectEventsUrl(window.location.origin);
   const ws = new ReconnectingWebSocket(wsUrl, ["prefect"], {
     maxRetries: MAX_RECONNECT_ATTEMPTS,
     minReconnectionDelay: BASE_DELAY_MS,

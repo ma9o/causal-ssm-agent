@@ -1,10 +1,11 @@
 import type { NextConfig } from "next";
+import { getPrefectApiUrl } from "./src/lib/runtime-urls";
 
 const nextConfig: NextConfig = {
   rewrites: async () => [
     {
       source: "/prefect/:path*",
-      destination: "http://localhost:4200/api/:path*",
+      destination: `${getPrefectApiUrl()}/:path*`,
     },
   ],
 };
