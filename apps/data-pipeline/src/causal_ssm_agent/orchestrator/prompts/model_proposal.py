@@ -289,7 +289,9 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
                     parameter=card["parameter"],
                     cause=structural_context.get("cause", "-"),
                     effect=structural_context.get("effect", "-"),
-                    relation="lagged" if structural_context.get("lagged", True) else "same_interval",
+                    relation="lagged"
+                    if structural_context.get("lagged", True)
+                    else "same_interval",
                     constraint=card["constraint"],
                 )
             )
@@ -364,8 +366,7 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
     other_roles = [
         role
         for role in groups
-        if role
-        not in {"ar_coefficient", "fixed_effect", "residual_sd", "loading", "correlation"}
+        if role not in {"ar_coefficient", "fixed_effect", "residual_sd", "loading", "correlation"}
     ]
     for role in sorted(other_roles):
         lines.extend(
@@ -487,8 +488,10 @@ the fixed model context. The system handles CT conversion.
 
 ## Tools
 
-- `validate_model`: Submit your model spec decisions and ALL priors. Returns \
-"VALID" on success or detailed feedback on failure. Fix issues and resubmit.
+- `validate_model`: Stateful validator. It retains accepted model decisions and \
+valid priors across retries. It rejects mixed decision+prior submissions, large \
+prior dumps, and unchanged resubmissions. Start by validating the model spec, \
+then add priors. After any failure, resubmit only the fields you changed.
 - `search_literature` (if available): Search for empirical effect sizes. Use \
 selectively for parameters where domain knowledge is uncertain.
 - `elicit_prior_gmm` (if available): Run robust paraphrased elicitation for a \
@@ -498,9 +501,11 @@ single parameter. Returns an aggregated prior estimate.
 
 1. Review the model topology, distribution decision cards, construct scale cards, and parameter prior cards
 2. Optionally search literature for key causal effect parameters
-3. Submit everything via `validate_model`
-4. If validation fails, read the feedback, fix the issues, and resubmit
-5. Once you get "VALID", STOP immediately — do not output anything else
+3. Submit the full `distribution_choices` and `loading_constraints` first to lock the model spec
+4. Do not include priors in that same `validate_model` call
+5. Add priors incrementally via `validate_model` in small batches of at most 8 priors
+6. If validation fails, read the feedback, fix the issues, and resubmit only the changed fields
+7. Once you get "VALID", STOP immediately — do not output anything else
 """
 
 AGENTIC_USER = """\
@@ -544,7 +549,12 @@ role to avoid repetition.
 
 ---
 
-Submit your decisions and priors via the `validate_model` tool as a single JSON:
+`validate_model` is stateful. You do not need to resend unchanged fields after a rejection.
+It rejects mixed decision+prior updates, large prior batches, and unchanged accepted fields.
+
+Typical sequence:
+
+1. First validate the model spec only:
 ```json
 {{
   "distribution_choices": [
@@ -552,7 +562,13 @@ Submit your decisions and priors via the `validate_model` tool as a single JSON:
   ],
   "loading_constraints": [
     {{"parameter": "...", "constraint": "positive|none", "reasoning": "..."}}
-  ],
+  ]
+}}
+```
+
+2. Then add priors in focused updates. Priors must be sent without model decisions, and each call may include at most 8 priors:
+```json
+{{
   "priors": {{
     "parameter_name": {{
       "parameter": "parameter_name",
@@ -565,6 +581,8 @@ Submit your decisions and priors via the `validate_model` tool as a single JSON:
   }}
 }}
 ```
+
+Never combine priors with model decisions in the same tool call. After a failure, only resend the priors or model decisions you changed.
 
 Only include `reference_interval_days` when the literature evidence is expressed \
 on a different observation interval than the model interval shown in Model \
