@@ -209,6 +209,7 @@ def stage4_grounding(
     if new_model_spec is not None and validation.normalized_model_spec is not None:
         output["model_spec"] = validation.normalized_model_spec
     if validation.is_valid:
+        output["validation"] = validation
         return output, "VALID"
 
     feedback = format_validation_feedback(

@@ -14,6 +14,7 @@ causal_spec context, SSM prior conversion, sparsity, trial compile,
 and compile ownership.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,6 +23,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
+import causal_ssm_agent.orchestrator.stage4 as stage4_module
+from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
 from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
@@ -32,7 +35,7 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs,
 )
-from causal_ssm_agent.orchestrator.stage4 import Stage4Messages
+from causal_ssm_agent.orchestrator.stage4 import Stage4Messages, run_stage4
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
@@ -1129,3 +1132,78 @@ class TestStage4CompileOwnership:
         assert len(payload["issues"]) == 1
         assert "global issue" in payload["issues"][0]
         assert "model_spec issue" in payload["issues"][0]
+
+
+def test_run_stage4_returns_captured_validation(monkeypatch):
+    """The last successful validation should be carried into materialization."""
+    skeleton = SimpleNamespace(
+        all_params=[],
+        loading_params=[],
+        resolved_likelihoods=[],
+        ambiguous_indicators=[],
+    )
+    validation = AssemblyValidation(pp_checked=True, pp_valid=True)
+    capture = {
+        "model_spec": {"likelihoods": [{"variable": "mood_score"}]},
+        "priors": {"rho_mood": {"distribution": "Beta"}},
+        "validation": validation,
+    }
+
+    def stub_derive_deterministic_spec(causal_spec):
+        del causal_spec
+        return skeleton
+
+    def stub_build_model_topology(causal_spec):
+        del causal_spec
+        return {}
+
+    def stub_build_distribution_cards(causal_spec, indicator_audits, skeleton):
+        del causal_spec, indicator_audits, skeleton
+        return []
+
+    def stub_build_construct_scale_cards(causal_spec, indicator_audits, skeleton):
+        del causal_spec, indicator_audits, skeleton
+        return []
+
+    def stub_build_prior_cards(skeleton):
+        del skeleton
+        return []
+
+    monkeypatch.setattr(stage4_module, "derive_deterministic_spec", stub_derive_deterministic_spec)
+    monkeypatch.setattr(stage4_module, "build_model_topology", stub_build_model_topology)
+    monkeypatch.setattr(
+        stage4_module,
+        "build_distribution_cards",
+        stub_build_distribution_cards,
+    )
+    monkeypatch.setattr(
+        stage4_module,
+        "build_construct_scale_cards",
+        stub_build_construct_scale_cards,
+    )
+    monkeypatch.setattr(stage4_module, "build_prior_cards", stub_build_prior_cards)
+
+    def fake_make_stage_tool(**kwargs):
+        return object(), capture
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage_tools.make_stage_tool",
+        fake_make_stage_tool,
+    )
+
+    async def fake_generate(messages, tools):
+        assert len(messages) == 2
+        assert len(tools) == 1
+
+    result = asyncio.run(
+        run_stage4(
+            causal_spec={},
+            question="How can I be more productive?",
+            raw_data=pl.DataFrame(),
+            indicator_audits={},
+            generate=fake_generate,
+            enable_literature=False,
+        )
+    )
+
+    assert result.validation is validation
