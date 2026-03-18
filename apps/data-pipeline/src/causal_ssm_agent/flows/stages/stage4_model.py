@@ -68,6 +68,7 @@ async def stage4_agentic_flow(
             raw_data=raw_data,
             indicator_audits=indicator_audits,
             causal_spec=causal_spec,
+            validation_retries=result.validation_retries,
             validation=result.validation,
             search_queries=result.search_queries,
         )

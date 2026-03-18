@@ -11,6 +11,8 @@ Follows the same two-layer architecture as stages 1a/1b:
 
 from __future__ import annotations
 
+import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +48,7 @@ class Stage4Result:
     priors: dict[str, dict]
     search_queries: dict[str, str] = field(default_factory=dict)
     validation: AssemblyValidation | None = None
+    validation_retries: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -75,6 +78,139 @@ class Stage4Messages:
                 ),
             },
         ]
+
+
+def _unique_in_order(values: list[str]) -> list[str]:
+    """Drop duplicates while preserving the authored order."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _submitted_retry_targets(submission: dict[str, Any]) -> list[str]:
+    """Collect authored stage-4 targets from a tool submission."""
+    targets: list[str] = []
+
+    priors = submission.get("priors")
+    if isinstance(priors, dict):
+        targets.extend(name for name in priors if isinstance(name, str))
+
+    for choice in submission.get("distribution_choices") or []:
+        if isinstance(choice, dict) and isinstance(choice.get("variable"), str):
+            targets.append(choice["variable"])
+
+    for constraint in submission.get("loading_constraints") or []:
+        if isinstance(constraint, dict) and isinstance(constraint.get("parameter"), str):
+            targets.append(constraint["parameter"])
+
+    return _unique_in_order(targets)
+
+
+def _distribution_choice_signature(submission: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+    """Build a comparison-friendly view of likelihood family decisions."""
+    signature: dict[str, tuple[Any, Any]] = {}
+    for choice in submission.get("distribution_choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        variable = choice.get("variable")
+        if isinstance(variable, str):
+            signature[variable] = (choice.get("distribution"), choice.get("link"))
+    return signature
+
+
+def _loading_constraint_signature(submission: dict[str, Any]) -> dict[str, Any]:
+    """Build a comparison-friendly view of loading sign constraints."""
+    signature: dict[str, Any] = {}
+    for constraint in submission.get("loading_constraints") or []:
+        if not isinstance(constraint, dict):
+            continue
+        parameter = constraint.get("parameter")
+        if isinstance(parameter, str):
+            signature[parameter] = constraint.get("constraint")
+    return signature
+
+
+def _changed_retry_targets(
+    submission: dict[str, Any],
+    previous_submission: dict[str, Any] | None,
+) -> list[str]:
+    """Return the authored targets that changed since the previous attempt."""
+    if previous_submission is None:
+        return _submitted_retry_targets(submission)
+
+    changed: list[str] = []
+
+    current_priors = submission.get("priors") if isinstance(submission.get("priors"), dict) else {}
+    previous_priors = (
+        previous_submission.get("priors")
+        if isinstance(previous_submission.get("priors"), dict)
+        else {}
+    )
+    for name in current_priors:
+        if previous_priors.get(name) != current_priors[name]:
+            changed.append(name)
+
+    current_choices = _distribution_choice_signature(submission)
+    previous_choices = _distribution_choice_signature(previous_submission)
+    for variable, signature in current_choices.items():
+        if previous_choices.get(variable) != signature:
+            changed.append(variable)
+
+    current_constraints = _loading_constraint_signature(submission)
+    previous_constraints = _loading_constraint_signature(previous_submission)
+    for parameter, constraint in current_constraints.items():
+        if previous_constraints.get(parameter) != constraint:
+            changed.append(parameter)
+
+    return _unique_in_order(changed)
+
+
+def _extract_schema_retry_targets(feedback: str) -> list[str]:
+    """Extract prior names from schema-validation failures."""
+    return _unique_in_order(re.findall(r"SCHEMA ERRORS for prior '([^']+)'", feedback))
+
+
+def _extract_observation_support_targets(feedback: str) -> list[str]:
+    """Extract indicator names from observation-support failures."""
+    return _unique_in_order(re.findall(r"'([^']+)' uses [A-Za-z_]+ emission", feedback))
+
+
+def _extract_nan_inf_sample_targets(feedback: str) -> list[str]:
+    """Extract named sample sites from NaN/Inf failures when they are specific."""
+    match = re.search(r"NaN/Inf detected in sample sites:\s*([^\n]+)", feedback)
+    if match is None:
+        return []
+
+    ignored = {"observations"}
+    sample_sites = [site.strip() for site in match.group(1).split(",")]
+    return _unique_in_order([site for site in sample_sites if site and site.lower() not in ignored])
+
+
+def _infer_validation_retry_targets(
+    feedback: str,
+    submission: dict[str, Any],
+    previous_submission: dict[str, Any] | None,
+) -> list[str]:
+    """Infer the smallest actionable retry targets from stage-4 feedback."""
+    for extractor in (
+        _extract_schema_retry_targets,
+        _extract_observation_support_targets,
+        _extract_nan_inf_sample_targets,
+    ):
+        targets = extractor(feedback)
+        if targets:
+            return targets
+
+    changed_targets = _changed_retry_targets(submission, previous_submission)
+    if changed_targets:
+        return changed_targets
+
+    return _submitted_retry_targets(submission)
 
 
 async def run_stage4(
@@ -134,15 +270,14 @@ async def run_stage4(
     )
 
     # 3. Build tools
-    validate_tool, capture = make_stage_tool(
-        name="validate_model",
-        description="Submit model specification decisions and prior proposals for validation.",
-        param_name="model_json",
-        param_description=(
-            "JSON with distribution_choices, loading_constraints, and priors. "
-            "Or just priors to update after a previous successful submission."
-        ),
-        compute_fn=lambda data: _agentic_stage4_grounding(
+    retry_state: dict[str, Any] = {
+        "last_failed_targets": [],
+        "previous_submission": None,
+    }
+
+    def _compute_with_retry_attribution(data: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+        previous_submission = retry_state["previous_submission"]
+        stage_output, feedback = _agentic_stage4_grounding(
             data,
             causal_spec,
             current=capture,
@@ -151,7 +286,26 @@ async def run_stage4(
             resolved_likelihoods=skeleton.resolved_likelihoods,
             ambiguous_indicators=skeleton.ambiguous_indicators,
             all_params=all_params,
+        )
+        retry_state["last_failed_targets"] = (
+            _infer_validation_retry_targets(feedback, data, previous_submission)
+            if stage_output is None
+            else []
+        )
+        retry_state["previous_submission"] = deepcopy(data)
+        return stage_output, feedback
+
+    validate_tool, capture = make_stage_tool(
+        name="validate_model",
+        description="Submit model specification decisions and prior proposals for validation.",
+        param_name="model_json",
+        param_description=(
+            "JSON with distribution_choices, loading_constraints, and priors. "
+            "Or just priors to update after a previous successful submission."
         ),
+        compute_fn=_compute_with_retry_attribution,
+        capture_failures=True,
+        failed_params_fn=lambda _data: list(retry_state["last_failed_targets"]),
     )
 
     search_captures: dict[str, str] = {}
@@ -181,4 +335,5 @@ async def run_stage4(
         priors=priors,
         search_queries=search_captures,
         validation=capture.get("validation"),
+        validation_retries=list(capture.get("validation_retries", []) or []),
     )
