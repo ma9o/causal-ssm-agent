@@ -156,6 +156,22 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     _reset_stage_registry(monkeypatch)
 
 
+def test_production_registry_offloads_stage4_to_modal(monkeypatch):
+    from causal_ssm_agent.flows import modal_runners
+
+    _reset_stage_registry(monkeypatch)
+    monkeypatch.setenv("DEPLOYMENT_ENV", "production")
+
+    async def fake_stage4_runner(**kwargs):
+        return kwargs
+
+    monkeypatch.setattr(modal_runners, "modal_stage4_runner", fake_stage4_runner)
+
+    registry = stage_registry.get_stage_registry()
+
+    assert registry["stage-4"].runner is fake_stage4_runner
+
+
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
