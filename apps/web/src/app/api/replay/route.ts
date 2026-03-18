@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
+import { getPrefectApiUrl } from "@/lib/runtime-urls";
 import {
   appendSessionRootFlowRunId,
   getLatestSessionRootFlowRunId,
@@ -7,7 +8,7 @@ import {
   writeSessions,
 } from "../sessions/_shared";
 
-const PREFECT_API = "http://localhost:4200/api";
+const PREFECT_API = getPrefectApiUrl();
 const TERMINAL_FLOW_STATES = new Set(["COMPLETED", "FAILED", "CANCELLED", "CRASHED"]);
 const CANCELLATION_POLL_MS = 1000;
 const CANCELLATION_TIMEOUT_MS = 60000;
