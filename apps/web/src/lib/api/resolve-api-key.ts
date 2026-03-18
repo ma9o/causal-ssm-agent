@@ -2,14 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Resolve the default (server-side trial) API key from env or data-pipeline .env.
+ * Resolve the default (server-side trial) API key from env or the monorepo root .env.
  */
 export function getDefaultApiKey(): string | undefined {
   if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
 
-  // Fallback: read from data-pipeline's .env
+  // Fallback: read the monorepo root .env used by the Python pipeline.
   try {
-    const envPath = join(process.cwd(), "..", "data-pipeline", ".env");
+    const envPath = join(process.cwd(), "..", "..", ".env");
     const envContent = readFileSync(envPath, "utf-8");
     const match = envContent.match(/^OPENROUTER_API_KEY=(.+)$/m);
     return match?.[1]?.trim();
