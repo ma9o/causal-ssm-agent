@@ -10,9 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { Bot, ChevronRight, Wrench } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function TextPart({ text }: { text: string }) {
-  return <div className="whitespace-pre-wrap text-xs">{text}</div>;
+  return (
+    <div className="prose prose-xs dark:prose-invert max-w-none text-xs [&_pre]:text-[11px] [&_code]:text-[11px] [&_table]:text-[11px] [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_h4]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto">
+      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+    </div>
+  );
 }
 
 function ReasoningPart({ text, idx }: { text: string; idx: number }) {
