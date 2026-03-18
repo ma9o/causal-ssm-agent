@@ -27,7 +27,7 @@ stage2_workers:
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  model: openrouter/google/gemini-3.1-pro-preview
+  model: openrouter/anthropic/claude-opus-4.6
   # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true
