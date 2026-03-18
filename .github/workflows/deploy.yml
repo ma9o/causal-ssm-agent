@@ -1,0 +1,76 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # let deploys finish
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Deploy Modal functions (stages 2 + 5b)
+  # ---------------------------------------------------------------------------
+  deploy-modal:
+    needs: ci
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/data-pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: uv run modal deploy src/causal_ssm_agent/flows/modal_runners.py
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy Prefect flows
+  # TODO: add prefect.yaml and `prefect deploy --all` once flow deployments
+  #       are defined. Requires PREFECT_API_KEY and PREFECT_API_URL secrets.
+  # ---------------------------------------------------------------------------
+  # deploy-prefect:
+  #   needs: ci
+  #   runs-on: ubuntu-latest
+  #   defaults:
+  #     run:
+  #       working-directory: apps/data-pipeline
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: astral-sh/setup-uv@v6
+  #       with:
+  #         enable-cache: true
+  #     - run: uv sync --frozen --group dev
+  #     - run: uv run prefect deploy --all
+  #       env:
+  #         PREFECT_API_KEY: ${{ secrets.PREFECT_API_KEY }}
+  #         PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy GCP Cloud Functions
+  # TODO: add function source and `gcloud functions deploy` once workers are
+  #       defined. Use Workload Identity Federation for keyless auth.
+  # ---------------------------------------------------------------------------
+  # deploy-gcf:
+  #   needs: ci
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     id-token: write   # for Workload Identity Federation
+  #     contents: read
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: google-github-actions/auth@v2
+  #       with:
+  #         workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  #         service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+  #     - uses: google-github-actions/setup-gcloud@v2
+  #     - run: gcloud functions deploy <function-name> ...

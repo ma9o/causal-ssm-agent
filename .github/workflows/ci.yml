@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Detect which paths changed so downstream jobs can skip early
+  # ---------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      pipeline: ${{ steps.filter.outputs.pipeline }}
+      web: ${{ steps.filter.outputs.web }}
+      api-types: ${{ steps.filter.outputs.api-types }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            pipeline:
+              - 'apps/data-pipeline/**'
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+            api-types:
+              - 'packages/api-types/**'
+              - 'apps/data-pipeline/src/**/contracts.py'
+              - 'apps/data-pipeline/src/**/schemas*.py'
+              - 'apps/data-pipeline/scripts/export_schemas.py'
+
+  # ---------------------------------------------------------------------------
+  # Python: lint + format check
+  # ---------------------------------------------------------------------------
+  lint-python:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/data-pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: uv run ruff check src/ tests/
+      - run: uv run ruff format --check src/ tests/
+
+  # ---------------------------------------------------------------------------
+  # Web: eslint + biome format check + TypeScript
+  # ---------------------------------------------------------------------------
+  lint-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/web lint
+      - run: bunx biome check apps/web
+      - run: bun run --cwd apps/web type-check
+
+  # ---------------------------------------------------------------------------
+  # Python: pytest (excluding slow markers)
+  # ---------------------------------------------------------------------------
+  test-python:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/data-pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --group dev
+      - run: uv run pytest tests/ -m "not slow"
+
+  # ---------------------------------------------------------------------------
+  # Web: vitest
+  # ---------------------------------------------------------------------------
+  test-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/web test
+
+  # ---------------------------------------------------------------------------
+  # Web: Next.js production build
+  # ---------------------------------------------------------------------------
+  build-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+  # ---------------------------------------------------------------------------
+  # Schema drift: regenerate TS types from Python and check for uncommitted diff
+  # ---------------------------------------------------------------------------
+  schema-check:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true' || needs.changes.outputs.api-types == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: uv sync --frozen --group dev
+        working-directory: apps/data-pipeline
+      - run: bun run --cwd packages/api-types codegen:check
