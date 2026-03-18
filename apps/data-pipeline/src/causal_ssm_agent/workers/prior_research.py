@@ -75,9 +75,9 @@ async def search_parameter_literature(
     Returns:
         List of source dicts with title, url, snippet, effect_size
     """
-    from causal_ssm_agent.utils.config import get_secret
+    from causal_ssm_agent.utils.config import get_secret_async
 
-    api_key = get_secret("EXA_API_KEY")
+    api_key = await get_secret_async("EXA_API_KEY")
     if not api_key:
         return []
 

@@ -9,10 +9,6 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from causal_ssm_agent.flows import get_prefect_logger
-
-logger = get_prefect_logger(__name__)
-
 # Centralized .env loading — all modules that need env vars import from config.py
 # (or from modules that import config.py), so this runs once at import time.
 load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
@@ -188,24 +184,17 @@ class PipelineConfig:
 
 
 def get_secret(name: str) -> str | None:
-    """Get a secret value, trying Prefect Secret block first, then env var.
+    """Get a secret from environment variables.
 
-    Args:
-        name: Secret name (used as both block slug and env var name)
-
-    Returns:
-        Secret value, or None if not found in either location
+    In dev, env vars come from ``.env`` via ``load_dotenv``.
+    In prod, env vars are synced from GitHub Secrets into each runtime
+    (Modal secret block, Vercel env vars) by the deploy workflow.
     """
-    # Try Prefect Secret block first
-    try:
-        from prefect.blocks.system import Secret
+    return os.getenv(name)
 
-        block = Secret.load(name.lower().replace("_", "-"))
-        return block.get()  # ty: ignore[unresolved-attribute]
-    except Exception:
-        logger.debug("Prefect Secret block '%s' not found; trying env var", name)
 
-    # Fall back to environment variable
+async def get_secret_async(name: str) -> str | None:
+    """Async variant of ``get_secret``."""
     return os.getenv(name)
 
 
