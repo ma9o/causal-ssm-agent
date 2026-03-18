@@ -430,19 +430,10 @@ class Stage3Contract(BaseStageContract):
         )
 
 
-class ValidationRetryContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    attempt: int
-    failed_params: list[str]
-    feedback: str
-
-
 class Stage4Contract(LLMStageContract):
     model_spec: ModelSpec
     priors: dict[str, PriorProposal]
     search_queries: dict[str, str] | None = None
-    validation_retries: list[ValidationRetryContract] | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
 
     def summary_message(self) -> str:

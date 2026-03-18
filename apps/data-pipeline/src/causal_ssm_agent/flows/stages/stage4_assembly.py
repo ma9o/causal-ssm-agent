@@ -184,7 +184,6 @@ def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "model_spec": model_spec,
         "priors": validate_prior_proposals(priors),
-        "validation_retries": payload.get("validation_retries"),
         "llm_trace": payload.get("llm_trace"),
     }
 
@@ -381,7 +380,6 @@ def materialize_stage4_result(
     raw_data: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
-    validation_retries: list[dict[str, Any]] | None = None,
     llm_trace: dict[str, Any] | None = None,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
@@ -409,7 +407,6 @@ def materialize_stage4_result(
         "model_spec": normalized_model_spec,
         "priors": priors,
         "search_queries": search_queries or None,
-        "validation_retries": validation_retries,
         "validation": validation_result,
         "model_info": model_result,
         "is_valid": validation_result.get("is_valid", False),

@@ -535,17 +535,6 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
       lines.push("");
     }
 
-    // Validation retries
-    if (s4.validation_retries && s4.validation_retries.length > 0) {
-      lines.push(section(3, "Validation Retries"));
-      lines.push("");
-      for (const r of s4.validation_retries) {
-        lines.push(`**Attempt ${r.attempt}**: Failed params: ${r.failed_params.join(", ")}`);
-        lines.push(`> ${r.feedback}`);
-        lines.push("");
-      }
-    }
-
     lines.push("---");
     lines.push("");
   }

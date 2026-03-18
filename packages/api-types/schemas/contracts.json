@@ -970,19 +970,12 @@
           },
           "title": "Sources",
           "type": "array"
-        },
-        "search_context": {
-          "default": "",
-          "description": "Search query used to find literature supporting this likelihood choice",
-          "title": "Search Context",
-          "type": "string"
         }
       },
       "required": [
         "distribution",
         "link",
         "reasoning",
-        "search_context",
         "sources",
         "variable"
       ],
@@ -1602,20 +1595,13 @@
           "description": "Human-readable description of what this parameter represents",
           "title": "Description",
           "type": "string"
-        },
-        "search_context": {
-          "default": "",
-          "description": "Context for Exa literature search to find relevant effect sizes",
-          "title": "Search Context",
-          "type": "string"
         }
       },
       "required": [
         "constraint",
         "description",
         "name",
-        "role",
-        "search_context"
+        "role"
       ],
       "title": "ParameterSpec",
       "type": "object"
@@ -2594,20 +2580,20 @@
           "title": "Priors",
           "type": "object"
         },
-        "validation_retries": {
+        "search_queries": {
           "anyOf": [
             {
-              "items": {
-                "$ref": "#/$defs/ValidationRetryContract"
+              "additionalProperties": {
+                "type": "string"
               },
-              "type": "array"
+              "type": "object"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Validation Retries"
+          "title": "Search Queries"
         },
         "prior_predictive_samples": {
           "anyOf": [
@@ -3294,33 +3280,6 @@
         "severity"
       ],
       "title": "ValidationIssueContract",
-      "type": "object"
-    },
-    "ValidationRetryContract": {
-      "additionalProperties": false,
-      "properties": {
-        "attempt": {
-          "title": "Attempt",
-          "type": "integer"
-        },
-        "failed_params": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Failed Params",
-          "type": "array"
-        },
-        "feedback": {
-          "title": "Feedback",
-          "type": "string"
-        }
-      },
-      "required": [
-        "attempt",
-        "failed_params",
-        "feedback"
-      ],
-      "title": "ValidationRetryContract",
       "type": "object"
     },
     "WorkerStatusContract": {

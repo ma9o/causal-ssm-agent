@@ -293,26 +293,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Searched for heart rate distribution");
   });
 
-  it("includes stage 4 validation retries", () => {
-    const data: AllStageData = {
-      "stage-4": {
-        outcome: "success",
-        model_spec: { parameters: [], likelihoods: [] },
-        priors: {},
-        validation_retries: [
-          { attempt: 1, failed_params: ["rho_x", "sigma_y"], feedback: "Prior too wide for rho_x" },
-          { attempt: 2, failed_params: ["sigma_y"], feedback: "Still too wide" },
-        ],
-      } as AllStageData["stage-4"],
-    };
-    const result = generateMarkdown(data, "run-4-retry");
-    expect(result).toContain("Validation Retries");
-    expect(result).toContain("Attempt 1");
-    expect(result).toContain("rho_x, sigma_y");
-    expect(result).toContain("Prior too wide");
-    expect(result).toContain("Attempt 2");
-  });
-
   it("includes stage 4b sensitivity analysis", () => {
     const data: AllStageData = {
       "stage-4b": {

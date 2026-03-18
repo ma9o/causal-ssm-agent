@@ -396,7 +396,9 @@ export interface Stage4Contract {
   priors: {
     [k: string]: PriorProposal | undefined;
   };
-  validation_retries?: ValidationRetryContract[] | null;
+  search_queries?: {
+    [k: string]: string | undefined;
+  } | null;
   prior_predictive_samples?: {
     [k: string]: number[] | undefined;
   } | null;
@@ -435,10 +437,6 @@ export interface LikelihoodSpec {
    * Literature sources supporting this likelihood choice
    */
   sources: LikelihoodSource[];
-  /**
-   * Search query used to find literature supporting this likelihood choice
-   */
-  search_context: string;
 }
 /**
  * A source of evidence for a likelihood distribution choice.
@@ -471,10 +469,6 @@ export interface ParameterSpec {
    * Human-readable description of what this parameter represents
    */
   description: string;
-  /**
-   * Context for Exa literature search to find relevant effect sizes
-   */
-  search_context: string;
 }
 /**
  * A proposed prior distribution for a parameter.
@@ -539,11 +533,6 @@ export interface PriorSource {
    * Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)
    */
   study_interval_days?: number | null;
-}
-export interface ValidationRetryContract {
-  attempt: number;
-  failed_params: string[];
-  feedback: string;
 }
 export interface Stage4BContract {
   outcome: "success" | "warn" | "fail";
