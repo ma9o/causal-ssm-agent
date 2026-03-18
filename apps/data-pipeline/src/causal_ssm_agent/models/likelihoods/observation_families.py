@@ -76,6 +76,14 @@ class ObservationFamilySpec:
 # ---------------------------------------------------------------------------
 
 
+def _positive_param(params: dict, key: str, default: float) -> float:
+    """Extract a parameter that must be strictly positive, raising early on violation."""
+    val = params.get(key, default)
+    if val <= 0:
+        raise ValueError(f"{key} must be positive, got {val}")
+    return val
+
+
 def _no_constraint(values: np.ndarray) -> np.ndarray:
     return np.zeros(values.shape, dtype=bool)
 
@@ -193,19 +201,19 @@ def _emission_factory_poisson(_params: dict):
 
 def _emission_factory_student_t(params: dict):
     em = _get_emissions()
-    df = params.get("obs_df", 5.0)
+    df = _positive_param(params, "obs_df", 5.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_student_t(y, z, H, d, R, m, df)
 
 
 def _emission_factory_gamma_log(params: dict):
     em = _get_emissions()
-    shape = params.get("obs_shape", 1.0)
+    shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_gamma(y, z, H, d, R, m, shape)
 
 
 def _emission_factory_gamma_inverse(params: dict):
     em = _get_emissions()
-    shape = params.get("obs_shape", 1.0)
+    shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_gamma_inverse(y, z, H, d, R, m, shape)
 
 
@@ -219,19 +227,19 @@ def _emission_factory_bernoulli_probit(_params: dict):
 
 def _emission_factory_negbin(params: dict):
     em = _get_emissions()
-    r = params.get("obs_r", 5.0)
+    r = _positive_param(params, "obs_r", 5.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_negative_binomial(y, z, H, d, R, m, r)
 
 
 def _emission_factory_beta_logit(params: dict):
     em = _get_emissions()
-    conc = params.get("obs_concentration", 10.0)
+    conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_beta(y, z, H, d, R, m, conc)
 
 
 def _emission_factory_beta_probit(params: dict):
     em = _get_emissions()
-    conc = params.get("obs_concentration", 10.0)
+    conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, z, H, d, R, m: em.emission_log_prob_beta_probit(y, z, H, d, R, m, conc)
 
 
@@ -274,31 +282,31 @@ def _sw_factory_bernoulli_probit(_params: dict):
 
 def _sw_factory_beta_logit(params: dict):
     em = _get_emissions()
-    conc = params.get("obs_concentration", 10.0)
+    conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, m: em._score_weight_beta_logit(y, eta, m, conc)
 
 
 def _sw_factory_beta_probit(params: dict):
     em = _get_emissions()
-    conc = params.get("obs_concentration", 10.0)
+    conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, m: em._score_weight_beta_probit(y, eta, m, conc)
 
 
 def _sw_factory_gamma_log(params: dict):
     em = _get_emissions()
-    shape = params.get("obs_shape", 1.0)
+    shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, m: em._score_weight_gamma_log(y, eta, m, shape)
 
 
 def _sw_factory_gamma_inverse(params: dict):
     em = _get_emissions()
-    shape = params.get("obs_shape", 1.0)
+    shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, m: em._score_weight_gamma_inverse(y, eta, m, shape)
 
 
 def _sw_factory_negbin(params: dict):
     em = _get_emissions()
-    r = params.get("obs_r", 5.0)
+    r = _positive_param(params, "obs_r", 5.0)
     return lambda y, eta, m: em._score_weight_negative_binomial(y, eta, m, r)
 
 
@@ -340,12 +348,12 @@ def _variance_factory_poisson(_params: dict, _manifest_cov):
 
 
 def _variance_factory_negbin(params: dict, _manifest_cov):
-    r = params.get("obs_r", 5.0)
+    r = _positive_param(params, "obs_r", 5.0)
     return _get_kernels()._make_variance_negative_binomial(r)
 
 
 def _variance_factory_gamma(params: dict, _manifest_cov):
-    shape = params.get("obs_shape", 1.0)
+    shape = _positive_param(params, "obs_shape", 1.0)
     return _get_kernels()._make_variance_gamma(shape)
 
 
@@ -354,7 +362,7 @@ def _variance_factory_bernoulli(_params: dict, _manifest_cov):
 
 
 def _variance_factory_beta(params: dict, _manifest_cov):
-    conc = params.get("obs_concentration", 10.0)
+    conc = _positive_param(params, "obs_concentration", 10.0)
     return _get_kernels()._make_variance_beta(conc)
 
 
