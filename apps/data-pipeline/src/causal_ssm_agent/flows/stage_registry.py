@@ -469,7 +469,6 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
         raw_data=load_parquet(stage2_result["_data_for_model_path"]),
         indicator_audits=stage3_result["indicators"],
         causal_spec=stage1b_result["causal_spec"],
-        validation_retries=authored.get("validation_retries"),
         llm_trace=authored.get("llm_trace"),
     )
 

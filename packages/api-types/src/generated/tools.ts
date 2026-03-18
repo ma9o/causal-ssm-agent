@@ -64,7 +64,7 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
     {
       name: "search_literature",
       description: "Search for empirical literature about effect sizes for model parameters.",
-      parameters: {"additionalProperties":false,"properties":{"query":{"description":"Search query for empirical literature about effect sizes.","title":"Query","type":"string"}},"required":["query"],"title":"SearchLiteratureInput","type":"object"},
+      parameters: {"additionalProperties":false,"properties":{"query":{"description":"Search query for empirical literature about effect sizes.","title":"Query","type":"string"},"parameter_name":{"description":"Name of the parameter this search is for (e.g. 'beta_stress_sleep').","title":"Parameter Name","type":"string"}},"required":["query","parameter_name"],"title":"SearchLiteratureInput","type":"object"},
     },
     {
       name: "validate_model",

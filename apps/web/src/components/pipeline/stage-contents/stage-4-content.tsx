@@ -1,7 +1,6 @@
 import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
 import { MeasurementTable } from "@/components/stages/model-spec/measurement-table";
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
-import { RetryIndicator } from "@/components/stages/model-spec/retry-indicator";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
 import type { Extraction, Indicator, PriorProposal, Stage4Data } from "@causal-ssm/api-types";
 
@@ -86,9 +85,6 @@ export default function Stage4Content({
           <h3 className="text-sm font-semibold">Priors Diagnostics</h3>
           <PriorTable priors={allPriors} parameters={data.model_spec.parameters} />
         </div>
-      )}
-      {data.validation_retries && data.validation_retries.length > 0 && (
-        <RetryIndicator retries={data.validation_retries} />
       )}
     </div>
   );

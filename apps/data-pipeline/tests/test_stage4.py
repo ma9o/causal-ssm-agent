@@ -6,8 +6,6 @@ prompt generation live in their dedicated files:
 - test_prior_aggregation.py (simple/GMM aggregation)
 - test_prior_research_prompts.py (paraphrase generation)
 - test_get_default_prior.py (constraint→distribution mapping)
-- test_model_spec_validation.py (validate_model_spec domain rules)
-
 This file tests stage4-specific orchestration: SSMModelBuilder wiring,
 prior predictive end-to-end, failed parameter identification with
 causal_spec context, SSM prior conversion, sparsity, trial compile,
@@ -15,7 +13,6 @@ and compile ownership.
 """
 
 import asyncio
-import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,10 +21,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
-import causal_ssm_agent.flows.stages.stage4_model as stage4_model_module
 import causal_ssm_agent.orchestrator.stage4 as stage4_module
 from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
-from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool
 from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
@@ -1320,13 +1315,6 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         "model_spec": {"likelihoods": [{"variable": "mood_score"}]},
         "priors": {"rho_mood": {"distribution": "Beta"}},
         "validation": validation,
-        "validation_retries": [
-            {
-                "attempt": 1,
-                "failed_params": ["rho_mood"],
-                "feedback": "Prior predictive failed",
-            }
-        ],
     }
 
     def stub_derive_deterministic_spec(causal_spec):
@@ -1387,7 +1375,6 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     )
 
     assert result.validation is validation
-    assert result.validation_retries == capture["validation_retries"]
 
 
 def test_agentic_stage4_grounding_merges_distribution_choice_delta(monkeypatch):
@@ -1622,124 +1609,3 @@ def test_agentic_stage4_grounding_accepts_loading_constraint_delta(monkeypatch):
         parameter["name"]: parameter for parameter in forwarded["model_spec"]["parameters"]
     }
     assert merged_params["lambda_stackoverflow_visits_productivity"]["constraint"] == "positive"
-
-
-def test_make_stage_tool_captures_validation_retries():
-    tool, capture = make_stage_tool(
-        name="validate_model",
-        description="Validate model proposals.",
-        param_name="model_json",
-        param_description="JSON payload.",
-        compute_fn=lambda _data: (
-            {"model_spec": {"parameters": []}},
-            "VALIDATION ERRORS:\n- prior invalid",
-        ),
-        capture_failures=True,
-    )
-
-    feedback = asyncio.run(
-        tool(
-            model_json=json.dumps(
-                {
-                    "priors": {
-                        "beta_sleep": {"distribution": "Normal"},
-                        "rho_stress": {"distribution": "Beta"},
-                    }
-                }
-            )
-        )
-    )
-
-    assert feedback == "VALIDATION ERRORS:\n- prior invalid"
-    assert capture["model_spec"] == {"parameters": []}
-    assert capture["validation_retries"] == [
-        {
-            "attempt": 1,
-            "failed_params": ["beta_sleep", "rho_stress"],
-            "feedback": "VALIDATION ERRORS:\n- prior invalid",
-        }
-    ]
-
-
-def test_stage4_agentic_flow_forwards_validation_retries(monkeypatch):
-    validation = AssemblyValidation(pp_checked=True, pp_valid=True)
-    forwarded: dict[str, object] = {}
-
-    class FakeLLMStageContext:
-        def __init__(self, stage_id: str):
-            assert stage_id == "stage-4"
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        def make_generate(self, model: str):
-            assert model == "test-model"
-
-            async def _generate(_messages, _tools):
-                return None
-
-            return _generate
-
-        def finalize(self, payload: dict) -> dict:
-            return payload
-
-    async def fake_run_stage4(**kwargs):
-        assert kwargs["enable_literature"] is True
-        return stage4_module.Stage4Result(
-            model_spec={"parameters": []},
-            priors={"rho_stress": {"distribution": "Beta"}},
-            search_queries={"rho_stress": "stress persistence prior"},
-            validation=validation,
-            validation_retries=[
-                {
-                    "attempt": 1,
-                    "failed_params": ["rho_stress"],
-                    "feedback": "Prior predictive failed",
-                }
-            ],
-        )
-
-    def fake_materialize_stage4_result(**kwargs):
-        forwarded.update(kwargs)
-        return {"validation_retries": kwargs["validation_retries"]}
-
-    monkeypatch.setattr(
-        stage4_model_module,
-        "get_config",
-        lambda: SimpleNamespace(
-            stage4_prior_elicitation=SimpleNamespace(
-                model="test-model",
-                literature_search=SimpleNamespace(enabled=True),
-                paraphrasing=SimpleNamespace(enabled=False, n_paraphrases=3, gmm_model=None),
-            )
-        ),
-    )
-    monkeypatch.setattr(stage4_model_module, "LLMStageContext", FakeLLMStageContext)
-    monkeypatch.setattr("causal_ssm_agent.orchestrator.stage4.run_stage4", fake_run_stage4)
-    monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4_assembly.materialize_stage4_result",
-        fake_materialize_stage4_result,
-    )
-
-    result = asyncio.run(
-        stage4_model_module.stage4_agentic_flow.fn(
-            causal_spec={"measurement": {"indicators": []}},
-            question="How can I be more productive?",
-            raw_data=pl.DataFrame(),
-            indicator_audits={},
-            enable_literature=True,
-        )
-    )
-
-    assert forwarded["validation_retries"] == [
-        {
-            "attempt": 1,
-            "failed_params": ["rho_stress"],
-            "feedback": "Prior predictive failed",
-        }
-    ]
-    assert forwarded["validation"] is validation
-    assert result["validation_retries"] == forwarded["validation_retries"]

@@ -447,8 +447,6 @@ def make_stage_tool(
     param_description: str,
     compute_fn: Callable[[dict], tuple[dict | None, str]],
     success_feedback: str = "VALID",
-    capture_failures: bool = False,
-    failed_params_fn: Callable[[dict, dict | None, str, dict], list[str]] | None = None,
 ) -> tuple[Any, dict]:
     """Create a fat tool for pipeline use wrapping a compute function.
 
@@ -488,19 +486,6 @@ def make_stage_tool(
         if is_success:
             logger.info("[%s] grounding passed (%.1fs)", name, elapsed)
         else:
-            if capture_failures:
-                retries = capture.setdefault("validation_retries", [])
-                retries.append(
-                    {
-                        "attempt": len(retries) + 1,
-                        "failed_params": (
-                            failed_params_fn(data, stage_output, feedback, capture)
-                            if failed_params_fn is not None
-                            else sorted((data.get("priors") or {}).keys())
-                        ),
-                        "feedback": feedback,
-                    }
-                )
             preview = feedback[:200].replace("\n", " ")
             logger.info("[%s] grounding rejected (%.1fs): %s", name, elapsed, preview)
 

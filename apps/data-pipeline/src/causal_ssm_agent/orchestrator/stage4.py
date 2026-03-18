@@ -46,7 +46,6 @@ class Stage4Result:
     priors: dict[str, dict]
     search_queries: dict[str, str] = field(default_factory=dict)
     validation: AssemblyValidation | None = None
-    validation_retries: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -77,32 +76,6 @@ class Stage4Messages:
             },
         ]
 
-
-def _submitted_retry_targets(submission: dict[str, Any]) -> list[str]:
-    """Collect the explicit stage-4 fields submitted on a retry."""
-    targets: list[str] = []
-    seen: set[str] = set()
-
-    priors = submission.get("priors")
-    if isinstance(priors, dict):
-        for name in priors:
-            if isinstance(name, str) and name not in seen:
-                seen.add(name)
-                targets.append(name)
-
-    for choice in submission.get("distribution_choices") or []:
-        variable = choice.get("variable") if isinstance(choice, dict) else None
-        if isinstance(variable, str) and variable not in seen:
-            seen.add(variable)
-            targets.append(variable)
-
-    for constraint in submission.get("loading_constraints") or []:
-        parameter = constraint.get("parameter") if isinstance(constraint, dict) else None
-        if isinstance(parameter, str) and parameter not in seen:
-            seen.add(parameter)
-            targets.append(parameter)
-
-    return targets
 
 
 async def run_stage4(
@@ -181,10 +154,6 @@ async def run_stage4(
             ambiguous_indicators=skeleton.ambiguous_indicators,
             all_params=all_params,
         ),
-        capture_failures=True,
-        failed_params_fn=lambda data, _stage_output, _feedback, _capture: _submitted_retry_targets(
-            data
-        ),
     )
 
     search_captures: dict[str, str] = {}
@@ -214,5 +183,4 @@ async def run_stage4(
         priors=priors,
         search_queries=search_captures,
         validation=capture.get("validation"),
-        validation_retries=list(capture.get("validation_retries", []) or []),
     )
