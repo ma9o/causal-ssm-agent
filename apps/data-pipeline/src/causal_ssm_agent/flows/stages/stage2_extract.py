@@ -23,6 +23,7 @@ from .. import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 WORKER_EVENT_PREFIX = "causal-ssm.worker"
+MAX_FREE_TICKS = 100
 
 
 def _emit_worker_event(
@@ -337,6 +338,7 @@ async def stage2_extraction_flow(
     causal_spec: dict,
     chunk_size: int | None = None,  # noqa: ARG001 - kept for Prefect call-site compat
     root_run_id: str | None = None,
+    max_ticks: int | None = None,
 ) -> dict:
     """Stage 2: Extract indicator values via hybrid computed/semantic paths.
 
@@ -426,6 +428,14 @@ async def stage2_extraction_flow(
             len(raw_df),
             len(ticks),
         )
+
+        if max_ticks is not None and len(ticks) > max_ticks:
+            logger.warning(
+                "Stage 2: free-tier tick cap active — truncating %d ticks to most recent %d",
+                len(ticks),
+                max_ticks,
+            )
+            ticks = ticks[-max_ticks:]
 
         if ticks:
             # Determine display columns (all except time column)

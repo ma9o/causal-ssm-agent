@@ -280,6 +280,7 @@ async def causal_inference_pipeline(
         lit_enabled=lit_enabled,
         inference_method=inference_method,
         supported_overrides=supported_overrides,
+        is_byok=bool(openrouter_api_key),
     )
 
     stage_states: dict[str, dict[str, Any]] = {}
