@@ -262,3 +262,17 @@ class TestDiscretizeSystemBatched:
         assert jnp.allclose(Ad_b[1], Ad_1, atol=1e-5)
         assert jnp.allclose(Qd_b[0], Qd_0, atol=1e-5)
         assert jnp.allclose(Qd_b[1], Qd_1, atol=1e-5)
+
+    def test_constant_dt_matches_broadcast_single(self):
+        """Uniform dt should match a single discretization broadcast over time."""
+        A = jnp.array([[-1.2, 0.1], [0.0, -0.8]])
+        Q = jnp.array([[0.4, 0.05], [0.05, 0.3]])
+        c = jnp.array([0.25, -0.1])
+        dts = jnp.full((4,), 0.25)
+
+        Ad_b, Qd_b, cd_b = discretize_system_batched(A, Q, c, dts)
+        Ad_single, Qd_single, cd_single = discretize_system(A, Q, c, 0.25)
+
+        assert jnp.allclose(Ad_b, jnp.broadcast_to(Ad_single, Ad_b.shape), atol=1e-5)
+        assert jnp.allclose(Qd_b, jnp.broadcast_to(Qd_single, Qd_b.shape), atol=1e-5)
+        assert jnp.allclose(cd_b, jnp.broadcast_to(cd_single, cd_b.shape), atol=1e-5)
