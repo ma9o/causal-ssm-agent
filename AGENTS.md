@@ -23,8 +23,6 @@ ALWAYS THINK VERY HARD
 
 - Every time you make a change to the file structure make sure to report it under Structure in the README
 
-- NEVER edit files under `data/` during refactoring. These are evaluation/example data files, not source code.
-
 - NEVER run evals (`inspect eval`, `uv run inspect eval`, etc.) unless explicitly asked. Evals cost money. Only run `uv run pytest tests/` for testing.
 
 - NEVER add backwards compatibility code. This project is not deployed anywhere yet. When refactoring, completely replace old patterns with new ones - do not support both old and new formats simultaneously.
