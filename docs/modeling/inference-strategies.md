@@ -70,7 +70,7 @@ Axis B determines gradient quality, which gates which Axis C methods are viable:
 |----------------|-----------------|------------------------------|
 | **Closed-form** (Kalman) | Exact, smooth | All — MCMC is optimal (smooth target, exact gradients) |
 | **Deterministic approx** (IEKS) | Smooth, approximate | MCMC and SMC both work. SMC preferred when multimodality is a concern |
-| **Stochastic** (PF) | Noisy, discontinuous (resampling) | **MCMC breaks** — leapfrog divergences from discontinuities. VI and SMC only |
+| **Stochastic** (PF) | Noisy, discontinuous (resampling) | **MCMC inadvisable** — leapfrog divergences from resampling discontinuities. VI and SMC preferred |
 | **Learned** (DPF, structured VI) | Lower variance, still stochastic | Same as stochastic — MCMC still inadvisable |
 
 Combined with the A → C constraint (Augment and Gibbs force MCMC), this fully determines the viable methods. The structural routing reduces to: (1) default to Marginalize, (2) determine B from model structure, (3) select the best viable C given B. Augment and Gibbs are user overrides for specific needs, not structural routing targets.

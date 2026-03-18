@@ -4,14 +4,17 @@ Evaluate LLM performance on pipeline tasks using Inspect AI.
 
 ## Available Evals
 
-| File | Stage | What it tests |
-|------|-------|---------------|
-| `evals/single_model/eval1a_latent_model.py` | 1a | Latent model proposal (orchestrator) |
-| `evals/single_model/eval1b_measurement_model.py` | 1b | Measurement model proposal |
-| `evals/single_model/eval2_worker_extraction.py` | 2 | Worker data extraction |
-| `evals/multi_model/eval3_worker_measurement_adherence.py` | 3 | Worker measurement adherence (multi-model) |
-| `evals/single_model/eval4_functional_spec.py` | 4 | Functional specification |
-| `evals/single_model/eval4b_prior_elicitation.py` | 4b | Prior elicitation |
+Some eval filenames keep older stage numbering. The current pipeline stages are
+`stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6`.
+
+| File | Current pipeline area | What it tests |
+|------|-----------------------|---------------|
+| `evals/single_model/eval1a_latent_model.py` | Stage 1a | Latent model proposal (orchestrator) |
+| `evals/single_model/eval1b_measurement_model.py` | Stage 1b | Measurement model proposal |
+| `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
+| `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
+| `evals/single_model/eval4_functional_spec.py` | Stage 4 | Functional specification |
+| `evals/single_model/eval4b_prior_elicitation.py` | Stage 4 priors | Prior elicitation + prior predictive validation |
 
 ## Run all models in parallel
 

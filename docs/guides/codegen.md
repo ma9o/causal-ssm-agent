@@ -44,7 +44,7 @@ bun run codegen:check
 Run codegen after any change to:
 
 - `apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py`
-- Any domain model imported by contracts (e.g. `schemas.py`, `schemas_model.py`, `schemas_prior.py`, `schemas_inference.py`, `llm.py`, `posterior_predictive.py`, `parametric_id.py`)
+- Any domain model imported by contracts (e.g. `schemas.py`, `schemas_model.py`, `schemas_prior.py`, `schemas_inference.py`, `llm.py`, `posterior_predictive.py`)
 
 ## Adding a new field to a stage
 

@@ -142,7 +142,7 @@ Poll and screenshot as the pipeline progresses:
 ```
 1. Wait for stage-0 section to appear → screenshot
 2. Wait for stage-1a section → screenshot
-3. ... repeat through stage-5
+3. ... repeat through stage-6
 4. Final screenshot when "Complete" badge appears
 ```
 
@@ -168,7 +168,7 @@ ls data/$USER_ID/run/
 ```
 
 The last successfully written `stage-*-state.pkl` tells you where execution stopped.
-If `stage-2-state.pkl` exists but `stage-3-state.pkl` does not, stage 3 failed.
+If `stage-2-state.pkl` exists but `stage-3-state.pkl` does not, `stage-3` failed.
 
 ### Rerun from the failed stage
 
@@ -213,27 +213,3 @@ The full stage sequence is:
 ```
 stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6
 ```
-
-## Why User IDs Enable This
-
-The user ID is the linchpin:
-
-1. **Names the workspace** — `data/{user_id}/input/`, `data/{user_id}/query.txt`, and `data/{user_id}/run/`
-2. **Links to the active Prefect run** — `sessions.json` maps `user_id → flowRunId`
-3. **Serves as a resume token** — type it into the landing page to recover `/analysis/{user_id}`
-4. **Is fully stateless on the client** — no localStorage, no cookies, no sessionStorage
-
-Anonymous users still get a short generated user ID, while authenticated users reuse their durable OpenRouter user ID. Both resume through the same path.
-
-## What browser_eval Provides
-
-The browser automation integration supports:
-
-- **Navigation** — `goto(url)`
-- **Screenshots** — viewport capture, returned as base64
-- **Click / Type / Fill** — form interaction
-- **File uploads** — `setInputFiles()` on file inputs
-- **JS execution** — run arbitrary scripts in page context
-- **Console messages** — capture `console.log` output
-
-This means an agent can verify not just that the API returns correct JSON, but that charts render, DAGs display correctly, and the UI transitions through stages as expected.

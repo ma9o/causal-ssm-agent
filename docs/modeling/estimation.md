@@ -95,7 +95,7 @@ The estimation pipeline composes three main libraries:
 ModelSpec (orchestrator)
     |
     v
-SSMModelBuilder._convert_spec_to_ssm()
+SSMModelBuilder.compile_inputs()
     |
     v
 SSMSpec + SSMPriors
