@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { StageSection } from "../stage-section";
 import Stage2Content from "./stage-2-content";
 import { Stage2RunningView } from "./stage-2-running-content";
-import fixture from "../../../../../../packages/fixtures/doctolib/stage-2.json";
+import fixture from "../../../../../../data/DOCTOLIB/run/stage-2.json";
 
 const stage = STAGES.find((s) => s.id === "stage-2")!;
 const data = fixture as Stage2Data;

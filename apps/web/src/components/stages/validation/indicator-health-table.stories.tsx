@@ -1,12 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { STAGES } from "@causal-ssm/api-types";
 import type { Stage3Data } from "@causal-ssm/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { StageSection } from "../stage-section";
-import Stage3Content from "./stage-3-content";
+import { IndicatorHealthTable } from "./indicator-health-table";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-3.json";
-
-const stage = STAGES.find((s) => s.id === "stage-3")!;
 
 function normalizeStage3Data(value: unknown): Stage3Data {
   const stage3 = value as {
@@ -85,61 +81,26 @@ function normalizeStage3Data(value: unknown): Stage3Data {
 const data = normalizeStage3Data(fixture);
 
 const meta = {
-  title: "Pipeline/Stages/3 – Validation",
-  component: Stage3Content,
+  title: "Stages/Validation/IndicatorHealthTable",
+  component: IndicatorHealthTable,
   decorators: [
     (Story) => (
       <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
+        <div className="max-w-4xl mx-auto p-4">
           <Story />
         </div>
       </TooltipProvider>
     ),
   ],
-} satisfies Meta<typeof Stage3Content>;
+} satisfies Meta<typeof IndicatorHealthTable>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
-  args: { data },
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
-  ),
+export const WithIssues: Story = {
+  render: () => <IndicatorHealthTable audits={data.indicators ?? {}} />,
 };
 
-export const Running: Story = {
-  args: { data },
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="running"
-      context={stage.description}
-      loadingHint={stage.loadingHint}
-    />
-  ),
-};
-
-export const Completed: Story = {
-  args: { data },
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={3_800}
-    >
-      <Stage3Content data={data} />
-    </StageSection>
-  ),
-};
-
-export const Failed: Story = {
-  args: { data },
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
-  ),
+export const AllClean: Story = {
+  render: () => <IndicatorHealthTable audits={{}} />,
 };

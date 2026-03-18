@@ -4,8 +4,8 @@ import type { Stage6Data } from "@causal-ssm/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { StageSection } from "../stage-section";
 import Stage6Content from "./stage-6-content";
-import fixture from "../../../../../../packages/fixtures/doctolib/stage-6.json";
-import nutsdaFixture from "../../../../../../packages/fixtures/doctolib/stage-6-nutsda.json";
+import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
+import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-6-nutsda.json";
 
 const stage = STAGES.find((s) => s.id === "stage-6")!;
 const data = fixture as Stage6Data;
