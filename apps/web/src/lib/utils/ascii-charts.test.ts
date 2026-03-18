@@ -13,7 +13,7 @@ describe("asciiHistogram", () => {
   it("renders a histogram with data", () => {
     const values = Array.from({ length: 100 }, (_, i) => i);
     const result = asciiHistogram(values);
-    expect(result).toContain("|");
+    expect(result).toContain("│");
     expect(result.split("\n").length).toBeGreaterThan(1);
   });
 
@@ -25,9 +25,18 @@ describe("asciiHistogram", () => {
   it("respects nBins option", () => {
     const values = Array.from({ length: 100 }, (_, i) => i);
     const result = asciiHistogram(values, { nBins: 5 });
-    // header line excluded, should have 5 bin lines
-    const barLines = result.split("\n").filter((l) => l.includes("|"));
+    const barLines = result.split("\n").filter((l) => l.includes("│"));
     expect(barLines).toHaveLength(5);
+  });
+
+  it("includes summary stats", () => {
+    const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const result = asciiHistogram(values);
+    expect(result).toContain("n=10");
+    expect(result).toContain("mean=");
+    expect(result).toContain("sd=");
+    expect(result).toContain("median=");
+    expect(result).toContain("range=");
   });
 });
 
@@ -49,6 +58,15 @@ describe("asciiDensity", () => {
     const result = asciiDensity(x, y, { label: "Density" });
     expect(result).toContain("Density");
   });
+
+  it("includes density-weighted stats", () => {
+    const x = [0, 1, 2, 3, 4];
+    const y = [0.1, 0.2, 0.5, 0.2, 0.1];
+    const result = asciiDensity(x, y);
+    expect(result).toContain("mean=");
+    expect(result).toContain("sd=");
+    expect(result).toContain("mode=");
+  });
 });
 
 describe("asciiScatter", () => {
@@ -63,18 +81,30 @@ describe("asciiScatter", () => {
       { x: 2, y: 2 },
     ];
     const result = asciiScatter(points);
-    expect(result).toContain("\u2022"); // bullet character
-    expect(result).toContain("|");
+    expect(result).toContain("•");
+    expect(result).toContain("│");
   });
 
   it("handles single point", () => {
     const result = asciiScatter([{ x: 5, y: 5 }]);
-    expect(result).toContain("\u2022");
+    expect(result).toContain("•");
   });
 
   it("includes label when provided", () => {
     const result = asciiScatter([{ x: 0, y: 0 }], { label: "Plot" });
     expect(result).toContain("Plot");
+  });
+
+  it("includes summary stats for both axes", () => {
+    const points = [
+      { x: 1, y: 10 },
+      { x: 2, y: 20 },
+      { x: 3, y: 30 },
+    ];
+    const result = asciiScatter(points);
+    expect(result).toContain("n=3");
+    expect(result).toContain("x: mean=");
+    expect(result).toContain("y: mean=");
   });
 });
 
@@ -111,6 +141,17 @@ describe("asciiMultiLine", () => {
     const result = asciiMultiLine([long], { width: 1 });
     expect(result).not.toContain("NaN");
   });
+
+  it("includes per-series summary stats", () => {
+    const result = asciiMultiLine([
+      [1, 2, 3, 4, 5],
+      [10, 20, 30, 40, 50],
+    ]);
+    expect(result).toContain("series 1");
+    expect(result).toContain("series 2");
+    expect(result).toContain("mean=");
+    expect(result).toContain("sd=");
+  });
 });
 
 describe("asciiScatter edge cases", () => {
@@ -122,7 +163,7 @@ describe("asciiScatter edge cases", () => {
     ];
     const result = asciiScatter(points);
     expect(result).not.toContain("NaN");
-    expect(result).toContain("\u2022");
+    expect(result).toContain("•");
   });
 
   it("handles all-same y values without division by zero", () => {
@@ -133,7 +174,7 @@ describe("asciiScatter edge cases", () => {
     ];
     const result = asciiScatter(points);
     expect(result).not.toContain("NaN");
-    expect(result).toContain("\u2022");
+    expect(result).toContain("•");
   });
 
   it("handles height=1 without NaN or errors", () => {
@@ -144,6 +185,6 @@ describe("asciiScatter edge cases", () => {
     const result = asciiScatter(points, { height: 1 });
     expect(result).not.toContain("NaN");
     expect(result).not.toContain("Infinity");
-    expect(result).toContain("\u2022");
+    expect(result).toContain("•");
   });
 });
