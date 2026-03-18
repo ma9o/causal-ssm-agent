@@ -174,8 +174,20 @@ def load_stage_state(
     prior_states: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Load a stage state snapshot, reconstructing from public payloads when needed."""
+    prior_states = prior_states or {}
+    defn = get_stage_registry()[stage_id]
     try:
-        return load_stage_snapshot(user_id, stage_id)
+        snapshot = load_stage_snapshot(user_id, stage_id)
+        web = snapshot.get("web") or load_public_payload(user_id, stage_id)
+        restored = defn.materializer.restore(user_id, web, prior_states)
+        result = dict(snapshot.get("result", {}) or {})
+        result.update(restored)
+
+        gate_result = snapshot.get("gate")
+        if gate_result is None and defn.gate is not None:
+            gate_result = defn.gate(result, prior_states, bool(web.get("gate_overridden")))
+
+        return stage_state(result, web, gate=gate_result)
     except FileNotFoundError:
         logger.info(
             "Reconstructing %s state from public payloads for user_id %s",
@@ -183,10 +195,7 @@ def load_stage_state(
             user_id,
         )
 
-    prior_states = prior_states or {}
     web = load_public_payload(user_id, stage_id)
-    defn = get_stage_registry()[stage_id]
-
     result = defn.materializer.restore(user_id, web, prior_states)
 
     gate_result = None

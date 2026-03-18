@@ -348,17 +348,87 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         fake_compute_interventions,
     )
 
-    result = dag.stage6(
-        stage5b_result,
-        {"outcome_name": "sleep_quality"},
-        {"causal_spec": {}},
-        {"treatments": ["screen_time"]},
+    result = asyncio.run(
+        dag.stage6(
+            stage5b_result,
+            {"outcome_name": "sleep_quality"},
+            {"causal_spec": {}},
+            {"treatments": ["screen_time"]},
+        )
     )
 
     assert result["intervention_results"][0]["treatment"] == "screen_time"
     assert captured["treatments"] == ["screen_time"]
     assert captured["outcome"] == "sleep_quality"
     assert captured["latent_names"] == ["screen_time", "sleep_quality"]
+
+
+def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
+    raw_path = tmp_path / "stage2-raw-data.parquet"
+    model_path = tmp_path / "stage2-model-data.parquet"
+    raw_data = pl.DataFrame(
+        {
+            "indicator": ["stress_score"],
+            "value": ["1.0"],
+            "timestamp": ["2024-01-01"],
+        }
+    )
+    raw_data.write_parquet(raw_path)
+    raw_data.write_parquet(model_path)
+
+    captured: dict[str, object] = {"awaited": False}
+
+    async def fake_create_table_artifact(**kwargs):
+        captured["awaited"] = True
+        captured["table"] = kwargs["table"]
+
+    monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.validate_extraction",
+        lambda *_args, **_kwargs: {
+            "is_valid": True,
+            "indicators": {
+                "stress_score": {
+                    "validation": {
+                        "issues": [
+                            {
+                                "indicator": "stress_score",
+                                "issue_type": "outlier",
+                                "severity": "warning",
+                                "message": "Outlier detected",
+                            }
+                        ]
+                    }
+                }
+            },
+            "dataset_issues": [],
+        },
+    )
+
+    result = asyncio.run(
+        dag.stage3(
+            {
+                "causal_spec": {
+                    "measurement": {"model_clock": "1d", "indicators": [{"name": "stress_score"}]}
+                }
+            },
+            {
+                "_raw_data_path": str(raw_path),
+                "_data_for_model_path": str(model_path),
+            },
+        )
+    )
+
+    assert result["outcome"] == "warn"
+    assert captured["awaited"] is True
+    assert captured["table"] == [
+        {
+            "indicator": "stress_score",
+            "type": "outlier",
+            "severity": "warning",
+            "message": "Outlier detected",
+        }
+    ]
 
 
 def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
@@ -468,6 +538,53 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     # Artifacts stay in place — df_path points to the same run dir
     assert captured["stage0_df_path"] == str(df_path)
     assert (run_dir / "stage-2-state.pkl").exists()
+
+
+def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
+
+    user_id = "test_user"
+    run_dir = tmp_path / "data" / user_id / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_path = run_dir / "stage2-raw-data.parquet"
+    model_path = run_dir / "stage2-model-data.parquet"
+    pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+    ).write_parquet(raw_path)
+    pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+    ).write_parquet(model_path)
+
+    web_payload = {
+        "outcome": "success",
+        "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+        "combined_extractions_sample": [],
+        "per_indicator_counts": {"stress_score": 1},
+    }
+    _write_public_result(tmp_path, user_id, "stage-2", web_payload)
+    run_store_module.save_stage_snapshot(
+        "stage-2",
+        {
+            "result": {
+                "_raw_data_path": "/dead/run/stage2-raw-data.parquet",
+                "_data_for_model_path": "/dead/run/stage2-model-data.parquet",
+                "workers": [{"worker_id": 999, "status": "stale", "n_extractions": 0}],
+                "preserved_field": "kept-from-snapshot",
+            },
+            "web": web_payload,
+        },
+        user_id,
+    )
+
+    state = stage_registry.load_stage_state(user_id, "stage-2")
+
+    assert state["result"]["_raw_data_path"] == str(raw_path)
+    assert state["result"]["_data_for_model_path"] == str(model_path)
+    assert state["result"]["workers"] == web_payload["workers"]
+    assert state["result"]["_worker_statuses"] == web_payload["workers"]
+    assert state["result"]["preserved_field"] == "kept-from-snapshot"
 
 
 def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
