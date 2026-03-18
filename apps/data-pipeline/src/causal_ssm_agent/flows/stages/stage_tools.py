@@ -155,6 +155,7 @@ def stage4_grounding(
     causal_spec: dict,
     current: dict | None = None,
     raw_data: Any = None,
+    indicator_audits: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict | None, str]:
     """Ground stage 4 proposals: validate, compile, optionally run prior predictive.
 
@@ -204,7 +205,7 @@ def stage4_grounding(
 
     from .stage4_assembly import format_validation_feedback, validate_assembly
 
-    validation = validate_assembly(model_spec, priors, raw_data, causal_spec)
+    validation = validate_assembly(model_spec, priors, raw_data, indicator_audits, causal_spec)
     if new_model_spec is not None and validation.normalized_model_spec is not None:
         output["model_spec"] = validation.normalized_model_spec
     if validation.is_valid:
@@ -245,19 +246,24 @@ async def search_literature(query: str) -> str:
     return format_literature_for_parameter(sources)
 
 
-def make_search_tool() -> Any:
+def make_search_tool(search_captures: dict[str, str]) -> Any:
     """Create a search_literature Tool for pipeline use.
 
-    Unlike make_stage_tool, search tools are retrieval-only — no capture dict,
-    no stop_on_success. The LLM uses search results to inform its next
-    validate_model call.
+    Captures the actual query the LLM uses for each parameter into
+    ``search_captures``, keyed by parameter name.  This is process
+    provenance recorded on the Stage 4 contract (not on the model spec).
+
+    Args:
+        search_captures: Mutable dict that accumulates
+            ``{parameter_name: query}`` entries as the LLM calls the tool.
 
     Returns:
         Tool object
     """
     from causal_ssm_agent.utils.litellm_client import Tool
 
-    async def _execute(*, query: str) -> str:
+    async def _execute(*, query: str, parameter_name: str) -> str:
+        search_captures[parameter_name] = query
         return await search_literature(query)
 
     return Tool(
@@ -270,8 +276,12 @@ def make_search_tool() -> Any:
                     "type": "string",
                     "description": "Search query for empirical literature about effect sizes.",
                 },
+                "parameter_name": {
+                    "type": "string",
+                    "description": "Name of the parameter this search is for (e.g. 'beta_stress_sleep').",
+                },
             },
-            "required": ["query"],
+            "required": ["query", "parameter_name"],
             "additionalProperties": False,
         },
         execute=_execute,
@@ -359,6 +369,7 @@ def _agentic_stage4_grounding(
     causal_spec: dict,
     current: dict | None,
     raw_data: Any,
+    indicator_audits: dict[str, dict[str, Any]] | None,
     *,
     resolved_likelihoods: list[dict],
     ambiguous_indicators: list[dict],
@@ -383,7 +394,6 @@ def _agentic_stage4_grounding(
         decisions_data = {
             "distribution_choices": data.get("distribution_choices", []),
             "loading_constraints": data.get("loading_constraints", []),
-            "search_contexts": data.get("search_contexts", {}),
         }
         model_spec_result, errors = validate_model_spec_decisions_dict(
             decisions_data,
@@ -399,10 +409,22 @@ def _agentic_stage4_grounding(
         }
         if "priors" in data:
             merged_data["priors"] = data["priors"]
-        return stage4_grounding(merged_data, causal_spec, current=current, raw_data=raw_data)
+        return stage4_grounding(
+            merged_data,
+            causal_spec,
+            current=current,
+            raw_data=raw_data,
+            indicator_audits=indicator_audits,
+        )
 
     # No decisions — delegate directly (model_spec and/or priors only)
-    return stage4_grounding(data, causal_spec, current=current, raw_data=raw_data)
+    return stage4_grounding(
+        data,
+        causal_spec,
+        current=current,
+        raw_data=raw_data,
+        indicator_audits=indicator_audits,
+    )
 
 
 # ---------------------------------------------------------------------------

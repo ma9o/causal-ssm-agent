@@ -200,7 +200,6 @@ class TestBuilderPriorConversion:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 }
             ],
         }
@@ -234,7 +233,6 @@ class TestObservationSupportValidation:
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
-                    "search_context": "",
                 }
             ],
         }

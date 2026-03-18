@@ -7,65 +7,6 @@ NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
 and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py
 """
 
-import json
-
-
-def format_resolved_likelihoods(resolved: list[dict]) -> str:
-    """Format pre-computed likelihoods for the prompt."""
-    if not resolved:
-        return "(none — all indicators require your decision)"
-    lines = [
-        "| Variable | Distribution | Link | Reason |",
-        "|----------|-------------|------|--------|",
-    ]
-    for rl in resolved:
-        lines.append(
-            f"| {rl['variable']} | {rl['distribution']} | {rl['link']} | {rl['reasoning']} |"
-        )
-    return "\n".join(lines)
-
-
-def format_ambiguous_indicators(ambiguous: list[dict]) -> str:
-    """Format indicators needing LLM distribution choices."""
-    if not ambiguous:
-        return "(none — all distributions were determined by dtype)"
-    lines = []
-    for ai in ambiguous:
-        var = ai["variable"]
-        dtype = ai["dtype"]
-        if "fixed_distribution" in ai:
-            dist = ai["fixed_distribution"]
-            links = ", ".join(ai["valid_links"])
-            lines.append(
-                f"- **{var}** (dtype={dtype}): distribution is `{dist}` — choose link: {links}"
-            )
-        else:
-            dists = ", ".join(ai["valid_distributions"])
-            lines.append(f"- **{var}** (dtype={dtype}): choose distribution from: {dists}")
-            link_opts = ai.get("link_options", {})
-            for d, links in link_opts.items():
-                if len(links) == 1:
-                    lines.append(f"  - if `{d}` → link is `{links[0]}` (auto)")
-                else:
-                    lines.append(f"  - if `{d}` → choose link: {', '.join(links)}")
-    return "\n".join(lines)
-
-
-def format_parameters(parameters: list[dict]) -> str:
-    """Format pre-computed parameters for the prompt."""
-    if not parameters:
-        return "(none)"
-    lines = [
-        "| Name | Role | Constraint | Description |",
-        "|------|------|-----------|-------------|",
-    ]
-    for p in parameters:
-        constraint = p["constraint"]
-        if p["role"] == "loading":
-            constraint += " (you decide)"
-        lines.append(f"| {p['name']} | {p['role']} | {constraint} | {p['description']} |")
-    return "\n".join(lines)
-
 
 def format_loading_params(loading_params: list[dict]) -> str:
     """Format loading parameters needing constraint decisions."""
@@ -73,23 +14,381 @@ def format_loading_params(loading_params: list[dict]) -> str:
         return "\n(no multi-indicator constructs — skip this section)\n"
     lines = [
         "",
-        "For each loading below, decide `positive` (reference/sign identification) "
-        "or `none` (if negative loadings are plausible).",
+        "Decide `positive` (reference/sign identification) or `none` (if negative "
+        "loadings are plausible) for each loading below. Richer indicator/reference "
+        "context is repeated in the loading prior cards.",
         "",
-        "| Parameter | Indicator | Construct |",
-        "|-----------|-----------|-----------|",
     ]
     for lp in loading_params:
-        lines.append(f"| {lp['name']} | {lp['indicator']} | {lp['construct']} |")
+        lines.append(f"- `{lp['name']}`: `{lp['indicator']}` on `{lp['construct']}`")
     lines.append("")
     return "\n".join(lines)
 
 
-def format_full_causal_spec(causal_spec: dict) -> str:
-    """Format the full causal spec as JSON prompt context without truncation."""
-    if not causal_spec:
+def _format_profile_summary(profile: dict | None) -> str:
+    """Format compact empirical profile text."""
+    if not profile:
+        return "no empirical profile"
+
+    fields: list[str] = [f"n={profile.get('n_obs', 0)}"]
+    for key, label in (
+        ("mean", "mean"),
+        ("std", "std"),
+        ("min", "min"),
+        ("max", "max"),
+    ):
+        value = profile.get(key)
+        if value is not None:
+            fields.append(f"{label}={value:.3g}")
+    if profile.get("zero_fraction") is not None:
+        fields.append(f"zero_frac={profile['zero_fraction']:.2%}")
+    if profile.get("variance_to_mean_ratio") is not None:
+        fields.append(f"var/mean={profile['variance_to_mean_ratio']:.3g}")
+
+    support_flags = []
+    if profile.get("is_nonnegative"):
+        support_flags.append("nonnegative")
+    if profile.get("is_unit_interval"):
+        support_flags.append("unit_interval")
+    if profile.get("looks_integer_valued"):
+        support_flags.append("integer_like")
+    if support_flags:
+        fields.append("support=" + ",".join(support_flags))
+    return "; ".join(fields)
+
+
+def format_model_topology(model_topology: dict) -> str:
+    """Format compact fixed model topology context."""
+    if not model_topology:
         return "(none)"
-    return f"```json\n{json.dumps(causal_spec, indent=2)}\n```"
+
+    lines = [
+        f"- model_clock: `{model_topology.get('model_clock') or 'unknown'}`",
+        f"- model_interval_days: `{model_topology.get('model_interval_days')}`",
+        f"- outcome: `{model_topology.get('outcome') or 'unknown'}`",
+        "",
+        "### Latent Edges",
+        "",
+    ]
+    edges = model_topology.get("latent_edges") or []
+    if not edges:
+        lines.append("(none)")
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "| Cause | Effect | Lagged | Description |",
+            "|-------|--------|--------|-------------|",
+        ]
+    )
+    for edge in edges:
+        lines.append(
+            "| {cause} | {effect} | {lagged} | {description} |".format(
+                cause=edge["cause"],
+                effect=edge["effect"],
+                lagged="yes" if edge.get("lagged", True) else "no",
+                description=edge.get("description") or "-",
+            )
+        )
+    return "\n".join(lines)
+
+
+def format_distribution_cards(distribution_cards: list[dict]) -> str:
+    """Format cards for ambiguous indicator likelihood decisions."""
+    if not distribution_cards:
+        return "(none — all indicator likelihoods were deterministic)"
+
+    lines: list[str] = []
+    for card in distribution_cards:
+        lines.extend(
+            [
+                f"### `{card['variable']}`",
+                f"- construct: `{card.get('construct') or 'unknown'}`",
+                (
+                    f"- dtype: `{card.get('measurement_dtype') or 'unknown'}`; "
+                    f"aggregation: `{card.get('aggregation') or 'unknown'}`"
+                ),
+                f"- how_to_measure: {card.get('how_to_measure') or '-'}",
+            ]
+        )
+
+        option_parts = []
+        for option in card.get("options", []):
+            links = option.get("links") or []
+            if len(links) == 1:
+                option_parts.append(f"`{option['distribution']}` -> `{links[0]}` (auto)")
+            else:
+                option_parts.append(
+                    f"`{option['distribution']}` -> {', '.join(f'`{link}`' for link in links)}"
+                )
+        lines.append("- options: " + ("; ".join(option_parts) if option_parts else "-"))
+        lines.append(f"- empirical profile: {_format_profile_summary(card.get('profile'))}")
+
+        issues = card.get("validation_issues") or []
+        lines.append("- validation issues: " + ("; ".join(issues) if issues else "none"))
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def format_construct_scale_cards(construct_scale_cards: list[dict]) -> str:
+    """Format one scale card per construct."""
+    if not construct_scale_cards:
+        return "(none)"
+
+    lines: list[str] = []
+    for card in construct_scale_cards:
+        lines.extend(
+            [
+                f"### `{card['construct']}`",
+                (
+                    f"- role: `{card.get('role') or 'unknown'}`; "
+                    f"temporal_status: `{card.get('temporal_status') or 'unknown'}`; "
+                    f"outcome: `{'yes' if card.get('is_outcome') else 'no'}`"
+                ),
+                f"- description: {card.get('description') or '-'}",
+                f"- reference_indicator: `{card.get('reference_indicator') or 'none'}`",
+                "",
+            ]
+        )
+
+        indicators = card.get("indicators") or []
+        if not indicators:
+            lines.append("(no indicators)")
+            lines.append("")
+            continue
+
+        if len(indicators) == 1:
+            indicator = indicators[0]
+            if indicator.get("has_distribution_decision_card"):
+                lines.append(
+                    "- indicator: `{indicator}`; reference: `{reference}`; details: "
+                    "see distribution decision card".format(
+                        indicator=indicator["indicator"],
+                        reference="yes" if indicator.get("is_reference") else "no",
+                    )
+                )
+            else:
+                details = (
+                    f"{_format_profile_summary(indicator.get('profile'))}; "
+                    f"how={indicator.get('how_to_measure') or '-'}"
+                )
+                lines.append(
+                    "- indicator: `{indicator}`; dtype: `{dtype}`; aggregation: "
+                    "`{aggregation}`; reference: `{reference}`; details: {details}".format(
+                        indicator=indicator["indicator"],
+                        dtype=indicator.get("measurement_dtype") or "unknown",
+                        aggregation=indicator.get("aggregation") or "unknown",
+                        reference="yes" if indicator.get("is_reference") else "no",
+                        details=details,
+                    )
+                )
+            lines.append("")
+            continue
+
+        lines.extend(
+            [
+                "| Indicator | Dtype | Aggregation | Reference | Details |",
+                "|-----------|-------|-------------|-----------|---------|",
+            ]
+        )
+        for indicator in indicators:
+            if indicator.get("has_distribution_decision_card"):
+                details = "see distribution decision card"
+            else:
+                details = (
+                    f"{_format_profile_summary(indicator.get('profile'))}; "
+                    f"how={indicator.get('how_to_measure') or '-'}"
+                )
+            lines.append(
+                "| {indicator} | {dtype} | {aggregation} | {reference} | {details} |".format(
+                    indicator=indicator["indicator"],
+                    dtype=indicator.get("measurement_dtype") or "unknown",
+                    aggregation=indicator.get("aggregation") or "unknown",
+                    reference="yes" if indicator.get("is_reference") else "no",
+                    details=details.replace("|", "/"),
+                )
+            )
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _format_structural_context(structural_context: dict) -> str:
+    """Format compact structural context for a prior card."""
+    if not structural_context:
+        return "-"
+    if "cause" in structural_context and "effect" in structural_context:
+        relation = "lagged" if structural_context.get("lagged", True) else "same_interval"
+        return (
+            f"cause=`{structural_context['cause']}`; "
+            f"effect=`{structural_context['effect']}`; "
+            f"relation=`{relation}`"
+        )
+    if "construct_1" in structural_context and "construct_2" in structural_context:
+        return (
+            f"construct_1=`{structural_context['construct_1']}`; "
+            f"construct_2=`{structural_context['construct_2']}`; "
+            f"marginalized_confounder=`{structural_context.get('marginalized_confounder')}`"
+        )
+    if "indicator" in structural_context:
+        return (
+            f"construct=`{structural_context.get('construct')}`; "
+            f"indicator=`{structural_context.get('indicator')}`; "
+            f"reference_indicator=`{structural_context.get('reference_indicator')}`"
+        )
+    if "construct" in structural_context:
+        return f"construct=`{structural_context['construct']}`"
+    return ", ".join(f"{key}=`{value}`" for key, value in structural_context.items())
+
+
+def format_prior_cards(prior_cards: list[dict]) -> str:
+    """Format compact prior cards grouped by role."""
+    if not prior_cards:
+        return "(none)"
+    groups: dict[str, list[dict]] = {}
+    for card in prior_cards:
+        groups.setdefault(card["role"], []).append(card)
+
+    lines: list[str] = []
+
+    ar_cards = groups.get("ar_coefficient") or []
+    if ar_cards:
+        lines.extend(
+            [
+                "#### AR Coefficients",
+                "",
+                "| Parameter | Construct | Constraint |",
+                "|-----------|-----------|------------|",
+            ]
+        )
+        for card in ar_cards:
+            lines.append(
+                "| {parameter} | {construct} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=(card.get("structural_context") or {}).get("construct", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    fixed_effect_cards = groups.get("fixed_effect") or []
+    if fixed_effect_cards:
+        lines.extend(
+            [
+                "#### Fixed Effects",
+                "",
+                "| Parameter | Cause | Effect | Relation | Constraint |",
+                "|-----------|-------|--------|----------|------------|",
+            ]
+        )
+        for card in fixed_effect_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {cause} | {effect} | {relation} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    cause=structural_context.get("cause", "-"),
+                    effect=structural_context.get("effect", "-"),
+                    relation="lagged" if structural_context.get("lagged", True) else "same_interval",
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    residual_sd_cards = groups.get("residual_sd") or []
+    if residual_sd_cards:
+        lines.extend(
+            [
+                "#### Residual SDs",
+                "",
+                "| Parameter | Construct | Constraint |",
+                "|-----------|-----------|------------|",
+            ]
+        )
+        for card in residual_sd_cards:
+            lines.append(
+                "| {parameter} | {construct} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=(card.get("structural_context") or {}).get("construct", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    loading_cards = groups.get("loading") or []
+    if loading_cards:
+        lines.extend(
+            [
+                "#### Loadings",
+                "",
+                "| Parameter | Construct | Indicator | Reference Indicator | Constraint |",
+                "|-----------|-----------|-----------|---------------------|------------|",
+            ]
+        )
+        for card in loading_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {construct} | {indicator} | {reference_indicator} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=structural_context.get("construct", "-"),
+                    indicator=structural_context.get("indicator", "-"),
+                    reference_indicator=structural_context.get("reference_indicator", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    correlation_cards = groups.get("correlation") or []
+    if correlation_cards:
+        lines.extend(
+            [
+                "#### Correlations",
+                "",
+                "| Parameter | Construct 1 | Construct 2 | Marginalized Confounder | Constraint |",
+                "|-----------|-------------|-------------|-------------------------|------------|",
+            ]
+        )
+        for card in correlation_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {construct_1} | {construct_2} | {confounder} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct_1=structural_context.get("construct_1", "-"),
+                    construct_2=structural_context.get("construct_2", "-"),
+                    confounder=structural_context.get("marginalized_confounder", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    other_roles = [
+        role
+        for role in groups
+        if role
+        not in {"ar_coefficient", "fixed_effect", "residual_sd", "loading", "correlation"}
+    ]
+    for role in sorted(other_roles):
+        lines.extend(
+            [
+                f"#### {role}",
+                "",
+                "| Parameter | Constraint | Structural Context |",
+                "|-----------|------------|--------------------|",
+            ]
+        )
+        for card in groups[role]:
+            lines.append(
+                "| {parameter} | {constraint} | {structural_context} |".format(
+                    parameter=card["parameter"],
+                    constraint=card["constraint"],
+                    structural_context=_format_structural_context(
+                        card.get("structural_context") or {}
+                    ),
+                )
+            )
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
 
 
 # ---------------------------------------------------------------------------
@@ -104,29 +403,26 @@ Most of the specification has already been determined from the causal structure.
 Your job is to provide the decisions that require statistical judgment, and to \
 propose priors for every parameter.
 
-The user message intentionally separates:
-- **Full model context**: the complete causal model from stages 1a/1b, provided so you can reason with the whole model
-- **Decision surface**: the limited set of items you are allowed to choose
-
-Do not rewrite or reinterpret the full model as if it were undecided. Do not add \
-or remove constructs, edges, indicators, or parameters.
+Use the fixed model context in the user message for reasoning, but do not \
+rewrite it as if it were undecided. Do not add or remove constructs, edges, \
+indicators, or parameters.
 
 ## Part 1 — Model Specification Decisions
 
 ### What Has Been Pre-Computed
 
 The following are already determined and shown in the user message:
-- **All parameters** (enumerated from the DAG: one AR per time-varying endogenous \
-construct, one fixed effect per edge, one residual SD per construct, loadings for \
-multi-indicator constructs)
-- **Deterministic likelihoods** (e.g., ordinal → ordered_logistic / cumulative_logit)
+- **Final parameter inventory**, enumerated once in the parameter prior cards
+- **Deterministic likelihoods** are omitted from the decision cards because they \
+require no judgment
+- **Construct scale cards** summarize indicator semantics and data scale once per construct
 - **Parameter constraints** based on role (ar → unit_interval, fixed_effect → none, \
 residual_sd → positive)
 
 ### What You Decide
 
 1. **Distribution + link** for indicators with ambiguous dtypes (continuous, count, \
-categorical). Choose based on the data summary and domain knowledge.
+categorical). Choose based on the distribution decision cards and domain knowledge.
 
 2. **Loading constraints**: For each loading parameter, decide `positive` (sign \
 identification) or `none` (if negative loadings are theoretically plausible).
@@ -168,6 +464,7 @@ For EVERY parameter, propose a prior distribution.
 | rho (AR coefficient) | Beta(2, 2) | [0, 1] | Discrete-time persistence |
 | sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
 | lambda (loading) | HalfNormal(1) | [0, 3] | Data scale |
+| cor (correlation) | TruncatedNormal(0, 0.3, -1, 1) | [-1, 1] | Innovation correlation |
 | tau (random SD) | HalfNormal(0.5) | [0, 2] | Data scale |
 
 Both beta and rho priors should be on the **discrete-time scale**. They are \
@@ -177,13 +474,16 @@ automatically converted to continuous-time rates internally.
 - If you have access to the `search_literature` tool, use it for key causal \
 effects where empirical evidence matters. Not every parameter needs a search — \
 AR coefficients, residual SDs, and loadings typically use standard defaults.
+- When calling `search_literature`, always pass the `parameter_name` of the \
+parameter you are searching for.
 - Anchor priors on meta-analyses or large longitudinal studies when available.
 - If evidence is heterogeneous, use wider priors.
 
 ### Continuous-Time Dynamics
 
 Time is measured in fractional days. AR coefficients represent discrete-time \
-persistence per observation interval, in (0, 1). The system handles CT conversion.
+persistence per observation interval, in (0, 1). The model interval is shown in \
+the fixed model context. The system handles CT conversion.
 
 ## Tools
 
@@ -196,13 +496,11 @@ single parameter. Returns an aggregated prior estimate.
 
 ## Workflow
 
-1. Review the pre-computed skeleton and data summary
+1. Review the model topology, distribution decision cards, construct scale cards, and parameter prior cards
 2. Optionally search literature for key causal effect parameters
 3. Submit everything via `validate_model`
 4. If validation fails, read the feedback, fix the issues, and resubmit
 5. Once you get "VALID", STOP immediately — do not output anything else
-
-IMPORTANT: Once validate_model returns "VALID", STOP.
 """
 
 AGENTIC_USER = """\
@@ -210,47 +508,39 @@ AGENTIC_USER = """\
 
 {question}
 
-## Full Causal Model Context
+## Fixed Model Context
 
-Read this full Stage 1a/1b model for context. It is provided so you can see the \
-entire latent model and measurement model, not so you can modify them.
+## Model Topology
 
-{full_causal_model}
-
-## Fixed Model Skeleton
-
-These items have already been derived from the full causal model. Use them for \
-context, but do not change them.
-
-### Resolved Likelihoods (fully deterministic — do not change)
-
-{resolved_likelihoods}
-
-### All Parameters (enumerated from DAG — do not add or remove)
-
-{parameters}
+{model_topology}
 
 ## Your Decisions
 
-Only the items below require judgment from you. The rest of the model is context.
+### 1. Distribution Decision Cards
 
-### 1. Distribution Choices
+Only indicators shown below need a distribution/link choice. Indicators not shown \
+already have deterministic likelihoods.
 
-For each indicator below, choose the appropriate distribution and link function.
-
-{ambiguous_indicators}
+{distribution_cards}
 
 ### 2. Loading Constraints
 {loading_params}
 
-### 3. Priors
+### 3. Construct Scale Cards
 
-Provide a prior for EVERY parameter listed in "All Parameters". The parameter \
-list is fixed; only the prior choices are yours.
+Use these cards for construct semantics and data-scale anchoring. Single-indicator \
+constructs are summarized inline. If a construct references a `distribution \
+decision card`, the detailed measurement text and empirical profile are already \
+shown in Section 1.
 
-## Data Summary
+{construct_scale_cards}
 
-{data_summary}
+### 4. Parameter Prior Cards
+
+Provide exactly one prior for EVERY parameter below. The inventory is grouped by \
+role to avoid repetition.
+
+{prior_cards}
 
 ---
 
@@ -269,11 +559,14 @@ Submit your decisions and priors via the `validate_model` tool as a single JSON:
       "distribution": "Normal|HalfNormal|Beta|Uniform|TruncatedNormal",
       "params": {{"mu": 0.3, "sigma": 0.15}},
       "sources": [],
-      "reasoning": "Justification for the prior"
+      "reasoning": "Justification for the prior",
+      "reference_interval_days": 7.0
     }}
   }}
 }}
 ```
 
-Include a prior for EVERY parameter listed above.
+Only include `reference_interval_days` when the literature evidence is expressed \
+on a different observation interval than the model interval shown in Model \
+Topology. Include a prior for EVERY parameter listed above.
 """

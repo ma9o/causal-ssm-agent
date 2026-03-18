@@ -255,9 +255,9 @@ async def stage2(
 
 
 def stage3(stage1b: dict, stage2: dict) -> dict:
-    """Validate semantic properties of extracted data.
+    """Audit extracted data: validation plus per-indicator empirical profiles.
 
-    Returns: {validation_report, outcome}
+    Returns: {is_valid, indicators, dataset_issues, outcome}
     """
     from prefect.artifacts import create_table_artifact
 
@@ -265,61 +265,72 @@ def stage3(stage1b: dict, stage2: dict) -> dict:
 
     causal_spec = stage1b["causal_spec"]
     raw_data = load_parquet(stage2["_raw_data_path"])
+    data_for_model = load_parquet(stage2["_data_for_model_path"])
 
-    validation_task = validate_extraction(causal_spec, [raw_data])
-    validation_report = unwrap_task_result(validation_task)
+    validation_task = validate_extraction(causal_spec, [raw_data], data_for_model)
+    audit_result = unwrap_task_result(validation_task)
 
-    if validation_report:
-        issues = validation_report.get("issues", [])
-        if not validation_report.get("is_valid", True):
+    if audit_result:
+        indicator_issues = [
+            issue
+            for audit in audit_result.get("indicators", {}).values()
+            for issue in audit.get("validation", {}).get("issues", [])
+        ]
+        dataset_issues = audit_result.get("dataset_issues", [])
+        all_issues = [*indicator_issues, *dataset_issues]
+        if not audit_result.get("is_valid", True):
             logger.warning("Stage 3 validation errors detected:")
-            for issue in issues:
+            for issue in all_issues:
                 logger.warning(
                     "    - %s: %s (%s) %s",
-                    issue["indicator"],
+                    issue.get("indicator") or "dataset",
                     issue["issue_type"],
                     issue["severity"],
                     issue["message"],
                 )
-        elif issues:
+        elif all_issues:
             logger.warning("Stage 3 validation warnings:")
-            for issue in issues:
+            for issue in all_issues:
                 logger.warning(
                     "    - %s: %s (%s) %s",
-                    issue["indicator"],
+                    issue.get("indicator") or "dataset",
                     issue["issue_type"],
                     issue["severity"],
                     issue["message"],
                 )
 
-        if issues:
+        if all_issues:
             create_table_artifact(
                 key="validation-issues",
                 table=[
                     {
-                        "indicator": i["indicator"],
+                        "indicator": i.get("indicator") or "dataset",
                         "type": i["issue_type"],
                         "severity": i["severity"],
                         "message": i["message"],
                     }
-                    for i in issues
+                    for i in all_issues
                 ],
                 description="Stage 3 extraction validation issues",
             )
 
-    report = validation_report or {
+    report = audit_result or {
         "is_valid": False,
-        "issues": [],
-        "per_indicator_health": [],
+        "indicators": {},
+        "dataset_issues": [],
     }
     if not report.get("is_valid", True):
         outcome = "fail"
-    elif any(i.get("severity") in ("warning", "error") for i in report.get("issues", [])):
+    elif any(
+        issue.get("severity") in ("warning", "error")
+        for audit in report.get("indicators", {}).values()
+        for issue in audit.get("validation", {}).get("issues", [])
+    ) or any(i.get("severity") in ("warning", "error") for i in report.get("dataset_issues", [])):
         outcome = "warn"
     else:
         outcome = "success"
 
-    return {"validation_report": report, "outcome": outcome}
+    return {**report, "outcome": outcome}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -331,6 +342,7 @@ async def stage4(
     question: str,
     stage1b: dict,
     stage2: dict,
+    stage3: dict,
     enable_literature: bool,
 ) -> dict:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
@@ -343,6 +355,7 @@ async def stage4(
         causal_spec=causal_spec,
         question=question,
         raw_data=data_for_model,
+        indicator_audits=stage3["indicators"],
         enable_literature=enable_literature,
     )
 

@@ -114,7 +114,7 @@ class ValidationContext:
     model_clock_hours: float | None
 
     def iter_indicators(self):
-        for ind_name in self.indicator_names:
+        for ind_name in sorted(self.indicator_names):
             ind_data = self.combined.filter(pl.col("indicator") == ind_name)
             if ind_data.is_empty():
                 yield ind_name, ind_data, None
@@ -168,7 +168,7 @@ def _issues_from_raw(
     return issues
 
 
-def _issue_payload(issue: Issue) -> dict[str, str]:
+def _issue_payload(issue: Issue) -> dict[str, str | None]:
     return {
         "indicator": issue.indicator,
         "issue_type": issue.issue_type,
@@ -180,15 +180,15 @@ def _issue_payload(issue: Issue) -> dict[str, str]:
 def _no_data_validation_result() -> dict[str, Any]:
     return {
         "is_valid": False,
-        "issues": [
+        "indicators": {},
+        "dataset_issues": [
             {
-                "indicator": "all",
+                "indicator": None,
                 "issue_type": "no_data",
                 "severity": "error",
                 "message": "No data extracted",
             }
         ],
-        "per_indicator_health": [],
     }
 
 
@@ -559,10 +559,13 @@ def _rule_timestamps(entry: IndicatorRuleInput) -> ValidationFindings:
                 "unparseable_timestamps",
                 severity,
                 message,
-                cell_key="n_obs",
+                cell_key="n_unparseable_timestamps",
             )
         )
-    return ValidationFindings(issues=issues)
+    return ValidationFindings(
+        issues=issues,
+        metrics={"n_unparseable_timestamps": ctx.n_unparseable},
+    )
 
 
 def _rule_sample_size(entry: IndicatorRuleInput) -> ValidationFindings:
@@ -698,6 +701,7 @@ _CELL_STATUS_KEYS = frozenset(
     {
         "n_obs",
         "variance",
+        "n_unparseable_timestamps",
         "time_coverage_ratio",
         "max_gap_ratio",
         "dtype_violations",
@@ -709,17 +713,18 @@ _CELL_STATUS_KEYS = frozenset(
 
 def reduce_findings(
     indicator_findings: dict[str, list[ValidationFindings]],
-) -> tuple[list[dict], list[dict]]:
-    """Reduce per-indicator findings into issues list + per_indicator_health.
+) -> tuple[list[dict], dict[str, dict[str, Any]]]:
+    """Reduce per-indicator findings into issues + keyed validation metrics.
 
     Cell statuses are derived purely from issues: for each metric key,
     the worst severity among matching issues wins (error > warning > ok).
     Rules own threshold logic; the reducer only aggregates.
     """
     all_issues: list[dict] = []
-    per_indicator_health: list[dict] = []
+    indicator_health: dict[str, dict[str, Any]] = {}
 
-    for ind_name, findings_list in indicator_findings.items():
+    for ind_name in sorted(indicator_findings):
+        findings_list = indicator_findings[ind_name]
         merged_metrics: dict[str, Any] = {}
         ind_issues: list[Issue] = []
         for f in findings_list:
@@ -729,23 +734,17 @@ def reduce_findings(
         for issue in ind_issues:
             all_issues.append(_issue_payload(issue))
 
-        if not merged_metrics:
-            continue
-
         cell_statuses: dict[str, str] = {k: "ok" for k in _CELL_STATUS_KEYS if k in merged_metrics}
         for issue in ind_issues:
             if issue.cell_key in cell_statuses and cell_statuses[issue.cell_key] != "error":
                 cell_statuses[issue.cell_key] = issue.severity
 
-        per_indicator_health.append(
-            {
-                "indicator": ind_name,
-                **{k: v for k, v in merged_metrics.items() if k in _CELL_STATUS_KEYS},
-                "cell_statuses": cell_statuses,
-            }
-        )
+        indicator_health[ind_name] = {
+            **{k: v for k, v in merged_metrics.items() if k in _CELL_STATUS_KEYS},
+            "cell_statuses": cell_statuses,
+        }
 
-    return all_issues, per_indicator_health
+    return all_issues, indicator_health
 
 
 def _build_indicator_context(
@@ -797,14 +796,124 @@ def _build_indicator_context(
     )
 
 
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(numeric) else numeric
+
+
+def _compute_empirical_profile(
+    ind_name: str,
+    model_data: pl.DataFrame,
+    indicator_lookup: dict[str, dict],
+    health_metrics: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Compute the model-facing empirical profile for one indicator."""
+    ind_model = model_data.filter(pl.col("indicator") == ind_name)
+    values_df = ind_model.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
+    n_obs = len(values_df)
+    if n_obs == 0:
+        return None
+
+    values = values_df["value"]
+    mean = _float_or_none(values.mean())
+    std = _float_or_none(values.std())
+    variance = _float_or_none(values.var())
+    min_value = _float_or_none(values.min())
+    max_value = _float_or_none(values.max())
+    q25 = _float_or_none(values.quantile(0.25))
+    q50 = _float_or_none(values.quantile(0.50))
+    q75 = _float_or_none(values.quantile(0.75))
+
+    numeric_values = [float(v) for v in values.to_list()]
+    zero_fraction = (
+        float(sum(1 for v in numeric_values if math.isclose(v, 0.0, abs_tol=1e-12)) / n_obs)
+        if n_obs > 0
+        else None
+    )
+    looks_integer_valued = all(math.isclose(v, round(v), abs_tol=1e-8) for v in numeric_values)
+    is_nonnegative = min_value >= 0 if min_value is not None else None
+    is_unit_interval = (
+        min_value >= 0 and max_value <= 1
+        if min_value is not None and max_value is not None
+        else None
+    )
+    variance_to_mean_ratio = (
+        variance / mean if variance is not None and mean is not None and mean > 0 else None
+    )
+
+    return {
+        "measurement_dtype": indicator_lookup.get(ind_name, {}).get("measurement_dtype"),
+        "n_obs": n_obs,
+        "mean": mean,
+        "std": std,
+        "min": min_value,
+        "max": max_value,
+        "q25": q25,
+        "q50": q50,
+        "q75": q75,
+        "variance": variance,
+        "time_coverage_ratio": _float_or_none(health_metrics.get("time_coverage_ratio")),
+        "max_gap_ratio": _float_or_none(health_metrics.get("max_gap_ratio")),
+        "dtype_violations": health_metrics.get("dtype_violations"),
+        "duplicate_pct": _float_or_none(health_metrics.get("duplicate_pct")),
+        "arithmetic_sequence_detected": bool(
+            health_metrics.get("arithmetic_sequence_detected", False)
+        ),
+        "n_unparseable_timestamps": health_metrics.get("n_unparseable_timestamps"),
+        "zero_fraction": zero_fraction,
+        "is_nonnegative": is_nonnegative,
+        "is_unit_interval": is_unit_interval,
+        "looks_integer_valued": looks_integer_valued,
+        "variance_to_mean_ratio": variance_to_mean_ratio,
+    }
+
+
+def build_indicator_audits(
+    *,
+    indicator_names: set[str],
+    indicator_lookup: dict[str, dict],
+    model_data: pl.DataFrame,
+    indicator_issues: list[dict[str, Any]],
+    indicator_health: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build the keyed Stage 3 indicator audit map."""
+    issues_by_indicator: dict[str, list[dict[str, Any]]] = {name: [] for name in indicator_names}
+    for issue in indicator_issues:
+        issue_indicator = issue.get("indicator")
+        if issue_indicator in issues_by_indicator:
+            issues_by_indicator[issue_indicator].append(issue)
+
+    audits: dict[str, dict[str, Any]] = {}
+    for ind_name in sorted(indicator_names):
+        health_metrics = indicator_health.get(ind_name, {})
+        audits[ind_name] = {
+            "profile": _compute_empirical_profile(
+                ind_name,
+                model_data,
+                indicator_lookup,
+                health_metrics,
+            ),
+            "validation": {
+                "issues": issues_by_indicator.get(ind_name, []),
+                "checks": dict(health_metrics.get("cell_statuses", {})),
+            },
+        }
+    return audits
+
+
 def run_rules(
     rules: list[ValidationRule],
     ctx: ValidationContext,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], dict[str, dict[str, Any]], list[dict]]:
     """Run all validation rules and reduce findings.
 
     Returns:
-        (all_issues, per_indicator_health) — same shape as before.
+        (indicator_issues, indicator_health, dataset_issues)
     """
     indicator_rules = [r for r in rules if r.scope == "indicator"]
     dataset_rules = [r for r in rules if r.scope == "dataset"]
@@ -821,10 +930,8 @@ def run_rules(
         for issue in f.issues:
             dataset_issues.append(_issue_payload(issue))
 
-    all_issues, per_indicator_health = reduce_findings(indicator_findings)
-    all_issues.extend(dataset_issues)
-
-    return all_issues, per_indicator_health
+    indicator_issues, indicator_health = reduce_findings(indicator_findings)
+    return indicator_issues, indicator_health, dataset_issues
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -836,21 +943,23 @@ def run_rules(
 def validate_extraction(
     causal_spec: dict,
     dataframes: list[pl.DataFrame],
+    model_data: pl.DataFrame | None = None,
 ) -> dict:
     """Validate semantic properties of extracted data.
 
     Runs all ``RULES`` against the extracted data and reduces findings
-    into issues + per_indicator_health with centralized cell-status derivation.
+    into a keyed indicator audit map plus dataset-level issues.
 
     Args:
         causal_spec: The full causal spec with measurement model
         dataframes: List of DataFrames with columns (indicator, value, timestamp)
+        model_data: Model-ready numeric long data used for empirical profiles
 
     Returns:
         Dict with:
             - is_valid: bool
-            - issues: list of {indicator, issue_type, severity, message}
-            - per_indicator_health: list of per-indicator metrics
+            - indicators: per-indicator profile + validation
+            - dataset_issues: cross-indicator validation findings
     """
     dataframes = [df for df in dataframes if df is not None and not df.is_empty()]
     if not dataframes:
@@ -889,18 +998,28 @@ def validate_extraction(
         model_clock_hours=model_clock_hours,
     )
 
-    issues, per_indicator_health = run_rules(
+    indicator_issues, indicator_health, dataset_issues = run_rules(
         RULES,
         validation_ctx,
     )
 
-    errors = [i for i in issues if i["severity"] == "error"]
+    model_df = model_data if model_data is not None and not model_data.is_empty() else combined
+    indicator_audits = build_indicator_audits(
+        indicator_names=indicator_names,
+        indicator_lookup=indicator_lookup,
+        model_data=model_df,
+        indicator_issues=indicator_issues,
+        indicator_health=indicator_health,
+    )
+
+    all_issues = [*indicator_issues, *dataset_issues]
+    errors = [i for i in all_issues if i["severity"] == "error"]
     is_valid = len(errors) == 0
 
     return {
         "is_valid": is_valid,
-        "issues": issues,
-        "per_indicator_health": per_indicator_health,
+        "indicators": indicator_audits,
+        "dataset_issues": dataset_issues,
     }
 
 

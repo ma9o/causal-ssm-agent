@@ -264,28 +264,24 @@ def model_spec():
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) for Stress",
-                "search_context": "autoregressive stress",
             },
             {
                 "name": "rho_Fatigue",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) for Fatigue",
-                "search_context": "autoregressive fatigue",
             },
             {
                 "name": "rho_Focus",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) for Focus",
-                "search_context": "autoregressive focus",
             },
             {
                 "name": "rho_Perf",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) for Performance",
-                "search_context": "autoregressive performance",
             },
             # Cross-effects
             {
@@ -293,28 +289,24 @@ def model_spec():
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Stress -> Fatigue effect",
-                "search_context": "stress fatigue causal effect",
             },
             {
                 "name": "beta_Stress_Focus",
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Stress -> Focus effect",
-                "search_context": "stress focus causal effect",
             },
             {
                 "name": "beta_Fatigue_Focus",
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Fatigue -> Focus effect",
-                "search_context": "fatigue focus causal effect",
             },
             {
                 "name": "beta_Focus_Perf",
                 "role": "fixed_effect",
                 "constraint": "none",
                 "description": "Focus -> Performance effect",
-                "search_context": "focus performance causal effect",
             },
             # Residual SDs
             *[
@@ -323,7 +315,6 @@ def model_spec():
                     "role": "residual_sd",
                     "constraint": "positive",
                     "description": f"Residual SD for {name}",
-                    "search_context": f"measurement error {name}",
                 }
                 for name in INDICATOR_NAMES
             ],
@@ -490,11 +481,16 @@ class TestE2EPipeline:
         """validate_extraction passes with all indicators present."""
         result = validate_extraction.fn(causal_spec, worker_dfs)
         assert result["is_valid"] is True
-        errors = [i for i in result["issues"] if i["severity"] == "error"]
+        issues = [
+            issue
+            for audit in result["indicators"].values()
+            for issue in audit["validation"]["issues"]
+        ]
+        errors = [i for i in issues if i["severity"] == "error"]
         assert len(errors) == 0
 
         # All 6 indicators present with sufficient observations
-        present = {i["indicator"] for i in result["issues"] if i["issue_type"] == "missing"}
+        present = {i["indicator"] for i in issues if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
 
     def test_stage3_combine(self, worker_dfs):
@@ -510,10 +506,11 @@ class TestE2EPipeline:
     def test_stage4b_t_rule(self, model_spec, priors, daily_data):
         """T-rule check passes (necessary condition for identifiability)."""
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from causal_ssm_agent.utils.data import pivot_to_wide
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        builder.build_model(daily_data.to_pandas())
+        builder.build_model(pivot_to_wide(daily_data))
         assert builder._spec is not None
         t_rule = check_t_rule(builder._spec, T=T)
         assert t_rule.satisfies is True

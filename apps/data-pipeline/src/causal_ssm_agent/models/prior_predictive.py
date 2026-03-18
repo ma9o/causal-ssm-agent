@@ -300,6 +300,7 @@ def validate_prior_predictive(
     model_spec: ModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
     raw_data: pl.DataFrame | None = None,
+    data_stats: dict[str, dict] | None = None,
     n_samples: int = 500,
     constraint_tolerance: float = 0.05,
     causal_spec: dict | None = None,
@@ -318,6 +319,7 @@ def validate_prior_predictive(
         model_spec: Model specification
         priors: Prior proposals for each parameter
         raw_data: Raw timestamped data (optional, for scale plausibility check)
+        data_stats: Optional precomputed per-indicator stats for scale checks
         n_samples: Number of prior predictive samples
         constraint_tolerance: Fraction of positive-constraint violations to
             tolerate before flagging failure (default 5%).
@@ -409,10 +411,12 @@ def validate_prior_predictive(
     # Check 3: Extreme values
     results.extend(_check_extreme_values(samples))
 
-    # Check 4: Scale plausibility (only if raw_data provided)
-    if raw_data is not None and not raw_data.is_empty():
-        data_stats = compute_data_stats(raw_data)
-        results.extend(_check_scale_plausibility(samples, data_stats, manifest_names))
+    # Check 4: Scale plausibility
+    scale_reference_stats = data_stats
+    if scale_reference_stats is None and raw_data is not None and not raw_data.is_empty():
+        scale_reference_stats = compute_data_stats(raw_data)
+    if scale_reference_stats:
+        results.extend(_check_scale_plausibility(samples, scale_reference_stats, manifest_names))
 
     is_valid = all(r.is_valid for r in results)
 

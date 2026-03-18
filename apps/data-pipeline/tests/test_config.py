@@ -111,7 +111,6 @@ FULL_CONFIG = textwrap.dedent("""\
       submission_batch_size: 25
     stage4_prior_elicitation:
       model: claude-3
-      worker_model: claude-3-haiku
       literature_search:
         enabled: false
       paraphrasing:
@@ -176,7 +175,6 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.stage2_workers.max_concurrent_workers == 6
         assert cfg.stage2_workers.submission_batch_size == 25
-        assert cfg.stage4_prior_elicitation.worker_model == "claude-3-haiku"
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
         assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5

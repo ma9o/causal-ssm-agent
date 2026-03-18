@@ -43,6 +43,7 @@ def validate_assembly(
     model_spec: dict,
     priors: dict | None,
     raw_data: pl.DataFrame | None,
+    indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
 ) -> AssemblyValidation:
     """Validate stage 4 assembly: compile check + prior predictive.
@@ -86,6 +87,7 @@ def validate_assembly(
             candidate,
             priors,
             raw_data,
+            data_stats=_indicator_audit_scale_stats(indicator_audits),
             causal_spec=causal_spec,
             compiled_ssm=compiled_ssm,
         )
@@ -106,15 +108,32 @@ def validate_assembly(
 
 def _prepare_model_spec(
     model_spec: dict,
-    causal_spec: dict | None,
+    _causal_spec: dict | None,
 ) -> dict[str, Any]:
     """Normalize a Stage 4 model spec before any compile-time work."""
-    from causal_ssm_agent.utils.identifiability import inject_marginalized_correlations
-
     candidate = deepcopy(model_spec)
-    if causal_spec is not None:
-        inject_marginalized_correlations(candidate, causal_spec)
     return candidate
+
+
+def _indicator_audit_scale_stats(
+    indicator_audits: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, float | None]] | None:
+    """Extract the minimal per-indicator scale stats needed by prior predictive checks."""
+    if not indicator_audits:
+        return None
+
+    stats: dict[str, dict[str, float | None]] = {}
+    for name, audit in indicator_audits.items():
+        profile = (audit or {}).get("profile") or {}
+        if not profile:
+            continue
+        stats[name] = {
+            "mean": profile.get("mean"),
+            "std": profile.get("std"),
+            "min": profile.get("min"),
+            "max": profile.get("max"),
+        }
+    return stats or None
 
 
 def merge_priors(existing: dict[str, dict] | None, new: dict[str, dict] | None) -> dict[str, dict]:
@@ -343,13 +362,21 @@ def materialize_stage4_result(
     model_spec: dict[str, Any],
     priors: dict[str, dict],
     raw_data: pl.DataFrame,
+    indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
     validation_retries: list[dict[str, Any]] | None = None,
     llm_trace: dict[str, Any] | None = None,
     validation: AssemblyValidation | None = None,
+    search_queries: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the full grounded stage-4 result from authored inputs."""
-    validation = validation or validate_assembly(model_spec, priors, raw_data, causal_spec)
+    validation = validation or validate_assembly(
+        model_spec,
+        priors,
+        raw_data,
+        indicator_audits,
+        causal_spec,
+    )
     normalized_model_spec = validation.normalized_model_spec or model_spec
     validation_result = build_validation_payload(validation, normalized_model_spec)
     model_result = compile_model_artifact(
@@ -364,6 +391,7 @@ def materialize_stage4_result(
     result = {
         "model_spec": normalized_model_spec,
         "priors": priors,
+        "search_queries": search_queries or None,
         "validation_retries": validation_retries,
         "validation": validation_result,
         "model_info": model_result,
