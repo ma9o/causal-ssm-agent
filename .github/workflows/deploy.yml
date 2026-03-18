@@ -14,7 +14,8 @@ jobs:
     secrets: inherit
 
   # ---------------------------------------------------------------------------
-  # Deploy Modal functions (stages 2 + 5b)
+  # Deploy Modal functions (stages 2, 4, 5b)
+  # GitHub secrets → Modal secret block → env vars inside containers
   # ---------------------------------------------------------------------------
   deploy-modal:
     needs: ci
@@ -22,16 +23,62 @@ jobs:
     defaults:
       run:
         working-directory: apps/data-pipeline
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - run: uv sync --frozen --group dev
+      - name: Sync runtime secrets to Modal
+        run: |
+          uv run modal secret create --force causal-ssm-pipeline-secrets \
+            DEPLOYMENT_ENV=production \
+            OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            GOOGLE_CLOUD_PROJECT="${{ secrets.GOOGLE_CLOUD_PROJECT }}" \
+            GOOGLE_CLOUD_LOCATION="${{ secrets.GOOGLE_CLOUD_LOCATION }}" \
+            EXA_API_KEY="${{ secrets.EXA_API_KEY }}" \
+            R2_ENDPOINT_URL="${{ secrets.R2_ENDPOINT_URL }}" \
+            R2_ACCESS_KEY_ID="${{ secrets.R2_ACCESS_KEY_ID }}" \
+            R2_SECRET_ACCESS_KEY="${{ secrets.R2_SECRET_ACCESS_KEY }}" \
+            R2_BUCKET="${{ secrets.R2_BUCKET }}" \
+            R2_PREFIX=data
       - run: uv run modal deploy src/causal_ssm_agent/flows/modal_runners.py
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy web app to Vercel (production)
+  # GitHub secrets → Vercel env vars → available at runtime
+  # ---------------------------------------------------------------------------
+  deploy-vercel:
+    needs: ci
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - name: Sync runtime secrets to Vercel
+        run: |
+          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force 2>/dev/null; }
+          sync_env DEPLOYMENT_ENV           production
+          sync_env R2_ENDPOINT_URL          "${{ secrets.R2_ENDPOINT_URL }}"
+          sync_env R2_ACCESS_KEY_ID         "${{ secrets.R2_ACCESS_KEY_ID }}"
+          sync_env R2_SECRET_ACCESS_KEY     "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          sync_env R2_BUCKET                "${{ secrets.R2_BUCKET }}"
+          sync_env R2_PREFIX                data
+      - run: bunx vercel pull --yes --environment=production
+      - run: bunx vercel build --prod
+      - run: bunx vercel deploy --prebuilt --prod
 
   # ---------------------------------------------------------------------------
   # Deploy Prefect flows

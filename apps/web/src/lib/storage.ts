@@ -1,11 +1,11 @@
 /**
  * Pluggable storage backend — local filesystem or Cloudflare R2.
  *
- * Set `STORAGE_BACKEND=r2` plus R2 credentials to use remote storage.
- * Defaults to local filesystem.
+ * Production (`DEPLOYMENT_ENV=production`) uses Cloudflare R2.
+ * All other environments default to local filesystem.
  *
  * Environment variables for R2:
- *   STORAGE_BACKEND=r2
+ *   DEPLOYMENT_ENV=production
  *   R2_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
  *   R2_ACCESS_KEY_ID=...
  *   R2_SECRET_ACCESS_KEY=...
@@ -16,7 +16,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-const isRemote = process.env.STORAGE_BACKEND === "r2";
+const isRemote = process.env.DEPLOYMENT_ENV === "production";
 
 // ---------------------------------------------------------------------------
 // S3 client (lazy-initialized for R2)

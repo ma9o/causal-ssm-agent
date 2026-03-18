@@ -1,11 +1,11 @@
 """Pluggable storage backend — local filesystem or Cloudflare R2.
 
-Set ``STORAGE_BACKEND=r2`` plus R2 credentials to use remote storage.
-Defaults to local filesystem.
+Production (``DEPLOYMENT_ENV=production``) uses Cloudflare R2.
+All other environments default to local filesystem.
 
 Environment variables for R2::
 
-    STORAGE_BACKEND=r2
+    DEPLOYMENT_ENV=production
     R2_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
     R2_ACCESS_KEY_ID=...
     R2_SECRET_ACCESS_KEY=...
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 def is_remote() -> bool:
     """True when using Cloudflare R2 (remote) storage."""
-    return os.getenv("STORAGE_BACKEND", "local") == "r2"
+    return os.getenv("DEPLOYMENT_ENV") == "production"
 
 
 # ---------------------------------------------------------------------------
