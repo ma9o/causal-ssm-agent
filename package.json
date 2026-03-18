@@ -4,6 +4,7 @@
   "packageManager": "bun@1.2.23",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
