@@ -139,7 +139,11 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
 
 
 async def stage2(
-    question: str, stage0: dict, stage1b: dict, root_run_id: str | None = None
+    question: str,
+    stage0: dict,
+    stage1b: dict,
+    root_run_id: str | None = None,
+    max_ticks: int | None = None,
 ) -> dict:
     """Extract indicator values from data using LLM workers.
 
@@ -169,6 +173,7 @@ async def stage2(
         question=question,
         causal_spec=causal_spec,
         root_run_id=root_run_id,
+        max_ticks=max_ticks,
     )
 
     # Reconstruct raw_data DataFrame from worker results
