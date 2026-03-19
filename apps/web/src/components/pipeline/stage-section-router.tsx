@@ -1,9 +1,9 @@
 "use client";
 
-import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import { ReplayButton } from "./replay-button";
+import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { useRefinement } from "@/lib/contexts/refinement-context";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import { cn } from "@/lib/utils";
@@ -17,8 +17,8 @@ import type {
   Stage3Data,
   Stage4Data,
   Stage4bData,
-  Stage5bData,
   Stage5aData,
+  Stage5bData,
   Stage6Data,
   StageId,
   StageMeta,
@@ -124,7 +124,12 @@ function StageWithTrace({
               Hide LLM Trace
             </button>
             <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
-              <LLMTracePanel trace={trace} userId={userId} stageId={stageId} interactive={interactive} />
+              <LLMTracePanel
+                trace={trace}
+                userId={userId}
+                stageId={stageId}
+                interactive={interactive}
+              />
             </div>
           </div>
         )}
@@ -147,6 +152,8 @@ export function StageSectionRouter({
   stageRun?: AnalysisStageRun;
 }) {
   const queryClient = useQueryClient();
+  const { isInvalidated } = useRefinement();
+  const invalidated = isInvalidated(stage.id);
   const isCompleted = status === "completed";
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
@@ -202,23 +209,26 @@ export function StageSectionRouter({
       }
       userId={userId}
       stageSubflowRunId={stageRun?.stageSubflowRunId ?? null}
+      invalidated={invalidated}
     >
       {isCompleted && (
-        <>
-          <ErrorBoundary>
-            <Suspense fallback={null}>
-              <StageContent stageId={stage.id} userId={userId} />
-            </Suspense>
-          </ErrorBoundary>
-          <ReplayButton userId={userId} stageId={stage.id} />
-        </>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <StageContent stageId={stage.id} userId={userId} />
+          </Suspense>
+        </ErrorBoundary>
       )}
     </StageSection>
   );
 
   if (stageData?.llm_trace) {
     return (
-      <StageWithTrace trace={stageData.llm_trace} userId={userId} stageId={stage.id} interactive={stage.interactive}>
+      <StageWithTrace
+        trace={stageData.llm_trace}
+        userId={userId}
+        stageId={stage.id}
+        interactive={stage.interactive}
+      >
         {section}
       </StageWithTrace>
     );
@@ -265,7 +275,11 @@ function StageContent({ stageId, userId }: { stageId: string; userId: string }) 
   switch (stageId) {
     case "stage-0":
       return (
-        <SimpleStageWrapper<Stage0Data> userId={userId} stageId="stage-0" Component={Stage0Content} />
+        <SimpleStageWrapper<Stage0Data>
+          userId={userId}
+          stageId="stage-0"
+          Component={Stage0Content}
+        />
       );
     case "stage-1a":
       return (
@@ -285,11 +299,19 @@ function StageContent({ stageId, userId }: { stageId: string; userId: string }) 
       );
     case "stage-2":
       return (
-        <SimpleStageWrapper<Stage2Data> userId={userId} stageId="stage-2" Component={Stage2Content} />
+        <SimpleStageWrapper<Stage2Data>
+          userId={userId}
+          stageId="stage-2"
+          Component={Stage2Content}
+        />
       );
     case "stage-3":
       return (
-        <SimpleStageWrapper<Stage3Data> userId={userId} stageId="stage-3" Component={Stage3Content} />
+        <SimpleStageWrapper<Stage3Data>
+          userId={userId}
+          stageId="stage-3"
+          Component={Stage3Content}
+        />
       );
     case "stage-4":
       return <Stage4Wrapper userId={userId} />;
@@ -303,13 +325,21 @@ function StageContent({ stageId, userId }: { stageId: string; userId: string }) 
       );
     case "stage-5a":
       return (
-        <SimpleStageWrapper<Stage5aData> userId={userId} stageId="stage-5a" Component={Stage5aContent} />
+        <SimpleStageWrapper<Stage5aData>
+          userId={userId}
+          stageId="stage-5a"
+          Component={Stage5aContent}
+        />
       );
     case "stage-5b":
       return <Stage5bWrapper userId={userId} />;
     case "stage-6":
       return (
-        <SimpleStageWrapper<Stage6Data> userId={userId} stageId="stage-6" Component={Stage6Content} />
+        <SimpleStageWrapper<Stage6Data>
+          userId={userId}
+          stageId="stage-6"
+          Component={Stage6Content}
+        />
       );
     default:
       return null;

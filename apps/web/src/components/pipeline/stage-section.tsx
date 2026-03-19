@@ -3,7 +3,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
-import { AlertCircle, ChevronDown } from "lucide-react";
+import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
 import { type ReactNode, useState } from "react";
@@ -26,6 +26,7 @@ export function StageSection({
   runningContent,
   userId,
   stageSubflowRunId,
+  invalidated = false,
 }: {
   id?: string;
   number: string;
@@ -42,6 +43,7 @@ export function StageSection({
   runningContent?: ReactNode;
   userId?: string;
   stageSubflowRunId?: string | null;
+  invalidated?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -55,15 +57,15 @@ export function StageSection({
   }
 
   // Failed-outcome stages should not be collapsible — the failure must remain visible
-  const isCollapsible = status === "completed" && outcome !== "fail";
+  const isCollapsible = status === "completed" && outcome !== "fail" && !invalidated;
 
   return (
     <motion.section
       id={id}
       initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ opacity: invalidated ? 0.45 : 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className="scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6"
+      className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6 ${invalidated ? "pointer-events-none border-dashed border-muted-foreground/30" : ""}`}
     >
       <div
         className={isCollapsible ? "flex items-start gap-3 cursor-pointer" : ""}
@@ -92,6 +94,12 @@ export function StageSection({
             outcome={outcome}
             context={context}
           />
+          {invalidated && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              <RotateCcw className="h-3 w-3" />
+              Needs re-run
+            </span>
+          )}
         </div>
         {isCollapsible && (
           <div className="flex shrink-0 items-center gap-2 pt-1">
@@ -150,11 +158,7 @@ export function StageSection({
         </motion.div>
       )}
       {userId && status !== "pending" && (
-        <StageLogViewer
-          userId={userId}
-          stageSubflowRunId={stageSubflowRunId}
-          status={status}
-        />
+        <StageLogViewer userId={userId} stageSubflowRunId={stageSubflowRunId} status={status} />
       )}
     </motion.section>
   );
