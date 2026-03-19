@@ -24,13 +24,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const WithPSIS: Story = {
-  render: () => <PowerScalingTable results={data.power_scaling ?? []} />,
+  args: { results: data.power_scaling ?? [] },
 };
 
 export const WithoutPSIS: Story = {
-  render: () => (
-    <PowerScalingTable
-      results={(data.power_scaling ?? []).map(({ psis_k_hat, ...rest }) => rest) as Stage5bData["power_scaling"] & {}}
-    />
-  ),
+  args: {
+    results: (data.power_scaling ?? []).map(({ psis_k_hat, ...rest }) => rest) as Stage5bData["power_scaling"] & {},
+  },
 };

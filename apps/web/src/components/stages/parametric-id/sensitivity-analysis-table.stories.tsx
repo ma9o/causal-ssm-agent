@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SensitivityAnalysisTable } from "./sensitivity-analysis-table";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-4b.json";
 
-const data = fixture as Stage4bData;
+const data = fixture as unknown as Stage4bData;
 
 const meta = {
   title: "Stages/ParametricId/SensitivityAnalysisTable",
@@ -24,7 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <SensitivityAnalysisTable result={data.parametric_id.sensitivity_analysis} />
-  ),
+  args: { result: data.parametric_id.sensitivity_analysis! },
 };

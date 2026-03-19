@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage4Data } from "@causal-ssm/api-types";
+import type { PriorProposal, Stage4Data } from "@causal-ssm/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PriorTable } from "./prior-table";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
 
-const data = fixture as Stage4Data;
-const priors = data.priors;
+const data = fixture as unknown as Stage4Data;
+const priors = Object.values(data.priors).filter(Boolean) as PriorProposal[];
 const parameters = data.model_spec.parameters;
 
 const meta = {
@@ -26,9 +26,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const WithSearchContext: Story = {
-  render: () => <PriorTable priors={priors} parameters={parameters} />,
+  args: { priors, parameters },
 };
 
 export const WithoutSearchContext: Story = {
-  render: () => <PriorTable priors={priors} />,
+  args: { priors },
 };

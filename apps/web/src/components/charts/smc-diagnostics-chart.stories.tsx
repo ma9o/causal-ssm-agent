@@ -24,7 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <SMCDiagnosticsChart diagnostics={data.smc_diagnostics!} />
-  ),
+  args: { diagnostics: data.smc_diagnostics! },
 };

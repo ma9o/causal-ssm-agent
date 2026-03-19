@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { EdgeList } from "./edge-list";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 
-const data = fixture as Stage1aData;
+const data = fixture as unknown as Stage1aData;
 const edges = data.latent_model.edges;
 
 const meta = {
@@ -25,9 +25,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <EdgeList edges={edges} />,
+  args: { edges },
 };
 
 export const Empty: Story = {
-  render: () => <EdgeList edges={[]} />,
+  args: { edges: [] },
 };

@@ -8,7 +8,7 @@ import { Stage2RunningView } from "./stage-2-running-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-2.json";
 
 const stage = STAGES.find((s) => s.id === "stage-2")!;
-const data = fixture as Stage2Data;
+const data = fixture as unknown as Stage2Data;
 
 /* ── Mock data for running state ── */
 
@@ -51,13 +51,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -70,7 +70,7 @@ export const Running: Story = {
   ),
 };
 
-export const RunningHighRpm: Story = {
+export const RunningHighRpm: StoryObj = {
   name: "Running (High RPM)",
   render: () => (
     <StageSection
@@ -84,7 +84,7 @@ export const RunningHighRpm: Story = {
   ),
 };
 
-export const Running1kWorkers: Story = {
+export const Running1kWorkers: StoryObj = {
   name: "Running (1000 Workers)",
   render: () => (
     <StageSection
@@ -99,7 +99,8 @@ export const Running1kWorkers: Story = {
 };
 
 export const Completed: Story = {
-  render: () => (
+  args: { data },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -108,12 +109,12 @@ export const Completed: Story = {
       context={stage.description}
       elapsedMs={45_200}
     >
-      <Stage2Content data={data} />
+      <Stage2Content {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
   ),

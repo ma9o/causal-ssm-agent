@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { IndicatorTable } from "./indicator-table";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
 
-const data = fixture as Stage1bData;
+const data = fixture as unknown as Stage1bData;
 const indicators = data.causal_spec.measurement.indicators;
 
 const meta = {
@@ -25,9 +25,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <IndicatorTable indicators={indicators} />,
+  args: { indicators },
 };
 
 export const Empty: Story = {
-  render: () => <IndicatorTable indicators={[]} />,
+  args: { indicators: [] },
 };

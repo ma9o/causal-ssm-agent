@@ -25,21 +25,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <PPCWarningsTable
-      warnings={ppc.per_variable_warnings}
-      testStats={ppc.test_stats ?? []}
-      overlays={ppc.overlays ?? []}
-    />
-  ),
+  args: {
+    warnings: ppc.per_variable_warnings,
+    testStats: ppc.test_stats ?? [],
+    overlays: ppc.overlays ?? [],
+  },
 };
 
 export const WarningsOnly: Story = {
-  render: () => (
-    <PPCWarningsTable
-      warnings={ppc.per_variable_warnings}
-      testStats={[]}
-      overlays={[]}
-    />
-  ),
+  args: {
+    warnings: ppc.per_variable_warnings,
+    testStats: [],
+    overlays: [],
+  },
 };

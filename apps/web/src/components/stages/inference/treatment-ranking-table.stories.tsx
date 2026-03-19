@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { TreatmentRankingTable } from "./treatment-ranking-table";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
 
-const data = fixture as Stage6Data;
+const data = fixture as unknown as Stage6Data;
 
 const meta = {
   title: "Stages/Inference/TreatmentRankingTable",
@@ -24,7 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <TreatmentRankingTable results={data.intervention_results} />
-  ),
+  args: { results: data.intervention_results },
 };

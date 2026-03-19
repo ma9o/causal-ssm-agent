@@ -24,5 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <PowerScalingScatter results={data.power_scaling ?? []} />,
+  args: { results: data.power_scaling ?? [] },
 };

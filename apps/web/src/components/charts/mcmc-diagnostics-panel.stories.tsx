@@ -24,7 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <MCMCDiagnosticsPanel diagnostics={data.mcmc_diagnostics!} />
-  ),
+  args: { diagnostics: data.mcmc_diagnostics! },
 };

@@ -5,8 +5,8 @@ import { CausalDag } from "./causal-dag";
 import stage1aFixture from "../../../../../data/DOCTOLIB/run/stage-1a.json";
 import stage1bFixture from "../../../../../data/DOCTOLIB/run/stage-1b.json";
 
-const stage1a = stage1aFixture as Stage1aData;
-const stage1b = stage1bFixture as Stage1bData;
+const stage1a = stage1aFixture as unknown as Stage1aData;
+const stage1b = stage1bFixture as unknown as Stage1bData;
 const constructs = stage1a.latent_model.constructs;
 const edges = stage1a.latent_model.edges;
 const indicators = stage1b.causal_spec.measurement.indicators;
@@ -30,26 +30,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <CausalDag constructs={constructs} edges={edges} />,
+  args: { constructs, edges },
 };
 
 export const WithIndicators: Story = {
-  render: () => (
-    <CausalDag constructs={constructs} edges={edges} indicators={indicators} />
-  ),
+  args: { constructs, edges, indicators },
 };
 
 export const WithIdentifiability: Story = {
-  render: () => (
-    <CausalDag
-      constructs={constructs}
-      edges={edges}
-      indicators={indicators}
-      identifiability={identifiability}
-    />
-  ),
+  args: { constructs, edges, indicators, identifiability },
 };
 
 export const Empty: Story = {
-  render: () => <CausalDag constructs={[]} edges={[]} />,
+  args: { constructs: [], edges: [] },
 };

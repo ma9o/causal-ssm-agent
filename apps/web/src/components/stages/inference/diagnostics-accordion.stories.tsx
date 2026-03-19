@@ -28,51 +28,41 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SVIOnly: Story = {
-  render: () => (
-    <DiagnosticsAccordion
-      sviDiagnostics={stage5a.svi_diagnostics}
-      posteriorMarginals={svi.posterior_marginals}
-      posteriorPairs={svi.posterior_pairs}
-    />
-  ),
+  args: {
+    sviDiagnostics: stage5a.svi_diagnostics,
+    posteriorMarginals: svi.posterior_marginals,
+    posteriorPairs: svi.posterior_pairs,
+  },
 };
 
 export const MCMCOnly: Story = {
-  render: () => (
-    <DiagnosticsAccordion
-      mcmcDiagnostics={nutsda.mcmc_diagnostics}
-      posteriorMarginals={nutsda.posterior_marginals}
-      posteriorPairs={nutsda.posterior_pairs}
-    />
-  ),
+  args: {
+    mcmcDiagnostics: nutsda.mcmc_diagnostics,
+    posteriorMarginals: nutsda.posterior_marginals,
+    posteriorPairs: nutsda.posterior_pairs,
+  },
 };
 
 export const AllSections: Story = {
-  render: () => (
-    <DiagnosticsAccordion
-      powerScaling={nutsda.power_scaling}
-      ppc={nutsda.ppc}
-      mcmcDiagnostics={nutsda.mcmc_diagnostics}
-      looDiagnostics={nutsda.loo_diagnostics}
-      posteriorMarginals={nutsda.posterior_marginals}
-      posteriorPairs={nutsda.posterior_pairs}
-    />
-  ),
+  args: {
+    powerScaling: nutsda.power_scaling,
+    ppc: nutsda.ppc,
+    mcmcDiagnostics: nutsda.mcmc_diagnostics,
+    looDiagnostics: nutsda.loo_diagnostics,
+    posteriorMarginals: nutsda.posterior_marginals,
+    posteriorPairs: nutsda.posterior_pairs,
+  },
 };
 
 export const SMCWithLOO: Story = {
-  render: () => (
-    <DiagnosticsAccordion
-      smcDiagnostics={svi.smc_diagnostics}
-      looDiagnostics={svi.loo_diagnostics}
-      powerScaling={svi.power_scaling}
-      ppc={svi.ppc}
-      posteriorMarginals={svi.posterior_marginals}
-      posteriorPairs={svi.posterior_pairs}
-    />
-  ),
+  args: {
+    smcDiagnostics: svi.smc_diagnostics,
+    looDiagnostics: svi.loo_diagnostics,
+    powerScaling: svi.power_scaling,
+    ppc: svi.ppc,
+    posteriorMarginals: svi.posterior_marginals,
+    posteriorPairs: svi.posterior_pairs,
+  },
 };
 
-export const Empty: Story = {
-  render: () => <DiagnosticsAccordion />,
-};
+export const Empty: Story = {};

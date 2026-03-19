@@ -17,20 +17,21 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <HardGateAlert
-      title="Identifiability Failed"
-      explanation="None of the proposed treatment effects are nonparametrically identifiable from the current DAG structure. The pipeline cannot proceed without at least one identifiable causal path."
-    />
-  ),
+  args: {
+    title: "Identifiability Failed",
+    explanation:
+      "None of the proposed treatment effects are nonparametrically identifiable from the current DAG structure. The pipeline cannot proceed without at least one identifiable causal path.",
+  },
 };
 
 export const WithChildren: Story = {
-  render: () => (
-    <HardGateAlert
-      title="Validation Hard Failure"
-      explanation="Critical data quality issues were detected that prevent model fitting."
-    >
+  args: {
+    title: "Validation Hard Failure",
+    explanation:
+      "Critical data quality issues were detected that prevent model fitting.",
+  },
+  render: (args) => (
+    <HardGateAlert {...args}>
       <ul className="list-disc pl-5 text-sm">
         <li>Zero variance detected in 3 indicators</li>
         <li>More than 50% of timestamps are unparseable</li>

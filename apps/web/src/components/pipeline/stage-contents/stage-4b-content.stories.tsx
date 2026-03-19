@@ -26,7 +26,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -38,7 +38,7 @@ export const Pending: Story = {
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -52,7 +52,8 @@ export const Running: Story = {
 };
 
 export const Completed: Story = {
-  render: () => (
+  args: { data },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -63,12 +64,12 @@ export const Completed: Story = {
       gateOverridden={data.gate_overridden ?? undefined}
       elapsedMs={8_400}
     >
-      <Stage4bContent data={data} />
+      <Stage4bContent {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}

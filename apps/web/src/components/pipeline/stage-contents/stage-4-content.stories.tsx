@@ -9,9 +9,9 @@ import stage2Fixture from "../../../../../../data/DOCTOLIB/run/stage-2.json";
 import stage1bFixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
-const data = fixture as Stage4Data;
-const extractions = (stage2Fixture as Stage2Data).combined_extractions_sample;
-const indicators = (stage1bFixture as Stage1bData).causal_spec.measurement.indicators;
+const data = fixture as unknown as Stage4Data;
+const extractions = (stage2Fixture as unknown as Stage2Data).combined_extractions_sample;
+const indicators = (stage1bFixture as unknown as Stage1bData).causal_spec.measurement.indicators;
 
 const meta = {
   title: "Pipeline/Stages/4 – Model Specification",
@@ -30,13 +30,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -49,7 +49,8 @@ export const Running: Story = {
 };
 
 export const Completed: Story = {
-  render: () => (
+  args: { data, extractions, indicators },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -58,12 +59,12 @@ export const Completed: Story = {
       context={stage.description}
       elapsedMs={15_600}
     >
-      <Stage4Content data={data} extractions={extractions} indicators={indicators} />
+      <Stage4Content {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
   ),

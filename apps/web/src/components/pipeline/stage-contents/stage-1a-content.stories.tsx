@@ -7,7 +7,7 @@ import Stage1aContent from "./stage-1a-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 
 const stage = STAGES.find((s) => s.id === "stage-1a")!;
-const data = fixture as Stage1aData;
+const data = fixture as unknown as Stage1aData;
 
 const meta = {
   title: "Pipeline/Stages/1a – Latent Model",
@@ -26,13 +26,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -45,7 +45,8 @@ export const Running: Story = {
 };
 
 export const Completed: Story = {
-  render: () => (
+  args: { data },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -54,12 +55,12 @@ export const Completed: Story = {
       context={stage.description}
       elapsedMs={12_450}
     >
-      <Stage1aContent data={data} />
+      <Stage1aContent {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
   ),

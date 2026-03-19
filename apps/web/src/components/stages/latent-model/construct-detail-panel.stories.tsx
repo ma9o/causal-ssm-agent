@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConstructDetailPanel } from "./construct-detail-panel";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 
-const data = fixture as Stage1aData;
+const data = fixture as unknown as Stage1aData;
 const constructs = data.latent_model.constructs;
 const endogenous = constructs.find((c) => c.role === "endogenous")!;
 const exogenous = constructs.find((c) => c.role === "exogenous")!;
@@ -28,13 +28,13 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Endogenous: Story = {
-  render: () => <ConstructDetailPanel construct={endogenous} />,
+  args: { construct: endogenous },
 };
 
 export const Exogenous: Story = {
-  render: () => <ConstructDetailPanel construct={exogenous} />,
+  args: { construct: exogenous },
 };
 
 export const Outcome: Story = {
-  render: () => <ConstructDetailPanel construct={outcome} />,
+  args: { construct: outcome },
 };
