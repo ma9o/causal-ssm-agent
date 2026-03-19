@@ -24,6 +24,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
 from causal_ssm_agent.models.likelihoods.base import (
+    MISSING_DATA_LARGE_VAR,
     CTParams,
     InitialStateParams,
     MeasurementParams,
@@ -170,4 +171,11 @@ class KalmanLikelihood:
         )
 
         states = cuthbert_filter(filter_obj, model_inputs)
-        return states.log_normalizing_constant
+
+        # cuthbert still includes the normalization constant from the inflated
+        # missing dimensions. Remove that additive term so masked channels
+        # contribute zero, matching the particle and RB paths.
+        n_missing = m - jnp.sum(obs_mask.astype(clean_obs.dtype), axis=1)
+        missing_correction = 0.5 * n_missing * jnp.log(2.0 * jnp.pi * MISSING_DATA_LARGE_VAR)
+
+        return states.log_normalizing_constant + jnp.cumsum(missing_correction)

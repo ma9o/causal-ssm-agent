@@ -32,6 +32,7 @@ from causal_ssm_agent.models.likelihoods.base import (
     InitialStateParams,
     MeasurementParams,
 )
+from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
 from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
 from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
@@ -272,6 +273,113 @@ class TestParticleMissingData:
 
         assert jnp.isfinite(ll)
         assert jnp.allclose(ll, manual, atol=1e-5), f"{ll} vs {manual}"
+
+
+class TestKalmanMissingData:
+    """Regression tests for missing-data handling in the exact Kalman path."""
+
+    @staticmethod
+    def _simple_params(n_manifest: int) -> tuple[CTParams, MeasurementParams, InitialStateParams]:
+        ct_params = CTParams(
+            drift=jnp.array([[-0.5]]),
+            diffusion_cov=jnp.array([[1e-6]]),
+            cint=jnp.array([0.0]),
+        )
+        measurement_params = MeasurementParams(
+            lambda_mat=jnp.ones((n_manifest, 1)),
+            manifest_means=jnp.zeros(n_manifest),
+            manifest_cov=jnp.eye(n_manifest) * 0.5,
+        )
+        initial_state = InitialStateParams(
+            mean=jnp.array([0.0]),
+            cov=jnp.array([[1.0]]),
+        )
+        return ct_params, measurement_params, initial_state
+
+    def test_fully_missing_timestep_has_zero_increment(self):
+        """A timestep with no observations should add zero log-likelihood."""
+        backend = KalmanLikelihood(n_latent=1, n_manifest=1)
+        ct_params, measurement_params, initial_state = self._simple_params(n_manifest=1)
+
+        lnc = backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            jnp.array([[1.0], [jnp.nan]]),
+            jnp.array([1.0, 1.0]),
+        )
+
+        ll_per_timestep = jnp.diff(lnc, prepend=0.0)
+        assert jnp.isclose(ll_per_timestep[1], 0.0, atol=1e-5), ll_per_timestep
+
+    def test_missing_channel_matches_observed_subsystem(self):
+        """Masking out one manifest should match the corresponding 1D Kalman model."""
+        dt = jnp.array([1.0])
+        init_mask = InitialStateParams(mean=jnp.array([0.0]), cov=jnp.array([[1.0]]))
+        ct_mask = CTParams(
+            drift=jnp.array([[-0.5]]), diffusion_cov=jnp.array([[1e-6]]), cint=jnp.array([0.0])
+        )
+
+        masked_backend = KalmanLikelihood(n_latent=1, n_manifest=2)
+        masked_meas = MeasurementParams(
+            lambda_mat=jnp.array([[1.0], [1.0]]),
+            manifest_means=jnp.array([0.0, 0.0]),
+            manifest_cov=jnp.diag(jnp.array([0.5, 0.5])),
+        )
+        ll_from_nan = masked_backend.compute_log_likelihood(
+            ct_mask,
+            masked_meas,
+            init_mask,
+            jnp.array([[1.0, jnp.nan]]),
+            dt,
+        )
+        ll_from_explicit_mask = masked_backend.compute_log_likelihood(
+            ct_mask,
+            masked_meas,
+            init_mask,
+            jnp.array([[1.0, 999.0]]),
+            dt,
+            obs_mask=jnp.array([[True, False]]),
+        )
+
+        single_backend = KalmanLikelihood(n_latent=1, n_manifest=1)
+        single_meas = MeasurementParams(
+            lambda_mat=jnp.array([[1.0]]),
+            manifest_means=jnp.array([0.0]),
+            manifest_cov=jnp.array([[0.5]]),
+        )
+        ll_single = single_backend.compute_log_likelihood(
+            ct_mask,
+            single_meas,
+            init_mask,
+            jnp.array([[1.0]]),
+            dt,
+        )
+
+        assert jnp.allclose(ll_from_nan, ll_from_explicit_mask, atol=1e-4)
+        assert jnp.allclose(ll_from_nan, ll_single, atol=1e-5)
+
+    def test_skipped_empty_tick_matches_explicit_missing_timestep(self):
+        """A fully unobserved clock tick should be equivalent to a longer dt gap."""
+        backend = KalmanLikelihood(n_latent=1, n_manifest=1)
+        ct_params, measurement_params, initial_state = self._simple_params(n_manifest=1)
+
+        ll_skipped_tick = backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            jnp.array([[1.0], [2.0]]),
+            jnp.array([1.0, 2.0]),
+        )
+        ll_explicit_missing_tick = backend.compute_log_likelihood(
+            ct_params,
+            measurement_params,
+            initial_state,
+            jnp.array([[1.0], [jnp.nan], [2.0]]),
+            jnp.array([1.0, 1.0, 1.0]),
+        )
+
+        assert jnp.allclose(ll_skipped_tick[-1], ll_explicit_missing_tick[-1], atol=1e-5)
 
 
 class TestStudentTProcessNoise:
