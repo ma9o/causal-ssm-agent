@@ -13,6 +13,14 @@
     }
   },
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/.next", "!**/.turbo", "!**/dist"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/dist",
+      "!**/generated",
+      "!packages/api-types/schemas"
+    ]
   }
 }

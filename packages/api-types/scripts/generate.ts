@@ -10,6 +10,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { compile } from "json-schema-to-typescript";
 
+// biome-ignore lint/suspicious/noExplicitAny: JSON Schema nodes are inherently untyped
+type JsonSchema = any;
+
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
 const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
@@ -26,7 +29,7 @@ const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
  * Per JSON Schema 2020-12, `$ref` siblings are valid but the TS codegen
  * library doesn't handle them well, so we strip them.
  */
-function collapseRefs(schema: any): any {
+function collapseRefs(schema: JsonSchema): JsonSchema {
   if (typeof schema !== "object" || schema === null) return schema;
   if (Array.isArray(schema)) return schema.map(collapseRefs);
 
@@ -35,7 +38,7 @@ function collapseRefs(schema: any): any {
     return { $ref: schema.$ref };
   }
 
-  const result: any = {};
+  const result: JsonSchema = {};
   for (const [key, value] of Object.entries(schema)) {
     result[key] = collapseRefs(value);
   }
@@ -53,19 +56,19 @@ function collapseRefs(schema: any): any {
  * We keep titles on top-level $defs (the actual model names) but strip
  * them from individual properties.
  */
-function stripFieldTitles(schema: any, isTopLevel = true): any {
+function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
   if (typeof schema !== "object" || schema === null) return schema;
 
   if (Array.isArray(schema)) {
     return schema.map((item) => stripFieldTitles(item, false));
   }
 
-  const result: any = {};
+  const result: JsonSchema = {};
   for (const [key, value] of Object.entries(schema)) {
     if (key === "properties" && typeof value === "object" && value !== null) {
       // Strip titles from property definitions
-      const cleanProps: any = {};
-      for (const [propName, propSchema] of Object.entries(value as Record<string, any>)) {
+      const cleanProps: JsonSchema = {};
+      for (const [propName, propSchema] of Object.entries(value as Record<string, JsonSchema>)) {
         const cleaned = { ...propSchema };
         delete cleaned.title;
         cleanProps[propName] = stripFieldTitles(cleaned, false);
@@ -73,8 +76,8 @@ function stripFieldTitles(schema: any, isTopLevel = true): any {
       result[key] = cleanProps;
     } else if (key === "$defs" && typeof value === "object" && value !== null) {
       // Keep titles on $defs (model-level names) but recurse into their contents
-      const cleanDefs: any = {};
-      for (const [defName, defSchema] of Object.entries(value as Record<string, any>)) {
+      const cleanDefs: JsonSchema = {};
+      for (const [defName, defSchema] of Object.entries(value as Record<string, JsonSchema>)) {
         cleanDefs[defName] = stripFieldTitles(defSchema, true);
       }
       result[key] = cleanDefs;
@@ -87,7 +90,7 @@ function stripFieldTitles(schema: any, isTopLevel = true): any {
       result[key] = stripFieldTitles(cleaned, false);
     } else if (key === "anyOf" || key === "oneOf") {
       // Strip titles from union members
-      result[key] = (value as any[]).map((item: any) => {
+      result[key] = (value as JsonSchema[]).map((item: JsonSchema) => {
         const cleaned = typeof item === "object" ? { ...item } : item;
         if (typeof cleaned === "object" && cleaned !== null) {
           delete cleaned.title;
