@@ -218,7 +218,10 @@ async def stage2(
                 .alias("time_bucket"),
             )
             .drop("timestamp")
-            .drop_nulls(subset=["time_bucket", "value"])
+            # Preserve null values so sparse measurements reach inference as
+            # missing observations instead of being deleted at the serialization
+            # boundary. Rows without a valid tick are still unusable.
+            .drop_nulls(subset=["time_bucket"])
         )
         data_for_model = data_for_model.sort("indicator", "time_bucket")
     else:

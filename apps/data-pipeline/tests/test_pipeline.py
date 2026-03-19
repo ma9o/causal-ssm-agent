@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 
 import cloudpickle
+import jax.numpy as jnp
 import numpy as np
 import polars as pl
 import pytest
@@ -914,6 +915,75 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
     assert stub.fn_calls == []
     assert result["_raw_data"].height == 1
     assert result["workers"] == [{"worker_id": 0, "status": "completed", "n_extractions": 1}]
+
+
+def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
+    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+    from causal_ssm_agent.utils.data import pivot_to_wide
+
+    stub = _AsyncSubflowStub(
+        {
+            "raw_data": [
+                {
+                    "indicator": "daytime_screen_events",
+                    "value": "5",
+                    "timestamp": "2024-01-01T00:00:00Z",
+                },
+                {
+                    "indicator": "last_evening_activity_hour",
+                    "value": None,
+                    "timestamp": "2024-01-01T00:00:00Z",
+                },
+            ],
+            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 2}],
+            "n_total_extractions": 2,
+        }
+    )
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
+    )
+
+    result = asyncio.run(
+        dag.stage2(
+            "why is this happening?",
+            {"_df_path": str(tmp_path / "input.parquet")},
+            {
+                "causal_spec": {
+                    "measurement": {
+                        "model_clock": "1d",
+                        "indicators": [
+                            {
+                                "name": "daytime_screen_events",
+                                "measurement_dtype": "count",
+                            },
+                            {
+                                "name": "last_evening_activity_hour",
+                                "measurement_dtype": "continuous",
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+    )
+
+    data_for_model = result["_data_for_model"]
+    assert data_for_model.height == 2
+    assert (
+        data_for_model.filter(pl.col("indicator") == "last_evening_activity_hour")[
+            "value"
+        ].null_count()
+        == 1
+    )
+
+    observations, _times, manifest_names = SSMModelBuilder(
+        sampler_config={"method": "auto"}
+    ).prepare_fit_inputs(pivot_to_wide(data_for_model))
+    assert manifest_names == ["daytime_screen_events", "last_evening_activity_hour"]
+    assert jnp.isclose(observations[0, 0], 5.0)
+    assert jnp.isnan(observations[0, 1])
 
 
 def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
