@@ -69,16 +69,16 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Sync runtime secrets to Vercel
         run: |
-          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force 2>&1 || true; }
+          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force --token="$VERCEL_TOKEN" 2>&1 || true; }
           sync_env DEPLOYMENT_ENV           production
           sync_env R2_ENDPOINT_URL          "${{ secrets.R2_ENDPOINT_URL }}"
           sync_env R2_ACCESS_KEY_ID         "${{ secrets.R2_ACCESS_KEY_ID }}"
           sync_env R2_SECRET_ACCESS_KEY     "${{ secrets.R2_SECRET_ACCESS_KEY }}"
           sync_env R2_BUCKET                "${{ secrets.R2_BUCKET }}"
           sync_env R2_PREFIX                data
-      - run: bunx vercel pull --yes --environment=production
-      - run: bunx vercel build --prod
-      - run: bunx vercel deploy --prebuilt --prod
+      - run: bunx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - run: bunx vercel build --prod --token="$VERCEL_TOKEN"
+      - run: bunx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
   # ---------------------------------------------------------------------------
   # Deploy Prefect flows
