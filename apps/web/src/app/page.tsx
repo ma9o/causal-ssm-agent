@@ -52,12 +52,10 @@ export default function LandingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMac, setIsMac] = useState(false);
+  const [isMac] = useState(() =>
+    typeof navigator !== "undefined" ? /Mac/.test(navigator.userAgent) : false
+  );
   const auth = useAuth();
-
-  useEffect(() => {
-    setIsMac(/Mac/.test(navigator.userAgent));
-  }, []);
 
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {

@@ -18,10 +18,7 @@ export default function AuthCallbackPage({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!code) {
-      setError("No authorization code received from OpenRouter.");
-      return;
-    }
+    if (!code) return;
 
     const codeVerifier = getCodeVerifier();
     clearCodeVerifier();
@@ -47,6 +44,19 @@ export default function AuthCallbackPage({
         setError("Failed to complete authentication. Please try again.");
       });
   }, [code, router]);
+
+  if (!code) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="text-center space-y-4">
+          <p className="text-sm text-destructive">No authorization code received from OpenRouter.</p>
+          <Link href="/" className="text-sm text-primary underline underline-offset-2">
+            Return home
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">

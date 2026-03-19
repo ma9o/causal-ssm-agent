@@ -21,13 +21,15 @@ export type AuthState = {
 };
 
 export function useAuth(): AuthState {
-  const [userKey, setUserKey] = useState<string | null>(null);
-  const [identity, setIdentityState] = useState<UserIdentity | null>(null);
+  const [userKey, setUserKey] = useState<string | null>(() =>
+    typeof window !== "undefined" ? getUserApiKey() : null
+  );
+  const [identity, setIdentityState] = useState<UserIdentity | null>(() =>
+    typeof window !== "undefined" ? getIdentity() : null
+  );
   const [hasCredits, setHasCredits] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setUserKey(getUserApiKey());
-    setIdentityState(getIdentity());
     fetch("/api/auth/credits")
       .then((r) => r.json())
       .then((d) => setHasCredits(d.hasCredits))
