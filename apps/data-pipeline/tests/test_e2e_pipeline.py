@@ -353,12 +353,6 @@ def priors():
 
 
 @pytest.fixture(scope="class")
-def raw_data_pl(worker_dfs):
-    """Long-format polars DataFrame from concatenating worker DataFrames."""
-    return pl.concat(worker_dfs, how="vertical")
-
-
-@pytest.fixture(scope="class")
 def daily_data(causal_spec, worker_dfs):
     """Data at model_clock resolution with datetime time_bucket column.
 

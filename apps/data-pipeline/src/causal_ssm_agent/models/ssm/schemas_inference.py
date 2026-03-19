@@ -263,60 +263,9 @@ class TemporalEffect(BaseModel):
     time_to_peak_days: float
 
 
-class TreatmentEffect(BaseModel):
-    """Intervention result for a single treatment."""
-
-    treatment: str
-    effect_size: float | None = None
-    posterior_draws: list[float] | None = None
-    prob_positive: float | None = None
-    identifiable: bool = True
-    ppc_warnings: list[str] | None = None
-    prior_sensitivity_warning: str | None = None
-    temporal: TemporalEffect | None = None
-    manifest_effects: dict[str, float] | None = None
-
-
-# ---------------------------------------------------------------------------
-# Power scaling
-# ---------------------------------------------------------------------------
-
-
-PowerScalingDiagnosis = Literal[
-    "prior_dominated",
-    "well_identified",
-    "prior_data_conflict",
-]
-
-
-class PowerScalingEntry(BaseModel):
-    """Per-parameter power-scaling sensitivity result."""
-
-    parameter: str
-    diagnosis: PowerScalingDiagnosis
-    prior_sensitivity: float
-    likelihood_sensitivity: float
-    psis_k_hat: float | None = None
-
-
-# ---------------------------------------------------------------------------
-# Inference metadata
-# ---------------------------------------------------------------------------
-
-
-class InferenceMetadata(BaseModel):
-    """Metadata about the inference run."""
-
-    method: str
-    n_samples: int
-    duration_seconds: float
-
-
 # ---------------------------------------------------------------------------
 # Named type aliases (formalized from inline constants)
 # ---------------------------------------------------------------------------
-
-CausalGranularity = Literal["hourly", "daily", "weekly", "monthly", "yearly"]
 
 MeasurementDtype = Literal["continuous", "binary", "count", "ordinal", "categorical"]
 
@@ -346,11 +295,6 @@ AggregationFunction = Literal[
     "trend",
     "n_unique",
 ]
-
-ValidationSeverity = Literal["error", "warning", "info"]
-
-CellStatus = Literal["ok", "warning", "error"]
-
 
 # Avoid circular import — TRuleResult lives in parametric_id.py
 from causal_ssm_agent.utils.parametric_id import TRuleResult as TRuleResult  # noqa: E402, TC001
