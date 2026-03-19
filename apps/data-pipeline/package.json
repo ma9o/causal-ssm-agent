@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "uv run uvicorn causal_ssm_agent.tool_server:app --reload --port 8100",
-    "test": "uv run pytest tests/",
-    "lint": "uv run ruff check src/ tests/",
+    "test": "uv run pytest tests/ -m 'not slow'",
+    "test:all": "uv run pytest tests/",
+    "lint": "uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/",
+    "lint:fix": "uv run ruff check --fix src/ tests/ && uv run ruff format src/ tests/",
     "format": "uv run ruff format src/ tests/",
     "type-check": "echo 'skipped (Python)'"
   }
