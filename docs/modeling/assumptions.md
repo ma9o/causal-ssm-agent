@@ -96,20 +96,22 @@ But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current
 
 ---
 
-## A5. Time-Invariant Latents as Subject-Level Intercepts
+## A5. Time-Invariant Latents as Subject-Level Static States
 
-**Assumption:** Time-invariant constructs capture stable subject-level differences. They are exogenous by construction—no modeled causes within the system.
+**Assumption:** Time-invariant constructs capture stable subject-level differences over the modeled window. They may be exogenous or endogenous, but any modeled causes of a time-invariant construct must themselves be time-invariant.
 
 **Definition:** A time-invariant latent is implemented as a quasi-constant state: its drift diagonal is set to ≈0 (−1e−6) and its diffusion to ≈0, so η_i(t) ≈ η_i(0) throughout the time series.
 
 **Implications:**
-- Time-invariant latents act as subject-specific intercepts, absorbing stable baseline differences
-- They cannot be predicted by other variables in the model
+- Time-invariant latents act as subject-specific static states, absorbing stable baseline differences
+- They may serve as stable covariates or as static outcomes/traits explained by other stable constructs
+- They cannot have time-varying parents, because a within-person changing cause cannot determine a within-person fixed child
+- If a time-invariant construct has parents, those parents must also be time-invariant
 - They affect time-varying constructs at every timestep (see A3a unrolling)
 
 **Note on hierarchical modeling:** The current implementation fits each subject independently—there is no cross-subject shrinkage or hierarchical prior on these intercepts. True random effects (in the SEM/multilevel sense) would require a hierarchical model where subject-level parameters are drawn from a population distribution. This is not currently supported.
 
-**Justification:** In intensive longitudinal data, ignoring stable individual differences biases within-person effect estimates. Subject-level intercepts are the minimal adjustment for this confound.
+**Justification:** In intensive longitudinal data, ignoring stable individual differences biases within-person effect estimates. Static subject-level states are the minimal adjustment for this confound. Allowing time-invariant constructs to depend on other time-invariant constructs still preserves that interpretation while ruling out incoherent within-person arrows into fixed variables.
 
 ---
 

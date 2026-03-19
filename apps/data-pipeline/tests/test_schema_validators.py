@@ -105,6 +105,13 @@ class TestValidateLatentModel:
         assert model is None
         assert any("nonexistent" in e for e in errors)
 
+    def test_time_varying_to_time_invariant_edge_is_rejected(self):
+        data = _valid_latent_data()
+        data["constructs"][1]["temporal_status"] = "time_invariant"
+        model, errors = validate_latent_model(data)
+        assert model is None
+        assert any("cannot be a cause of time-invariant construct" in e for e in errors)
+
     def test_multiple_errors_collected(self):
         """Should collect all errors, not just the first."""
         data = {
