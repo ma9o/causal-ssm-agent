@@ -98,37 +98,39 @@ def format_distribution_cards(distribution_cards: list[dict]) -> str:
     if not distribution_cards:
         return "(none — all indicator likelihoods were deterministic)"
 
-    lines: list[str] = []
+    lines: list[str] = [
+        "| Variable | Construct | Dtype | Aggregation | Options | Empirical Profile | Issues | How to Measure |",
+        "|----------|-----------|-------|-------------|---------|-------------------|--------|----------------|",
+    ]
     for card in distribution_cards:
-        lines.extend(
-            [
-                f"### `{card['variable']}`",
-                f"- construct: `{card.get('construct') or 'unknown'}`",
-                (
-                    f"- dtype: `{card.get('measurement_dtype') or 'unknown'}`; "
-                    f"aggregation: `{card.get('aggregation') or 'unknown'}`"
-                ),
-                f"- how_to_measure: {card.get('how_to_measure') or '-'}",
-            ]
-        )
-
         option_parts = []
         for option in card.get("options", []):
             links = option.get("links") or []
             if len(links) == 1:
-                option_parts.append(f"`{option['distribution']}` -> `{links[0]}` (auto)")
+                option_parts.append(f"`{option['distribution']}` → `{links[0]}` (auto)")
             else:
                 option_parts.append(
-                    f"`{option['distribution']}` -> {', '.join(f'`{link}`' for link in links)}"
+                    f"`{option['distribution']}` → {', '.join(f'`{link}`' for link in links)}"
                 )
-        lines.append("- options: " + ("; ".join(option_parts) if option_parts else "-"))
-        lines.append(f"- empirical profile: {_format_profile_summary(card.get('profile'))}")
+        options_str = "; ".join(option_parts) if option_parts else "-"
 
         issues = card.get("validation_issues") or []
-        lines.append("- validation issues: " + ("; ".join(issues) if issues else "none"))
-        lines.append("")
+        issues_str = "; ".join(issues) if issues else "none"
 
-    return "\n".join(lines).rstrip()
+        lines.append(
+            "| {variable} | {construct} | {dtype} | {aggregation} | {options} | {profile} | {issues} | {how} |".format(
+                variable=card["variable"],
+                construct=card.get("construct") or "unknown",
+                dtype=card.get("measurement_dtype") or "unknown",
+                aggregation=card.get("aggregation") or "unknown",
+                options=options_str.replace("|", "/"),
+                profile=_format_profile_summary(card.get("profile")).replace("|", "/"),
+                issues=issues_str.replace("|", "/"),
+                how=(card.get("how_to_measure") or "-").replace("|", "/"),
+            )
+        )
+
+    return "\n".join(lines)
 
 
 def format_construct_scale_cards(construct_scale_cards: list[dict]) -> str:
