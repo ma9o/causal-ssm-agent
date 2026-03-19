@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { RBPartitionCard } from "./rb-partition-card";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-4b.json";
 
-const data = fixture as Stage4bData;
+const data = fixture as unknown as Stage4bData;
 
 const meta = {
   title: "Stages/ParametricId/RBPartitionCard",
@@ -24,5 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <RBPartitionCard partition={data.rb_partition} />,
+  args: { partition: data.rb_partition! },
 };

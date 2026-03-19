@@ -7,7 +7,7 @@ import Stage1bContent from "./stage-1b-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-1b")!;
-const data = fixture as Stage1bData;
+const data = fixture as unknown as Stage1bData;
 
 const meta = {
   title: "Pipeline/Stages/1b – Measurement [gated]",
@@ -26,7 +26,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -38,7 +38,7 @@ export const Pending: Story = {
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -52,7 +52,8 @@ export const Running: Story = {
 };
 
 export const Completed: Story = {
-  render: () => (
+  args: { data },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -63,12 +64,12 @@ export const Completed: Story = {
       gateOverridden={data.gate_overridden ?? undefined}
       elapsedMs={18_900}
     >
-      <Stage1bContent data={data} />
+      <Stage1bContent {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}

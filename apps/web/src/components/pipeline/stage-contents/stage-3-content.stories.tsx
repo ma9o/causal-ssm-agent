@@ -101,15 +101,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
-  args: { data },
+export const Pending: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
   ),
 };
 
-export const Running: Story = {
-  args: { data },
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -123,7 +121,7 @@ export const Running: Story = {
 
 export const Completed: Story = {
   args: { data },
-  render: () => (
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -132,13 +130,12 @@ export const Completed: Story = {
       context={stage.description}
       elapsedMs={3_800}
     >
-      <Stage3Content data={data} />
+      <Stage3Content {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
-  args: { data },
+export const Failed: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
   ),

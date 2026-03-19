@@ -25,5 +25,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <PosteriorDensityChart marginal={marginals[0]} />,
+  args: { marginal: marginals[0] },
 };

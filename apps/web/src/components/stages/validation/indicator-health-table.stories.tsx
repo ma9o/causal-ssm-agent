@@ -98,9 +98,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const WithIssues: Story = {
-  render: () => <IndicatorHealthTable audits={data.indicators ?? {}} />,
+  args: { audits: data.indicators ?? {} },
 };
 
 export const AllClean: Story = {
-  render: () => <IndicatorHealthTable audits={{}} />,
+  args: { audits: {} },
 };

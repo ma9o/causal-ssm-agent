@@ -5,8 +5,8 @@ import { MeasurementTable } from "./measurement-table";
 import stage4Fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
 import stage2Fixture from "../../../../../../data/DOCTOLIB/run/stage-2.json";
 
-const stage4 = stage4Fixture as Stage4Data;
-const stage2 = stage2Fixture as Stage2Data;
+const stage4 = stage4Fixture as unknown as Stage4Data;
+const stage2 = stage2Fixture as unknown as Stage2Data;
 
 const likelihoods = stage4.model_spec.likelihoods;
 const extractions = stage2.combined_extractions_sample;
@@ -30,17 +30,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <MeasurementTable likelihoods={likelihoods} extractions={extractions} />
-  ),
+  args: { likelihoods, extractions },
 };
 
 export const WithPriorPredictive: Story = {
-  render: () => (
-    <MeasurementTable
-      likelihoods={likelihoods}
-      extractions={extractions}
-      priorPredictiveSamples={priorPredictiveSamples}
-    />
-  ),
+  args: { likelihoods, extractions, priorPredictiveSamples },
 };

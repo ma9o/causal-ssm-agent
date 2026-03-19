@@ -25,5 +25,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <PosteriorPairsChart pair={pairs[0]} />,
+  args: { pair: pairs[0] },
 };

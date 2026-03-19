@@ -28,13 +28,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Pending: Story = {
+export const Pending: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
   ),
 };
 
-export const Running: Story = {
+export const Running: StoryObj = {
   render: () => (
     <StageSection
       number={stage.number}
@@ -48,7 +48,8 @@ export const Running: Story = {
 
 export const CompletedSVI: Story = {
   name: "Completed (SVI / Laplace EM)",
-  render: () => (
+  args: { data, userId: "demo-user" },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -57,14 +58,15 @@ export const CompletedSVI: Story = {
       context={stage.description}
       elapsedMs={124_500}
     >
-      <Stage5bContent data={data} />
+      <Stage5bContent {...args} />
     </StageSection>
   ),
 };
 
 export const CompletedNUTS: Story = {
   name: "Completed (NUTS / DA)",
-  render: () => (
+  args: { data: nutsdaData, userId: "demo-user" },
+  render: (args) => (
     <StageSection
       number={stage.number}
       title={stage.label}
@@ -73,12 +75,12 @@ export const CompletedNUTS: Story = {
       context={stage.description}
       elapsedMs={342_000}
     >
-      <Stage5bContent data={nutsdaData} />
+      <Stage5bContent {...args} />
     </StageSection>
   ),
 };
 
-export const Failed: Story = {
+export const Failed: StoryObj = {
   render: () => (
     <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
   ),

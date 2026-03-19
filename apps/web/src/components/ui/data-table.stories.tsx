@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { DataTable } from "./data-table";
 import fixture from "../../../../../data/DOCTOLIB/run/stage-2.json";
 
-const data = fixture as Stage2Data;
+const data = fixture as unknown as Stage2Data;
 const rows = data.combined_extractions_sample.slice(0, 50);
 
 const meta = {
@@ -25,26 +25,24 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <DataTable rows={rows} />,
+  args: { rows },
 };
 
 export const WithTooltips: Story = {
-  render: () => (
-    <DataTable
-      rows={rows}
-      columnTooltips={{
-        indicator: "The measurement indicator name",
-        value: "The extracted value",
-        timestamp: "When this observation was recorded",
-      }}
-    />
-  ),
+  args: {
+    rows,
+    columnTooltips: {
+      indicator: "The measurement indicator name",
+      value: "The extracted value",
+      timestamp: "When this observation was recorded",
+    },
+  },
 };
 
 export const CustomHeight: Story = {
-  render: () => <DataTable rows={rows} maxHeight="max-h-96" />,
+  args: { rows, maxHeight: "max-h-96" },
 };
 
 export const Empty: Story = {
-  render: () => <DataTable rows={[]} />,
+  args: { rows: [] },
 };

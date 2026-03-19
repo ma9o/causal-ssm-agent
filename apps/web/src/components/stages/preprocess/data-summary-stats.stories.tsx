@@ -21,20 +21,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => (
-    <DataSummaryStats
-      nRecords={data.n_records}
-      nColumns={data.n_columns}
-      dateRange={data.date_range}
-    />
-  ),
+  args: {
+    nRecords: data.n_records,
+    nColumns: data.n_columns,
+    dateRange: data.date_range,
+  },
 };
 
 export const WithoutColumns: Story = {
-  render: () => (
-    <DataSummaryStats
-      nRecords={data.n_records}
-      dateRange={data.date_range}
-    />
-  ),
+  args: {
+    nRecords: data.n_records,
+    dateRange: data.date_range,
+  },
 };
