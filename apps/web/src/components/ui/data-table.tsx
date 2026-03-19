@@ -15,6 +15,7 @@ interface DataTableProps<T extends object> {
 const ROW_HEIGHT = 28;
 
 export function DataTable<T extends object>({ rows, maxHeight = "max-h-64", columnTooltips }: DataTableProps<T>) {
+  "use no memo"; // TODO: remove when TanStack Virtual supports React Compiler
   const columns = useMemo(() => {
     if (rows.length === 0) return [];
     const firstRow = rows[0] as Record<string, unknown>;
