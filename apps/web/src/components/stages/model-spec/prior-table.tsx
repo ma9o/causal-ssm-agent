@@ -8,7 +8,6 @@ import { formatNumber } from "@/lib/utils/format";
 import type { ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { ExternalLink } from "lucide-react";
-import { useMemo } from "react";
 import {
   Area,
   AreaChart,
