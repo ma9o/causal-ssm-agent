@@ -69,7 +69,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Sync runtime secrets to Vercel
         run: |
-          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force 2>/dev/null; }
+          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force 2>&1 || true; }
           sync_env DEPLOYMENT_ENV           production
           sync_env R2_ENDPOINT_URL          "${{ secrets.R2_ENDPOINT_URL }}"
           sync_env R2_ACCESS_KEY_ID         "${{ secrets.R2_ACCESS_KEY_ID }}"
