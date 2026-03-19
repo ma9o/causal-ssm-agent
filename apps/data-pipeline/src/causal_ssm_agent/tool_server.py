@@ -138,8 +138,8 @@ def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> 
 
 # Registry: (stage_id, tool_name) → implementation function
 _TOOL_IMPLS: dict[tuple[str, str], Any] = {
-    ("stage-1a", "validate_latent_model_tool"): _execute_validate_latent_model,
-    ("stage-1b", "validate_measurement_model_tool"): _execute_validate_measurement_model,
+    ("stage-1a", "validate_latent_model"): _execute_validate_latent_model,
+    ("stage-1b", "validate_measurement_model"): _execute_validate_measurement_model,
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
     ("stage-4", "validate_model"): _execute_validate_model,
     ("stage-4", "search_literature"): _execute_search_literature,

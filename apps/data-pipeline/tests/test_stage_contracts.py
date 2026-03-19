@@ -8,7 +8,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.contracts import validate_stage_payload
+from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS, validate_stage_payload
 from causal_ssm_agent.flows.stages.persist import persist_web_result
 
 
@@ -241,6 +241,12 @@ def valid_stage_payloads() -> dict[str, dict]:
             ],
         },
     }
+
+
+def test_stage1_tool_contract_names_match_pipeline_runtime() -> None:
+    """Refinement proxy must expose the same tool names used in pipeline prompts."""
+    assert [tool.name for tool in STAGE_TOOLS["stage-1a"]] == ["validate_latent_model"]
+    assert [tool.name for tool in STAGE_TOOLS["stage-1b"]] == ["validate_measurement_model"]
 
 
 def test_validate_stage_payload_accepts_all_stages(valid_stage_payloads: dict[str, dict]):

@@ -194,14 +194,14 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
     ],
     "stage-1a": [
         ToolContract(
-            name="validate_latent_model_tool",
+            name="validate_latent_model",
             description="Tool for validating latent model JSON (Stage 1a).",
             input_schema=ValidateLatentModelInput,
         ),
     ],
     "stage-1b": [
         ToolContract(
-            name="validate_measurement_model_tool",
+            name="validate_measurement_model",
             description="Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
             input_schema=ValidateMeasurementModelInput,
         ),
