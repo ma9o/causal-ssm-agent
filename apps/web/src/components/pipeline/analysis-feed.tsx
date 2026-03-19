@@ -3,17 +3,20 @@
 import { BackToTop } from "@/components/back-to-top";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AnalysisStageRuns } from "@/lib/api/analysis";
+import { RefinementProvider, useRefinement } from "@/lib/contexts/refinement-context";
 import { useKeyboardNav } from "@/lib/hooks/use-keyboard-nav";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ActiveStageIndicator } from "./active-stage-indicator";
+import { InvalidationWarningModal } from "./invalidation-warning-modal";
 import { NewStagesNotification } from "./new-stages-notification";
 import { PipelineProgressBar } from "./progress-bar";
+import { ResumeButton } from "./resume-button";
 import { StageSectionRouter } from "./stage-section-router";
 
-export function AnalysisFeed({
+function FeedContent({
   userId,
   stageRuns,
   question,
@@ -22,32 +25,15 @@ export function AnalysisFeed({
   userId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
-  progress: PipelineProgress | undefined;
+  progress: PipelineProgress;
 }) {
+  const { refiningStageId, settled } = useRefinement();
+
   const visibleStageIds = useMemo(
-    () =>
-      progress ? STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id) : [],
+    () => STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id),
     [progress],
   );
   useKeyboardNav(visibleStageIds);
-
-  if (!progress) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        <div className="text-center space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">
-            Waiting for pipeline to start...
-          </p>
-          <p className="text-xs text-muted-foreground/60">This usually takes a few seconds</p>
-        </div>
-        <div className="w-full max-w-md space-y-3 mt-4">
-          <Skeleton className="h-4 w-3/4 mx-auto" />
-          <Skeleton className="h-4 w-1/2 mx-auto" />
-        </div>
-      </div>
-    );
-  }
 
   const visibleStages = STAGES.filter((s) => progress.stages[s.id] !== "pending");
 
@@ -70,9 +56,47 @@ export function AnalysisFeed({
             <ActiveStageIndicator stageId={progress.currentStage} />
           </div>
         )}
+        {refiningStageId && settled && <ResumeButton userId={userId} stageId={refiningStageId} />}
       </div>
+      <InvalidationWarningModal />
       <NewStagesNotification progress={progress} />
       <BackToTop />
     </div>
+  );
+}
+
+export function AnalysisFeed({
+  userId,
+  stageRuns,
+  question,
+  progress,
+}: {
+  userId: string;
+  stageRuns?: AnalysisStageRuns;
+  question?: string;
+  progress: PipelineProgress | undefined;
+}) {
+  if (!progress) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="text-center space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">
+            Waiting for pipeline to start...
+          </p>
+          <p className="text-xs text-muted-foreground/60">This usually takes a few seconds</p>
+        </div>
+        <div className="w-full max-w-md space-y-3 mt-4">
+          <Skeleton className="h-4 w-3/4 mx-auto" />
+          <Skeleton className="h-4 w-1/2 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <RefinementProvider>
+      <FeedContent userId={userId} stageRuns={stageRuns} question={question} progress={progress} />
+    </RefinementProvider>
   );
 }

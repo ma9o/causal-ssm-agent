@@ -1,16 +1,16 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import type { RefineApplyResponse } from "@/lib/api/analysis";
 import { getUserApiKey } from "@/lib/auth";
+import { useRefinement } from "@/lib/contexts/refinement-context";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
-import type { LLMTrace } from "@causal-ssm/api-types";
-import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
 import { useChat } from "@ai-sdk/react";
+import type { LLMTrace, StageId } from "@causal-ssm/api-types";
+import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
 import { DefaultChatTransport } from "ai";
-import { CheckCircle, Clock, Cpu, Loader2, MessageSquare, Play, Send } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Clock, Cpu, Loader2, MessageSquare, Send } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChatMessages } from "./chat-messages";
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
@@ -44,9 +44,9 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
  * 2. Completed + refinable: trace (read-only) + refinement chat (interactive)
  * 3. Refining: trace + ongoing refinement conversation with tools
  *
- * Key design: the trace is display-only (top section). Refinement is a
- * separate chat (bottom section). The server prepends trace as LLM context
- * via CoreMessages, so the refinement chat starts empty on the client.
+ * On the first refinement message, a confirmation modal is shown (via
+ * RefinementContext) warning that downstream stages will be invalidated.
+ * The "Apply & Re-run" action has moved to the bottom-of-feed ResumeButton.
  */
 export function LLMTracePanel({
   trace,
@@ -62,11 +62,11 @@ export function LLMTracePanel({
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
-  const [applying, setApplying] = useState(false);
-  const [applied, setApplied] = useState(false);
+  const queuedMessageRef = useRef<string | null>(null);
 
-  const canRefine =
-    interactive && !!userId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
+  const { refiningStageId, invalidatedAfter, requestRefinement, markSettled } = useRefinement();
+
+  const canRefine = interactive && !!userId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.
@@ -91,51 +91,44 @@ export function LLMTracePanel({
   const isLoading = status === "streaming" || status === "submitted";
   const hasRefinement = refinementMessages.length > 0;
 
+  // Report settled state to the context so the ResumeButton can appear
+  useEffect(() => {
+    if (canRefine && refiningStageId === stageId) {
+      markSettled(hasRefinement && !isLoading);
+    }
+  }, [canRefine, refiningStageId, stageId, hasRefinement, isLoading, markSettled]);
+
+  // Send queued message after refinement is confirmed via the modal
+  useEffect(() => {
+    if (refiningStageId === stageId && queuedMessageRef.current) {
+      const text = queuedMessageRef.current;
+      queuedMessageRef.current = null;
+      sendMessage({ text });
+    }
+  }, [refiningStageId, stageId, sendMessage]);
+
+  const messageCount = traceMessages.length + refinementMessages.length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [traceMessages.length, refinementMessages.length]);
+  }, [messageCount]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
     if (!text || isLoading || !canRefine) return;
     setInput("");
+
+    // If downstream stages aren't invalidated yet, show the confirmation modal
+    if (!invalidatedAfter) {
+      queuedMessageRef.current = text;
+      requestRefinement(stageId as StageId);
+      return;
+    }
+
+    // Already confirmed — send immediately
     sendMessage({ text });
   }
-
-  const handleApply = useCallback(async () => {
-    if (applying || applied || !canRefine) return;
-    setApplying(true);
-    try {
-      const apiMessages = refinementMessages.map((msg) => ({
-        role: msg.role,
-        content: msg.parts
-          .filter((p) => p.type === "text")
-          .map((p) => (p as { text: string }).text)
-          .join("\n"),
-      }));
-
-      const res = await fetch("/api/refine/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, userId, stageId }),
-      });
-
-      if (!res.ok) {
-        const error = await res.text();
-        console.error("Apply failed:", error);
-        return;
-      }
-
-      const result = (await res.json()) as RefineApplyResponse;
-      if (result.ok) {
-        setApplied(true);
-        window.location.href = `/analysis/${userId}`;
-      }
-    } finally {
-      setApplying(false);
-    }
-  }, [refinementMessages, userId, stageId, applying, applied, canRefine]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -163,55 +156,26 @@ export function LLMTracePanel({
 
       {/* Refinement input */}
       {canRefine && (
-        <div className="shrink-0 flex flex-col gap-2">
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Refine the output..."
-              disabled={isLoading || applying}
-              className="flex-1 rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !input.trim() || applying}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </button>
-          </form>
-
-          {/* Apply button — visible after refinement, when not streaming */}
-          {hasRefinement && !isLoading && (
-            <button
-              type="button"
-              onClick={handleApply}
-              disabled={applying || applied}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
-            >
-              {applying ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Applying...
-                </>
-              ) : applied ? (
-                <>
-                  <CheckCircle className="h-4 w-4" />
-                  Applied — Re-running downstream
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  Apply Changes & Re-run
-                </>
-              )}
-            </button>
-          )}
-        </div>
+        <form onSubmit={handleSubmit} className="shrink-0 flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Refine the output..."
+            disabled={isLoading}
+            className="flex-1 rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={isLoading || !input.trim()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </button>
+        </form>
       )}
     </div>
   );
