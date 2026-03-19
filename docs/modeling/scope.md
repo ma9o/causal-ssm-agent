@@ -28,7 +28,11 @@ This yields four construct types:
 | Exogenous | Time-varying | None (conditioned on) | Weather, day of week |
 | Exogenous | Time-invariant | None (conditioned on) | Age, gender, person intercept |
 | Endogenous | Time-varying | AR(1) | Mood, stress, sleep quality |
-| Endogenous | Time-invariant | None | Single-occasion outcome |
+| Endogenous | Time-invariant | None | Baseline severity, stable trait outcome |
+
+Edge restriction: time-invariant constructs may only have time-invariant parents.
+A time-varying construct cannot cause a time-invariant construct, because the
+child is fixed within person over the modeled window.
 
 ---
 

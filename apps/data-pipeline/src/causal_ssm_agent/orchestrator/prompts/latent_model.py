@@ -40,6 +40,9 @@ Set `is_outcome: true` for the primary outcome Y implied by the question. Exactl
 | **time_varying** | Changes within person over time |
 | **time_invariant** | Fixed for each person |
 
+Time-invariant constructs may have time-invariant causes, but they cannot have
+time-varying parents.
+
 ## Causal Edges
 
 Edges represent causal relationships between constructs.
@@ -56,6 +59,7 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 - Models must be acyclic WITHIN time slice (contemporaneous edges form a DAG)
 - Cycles ACROSS time are fine - that's the point of dynamic models (use lagged=true)
 - Exogenous constructs cannot be effects
+- Time-varying constructs cannot cause time-invariant constructs
 - All endogenous time-varying constructs automatically get AR(1) - do NOT add self-loops
 
 ## Output Schema
@@ -107,6 +111,7 @@ Review your proposed latent model for theoretical coherence.
 1. **Outcome clarity**: Is exactly one construct marked as is_outcome=true?
 2. **Causal completeness**: Are there important confounders missing?
 3. **Edge validity**: Are all edges theoretically justified? Are contemporaneous edges truly instantaneous?
+4. **Temporal consistency**: Does any time-varying construct point into a time-invariant construct?
 5. **Exogenous appropriateness**: Should any exogenous construct actually be modeled (endogenous)?
 
 ## Output

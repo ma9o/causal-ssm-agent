@@ -249,6 +249,16 @@ def _check_edge_constraint(
     if effect_construct.role == Role.EXOGENOUS:
         return f"Exogenous construct '{edge.effect}' cannot be an effect"
 
+    if (
+        cause_construct.temporal_status == TemporalStatus.TIME_VARYING
+        and effect_construct.temporal_status == TemporalStatus.TIME_INVARIANT
+    ):
+        return (
+            f"Time-varying construct '{edge.cause}' cannot be a cause of "
+            f"time-invariant construct '{edge.effect}'. Time-invariant constructs "
+            "are fixed within person and cannot have time-varying parents."
+        )
+
     both_time_varying = (
         cause_construct.temporal_status == TemporalStatus.TIME_VARYING
         and effect_construct.temporal_status == TemporalStatus.TIME_VARYING

@@ -162,6 +162,28 @@ class TestLatentModel:
         assert len(model.edges) == 1
         assert model.edges[0].lagged is False
 
+    def test_invalid_time_varying_to_time_invariant_edge(self, construct_factory):
+        """Time-varying constructs cannot cause time-invariant constructs."""
+        with pytest.raises(ValueError, match="cannot be a cause of time-invariant construct"):
+            LatentModel(
+                constructs=[
+                    construct_factory("habit", Role.ENDOGENOUS),
+                    construct_factory(
+                        "trait",
+                        Role.ENDOGENOUS,
+                        is_outcome=True,
+                        temporal_status=TemporalStatus.TIME_INVARIANT,
+                    ),
+                ],
+                edges=[
+                    CausalEdge(
+                        cause="habit",
+                        effect="trait",
+                        description="Habit changes a fixed trait",
+                    )
+                ],
+            )
+
     def test_invalid_outcome_no_incoming_edges(self, construct_factory):
         """Outcome must have at least one incoming causal edge."""
         with pytest.raises(ValueError, match="has no incoming causal edges"):
