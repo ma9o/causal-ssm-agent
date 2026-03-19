@@ -2,23 +2,48 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [master]
   workflow_call:
+    outputs:
+      web:
+        value: ${{ jobs.changes.outputs.web }}
+      python:
+        value: ${{ jobs.changes.outputs.python }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'bun.lock'
+              - 'turbo.json'
+              - 'tsconfig.json'
+              - 'package.json'
+              - '.github/workflows/ci.yml'
+            python:
+              - 'apps/data-pipeline/**'
+              - 'packages/api-types/**'
+              - '.github/workflows/ci.yml'
+
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -53,17 +78,47 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Install Python dependencies (for codegen)
-        run: uv sync --frozen --group dev
-        working-directory: apps/data-pipeline
-
       - run: bun run lint --filter='!@causal-ssm/data-pipeline'
       - run: bun run test --filter='!@causal-ssm/data-pipeline'
       - run: bun run build
       - run: bun run type-check
+
+  codegen:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-
+
+      - run: uv sync --frozen
+        working-directory: apps/data-pipeline
+
+      - run: bun install --frozen-lockfile
+
       - run: bun run --cwd packages/api-types codegen:check
 
   python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -74,6 +129,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+
+      - name: Cache JAX compilations
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/causal-ssm-agent/jax
+          key: jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-${{ hashFiles('apps/data-pipeline/src/**/*.py') }}
+          restore-keys: |
+            jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-
+            jax-${{ runner.os }}-
 
       - run: uv sync --frozen --group dev
       - run: uv run ruff check src/ tests/
