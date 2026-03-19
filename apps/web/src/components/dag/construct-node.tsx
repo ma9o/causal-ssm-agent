@@ -82,11 +82,6 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
           <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
             {construct.temporal_status === "time_varying" ? "varying" : "invariant"}
           </Badge>
-          {construct.temporal_scale && (
-            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-              {construct.temporal_scale}
-            </Badge>
-          )}
         </div>
       </div>
 

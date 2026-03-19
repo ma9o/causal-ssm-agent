@@ -471,16 +471,6 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
       lines.push(mdTable(["Variable", "Distribution", "Link", "Reasoning", "Sources"], measRows));
       lines.push("");
 
-      // Search context for likelihoods
-      const withLikContext = s4.model_spec.likelihoods.filter((l) => l.search_context);
-      if (withLikContext.length > 0) {
-        lines.push(section(4, "Likelihood Search Context"));
-        lines.push("");
-        for (const l of withLikContext) {
-          lines.push(`**${l.variable}**: ${l.search_context}`);
-          lines.push("");
-        }
-      }
     }
 
     // Build initial state priors
