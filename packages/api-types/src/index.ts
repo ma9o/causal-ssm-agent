@@ -4,7 +4,7 @@
 
 export type { PipelineRun, RunStatus, StageState, StageStatus } from "./run";
 export type { StageId, StageMeta } from "./stages";
-export { STAGES, STAGE_IDS } from "./stages";
+export { STAGE_IDS, STAGES } from "./stages";
 
 // ---------------------------------------------------------------------------
 // Generated from Python contracts
@@ -12,103 +12,89 @@ export { STAGES, STAGE_IDS } from "./stages";
 // ---------------------------------------------------------------------------
 
 // Stage contracts as Stage*Data aliases (frontend convention)
-export type { Stage0Contract as Stage0Data } from "./generated/models";
-export type { Stage1AContract as Stage1aData } from "./generated/models";
-export type { Stage1BContract as Stage1bData } from "./generated/models";
-export type { Stage2Contract as Stage2Data } from "./generated/models";
-export type { Stage3Contract as Stage3Data } from "./generated/models";
-export type { Stage4Contract as Stage4Data } from "./generated/models";
-export type { Stage4BContract as Stage4bData } from "./generated/models";
-export type { Stage5AContract as Stage5aData } from "./generated/models";
-export type { Stage5BContract as Stage5bData } from "./generated/models";
-export type { Stage6Contract as Stage6Data } from "./generated/models";
-
 // Latent model types
-export type {
-  Construct,
-  CausalEdge,
-  LatentModel,
-  Role,
-  TemporalStatus,
-} from "./generated/models";
-
 // Measurement model types
-export type {
-  Indicator,
-  MeasurementModel,
-} from "./generated/models";
-
 // Causal spec types
+// Worker / extraction types
+// Validation types
+// Model spec types
+// Prior types
+// Parametric ID types
+// Rao-Blackwellization partition types
+// LLM trace types
+// Inference diagnostic types
 export type {
+  CausalEdge,
   CausalSpec,
+  Construct,
+  DistributionFamily,
+  EnergyDiagnostics,
+  EnergyHistogram,
+  ExtractionContract as Extraction,
   IdentifiabilityStatus,
   IdentifiedTreatmentStatus,
-  NonIdentifiableTreatmentStatus,
-} from "./generated/models";
-
-// Worker / extraction types
-export type { ExtractionContract as Extraction } from "./generated/models";
-export type { WorkerStatusContract as WorkerStatus } from "./generated/models";
-
-// Validation types
-export type { ValidationIssueContract as ValidationIssue } from "./generated/models";
-export type { IndicatorAuditContract as IndicatorAudit } from "./generated/models";
-export type {
+  Indicator,
+  IndicatorAuditContract as IndicatorAudit,
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
-} from "./generated/models";
-export type { IndicatorValidationContract as IndicatorValidation } from "./generated/models";
-
-// Model spec types
-export type {
-  ModelSpec,
-  LikelihoodSpec,
+  IndicatorValidationContract as IndicatorValidation,
+  InferenceMetadataContract as InferenceMetadata,
+  LatentModel,
   LikelihoodSource,
-  ParameterSpec,
-  DistributionFamily,
+  LikelihoodSpec,
   LinkFunction,
-  ParameterRole,
+  LLMTrace,
+  LOODiagnostics,
+  MCMCDiagnostics,
+  MCMCParamDiagnostic,
+  MeasurementModel,
+  ModelSpec,
+  NonIdentifiableTreatmentStatus,
   ParameterConstraint,
-} from "./generated/models";
-
-// Prior types
-export type { PriorProposal, PriorSource } from "./generated/models";
-
-// Parametric ID types
-export type {
-  ParametricIdResult,
-  TRuleResult,
   ParameterIdentification,
+  ParameterRole,
+  ParameterSpec,
+  ParametricIdResult,
+  PosteriorMarginal,
+  PosteriorPair,
+  PowerScalingResultContract as PowerScalingResult,
+  PPCOverlay,
+  PPCResultContract as PPCResult,
+  PPCTestStat,
+  PPCWarning,
+  PriorProposal,
+  PriorSource,
+  RankHistogram,
+  RankHistogramChain,
+  RBPartitionResult,
+  RBVariable,
+  Role,
   SensitivityAnalysisResult,
   SensitivityEntry,
+  SMCDiagnostics,
+  Stage0Contract as Stage0Data,
+  Stage1AContract as Stage1aData,
+  Stage1BContract as Stage1bData,
+  Stage2Contract as Stage2Data,
+  Stage3Contract as Stage3Data,
+  Stage4BContract as Stage4bData,
+  Stage4Contract as Stage4Data,
+  Stage5AContract as Stage5aData,
+  Stage5BContract as Stage5bData,
+  Stage6Contract as Stage6Data,
+  SVIDiagnostics,
+  TemporalStatus,
+  TRuleResult,
+  TraceChain,
+  TraceData,
+  TraceMessage,
+  TraceUsage,
+  TreatmentEffectContract as TreatmentEffect,
+  ValidationIssueContract as ValidationIssue,
+  WorkerStatusContract as WorkerStatus,
 } from "./generated/models";
-
-// Rao-Blackwellization partition types
-export type { RBPartitionResult, RBVariable } from "./generated/models";
-
-// LLM trace types
-export type { LLMTrace, TraceMessage, TraceUsage } from "./generated/models";
-
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
-export { STAGE_TOOLS, INTERACTIVE_STAGES } from "./generated/tools";
-
-// Inference diagnostic types
-export type { TreatmentEffectContract as TreatmentEffect } from "./generated/models";
-export type { PowerScalingResultContract as PowerScalingResult } from "./generated/models";
-export type { PPCWarning, PPCOverlay, PPCTestStat } from "./generated/models";
-export type { PPCResultContract as PPCResult } from "./generated/models";
-export type { InferenceMetadataContract as InferenceMetadata } from "./generated/models";
-export type {
-  MCMCParamDiagnostic,
-  MCMCDiagnostics,
-  SVIDiagnostics,
-  SMCDiagnostics,
-  LOODiagnostics,
-} from "./generated/models";
-export type { TraceData, TraceChain } from "./generated/models";
-export type { RankHistogram, RankHistogramChain } from "./generated/models";
-export type { EnergyHistogram, EnergyDiagnostics } from "./generated/models";
-export type { PosteriorMarginal, PosteriorPair } from "./generated/models";
+export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";
 
 // ---------------------------------------------------------------------------
 // Hand-written types — not in Python contracts but used by frontend
@@ -125,7 +111,10 @@ export interface StageData<T = unknown> {
 }
 
 // Named type aliases inlined in generated types but needed as standalone exports
-export type ParameterClassification = "identified" | "practically_unidentifiable" | "structurally_unidentifiable";
+export type ParameterClassification =
+  | "identified"
+  | "practically_unidentifiable"
+  | "structurally_unidentifiable";
 export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
 export type PowerScalingDiagnosis = "prior_dominated" | "well_identified" | "prior_data_conflict";
@@ -133,7 +122,27 @@ export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yea
 export type StageOutcome = "success" | "warn" | "fail";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
 export type AggregationFunction =
-  | "mean" | "sum" | "min" | "max" | "std" | "var" | "last" | "first"
-  | "count" | "median" | "p10" | "p25" | "p75" | "p90" | "p99"
-  | "skew" | "kurtosis" | "iqr" | "range" | "cv" | "entropy"
-  | "instability" | "trend" | "n_unique";
+  | "mean"
+  | "sum"
+  | "min"
+  | "max"
+  | "std"
+  | "var"
+  | "last"
+  | "first"
+  | "count"
+  | "median"
+  | "p10"
+  | "p25"
+  | "p75"
+  | "p90"
+  | "p99"
+  | "skew"
+  | "kurtosis"
+  | "iqr"
+  | "range"
+  | "cv"
+  | "entropy"
+  | "instability"
+  | "trend"
+  | "n_unique";
