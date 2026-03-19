@@ -177,13 +177,14 @@ class TestStage4GroundingSchemaValidation:
     """Schema validation for model_spec and priors."""
 
     def test_invalid_model_spec_returns_error(self, causal_spec):
-        """model_spec with missing required fields fails schema validation."""
-        output, feedback = stage4_grounding(
+        """model_spec with empty likelihoods/parameters gets stored but
+        fails compile (no likelihood specification)."""
+        _output, feedback = stage4_grounding(
             {"model_spec": {"likelihoods": [], "parameters": []}},
             causal_spec,
         )
-        assert output is None
-        assert "VALIDATION ERRORS" in feedback or "COMPILE ERROR" in feedback
+        # Empty model_spec is stored but triggers a compile error
+        assert "COMPILE ERROR" in feedback or "no likelihood" in feedback.lower()
 
     def test_invalid_prior_schema_returns_error(self, causal_spec, model_spec):
         """Prior with missing required fields fails PriorProposal validation."""
@@ -195,15 +196,16 @@ class TestStage4GroundingSchemaValidation:
         assert output is None
         assert "SCHEMA ERRORS" in feedback
 
-    def test_valid_model_spec_passes(self, causal_spec, model_spec):
-        """Valid model_spec alone passes schema + trial compile."""
+    def test_valid_model_spec_saved_with_missing_priors(self, causal_spec, model_spec):
+        """Valid model_spec alone is saved but feedback requests priors."""
         output, feedback = stage4_grounding(
             {"model_spec": model_spec},
             causal_spec,
         )
         assert output is not None
-        assert feedback == "VALID"
         assert "model_spec" in output
+        # Model spec is accepted but priors are still needed
+        assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +216,14 @@ class TestStage4GroundingSchemaValidation:
 class TestStage4GroundingCompile:
     """Compile gate: trial compile (no priors) or full compile (with priors)."""
 
-    def test_priors_without_model_spec_fails(self, causal_spec, model_spec, priors):
+    def test_priors_without_model_spec_returns_compile_error(self, causal_spec, model_spec, priors):
         """Priors without model_spec in current state → compile error."""
-        output, feedback = stage4_grounding(
+        _output, feedback = stage4_grounding(
             {"priors": {"beta_stress_sleep": priors["beta_stress_sleep"]}},
             causal_spec,
             current=None,  # no existing model_spec
         )
-        assert output is None
+        # Valid priors may be stored, but compile fails without model_spec
         assert "COMPILE ERROR" in feedback
         assert "model_spec" in feedback.lower()
 
@@ -236,16 +238,34 @@ class TestStage4GroundingCompile:
         assert feedback == "VALID"
         assert "priors" in output
 
-    def test_model_spec_and_priors_together(self, causal_spec, model_spec, priors):
-        """Both model_spec and priors in single submission."""
+    def test_model_spec_then_priors_separately(self, causal_spec, model_spec, priors):
+        """model_spec and priors must be submitted in separate calls."""
+        # First call: submit model_spec
+        output1, _feedback1 = stage4_grounding(
+            {"model_spec": model_spec},
+            causal_spec,
+        )
+        assert output1 is not None
+        assert "model_spec" in output1
+
+        # Second call: submit priors with model_spec in current state
+        output2, feedback2 = stage4_grounding(
+            {"priors": priors},
+            causal_spec,
+            current=output1,
+        )
+        assert output2 is not None
+        assert feedback2 == "VALID"
+        assert "priors" in output2
+
+    def test_model_spec_and_priors_together_rejected(self, causal_spec, model_spec, priors):
+        """Submitting both model_spec and priors in one call is rejected."""
         output, feedback = stage4_grounding(
             {"model_spec": model_spec, "priors": priors},
             causal_spec,
         )
-        assert output is not None
-        assert feedback == "VALID"
-        assert "model_spec" in output
-        assert "priors" in output
+        assert output is None
+        assert "UPDATE TOO BROAD" in feedback
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +313,8 @@ class TestStage4GroundingStateMerging:
             current=current,
         )
         assert output is not None
-        assert feedback == "VALID"
-        assert output["model_spec"] == model_spec
+        # Model spec accepted but priors still needed
+        assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
         assert "extra_field" not in output["model_spec"]
 
 
@@ -334,9 +354,11 @@ class TestStage4GroundingPriorPredictive:
             }
         )
 
+        # Must submit priors separately from model_spec
         _output, feedback = stage4_grounding(
-            {"model_spec": model_spec, "priors": priors},
+            {"priors": priors},
             causal_spec,
+            current={"model_spec": model_spec},
             raw_data=raw_data,
         )
         # With reasonable priors and data, should pass (or fail with PP feedback)
@@ -385,8 +407,9 @@ class TestStage4GroundingPriorPredictive:
         )
 
         _output, feedback = stage4_grounding(
-            {"model_spec": model_spec, "priors": extreme_priors},
+            {"priors": extreme_priors},
             causal_spec,
+            current={"model_spec": model_spec},
             raw_data=raw_data,
         )
         # Extreme priors should either fail compile or PP
