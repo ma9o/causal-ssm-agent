@@ -1,8 +1,9 @@
 """Tests for SSMModelBuilder helper functions.
 
-Covers: normalize_prior_params, split_compound_name.
+Covers: normalize_prior_params, split_compound_name, fit-input preparation.
 """
 
+import jax.numpy as jnp
 import polars as pl
 import pytest
 
@@ -241,3 +242,25 @@ class TestObservationSupportValidation:
 
         with pytest.raises(ValueError, match="Observation support check failed"):
             builder.build_model(X)
+
+
+class TestPrepareFitInputs:
+    def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
+        """Sparse wide cells should stay missing and never broadcast across ticks."""
+        builder = SSMModelBuilder()
+        wide = pl.DataFrame(
+            {
+                "time": [0.0, 1.0],
+                "x": [10.0, None],
+                "y": [None, 30.0],
+            }
+        )
+
+        observations, times, manifest_names = builder.prepare_fit_inputs(wide)
+
+        assert manifest_names == ["x", "y"]
+        assert jnp.allclose(times, jnp.array([0.0, 1.0], dtype=jnp.float32))
+        assert jnp.isclose(observations[0, 0], 10.0)
+        assert jnp.isnan(observations[0, 1])
+        assert jnp.isnan(observations[1, 0])
+        assert jnp.isclose(observations[1, 1], 30.0)
