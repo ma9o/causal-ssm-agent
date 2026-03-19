@@ -74,10 +74,11 @@ class TestFormatDistributionCards:
                 }
             ]
         )
-        assert "### `steps`" in result
+        assert "| Variable |" in result
+        assert "steps" in result
         assert "Count recorded steps per day." in result
-        assert "`poisson` -> `log` (auto)" in result
-        assert "`negative_binomial` -> `log` (auto)" in result
+        assert "`poisson` → `log` (auto)" in result
+        assert "`negative_binomial` → `log` (auto)" in result
         assert "var/mean=1.7" in result
         assert "warning large_timestamp_gap" in result
 
