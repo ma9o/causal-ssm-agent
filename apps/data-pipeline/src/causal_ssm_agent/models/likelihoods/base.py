@@ -41,23 +41,6 @@ class CTParams(NamedTuple):
     cint: jnp.ndarray | None  # (n_latent,) or None
 
 
-class DTParams(NamedTuple):
-    """Discrete-time state-space parameters.
-
-    Represents the discretized system:
-        η_{t+dt} = A_d * η_t + c_d + ε, ε ~ N(0, Q_d)
-
-    where:
-        A_d = exp(A*dt)
-        Q_d = discretized process noise covariance
-        c_d = discretized intercept
-    """
-
-    drift: jnp.ndarray  # (n_latent, n_latent) - exp(A*dt)
-    process_cov: jnp.ndarray  # (n_latent, n_latent) - Q_d
-    cint: jnp.ndarray | None  # (n_latent,) or None
-
-
 class MeasurementParams(NamedTuple):
     """Measurement model parameters.
 

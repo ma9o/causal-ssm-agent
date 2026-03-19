@@ -37,8 +37,7 @@ from inspect_ai.solver import Generate, TaskState, solver, system_message
 from causal_ssm_agent.orchestrator.prompts import measurement_model
 from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
 from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
-from causal_ssm_agent.utils.effects import get_all_treatments
+from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 
 # Load config for models
 _CONFIG = load_eval_config()

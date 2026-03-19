@@ -183,26 +183,5 @@ def write_text(path: str, content: str) -> None:
         p.write_text(content)
 
 
-def read_bytes(path: str) -> bytes:
-    if is_remote():
-        with get_fs().open(path, "rb") as f:
-            return f.read()
-    return Path(path).read_bytes()
-
-
-def write_bytes(path: str, content: bytes) -> None:
-    if is_remote():
-        with get_fs().open(path, "wb") as f:
-            f.write(content)
-    else:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(content)
-
-
 def read_json(path: str) -> Any:
     return json.loads(read_text(path))
-
-
-def write_json(path: str, data: Any) -> None:
-    write_text(path, json.dumps(data))
