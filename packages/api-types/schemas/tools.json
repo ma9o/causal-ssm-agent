@@ -89,7 +89,7 @@
   ],
   "stage-1a": [
     {
-      "name": "validate_latent_model_tool",
+      "name": "validate_latent_model",
       "description": "Tool for validating latent model JSON (Stage 1a).",
       "parameters": {
         "additionalProperties": false,
@@ -110,7 +110,7 @@
   ],
   "stage-1b": [
     {
-      "name": "validate_measurement_model_tool",
+      "name": "validate_measurement_model",
       "description": "Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
       "parameters": {
         "additionalProperties": false,

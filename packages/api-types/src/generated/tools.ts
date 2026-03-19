@@ -41,14 +41,14 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   ],
   "stage-1a": [
     {
-      name: "validate_latent_model_tool",
+      name: "validate_latent_model",
       description: "Tool for validating latent model JSON (Stage 1a).",
       parameters: {"additionalProperties":false,"properties":{"structure_json":{"description":"The JSON string containing the latent model to validate.","title":"Structure Json","type":"string"}},"required":["structure_json"],"title":"ValidateLatentModelInput","type":"object"},
     },
   ],
   "stage-1b": [
     {
-      name: "validate_measurement_model_tool",
+      name: "validate_measurement_model",
       description: "Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
       parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement model to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementModelInput","type":"object"},
     },

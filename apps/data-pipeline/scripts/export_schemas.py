@@ -138,7 +138,7 @@ def export_tool_schemas() -> dict:
 
         {
           "stage-1a": [
-            {"name": "validate_latent_model_tool", "description": "...", "parameters": {...}},
+            {"name": "validate_latent_model", "description": "...", "parameters": {...}},
           ],
           ...
           "_interactive": ["stage-1a", "stage-1b", ...]
