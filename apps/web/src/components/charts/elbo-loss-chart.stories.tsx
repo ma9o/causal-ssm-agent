@@ -24,5 +24,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  render: () => <ELBOLossChart diagnostics={data.svi_diagnostics!} />,
+  args: { diagnostics: data.svi_diagnostics! },
 };

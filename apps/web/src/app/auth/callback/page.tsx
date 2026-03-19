@@ -4,6 +4,7 @@ import { clearCodeVerifier, getCodeVerifier, setUserApiKey } from "@/lib/auth";
 import { setIdentity } from "@/lib/identity";
 import { generateAnonymousUserId } from "@/lib/user-id";
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 
@@ -52,9 +53,9 @@ export default function AuthCallbackPage({
       {error ? (
         <div className="text-center space-y-4">
           <p className="text-sm text-destructive">{error}</p>
-          <a href="/" className="text-sm text-primary underline underline-offset-2">
+          <Link href="/" className="text-sm text-primary underline underline-offset-2">
             Return home
-          </a>
+          </Link>
         </div>
       ) : (
         <div className="flex items-center gap-2 text-muted-foreground">
