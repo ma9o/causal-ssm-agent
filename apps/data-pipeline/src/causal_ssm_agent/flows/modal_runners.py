@@ -2,7 +2,7 @@
 """Modal-backed runners for expensive pipeline stages.
 
 When DEPLOYMENT_ENV=production, the stage registry swaps local runners for
-these Modal-backed versions. Stages 2, 4, and 5b run on Modal's compute; the
+these Modal-backed versions. Stages 4 and 5b run on Modal's compute; the
 remaining stages run locally on Prefect.
 """
 
@@ -38,22 +38,6 @@ secrets = modal.Secret.from_name("causal-ssm-pipeline-secrets")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-@app.function(timeout=1800, cpu=4, memory=8192, secrets=[secrets])
-async def _run_stage2(
-    question: str,
-    stage0: dict,
-    stage1b: dict,
-    root_run_id: str | None,
-    user_id: str,
-) -> dict:
-    """Run stage 2 on Modal and persist artifacts to R2."""
-    from causal_ssm_agent.flows.dag import stage2
-    from causal_ssm_agent.flows.stage_registry import _persist_stage2
-
-    result = await stage2(question, stage0, stage1b, root_run_id)
-    return _persist_stage2(result, user_id)
-
-
 @app.function(timeout=3600, cpu=8, memory=16384, secrets=[secrets])
 def _run_stage5b(
     stage4: dict,
@@ -86,17 +70,6 @@ async def _run_stage4(
 # ═══════════════════════════════════════════════════════════════════════════════
 # Runner callables (bound by the registry)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-
-async def modal_stage2_runner(
-    question: str,
-    stage0: dict,
-    stage1b: dict,
-    root_run_id: str | None = None,
-    user_id: str = "",
-) -> dict:
-    """Invoke stage 2 on Modal."""
-    return await _run_stage2.remote.aio(question, stage0, stage1b, root_run_id, user_id)
 
 
 def modal_stage5b_runner(

@@ -586,19 +586,13 @@ def _build_registry() -> dict[str, StageDefinition]:
         ),
     }
 
-    # In production, offload stages 2, 4, and 5b to Modal
+    # In production, offload stages 4 and 5b to Modal
     if os.environ.get("DEPLOYMENT_ENV") == "production":
         from .modal_runners import (
-            modal_stage2_runner,
             modal_stage4_runner,
             modal_stage5b_runner,
             persist_noop,
         )
-
-        def _bind_stage2_modal(ctx: PipelineContext, states: dict) -> dict:
-            base = _bind_stage2(ctx, states)
-            base["user_id"] = ctx.user_id
-            return base
 
         def _bind_stage4_modal(ctx: PipelineContext, states: dict) -> dict:
             return _bind_stage4(ctx, states)
@@ -608,16 +602,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             base["user_id"] = ctx.user_id
             return base
 
-        registry["stage-2"] = replace(
-            registry["stage-2"],
-            bind_inputs=_bind_stage2_modal,
-            runner=modal_stage2_runner,
-            materializer=StageMaterializer(
-                restore=_restore_stage2,
-                persist=persist_noop,
-                finalize_extras=_finalize_stage2_extras,
-            ),
-        )
         registry["stage-5b"] = replace(
             registry["stage-5b"],
             bind_inputs=_bind_stage5b_modal,
