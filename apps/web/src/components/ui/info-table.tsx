@@ -87,6 +87,7 @@ export function InfoTable<TData>({
   renderGroupHeader,
   rowClassName,
 }: InfoTableProps<TData>) {
+  "use no memo"; // TODO: remove when TanStack Table supports React Compiler
   const [sortingState, setSortingState] = useState<SortingState>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const parentRef = useRef<HTMLDivElement>(null);
