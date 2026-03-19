@@ -13,6 +13,11 @@ export_schemas.py --> schemas/contracts.json
      v  json-schema-to-typescript
 generate.ts --> api-types/src/generated/models.ts
      |
+     +--> export_schemas.py --> schemas/tools.json
+             |
+             v  direct TS constant generation
+        generate.ts --> api-types/src/generated/tools.ts
+     |
      v  re-exported from
 api-types/src/index.ts (+ hand-written stages.ts, run.ts)
 ```
@@ -46,6 +51,10 @@ Run codegen after any change to:
 - `apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py`
 - Any domain model imported by contracts (e.g. `schemas.py`, `schemas_model.py`, `schemas_prior.py`, `schemas_inference.py`, `llm.py`, `posterior_predictive.py`)
 
+`contracts.py` drives both:
+- Stage payload type generation into `src/generated/models.ts`
+- Tool definition generation into `src/generated/tools.ts`
+
 ## Adding a new field to a stage
 
 1. Add the field to the Pydantic model in contracts.py (or the domain model it references)
@@ -59,6 +68,12 @@ Run codegen after any change to:
 3. Run codegen
 4. Add re-export alias in `packages/api-types/src/index.ts`
 
+## Adding or changing a stage tool
+
+1. Update the `ToolContract` entry in `apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py`
+2. Run codegen
+3. Commit the regenerated `packages/api-types/src/generated/tools.ts`
+
 ## Adding a new domain model
 
 1. Create the Pydantic model in the appropriate file under `apps/data-pipeline/src/`
@@ -71,6 +86,7 @@ Run codegen after any change to:
 | File | Source |
 |------|--------|
 | `src/generated/models.ts` | Generated from Python. Do not edit. |
+| `src/generated/tools.ts` | Generated from Python tool contracts. Do not edit. |
 | `src/index.ts` | Hand-written re-exports with aliases |
 | `src/run.ts` | Hand-written (frontend-only types) |
 | `src/stages.ts` | Hand-written (stage metadata) |
@@ -81,8 +97,8 @@ The `codegen:check` task is registered in `turbo.json` with `cache: false`. It r
 
 When CI fails on `codegen:check`:
 1. Run `bun run codegen` locally
-2. Review the diff in `src/generated/models.ts`
-3. Commit the updated generated file alongside your Python changes
+2. Review the diff in `src/generated/models.ts` and `src/generated/tools.ts`
+3. Commit the updated generated files alongside your Python changes
 
 ## Troubleshooting
 
