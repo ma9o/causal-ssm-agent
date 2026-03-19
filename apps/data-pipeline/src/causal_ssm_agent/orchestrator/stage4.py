@@ -77,7 +77,6 @@ class Stage4Messages:
         ]
 
 
-
 async def run_stage4(
     causal_spec: dict,
     question: str,

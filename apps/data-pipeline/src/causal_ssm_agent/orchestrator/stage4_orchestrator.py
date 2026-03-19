@@ -433,4 +433,3 @@ def _compact_profile(profile: dict[str, Any]) -> dict[str, Any] | None:
     for flag_name in support_flags:
         compact[flag_name] = profile[flag_name]
     return compact or None
-
