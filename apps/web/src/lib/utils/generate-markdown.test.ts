@@ -266,7 +266,7 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Yes"); // steps has arithmetic_sequence_detected
   });
 
-  it("includes stage 4 measurement sources and search context", () => {
+  it("includes stage 4 measurement sources", () => {
     const data: AllStageData = {
       "stage-4": {
         outcome: "success",
@@ -279,7 +279,6 @@ describe("generateMarkdown", () => {
               link: "identity",
               reasoning: "Continuous measurement",
               sources: [{ title: "Study A", url: "https://example.com/a", snippet: "HR is gaussian" }],
-              search_context: "Searched for heart rate distribution literature",
             },
           ],
         },
@@ -289,8 +288,6 @@ describe("generateMarkdown", () => {
     const result = generateMarkdown(data, "run-4");
     expect(result).toContain("Sources");
     expect(result).toContain("[Study A](https://example.com/a)");
-    expect(result).toContain("Likelihood Search Context");
-    expect(result).toContain("Searched for heart rate distribution");
   });
 
   it("includes stage 4b sensitivity analysis", () => {

@@ -18,9 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-interface PriorRow extends PriorProposal {
-  search_context?: string;
-}
+type PriorRow = PriorProposal;
 
 const col = createColumnHelper<PriorRow>();
 
@@ -167,39 +165,8 @@ const baseColumns = [
   }),
 ] as ColumnDef<PriorRow, unknown>[];
 
-const searchContextColumn = col.accessor("search_context", {
-  header: () => (
-    <HeaderWithTooltip
-      label="Search Context"
-      tooltip="The search query used by the pipeline to find prior literature for this parameter's effect size."
-    />
-  ),
-  cell: (info) => (
-    <span className="max-w-xs text-xs text-muted-foreground italic">{info.getValue() || "--"}</span>
-  ),
-}) as ColumnDef<PriorRow, unknown>;
-
 export function PriorTable({
   priors,
-  parameters,
 }: { priors: PriorProposal[]; parameters?: ParameterSpec[] }) {
-  const paramMap = useMemo(() => {
-    const map = new Map<string, ParameterSpec>();
-    for (const p of parameters ?? []) map.set(p.name, p);
-    return map;
-  }, [parameters]);
-
-  const rows: PriorRow[] = useMemo(
-    () => priors.map((p) => ({ ...p, search_context: paramMap.get(p.parameter)?.search_context })),
-    [priors, paramMap],
-  );
-
-  const hasSearchContext = rows.some((r) => r.search_context);
-
-  const columns = useMemo<ColumnDef<PriorRow, unknown>[]>(
-    () => (hasSearchContext ? [...baseColumns, searchContextColumn] : baseColumns),
-    [hasSearchContext],
-  );
-
-  return <InfoTable columns={columns} data={rows} estimateRowHeight={72} />;
+  return <InfoTable columns={baseColumns} data={priors} estimateRowHeight={72} />;
 }

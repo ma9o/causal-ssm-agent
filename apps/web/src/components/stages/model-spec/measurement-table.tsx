@@ -299,21 +299,6 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
   }),
 ];
 
-const searchContextColumn: ColumnDef<MeasurementRow, unknown> = col.display({
-  id: "search_context",
-  header: () => (
-    <HeaderWithTooltip
-      label="Search Context"
-      tooltip="The search query used by the pipeline to find literature supporting this likelihood choice."
-    />
-  ),
-  cell: ({ row }) => (
-    <span className="max-w-xs text-xs text-muted-foreground italic">
-      {row.original.likelihood.search_context || "--"}
-    </span>
-  ),
-});
-
 // ── Exported component ────────────────────────────────────
 
 export function MeasurementTable({
@@ -335,12 +320,7 @@ export function MeasurementTable({
     [likelihoods, extractions, priorPredictiveSamples],
   );
 
-  const hasSearchContext = rows.some((r) => r.likelihood.search_context);
-
-  const columns = useMemo<ColumnDef<MeasurementRow, unknown>[]>(
-    () => (hasSearchContext ? [...baseColumns, searchContextColumn] : baseColumns),
-    [hasSearchContext],
-  );
+  const columns = baseColumns;
 
   return <InfoTable columns={columns} data={rows} estimateRowHeight={88} />;
 }
