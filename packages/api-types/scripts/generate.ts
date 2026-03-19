@@ -6,9 +6,9 @@
  *   bun run scripts/generate.ts
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { compile } from "json-schema-to-typescript";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
-import { resolve, dirname } from "path";
 
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
@@ -152,7 +152,9 @@ function generateTools(): void {
 
   lines.push("};");
   lines.push("");
-  lines.push(`export const INTERACTIVE_STAGES: readonly string[] = ${JSON.stringify(interactive)} as const;`);
+  lines.push(
+    `export const INTERACTIVE_STAGES: readonly string[] = ${JSON.stringify(interactive)} as const;`,
+  );
   lines.push("");
 
   writeFileSync(TOOLS_OUTPUT_PATH, lines.join("\n"));

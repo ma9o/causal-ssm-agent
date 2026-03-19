@@ -45,7 +45,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-1a-flow",
     loadingHint: "LLM is proposing a causal DAG...",
-    description: "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
+    description:
+      "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
     interactive: true,
   },
   {
@@ -55,7 +56,8 @@ export const STAGES: StageMeta[] = [
     hasGate: true,
     prefectFlowName: "stage-1b-flow",
     loadingHint: "Mapping indicators and checking identifiability...",
-    description: "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
+    description:
+      "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
     interactive: true,
   },
   {
@@ -65,7 +67,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-2-flow",
     loadingHint: "Extracting indicator values from your data...",
-    description: "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
+    description:
+      "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
     interactive: false,
   },
   {
@@ -75,7 +78,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-3-flow",
     loadingHint: "Validating extraction quality...",
-    description: "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
+    description:
+      "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
     interactive: false,
   },
   {
@@ -85,7 +89,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-4-flow",
     loadingHint: "LLM is specifying priors and model parameters...",
-    description: "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
+    description:
+      "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
     interactive: true,
   },
   {
@@ -95,7 +100,8 @@ export const STAGES: StageMeta[] = [
     hasGate: true,
     prefectFlowName: "stage-4b-flow",
     loadingHint: "Checking parametric identifiability...",
-    description: "Checks whether the specified model parameters are identifiable from the available data.",
+    description:
+      "Checks whether the specified model parameters are identifiable from the available data.",
     interactive: false,
   },
   {
@@ -105,7 +111,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-5a-flow",
     loadingHint: "Running fast SVI approximation...",
-    description: "Fast variational fit as a diagnostic before expensive inference. Shows ELBO convergence and approximate posterior.",
+    description:
+      "Fast variational fit as a diagnostic before expensive inference. Shows ELBO convergence and approximate posterior.",
     interactive: false,
   },
   {
@@ -115,7 +122,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-5b-flow",
     loadingHint: "Running Bayesian inference...",
-    description: "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
+    description:
+      "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
     interactive: false,
   },
   {
@@ -125,7 +133,8 @@ export const STAGES: StageMeta[] = [
     hasGate: false,
     prefectFlowName: "stage-6-flow",
     loadingHint: "Computing interventional effects...",
-    description: "Computes interventional treatment effects and ranks them by magnitude and certainty.",
+    description:
+      "Computes interventional treatment effects and ranks them by magnitude and certainty.",
     interactive: false,
   },
 ];
