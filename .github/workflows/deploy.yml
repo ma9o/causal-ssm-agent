@@ -19,6 +19,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-modal:
     needs: ci
+    if: needs.ci.outputs.python == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,6 +54,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-vercel:
     needs: ci
+    if: needs.ci.outputs.web == 'true'
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -66,6 +68,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-
+
       - run: bun install --frozen-lockfile
       - name: Sync runtime secrets to Vercel
         run: |
