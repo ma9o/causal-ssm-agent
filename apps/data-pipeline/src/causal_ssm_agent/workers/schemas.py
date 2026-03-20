@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 from causal_ssm_agent.utils.causal_spec import get_indicator_info as _get_indicator_info
 
 
-class TickExtraction(BaseModel):
-    """A single extracted observation for an indicator within a tick."""
+class WindowExtraction(BaseModel):
+    """A single extracted observation for an indicator within a support window."""
 
-    tick: str = Field(description="The clock tick ID (e.g. '2024-01-15T00:00:00')")
+    window_start: str = Field(
+        description="The support-window start time (e.g. '2024-01-15T00:00:00')"
+    )
     indicator: str = Field(description="Name of the indicator")
     value: int | float | bool | str | None = Field(
         description="Extracted value of the correct datatype"
@@ -19,11 +21,11 @@ class TickExtraction(BaseModel):
 
 
 class WorkerOutput(BaseModel):
-    """Complete output from a worker processing a chunk of ticks."""
+    """Complete output from a worker processing a chunk of support windows."""
 
-    extractions: list[TickExtraction] = Field(
+    extractions: list[WindowExtraction] = Field(
         default_factory=list,
-        description="Extracted observations for indicators (one per tick per indicator)",
+        description="Extracted observations for indicators (one per support window per indicator)",
     )
 
     def to_dataframe(self) -> pl.DataFrame:
@@ -31,7 +33,7 @@ class WorkerOutput(BaseModel):
 
         Returns:
             DataFrame with columns: indicator (Utf8), value (Utf8), timestamp (Utf8).
-            The timestamp column contains the tick ID (tick start time).
+            The timestamp column contains the support-window start time.
             Value column is stored as string for downstream encoding.
         """
         schema = {
@@ -57,7 +59,7 @@ class WorkerOutput(BaseModel):
                 {
                     "indicator": e.indicator,
                     "value": str_val,
-                    "timestamp": e.tick,
+                    "timestamp": e.window_start,
                 }
             )
 
@@ -90,15 +92,15 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
 def validate_worker_output(
     data: dict,
     causal_spec: dict,
-    expected_ticks: list[str] | None = None,
+    expected_window_starts: list[str] | None = None,
 ) -> tuple[WorkerOutput | None, list[str]]:
     """Validate worker output dict, collecting ALL errors instead of failing on first.
 
     Args:
         data: Dictionary to validate as WorkerOutput
         causal_spec: The CausalSpec dict to validate against
-        expected_ticks: If provided, validate that extractions only reference
-            these tick IDs and flag missing ticks.
+        expected_window_starts: If provided, validate that extractions only
+            reference these support-window starts.
 
     Returns:
         Tuple of (validated output or None, list of error messages)
@@ -117,7 +119,7 @@ def validate_worker_output(
 
     # Build set of valid indicator names and their dtypes
     indicator_info = _get_indicator_info(causal_spec)
-    expected_tick_set = set(expected_ticks) if expected_ticks else None
+    expected_window_start_set = set(expected_window_starts) if expected_window_starts else None
 
     # Validate each extraction
     valid_extractions = []
@@ -128,13 +130,15 @@ def validate_worker_output(
             errors.append(f"extractions[{i}]: must be a dictionary")
             continue
 
-        tick = ext_data.get("tick", "<missing>")
+        window_start = ext_data.get("window_start", "<missing>")
         ind_name = ext_data.get("indicator", "<missing>")
         value = ext_data.get("value")
 
-        # Check tick is valid
-        if expected_tick_set is not None and tick not in expected_tick_set:
-            errors.append(f"extractions[{i}]: tick '{tick}' not in expected ticks")
+        # Check support window is valid
+        if expected_window_start_set is not None and window_start not in expected_window_start_set:
+            errors.append(
+                f"extractions[{i}]: window_start '{window_start}' not in expected support windows"
+            )
             continue
 
         # Check indicator exists
@@ -146,11 +150,12 @@ def validate_worker_output(
             )
             continue
 
-        # Check no duplicate (tick, indicator) pairs
-        pair = (tick, ind_name)
+        # Check no duplicate (window_start, indicator) pairs
+        pair = (window_start, ind_name)
         if pair in seen_pairs:
             errors.append(
-                f"extractions[{i}]: duplicate (tick, indicator) pair: ({tick}, {ind_name})"
+                f"extractions[{i}]: duplicate (window_start, indicator) pair: "
+                f"({window_start}, {ind_name})"
             )
             continue
         seen_pairs.add(pair)
@@ -165,14 +170,14 @@ def validate_worker_output(
             continue
 
         normalized = {
-            "tick": tick,
+            "window_start": window_start,
             "indicator": ind_name,
             "value": value,
         }
 
         # Validate via Pydantic
         try:
-            ext = TickExtraction.model_validate(normalized)
+            ext = WindowExtraction.model_validate(normalized)
             valid_extractions.append(ext)
         except Exception as e:
             errors.append(f"extractions[{i}] ({ind_name}): {e}")

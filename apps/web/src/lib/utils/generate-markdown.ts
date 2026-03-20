@@ -312,10 +312,10 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
       lines.push("");
       const extRows = s2.combined_extractions_sample.slice(0, 20).map((e) => [
         e.indicator,
-        e.tick ?? "\u2014",
+        e.anchor_time ?? "\u2014",
         String(e.value ?? "\u2014"),
       ]);
-      lines.push(mdTable(["Indicator", "Tick", "Value"], extRows));
+      lines.push(mdTable(["Indicator", "Anchor Time", "Value"], extRows));
       lines.push("");
     }
 

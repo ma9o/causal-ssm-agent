@@ -225,7 +225,7 @@ def worker_dfs(four_latent_sim):
                 {
                     "indicator": name,
                     "value": str(float(obs[t, i])),
-                    "timestamp": ts,
+                    "anchor_time": ts,
                 }
             )
 
@@ -237,7 +237,7 @@ def worker_dfs(four_latent_sim):
     for chunk in chunks:
         df = pl.DataFrame(
             chunk,
-            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
+            schema={"indicator": pl.Utf8, "value": pl.Utf8, "anchor_time": pl.Utf8},
         )
         results.append(df)
 
@@ -354,10 +354,10 @@ def priors():
 
 @pytest.fixture(scope="class")
 def daily_data(causal_spec, worker_dfs):
-    """Data at model_clock resolution with datetime time_bucket column.
+    """Data at model_clock resolution with datetime anchor_time column.
 
     Mirrors the new dag.py stage2() logic: encode non-continuous types,
-    cast to Float64, parse timestamps to datetime.
+    cast to Float64, parse anchor times to datetime.
     """
     from causal_ssm_agent.utils.aggregations import _encode_non_continuous
     from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
@@ -370,19 +370,15 @@ def daily_data(causal_spec, worker_dfs):
         if ind.get("ordinal_levels")
     }
     data = _encode_non_continuous(combined, dtype_lookup, ordinal_levels_lookup)
-    data = (
-        data.with_columns(
-            pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-            pl.col("timestamp")
-            .str.replace(r"[Zz]$", "")
-            .str.replace(r"[+-]\d{2}:\d{2}$", "")
-            .str.to_datetime(strict=False)
-            .alias("time_bucket"),
-        )
-        .drop("timestamp")
-        .drop_nulls(subset=["time_bucket", "value"])
-    )
-    return data.sort("indicator", "time_bucket")
+    data = data.with_columns(
+        pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+        pl.col("anchor_time")
+        .str.replace(r"[Zz]$", "")
+        .str.replace(r"[+-]\d{2}:\d{2}$", "")
+        .str.to_datetime(strict=False)
+        .alias("anchor_time"),
+    ).drop_nulls(subset=["anchor_time", "value"])
+    return data.sort("indicator", "anchor_time")
 
 
 @pytest.fixture(scope="class")
@@ -491,7 +487,7 @@ class TestE2EPipeline:
         """Concatenating worker DataFrames produces correct shape."""
         combined = pl.concat(worker_dfs, how="vertical")
         assert len(combined) == T * len(INDICATOR_NAMES)  # 80 * 6 = 480
-        assert set(combined.columns) == {"indicator", "value", "timestamp"}
+        assert set(combined.columns) == {"indicator", "value", "anchor_time"}
 
     # ------------------------------------------------------------------
     # Stage 4b: parametric identifiability (T-rule only for speed)
@@ -527,6 +523,94 @@ class TestE2EPipeline:
         result = fit_model.fn(stage4_result, daily_data, sampler_config=_SVI_CONFIG)
         assert result["fitted"] is False
         assert "non-finite losses" in result["error"]
+
+    def test_stage5_interval_summary_pipeline_path_reaches_interventions(self):
+        """Interval-summary data should flow through fit_model.fn() and intervention analysis."""
+        from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
+        from causal_ssm_agent.models.ssm.inference import FittedArtifact
+
+        raw_data = pl.DataFrame(
+            {
+                "indicator": [
+                    "perf_avg",
+                    "perf_avg",
+                ],
+                "value": [0.5, 0.7],
+                "anchor_time": [
+                    "2024-01-03T00:00:00",
+                    "2024-01-04T00:00:00",
+                ],
+                "support_kind": [
+                    "interval",
+                    "interval",
+                ],
+                "summary_operator": [
+                    "mean",
+                    "mean",
+                ],
+                "anchor_policy": [
+                    "support_end",
+                    "support_end",
+                ],
+                "observation_window": ["2d", "2d"],
+                "support_start": [
+                    "2024-01-01T00:00:00",
+                    "2024-01-02T00:00:00",
+                ],
+                "support_end": [
+                    "2024-01-03T00:00:00",
+                    "2024-01-04T00:00:00",
+                ],
+            }
+        )
+
+        svi_config = {
+            "method": "svi",
+            "num_steps": 25,
+            "num_samples": 10,
+            "learning_rate": 0.01,
+            "seed": 0,
+        }
+
+        builder = SSMModelBuilder(
+            ssm_spec=SSMSpec(
+                n_latent=1,
+                n_manifest=1,
+                lambda_mat=jnp.eye(1),
+                diffusion="diag",
+                latent_names=["Perf"],
+                manifest_names=["perf_avg"],
+            ),
+            ssm_priors=SSMPriors(),
+            sampler_config=svi_config,
+        )
+
+        fitted_result = fit_model.fn(
+            {"model_spec": {}},
+            raw_data,
+            sampler_config=svi_config,
+            builder=builder,
+        )
+
+        assert fitted_result["fitted"] is True
+        assert fitted_result["runtime"].observation_support is not None
+        assert fitted_result["runtime"].observation_support.max_active_windows == 2
+
+        fitted = FittedArtifact(
+            result=fitted_result["result"],
+            builder=fitted_result["builder"],
+            times=fitted_result["times"],
+        )
+        results = run_interventions.fn(
+            fitted,
+            ["Perf"],
+            "Perf",
+            {"identifiability": {"non_identifiable_treatments": {}}},
+        )
+
+        assert len(results) == 1
+        assert results[0]["treatment"] == "Perf"
+        assert results[0]["effect_size"] is not None
 
     # ------------------------------------------------------------------
     # Parameter recovery (from direct fit, smoke test only)

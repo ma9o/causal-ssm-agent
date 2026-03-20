@@ -23,7 +23,7 @@ Upgrades:
 from __future__ import annotations
 
 import functools
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -37,7 +37,13 @@ from numpyro.optim import ClippedAdam
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import MISSING_DATA_LARGE_VAR, NUMERICAL_EPSILON
+from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
 from causal_ssm_agent.models.likelihoods.particle import SSMAdapter
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    advance_support_observation_state,
+    support_observation_log_prob,
+    trajectory_observation_log_prob,
+)
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import InferenceResult
@@ -56,6 +62,15 @@ from causal_ssm_agent.models.ssm.utils import (
 )
 
 logger = get_prefect_logger(__name__)
+
+
+class _SupportAwarePGASState(NamedTuple):
+    latent: jnp.ndarray
+    response: jnp.ndarray
+    accum_sum: jnp.ndarray
+    accum_sumsq: jnp.ndarray
+    accum_weight: jnp.ndarray
+
 
 # ---------------------------------------------------------------------------
 # SVI warmstart for mass matrix initialization
@@ -461,6 +476,347 @@ def _csmc_sweep(
     return new_traj, out_key
 
 
+def _csmc_sweep_support_aware(
+    key,
+    ref_traj,
+    Ad,
+    Qd,
+    chol_Qd,
+    cd,
+    t0_mean,
+    t0_cov,
+    observations,
+    obs_mask_float,
+    n_particles,
+    langevin_step_size,
+    measurement_semantics,
+    lambda_mat,
+    manifest_means,
+    manifest_cov,
+):
+    """PGAS CSMC sweep for interval-summary observation semantics."""
+    _T, n_l = ref_traj.shape
+    N = n_particles
+    jitter = jnp.eye(n_l) * 1e-6
+    obs_kernel = measurement_semantics.obs_kernel
+    mean_log_prob_fn = measurement_semantics.mean_log_prob_fn
+    observation_operator = measurement_semantics.observation_operator
+    if mean_log_prob_fn is None or not observation_operator.requires_interval_summary_handling:
+        raise ValueError(
+            "_csmc_sweep_support_aware requires compiled interval-summary measurement semantics"
+        )
+    assert observation_operator.prev_coeffs is not None
+    assert observation_operator.curr_coeffs is not None
+    assert observation_operator.interval_weights is not None
+    assert observation_operator.emission_slots is not None
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=observations.dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=observations.dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=observations.dtype)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+
+    def _obs_increment(
+        x_curr,
+        y_t,
+        mask_t,
+        response_prev,
+        accum_sum_prev,
+        accum_sumsq_prev,
+        accum_weight_prev,
+        prev_coeff_t,
+        curr_coeff_t,
+        weight_t,
+        emission_slots_t,
+    ):
+        response_curr = obs_kernel.response_fn(lambda_mat @ x_curr + manifest_means)
+        step_result = advance_support_observation_state(
+            observation_operator,
+            response_prev,
+            accum_sum_prev,
+            accum_sumsq_prev,
+            accum_weight_prev,
+            response_curr,
+            mask_t,
+            prev_coeff_t,
+            curr_coeff_t,
+            weight_t,
+            emission_slots_t,
+        )
+        log_prob = support_observation_log_prob(
+            observation_operator,
+            obs_kernel,
+            mean_log_prob_fn,
+            y_t,
+            mask_t,
+            x_curr,
+            lambda_mat,
+            manifest_means,
+            manifest_cov,
+            step_result.summary,
+        )
+        return (
+            log_prob,
+            response_curr,
+            step_result.next_accum_sum,
+            step_result.next_accum_sumsq,
+            step_result.next_accum_weight,
+        )
+
+    chol_t0 = jla.cholesky(t0_cov + jitter, lower=True)
+    key, init_key = random.split(key)
+    init_keys = random.split(init_key, N - 1)
+
+    init_free = t0_mean + jax.vmap(lambda k: chol_t0 @ random.normal(k, (n_l,)))(init_keys)
+    particles_0 = jnp.concatenate([init_free, ref_traj[0:1]], axis=0)
+    responses_0 = jax.vmap(lambda x: obs_kernel.response_fn(lambda_mat @ x + manifest_means))(
+        particles_0
+    )
+    zeros = observation_operator.empty_accumulators(observations.dtype, (N,))
+    state_0 = _SupportAwarePGASState(
+        latent=particles_0,
+        response=responses_0,
+        accum_sum=zeros,
+        accum_sumsq=zeros,
+        accum_weight=zeros,
+    )
+    log_w_0 = jax.vmap(
+        lambda x: obs_kernel.emission_fn(
+            observations[0],
+            x,
+            lambda_mat,
+            manifest_means,
+            manifest_cov,
+            obs_mask_float[0] * observation_operator.point_like_mask(observations.dtype),
+        )
+    )(particles_0)
+
+    def scan_step(carry, inputs):
+        state_prev, log_w_prev, key = carry
+        (
+            Ad_t,
+            Qd_t,
+            chol_t,
+            cd_t,
+            y_t,
+            mask_t,
+            ref_x_t,
+            prev_coeff_t,
+            curr_coeff_t,
+            weight_t,
+            emission_slots_t,
+        ) = inputs
+
+        key, rkey = random.split(key)
+        wn = jnp.exp(log_w_prev - jax.nn.logsumexp(log_w_prev))
+        free_ancestors = _systematic_resample(rkey, wn, N - 1)
+        parent_state = _SupportAwarePGASState(
+            latent=state_prev.latent[free_ancestors],
+            response=state_prev.response[free_ancestors],
+            accum_sum=state_prev.accum_sum[free_ancestors],
+            accum_sumsq=state_prev.accum_sumsq[free_ancestors],
+            accum_weight=state_prev.accum_weight[free_ancestors],
+        )
+        prior_means = jax.vmap(lambda x: Ad_t @ x)(parent_state.latent) + cd_t
+
+        def compute_shift(
+            prior_mean,
+            response_prev,
+            accum_sum_prev,
+            accum_sumsq_prev,
+            accum_weight_prev,
+        ):
+            g = jax.grad(
+                lambda x: _obs_increment(
+                    x,
+                    y_t,
+                    mask_t,
+                    response_prev,
+                    accum_sum_prev,
+                    accum_sumsq_prev,
+                    accum_weight_prev,
+                    prev_coeff_t,
+                    curr_coeff_t,
+                    weight_t,
+                    emission_slots_t,
+                )[0]
+            )(prior_mean)
+            g = jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
+            raw_shift = langevin_step_size * Qd_t @ g
+            scaled = jla.solve_triangular(chol_t, raw_shift, lower=True)
+            norm = jnp.sqrt(jnp.dot(scaled, scaled) + NUMERICAL_EPSILON)
+            clip = jnp.minimum(1.0, 1.0 / norm)
+            return raw_shift * clip
+
+        shifts = jax.vmap(compute_shift)(
+            prior_means,
+            parent_state.response,
+            parent_state.accum_sum,
+            parent_state.accum_sumsq,
+            parent_state.accum_weight,
+        )
+        proposal_means = prior_means + shifts
+
+        key, nkey = random.split(key)
+        z = random.normal(nkey, (N - 1, n_l))
+        new_x_free = proposal_means + jax.vmap(lambda zi: chol_t @ zi)(z)
+
+        def _free_step(
+            x_new,
+            prior_mean,
+            proposal_mean,
+            parent_response,
+            accum_sum_prev,
+            accum_sumsq_prev,
+            accum_weight_prev,
+        ):
+            obs_ll, response_new, next_sum, next_sumsq, next_weight = _obs_increment(
+                x_new,
+                y_t,
+                mask_t,
+                parent_response,
+                accum_sum_prev,
+                accum_sumsq_prev,
+                accum_weight_prev,
+                prev_coeff_t,
+                curr_coeff_t,
+                weight_t,
+                emission_slots_t,
+            )
+            diff_f = x_new - prior_mean
+            diff_q = x_new - proposal_mean
+            Linv_df = jla.solve_triangular(chol_t, diff_f, lower=True)
+            Linv_dq = jla.solve_triangular(chol_t, diff_q, lower=True)
+            log_fq = -0.5 * (jnp.dot(Linv_df, Linv_df) - jnp.dot(Linv_dq, Linv_dq))
+            return (
+                _SupportAwarePGASState(
+                    latent=x_new,
+                    response=response_new,
+                    accum_sum=next_sum,
+                    accum_sumsq=next_sumsq,
+                    accum_weight=next_weight,
+                ),
+                obs_ll + log_fq,
+            )
+
+        free_states, log_w_free = jax.vmap(_free_step)(
+            new_x_free,
+            prior_means,
+            proposal_means,
+            parent_state.response,
+            parent_state.accum_sum,
+            parent_state.accum_sumsq,
+            parent_state.accum_weight,
+        )
+
+        def log_trans_to_ref(x_prev):
+            mean = Ad_t @ x_prev + cd_t
+            diff = ref_x_t - mean
+            Linv_d = jla.solve_triangular(chol_t, diff, lower=True)
+            return -0.5 * jnp.dot(Linv_d, Linv_d)
+
+        ref_obs_anc = jax.vmap(
+            lambda response_prev, accum_sum_prev, accum_sumsq_prev, accum_weight_prev: (
+                _obs_increment(
+                    ref_x_t,
+                    y_t,
+                    mask_t,
+                    response_prev,
+                    accum_sum_prev,
+                    accum_sumsq_prev,
+                    accum_weight_prev,
+                    prev_coeff_t,
+                    curr_coeff_t,
+                    weight_t,
+                    emission_slots_t,
+                )[0]
+            )
+        )(
+            state_prev.response,
+            state_prev.accum_sum,
+            state_prev.accum_sumsq,
+            state_prev.accum_weight,
+        )
+        anc_log_w = log_w_prev + jax.vmap(log_trans_to_ref)(state_prev.latent) + ref_obs_anc
+        key, anc_key = random.split(key)
+        ref_ancestor = random.categorical(anc_key, anc_log_w)
+
+        ref_obs_ll, ref_response, ref_next_sum, ref_next_sumsq, ref_next_weight = _obs_increment(
+            ref_x_t,
+            y_t,
+            mask_t,
+            state_prev.response[ref_ancestor],
+            state_prev.accum_sum[ref_ancestor],
+            state_prev.accum_sumsq[ref_ancestor],
+            state_prev.accum_weight[ref_ancestor],
+            prev_coeff_t,
+            curr_coeff_t,
+            weight_t,
+            emission_slots_t,
+        )
+        ref_state = _SupportAwarePGASState(
+            latent=ref_x_t,
+            response=ref_response,
+            accum_sum=ref_next_sum,
+            accum_sumsq=ref_next_sumsq,
+            accum_weight=ref_next_weight,
+        )
+
+        new_state = _SupportAwarePGASState(
+            latent=jnp.concatenate([free_states.latent, ref_state.latent[None]], axis=0),
+            response=jnp.concatenate([free_states.response, ref_state.response[None]], axis=0),
+            accum_sum=jnp.concatenate([free_states.accum_sum, ref_state.accum_sum[None]], axis=0),
+            accum_sumsq=jnp.concatenate(
+                [free_states.accum_sumsq, ref_state.accum_sumsq[None]],
+                axis=0,
+            ),
+            accum_weight=jnp.concatenate(
+                [free_states.accum_weight, ref_state.accum_weight[None]],
+                axis=0,
+            ),
+        )
+        new_log_w = jnp.concatenate([log_w_free, jnp.array([ref_obs_ll])])
+        full_ancestors = jnp.concatenate(
+            [free_ancestors, ref_ancestor[None].astype(free_ancestors.dtype)]
+        )
+        return (new_state, new_log_w, key), (new_state.latent, full_ancestors)
+
+    scan_inputs = (
+        Ad[1:],
+        Qd[1:],
+        chol_Qd[1:],
+        cd[1:],
+        observations[1:],
+        obs_mask_float[1:],
+        ref_traj[1:],
+        prev_coeffs[1:],
+        curr_coeffs[1:],
+        interval_weights[1:],
+        emission_slots[1:],
+    )
+    init_carry = (state_0, log_w_0, key)
+    final_carry, (all_particles, all_ancestors) = jax.lax.scan(scan_step, init_carry, scan_inputs)
+
+    all_particles_full = jnp.concatenate([state_0.latent[None], all_particles], axis=0)
+    _, final_log_w, final_key = final_carry
+    sel_key, out_key = random.split(final_key)
+    selected = random.categorical(sel_key, final_log_w)
+
+    def traceback_step(k, inputs):
+        ancestors_t, particles_t = inputs
+        x = particles_t[k]
+        parent = ancestors_t[k]
+        return parent, x
+
+    reversed_ancestors = all_ancestors[::-1]
+    reversed_particles = all_particles_full[1:][::-1]
+    final_k, traj_rev = jax.lax.scan(
+        traceback_step, selected, (reversed_ancestors, reversed_particles)
+    )
+
+    x_0 = all_particles_full[0, final_k]
+    new_traj = jnp.concatenate([x_0[None], traj_rev[::-1]], axis=0)
+    return new_traj, out_key
+
+
 # ---------------------------------------------------------------------------
 # Trajectory-conditioned log-posterior for parameter updates
 # ---------------------------------------------------------------------------
@@ -477,6 +833,8 @@ def _traj_log_post(
     transforms,
     spec,
     adapter,
+    measurement_semantics=None,
+    observation_support=None,
 ):
     """Log p(theta | x_{1:T}, y_{1:T}) given fixed trajectory.
 
@@ -528,17 +886,33 @@ def _traj_log_post(
         (trajectory[:-1], trajectory[1:], Ad[1:], chol_Qd[1:], cd_all[1:]),
     )
 
-    # 5. Log observation densities via SSMAdapter (supports all noise families)
-    params = {
-        "lambda_mat": lambda_mat,
-        "manifest_means": manifest_means,
-        "manifest_cov": manifest_cov,
-    }
+    if observation_support is not None and observation_support.requires_interval_summary_handling:
+        if measurement_semantics is None or measurement_semantics.mean_log_prob_fn is None:
+            raise ValueError(
+                "Support-aware trajectory log-posterior requires compiled measurement semantics."
+            )
+        lp_obs = trajectory_observation_log_prob(
+            trajectory,
+            observations,
+            obs_mask_float > 0.5,
+            lambda_mat,
+            manifest_means,
+            manifest_cov,
+            measurement_semantics.obs_kernel,
+            measurement_semantics.mean_log_prob_fn,
+            observation_support,
+        )
+    else:
+        params = {
+            "lambda_mat": lambda_mat,
+            "manifest_means": manifest_means,
+            "manifest_cov": manifest_cov,
+        }
 
-    def obs_lp_single(x, y, mask):
-        return adapter.observation_log_prob(y, x, params, mask)
+        def obs_lp_single(x, y, mask):
+            return adapter.observation_log_prob(y, x, params, mask)
 
-    lp_obs = jnp.sum(jax.vmap(obs_lp_single)(trajectory, observations, obs_mask_float))
+        lp_obs = jnp.sum(jax.vmap(obs_lp_single)(trajectory, observations, obs_mask_float))
 
     total = lp_prior + lp_jac + lp_init + lp_trans + lp_obs
     return jnp.where(jnp.isfinite(total), total, -1e30)
@@ -614,8 +988,13 @@ def fit_pgas(
     dt_array = jnp.diff(times, prepend=times[0])
     dt_array = jnp.maximum(dt_array, MIN_DT)
 
+    observation_support = getattr(model, "observation_support", None)
+    requires_interval_summary_handling = bool(
+        observation_support is not None and observation_support.requires_interval_summary_handling
+    )
+
     # Detect Gaussian observations for optimal proposal
-    gaussian_obs = model.spec.manifest_dist == "gaussian"
+    gaussian_obs = model.spec.manifest_dist == "gaussian" and not requires_interval_summary_handling
 
     block_tag = "+block" if block_sampling else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
@@ -653,6 +1032,13 @@ def fit_pgas(
         diffusion_dist=model.spec.diffusion_dist,
         manifest_link=model.spec.manifest_link,
     )
+    support_measurement_semantics = None
+    if requires_interval_summary_handling:
+        support_measurement_semantics = compile_measurement_semantics(
+            model.spec.manifest_dist,
+            manifest_link=model.spec.manifest_link,
+            observation_support=observation_support,
+        )
 
     # 3. Build block structure for parameter sampling
     blocks = []
@@ -685,6 +1071,27 @@ def fit_pgas(
         R_adj = None
         if gaussian_obs:
             R_adj = cov[None]  # (1, n_m, n_m) — base manifest_cov
+
+        if requires_interval_summary_handling:
+            assert support_measurement_semantics is not None
+            return _csmc_sweep_support_aware(
+                key,
+                ref_traj,
+                Ad,
+                Qd,
+                chol_Qd,
+                cd,
+                t0_mean,
+                t0_cov,
+                obs,
+                mask,
+                N_csmc,
+                step_size,
+                support_measurement_semantics,
+                lam,
+                means,
+                cov,
+            )
 
         return _csmc_sweep(
             key,
@@ -723,6 +1130,8 @@ def fit_pgas(
             transforms,
             model.spec,
             adapter,
+            support_measurement_semantics,
+            observation_support,
         )
 
     # JIT'd HMC step for full-vector updates (non-block mode)

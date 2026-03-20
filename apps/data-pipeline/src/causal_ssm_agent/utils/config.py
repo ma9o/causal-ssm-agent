@@ -32,16 +32,14 @@ class Stage1Config:
 
 @dataclass(frozen=True)
 class Stage2Config:
-    """Stage 2: Tick-Based Extraction (Workers)."""
+    """Stage 2: Support-Window Extraction (Workers)."""
 
     model: str
-    ticks_per_chunk: int = 1
+    windows_per_chunk: int = 1
     max_concurrent_workers: int = 4
-    max_events_per_tick: int = 300
+    max_events_per_window: int = 300
     max_rpm: int = 450
     worker_timeout: int = 120
-    # Deprecated: kept for config.yaml backward compat, ignored at runtime
-    submission_batch_size: int = 50
     chunk_size: int = 50
 
 

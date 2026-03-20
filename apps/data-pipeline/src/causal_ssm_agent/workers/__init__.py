@@ -1,11 +1,11 @@
 from .core import WorkerResult
 from .schemas import (
-    TickExtraction,
+    WindowExtraction,
     WorkerOutput,
 )
 
 __all__ = [
-    "TickExtraction",
+    "WindowExtraction",
     "WorkerOutput",
     "WorkerResult",
 ]

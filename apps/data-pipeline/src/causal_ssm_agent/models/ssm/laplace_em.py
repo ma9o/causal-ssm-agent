@@ -1,4 +1,4 @@
-"""Laplace-EM: Iterated EKF Smoother + Laplace-approximated marginal likelihood.
+"""Laplace-EM: IEKS + Laplace approximation with support-aware banded windows.
 
 Implements Method 1 from the algorithmic specification:
 1. Inner loop: Iterated Extended Kalman Smoother (IEKS) finds the mode of
@@ -18,6 +18,7 @@ O(T D^3) per iteration, and typically 3-8 iterations suffice for convergence.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -25,7 +26,15 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.likelihoods.kernels import build_composite_observation_kernel
+from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    accumulate_support_statistics,
+    expected_observation_mean,
+    get_point_like_mask,
+    get_summary_operator_codes,
+    get_support_kind_codes,
+    trajectory_observation_log_prob,
+)
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 
@@ -36,12 +45,25 @@ if TYPE_CHECKING:
         MeasurementParams,
     )
     from causal_ssm_agent.models.ssm.inference import InferenceResult
+    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
 # ---------------------------------------------------------------------------
 # Iterated Extended Kalman Smoother (IEKS)
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SupportObservationGroup:
+    """One anchored interval-summary observation block."""
+
+    anchor_idx: int
+    start_idx: int
+    mask_full: np.ndarray
+    prev_coeffs: np.ndarray
+    curr_coeffs: np.ndarray
+    weights: np.ndarray
 
 
 def _symmetrize_psd(mats: jnp.ndarray, jitter: float = 0.0) -> jnp.ndarray:
@@ -179,6 +201,187 @@ def _solve_block_tridiagonal(
     )
     x_odd = _batched_spd_solve(_symmetrize_psd(diag[odd], jitter=1e-6), rhs_odd)
     return solution.at[odd].set(x_odd)
+
+
+def _build_prior_banded_system(
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    bandwidth: int,
+    jitter: float = 1e-6,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Assemble the Gaussian latent-prior contribution in block-banded form."""
+    T, D = Ad.shape[:2]
+    eye = jnp.eye(D, dtype=Ad.dtype)
+
+    diag = jnp.zeros((T, D, D), dtype=Ad.dtype)
+    upper = jnp.zeros((bandwidth, T, D, D), dtype=Ad.dtype)
+    rhs = jnp.zeros((T, D), dtype=Ad.dtype)
+
+    prior_mean = Ad[0] @ init_mean + cd[0]
+    prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
+    prior_inv = jla.solve(prior_cov, eye, assume_a="pos")
+
+    diag = diag.at[0].add(prior_inv)
+    rhs = rhs.at[0].add(prior_inv @ prior_mean)
+
+    if T == 1:
+        return diag, upper, rhs
+
+    q_reg = _symmetrize_psd(Qd[1:], jitter=jitter)
+    eye_batch = jnp.broadcast_to(eye, q_reg.shape)
+    q_inv = _batched_spd_solve(q_reg, eye_batch)
+    q_inv_a = _batched_spd_solve(q_reg, Ad[1:])
+    q_inv_c = _batched_spd_solve(q_reg, cd[1:])
+
+    diag = diag.at[1:].add(q_inv)
+    diag = diag.at[:-1].add(jnp.swapaxes(Ad[1:], -1, -2) @ q_inv_a)
+    rhs = rhs.at[1:].add(q_inv_c)
+    rhs = rhs.at[:-1].add(-jnp.einsum("tij,tj->ti", jnp.swapaxes(Ad[1:], -1, -2), q_inv_c))
+
+    if bandwidth >= 1:
+        upper = upper.at[0, :-1].set(-jnp.swapaxes(q_inv_a, -1, -2))
+
+    return diag, upper, rhs
+
+
+def _factor_block_banded_cholesky(
+    diag: jnp.ndarray,
+    upper: jnp.ndarray,
+    jitter: float = 1e-6,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Block-banded Cholesky factorization A = L L^T."""
+    T, _D = diag.shape[:2]
+    bandwidth = upper.shape[0]
+    chol_diag = jnp.zeros_like(diag)
+    lower = jnp.zeros_like(upper)
+
+    for i in range(T):
+        schur = diag[i]
+        k_start = max(0, i - bandwidth)
+        for k in range(k_start, i):
+            l_ik = lower[i - k - 1, i]
+            schur = schur - l_ik @ l_ik.T
+
+        l_ii = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=jitter))
+        chol_diag = chol_diag.at[i].set(l_ii)
+
+        for j in range(i + 1, min(T, i + bandwidth + 1)):
+            schur_off = upper[j - i - 1, i].T
+            kk_start = max(0, i - bandwidth, j - bandwidth)
+            for k in range(kk_start, i):
+                l_jk = lower[j - k - 1, j]
+                l_ik = lower[i - k - 1, i]
+                schur_off = schur_off - l_jk @ l_ik.T
+
+            l_ji = jla.solve_triangular(l_ii, schur_off.T, lower=True).T
+            lower = lower.at[j - i - 1, j].set(l_ji)
+
+    return chol_diag, lower
+
+
+def _solve_block_banded_from_cholesky(
+    chol_diag: jnp.ndarray,
+    lower: jnp.ndarray,
+    rhs: jnp.ndarray,
+) -> jnp.ndarray:
+    """Solve A x = rhs from block-banded Cholesky factors."""
+    T = rhs.shape[0]
+    bandwidth = lower.shape[0]
+    y = jnp.zeros_like(rhs)
+
+    for i in range(T):
+        res = rhs[i]
+        k_start = max(0, i - bandwidth)
+        for k in range(k_start, i):
+            res = res - lower[i - k - 1, i] @ y[k]
+        y = y.at[i].set(jla.solve_triangular(chol_diag[i], res, lower=True))
+
+    x = jnp.zeros_like(rhs)
+    for i in range(T - 1, -1, -1):
+        res = y[i]
+        for j in range(i + 1, min(T, i + bandwidth + 1)):
+            res = res - lower[j - i - 1, j].T @ x[j]
+        x = x.at[i].set(jla.solve_triangular(chol_diag[i].T, res, lower=False))
+
+    return x
+
+
+def _block_banded_logdet(chol_diag: jnp.ndarray) -> jnp.ndarray:
+    """Log determinant from block-banded Cholesky factors."""
+    return 2.0 * jnp.sum(jnp.log(jnp.clip(jnp.diagonal(chol_diag, axis1=1, axis2=2), 1e-12)))
+
+
+def _infer_support_groups(
+    observation_support: ObservationSupportRuntime,
+) -> tuple[tuple[SupportObservationGroup, ...], int]:
+    """Compile anchored non-point observation windows into block groups."""
+    support_kind_codes = np.asarray(get_support_kind_codes(observation_support))
+    prev_coeffs = np.asarray(observation_support.interval_prev_coeffs)
+    curr_coeffs = np.asarray(observation_support.interval_curr_coeffs)
+    weights = np.asarray(observation_support.interval_weights)
+    emission_slots = np.asarray(observation_support.emission_slot_indices)
+    T, n_manifest = emission_slots.shape
+    tol = 1e-10
+
+    groups: list[SupportObservationGroup] = []
+    max_bandwidth = 1 if T > 1 else 0
+    for anchor_idx in range(T):
+        manifests = [
+            manifest_idx
+            for manifest_idx in range(n_manifest)
+            if support_kind_codes[manifest_idx] == 1
+            and emission_slots[anchor_idx, manifest_idx] >= 0
+        ]
+        if not manifests:
+            continue
+
+        start_idx = anchor_idx
+        for manifest_idx in manifests:
+            slot_idx = int(emission_slots[anchor_idx, manifest_idx])
+            active_steps = np.where(
+                np.abs(prev_coeffs[: anchor_idx + 1, manifest_idx, slot_idx])
+                + np.abs(curr_coeffs[: anchor_idx + 1, manifest_idx, slot_idx])
+                + np.abs(weights[: anchor_idx + 1, manifest_idx, slot_idx])
+                > tol
+            )[0]
+            if active_steps.size > 0:
+                start_idx = min(start_idx, int(active_steps.min()) - 1)
+
+        start_idx = max(start_idx, 0)
+        max_bandwidth = max(max_bandwidth, anchor_idx - start_idx)
+
+        mask_full = np.zeros((n_manifest,), dtype=np.float32)
+        mask_full[manifests] = 1.0
+        segment_len = anchor_idx - start_idx
+        group_prev = np.zeros((segment_len, n_manifest), dtype=np.float32)
+        group_curr = np.zeros((segment_len, n_manifest), dtype=np.float32)
+        group_weights = np.zeros((segment_len, n_manifest), dtype=np.float32)
+        for manifest_idx in manifests:
+            slot_idx = int(emission_slots[anchor_idx, manifest_idx])
+            group_prev[:, manifest_idx] = prev_coeffs[
+                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+            ]
+            group_curr[:, manifest_idx] = curr_coeffs[
+                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+            ]
+            group_weights[:, manifest_idx] = weights[
+                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+            ]
+        groups.append(
+            SupportObservationGroup(
+                anchor_idx=anchor_idx,
+                start_idx=start_idx,
+                mask_full=mask_full,
+                prev_coeffs=group_prev,
+                curr_coeffs=group_curr,
+                weights=group_weights,
+            )
+        )
+
+    return tuple(groups), max_bandwidth
 
 
 def _ieks_smooth(
@@ -388,6 +591,331 @@ def _compute_laplace_log_lik(
     return jnp.cumsum(ll_all)
 
 
+def _trajectory_prior_log_prob(
+    latent_trajectory: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+) -> jnp.ndarray:
+    """Return log p(z_{1:T} | theta) under the discretized latent dynamics."""
+    from numpyro.distributions import MultivariateNormal
+
+    T, D = latent_trajectory.shape
+    jitter = jnp.eye(D, dtype=latent_trajectory.dtype) * 1e-6
+
+    z0_pred = Ad[0] @ init_mean + cd[0]
+    P0_pred = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
+    P0_pred = 0.5 * (P0_pred + P0_pred.T) + jitter
+    init_ll = MultivariateNormal(z0_pred, covariance_matrix=P0_pred).log_prob(latent_trajectory[0])
+
+    if T == 1:
+        return init_ll
+
+    def _transition_ll(z_t, z_tm1, Ad_t, Qd_t, cd_t):
+        mean = Ad_t @ z_tm1 + cd_t
+        cov = 0.5 * (Qd_t + Qd_t.T) + jitter
+        return MultivariateNormal(mean, covariance_matrix=cov).log_prob(z_t)
+
+    trans_ll = jax.vmap(_transition_ll)(
+        latent_trajectory[1:],
+        latent_trajectory[:-1],
+        Ad[1:],
+        Qd[1:],
+        cd[1:],
+    )
+    return init_ll + jnp.sum(trans_ll)
+
+
+def _assemble_support_aware_observation_system(
+    z_est: jnp.ndarray,
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support: ObservationSupportRuntime,
+    support_groups: tuple[SupportObservationGroup, ...],
+    bandwidth: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Assemble exact Newton observation terms in block-banded form."""
+    T, D = z_est.shape
+    diag = jnp.zeros((T, D, D), dtype=z_est.dtype)
+    upper = jnp.zeros((bandwidth, T, D, D), dtype=z_est.dtype)
+    rhs = jnp.zeros((T, D), dtype=z_est.dtype)
+
+    support_kind_codes = get_support_kind_codes(observation_support)
+    summary_operator_codes = get_summary_operator_codes(observation_support)
+    point_like_mask = get_point_like_mask(support_kind_codes, z_est.dtype)
+    point_mask = obs_mask.astype(z_est.dtype) * point_like_mask[None, :]
+
+    local_grads, local_hess = jax.vmap(
+        lambda y_t, z_t, mask_t: obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
+    )(observations, z_est, point_mask)
+    diag = diag + local_hess
+    rhs = rhs + jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(local_hess, z_est, local_grads)
+
+    clean_obs = jnp.nan_to_num(observations, nan=0.0)
+    n_manifest = observations.shape[1]
+
+    for group in support_groups:
+        anchor_idx = group.anchor_idx
+        start_idx = group.start_idx
+        segment = z_est[start_idx : anchor_idx + 1]
+        segment_len = segment.shape[0]
+        mask_full = jnp.asarray(group.mask_full, dtype=z_est.dtype)
+        prev_coeffs = jnp.asarray(group.prev_coeffs, dtype=z_est.dtype)
+        curr_coeffs = jnp.asarray(group.curr_coeffs, dtype=z_est.dtype)
+        weights = jnp.asarray(group.weights, dtype=z_est.dtype)
+
+        def _window_log_prob(
+            segment_flat: jnp.ndarray,
+            *,
+            _anchor_idx: int = anchor_idx,
+            _segment_len: int = segment_len,
+            _mask_full: jnp.ndarray = mask_full,
+            _prev_coeffs: jnp.ndarray = prev_coeffs,
+            _curr_coeffs: jnp.ndarray = curr_coeffs,
+            _weights: jnp.ndarray = weights,
+        ) -> jnp.ndarray:
+            segment_states = segment_flat.reshape(_segment_len, D)
+            responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(segment_states)
+
+            if _segment_len == 1:
+                obs_sum = responses[-1]
+                obs_sumsq = responses[-1] ** 2
+                obs_weight = _mask_full
+            else:
+                zeros = jnp.zeros((n_manifest, 1), dtype=responses.dtype)
+
+                def _scan_step(carry, inputs):
+                    response_prev, accum_sum, accum_sumsq, accum_weight = carry
+                    response_t, prev_coeff_t, curr_coeff_t, weight_t = inputs
+                    obs_sum, obs_sumsq, obs_weight = accumulate_support_statistics(
+                        response_prev,
+                        accum_sum,
+                        accum_sumsq,
+                        accum_weight,
+                        response_t,
+                        prev_coeff_t,
+                        curr_coeff_t,
+                        weight_t,
+                    )
+                    return (response_t, obs_sum, obs_sumsq, obs_weight), None
+
+                final_carry, _ = jax.lax.scan(
+                    _scan_step,
+                    (responses[0], zeros, zeros, zeros),
+                    (
+                        responses[1:],
+                        _prev_coeffs[..., None],
+                        _curr_coeffs[..., None],
+                        _weights[..., None],
+                    ),
+                )
+                _response_last, obs_sum, obs_sumsq, obs_weight = final_carry
+                obs_sum = obs_sum.squeeze(-1)
+                obs_sumsq = obs_sumsq.squeeze(-1)
+                obs_weight = obs_weight.squeeze(-1)
+
+            expected_mean = expected_observation_mean(
+                responses[-1],
+                obs_sum,
+                obs_sumsq,
+                obs_weight,
+                summary_operator_codes,
+            )
+            return mean_log_prob_fn(clean_obs[_anchor_idx], expected_mean, R, _mask_full)
+
+        segment_flat = segment.reshape(-1)
+        grad_flat = jax.grad(_window_log_prob)(segment_flat)
+        hess_flat = jax.hessian(_window_log_prob)(segment_flat)
+        info_flat = -0.5 * (hess_flat + hess_flat.T)
+        info_blocks = info_flat.reshape(segment_len, D, segment_len, D).transpose(0, 2, 1, 3)
+        taylor_rhs = (info_flat @ segment_flat + grad_flat).reshape(segment_len, D)
+
+        for local_i in range(segment_len):
+            time_i = start_idx + local_i
+            diag = diag.at[time_i].add(info_blocks[local_i, local_i])
+            rhs = rhs.at[time_i].add(taylor_rhs[local_i])
+            for local_j in range(local_i + 1, segment_len):
+                offset = local_j - local_i
+                upper = upper.at[offset - 1, time_i].add(info_blocks[local_i, local_j])
+
+    return diag, upper, rhs
+
+
+def _support_aware_ieks_log_lik(
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support: ObservationSupportRuntime,
+    support_groups: tuple[SupportObservationGroup, ...],
+    bandwidth: int,
+    n_ieks_iters: int,
+) -> jnp.ndarray:
+    """Sparse/banded support-aware IEKS + Laplace approximation."""
+    T, D = observations.shape[0], init_mean.shape[0]
+
+    z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
+    for _ in range(max(n_ieks_iters, 1)):
+        prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
+            Ad,
+            Qd,
+            cd,
+            init_mean,
+            init_cov,
+            bandwidth,
+        )
+        obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+            z_est,
+            observations,
+            obs_mask,
+            H,
+            d,
+            R,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+            support_groups,
+            bandwidth,
+        )
+        system_diag = prior_diag + obs_diag
+        system_upper = prior_upper + obs_upper
+        system_rhs = prior_rhs + obs_rhs
+        chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
+        z_est = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+
+    prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
+        Ad,
+        Qd,
+        cd,
+        init_mean,
+        init_cov,
+        bandwidth,
+    )
+    obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+        z_est,
+        observations,
+        obs_mask,
+        H,
+        d,
+        R,
+        obs_kernel,
+        mean_log_prob_fn,
+        observation_support,
+        support_groups,
+        bandwidth,
+    )
+    system_diag = prior_diag + obs_diag
+    system_upper = prior_upper + obs_upper
+    system_rhs = prior_rhs + obs_rhs
+    chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
+
+    flat_dim = T * D
+    mode_log_joint = _trajectory_prior_log_prob(z_est, Ad, Qd, cd, init_mean, init_cov) + (
+        trajectory_observation_log_prob(
+            z_est,
+            observations,
+            obs_mask,
+            H,
+            d,
+            R,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+        )
+    )
+    return (
+        mode_log_joint
+        + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi)
+        - 0.5 * _block_banded_logdet(chol_diag)
+    )
+
+
+def _dense_support_laplace_log_lik(
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support,
+    n_newton_iters: int,
+) -> jnp.ndarray:
+    """Dense Laplace approximation for interval-summary observation semantics."""
+    T, D = observations.shape[0], init_mean.shape[0]
+    flat_dim = T * D
+    eye = jnp.eye(flat_dim, dtype=observations.dtype)
+
+    def _predictive_init():
+        z0 = Ad[0] @ init_mean + cd[0]
+        if T == 1:
+            return z0[None]
+
+        def _step(z_prev, inputs):
+            Ad_t, cd_t = inputs
+            z_t = Ad_t @ z_prev + cd_t
+            return z_t, z_t
+
+        _, z_rest = jax.lax.scan(_step, z0, (Ad[1:], cd[1:]))
+        return jnp.concatenate([z0[None], z_rest], axis=0)
+
+    z_init = _predictive_init()
+
+    def _joint_log_prob(z_flat):
+        z = z_flat.reshape(T, D)
+        prior_ll = _trajectory_prior_log_prob(z, Ad, Qd, cd, init_mean, init_cov)
+        obs_ll = trajectory_observation_log_prob(
+            z,
+            observations,
+            obs_mask,
+            H,
+            d,
+            R,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+        )
+        return prior_ll + obs_ll
+
+    def _neg_log_prob(z_flat):
+        return -_joint_log_prob(z_flat)
+
+    z_flat = z_init.reshape(-1)
+    for _ in range(max(n_newton_iters, 1)):
+        grad = jax.grad(_neg_log_prob)(z_flat)
+        hess = jax.hessian(_neg_log_prob)(z_flat)
+        hess = 0.5 * (hess + hess.T) + 1e-4 * eye
+        step = jla.solve(hess, grad, assume_a="sym")
+        z_flat = z_flat - 0.5 * step
+
+    mode_log_joint = _joint_log_prob(z_flat)
+    hess = jax.hessian(_neg_log_prob)(z_flat)
+    hess = 0.5 * (hess + hess.T)
+    eigvals = jnp.linalg.eigvalsh(hess)
+    logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
+    return mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * logdet
+
+
 # ---------------------------------------------------------------------------
 # Laplace likelihood backend (for use in NumPyro model)
 # ---------------------------------------------------------------------------
@@ -410,12 +938,24 @@ class LaplaceLikelihood:
         manifest_dists: list[DistributionFamily],
         manifest_links: list[LinkFunction],
         n_ieks_iters: int = 5,
+        observation_support: ObservationSupportRuntime | None = None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
         self.manifest_dists = manifest_dists
         self.manifest_links = manifest_links
         self.n_ieks_iters = n_ieks_iters
+        self.observation_support = observation_support
+        if (
+            observation_support is not None
+            and observation_support.requires_interval_summary_handling
+        ):
+            self._support_groups, self._support_bandwidth = _infer_support_groups(
+                observation_support
+            )
+        else:
+            self._support_groups = ()
+            self._support_bandwidth = 1 if n_latent > 0 else 0
 
     def compute_log_likelihood(
         self,
@@ -444,12 +984,43 @@ class LaplaceLikelihood:
         )
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))
+        else:
+            cd = jnp.asarray(cd)
+            if cd.ndim == 1:
+                cd = cd[:, None]
 
-        obs_kernel = build_composite_observation_kernel(
-            self.manifest_dists,
-            self.manifest_links,
-            extra_params,
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dists[0],
+            manifest_cov=measurement_params.manifest_cov,
+            extra_params=extra_params,
+            manifest_dists=self.manifest_dists,
+            manifest_links=self.manifest_links,
+            observation_support=self.observation_support,
         )
+        obs_kernel = measurement_semantics.obs_kernel
+
+        if (
+            self.observation_support is not None
+            and self.observation_support.requires_interval_summary_handling
+        ):
+            return _support_aware_ieks_log_lik(
+                clean_obs,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                measurement_params.lambda_mat,
+                measurement_params.manifest_means,
+                measurement_params.manifest_cov,
+                initial_state.mean,
+                initial_state.cov,
+                obs_kernel,
+                measurement_semantics.mean_log_prob_fn,
+                self.observation_support,
+                self._support_groups,
+                self._support_bandwidth,
+                self.n_ieks_iters,
+            )
 
         _, log_lik = _ieks_smooth(
             clean_obs,

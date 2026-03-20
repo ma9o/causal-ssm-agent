@@ -9,17 +9,19 @@ functions that are not exercised through dict validation.
 import pytest
 
 from causal_ssm_agent.orchestrator.schemas import (
+    AnchorPolicy,
     CausalEdge,
     CausalSpec,
     Construct,
     Indicator,
     LatentModel,
     MeasurementModel,
-    ObservationKind,
     Role,
+    SummaryOperator,
+    SupportKind,
     TemporalStatus,
     check_semantic_collisions,
-    derive_observation_kind,
+    derive_indicator_observation_semantics,
     parse_duration_to_hours,
 )
 
@@ -283,7 +285,7 @@ class TestIndicator:
                 construct_name="pain",
                 how_to_measure="Extract pain level",
                 measurement_dtype="ordinal",
-                aggregation="median",
+                aggregation="last",
             )
 
     def test_ordinal_needs_at_least_two_levels(self):
@@ -294,7 +296,7 @@ class TestIndicator:
                 construct_name="pain",
                 how_to_measure="Extract pain level",
                 measurement_dtype="ordinal",
-                aggregation="median",
+                aggregation="last",
                 ordinal_levels=["only_one"],
             )
 
@@ -306,7 +308,7 @@ class TestIndicator:
                 construct_name="pain",
                 how_to_measure="Extract pain level",
                 measurement_dtype="ordinal",
-                aggregation="median",
+                aggregation="last",
                 ordinal_levels=["low", "low", "high"],
             )
 
@@ -317,7 +319,7 @@ class TestIndicator:
             construct_name="pain",
             how_to_measure="Extract pain level",
             measurement_dtype="ordinal",
-            aggregation="median",
+            aggregation="last",
             ordinal_levels=["low", "medium", "high"],
         )
         assert ind.ordinal_levels == ["low", "medium", "high"]
@@ -443,7 +445,7 @@ class TestMeasurementModel:
                     construct_name="mood",
                     how_to_measure="Extract mood from text",
                     measurement_dtype="ordinal",
-                    aggregation="mean",
+                    aggregation="last",
                     ordinal_levels=["low", "medium", "high"],
                 ),
                 Indicator(
@@ -656,40 +658,42 @@ class TestParseDurationToHours:
             )
 
 
-class TestDeriveObservationKind:
-    """Tests for derive_observation_kind function."""
+class TestDeriveObservationSemantics:
+    """Tests for derive_indicator_observation_semantics."""
 
-    def test_cumulative(self):
-        """Sum aggregation → cumulative."""
-        assert derive_observation_kind("sum") == ObservationKind.CUMULATIVE
+    def test_first_maps_to_point_at_window_start(self):
+        semantics = derive_indicator_observation_semantics("first", "continuous")
+        assert semantics.support_kind == SupportKind.POINT
+        assert semantics.summary_operator == SummaryOperator.FIRST
+        assert semantics.anchor_policy == AnchorPolicy.SUPPORT_START
 
-    def test_point_in_time(self):
-        """First/last/min/max → point_in_time."""
-        assert derive_observation_kind("first") == ObservationKind.POINT_IN_TIME
-        assert derive_observation_kind("last") == ObservationKind.POINT_IN_TIME
-        assert derive_observation_kind("min") == ObservationKind.POINT_IN_TIME
-        assert derive_observation_kind("max") == ObservationKind.POINT_IN_TIME
+    def test_last_maps_to_point_at_window_end(self):
+        semantics = derive_indicator_observation_semantics("last", "continuous")
+        assert semantics.support_kind == SupportKind.POINT
+        assert semantics.summary_operator == SummaryOperator.LAST
+        assert semantics.anchor_policy == AnchorPolicy.SUPPORT_END
 
-    def test_variability(self):
-        """Variability aggregations classified correctly."""
-        for agg in ("std", "var", "range", "cv", "iqr", "instability"):
-            assert derive_observation_kind(agg) == ObservationKind.VARIABILITY
+    def test_interval_summary_operator_maps_to_interval_support(self):
+        semantics = derive_indicator_observation_semantics("sum", "count")
+        assert semantics.support_kind == SupportKind.INTERVAL
+        assert semantics.summary_operator == SummaryOperator.SUM
+        assert semantics.anchor_policy == AnchorPolicy.SUPPORT_END
 
-    def test_frequency(self):
-        """Count/n_unique → frequency."""
-        assert derive_observation_kind("count") == ObservationKind.FREQUENCY
-        assert derive_observation_kind("n_unique") == ObservationKind.FREQUENCY
+    def test_std_requires_continuous_measurements(self):
+        with pytest.raises(
+            ValueError, match="aggregation 'std' requires measurement_dtype='continuous'"
+        ):
+            derive_indicator_observation_semantics("std", "count")
 
-    def test_window_average_default(self):
-        """Mean, median, percentiles → window_average."""
-        for agg in ("mean", "median", "p10", "p75", "entropy", "trend"):
-            assert derive_observation_kind(agg) == ObservationKind.WINDOW_AVERAGE
+    def test_ordinal_indicators_only_support_point_operators(self):
+        with pytest.raises(
+            ValueError, match="ordinal indicators currently support only first/last"
+        ):
+            derive_indicator_observation_semantics("mean", "ordinal")
 
-    def test_ordinal_overrides_aggregation(self):
-        """Ordinal dtype → ordinal, regardless of aggregation."""
-        assert derive_observation_kind("mean", "ordinal") == ObservationKind.ORDINAL
-        assert derive_observation_kind("last", "ordinal") == ObservationKind.ORDINAL
-        assert derive_observation_kind("median", "ordinal") == ObservationKind.ORDINAL
+    def test_unsupported_aggregations_fail_fast(self):
+        with pytest.raises(ValueError, match="not yet supported by the measurement model"):
+            derive_indicator_observation_semantics("median", "continuous")
 
 
 class TestSemanticCollisions:
@@ -717,34 +721,60 @@ class TestSemanticCollisions:
         assert len(warnings) >= 1
 
 
-class TestIndicatorObservationKind:
-    """Tests for Indicator.observation_kind property."""
+class TestIndicatorObservationSemantics:
+    """Tests for Indicator computed observation semantics."""
 
-    def test_observation_kind_property(self, indicator_factory):
-        """Indicator.observation_kind returns derived kind."""
+    def test_interval_indicator_serializes_semantics(self, indicator_factory):
         ind = indicator_factory("steps", "activity", aggregation="sum", dtype="count")
-        assert ind.observation_kind == ObservationKind.CUMULATIVE
+        assert ind.support_kind == SupportKind.INTERVAL
+        assert ind.summary_operator == SummaryOperator.SUM
+        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
+        assert ind.requires_interval_summary_measurement is True
 
-    def test_requires_integral_measurement(self, indicator_factory):
-        """Cumulative indicators require integral measurement equation."""
-        cumulative = indicator_factory("steps", "activity", aggregation="sum", dtype="count")
-        assert cumulative.requires_integral_measurement is True
+    def test_point_indicator_serializes_semantics(self, indicator_factory):
+        ind = indicator_factory("last_bp", "bp", aggregation="last", dtype="continuous")
+        assert ind.support_kind == SupportKind.POINT
+        assert ind.summary_operator == SummaryOperator.LAST
+        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
+        assert ind.requires_interval_summary_measurement is False
 
-        average = indicator_factory("mood_rating", "mood", aggregation="mean", dtype="continuous")
-        assert average.requires_integral_measurement is False
+    def test_ordinal_indicator_uses_point_semantics(self, indicator_factory):
+        ind = indicator_factory("pain_level", "pain", aggregation="last", dtype="ordinal")
+        assert ind.support_kind == SupportKind.POINT
+        assert ind.summary_operator == SummaryOperator.LAST
+        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
 
-        point = indicator_factory("last_bp", "bp", aggregation="last", dtype="continuous")
-        assert point.requires_integral_measurement is False
+    def test_unsupported_aggregation_is_rejected_on_indicator(self, indicator_factory):
+        with pytest.raises(ValueError, match="not yet supported by the measurement model"):
+            indicator_factory("median_hr", "hr", aggregation="median", dtype="continuous")
 
-    def test_ordinal_indicator(self, indicator_factory):
-        """Ordinal dtype → ordinal observation kind."""
-        ind = indicator_factory("pain_level", "pain", aggregation="median", dtype="ordinal")
-        assert ind.observation_kind == ObservationKind.ORDINAL
-        assert ind.requires_integral_measurement is False
+    def test_ordinal_interval_summary_is_rejected_on_indicator(self, indicator_factory):
+        with pytest.raises(
+            ValueError, match="ordinal indicators currently support only first/last"
+        ):
+            indicator_factory("pain_level", "pain", aggregation="mean", dtype="ordinal")
 
-    def test_min_max_are_point_in_time(self, indicator_factory):
-        """Min/max are instantaneous extremals, not window averages."""
-        ind_min = indicator_factory("min_hr", "hr", aggregation="min", dtype="continuous")
-        ind_max = indicator_factory("max_hr", "hr", aggregation="max", dtype="continuous")
-        assert ind_min.observation_kind == ObservationKind.POINT_IN_TIME
-        assert ind_max.observation_kind == ObservationKind.POINT_IN_TIME
+
+class TestIndicatorObservationWindow:
+    def test_valid_observation_window(self):
+        indicator = Indicator(
+            name="monthly_mood",
+            construct_name="mood",
+            how_to_measure="Average mood over the last month",
+            measurement_dtype="continuous",
+            aggregation="mean",
+            observation_window="1mo",
+        )
+
+        assert indicator.observation_window == "1mo"
+
+    def test_invalid_observation_window(self):
+        with pytest.raises(ValueError, match="Invalid duration"):
+            Indicator(
+                name="monthly_mood",
+                construct_name="mood",
+                how_to_measure="Average mood over the last month",
+                measurement_dtype="continuous",
+                aggregation="mean",
+                observation_window="monthly",
+            )

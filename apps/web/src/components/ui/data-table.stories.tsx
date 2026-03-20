@@ -34,7 +34,7 @@ export const WithTooltips: Story = {
     columnTooltips: {
       indicator: "The measurement indicator name",
       value: "The extracted value",
-      timestamp: "When this observation was recorded",
+      anchor_time: "When this observation was attached to the latent timeline",
     },
   },
 };

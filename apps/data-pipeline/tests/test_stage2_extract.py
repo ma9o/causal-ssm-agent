@@ -5,6 +5,7 @@ import logging
 from types import SimpleNamespace
 
 import polars as pl
+import pytest
 
 from causal_ssm_agent.flows.stages import stage2_extract
 
@@ -45,7 +46,7 @@ def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
         rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
             futures=[future0, future1],
             batch_indices=[0, 1],
-            batch_n_ticks=[5, 7],
+            batch_n_windows=[5, 7],
             logger=logger,
             completed_before=5,
             total_chunks=7,
@@ -53,8 +54,8 @@ def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
 
     assert rows == [{"indicator": "a"}, {"indicator": "b"}]
     assert statuses == [
-        {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_ticks": 5},
-        {"worker_id": 1, "status": "completed", "n_extractions": 2, "n_ticks": 7},
+        {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 5},
+        {"worker_id": 1, "status": "completed", "n_extractions": 2, "n_windows": 7},
     ]
     assert n_total == 3
     assert sampled_trace is None
@@ -75,7 +76,7 @@ def test_collect_batch_results_records_failures(monkeypatch):
     rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
         futures=[future0, future1],
         batch_indices=[0, 1],
-        batch_n_ticks=[3, 4],
+        batch_n_windows=[3, 4],
         logger=logging.getLogger("test_stage2_extract"),
         completed_before=0,
         total_chunks=2,
@@ -87,16 +88,16 @@ def test_collect_batch_results_records_failures(monkeypatch):
             "worker_id": 0,
             "status": "failed",
             "n_extractions": 0,
-            "n_ticks": 3,
+            "n_windows": 3,
             "error": "timeout",
         },
-        {"worker_id": 1, "status": "completed", "n_extractions": 0, "n_ticks": 4},
+        {"worker_id": 1, "status": "completed", "n_extractions": 0, "n_windows": 4},
     ]
     assert n_total == 0
     assert sampled_trace is None
 
 
-def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
+def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
     import causal_ssm_agent.utils.causal_spec as causal_spec_mod
     import causal_ssm_agent.utils.config as config_mod
     import causal_ssm_agent.utils.llm as llm_mod
@@ -142,14 +143,14 @@ def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog
     monkeypatch.setattr(llm_mod, "make_generate_fn", fake_make_generate_fn)
     monkeypatch.setattr(worker_core, "run_worker_extraction", fake_run_worker_extraction)
 
-    tick_text = "## Tick: 2024-01-01\n\n08:00  event1\n09:00  event2"
-    tick_ids = ["2024-01-01"]
+    window_text = "## Window Start: 2024-01-01\n\n08:00  event1\n09:00  event2"
+    window_starts = ["2024-01-01"]
 
     with caplog.at_level(logging.INFO, logger=logger.name):
         result = _run(
-            stage2_extract.extract_tick_chunk_task.fn(
-                tick_text=tick_text,
-                tick_ids=tick_ids,
+            stage2_extract.extract_window_chunk_task.fn(
+                window_text=window_text,
+                window_starts=window_starts,
                 chunk_idx=3,
                 question="Does treatment affect outcome?",
                 causal_spec={"measurement": {"model_clock": "1d", "indicators": []}},
@@ -172,8 +173,8 @@ def test_extract_tick_chunk_task_uses_stage2_generate_config(monkeypatch, caplog
     assert captured["generate_config"].reasoning_effort == generate_config.reasoning_effort
     worker_kwargs = captured["worker_kwargs"]
     assert isinstance(worker_kwargs, dict)
-    assert worker_kwargs["tick_text"] == tick_text
-    assert worker_kwargs["tick_ids"] == tick_ids
+    assert worker_kwargs["window_text"] == window_text
+    assert worker_kwargs["window_starts"] == window_starts
     assert worker_kwargs["question"] == "Does treatment affect outcome?"
     assert worker_kwargs["causal_spec"] == {"measurement": {"model_clock": "1d", "indicators": []}}
     assert worker_kwargs["generate"] == "mock-generate"
@@ -220,3 +221,100 @@ def test_project_missing_columns_warns(caplog):
     assert "a" in result.columns
     assert "nonexistent" not in result.columns
     assert "nonexistent" in caplog.text
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_window(
+    monkeypatch, tmp_path
+):
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.utils.data as data_mod
+    import causal_ssm_agent.workers.windows as windows_mod
+
+    raw_df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-01T08:00:00", "2024-01-15T08:00:00"],
+            "stress_score": [4.0, 5.0],
+            "sleep_hours": [7.0, 6.0],
+        }
+    )
+    raw_path = tmp_path / "input.parquet"
+    raw_df.write_parquet(raw_path)
+
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(
+                windows_per_chunk=8,
+                max_events_per_window=50,
+                max_concurrent_workers=2,
+                max_rpm=0,
+            )
+        ),
+    )
+
+    bucket_windows: list[str] = []
+
+    def fake_bucket_by_clock(df: pl.DataFrame, model_clock: str, time_col: str):
+        bucket_windows.append(model_clock)
+        return [(f"{model_clock}-window", df)]
+
+    monkeypatch.setattr(data_mod, "bucket_by_clock", fake_bucket_by_clock)
+    monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
+    monkeypatch.setattr(
+        windows_mod,
+        "format_window_chunk",
+        lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
+    )
+
+    captured_contexts: list[dict] = []
+
+    def fake_map(chunk_texts, **kwargs):
+        captured_contexts.extend(kwargs["causal_spec"])
+        return [
+            _FakeFuture({"dataframe": [], "n_extractions": 0, "status": "completed"})
+            for _ in chunk_texts
+        ]
+
+    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
+    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+
+    causal_spec = {
+        "latent": {"constructs": [], "edges": []},
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "stress_score",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average stress score in the window",
+                    "aggregation": "mean",
+                    "source_columns": ["timestamp", "stress_score"],
+                },
+                {
+                    "name": "monthly_sleep_hours",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average sleep hours over the last month",
+                    "aggregation": "mean",
+                    "observation_window": "1mo",
+                    "source_columns": ["timestamp", "sleep_hours"],
+                },
+            ],
+        },
+    }
+
+    result = _run(
+        stage2_extract.stage2_extraction_flow.fn(
+            raw_df_path=str(raw_path),
+            question="Does stress affect sleep?",
+            causal_spec=causal_spec,
+        )
+    )
+
+    assert bucket_windows == ["1d", "1mo"]
+    assert [ctx["measurement"]["indicators"][0]["name"] for ctx in captured_contexts] == [
+        "stress_score",
+        "monthly_sleep_hours",
+    ]
+    assert result["raw_data"] == []

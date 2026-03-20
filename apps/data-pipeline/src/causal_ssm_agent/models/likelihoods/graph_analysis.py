@@ -61,6 +61,13 @@ def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
     return [spec.diffusion_dist] * spec.n_latent
 
 
+def has_student_t_diffusion(spec: SSMSpec) -> bool:
+    """Return whether any latent process uses Student-t diffusion noise."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    return DistributionFamily.STUDENT_T in set(get_per_variable_diffusion(spec))
+
+
 def get_per_channel_links(spec: SSMSpec) -> list[LinkFunction]:
     """Resolve per-channel link functions.
 

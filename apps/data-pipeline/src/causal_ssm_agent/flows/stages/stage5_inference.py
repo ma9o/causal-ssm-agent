@@ -6,6 +6,7 @@ estimate treatment effects, ranked by effect size.
 
 from typing import Any
 
+import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
@@ -29,7 +30,7 @@ def fit_model(
     Args:
         stage4_result: Result from stage4_agentic_flow containing
             model_spec, priors, and model_info
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler_config: Override sampler configuration (None uses config defaults)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
@@ -199,12 +200,16 @@ def run_ppc(fitted_result: dict) -> dict:
             observations=runtime.observations,
             times=runtime.times,
             manifest_names=runtime.manifest_names,
+            diffusion_dist=spec.diffusion_dist,
+            diffusion_dists=spec.diffusion_dists,
             manifest_dist=spec.manifest_dist.value
             if hasattr(spec.manifest_dist, "value")
             else str(spec.manifest_dist),
             manifest_dists=spec.manifest_dists,
             manifest_links=spec.manifest_links,
             manifest_level_counts=spec.manifest_level_counts,
+            observation_support=runtime.observation_support,
+            observation_mask=~jnp.isnan(runtime.observations),
         )
 
         return ppc_result.model_dump(mode="json")
@@ -280,6 +285,7 @@ def run_interventions(
         manifest_names=manifest_names,
         ps_result=fitted_artifact.power_scaling_result,
         times=fitted_artifact.times,
+        observation_support=fitted_artifact.observation_support,
     )
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
     return results

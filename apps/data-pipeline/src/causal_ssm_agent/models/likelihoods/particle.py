@@ -16,7 +16,7 @@ Use when:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -24,8 +24,15 @@ import jax.random as random
 import jax.scipy.linalg as jla
 
 from causal_ssm_agent.models.likelihoods.kernels import (
-    build_observation_kernel,
     build_transition_kernel,
+    compile_measurement_semantics,
+    compile_transition_semantics,
+)
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    advance_support_observation_state,
+    compile_observation_operator,
+    summarize_support_observation,
+    support_observation_log_prob,
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
 
@@ -95,13 +102,13 @@ class SSMAdapter:
         n_latent: int,
         n_manifest: int,
         manifest_dist: DistributionFamily,
-        diffusion_dist: DistributionFamily,
+        diffusion_dist: DistributionFamily | list[DistributionFamily],
         manifest_link: LinkFunction,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
         self.manifest_dist = manifest_dist
-        self.diffusion_dist = diffusion_dist
+        self.transition_semantics = compile_transition_semantics(diffusion_dist, n_latent)
         self.manifest_link = manifest_link
 
     def initial_sample(self, key: jax.Array, params: dict) -> jax.Array:
@@ -126,33 +133,42 @@ class SSMAdapter:
         if cd is not None:
             mean = mean + cd.flatten()
         chol = jla.cholesky(Qd + jnp.eye(self.n_latent) * 1e-6, lower=True)
-
-        if self.diffusion_dist == "student_t":
-            df = params.get("proc_df", 5.0)
-            df = jnp.maximum(df, 2.1)
-            key_z, key_chi2 = random.split(key)
-            z = random.normal(key_z, (self.n_latent,))
-            chi2_sample = jnp.maximum(random.gamma(key_chi2, df / 2.0) * 2.0, 1e-8)
-            scale = jnp.sqrt((df - 2.0) / chi2_sample)
-            return mean + chol @ (z * scale)
-        return mean + chol @ random.normal(key, (self.n_latent,))
+        extra_params = {"proc_df": params.get("proc_df", 5.0)}
+        trans_kernel = build_transition_kernel(self.transition_semantics, extra_params)
+        return mean + trans_kernel.sample_noise_fn(key, chol)
 
     def observation_log_prob(
         self, y: jax.Array, x: jax.Array, params: dict, obs_mask: jax.Array
     ) -> float:
         """Compute log p(y | x) under measurement model.
 
-        Builds an ObservationKernel on-the-fly for the bootstrap PF path.
+        Compiles point-observation semantics on-the-fly for the bootstrap PF path.
         """
         H = params["lambda_mat"]
         d = params["manifest_means"]
         R = params["manifest_cov"]
         mask_float = obs_mask.astype(jnp.float32)
         extra = {k: v for k, v in params.items() if k.startswith("obs_")}
-        obs_kernel = build_observation_kernel(
-            self.manifest_dist, self.manifest_link, extra, manifest_cov=R
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dist,
+            manifest_cov=R,
+            extra_params=extra,
+            manifest_link=self.manifest_link,
         )
-        return obs_kernel.emission_fn(y, x, H, d, R, mask_float)
+        return measurement_semantics.obs_kernel.emission_fn(y, x, H, d, R, mask_float)
+
+
+class SupportAwareParticleState(NamedTuple):
+    """Per-particle state carrying interval-summary accumulators."""
+
+    latent: jnp.ndarray
+    response: jnp.ndarray
+    accum_sum: jnp.ndarray
+    accum_sumsq: jnp.ndarray
+    accum_weight: jnp.ndarray
+    obs_sum: jnp.ndarray
+    obs_sumsq: jnp.ndarray
+    obs_weight: jnp.ndarray
 
 
 # =============================================================================
@@ -188,6 +204,7 @@ class ParticleLikelihood:
         ess_threshold: float = 0.5,
         block_rb: bool = True,
         manifest_link: LinkFunction | str = "identity",
+        observation_support=None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
@@ -196,37 +213,27 @@ class ParticleLikelihood:
         self.manifest_dist = manifest_dist
         self.manifest_link = manifest_link
         self.ess_threshold = ess_threshold
+        self.observation_support = observation_support
 
         self._block_rb = block_rb
+        self.observation_operator = compile_observation_operator(observation_support)
 
-        # Normalize diffusion_dist to per-variable list
-        if isinstance(diffusion_dist, (str, type(manifest_dist))):
-            # Scalar — broadcast to all latents
-            self.diffusion_dist = diffusion_dist
-            self._per_var_diffusion = [diffusion_dist] * n_latent
-        else:
-            self._per_var_diffusion = list(diffusion_dist)
-            # Determine dispatch mode
-            unique = {str(d) for d in self._per_var_diffusion}
-            if unique == {"gaussian"}:
-                self.diffusion_dist = "gaussian"
-            elif "gaussian" not in unique:
-                self.diffusion_dist = self._per_var_diffusion[0]
-            else:
-                self.diffusion_dist = "mixed"
-
-        # When block_rb is disabled and mixed, collapse to first non-Gaussian
-        if not block_rb and self.diffusion_dist == "mixed":
-            s_types = [d for d in self._per_var_diffusion if str(d) != "gaussian"]
-            self.diffusion_dist = s_types[0] if s_types else "student_t"
+        self.transition_semantics = compile_transition_semantics(diffusion_dist, n_latent)
+        self.diffusion_dist = self.transition_semantics.dispatch_mode
 
         # Pre-compute partition indices for mixed mode (static, not traced)
-        if self.diffusion_dist == "mixed":
-            from causal_ssm_agent.models.likelihoods.block_rb import partition_indices
-
-            self._g_idx, self._s_idx = partition_indices([str(d) for d in self._per_var_diffusion])
-            s_types = [self._per_var_diffusion[int(i)] for i in self._s_idx]
-            self._diffusion_dist_s = s_types[0] if s_types else "student_t"
+        if self.transition_semantics.is_mixed:
+            if self._block_rb and self.transition_semantics.sampled_block_dist is None:
+                raise ValueError(
+                    "Mixed block-RB requires all sampled diffusion coordinates to share one family."
+                )
+            self._g_idx = jnp.asarray(self.transition_semantics.gaussian_idx, dtype=jnp.int32)
+            self._s_idx = jnp.asarray(self.transition_semantics.sampled_idx, dtype=jnp.int32)
+            self._diffusion_dist_s = (
+                self.transition_semantics.sampled_block_dist.value
+                if self.transition_semantics.sampled_block_dist is not None
+                else "student_t"
+            )
 
     def compute_log_likelihood(
         self,
@@ -262,6 +269,17 @@ class ParticleLikelihood:
 
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
+        if self.observation_operator.requires_interval_summary_handling:
+            return self._compute_support_aware_log_likelihood(
+                ct_params,
+                measurement_params,
+                initial_state,
+                clean_obs,
+                time_intervals,
+                obs_mask,
+                extra_params,
+            )
+
         # --- Pre-discretize CT→DT for all T timesteps (once, not per particle) ---
         Ad, Qd, cd = discretize_system_batched(
             ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
@@ -284,18 +302,19 @@ class ParticleLikelihood:
         if extra_params:
             params.update(extra_params)
 
-        # --- Build kernels once ---
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-        dist = DistributionFamily(self.manifest_dist)
-        link = LinkFunction(self.manifest_link)
+        # --- Build measurement/transition semantics once ---
         obs_extra = {k: v for k, v in params.items() if k.startswith("obs_")}
-        obs_kernel = build_observation_kernel(
-            dist, link, obs_extra, manifest_cov=measurement_params.manifest_cov
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dist,
+            manifest_cov=measurement_params.manifest_cov,
+            extra_params=obs_extra,
+            manifest_link=self.manifest_link,
+            observation_support=self.observation_support,
         )
+        obs_kernel = measurement_semantics.obs_kernel
 
         # Build Feynman-Kac model closures.
-        if self.diffusion_dist == "gaussian" and self._block_rb:
+        if self.transition_semantics.is_gaussian and self._block_rb:
             from causal_ssm_agent.models.likelihoods.rao_blackwell import make_rb_callbacks
 
             init_sample, propagate_sample, log_potential = make_rb_callbacks(
@@ -304,8 +323,9 @@ class ParticleLikelihood:
                 P0=initial_state.cov,
                 obs_kernel=obs_kernel,
             )
-        elif self.diffusion_dist == "mixed":
+        elif self.transition_semantics.is_mixed and self._block_rb:
             from causal_ssm_agent.models.likelihoods.block_rb import make_block_rb_callbacks
+            from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
             trans_extra = {k: v for k, v in params.items() if k.startswith("proc_")}
             trans_kernel = build_transition_kernel(
@@ -323,26 +343,16 @@ class ParticleLikelihood:
                 trans_kernel=trans_kernel,
             )
         else:
-            adapter = SSMAdapter(
-                self.n_latent,
-                self.n_manifest,
-                dist,
-                DistributionFamily(self.diffusion_dist),
-                manifest_link=link,
-            )
-
-            # Build transition kernel for bootstrap PF (non-Gaussian dynamics)
             trans_extra = {k: v for k, v in params.items() if k.startswith("proc_")}
-            trans_kernel = build_transition_kernel(
-                DistributionFamily(self.diffusion_dist), trans_extra
-            )
+            trans_kernel = build_transition_kernel(self.transition_semantics, trans_extra)
 
             H = measurement_params.lambda_mat
             d_meas = measurement_params.manifest_means
             R = measurement_params.manifest_cov
 
             def init_sample(key: KeyArray, model_inputs: ArrayTreeLike) -> ArrayTree:  # noqa: ARG001
-                return adapter.initial_sample(key, params)
+                chol = jla.cholesky(initial_state.cov + jnp.eye(self.n_latent) * 1e-6, lower=True)
+                return initial_state.mean + chol @ random.normal(key, (self.n_latent,))
 
             def propagate_sample(
                 key: KeyArray, state: ArrayTreeLike, model_inputs: ArrayTreeLike
@@ -385,4 +395,182 @@ class ParticleLikelihood:
 
         states = cuthbert_filter(filter_obj, model_inputs, key=self.rng_key)
 
+        return states.log_normalizing_constant
+
+    def _compute_support_aware_log_likelihood(
+        self,
+        ct_params: CTParams,
+        measurement_params: MeasurementParams,
+        initial_state: InitialStateParams,
+        observations: jnp.ndarray,
+        time_intervals: jnp.ndarray,
+        obs_mask: jnp.ndarray,
+        extra_params: dict | None,
+    ) -> jnp.ndarray:
+        """Compute PF likelihood for interval-summary observation semantics."""
+        from cuthbert.filtering import filter as cuthbert_filter
+        from cuthbert.smc.particle_filter import build_filter
+
+        n = self.n_latent
+
+        Ad, Qd, cd = discretize_system_batched(
+            ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
+        )
+        if cd is None:
+            cd = jnp.zeros((len(time_intervals), n))
+
+        jitter = jnp.eye(n) * 1e-6
+        chol_Qd = jax.vmap(lambda Q: jla.cholesky(Q + jitter, lower=True))(Qd)
+
+        params = {
+            "lambda_mat": measurement_params.lambda_mat,
+            "manifest_means": measurement_params.manifest_means,
+            "manifest_cov": measurement_params.manifest_cov,
+            "t0_mean": initial_state.mean,
+            "t0_cov": initial_state.cov,
+        }
+        if extra_params:
+            params.update(extra_params)
+
+        obs_extra = {k: v for k, v in params.items() if k.startswith("obs_")}
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dist,
+            manifest_cov=measurement_params.manifest_cov,
+            extra_params=obs_extra,
+            manifest_link=self.manifest_link,
+            observation_support=self.observation_support,
+        )
+        obs_kernel = measurement_semantics.obs_kernel
+        if measurement_semantics.mean_log_prob_fn is None:
+            raise NotImplementedError(
+                "Interval-summary observations are not supported for the current measurement setup."
+            )
+        observation_operator = measurement_semantics.observation_operator
+
+        trans_extra = {k: v for k, v in params.items() if k.startswith("proc_")}
+        trans_kernel = build_transition_kernel(self.transition_semantics, trans_extra)
+
+        H = measurement_params.lambda_mat
+        d_meas = measurement_params.manifest_means
+        R = measurement_params.manifest_cov
+        assert observation_operator.requires_interval_summary_handling
+        assert observation_operator.prev_coeffs is not None
+        assert observation_operator.curr_coeffs is not None
+        assert observation_operator.interval_weights is not None
+        assert observation_operator.emission_slots is not None
+
+        def init_sample(key: KeyArray, _model_inputs: ArrayTreeLike) -> ArrayTree:
+            chol = jla.cholesky(initial_state.cov + jnp.eye(self.n_latent) * 1e-6, lower=True)
+            latent = initial_state.mean + chol @ random.normal(key, (self.n_latent,))
+            response = obs_kernel.response_fn(H @ latent + d_meas)
+            zeros = observation_operator.empty_accumulators(response.dtype)
+            return SupportAwareParticleState(
+                latent,
+                response,
+                zeros,
+                zeros,
+                zeros,
+                zeros,
+                zeros,
+                zeros,
+            )
+
+        def propagate_sample(
+            key: KeyArray,
+            state: ArrayTreeLike,
+            model_inputs: ArrayTreeLike,
+        ) -> ArrayTree:
+            Ad_t = model_inputs["Ad"]
+            cd_t = model_inputs["cd"]
+            chol_Qd_t = model_inputs["chol_Qd"]
+            mean = Ad_t @ state.latent + cd_t
+            latent_new = mean + trans_kernel.sample_noise_fn(key, chol_Qd_t)
+            response_new = obs_kernel.response_fn(H @ latent_new + d_meas)
+
+            prev_coeff = model_inputs["support_prev_coeff"]
+            curr_coeff = model_inputs["support_curr_coeff"]
+            interval_weight = model_inputs["support_weight"]
+            emission_slots = model_inputs["support_emission_slot"]
+            obs_mask_float = model_inputs["obs_mask"].astype(response_new.dtype)
+
+            step_result = advance_support_observation_state(
+                observation_operator,
+                state.response,
+                state.accum_sum,
+                state.accum_sumsq,
+                state.accum_weight,
+                response_new,
+                obs_mask_float,
+                prev_coeff,
+                curr_coeff,
+                interval_weight,
+                emission_slots,
+            )
+
+            return SupportAwareParticleState(
+                latent_new,
+                response_new,
+                step_result.next_accum_sum,
+                step_result.next_accum_sumsq,
+                step_result.next_accum_weight,
+                step_result.obs_sum,
+                step_result.obs_sumsq,
+                step_result.obs_weight,
+            )
+
+        def log_potential(
+            state_prev: ArrayTreeLike,  # noqa: ARG001
+            state: ArrayTreeLike,
+            model_inputs: ArrayTreeLike,
+        ) -> ScalarArray:
+            obs = model_inputs["observation"]
+            mask_float = model_inputs["obs_mask"].astype(jnp.float32)
+            emission_slots = model_inputs["support_emission_slot"]
+            summary = summarize_support_observation(
+                observation_operator,
+                state.response,
+                state.obs_sum,
+                state.obs_sumsq,
+                state.obs_weight,
+                mask_float,
+                emission_slots,
+            )
+            return support_observation_log_prob(
+                observation_operator,
+                obs_kernel,
+                measurement_semantics.mean_log_prob_fn,
+                obs,
+                mask_float,
+                state.latent,
+                H,
+                d_meas,
+                R,
+                summary,
+            )
+
+        model_inputs = {
+            "observation": observations,
+            "obs_mask": obs_mask.astype(jnp.float32),
+            "Ad": Ad,
+            "cd": cd,
+            "Qd": Qd,
+            "chol_Qd": chol_Qd,
+            "support_prev_coeff": jnp.asarray(observation_operator.prev_coeffs, dtype=jnp.float32),
+            "support_curr_coeff": jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float32),
+            "support_weight": jnp.asarray(observation_operator.interval_weights, dtype=jnp.float32),
+            "support_emission_slot": jnp.asarray(
+                observation_operator.emission_slots, dtype=jnp.int32
+            ),
+        }
+
+        filter_obj = build_filter(
+            init_sample=init_sample,
+            propagate_sample=propagate_sample,
+            log_potential=log_potential,
+            n_filter_particles=self.n_particles,
+            resampling_fn=_systematic_resampling,
+            ess_threshold=self.ess_threshold,
+        )
+
+        states = cuthbert_filter(filter_obj, model_inputs, key=self.rng_key)
         return states.log_normalizing_constant

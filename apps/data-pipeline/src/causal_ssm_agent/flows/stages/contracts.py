@@ -335,7 +335,7 @@ class WorkerStatusContract(BaseModel):
     worker_id: int
     status: Literal["pending", "running", "completed", "failed"]
     n_extractions: int
-    n_ticks: int
+    n_windows: int
     error: str | None = None
 
 
@@ -344,7 +344,7 @@ class ExtractionContract(BaseModel):
 
     indicator: str
     value: int | float | bool | str | None
-    tick: str | None
+    anchor_time: str | None
 
 
 class Stage2Contract(LLMStageContract):

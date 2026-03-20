@@ -36,6 +36,7 @@ MAX_GAP_MULTIPLIER = 5
 OUTLIER_IQR_MULTIPLIER = 3.0
 MIN_ALIGNED_FOR_CFA = 10
 HALLUCINATION_DUPLICATE_THRESHOLD = 0.5
+OBSERVATION_TIME_COLUMN = "anchor_time"
 
 _TIMESTAMP_FORMATS: tuple[tuple[str | None, bool], ...] = (
     ("%Y-%m-%d %H:%M:%S", False),
@@ -199,7 +200,7 @@ def _timestamp_issue_specs(
     n_total: int,
     n_unparseable: int,
 ) -> list[tuple[str, str]]:
-    """Return normalized timestamp-parseability issues from aggregate counts."""
+    """Return normalized observation-time parseability issues from aggregate counts."""
     if n_total == 0:
         return []
     if n_unparseable == n_total:
@@ -455,7 +456,7 @@ def _check_construct_correlations(
                 data_a = (
                     combined.filter(pl.col("indicator") == name_a)
                     .select(
-                        _parsed_timestamp_expr("timestamp").alias("ts"),
+                        _parsed_timestamp_expr(OBSERVATION_TIME_COLUMN).alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_a"),
                     )
                     .drop_nulls()
@@ -464,7 +465,7 @@ def _check_construct_correlations(
                 data_b = (
                     combined.filter(pl.col("indicator") == name_b)
                     .select(
-                        _parsed_timestamp_expr("timestamp").alias("ts"),
+                        _parsed_timestamp_expr(OBSERVATION_TIME_COLUMN).alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_b"),
                     )
                     .drop_nulls()
@@ -772,8 +773,8 @@ def _build_indicator_context(
     construct_meta = construct_lookup.get(construct_name, {}) if construct_name else {}
     is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
 
-    # Parse timestamps once for all rules
-    timestamps = ind_data["timestamp"]
+    # Parse observation times once for all rules
+    timestamps = ind_data[OBSERVATION_TIME_COLUMN]
     n_total_ts = len(timestamps)
     parsed = _parse_timestamp_series(timestamps)
     n_unparseable = parsed.null_count()
@@ -950,7 +951,7 @@ def validate_extraction(
 
     Args:
         causal_spec: The full causal spec with measurement model
-        dataframes: List of DataFrames with columns (indicator, value, timestamp)
+        dataframes: List of DataFrames with columns (indicator, value, anchor_time)
         model_data: Model-ready numeric long data used for empirical profiles
 
     Returns:

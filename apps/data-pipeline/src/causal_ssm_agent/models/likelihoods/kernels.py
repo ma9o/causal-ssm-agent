@@ -21,15 +21,20 @@ import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.likelihoods.emissions import (
+    build_composite_mean_log_prob_fn,
     categorical_moments,
     get_emission_fn,
     get_emission_score_weight_fn,
+    get_mean_param_log_prob_fn,
     ordered_logistic_moments,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from causal_ssm_agent.models.likelihoods.trajectory_observations import ObservationOperator
+    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
 # =============================================================================
 # Kernel dataclasses
@@ -76,6 +81,40 @@ class TransitionKernel:
 
     sample_noise_fn: Callable
     is_gaussian: bool
+
+
+@dataclass(frozen=True)
+class TransitionSemantics:
+    """Compiled process-noise semantics for one latent block."""
+
+    per_var_dists: tuple[DistributionFamily, ...]
+    dispatch_mode: str
+    gaussian_idx: tuple[int, ...] = ()
+    sampled_idx: tuple[int, ...] = ()
+    sampled_block_dist: DistributionFamily | None = None
+
+    @property
+    def is_gaussian(self) -> bool:
+        return self.dispatch_mode == DistributionFamily.GAUSSIAN.value
+
+    @property
+    def is_mixed(self) -> bool:
+        return self.dispatch_mode == "mixed"
+
+
+@dataclass(frozen=True)
+class MeasurementSemantics:
+    """Compiled measurement semantics shared across inference backends."""
+
+    obs_kernel: ObservationKernel
+    mean_log_prob_fn: Callable | None
+    observation_operator: ObservationOperator
+    manifest_dists: tuple[DistributionFamily, ...]
+    manifest_links: tuple[LinkFunction, ...]
+
+    @property
+    def requires_interval_summary_handling(self) -> bool:
+        return self.observation_operator.requires_interval_summary_handling
 
 
 # =============================================================================
@@ -404,31 +443,141 @@ def _make_student_t_noise(df: float) -> Callable:
     return sample_noise
 
 
+def _make_mixed_noise(
+    per_var_dists: tuple[DistributionFamily, ...],
+    df: float,
+) -> Callable:
+    """Build a mixed per-coordinate noise sampler with unit-variance standardized shocks.
+
+    Each latent innovation coordinate draws a standardized shock according to
+    its declared family, then the full innovation covariance is induced by
+    left-multiplying with ``chol_Q``.
+    """
+
+    supported = {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}
+    unsupported = sorted({dist.value for dist in per_var_dists if dist not in supported})
+    if unsupported:
+        raise ValueError(
+            "Mixed transition kernels only support gaussian/student_t families. "
+            f"Received: {unsupported}"
+        )
+
+    student_t_mask = jnp.asarray(
+        [dist == DistributionFamily.STUDENT_T for dist in per_var_dists],
+        dtype=bool,
+    )
+    has_student_t = any(student_t_mask.tolist())
+
+    def sample_noise(key: jax.Array, chol_Q: jnp.ndarray) -> jnp.ndarray:
+        n = chol_Q.shape[0]
+        key_z, key_chi2 = random.split(key)
+        z = random.normal(key_z, (n,))
+        if not has_student_t:
+            standardized = z
+        else:
+            df_safe = jnp.maximum(df, 2.1)
+            chi2 = jnp.maximum(
+                random.gamma(key_chi2, jnp.full((n,), df_safe / 2.0, dtype=chol_Q.dtype)) * 2.0,
+                1e-8,
+            )
+            scale = jnp.sqrt((df_safe - 2.0) / chi2)
+            standardized = jnp.where(student_t_mask, z * scale, z)
+        return chol_Q @ standardized
+
+    return sample_noise
+
+
+def compile_transition_semantics(
+    dist: TransitionSemantics | DistributionFamily | str | list | tuple,
+    n_latent: int | None = None,
+) -> TransitionSemantics:
+    """Resolve scalar or per-latent diffusion families into a compiled description."""
+    if isinstance(dist, TransitionSemantics):
+        semantics = dist
+    else:
+        if isinstance(dist, (list, tuple)):
+            per_var_dists = tuple(
+                d if isinstance(d, DistributionFamily) else DistributionFamily(d) for d in dist
+            )
+            if n_latent is not None and len(per_var_dists) != n_latent:
+                raise ValueError(
+                    f"diffusion_dists length {len(per_var_dists)} does not match n_latent={n_latent}"
+                )
+        else:
+            resolved = dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+            if n_latent is None:
+                per_var_dists = (resolved,)
+            else:
+                per_var_dists = (resolved,) * n_latent
+
+        unique = set(per_var_dists)
+        gaussian_idx = tuple(
+            i for i, family in enumerate(per_var_dists) if family == DistributionFamily.GAUSSIAN
+        )
+        sampled_idx = tuple(
+            i for i, family in enumerate(per_var_dists) if family != DistributionFamily.GAUSSIAN
+        )
+        sampled_unique = {per_var_dists[i] for i in sampled_idx}
+
+        if unique == {DistributionFamily.GAUSSIAN}:
+            dispatch_mode = DistributionFamily.GAUSSIAN.value
+        elif len(unique) == 1:
+            dispatch_mode = next(iter(unique)).value
+        else:
+            dispatch_mode = "mixed"
+
+        semantics = TransitionSemantics(
+            per_var_dists=per_var_dists,
+            dispatch_mode=dispatch_mode,
+            gaussian_idx=gaussian_idx,
+            sampled_idx=sampled_idx,
+            sampled_block_dist=next(iter(sampled_unique)) if len(sampled_unique) == 1 else None,
+        )
+
+    if n_latent is not None and len(semantics.per_var_dists) != n_latent:
+        raise ValueError(
+            f"transition semantics width {len(semantics.per_var_dists)} does not match n_latent={n_latent}"
+        )
+    return semantics
+
+
 def build_transition_kernel(
-    dist: DistributionFamily,
+    dist: TransitionSemantics
+    | DistributionFamily
+    | list[DistributionFamily]
+    | tuple[DistributionFamily, ...]
+    | str,
     extra_params: dict | None = None,
 ) -> TransitionKernel:
     """Build a TransitionKernel from spec enum + sampled hyperparameters.
 
     Args:
-        dist: Diffusion distribution family enum.
+        dist: Diffusion distribution family enum, compiled semantics, or per-latent family list.
         extra_params: Sampled hyperparameters (proc_df, etc.).
     """
     extra_params = extra_params or {}
+    semantics = compile_transition_semantics(dist)
 
-    if dist == DistributionFamily.GAUSSIAN:
+    if semantics.dispatch_mode == DistributionFamily.GAUSSIAN.value:
         return TransitionKernel(
             sample_noise_fn=_make_gaussian_noise(),
             is_gaussian=True,
         )
-    if dist == DistributionFamily.STUDENT_T:
+    if semantics.dispatch_mode == DistributionFamily.STUDENT_T.value:
         df = extra_params.get("proc_df", 5.0)
         return TransitionKernel(
             sample_noise_fn=_make_student_t_noise(df),
             is_gaussian=False,
         )
+    if semantics.dispatch_mode == "mixed":
+        df = extra_params.get("proc_df", 5.0)
+        return TransitionKernel(
+            sample_noise_fn=_make_mixed_noise(semantics.per_var_dists, df),
+            is_gaussian=False,
+        )
     raise ValueError(
-        f"No transition kernel for diffusion_dist={dist!r}. Supported: gaussian, student_t."
+        "No transition kernel for diffusion_dist="
+        f"{semantics.dispatch_mode!r}. Supported: gaussian, student_t, mixed gaussian/student_t."
     )
 
 
@@ -510,15 +659,105 @@ def build_composite_observation_kernel(
             total_hess = total_hess + neg_H
         return total_grad, total_hess
 
-    # Use the first group's response/variance as defaults (these are mainly
-    # used by particle filter EKF proposals, not by IEKS which only uses
-    # emission_fn and emission_grad_hess_fn).
-    first_kernel = group_kernels[0][1]
+    def composite_response_fn(eta: jnp.ndarray) -> jnp.ndarray:
+        response = jnp.zeros_like(eta)
+        for ch_indices, kernel in group_kernels:
+            idx = jnp.array(ch_indices)
+            response = response.at[idx].set(kernel.response_fn(eta[idx]))
+        return response
+
+    def composite_variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
+        variance = jnp.zeros((n_manifest, n_manifest), dtype=mean.dtype)
+        for ch_indices, kernel in group_kernels:
+            idx = jnp.array(ch_indices)
+            variance = variance.at[jnp.ix_(idx, idx)].set(kernel.variance_fn(mean[idx]))
+        return variance
 
     return ObservationKernel(
         emission_fn=composite_emission_fn,
-        response_fn=first_kernel.response_fn,
-        variance_fn=first_kernel.variance_fn,
+        response_fn=composite_response_fn,
+        variance_fn=composite_variance_fn,
         is_gaussian=False,  # heterogeneous is never purely Gaussian
         emission_grad_hess_fn=composite_emission_grad_hess_fn,
+    )
+
+
+def compile_measurement_semantics(
+    manifest_dist: DistributionFamily | str,
+    *,
+    manifest_cov: jnp.ndarray | None = None,
+    extra_params: dict | None = None,
+    manifest_dists: list[DistributionFamily | str] | None = None,
+    manifest_link: LinkFunction | str | None = None,
+    manifest_links: list[LinkFunction | str | None] | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
+) -> MeasurementSemantics:
+    """Compile observation kernels, mean-space likelihoods, and support semantics together."""
+    from causal_ssm_agent.models.likelihoods.observation_families import (
+        resolve_manifest_families_and_links,
+    )
+    from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+        compile_observation_operator,
+    )
+
+    if manifest_cov is not None:
+        n_manifest = int(manifest_cov.shape[0])
+    elif manifest_dists is not None:
+        n_manifest = len(manifest_dists)
+    elif observation_support is not None:
+        n_manifest = len(observation_support.support_kinds)
+    else:
+        n_manifest = 1
+
+    dists, links = resolve_manifest_families_and_links(
+        manifest_dist,
+        n_manifest,
+        manifest_dists=manifest_dists,
+        manifest_link=manifest_link,
+        manifest_links=manifest_links,
+    )
+    if len(set(zip(dists, links))) == 1:
+        obs_kernel = build_observation_kernel(
+            dists[0],
+            links[0],
+            extra_params,
+            manifest_cov=manifest_cov,
+        )
+    else:
+        obs_kernel = build_composite_observation_kernel(dists, links, extra_params)
+
+    observation_operator = compile_observation_operator(observation_support)
+    mean_log_prob_fn = None
+    if observation_operator.requires_interval_summary_handling:
+        interval_summary_indices = list(observation_operator.interval_summary_indices)
+        interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
+        interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
+        if len(set(interval_summary_dists)) == 1:
+            base_mean_log_prob_fn = get_mean_param_log_prob_fn(
+                interval_summary_dists[0], extra_params
+            )
+        else:
+            base_mean_log_prob_fn = build_composite_mean_log_prob_fn(
+                [dist.value for dist in interval_summary_dists],
+                _slice_observation_extra_params(extra_params, interval_summary_indices),
+            )
+
+        def mean_log_prob_fn(y_t, mean_t, R, obs_mask_t):
+            y_interval_summary = y_t[interval_summary_idx]
+            mean_interval_summary = mean_t[interval_summary_idx]
+            mask_interval_summary = obs_mask_t[interval_summary_idx]
+            R_interval_summary = R[jnp.ix_(interval_summary_idx, interval_summary_idx)]
+            return base_mean_log_prob_fn(
+                y_interval_summary,
+                mean_interval_summary,
+                R_interval_summary,
+                mask_interval_summary,
+            )
+
+    return MeasurementSemantics(
+        obs_kernel=obs_kernel,
+        mean_log_prob_fn=mean_log_prob_fn,
+        observation_operator=observation_operator,
+        manifest_dists=tuple(dists),
+        manifest_links=tuple(links),
     )

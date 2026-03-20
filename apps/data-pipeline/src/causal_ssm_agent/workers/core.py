@@ -1,4 +1,4 @@
-"""Worker extraction core logic (tick-based).
+"""Worker extraction core logic for support-window extraction.
 
 Core logic for worker data extraction, decoupled from Prefect and model-client
 frameworks. Uses dependency injection for the LLM generate function.
@@ -10,7 +10,12 @@ from typing import Any
 
 import polars as pl
 
-from causal_ssm_agent.utils.causal_spec import get_indicators, get_outcome_construct
+from causal_ssm_agent.utils.causal_spec import (
+    get_indicators,
+    get_outcome_construct,
+    get_summary_operator,
+    get_support_kind,
+)
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
     make_validation_tool,
@@ -34,16 +39,24 @@ class WorkerResult:
 def _format_indicators(causal_spec: dict) -> str:
     """Format indicators for the worker prompt.
 
-    Shows: name, dtype, aggregation, how_to_measure
+    Shows: name, dtype, operator, support kind, window, how_to_measure.
+    Omits anchor_policy (internal SSM plumbing the worker doesn't need).
     """
     lines = []
+    model_clock = causal_spec.get("measurement", {}).get("model_clock", "")
     for ind in get_indicators(causal_spec):
         name = ind.get("name", "unknown")
         how_to_measure = ind.get("how_to_measure", "")
         dtype = ind.get("measurement_dtype", "")
-        agg = ind.get("aggregation", "mean")
+        support_kind = ind.get("support_kind") or get_support_kind(ind)
+        summary_operator = ind.get("summary_operator") or get_summary_operator(ind)
+        window = ind.get("observation_window") or model_clock
 
-        lines.append(f"- {name} ({dtype}, agg={agg}): {how_to_measure}")
+        details = [dtype, f"operator={summary_operator}", f"support={support_kind}"]
+        if window:
+            details.append(f"window={window}")
+
+        lines.append(f"- {name} ({', '.join(details)}): {how_to_measure}")
     return "\n".join(lines)
 
 
@@ -61,8 +74,8 @@ class WorkerMessages:
 
     question: str
     causal_spec: dict
-    tick_text: str
-    n_ticks: int
+    window_text: str
+    n_windows: int
 
     def extraction_messages(self) -> list[dict]:
         """Build messages for worker extraction."""
@@ -77,16 +90,16 @@ class WorkerMessages:
                     question=self.question,
                     outcome_description=outcome_description,
                     indicators=indicators_text,
-                    n_ticks=self.n_ticks,
-                    tick_text=self.tick_text,
+                    n_windows=self.n_windows,
+                    window_text=self.window_text,
                 ),
             },
         ]
 
 
 async def run_worker_extraction(
-    tick_text: str,
-    tick_ids: list[str],
+    window_text: str,
+    window_starts: list[str],
     question: str,
     causal_spec: dict,
     generate: GenerateFn,
@@ -94,14 +107,14 @@ async def run_worker_extraction(
     call_label: str | None = None,
 ) -> WorkerResult:
     """
-    Run worker extraction for a chunk of ticks.
+    Run worker extraction for a chunk of support windows.
 
     This is the core logic, decoupled from any framework. The caller provides
     a `generate` function that handles LLM calls.
 
     Args:
-        tick_text: Pre-formatted text of tick events for the LLM prompt.
-        tick_ids: Expected tick IDs in this chunk (for validation).
+        window_text: Pre-formatted text of support-window events for the LLM prompt.
+        window_starts: Expected support-window starts in this chunk (for validation).
         question: The causal research question.
         causal_spec: The CausalSpec dict with latent and measurement.
         generate: Async function (messages, tools) -> completion.
@@ -112,7 +125,7 @@ async def run_worker_extraction(
         WorkerResult with output, dataframe, and raw completion.
     """
     active_logger = logger or logging.getLogger(__name__)
-    msgs = WorkerMessages(question, causal_spec, tick_text, n_ticks=len(tick_ids))
+    msgs = WorkerMessages(question, causal_spec, window_text, n_windows=len(window_starts))
 
     # Build messages and tools
     extraction_msgs = msgs.extraction_messages()
@@ -123,7 +136,7 @@ async def run_worker_extraction(
         description="Validate worker extraction output JSON.",
         param_name="output_json",
         param_description="The JSON string containing the worker output.",
-        validator=lambda data: validate_worker_output(data, causal_spec, tick_ids),
+        validator=lambda data: validate_worker_output(data, causal_spec, window_starts),
         capture_key="output",
     )
     tools = [tool]
@@ -132,11 +145,11 @@ async def run_worker_extraction(
     active_logger.info(
         scoped_log(
             call_label,
-            "Prepared worker prompt with %d ticks, %d indicators, %d text chars",
+            "Prepared worker prompt with %d windows, %d indicators, %d text chars",
         ),
-        len(tick_ids),
+        len(window_starts),
         len(get_indicators(causal_spec)),
-        len(tick_text),
+        len(window_text),
     )
     active_logger.info(scoped_log(call_label, "Using worker tools: %s"), tool_names)
 

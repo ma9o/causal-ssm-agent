@@ -9,42 +9,24 @@ import re
 from enum import StrEnum
 from typing import get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.schemas_inference import AggregationFunction, MeasurementDtype
+from causal_ssm_agent.utils.observation_semantics import (
+    AnchorPolicy,
+    IndicatorObservationSemantics,
+    SummaryOperator,
+    SupportKind,
+    derive_indicator_observation_semantics,
+    supported_summary_operators_text,
+)
 
 logger = get_prefect_logger(__name__)
 
 # Derived from the canonical Literal types in schemas_inference.py
 VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))
 VALID_MEASUREMENT_DTYPES: set[str] = set(get_args(MeasurementDtype))
-
-
-class ObservationKind(StrEnum):
-    """Derived observation kind from aggregation + measurement_dtype.
-
-    Determines the correct measurement equation for the SSM:
-    - CUMULATIVE: y(t) = integral of Lambda * x(s) ds + epsilon
-    - WINDOW_AVERAGE/VARIABILITY: y(t) = (1/T) integral of Lambda * x(s) ds + epsilon
-    - POINT_IN_TIME: y(t) = Lambda * x(t) + epsilon  (includes min/max extremals)
-    - FREQUENCY: y(t) = count of events in window (Poisson-like)
-    - ORDINAL: y(t) = k iff tau_{k-1} < Lambda * x(t) < tau_k  (threshold/probit)
-    """
-
-    CUMULATIVE = "cumulative"
-    WINDOW_AVERAGE = "window_average"
-    POINT_IN_TIME = "point_in_time"
-    VARIABILITY = "variability"
-    FREQUENCY = "frequency"
-    ORDINAL = "ordinal"
-
-
-# Classification rules: (aggregation, dtype) → ObservationKind
-_CUMULATIVE_AGGS = {"sum"}
-_POINT_IN_TIME_AGGS = {"first", "last", "min", "max"}
-_VARIABILITY_AGGS = {"std", "var", "range", "cv", "iqr", "instability", "skew", "kurtosis"}
-_FREQUENCY_AGGS = {"count", "n_unique"}
 
 # Aggregation keywords that conflict with how_to_measure text
 _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
@@ -70,28 +52,6 @@ _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
         "how_to_measure implies point-in-time but aggregation is a window statistic",
     ),
 ]
-
-
-def derive_observation_kind(
-    aggregation: str, measurement_dtype: str = "continuous"
-) -> ObservationKind:
-    """Derive observation kind from aggregation function and measurement dtype.
-
-    Ordinal dtype takes precedence: regardless of aggregation, ordinal
-    indicators use a threshold measurement equation.
-    """
-    if measurement_dtype == "ordinal":
-        return ObservationKind.ORDINAL
-    if aggregation in _CUMULATIVE_AGGS:
-        return ObservationKind.CUMULATIVE
-    if aggregation in _POINT_IN_TIME_AGGS:
-        return ObservationKind.POINT_IN_TIME
-    if aggregation in _VARIABILITY_AGGS:
-        return ObservationKind.VARIABILITY
-    if aggregation in _FREQUENCY_AGGS:
-        return ObservationKind.FREQUENCY
-    # Default: window average (mean, median, percentiles, entropy, trend)
-    return ObservationKind.WINDOW_AVERAGE
 
 
 def check_semantic_collisions(
@@ -377,7 +337,19 @@ class Indicator(BaseModel):
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"
     )
     aggregation: str = Field(
-        description=f"Aggregation function applied when bucketing raw extractions within aggregation window. Available: {', '.join(sorted(VALID_AGGREGATIONS))}",
+        description=(
+            "Aggregation function applied when bucketing raw extractions within the "
+            "indicator support window. Measurement-model support is currently limited to: "
+            f"{supported_summary_operators_text()}. Available parser operators: {', '.join(sorted(VALID_AGGREGATIONS))}"
+        ),
+    )
+    observation_window: str | None = Field(
+        default=None,
+        description=(
+            "Optional duration string describing the support window summarized by this "
+            "indicator (for example '1mo' for a monthly average on a daily model clock). "
+            "If omitted, the support window defaults to the global model_clock."
+        ),
     )
     ordinal_levels: list[str] | None = Field(
         default=None,
@@ -416,6 +388,14 @@ class Indicator(BaseModel):
         if v not in VALID_AGGREGATIONS:
             available = ", ".join(sorted(VALID_AGGREGATIONS))
             raise ValueError(f"Unknown aggregation '{v}'. Available: {available}")
+        return v
+
+    @field_validator("observation_window")
+    @classmethod
+    def validate_observation_window(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        parse_duration_to_hours(v)
         return v
 
     @field_validator("measurement_dtype")
@@ -469,20 +449,37 @@ class Indicator(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_observation_semantics(self) -> "Indicator":
+        """Reject aggregation/dtype combinations the measurement stack cannot model."""
+        derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
+        return self
+
+    def _observation_semantics(self) -> IndicatorObservationSemantics:
+        return derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
+
+    @computed_field
     @property
-    def observation_kind(self) -> ObservationKind:
-        """Derived observation kind from aggregation + measurement_dtype."""
-        return derive_observation_kind(self.aggregation, self.measurement_dtype)
+    def support_kind(self) -> SupportKind:
+        """Whether this indicator is point-local or interval-summary."""
+        return self._observation_semantics().support_kind
+
+    @computed_field
+    @property
+    def summary_operator(self) -> SummaryOperator:
+        """Canonical summary operator used by extraction and likelihoods."""
+        return self._observation_semantics().summary_operator
+
+    @computed_field
+    @property
+    def anchor_policy(self) -> AnchorPolicy:
+        """Which support boundary receives the observation anchor."""
+        return self._observation_semantics().anchor_policy
 
     @property
-    def requires_integral_measurement(self) -> bool:
-        """Whether this indicator requires an integral measurement equation.
-
-        Cumulative observations (e.g., step count = sum over window) relate to
-        the integral of the latent process: y(t) = integral(Lambda*x(s)ds) + epsilon
-        rather than the standard instantaneous equation: y(t) = Lambda*x(t) + epsilon.
-        """
-        return self.observation_kind == ObservationKind.CUMULATIVE
+    def requires_interval_summary_measurement(self) -> bool:
+        """Whether this indicator requires an interval-summary measurement equation."""
+        return self.support_kind == SupportKind.INTERVAL
 
 
 class MeasurementModel(BaseModel):
@@ -501,7 +498,7 @@ class MeasurementModel(BaseModel):
         description=(
             "Observation window width for extraction and SSM discretization. "
             "Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). "
-            "Choose based on data density: need enough events per tick."
+            "Choose based on data density: need enough events per support window."
         )
     )
 

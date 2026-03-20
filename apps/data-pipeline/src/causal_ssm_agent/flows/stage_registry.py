@@ -352,14 +352,14 @@ def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
 
 
 def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
-    from .stages.stage2_extract import MAX_FREE_TICKS
+    from .stages.stage2_extract import MAX_FREE_WINDOWS
 
     return {
         "question": ctx.question,
         "stage0": states["stage-0"]["result"],
         "stage1b": states["stage-1b"]["result"],
         "root_run_id": ctx.prefect_run_id,
-        "max_ticks": None if ctx.is_byok else MAX_FREE_TICKS,
+        "max_windows": None if ctx.is_byok else MAX_FREE_WINDOWS,
     }
 
 

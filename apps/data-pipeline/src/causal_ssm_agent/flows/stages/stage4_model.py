@@ -34,7 +34,7 @@ async def stage4_agentic_flow(
     Args:
         causal_spec: Full CausalSpec dict
         question: Research question
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
         enable_literature: Whether to offer the search_literature tool
 
     Returns:

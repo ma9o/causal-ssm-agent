@@ -1,5 +1,6 @@
 """SSM Model Builder for causal SSM pipeline integration."""
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +18,9 @@ from causal_ssm_agent.models.ssm import (
 from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.models.ssm_observation_metadata import (
+    ObservationSupportRuntime,
+    augment_wide_data_with_support_boundaries,
+    compile_observation_support_runtime,
     default_manifest_columns,
     hydrate_discrete_manifest_metadata,
     validate_observation_support,
@@ -25,6 +29,8 @@ from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 from causal_ssm_agent.utils.data import pivot_to_wide
 from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PreparedModelRuntime:
@@ -32,6 +38,8 @@ class PreparedModelRuntime:
 
     builder: Any  # SSMModelBuilder
     wide_data: pl.DataFrame
+    observation_data: pl.DataFrame | None
+    observation_support: ObservationSupportRuntime | None
     observations: jnp.ndarray  # (T, n_manifest)
     times: jnp.ndarray  # (T,)
     manifest_names: list[str]
@@ -219,9 +227,8 @@ class SSMModelBuilder:
 
         observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float32)
 
-        time_col = "time" if "time" in X.columns else "time_bucket"
-        if time_col in X.columns:
-            times = jnp.array(X[time_col].to_numpy(), dtype=jnp.float32)
+        if "time" in X.columns:
+            times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
         else:
             times = jnp.arange(X.height, dtype=jnp.float32)
 
@@ -237,8 +244,24 @@ class SSMModelBuilder:
         Returns:
             Prior predictive samples
         """
+        prepared_times = getattr(self, "_prepared_times", None)
+        prepared_support = getattr(self, "_prepared_observation_support", None)
+        prepared_mask = getattr(self, "_prepared_observation_mask", None)
+
         if times is None:
-            times = jnp.arange(10, dtype=jnp.float32)
+            if prepared_times is not None:
+                times = prepared_times
+            else:
+                times = jnp.arange(10, dtype=jnp.float32)
+
+        use_prepared_schedule = (
+            prepared_times is not None
+            and prepared_mask is not None
+            and prepared_times.shape == times.shape
+            and bool(jnp.allclose(prepared_times, times))
+        )
+        observation_support = prepared_support if use_prepared_schedule else None
+        observation_mask = prepared_mask if use_prepared_schedule else None
 
         spec = self._spec
         if spec is None:
@@ -272,6 +295,8 @@ class SSMModelBuilder:
                 spec,
                 self._compiled_prior_semantics,
                 times,
+                observation_support=observation_support,
+                observation_mask=observation_mask,
                 num_samples=samples,
             )
 
@@ -281,6 +306,8 @@ class SSMModelBuilder:
             runtime_spec,
             priors,
             times,
+            observation_support=observation_support,
+            observation_mask=observation_mask,
             num_samples=samples,
         )
 
@@ -376,6 +403,7 @@ def prepare_wide_model_runtime(
     compiled_ssm: dict | None = None,
     sampler_config: dict | None = None,
     builder: Any = None,
+    observation_data: pl.DataFrame | None = None,
 ) -> PreparedModelRuntime:
     """Build or reuse a builder from wide data and extract fit-ready arrays."""
     if builder is None:
@@ -389,10 +417,48 @@ def prepare_wide_model_runtime(
     elif getattr(builder, "_model", None) is None:
         builder.build_model(wide_data)
 
+    manifest_names = (
+        list(builder._spec.manifest_names)
+        if getattr(builder, "_spec", None) is not None and builder._spec.manifest_names
+        else default_manifest_columns(wide_data)
+    )
+    wide_data = augment_wide_data_with_support_boundaries(
+        observation_data,
+        wide_data,
+        manifest_names,
+    )
     observations, times, manifest_names = builder.prepare_fit_inputs(wide_data)
+    observation_support = compile_observation_support_runtime(
+        observation_data,
+        wide_data,
+        manifest_names,
+    )
+    model_obj = getattr(builder, "_model", None)
+    if model_obj is not None and hasattr(model_obj, "set_observation_support"):
+        model_obj.set_observation_support(observation_support)
+    builder._prepared_times = times
+    builder._prepared_observation_mask = ~jnp.isnan(observations)
+    builder._prepared_observation_support = observation_support
+    if observation_support is not None and observation_support.requires_interval_summary_handling:
+        interval_summary_desc = ", ".join(
+            f"{name} ({operator})"
+            for name, operator, support_kind in zip(
+                observation_support.manifest_names,
+                observation_support.summary_operators,
+                observation_support.support_kinds,
+                strict=False,
+            )
+            if support_kind == "interval" and operator is not None
+        )
+        logger.info(
+            "Prepared runtime compiled support-aware observation semantics for %s.",
+            interval_summary_desc,
+        )
     return PreparedModelRuntime(
         builder=builder,
         wide_data=wide_data,
+        observation_data=observation_data,
+        observation_support=observation_support,
         observations=observations,
         times=times,
         manifest_names=manifest_names,
@@ -406,9 +472,11 @@ def prepare_model_runtime(
     builder: Any = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing raw stage data for model work."""
+    observation_data = raw_data
     return prepare_wide_model_runtime(
-        pivot_to_wide(raw_data),
+        pivot_to_wide(observation_data),
         compiled_ssm=compiled_ssm,
         sampler_config=sampler_config,
         builder=builder,
+        observation_data=observation_data,
     )

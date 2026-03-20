@@ -6,6 +6,12 @@ with clear, typed accessor functions.
 
 import networkx as nx
 
+from causal_ssm_agent.utils.observation_semantics import (
+    get_anchor_policy,
+    get_summary_operator,
+    get_support_kind,
+)
+
 
 def get_constructs(causal_spec: dict) -> list[dict]:
     """Get constructs from a CausalSpec dict."""
@@ -22,16 +28,25 @@ def get_indicators(causal_spec: dict) -> list[dict]:
     return causal_spec.get("measurement", {}).get("indicators", [])
 
 
+def get_effective_observation_window(indicator: dict, model_clock: str | None) -> str | None:
+    """Return the effective support window for an indicator."""
+    return indicator.get("observation_window") or model_clock
+
+
 def get_indicator_info(causal_spec: dict) -> dict[str, dict]:
     """Extract indicator info from a CausalSpec dict.
 
     Returns:
-        Dict mapping indicator name to {dtype, construct_name}
+        Dict mapping indicator name to semantic extraction/measurement metadata.
     """
     return {
         ind["name"]: {
             "dtype": ind.get("measurement_dtype"),
             "construct_name": ind.get("construct_name"),
+            "support_kind": get_support_kind(ind),
+            "summary_operator": get_summary_operator(ind),
+            "anchor_policy": get_anchor_policy(ind),
+            "observation_window": ind.get("observation_window"),
         }
         for ind in get_indicators(causal_spec)
     }
@@ -55,6 +70,7 @@ _WORKER_INDICATOR_KEYS = (
     "how_to_measure",
     "source_columns",
     "aggregation",
+    "observation_window",
 )
 
 
@@ -62,14 +78,28 @@ def make_extraction_context(causal_spec: dict) -> dict:
     """Build minimal context needed by Stage 2 extraction workers.
 
     Workers need:
-    - indicators: name, measurement_dtype, how_to_measure, source_columns
+    - indicators: name, measurement_dtype, how_to_measure, source_columns,
+      aggregation, support_kind, summary_operator, anchor_policy, observation_window
     - outcome: name, description (for prompt context)
 
-    Does not include: construct_name, aggregation, ordinal_levels,
-    latent edges, or non-outcome constructs.
+    Does not include: construct_name, ordinal_levels, latent edges, or
+    non-outcome constructs.
     """
+    model_clock = causal_spec.get("measurement", {}).get("model_clock")
     slim_indicators = [
-        {k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind}
+        {
+            **{k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind},
+            "support_kind": get_support_kind(ind),
+            "summary_operator": get_summary_operator(ind),
+            "anchor_policy": get_anchor_policy(ind),
+            **(
+                {
+                    "observation_window": get_effective_observation_window(ind, model_clock),
+                }
+                if get_effective_observation_window(ind, model_clock)
+                else {}
+            ),
+        }
         for ind in get_indicators(causal_spec)
     ]
     outcome = get_outcome_construct(causal_spec)

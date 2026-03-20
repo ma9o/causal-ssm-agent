@@ -101,6 +101,7 @@ class FittedArtifact:
     result: InferenceResult | None
     builder: Any | None  # SSMModelBuilder
     times: Any  # jnp.ndarray | None
+    observation_support: Any | None = None
     ppc_result: dict[str, Any] | None = None
     power_scaling_result: dict[str, Any] | None = None
 
@@ -324,6 +325,11 @@ class InferenceResult:
                 pred_result = pred(rng_key, observations, times)
                 if "ll_per_timestep" in pred_result:
                     ll_per_t = pred_result["ll_per_timestep"]  # (n_draws, T)
+                    if observations is not None and getattr(observations, "ndim", 0) == 2:
+                        valid_timesteps = jnp.any(~jnp.isnan(observations), axis=1)
+                        ll_per_t = ll_per_t[:, valid_timesteps]
+                    if ll_per_t.shape[1] == 0:
+                        return None
                     n_timesteps = ll_per_t.shape[1]
                     ll_chained = ll_per_t[: n_chains * n_per_chain].reshape(
                         n_chains, n_per_chain, n_timesteps
@@ -410,7 +416,10 @@ class InferenceResult:
         logger.info("\n%s", format_summary(self._samples, self.method))
 
 
-def select_default_method(spec: SSMSpec) -> InferenceMethod:
+def select_default_method(
+    spec: SSMSpec,
+    observation_support=None,
+) -> InferenceMethod:
     """Select the default inference method based on model structure.
 
     Implements the structural routing decision tree from
@@ -436,6 +445,13 @@ def select_default_method(spec: SSMSpec) -> InferenceMethod:
         "nuts" for Kalman-eligible models, "laplace_em" otherwise.
     """
     from causal_ssm_agent.models.likelihoods.graph_analysis import analyze_first_pass_rb
+
+    if observation_support is not None and observation_support.requires_interval_summary_handling:
+        logger.info(
+            "Structural routing: interval-summary observations present → svi "
+            "(support-aware particle likelihood)"
+        )
+        return "svi"
 
     partition = analyze_first_pass_rb(spec)
 
@@ -575,7 +591,7 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     if method == "auto":
-        method = select_default_method(model.spec)
+        method = select_default_method(model.spec, getattr(model, "observation_support", None))
         kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)

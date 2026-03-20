@@ -2,10 +2,11 @@
 
 Indicators with extraction_mode='computed' are aggregated directly via Polars
 (~50ms). Indicators with extraction_mode='semantic' go through LLM workers
-that process chunks of model-clock ticks in parallel.
+that process chunks of support windows in parallel.
 
-Both paths produce the same (indicator, value, timestamp) schema as Utf8 strings.
-Results are merged before returning to the caller.
+Both paths first emit one scalar per support window. Stage 2 then annotates the
+merged output into canonical observation rows with ``anchor_time``,
+``support_start``, and ``support_end``.
 """
 
 from collections.abc import Sequence
@@ -23,7 +24,7 @@ from .. import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 WORKER_EVENT_PREFIX = "causal-ssm.worker"
-MAX_FREE_TICKS = 100
+MAX_FREE_WINDOWS = 100
 
 
 def _emit_worker_event(
@@ -33,7 +34,7 @@ def _emit_worker_event(
     status: str,
     total_workers: int,
     completed_count: int,
-    n_ticks: int,
+    n_windows: int,
     n_extractions: int | None = None,
     n_llm_calls: int | None = None,
     error: str | None = None,
@@ -43,7 +44,7 @@ def _emit_worker_event(
         "stage_id": "stage-2",
         "worker_id": worker_id,
         "status": status,
-        "n_ticks": n_ticks,
+        "n_windows": n_windows,
         "total_workers": total_workers,
         "completed_count": completed_count,
     }
@@ -100,16 +101,30 @@ def _project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.D
     return df.select(keep)
 
 
-def _chunk_log_label(chunk_idx: int, n_ticks: int, n_events: int) -> str:
+def _group_indicators_by_window(
+    indicators: list[dict],
+    model_clock: str,
+) -> list[tuple[str, list[dict]]]:
+    """Group indicators by effective extraction/support window."""
+    from causal_ssm_agent.utils.causal_spec import get_effective_observation_window
+
+    grouped: dict[str, list[dict]] = {}
+    for indicator in indicators:
+        window = get_effective_observation_window(indicator, model_clock) or model_clock
+        grouped.setdefault(window, []).append(indicator)
+    return sorted(grouped.items(), key=lambda item: item[0])
+
+
+def _chunk_log_label(chunk_idx: int, n_windows: int, n_events: int) -> str:
     """Build a stable log label for a worker chunk."""
-    return f"stage2 chunk={chunk_idx} ticks={n_ticks} events={n_events}"
+    return f"stage2 chunk={chunk_idx} windows={n_windows} events={n_events}"
 
 
 def _collect_batch_results(
     *,
     futures: Sequence[Any],
     batch_indices: Sequence[int],
-    batch_n_ticks: Sequence[int],
+    batch_n_windows: Sequence[int],
     logger: Any,
     completed_before: int,
     total_chunks: int,
@@ -119,9 +134,11 @@ def _collect_batch_results(
     batch_meta = {
         future: {
             "worker_id": worker_id,
-            "n_ticks": n_ticks,
+            "n_windows": n_windows,
         }
-        for worker_id, n_ticks, future in zip(batch_indices, batch_n_ticks, futures, strict=True)
+        for worker_id, n_windows, future in zip(
+            batch_indices, batch_n_windows, futures, strict=True
+        )
     }
     batch_total = len(batch_meta)
     rows_by_worker: dict[int, list[dict]] = {}
@@ -139,27 +156,27 @@ def _collect_batch_results(
     for batch_completed, future in enumerate(as_completed(list(batch_meta)), start=1):
         meta = batch_meta[future]
         worker_id = meta["worker_id"]
-        n_ticks = meta["n_ticks"]
+        n_windows = meta["n_windows"]
         overall_completed = completed_before + batch_completed
 
         try:
             result = future.result()
         except Exception as exc:
             logger.warning(
-                "Stage 2: worker %d failed (progress=%d/%d, batch=%d/%d, ticks=%d): %s",
+                "Stage 2: worker %d failed (progress=%d/%d, batch=%d/%d, windows=%d): %s",
                 worker_id,
                 overall_completed,
                 total_chunks,
                 batch_completed,
                 batch_total,
-                n_ticks,
+                n_windows,
                 exc,
             )
             statuses_by_worker[worker_id] = {
                 "worker_id": worker_id,
                 "status": "failed",
                 "n_extractions": 0,
-                "n_ticks": n_ticks,
+                "n_windows": n_windows,
                 "error": str(exc),
             }
             if root_run_id:
@@ -169,7 +186,7 @@ def _collect_batch_results(
                     status="failed",
                     total_workers=total_chunks,
                     completed_count=overall_completed,
-                    n_ticks=n_ticks,
+                    n_windows=n_windows,
                     error=str(exc),
                 )
             continue
@@ -192,17 +209,17 @@ def _collect_batch_results(
             "worker_id": worker_id,
             "status": status,
             "n_extractions": n_ext,
-            "n_ticks": n_ticks,
+            "n_windows": n_windows,
         }
         logger.info(
-            "Stage 2: worker %d %s (progress=%d/%d, batch=%d/%d, ticks=%d, extractions=%d, output_rows=%d)",
+            "Stage 2: worker %d %s (progress=%d/%d, batch=%d/%d, windows=%d, extractions=%d, output_rows=%d)",
             worker_id,
             status,
             overall_completed,
             total_chunks,
             batch_completed,
             batch_total,
-            n_ticks,
+            n_windows,
             n_ext,
             len(output_rows),
         )
@@ -213,7 +230,7 @@ def _collect_batch_results(
                 status="completed",
                 total_workers=total_chunks,
                 completed_count=overall_completed,
-                n_ticks=n_ticks,
+                n_windows=n_windows,
                 n_extractions=n_ext,
                 n_llm_calls=worker_llm_calls or None,
             )
@@ -231,20 +248,20 @@ def _collect_batch_results(
     retries=2,
     retry_delay_seconds=10,
     timeout_seconds=300,
-    task_run_name="extract-ticks-{chunk_idx}",
+    task_run_name="extract-windows-{chunk_idx}",
 )
-async def extract_tick_chunk_task(
-    tick_text: str,
-    tick_ids: list[str],
+async def extract_window_chunk_task(
+    window_text: str,
+    window_starts: list[str],
     chunk_idx: int,
     question: str,
     causal_spec: dict,
 ) -> dict:
-    """Extract indicator values from a chunk of ticks.
+    """Extract indicator values from a chunk of support windows.
 
     Args:
-        tick_text: Pre-formatted text of tick events.
-        tick_ids: Expected tick IDs in this chunk.
+        window_text: Pre-formatted text of support-window events.
+        window_starts: Expected support-window starts in this chunk.
         chunk_idx: Index of this chunk (for logging/naming).
         question: The causal research question.
         causal_spec: Full CausalSpec dict with measurement model.
@@ -274,13 +291,13 @@ async def extract_tick_chunk_task(
         max_tool_output=generate_config.max_tool_output,
     )
     indicator_count = len(get_indicators(causal_spec))
-    n_events = tick_text.count("\n")
-    chunk_label = _chunk_log_label(chunk_idx, len(tick_ids), n_events)
+    n_events = window_text.count("\n")
+    chunk_label = _chunk_log_label(chunk_idx, len(window_starts), n_events)
 
     run_logger.info(
-        "[%s] Starting extraction with %d ticks, %d indicators using model %s (max_tokens=%d, reasoning_effort=%s)",
+        "[%s] Starting extraction with %d windows, %d indicators using model %s (max_tokens=%d, reasoning_effort=%s)",
         chunk_label,
-        len(tick_ids),
+        len(window_starts),
         indicator_count,
         config.stage2_workers.model,
         generate_config.max_tokens,
@@ -293,8 +310,8 @@ async def extract_tick_chunk_task(
         started_at = perf_counter()
         try:
             result = await run_worker_extraction(
-                tick_text=tick_text,
-                tick_ids=tick_ids,
+                window_text=window_text,
+                window_starts=window_starts,
                 question=question,
                 causal_spec=causal_spec,
                 generate=generate,
@@ -336,22 +353,20 @@ async def stage2_extraction_flow(
     raw_df_path: str,
     question: str,
     causal_spec: dict,
-    chunk_size: int | None = None,  # noqa: ARG001 - kept for Prefect call-site compat
     root_run_id: str | None = None,
-    max_ticks: int | None = None,
+    max_windows: int | None = None,
 ) -> dict:
     """Stage 2: Extract indicator values via hybrid computed/semantic paths.
 
     1. Splits indicators by extraction_mode (computed vs semantic)
     2. Computed path: direct Polars aggregation (~50ms)
-    3. Semantic path: tick-based LLM workers (existing pipeline)
-    4. Merges results into unified (indicator, value, timestamp) schema
+    3. Semantic path: support-window LLM workers
+    4. Merges results into canonical observation rows with support metadata
 
     Args:
         raw_df_path: Path to the raw wide-format DataFrame from Stage 0 ingestion.
         question: The causal research question.
         causal_spec: Full CausalSpec dict with measurement model.
-        chunk_size: Deprecated, ignored. Use ticks_per_chunk in config.
 
     Returns:
         Dict with 'raw_data' (long-format DataFrame as list of dicts),
@@ -359,12 +374,15 @@ async def stage2_extraction_flow(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators, make_extraction_context
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.data import detect_time_column
+    from causal_ssm_agent.utils.data import (
+        annotate_observation_rows,
+        detect_time_column,
+    )
     from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
 
     config = get_config()
-    ticks_per_chunk = config.stage2_workers.ticks_per_chunk
-    max_events_per_tick = config.stage2_workers.max_events_per_tick
+    windows_per_chunk = config.stage2_workers.windows_per_chunk
+    max_events_per_window = config.stage2_workers.max_events_per_window
 
     # Load DataFrame and detect time column
     raw_df = pl.read_parquet(Path(raw_df_path))
@@ -407,85 +425,88 @@ async def stage2_extraction_flow(
         from prefect.utilities.annotations import unmapped
 
         from causal_ssm_agent.utils.data import bucket_by_clock
-        from causal_ssm_agent.workers.ticks import chunk_ticks, format_tick_chunk
+        from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
 
-        # Build extraction context with only semantic indicators
-        semantic_spec = {
-            **causal_spec,
-            "measurement": {**causal_spec.get("measurement", {}), "indicators": semantic_inds},
-        }
-        extraction_ctx = make_extraction_context(semantic_spec)
+        chunk_texts: list[str] = []
+        chunk_window_starts: list[list[str]] = []
+        chunk_contexts: list[dict] = []
 
-        # Project to semantic-only source columns, ensuring time column is kept
-        projected = _project_to_source_columns(raw_df, semantic_inds)
-        if time_col not in projected.columns:
-            projected = projected.with_columns(raw_df[time_col])
+        for observation_window, semantic_group in _group_indicators_by_window(
+            semantic_inds, model_clock
+        ):
+            semantic_spec = {
+                **causal_spec,
+                "measurement": {**causal_spec.get("measurement", {}), "indicators": semantic_group},
+            }
+            extraction_ctx = make_extraction_context(semantic_spec)
 
-        # Bucket by model_clock
-        ticks = bucket_by_clock(projected, model_clock, time_col)
-        logger.info(
-            "Stage 2: bucketed %d rows into %d ticks",
-            len(raw_df),
-            len(ticks),
-        )
+            # Project only the columns needed by this support-window group.
+            projected = _project_to_source_columns(raw_df, semantic_group)
+            if time_col not in projected.columns:
+                projected = projected.with_columns(raw_df[time_col])
 
-        if max_ticks is not None and len(ticks) > max_ticks:
-            logger.warning(
-                "Stage 2: free-tier tick cap active — truncating %d ticks to most recent %d",
-                len(ticks),
-                max_ticks,
+            windows = bucket_by_clock(projected, observation_window, time_col)
+            logger.info(
+                "Stage 2: bucketed %d rows into %d support windows (window=%s, indicators=%d)",
+                len(projected),
+                len(windows),
+                observation_window,
+                len(semantic_group),
             )
-            ticks = ticks[-max_ticks:]
 
-        if ticks:
-            # Determine display columns (all except time column)
+            if max_windows is not None and len(windows) > max_windows:
+                logger.warning(
+                    "Stage 2: free-tier window cap active for window=%s — truncating %d windows to most recent %d",
+                    observation_window,
+                    len(windows),
+                    max_windows,
+                )
+                windows = windows[-max_windows:]
+
+            if not windows:
+                continue
+
             display_cols = [c for c in projected.columns if c != time_col]
-
-            # Chunk ticks and format text
-            chunks = chunk_ticks(ticks, ticks_per_chunk)
-            chunk_texts = []
-            chunk_tick_ids = []
+            chunks = chunk_windows(windows, windows_per_chunk)
             for chunk in chunks:
-                text = format_tick_chunk(chunk, time_col, display_cols, max_events_per_tick)
-                ids = [tick_id for tick_id, _ in chunk]
-                chunk_texts.append(text)
-                chunk_tick_ids.append(ids)
+                chunk_texts.append(
+                    format_window_chunk(chunk, time_col, display_cols, max_events_per_window)
+                )
+                chunk_window_starts.append([window_start for window_start, _ in chunk])
+                chunk_contexts.append(extraction_ctx)
 
-            all_indices = list(range(len(chunks)))
-            all_n_ticks = [len(ids) for ids in chunk_tick_ids]
+        if chunk_texts:
+            all_indices = list(range(len(chunk_texts)))
+            all_n_windows = [len(ids) for ids in chunk_window_starts]
 
             logger.info(
-                "Stage 2: %d chunks of up to %d ticks each (max_concurrent_workers=%d, max_rpm=%d)",
-                len(chunks),
-                ticks_per_chunk,
+                "Stage 2: %d semantic chunks of up to %d windows each (max_concurrent_workers=%d, max_rpm=%d)",
+                len(chunk_texts),
+                windows_per_chunk,
                 config.stage2_workers.max_concurrent_workers,
                 config.stage2_workers.max_rpm,
             )
 
-            # Activate RPM limiter for the duration of extraction
             if config.stage2_workers.max_rpm:
                 set_limiter("llm", RpmLimiter(config.stage2_workers.max_rpm))
 
             try:
-                # Submit ALL chunks at once — the thread pool controls concurrency,
-                # the RPM limiter gates individual LLM calls to stay under the limit.
-                # No more batch loop: one hung worker cannot block others.
-                results = extract_tick_chunk_task.map(
+                results = extract_window_chunk_task.map(
                     chunk_texts,
-                    tick_ids=chunk_tick_ids,
+                    window_starts=chunk_window_starts,
                     chunk_idx=all_indices,
                     question=unmapped(question),
-                    causal_spec=unmapped(extraction_ctx),
+                    causal_spec=chunk_contexts,
                 )
                 if root_run_id:
-                    for idx, n_t in zip(all_indices, all_n_ticks, strict=True):
+                    for idx, n_w in zip(all_indices, all_n_windows, strict=True):
                         _emit_worker_event(
                             root_run_id,
                             worker_id=idx,
                             status="submitted",
-                            total_workers=len(chunks),
+                            total_workers=len(chunk_texts),
                             completed_count=0,
-                            n_ticks=n_t,
+                            n_windows=n_w,
                         )
                 (
                     semantic_dicts,
@@ -495,10 +516,10 @@ async def stage2_extraction_flow(
                 ) = _collect_batch_results(
                     futures=results,
                     batch_indices=all_indices,
-                    batch_n_ticks=all_n_ticks,
+                    batch_n_windows=all_n_windows,
                     logger=logger,
                     completed_before=0,
-                    total_chunks=len(chunks),
+                    total_chunks=len(chunk_texts),
                     root_run_id=root_run_id,
                 )
             finally:
@@ -515,8 +536,10 @@ async def stage2_extraction_flow(
         len(worker_statuses),
     )
 
+    raw_data = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
+
     result = {
-        "raw_data": all_dicts,
+        "raw_data": raw_data,
         "worker_statuses": worker_statuses,
         "n_total_extractions": n_total,
     }

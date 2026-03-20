@@ -361,6 +361,24 @@ class TestComputeIndicators:
         # 6 events at 6 different hours → 6 ticks (each with 1 event)
         assert len(result) == 6
 
+    def test_indicator_specific_observation_window_overrides_model_clock(self):
+        """Computed indicators bucket by their own support window, not the global clock."""
+        df = _make_raw_df()
+        indicators = [
+            {
+                "name": "weekly_steps",
+                "source_columns": ["steps"],
+                "aggregation": "sum",
+                "observation_window": "1w",
+            },
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert len(result) == 1
+        assert result["timestamp"].to_list() == ["2024-01-01T00:00:00"]
+        assert float(result["value"][0]) == 12000.0
+
     def test_col_name_parameter(self):
         """_build_agg_expr with custom col_name works correctly."""
         df = pl.DataFrame({"heart_rate": [72.0, 85.0, 68.0]})

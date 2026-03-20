@@ -1,6 +1,6 @@
-"""Tick formatting and chunking for tick-based extraction.
+"""Support-window formatting and chunking for worker extraction.
 
-Converts bucketed DataFrames into LLM-ready text and groups ticks
+Converts bucketed DataFrames into LLM-ready text and groups support windows
 into chunks for parallel worker calls.
 """
 
@@ -9,48 +9,48 @@ import random
 import polars as pl
 
 
-def chunk_ticks(
-    ticks: list[tuple[str, pl.DataFrame]],
-    ticks_per_chunk: int,
+def chunk_windows(
+    windows: list[tuple[str, pl.DataFrame]],
+    windows_per_chunk: int,
 ) -> list[list[tuple[str, pl.DataFrame]]]:
-    """Group ticks into chunks of N ticks each.
+    """Group support windows into chunks of N windows each.
 
     Args:
-        ticks: List of (tick_id, events_df) from bucket_by_clock.
-        ticks_per_chunk: Maximum ticks per chunk.
+        windows: List of (window_start, events_df) from bucket_by_clock.
+        windows_per_chunk: Maximum windows per chunk.
 
     Returns:
-        List of chunks, each a list of (tick_id, events_df).
+        List of chunks, each a list of (window_start, events_df).
     """
-    if not ticks:
+    if not windows:
         return []
-    return [ticks[i : i + ticks_per_chunk] for i in range(0, len(ticks), ticks_per_chunk)]
+    return [windows[i : i + windows_per_chunk] for i in range(0, len(windows), windows_per_chunk)]
 
 
-def format_tick_chunk(
+def format_window_chunk(
     chunk: list[tuple[str, pl.DataFrame]],
     time_col: str,
     display_cols: list[str] | None = None,
-    max_events_per_tick: int = 300,
+    max_events_per_window: int = 300,
 ) -> str:
-    """Format a chunk of ticks as text for the LLM prompt.
+    """Format a chunk of support windows as text for the LLM prompt.
 
-    Each tick is rendered as a section with chronological event lines.
-    Events exceeding max_events_per_tick are truncated with boundary
+    Each support window is rendered as a section with chronological event lines.
+    Events exceeding max_events_per_window are truncated with boundary
     preservation (first 10 + last 10 + sampled middle).
 
     Args:
-        chunk: List of (tick_id, events_df) for this chunk.
+        chunk: List of (window_start, events_df) for this chunk.
         time_col: Name of the time column (used for chronological ordering).
         display_cols: Columns to show. If None, shows all non-time columns.
-        max_events_per_tick: Maximum events to show per tick before truncation.
+        max_events_per_window: Maximum events to show per support window before truncation.
 
     Returns:
         Formatted text ready for the LLM prompt.
     """
     sections = []
 
-    for tick_id, events_df in chunk:
+    for window_start, events_df in chunk:
         # Sort chronologically
         events_df = events_df.sort(time_col)
 
@@ -62,9 +62,9 @@ def format_tick_chunk(
         # Format events as CSV lines with time prefix
         lines = []
         for row in events_df.iter_rows(named=True):
-            # Extract sub-tick time for ordering context
+            # Extract within-window time for ordering context
             time_val = row.get(time_col)
-            time_str = _format_time_within_tick(time_val)
+            time_str = _format_time_within_window(time_val)
 
             # Format remaining columns
             parts = []
@@ -77,18 +77,18 @@ def format_tick_chunk(
 
         # Truncate if needed
         n_total = len(lines)
-        if n_total > max_events_per_tick:
-            lines = _truncate_events(lines, max_events_per_tick, n_total)
+        if n_total > max_events_per_window:
+            lines = _truncate_events(lines, max_events_per_window, n_total)
 
         # Build section
-        header = f"## Tick: {tick_id}"
+        header = f"## Window Start: {window_start}"
         sections.append(header + "\n\n" + "\n".join(lines))
 
     return "\n\n".join(sections)
 
 
-def _format_time_within_tick(time_val) -> str:
-    """Format a datetime value as HH:MM for display within a tick."""
+def _format_time_within_window(time_val) -> str:
+    """Format a datetime value as HH:MM for display within a support window."""
     if time_val is None:
         return ""
     if hasattr(time_val, "strftime"):

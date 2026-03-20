@@ -189,6 +189,28 @@ class TestBuildTransitionKernel:
         noise = kernel.sample_noise_fn(key, chol_Q)
         assert noise.shape == (2,)
 
+    def test_mixed_noise_shape(self):
+        kernel = build_transition_kernel(
+            [DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            extra_params={"proc_df": 5.0},
+        )
+        key = jax.random.PRNGKey(0)
+        chol_Q = jnp.eye(2) * 0.5
+        noise = kernel.sample_noise_fn(key, chol_Q)
+        assert noise.shape == (2,)
+        assert not kernel.is_gaussian
+
+    def test_mixed_noise_preserves_unit_variance_per_standardized_coordinate(self):
+        kernel = build_transition_kernel(
+            [DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            extra_params={"proc_df": 5.0},
+        )
+        chol_Q = jnp.eye(2)
+        keys = jax.random.split(jax.random.PRNGKey(1), 600)
+        samples = jax.vmap(lambda k: kernel.sample_noise_fn(k, chol_Q))(keys)
+        sample_var = jnp.var(samples, axis=0)
+        assert jnp.allclose(sample_var, jnp.ones(2), atol=0.2)
+
     def test_unsupported_diffusion_raises(self):
         with pytest.raises(ValueError, match="No transition kernel"):
             build_transition_kernel(DistributionFamily.POISSON)

@@ -41,7 +41,7 @@ def parametric_id_task(
     Args:
         model_spec: Model specification dict
         priors: Prior proposals by parameter name
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
         causal_spec: CausalSpec dict for DAG-constrained masks
@@ -230,7 +230,7 @@ def stage4b_parametric_id_flow(
 
     Args:
         stage4_result: Output from stage4_agentic_flow
-        raw_data: Raw timestamped data (indicator, value, timestamp)
+        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:

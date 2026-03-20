@@ -63,6 +63,8 @@ def sample_prior_predictive_from_runtime(
     runtime: PriorRuntimeBundle,
     times: jnp.ndarray,
     *,
+    observation_support=None,
+    observation_mask: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -96,10 +98,14 @@ def sample_prior_predictive_from_runtime(
     samples["observations"] = simulate_posterior_predictive(
         samples,
         times,
+        diffusion_dist=spec.diffusion_dist,
+        diffusion_dists=spec.diffusion_dists,
         manifest_dist=spec.manifest_dist,
         manifest_dists=spec.manifest_dists,
         manifest_links=spec.manifest_links,
         manifest_level_counts=spec.manifest_level_counts,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
         n_subsample=num_samples,
         rng_seed=seed,
     )
@@ -111,6 +117,8 @@ def sample_prior_predictive_from_compiled_semantics(
     compiled_prior_semantics: dict,
     times: jnp.ndarray,
     *,
+    observation_support=None,
+    observation_mask: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -120,6 +128,8 @@ def sample_prior_predictive_from_compiled_semantics(
         spec,
         runtime,
         times,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
         num_samples=num_samples,
         seed=seed,
     )
@@ -130,6 +140,8 @@ def sample_prior_predictive_from_priors(
     priors: SSMPriors | None,
     times: jnp.ndarray,
     *,
+    observation_support=None,
+    observation_mask: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -139,6 +151,8 @@ def sample_prior_predictive_from_priors(
         spec,
         runtime,
         times,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
         num_samples=num_samples,
         seed=seed,
     )

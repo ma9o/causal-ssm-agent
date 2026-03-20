@@ -144,12 +144,12 @@ async def stage2(
     stage0: dict,
     stage1b: dict,
     root_run_id: str | None = None,
-    max_ticks: int | None = None,
+    max_windows: int | None = None,
 ) -> dict:
     """Extract indicator values from data using LLM workers.
 
     Returns dict with:
-    - ``_raw_data``: long-format Polars DataFrame (tick-level, already at model_clock resolution)
+    - ``_raw_data``: long-format Polars DataFrame of canonical observation rows
     - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
     - ``_worker_statuses``: per-worker status list
     - plus web-serializable fields
@@ -160,6 +160,7 @@ async def stage2(
     from causal_ssm_agent.utils.aggregations import _encode_non_continuous
     from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
     from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.utils.data import observation_row_schema
 
     from .stages import stage2_extraction_flow
 
@@ -174,26 +175,20 @@ async def stage2(
         question=question,
         causal_spec=causal_spec,
         root_run_id=root_run_id,
-        max_ticks=max_ticks,
+        max_windows=max_windows,
     )
 
-    # Reconstruct raw_data DataFrame from worker results
-    # Tick-based extraction: timestamp column contains tick start times
+    # Reconstruct canonical observation-row data from Stage 2 results.
     raw_data_dicts = stage2_result.get("raw_data", [])
     if raw_data_dicts:
-        raw_data = pl.DataFrame(
-            raw_data_dicts,
-            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8},
-        )
+        raw_data = pl.DataFrame(raw_data_dicts)
     else:
-        raw_data = pl.DataFrame(
-            schema={"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
-        )
+        raw_data = pl.DataFrame(schema=observation_row_schema())
 
     n_observations = len(raw_data)
     n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
     logger.info(
-        "Extracted %d tick-level observations across %d indicators",
+        "Extracted %d observation rows across %d indicators",
         n_observations,
         n_unique_indicators,
     )
@@ -211,19 +206,28 @@ async def stage2(
         data_for_model = (
             data_for_model.with_columns(
                 pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-                pl.col("timestamp")
+                pl.col("anchor_time")
                 .str.replace(r"[Zz]$", "")
                 .str.replace(r"[+-]\d{2}:\d{2}$", "")
                 .str.to_datetime(strict=False)
-                .alias("time_bucket"),
+                .alias("anchor_time"),
+                pl.col("support_start")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("support_start"),
+                pl.col("support_end")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("support_end"),
             )
-            .drop("timestamp")
             # Preserve null values so sparse measurements reach inference as
             # missing observations instead of being deleted at the serialization
-            # boundary. Rows without a valid tick are still unusable.
-            .drop_nulls(subset=["time_bucket"])
+            # boundary. Rows without a valid anchor time are still unusable.
+            .drop_nulls(subset=["anchor_time"])
         )
-        data_for_model = data_for_model.sort("indicator", "time_bucket")
+        data_for_model = data_for_model.sort("indicator", "anchor_time")
     else:
         data_for_model = raw_data
 
@@ -238,7 +242,7 @@ async def stage2(
         {
             "indicator": str(row.get("indicator", "")),
             "value": row.get("value"),
-            "tick": row.get("timestamp"),
+            "anchor_time": row.get("anchor_time"),
         }
         for row in sample_rows
     ]
@@ -539,6 +543,7 @@ def stage5b(
         result=fitted_result.get("result"),
         builder=fitted_result.get("builder"),
         times=fitted_result.get("times"),
+        observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
         ppc_result=ppc_result,
         power_scaling_result=ps_result,
     )

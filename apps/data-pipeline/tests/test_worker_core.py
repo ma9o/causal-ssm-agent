@@ -68,15 +68,49 @@ class TestFormatIndicators:
         assert "continuous" in result
         assert "Perceived Stress Scale" in result
         assert "agg=mean" in result
+        assert "support=interval" in result
+        assert "operator=mean" in result
+        assert "anchor=support_end" in result
+        assert "window=1d" in result
 
     def test_empty_indicators(self):
         result = _format_indicators({"measurement": {"model_clock": "1d", "indicators": []}})
         assert result == ""
 
     def test_missing_optional_fields(self):
-        spec = {"measurement": {"model_clock": "1d", "indicators": [{"name": "x"}]}}
+        spec = {
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "x",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
+            }
+        }
         result = _format_indicators(spec)
         assert "x" in result
+
+    def test_indicator_specific_window_overrides_model_clock(self):
+        spec = {
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "monthly_pss_score",
+                        "measurement_dtype": "continuous",
+                        "how_to_measure": "Average perceived stress over the last month",
+                        "aggregation": "mean",
+                        "observation_window": "1mo",
+                    }
+                ],
+            }
+        }
+
+        result = _format_indicators(spec)
+        assert "window=1mo" in result
 
 
 # =============================================================================
@@ -116,15 +150,15 @@ class TestGetOutcomeDescription:
 
 
 class TestWorkerMessages:
-    def _sample_tick_text(self):
-        return "## Tick: 2024-01-01\n\n08:00  pss=25, sleep=6.5\n09:00  pss=18, sleep=7.2"
+    def _sample_window_text(self):
+        return "## Window Start: 2024-01-01\n\n08:00  pss=25, sleep=6.5\n09:00  pss=18, sleep=7.2"
 
     def test_extraction_messages_structure(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            tick_text=self._sample_tick_text(),
-            n_ticks=1,
+            window_text=self._sample_window_text(),
+            n_windows=1,
         )
         msgs = wm.extraction_messages()
         assert len(msgs) == 2
@@ -135,8 +169,8 @@ class TestWorkerMessages:
         wm = WorkerMessages(
             question="Does stress affect sleep?",
             causal_spec=_causal_spec(),
-            tick_text=self._sample_tick_text(),
-            n_ticks=1,
+            window_text=self._sample_window_text(),
+            n_windows=1,
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]
@@ -148,8 +182,8 @@ class TestWorkerMessages:
         wm = WorkerMessages(
             question="test",
             causal_spec=_causal_spec(),
-            tick_text=self._sample_tick_text(),
-            n_ticks=1,
+            window_text=self._sample_window_text(),
+            n_windows=1,
         )
         msgs = wm.extraction_messages()
         user_msg = msgs[1]["content"]
@@ -163,10 +197,10 @@ class TestWorkerMessages:
 
 
 class TestRunWorkerExtraction:
-    def _sample_tick_text(self):
-        return "## Tick: 2024-01-01\n\n08:00  Searched for sleep hygiene"
+    def _sample_window_text(self):
+        return "## Window Start: 2024-01-01\n\n08:00  Searched for sleep hygiene"
 
-    def _sample_tick_ids(self):
+    def _sample_window_starts(self):
         return ["2024-01-01"]
 
     def test_empty_completion_raises_parse_error(self, caplog):
@@ -181,8 +215,8 @@ class TestRunWorkerExtraction:
         ):
             _run(
                 run_worker_extraction(
-                    tick_text=self._sample_tick_text(),
-                    tick_ids=self._sample_tick_ids(),
+                    window_text=self._sample_window_text(),
+                    window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
                     generate=fake_generate,
@@ -202,7 +236,7 @@ class TestRunWorkerExtraction:
                 {
                     "extractions": [
                         {
-                            "tick": "2024-01-01",
+                            "window_start": "2024-01-01",
                             "indicator": "pss_score",
                             "value": 12.0,
                         }
@@ -215,16 +249,16 @@ class TestRunWorkerExtraction:
         with caplog.at_level(logging.INFO, logger=logger.name):
             result = _run(
                 run_worker_extraction(
-                    tick_text=self._sample_tick_text(),
-                    tick_ids=self._sample_tick_ids(),
+                    window_text=self._sample_window_text(),
+                    window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
                     generate=fake_generate,
                     logger=logger,
-                    call_label="stage2 chunk=3 ticks=1 events=1",
+                    call_label="stage2 chunk=3 windows=1 events=1",
                 )
             )
 
-        assert captured["label"] == "stage2 chunk=3 ticks=1 events=1"
+        assert captured["label"] == "stage2 chunk=3 windows=1 events=1"
         assert result.dataframe.height == 1
-        assert "[stage2 chunk=3 ticks=1 events=1] Calling extraction model" in caplog.text
+        assert "[stage2 chunk=3 windows=1 events=1] Calling extraction model" in caplog.text

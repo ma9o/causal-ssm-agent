@@ -82,7 +82,13 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
         calls.append(("stage2", question, stage0, stage1b))
         raw_data = pl.DataFrame(
-            {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+            {
+                "indicator": ["stress_score"],
+                "value": ["1.0"],
+                "anchor_time": ["2024-01-01"],
+                "support_start": ["2024-01-01"],
+                "support_end": ["2024-01-01"],
+            }
         )
         return {"_data_for_model": raw_data, "_raw_data": raw_data}
 
@@ -371,7 +377,7 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
         {
             "indicator": ["stress_score"],
             "value": ["1.0"],
-            "timestamp": ["2024-01-01"],
+            "anchor_time": ["2024-01-01"],
         }
     )
     raw_data.write_parquet(raw_path)
@@ -507,7 +513,13 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         captured["stage0_df_path"] = stage0["_df_path"]
         captured["stage1b_result"] = stage1b
         raw_data = pl.DataFrame(
-            {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+            {
+                "indicator": ["stress_score"],
+                "value": ["1.0"],
+                "anchor_time": ["2024-01-01"],
+                "support_start": ["2024-01-01"],
+                "support_end": ["2024-01-01"],
+            }
         )
         return {
             "_data_for_model": raw_data,
@@ -552,10 +564,10 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
     raw_path = run_dir / "stage2-raw-data.parquet"
     model_path = run_dir / "stage2-model-data.parquet"
     pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
     ).write_parquet(raw_path)
     pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
     ).write_parquet(model_path)
 
     web_payload = {
@@ -759,7 +771,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
         {
             "indicator": ["stress_score"] * 5,
             "value": ["1.0", "2.0", "3.0", "4.0", "5.0"],
-            "timestamp": [
+            "anchor_time": [
                 "2024-01-01",
                 "2024-01-02",
                 "2024-01-03",
@@ -889,7 +901,13 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
                 {
                     "indicator": "stress_score",
                     "value": "1.0",
-                    "timestamp": "2024-01-01T00:00:00Z",
+                    "anchor_time": "2024-01-02T00:00:00",
+                    "support_kind": "interval",
+                    "summary_operator": "mean",
+                    "anchor_policy": "support_end",
+                    "observation_window": "1d",
+                    "support_start": "2024-01-01T00:00:00",
+                    "support_end": "2024-01-02T00:00:00",
                 }
             ],
             "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
@@ -905,7 +923,20 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
         dag.stage2(
             "why is this happening?",
             {"_df_path": str(tmp_path / "input.parquet")},
-            {"causal_spec": {"measurement": {"model_clock": "1d", "indicators": []}}},
+            {
+                "causal_spec": {
+                    "measurement": {
+                        "model_clock": "1d",
+                        "indicators": [
+                            {
+                                "name": "stress_score",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            }
+                        ],
+                    }
+                }
+            },
         )
     )
 
@@ -914,6 +945,12 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
     assert result["_raw_data"].height == 1
+    assert result["_raw_data"]["support_kind"][0] == "interval"
+    assert result["_raw_data"]["summary_operator"][0] == "mean"
+    assert result["_raw_data"]["anchor_policy"][0] == "support_end"
+    assert result["_raw_data"]["anchor_time"][0] == "2024-01-02T00:00:00"
+    assert result["_raw_data"]["support_start"][0] == "2024-01-01T00:00:00"
+    assert result["_raw_data"]["support_end"][0] == "2024-01-02T00:00:00"
     assert result["workers"] == [{"worker_id": 0, "status": "completed", "n_extractions": 1}]
 
 
@@ -927,12 +964,16 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
                 {
                     "indicator": "daytime_screen_events",
                     "value": "5",
-                    "timestamp": "2024-01-01T00:00:00Z",
+                    "anchor_time": "2024-01-01T00:00:00",
+                    "support_start": "2024-01-01T00:00:00",
+                    "support_end": "2024-01-01T00:00:00",
                 },
                 {
                     "indicator": "last_evening_activity_hour",
                     "value": None,
-                    "timestamp": "2024-01-01T00:00:00Z",
+                    "anchor_time": "2024-01-01T00:00:00",
+                    "support_start": "2024-01-01T00:00:00",
+                    "support_end": "2024-01-01T00:00:00",
                 },
             ],
             "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 2}],
@@ -989,7 +1030,7 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
 def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
     data_path = tmp_path / "stage2-model-data.parquet"
     pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
     ).write_parquet(data_path)
 
     stub = _AsyncSubflowStub(
@@ -1027,7 +1068,7 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
 def test_stage4b_calls_subflow_directly(monkeypatch, tmp_path):
     data_path = tmp_path / "stage2-model-data.parquet"
     pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "timestamp": ["2024-01-01"]}
+        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
     ).write_parquet(data_path)
 
     stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
