@@ -556,7 +556,7 @@ export interface PriorSource {
 export interface Stage4BContract {
   outcome: "success" | "warn" | "fail";
   parametric_id: ParametricIdResult;
-  rb_partition?: RBPartitionResult | null;
+  inference_structure?: InferenceStructureResult | null;
   gate_overridden?: GateOverrideContract | null;
 }
 /**
@@ -638,16 +638,28 @@ export interface ParameterIdentification {
   profile_ll?: number[] | null;
 }
 /**
- * First-pass Rao-Blackwellization partition for frontend display.
+ * Canonical inference-structure plan shared by pipeline and web.
  */
-export interface RBPartitionResult {
-  latent_variables: RBVariable[];
-  obs_variables: RBVariable[];
+export interface InferenceStructureResult {
+  likelihood_path: "kalman" | "composed" | "particle";
+  auto_method: "nuts" | "laplace_em" | "svi";
+  first_pass_rb: FirstPassRBResult;
 }
 /**
- * A single variable's Rao-Blackwellization assignment.
+ * Active first-pass Rao-Blackwellization plan for the prepared runtime.
  */
-export interface RBVariable {
+export interface FirstPassRBResult {
+  status: "active" | "inactive";
+  inactive_reason?:
+    | ("disabled_in_spec" | "interval_summary_support" | "no_executable_partition" | "likelihood_override")
+    | null;
+  latent_variables: InferenceStructureVariable[];
+  obs_variables: InferenceStructureVariable[];
+}
+/**
+ * A single latent or observed channel assignment in the active split.
+ */
+export interface InferenceStructureVariable {
   name: string;
   method: "kalman" | "particle";
 }

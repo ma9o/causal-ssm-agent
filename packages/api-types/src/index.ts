@@ -20,7 +20,7 @@ export { STAGE_IDS, STAGES } from "./stages";
 // Model spec types
 // Prior types
 // Parametric ID types
-// Rao-Blackwellization partition types
+// Inference structure types
 // LLM trace types
 // Inference diagnostic types
 export type {
@@ -54,6 +54,9 @@ export type {
   ParameterRole,
   ParameterSpec,
   ParametricIdResult,
+  InferenceStructureResult,
+  InferenceStructureVariable,
+  FirstPassRBResult,
   PosteriorMarginal,
   PosteriorPair,
   PowerScalingResultContract as PowerScalingResult,
@@ -65,8 +68,6 @@ export type {
   PriorSource,
   RankHistogram,
   RankHistogramChain,
-  RBPartitionResult,
-  RBVariable,
   Role,
   SensitivityAnalysisResult,
   SensitivityEntry,
