@@ -1,4 +1,5 @@
 import { DataTable } from "@/components/ui/data-table";
+import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button";
 import type { Stage2Data } from "@causal-ssm/api-types";
 import { CheckCircle2, XCircle } from "lucide-react";
 
@@ -18,23 +19,26 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 text-sm">
-        <span className="flex items-center gap-1.5 text-success">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {succeeded} succeeded
-        </span>
-        {failed > 0 && (
-          <span className="flex items-center gap-1.5 text-destructive">
-            <XCircle className="h-3.5 w-3.5" />
-            {failed} failed
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 text-sm">
+          <span className="flex items-center gap-1.5 text-success">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {succeeded} succeeded
           </span>
-        )}
-        <span className="text-muted-foreground">
-          {Object.values(data.per_indicator_counts)
-            .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
-            ?.toLocaleString()}{" "}
-          extractions
-        </span>
+          {failed > 0 && (
+            <span className="flex items-center gap-1.5 text-destructive">
+              <XCircle className="h-3.5 w-3.5" />
+              {failed} failed
+            </span>
+          )}
+          <span className="text-muted-foreground">
+            {Object.values(data.per_indicator_counts)
+              .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
+              ?.toLocaleString()}{" "}
+            extractions
+          </span>
+        </div>
+        <ExploreDataframeButton stage="stage-2" />
       </div>
 
       {errors.length > 0 && (

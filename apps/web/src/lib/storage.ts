@@ -72,6 +72,21 @@ export async function readData(relativePath: string): Promise<string> {
 }
 
 /**
+ * Read a binary file from storage as a Uint8Array.
+ */
+export async function readBinary(relativePath: string): Promise<Uint8Array> {
+  if (isRemote) {
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const resp = await getS3().send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: r2Key(relativePath) }),
+    );
+    return new Uint8Array(await resp.Body!.transformToByteArray());
+  }
+  const buf = await readFile(resolve(LOCAL_DATA_DIR, relativePath));
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+}
+
+/**
  * Write a text file to storage.
  */
 export async function writeData(relativePath: string, content: string): Promise<void> {
