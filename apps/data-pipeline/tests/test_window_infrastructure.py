@@ -120,6 +120,22 @@ class TestBucketByClock:
         ticks = bucket_by_clock(df, "1d", "timestamp")
         assert len(ticks) == 2
 
+    def test_timezone_aware_string_timestamp_column(self):
+        """UTC-suffixed string timestamps should bucket without parse errors."""
+        df = pl.DataFrame(
+            {
+                "timestamp": ["2025-03-03T10:00:00Z", "2025-03-04T10:00:00Z"],
+                "value": [1, 2],
+            }
+        )
+
+        ticks = bucket_by_clock(df, "1d", "timestamp")
+
+        assert [tick_id for tick_id, _ in ticks] == [
+            "2025-03-03T00:00:00+00:00",
+            "2025-03-04T00:00:00+00:00",
+        ]
+
     def test_chronological_ordering(self):
         """Ticks should be sorted chronologically."""
         df = _make_events_df(

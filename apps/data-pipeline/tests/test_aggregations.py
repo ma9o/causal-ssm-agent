@@ -351,6 +351,27 @@ class TestComputeIndicators:
         # Should be ISO format: YYYY-MM-DDTHH:MM:SS
         assert result["timestamp"][0] == "2024-01-01T00:00:00"
 
+    def test_timezone_aware_string_timestamps(self):
+        """UTC-suffixed string timestamps should aggregate without parse errors."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    "2025-03-03T08:00:00Z",
+                    "2025-03-03T12:00:00Z",
+                    "2025-03-04T09:00:00Z",
+                ],
+                "heart_rate": [72.0, 84.0, 90.0],
+            }
+        )
+        indicators = [
+            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["timestamp"].to_list() == ["2025-03-03T00:00:00", "2025-03-04T00:00:00"]
+        assert [float(v) for v in result["value"].to_list()] == [78.0, 90.0]
+
     def test_hourly_clock(self):
         """Hourly model_clock produces hourly ticks."""
         df = _make_raw_df()
