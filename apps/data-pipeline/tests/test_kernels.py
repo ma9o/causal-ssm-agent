@@ -110,6 +110,27 @@ class TestBuildObservationKernel:
         # Var = p(1-p) / (phi+1) = 0.25 / 10 = 0.025
         assert jnp.isclose(var[0, 0], 0.025)
 
+    def test_beta_kernel_accepts_traced_positive_site(self):
+        @jax.jit
+        def _build_variance(obs_concentration):
+            kernel = build_observation_kernel(
+                DistributionFamily.BETA,
+                LinkFunction.LOGIT,
+                extra_params={"obs_concentration": obs_concentration},
+            )
+            return kernel.variance_fn(jnp.array([0.5]))
+
+        var = _build_variance(jnp.array(9.0))
+        assert jnp.isclose(var[0, 0], 0.025)
+
+    def test_beta_kernel_rejects_nonpositive_concrete_site(self):
+        with pytest.raises(ValueError, match="obs_concentration must be positive"):
+            build_observation_kernel(
+                DistributionFamily.BETA,
+                LinkFunction.LOGIT,
+                extra_params={"obs_concentration": 0.0},
+            )
+
     def test_ordered_logistic_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.ORDERED_LOGISTIC,
