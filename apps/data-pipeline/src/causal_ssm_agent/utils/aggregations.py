@@ -131,10 +131,13 @@ def compute_indicators(
     if not indicators:
         return pl.DataFrame(schema=output_schema)
 
-    # Ensure the time column is datetime
+    # Match the rest of the pipeline: raw string timestamps may already carry
+    # a timezone suffix such as `Z`, so parse them as UTC.
     df = raw_df
     if df.schema[time_col] == pl.Utf8:
-        df = df.with_columns(pl.col(time_col).str.to_datetime(strict=False).alias(time_col))
+        df = df.with_columns(
+            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
+        )
 
     frames: list[pl.DataFrame] = []
     for ind in indicators:
