@@ -42,3 +42,6 @@ next-env.d.ts
 
 # storybook
 /storybook-static
+
+# perspective WASM/CSS assets (copied from node_modules at install time)
+/public/perspective
