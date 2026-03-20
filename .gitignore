@@ -25,6 +25,7 @@ data/*/
 !data/SMALLGOLDEN
 !data/DEFAULT/
 !data/DOCTOLIB/
+!data/MEDICAL_SEMANTICS/
 !data/queries/
 !data/eval/
 data/processed/**

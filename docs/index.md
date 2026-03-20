@@ -7,6 +7,7 @@ This index helps coding agents navigate the documentation structure.
 ```
 docs/
 ├── index.md              # This file
+├── pipeline_stages.md    # Complete pipeline stage reference (inputs, outputs, logic for stages 0–6)
 ├── modeling/
 │   ├── scope.md          # Construct taxonomy, temporal granularity, what's in/out of scope
 │   ├── assumptions.md    # Core technical assumptions (A1-A9)
@@ -24,6 +25,9 @@ docs/
 ```
 
 ## Quick Links by Task
+
+**Understanding the pipeline:**
+- Start with `pipeline_stages.md` for a complete reference of all 10 stages: inputs, outputs, internal logic, gates, and resume behavior
 
 **Understanding the modeling approach:**
 - Start with `modeling/scope.md` for construct taxonomy, ontology, temporal granularity, cross-timescale rules, and what's in/out of scope

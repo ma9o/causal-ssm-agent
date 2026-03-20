@@ -57,6 +57,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   │   ├── ssm_prior_indexing.py          # Semantic parameter name -> SSMPriors slot mapping
 │   │   │   │   ├── ssm_prior_compilation.py       # Prior transforms, lag checks, and sample-site bindings
 │   │   │   │   ├── ssm_observation_metadata.py    # Observation-family metadata hydration and support validation
+│   │   │   │   ├── ssm/inference_structure.py     # Shared likelihood-path + auto-routing + first-pass RB planning
 │   │   │   │   └── ssm/prior_predictive_runtime.py  # Compile-stable prior predictive runtime from serialized semantics
 │   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
 │   │   │   │   └── stages/llm_stage_task.py       # Shared Prefect task factory for LLM-backed stages
@@ -67,6 +68,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
 │   │   │   ├── test_pipeline.py   # Flow orchestration and replay contract coverage
+│   │   │   ├── test_stage4b_parametric_id.py  # Stage 4b first-pass Rao-Blackwellization payload gating
 │   │   │   └── test_stage2_extract.py  # Stage 2 worker collection and progress logging coverage
 │   │   └── tools/                 # CLI tools + UIs
 │   └── web/                       # Next.js frontend
@@ -74,6 +76,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes (+ colocated route tests)
 │           │   └── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
+│           │   └── stages/parametric-id/inference-structure-card.tsx  # Stage 4b inference-structure surface and rendering tests/stories
 │           └── lib/               # API clients, hooks, user-id helpers, types, utilities
 │               ├── api/analysis.ts  # Shared typed contracts + client helpers for sessions, replay, and analysis manifests
 │               ├── hooks/         # Prefect progress state, event streaming, stage telemetry
@@ -85,6 +88,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── <USER_ID>/                 # User workspace: input/, query.txt, run/
 │   ├── DEFAULT/                   # Tracked mock fixture user workspace
 │   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
+│   ├── MEDICAL_SEMANTICS/         # Tracked stage 0-2 medical archive fixture workspace
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
 │   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
