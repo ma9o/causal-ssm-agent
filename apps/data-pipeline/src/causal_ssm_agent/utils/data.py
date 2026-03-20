@@ -208,9 +208,12 @@ def bucket_by_clock(
         List of (tick_id, events_df) sorted chronologically.
         tick_id is an ISO-format string of the tick start time.
     """
-    # Ensure the time column is datetime
+    # Raw timestamps may already carry a timezone suffix such as `Z`.
+    # Parse them as UTC so bucketing matches the rest of stage 2.
     if df.schema[time_col] == pl.Utf8:
-        df = df.with_columns(pl.col(time_col).str.to_datetime(strict=False).alias(time_col))
+        df = df.with_columns(
+            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
+        )
 
     # Truncate to tick boundaries
     bucketed = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__")).sort(
