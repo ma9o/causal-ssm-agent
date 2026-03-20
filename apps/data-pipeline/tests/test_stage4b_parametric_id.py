@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
+from causal_ssm_agent.flows.dag import stage4b_gate
 from causal_ssm_agent.flows.stages.stage4b_parametric_id import parametric_id_task
 from causal_ssm_agent.models.ssm.inference_structure import (
     build_inference_structure_payload,
@@ -184,3 +185,27 @@ class TestStage4bInferenceStructurePayload:
         assert result["parametric_id"]["checked"] is True
         assert result["parametric_id"]["t_rule"]["satisfies"] is False
         assert result["inference_structure"]["likelihood_path"] == "composed"
+
+    def test_stage4b_gate_demotes_t_rule_failure_to_warning(self):
+        gate = stage4b_gate(
+            {
+                "parametric_id": {
+                    "checked": True,
+                    "t_rule": {
+                        "satisfies": False,
+                        "n_free_params": 12,
+                        "n_moments": 8,
+                    },
+                    "summary": {
+                        "structural_issues": [],
+                        "boundary_issues": [],
+                        "weak_params": [],
+                    },
+                }
+            },
+            override_gates=False,
+        )
+
+        assert gate["gate_failed"] is False
+        assert gate["gate_overridden"] is False
+        assert gate["outcome"] == "warn"

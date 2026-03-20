@@ -97,7 +97,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-4b",
     label: "Parametric Identifiability",
     number: "4b",
-    hasGate: true,
+    hasGate: false,
     prefectFlowName: "stage-4b-flow",
     loadingHint: "Checking parametric identifiability...",
     description:

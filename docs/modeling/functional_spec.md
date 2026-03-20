@@ -140,7 +140,7 @@ After Stage 4 produces the model specification, **Stage 4b** runs pre-fit parame
 
 Stage 4b applies a cascade of diagnostics:
 
-1. **T-rule (necessary condition):** Checks whether the number of free parameters exceeds the number of unique observed covariance entries. Failure here guarantees non-identifiability without needing to fit the model.
+1. **T-rule (conservative counting screen):** Compares free parameters to a conservative lower bound on available observed moment conditions. Failure raises a warning about likely overparameterization but does not, by itself, halt the pipeline.
 2. **Output sensitivity analysis:** Perturbs each parameter and measures the effect on model outputs. Parameters with near-zero sensitivity are structurally non-identifiable (the data cannot distinguish different values).
 3. **Profile likelihood:** For each parameter, optimizes over all other parameters to trace out the profile likelihood surface. A flat profile indicates non-identifiability; a bounded but shallow profile indicates weak identifiability (Raue et al., 2009).
 

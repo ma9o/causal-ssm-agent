@@ -1,7 +1,7 @@
 """Pre-fit parametric identifiability diagnostics for state-space models.
 
-- T-rule (counting condition): necessary condition checking that the number
-  of free parameters does not exceed available moment conditions.
+- T-rule (counting screen): conservative parameter-vs-moment comparison used
+  as a cheap pre-fit warning signal.
 - Output sensitivity analysis: Jacobian-based structural identifiability via SVD.
 - Profile likelihood: per-parameter identifiability classification via
   constrained optimization (Raue et al. 2009). Uses only 1st-order AD.
@@ -215,13 +215,15 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
 class TRuleResult(BaseModel):
     """Result of the t-rule (counting condition) check.
 
-    The t-rule is a necessary condition for identification: if the number
-    of free parameters exceeds the number of available moment conditions,
-    the model is provably non-identified.
+    This implementation uses a conservative lower bound on available moment
+    conditions. If the number of free parameters exceeds that lower bound,
+    the model is at high risk of non-identifiability and should be reviewed,
+    but the result is not treated as a proof.
 
     For cross-sectional SEMs the constraint is n_params <= p(p+1)/2.
-    For time series (SSMs), autocovariance at each lag provides p^2
-    additional moment conditions, so the constraint is much weaker.
+    For time series (SSMs), lagged autocovariance contributes additional
+    information; this implementation counts only a conservative p moments
+    per lag.
     """
 
     n_free_params: int
@@ -266,8 +268,10 @@ def check_t_rule(spec: SSMSpec, T: int | None = None) -> TRuleResult:
     - Mean structure: p equations
     - Autocovariance at each lag: p entries per lag (conservative), with T-1 lags
 
-    This is a necessary but NOT sufficient condition. Passing does not
-    guarantee identification; failing guarantees non-identification.
+    This implementation is conservative: it uses a lower bound on the
+    available lagged moment conditions. Passing still does not guarantee
+    identification, and failing is treated as a warning signal rather than
+    a proof.
 
     Args:
         spec: SSMSpec instance

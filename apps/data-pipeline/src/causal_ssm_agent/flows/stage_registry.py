@@ -440,15 +440,6 @@ def _gate_error_stage1b(gate_result: dict) -> str:
     )
 
 
-def _gate_error_stage4b(gate_result: dict) -> str:
-    t_rule = gate_result.get("t_rule") or {}
-    return (
-        f"T-rule violated: {t_rule.get('n_free_params')} free parameters "
-        f"> {t_rule.get('n_moments')} moment conditions. "
-        "Model is provably non-identified. Halting pipeline."
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Per-stage override preparers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -555,7 +546,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             bind_inputs=_bind_stage4b,
             runner=dag.stage4b,
             gate=_gate_stage4b,
-            gate_error=_gate_error_stage4b,
             materializer=StageMaterializer(restore=_restore_stage4b),
         ),
         "stage-5a": StageDefinition(
