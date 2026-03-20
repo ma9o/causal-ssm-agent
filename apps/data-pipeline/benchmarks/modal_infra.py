@@ -15,7 +15,7 @@ def make_modal_image(gpu: str):
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("git")
         .pip_install("uv")
-        .uv_sync(uv_project_dir=str(ROOT), groups=["dev"], frozen=True)
+        .uv_sync(uv_project_dir=str(ROOT), groups=["dev", "cloud"], frozen=True)
         .uv_pip_install("jax[cuda12]", gpu=gpu)
         .env({"PYTHONPATH": "/root"})
         .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/causal_ssm_agent")

@@ -64,7 +64,7 @@ def main():
 
     # Write output
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_FILE, "w") as f:
+    with OUTPUT_FILE.open("w") as f:
         f.write(output)
 
     print(f"Wrote to: {OUTPUT_FILE}", file=__import__("sys").stderr)

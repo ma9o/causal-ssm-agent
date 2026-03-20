@@ -4,8 +4,9 @@ Evaluate LLM performance on pipeline tasks using Inspect AI.
 
 ## Available Evals
 
-Some eval filenames keep older stage numbering. The current pipeline stages are
-`stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6`.
+The active checked-in eval surface currently covers the stable pre-Stage-4
+pipeline areas. Some eval filenames keep older stage numbering. The current
+pipeline stages are `stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6`.
 
 | File | Current pipeline area | What it tests |
 |------|-----------------------|---------------|
@@ -13,16 +14,18 @@ Some eval filenames keep older stage numbering. The current pipeline stages are
 | `evals/single_model/eval1b_measurement_model.py` | Stage 1b | Measurement model proposal |
 | `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
 | `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
-| `evals/single_model/eval4_functional_spec.py` | Stage 4 | Functional specification |
-| `evals/single_model/eval4b_prior_elicitation.py` | Stage 4 priors | Prior elicitation + prior predictive validation |
+
+The old split Stage 4 evals were removed because they no longer match the
+current agentic Stage 4 runtime. Reintroduce Stage 4 eval coverage as a single
+end-to-end eval around `causal_ssm_agent.orchestrator.stage4.run_stage4()`.
 
 ## Run all models in parallel
 
 ```bash
-# Orchestrator eval (default) — runs 5 models concurrently
+# Stage 1a orchestrator eval (default) — runs configured models concurrently
 uv run python evals/scripts/run_parallel_evals.py
 
-# Worker eval
+# Stage 2 worker eval
 uv run python evals/scripts/run_parallel_evals.py --eval worker
 
 # Run specific models using aliases
@@ -34,8 +37,8 @@ uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
 # Filter to specific questions
 uv run python evals/scripts/run_parallel_evals.py -q 1,3
 
-# Orchestrator aliases: claude, gemini, gpt, deepseek, kimi
-# Worker aliases:       kimi, deepseek, gemini, grok, haiku, minimax, gpt-oss
+# Stage 1a aliases: claude, gemini, gpt, deepseek, kimi
+# Stage 2 aliases:   kimi, deepseek, gemini, grok, haiku, minimax, gpt-oss
 ```
 
 ## Run individual models
