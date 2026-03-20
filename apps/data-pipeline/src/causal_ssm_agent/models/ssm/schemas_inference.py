@@ -234,18 +234,36 @@ class ParametricIdResult(BaseModel):
     error: str | None = None
 
 
-class RBVariable(BaseModel):
-    """A single variable's Rao-Blackwellization assignment."""
+class InferenceStructureVariable(BaseModel):
+    """A single latent or observed channel assignment in the active split."""
 
     name: str
     method: Literal["kalman", "particle"]
 
 
-class RBPartitionResult(BaseModel):
-    """First-pass Rao-Blackwellization partition for frontend display."""
+class FirstPassRBResult(BaseModel):
+    """Active first-pass Rao-Blackwellization plan for the prepared runtime."""
 
-    latent_variables: list[RBVariable]
-    obs_variables: list[RBVariable]
+    status: Literal["active", "inactive"]
+    inactive_reason: (
+        Literal[
+            "disabled_in_spec",
+            "interval_summary_support",
+            "no_executable_partition",
+            "likelihood_override",
+        ]
+        | None
+    ) = None
+    latent_variables: list[InferenceStructureVariable]
+    obs_variables: list[InferenceStructureVariable]
+
+
+class InferenceStructureResult(BaseModel):
+    """Canonical inference-structure plan shared by pipeline and web."""
+
+    likelihood_path: Literal["kalman", "composed", "particle"]
+    auto_method: Literal["nuts", "laplace_em", "svi"]
+    first_pass_rb: FirstPassRBResult
 
 
 # ---------------------------------------------------------------------------
