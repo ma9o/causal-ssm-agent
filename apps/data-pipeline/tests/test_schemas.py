@@ -384,9 +384,49 @@ class TestIndicator:
         )
         assert ind.extraction_mode == "computed"
 
+    def test_computed_binary_point_dtype(self):
+        """Computed indicator with binary dtype passes for direct point aggregation."""
+        ind = Indicator(
+            name="alarm_state",
+            construct_name="monitoring",
+            how_to_measure="Use the last observed alarm_state value directly",
+            measurement_dtype="binary",
+            aggregation="last",
+            source_columns=["alarm_state"],
+            extraction_mode="computed",
+        )
+        assert ind.extraction_mode == "computed"
+
+    def test_computed_ordinal_point_dtype(self):
+        """Computed indicator with ordinal dtype passes for direct point aggregation."""
+        ind = Indicator(
+            name="mood_label",
+            construct_name="mood",
+            how_to_measure="Use the last observed mood_label value directly",
+            measurement_dtype="ordinal",
+            aggregation="last",
+            ordinal_levels=["bad", "ok", "good"],
+            source_columns=["mood_label"],
+            extraction_mode="computed",
+        )
+        assert ind.extraction_mode == "computed"
+
+    def test_computed_categorical_point_dtype(self):
+        """Computed indicator with categorical dtype passes for direct point aggregation."""
+        ind = Indicator(
+            name="care_setting",
+            construct_name="care_context",
+            how_to_measure="Use the first observed care_setting value directly",
+            measurement_dtype="categorical",
+            aggregation="first",
+            source_columns=["care_setting"],
+            extraction_mode="computed",
+        )
+        assert ind.extraction_mode == "computed"
+
     def test_computed_requires_single_source_column(self):
         """Computed with 0 or 2+ source_columns is rejected."""
-        with pytest.raises(ValueError, match="exactly 1 source_column"):
+        with pytest.raises(ValueError, match="exactly 1 direct source_column"):
             Indicator(
                 name="avg_hr",
                 construct_name="health",
@@ -396,7 +436,7 @@ class TestIndicator:
                 source_columns=[],
                 extraction_mode="computed",
             )
-        with pytest.raises(ValueError, match="exactly 1 source_column"):
+        with pytest.raises(ValueError, match="exactly 1 direct source_column"):
             Indicator(
                 name="avg_hr",
                 construct_name="health",
@@ -407,22 +447,20 @@ class TestIndicator:
                 extraction_mode="computed",
             )
 
-    def test_computed_rejects_non_numeric_dtype(self):
-        """Computed with binary/ordinal/categorical dtype is rejected."""
-        for dtype in ("binary", "ordinal", "categorical"):
-            kwargs = {
-                "name": "test_ind",
-                "construct_name": "test",
-                "how_to_measure": "Extract test",
-                "measurement_dtype": dtype,
-                "aggregation": "mean",
-                "source_columns": ["col"],
-                "extraction_mode": "computed",
-            }
-            if dtype == "ordinal":
-                kwargs["ordinal_levels"] = ["low", "medium", "high"]
-            with pytest.raises(ValueError, match="'continuous' or 'count'"):
-                Indicator(**kwargs)
+    def test_computed_still_rejects_invalid_semantics(self):
+        """Computed indicators still respect the measurement-semantics grid."""
+        with pytest.raises(
+            ValueError, match="aggregation 'mean' requires measurement_dtype='continuous'"
+        ):
+            Indicator(
+                name="alarm_state",
+                construct_name="monitoring",
+                how_to_measure="Use alarm_state directly",
+                measurement_dtype="binary",
+                aggregation="mean",
+                source_columns=["alarm_state"],
+                extraction_mode="computed",
+            )
 
 
 class TestMeasurementModel:
