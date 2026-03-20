@@ -67,10 +67,8 @@ class TestFormatIndicators:
         assert "sleep_hours" in result
         assert "continuous" in result
         assert "Perceived Stress Scale" in result
-        assert "agg=mean" in result
         assert "support=interval" in result
         assert "operator=mean" in result
-        assert "anchor=support_end" in result
         assert "window=1d" in result
 
     def test_empty_indicators(self):

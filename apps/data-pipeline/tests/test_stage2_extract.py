@@ -318,3 +318,129 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
         "monthly_sleep_hours",
     ]
     assert result["raw_data"] == []
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observation_rows(
+    monkeypatch, tmp_path
+):
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.workers.windows as windows_mod
+
+    raw_df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-01T08:00:00Z"],
+            "stress_score": [4.0],
+            "mood_label": ["good"],
+        }
+    )
+    raw_path = tmp_path / "input.parquet"
+    raw_df.write_parquet(raw_path)
+
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(
+                windows_per_chunk=8,
+                max_events_per_window=50,
+                max_concurrent_workers=2,
+                max_rpm=0,
+            )
+        ),
+    )
+    monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
+    monkeypatch.setattr(
+        windows_mod,
+        "format_window_chunk",
+        lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
+    )
+
+    def fake_map(chunk_texts, **kwargs):
+        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
+        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
+        return [
+            _FakeFuture(
+                {
+                    "dataframe": [
+                        {
+                            "indicator": "closing_mood",
+                            "value": "good",
+                            "timestamp": "2024-01-01T00:00:00+00:00",
+                        }
+                    ],
+                    "n_extractions": 1,
+                    "status": "completed",
+                }
+            )
+        ]
+
+    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
+    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+
+    causal_spec = {
+        "latent": {"constructs": [], "edges": []},
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "stress_score",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average stress score in the window",
+                    "aggregation": "mean",
+                    "source_columns": ["stress_score"],
+                    "extraction_mode": "computed",
+                },
+                {
+                    "name": "closing_mood",
+                    "measurement_dtype": "ordinal",
+                    "how_to_measure": "Take the last mood label in the window",
+                    "aggregation": "last",
+                    "ordinal_levels": ["bad", "good"],
+                    "source_columns": ["timestamp", "mood_label"],
+                    "extraction_mode": "semantic",
+                },
+            ],
+        },
+    }
+
+    result = _run(
+        stage2_extract.stage2_extraction_flow.fn(
+            raw_df_path=str(raw_path),
+            question="Does stress affect mood?",
+            causal_spec=causal_spec,
+        )
+    )
+
+    rows = pl.DataFrame(result["raw_data"]).sort("indicator")
+    assert result["n_total_extractions"] == 2
+    assert result["worker_statuses"] == [
+        {
+            "worker_id": 0,
+            "status": "completed",
+            "n_extractions": 1,
+            "n_windows": 1,
+        }
+    ]
+    assert rows.height == 2
+    assert rows["indicator"].to_list() == ["closing_mood", "stress_score"]
+
+    mood = rows.filter(pl.col("indicator") == "closing_mood")
+    assert mood["value"][0] == "good"
+    assert mood["support_kind"][0] == "point"
+    assert mood["summary_operator"][0] == "last"
+    assert mood["anchor_policy"][0] == "support_end"
+    assert mood["observation_window"][0] == "1d"
+    assert mood["support_start"][0] == "2024-01-01T00:00:00"
+    assert mood["support_end"][0] == "2024-01-02T00:00:00"
+    assert mood["anchor_time"][0] == "2024-01-02T00:00:00"
+
+    stress = rows.filter(pl.col("indicator") == "stress_score")
+    assert stress["value"][0] == "4.0"
+    assert stress["support_kind"][0] == "interval"
+    assert stress["summary_operator"][0] == "mean"
+    assert stress["anchor_policy"][0] == "support_end"
+    assert stress["observation_window"][0] == "1d"
+    assert stress["support_start"][0] == "2024-01-01T00:00:00"
+    assert stress["support_end"][0] == "2024-01-02T00:00:00"
+    assert stress["anchor_time"][0] == "2024-01-02T00:00:00"

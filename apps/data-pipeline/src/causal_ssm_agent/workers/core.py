@@ -51,10 +51,14 @@ def _format_indicators(causal_spec: dict) -> str:
         support_kind = ind.get("support_kind") or get_support_kind(ind)
         summary_operator = ind.get("summary_operator") or get_summary_operator(ind)
         window = ind.get("observation_window") or model_clock
+        ordinal_levels = ind.get("ordinal_levels") or []
 
         details = [dtype, f"operator={summary_operator}", f"support={support_kind}"]
         if window:
             details.append(f"window={window}")
+        if dtype == "ordinal" and ordinal_levels:
+            codebook = ", ".join(f"{idx}={level}" for idx, level in enumerate(ordinal_levels))
+            details.append(f"ordinal_codes={codebook}")
 
         lines.append(f"- {name} ({', '.join(details)}): {how_to_measure}")
     return "\n".join(lines)

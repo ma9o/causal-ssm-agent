@@ -175,11 +175,11 @@ class TestEncodeNonContinuous:
         assert "0.0" in values
         assert "1.0" in values
 
-    def test_ordinal_encoding(self):
+    def test_ordinal_numeric_codes_passthrough(self):
         df = pl.DataFrame(
             {
                 "indicator": ["pain", "pain", "pain"],
-                "value": ["low", "medium", "high"],
+                "value": ["0", "1", "2"],
             }
         )
         result = _encode_non_continuous(
@@ -187,9 +187,22 @@ class TestEncodeNonContinuous:
             {"pain": "ordinal"},
             ordinal_levels_lookup={"pain": ["low", "medium", "high"]},
         )
-        # low=0, medium=1, high=2
         vals = sorted(float(v) for v in result["value"].to_list())
         assert vals == [0.0, 1.0, 2.0]
+
+    def test_ordinal_out_of_range_code_becomes_null(self):
+        df = pl.DataFrame(
+            {
+                "indicator": ["pain", "pain"],
+                "value": ["2", "3"],
+            }
+        )
+        result = _encode_non_continuous(
+            df,
+            {"pain": "ordinal"},
+            ordinal_levels_lookup={"pain": ["low", "medium", "high"]},
+        ).sort("value", nulls_last=True)
+        assert result["value"].to_list() == ["2.0", None]
 
     def test_continuous_passthrough(self):
         df = pl.DataFrame(
@@ -340,6 +353,105 @@ class TestComputeIndicators:
         assert len(result) == 1
         # mean(72, 68) = 70.0 (null ignored)
         assert abs(float(result["value"][0]) - 70.0) < 0.01
+
+    def test_first_ignores_leading_nulls(self):
+        """Point aggregations should use the first observed value, not the first row."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 9, 0),
+                    datetime(2024, 1, 1, 10, 0),
+                ],
+                "care_setting": [None, "home", "clinic"],
+            }
+        )
+        indicators = [
+            {
+                "name": "first_setting",
+                "source_columns": ["care_setting"],
+                "measurement_dtype": "categorical",
+                "aggregation": "first",
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["value"].to_list() == ["home"]
+
+    def test_categorical_last_preserves_string_value(self):
+        """Direct categorical computed indicators should preserve raw labels."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                ],
+                "care_setting": ["home", "clinic"],
+            }
+        )
+        indicators = [
+            {
+                "name": "last_setting",
+                "source_columns": ["care_setting"],
+                "measurement_dtype": "categorical",
+                "aggregation": "last",
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["value"].to_list() == ["clinic"]
+
+    def test_ordinal_last_encodes_label_to_numeric_code(self):
+        """Direct ordinal computed indicators should emit canonical integer codes."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                ],
+                "mood_label": ["bad", "good"],
+            }
+        )
+        indicators = [
+            {
+                "name": "closing_mood",
+                "source_columns": ["mood_label"],
+                "measurement_dtype": "ordinal",
+                "aggregation": "last",
+                "ordinal_levels": ["bad", "ok", "good"],
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["value"].to_list() == ["2"]
+
+    def test_count_aggregation_counts_non_null_string_values(self):
+        """Count aggregations should not null out string source columns before counting."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 9, 0),
+                    datetime(2024, 1, 1, 10, 0),
+                ],
+                "message_text": ["alpha", None, "beta"],
+            }
+        )
+        indicators = [
+            {
+                "name": "text_events",
+                "source_columns": ["message_text"],
+                "measurement_dtype": "count",
+                "aggregation": "count",
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["value"].to_list() == ["2"]
 
     def test_timestamp_format_matches_bucket_by_clock(self):
         """Computed timestamps match the ISO format from bucket_by_clock."""
