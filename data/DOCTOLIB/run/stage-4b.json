@@ -183,59 +183,15 @@
       }
     ]
   },
-  "rb_partition": {
-    "latent_variables": [
-      {
-        "name": "cardiovascular_risk",
-        "method": "kalman"
-      },
-      {
-        "name": "lipid_burden",
-        "method": "kalman"
-      },
-      {
-        "name": "vascular_inflammation",
-        "method": "kalman"
-      },
-      {
-        "name": "arterial_pressure",
-        "method": "kalman"
-      },
-      {
-        "name": "glycemic_control",
-        "method": "kalman"
-      }
-    ],
-    "obs_variables": [
-      {
-        "name": "ldl_cholesterol",
-        "method": "kalman"
-      },
-      {
-        "name": "crp",
-        "method": "kalman"
-      },
-      {
-        "name": "systolic_bp",
-        "method": "kalman"
-      },
-      {
-        "name": "hba1c",
-        "method": "particle"
-      },
-      {
-        "name": "hdl_cholesterol",
-        "method": "kalman"
-      },
-      {
-        "name": "fibrinogen",
-        "method": "kalman"
-      },
-      {
-        "name": "appointment_attendance",
-        "method": "particle"
-      }
-    ]
+  "inference_structure": {
+    "likelihood_path": "particle",
+    "auto_method": "laplace_em",
+    "first_pass_rb": {
+      "status": "inactive",
+      "inactive_reason": "no_executable_partition",
+      "latent_variables": [],
+      "obs_variables": []
+    }
   },
   "gate_overridden": {
     "reason": "1 practically unidentifiable parameter (sigma_pressure, contraction ratio 0.42). User chose to continue."

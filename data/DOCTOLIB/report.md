@@ -320,9 +320,12 @@ $$
 - **Moment conditions**: 25
 - **Satisfies**: Yes
 
-### Rao-Blackwellization Partition
+### Inference Structure
 
-- **Kalman**: cardiovascular_risk, lipid_burden, vascular_inflammation, arterial_pressure, glycemic_control
+- **Likelihood path**: particle
+- **Auto method**: laplace_em
+- **First-pass RB**: inactive
+- **First-pass RB reason**: no_executable_partition
 
 ### Parameter Classification
 
