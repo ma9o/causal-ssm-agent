@@ -304,6 +304,58 @@
       "title": "ExtractionContract",
       "type": "object"
     },
+    "FirstPassRBResult": {
+      "description": "Active first-pass Rao-Blackwellization plan for the prepared runtime.",
+      "properties": {
+        "status": {
+          "enum": [
+            "active",
+            "inactive"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "inactive_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "disabled_in_spec",
+                "interval_summary_support",
+                "no_executable_partition",
+                "likelihood_override"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inactive Reason"
+        },
+        "latent_variables": {
+          "items": {
+            "$ref": "#/$defs/InferenceStructureVariable"
+          },
+          "title": "Latent Variables",
+          "type": "array"
+        },
+        "obs_variables": {
+          "items": {
+            "$ref": "#/$defs/InferenceStructureVariable"
+          },
+          "title": "Obs Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "latent_variables",
+        "obs_variables",
+        "status"
+      ],
+      "title": "FirstPassRBResult",
+      "type": "object"
+    },
     "GateOverrideContract": {
       "additionalProperties": false,
       "properties": {
@@ -808,6 +860,62 @@
         "n_samples"
       ],
       "title": "InferenceMetadataContract",
+      "type": "object"
+    },
+    "InferenceStructureResult": {
+      "description": "Canonical inference-structure plan shared by pipeline and web.",
+      "properties": {
+        "likelihood_path": {
+          "enum": [
+            "kalman",
+            "composed",
+            "particle"
+          ],
+          "title": "Likelihood Path",
+          "type": "string"
+        },
+        "auto_method": {
+          "enum": [
+            "nuts",
+            "laplace_em",
+            "svi"
+          ],
+          "title": "Auto Method",
+          "type": "string"
+        },
+        "first_pass_rb": {
+          "$ref": "#/$defs/FirstPassRBResult"
+        }
+      },
+      "required": [
+        "auto_method",
+        "first_pass_rb",
+        "likelihood_path"
+      ],
+      "title": "InferenceStructureResult",
+      "type": "object"
+    },
+    "InferenceStructureVariable": {
+      "description": "A single latent or observed channel assignment in the active split.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "kalman",
+            "particle"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "name"
+      ],
+      "title": "InferenceStructureVariable",
       "type": "object"
     },
     "LLMTrace": {
@@ -2049,54 +2157,6 @@
       "title": "PriorSource",
       "type": "object"
     },
-    "RBPartitionResult": {
-      "description": "First-pass Rao-Blackwellization partition for frontend display.",
-      "properties": {
-        "latent_variables": {
-          "items": {
-            "$ref": "#/$defs/RBVariable"
-          },
-          "title": "Latent Variables",
-          "type": "array"
-        },
-        "obs_variables": {
-          "items": {
-            "$ref": "#/$defs/RBVariable"
-          },
-          "title": "Obs Variables",
-          "type": "array"
-        }
-      },
-      "required": [
-        "latent_variables",
-        "obs_variables"
-      ],
-      "title": "RBPartitionResult",
-      "type": "object"
-    },
-    "RBVariable": {
-      "description": "A single variable's Rao-Blackwellization assignment.",
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "method": {
-          "enum": [
-            "kalman",
-            "particle"
-          ],
-          "title": "Method",
-          "type": "string"
-        }
-      },
-      "required": [
-        "method",
-        "name"
-      ],
-      "title": "RBVariable",
-      "type": "object"
-    },
     "RankHistogram": {
       "description": "Per-parameter rank histogram for chain mixing assessment.",
       "properties": {
@@ -2677,10 +2737,10 @@
         "parametric_id": {
           "$ref": "#/$defs/ParametricIdResult"
         },
-        "rb_partition": {
+        "inference_structure": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RBPartitionResult"
+              "$ref": "#/$defs/InferenceStructureResult"
             },
             {
               "type": "null"
