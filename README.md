@@ -64,17 +64,21 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   │       └── observation_semantics.py  # Canonical support-kind / summary-operator / anchor-policy semantics
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
-│   │   ├── evals/                 # Inspect AI evals + filesystem-discovered questions
+│   │   ├── evals/                 # Inspect AI evals for active Stage 1a/1b/2 surfaces + filesystem-discovered questions
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
 │   │   │   ├── test_pipeline.py   # Flow orchestration and replay contract coverage
+│   │   │   ├── test_medical_semantics_fixture.py  # Fixture contract for MEDICAL_SEMANTICS stage 2 observation rows
 │   │   │   ├── test_stage4b_parametric_id.py  # Stage 4b first-pass Rao-Blackwellization payload gating
 │   │   │   └── test_stage2_extract.py  # Stage 2 worker collection and progress logging coverage
-│   │   └── tools/                 # CLI tools + UIs
+│   │   └── tools/                 # Narrow retained utilities (eval log reader, GPU smoke, LaTeX renderer)
 │   └── web/                       # Next.js frontend
+│       ├── scripts/               # Install-time asset helpers (for example Perspective WASM/CSS copying)
 │       └── src/
 │           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes (+ colocated route tests)
-│           │   └── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
+│           │   ├── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
+│           │   ├── api/results/[userId]/[stage]/dataframe/  # Stage parquet download endpoint for full-data exploration
+│           │   └── explore/[userId]/[stage]/  # Standalone Perspective-powered full-data explorer
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
 │           │   ├── pipeline/stage-contents/stage-4b-content.test.ts  # Verifies the Stage 4b surface renders T-rule payloads
 │           │   └── stages/parametric-id/  # Stage 4b surfaces such as inference-structure-card.tsx and t-rule-card.tsx
@@ -90,6 +94,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── DEFAULT/                   # Tracked mock fixture user workspace
 │   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
 │   ├── MEDICAL_SEMANTICS/         # Tracked stage 0-2 medical archive fixture workspace
+│   │   └── README.md              # Expected Stage 2 artifact shape and observation semantics contract
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
 │   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
