@@ -29,7 +29,7 @@ uv sync --frozen --group dev
 ```
 
 Optional dependency groups:
-- `--group cloud` — Modal (serverless GPU compute)
+- `--group cloud` — Modal + remote storage integrations (Stage 0 sandbox, production offload, GPU compute, R2/S3)
 - `--group eval` — Inspect AI (LLM evaluation framework)
 
 ### 3. Configure environment variables
