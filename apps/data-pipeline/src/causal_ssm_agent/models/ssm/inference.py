@@ -418,25 +418,13 @@ class InferenceResult:
 
 def select_default_method(
     spec: SSMSpec,
+    likelihood: Literal["particle", "kalman"] = "particle",
     observation_support=None,
 ) -> InferenceMethod:
     """Select the default inference method based on model structure.
 
-    Implements the structural routing decision tree from
-    docs/modeling/inference-strategies.md:
-
-    1. A = Marginalize (structural default for all models)
-    2. Determine B from model structure:
-       - B = Closed-form (Kalman) if partition.has_particle_block is False
-         (all emissions Gaussian + identity link + Gaussian diffusion)
-       - B = Deterministic approx (IEKS) otherwise
-    3. Select C given B:
-       - Kalman → exact smooth gradients → MCMC optimal → "nuts"
-       - IEKS → smooth approximate gradients → SMC (multimodality
-         protection for non-Gaussian emission posteriors) → "laplace_em"
-
-    User overrides (nuts_da, pgas, svi, hessmc2, dpf, structured_vi)
-    bypass this routing entirely.
+    Delegates to the shared inference-structure planner so the default method
+    and the active likelihood routing are derived from the same source.
 
     Args:
         spec: SSMSpec encoding model structure decisions.
@@ -444,29 +432,20 @@ def select_default_method(
     Returns:
         "nuts" for Kalman-eligible models, "laplace_em" otherwise.
     """
-    from causal_ssm_agent.models.likelihoods.graph_analysis import analyze_first_pass_rb
+    from causal_ssm_agent.models.ssm.inference_structure import plan_inference_structure
 
-    if observation_support is not None and observation_support.requires_interval_summary_handling:
-        logger.info(
-            "Structural routing: interval-summary observations present → svi "
-            "(support-aware particle likelihood)"
-        )
-        return "svi"
-
-    partition = analyze_first_pass_rb(spec)
-
-    if not partition.has_particle_block:
-        # B = Closed-form (Kalman): all latent-obs chains are linear-Gaussian
-        # with identity links. Exact, smooth gradients → MCMC is optimal.
-        logger.info("Structural routing: Kalman-eligible model → nuts")
-        return "nuts"
-
-    # B = Deterministic approx (IEKS/Laplace): non-Gaussian emissions or
-    # non-identity links. CT-LTI dynamics are always linear and all 7
-    # emission families have C² log-densities, so IEKS is always available.
-    # SMC handles multimodality in the parameter posterior.
-    logger.info("Structural routing: non-Kalman model → laplace_em")
-    return "laplace_em"
+    inference_structure = plan_inference_structure(
+        spec,
+        likelihood=likelihood,
+        observation_support=observation_support,
+    )
+    logger.info(
+        "Auto routing: method=%s likelihood_path=%s first_pass_rb=%s",
+        inference_structure.auto_method,
+        inference_structure.likelihood_path,
+        inference_structure.first_pass_rb.status,
+    )
+    return inference_structure.auto_method
 
 
 def _trace_public_sites(
@@ -591,7 +570,11 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     if method == "auto":
-        method = select_default_method(model.spec, getattr(model, "observation_support", None))
+        method = select_default_method(
+            model.spec,
+            model.likelihood,
+            getattr(model, "observation_support", None),
+        )
         kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)

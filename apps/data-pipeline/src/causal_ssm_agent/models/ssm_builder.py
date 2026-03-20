@@ -15,6 +15,10 @@ from causal_ssm_agent.models.ssm import (
     SSMSpec,
     fit,
 )
+from causal_ssm_agent.models.ssm.inference_structure import (
+    InferenceStructurePlan,
+    plan_inference_structure,
+)
 from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.models.ssm_observation_metadata import (
@@ -40,6 +44,7 @@ class PreparedModelRuntime:
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
+    inference_structure: InferenceStructurePlan
     observations: jnp.ndarray  # (T, n_manifest)
     times: jnp.ndarray  # (T,)
     manifest_names: list[str]
@@ -436,9 +441,19 @@ def prepare_wide_model_runtime(
     model_obj = getattr(builder, "_model", None)
     if model_obj is not None and hasattr(model_obj, "set_observation_support"):
         model_obj.set_observation_support(observation_support)
+    spec_obj = getattr(builder, "_spec", None) or getattr(model_obj, "spec", None)
+    if spec_obj is None:
+        raise ValueError("Prepared runtime requires a compiled SSMSpec")
+    likelihood_name = getattr(model_obj, "likelihood", "particle")
+    inference_structure = plan_inference_structure(
+        spec_obj,
+        likelihood=likelihood_name,
+        observation_support=observation_support,
+    )
     builder._prepared_times = times
     builder._prepared_observation_mask = ~jnp.isnan(observations)
     builder._prepared_observation_support = observation_support
+    builder._prepared_inference_structure = inference_structure
     if observation_support is not None and observation_support.requires_interval_summary_handling:
         interval_summary_desc = ", ".join(
             f"{name} ({operator})"
@@ -459,6 +474,7 @@ def prepare_wide_model_runtime(
         wide_data=wide_data,
         observation_data=observation_data,
         observation_support=observation_support,
+        inference_structure=inference_structure,
         observations=observations,
         times=times,
         manifest_names=manifest_names,

@@ -79,7 +79,14 @@ class ObservationFamilySpec:
 def _positive_param(params: dict, key: str, default: float) -> float:
     """Extract a parameter that must be strictly positive, raising early on violation."""
     val = params.get(key, default)
-    if val <= 0:
+    # Likelihood kernels are built inside JAX-transformed code paths during
+    # Laplace/SMC evaluation, where positive sites arrive as tracers rather
+    # than concrete Python scalars. Upstream parameterization already enforces
+    # positivity for sampled sites, so only perform eager validation when the
+    # value is concrete.
+    if isinstance(val, jax.core.Tracer):
+        return val
+    if np.any(np.asarray(val) <= 0):
         raise ValueError(f"{key} must be positive, got {val}")
     return val
 
