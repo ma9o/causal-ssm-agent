@@ -574,13 +574,15 @@ export interface ParametricIdResult {
 /**
  * Result of the t-rule (counting condition) check.
  *
- * The t-rule is a necessary condition for identification: if the number
- * of free parameters exceeds the number of available moment conditions,
- * the model is provably non-identified.
+ * This implementation uses a conservative lower bound on available moment
+ * conditions. If the number of free parameters exceeds that lower bound,
+ * the model is at high risk of non-identifiability and should be reviewed,
+ * but the result is not treated as a proof.
  *
  * For cross-sectional SEMs the constraint is n_params <= p(p+1)/2.
- * For time series (SSMs), autocovariance at each lag provides p^2
- * additional moment conditions, so the constraint is much weaker.
+ * For time series (SSMs), lagged autocovariance contributes additional
+ * information; this implementation counts only a conservative p moments
+ * per lag.
  */
 export interface TRuleResult {
   n_free_params: number;
