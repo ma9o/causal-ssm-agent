@@ -919,3 +919,25 @@ def any_family_needs_level_metadata(
     return any(
         spec.needs_level_metadata for dist in dists if (spec := get_family_spec(dist)) is not None
     )
+
+
+def resolve_manifest_families_and_links(
+    manifest_dist: DistributionFamily | str,
+    n_manifest: int,
+    *,
+    manifest_dists: list[DistributionFamily | str] | None = None,
+    manifest_link: LinkFunction | str | None = None,
+    manifest_links: list[LinkFunction | str | None] | None = None,
+) -> tuple[list[DistributionFamily], list[LinkFunction]]:
+    """Resolve per-channel families and links, filling in family defaults when omitted."""
+    dists = [DistributionFamily(dist) for dist in (manifest_dists or [manifest_dist] * n_manifest)]
+    scalar_link = _coerce_link_function(manifest_link)
+    effective_links = manifest_links or [scalar_link] * n_manifest
+    links: list[LinkFunction] = []
+    for dist, link in zip(dists, effective_links, strict=False):
+        link_fn = _coerce_link_function(link)
+        if link_fn is None:
+            links.append(FAMILY_REGISTRY[dist].default_link)
+        else:
+            links.append(link_fn)
+    return dists, links

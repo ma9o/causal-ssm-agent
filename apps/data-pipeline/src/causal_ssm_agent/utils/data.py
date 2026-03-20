@@ -3,12 +3,32 @@ from pathlib import Path
 import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.utils.causal_spec import (
+    get_effective_observation_window,
+)
 from causal_ssm_agent.utils.config import get_config  # also loads .env
+from causal_ssm_agent.utils.observation_semantics import (
+    AnchorPolicy,
+    get_anchor_policy,
+    get_summary_operator,
+    get_support_kind,
+)
 from causal_ssm_agent.utils.storage import get_base_uri, join
 
 logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
+OBSERVATION_ROW_SCHEMA = {
+    "indicator": pl.Utf8,
+    "value": pl.Utf8,
+    "anchor_time": pl.Utf8,
+    "support_kind": pl.Utf8,
+    "summary_operator": pl.Utf8,
+    "anchor_policy": pl.Utf8,
+    "observation_window": pl.Utf8,
+    "support_start": pl.Utf8,
+    "support_end": pl.Utf8,
+}
 
 # Remote-aware base URI (``/abs/path/to/data`` locally, ``s3://bucket/prefix`` on R2)
 DATA_URI = get_base_uri()
@@ -208,6 +228,125 @@ def bucket_by_clock(
     return result
 
 
+def observation_row_schema() -> dict[str, pl.DataType]:
+    """Schema for canonical long-format observation rows."""
+    return dict(OBSERVATION_ROW_SCHEMA)
+
+
+def annotate_observation_rows(
+    raw_data: pl.DataFrame,
+    causal_spec: dict,
+    *,
+    time_col: str = "timestamp",
+) -> pl.DataFrame:
+    """Attach observation metadata to long-format Stage 2 rows.
+
+    The input ``time_col`` is the support-window start emitted by the computed
+    and semantic extraction paths. The canonical observation-row contract keeps:
+    - ``anchor_time``: latent-grid attachment time for the observation
+    - ``support_start`` / ``support_end``: realized support bounds
+
+    Canonical support semantics are always derived from the measurement spec,
+    not preserved from any caller-supplied row metadata.
+    """
+    if raw_data.is_empty():
+        return pl.DataFrame(schema=observation_row_schema())
+
+    df = raw_data
+    for col_name, dtype in OBSERVATION_ROW_SCHEMA.items():
+        if col_name not in df.columns:
+            df = df.with_columns(pl.lit(None, dtype=dtype).alias(col_name))
+
+    if "indicator" not in df.columns:
+        return df
+
+    model_clock = causal_spec.get("measurement", {}).get("model_clock")
+    indicator_rows = [
+        {
+            "indicator": ind["name"],
+            "support_kind_meta": get_support_kind(ind),
+            "summary_operator_meta": get_summary_operator(ind),
+            "anchor_policy_meta": get_anchor_policy(ind),
+            "observation_window_meta": get_effective_observation_window(ind, model_clock),
+        }
+        for ind in causal_spec.get("measurement", {}).get("indicators", [])
+        if ind.get("name")
+    ]
+    kind_df = (
+        pl.DataFrame(
+            indicator_rows,
+            schema={
+                "indicator": pl.Utf8,
+                "support_kind_meta": pl.Utf8,
+                "summary_operator_meta": pl.Utf8,
+                "anchor_policy_meta": pl.Utf8,
+                "observation_window_meta": pl.Utf8,
+            },
+        )
+        if indicator_rows
+        else pl.DataFrame(
+            schema={
+                "indicator": pl.Utf8,
+                "support_kind_meta": pl.Utf8,
+                "summary_operator_meta": pl.Utf8,
+                "anchor_policy_meta": pl.Utf8,
+                "observation_window_meta": pl.Utf8,
+            }
+        )
+    )
+
+    if kind_df.height > 0:
+        df = df.join(kind_df, on="indicator", how="left")
+    else:
+        df = df.with_columns(
+            pl.lit(None, dtype=pl.Utf8).alias("support_kind_meta"),
+            pl.lit(None, dtype=pl.Utf8).alias("summary_operator_meta"),
+            pl.lit(None, dtype=pl.Utf8).alias("anchor_policy_meta"),
+            pl.lit(None, dtype=pl.Utf8).alias("observation_window_meta"),
+        )
+
+    ts_expr = (
+        pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC")
+        if df.schema.get(time_col) == pl.Utf8
+        else pl.col(time_col)
+    )
+    support_start_expr = ts_expr.dt.to_string("%Y-%m-%dT%H:%M:%S")
+    observation_window_expr = pl.col("observation_window_meta")
+    support_kind_expr = pl.col("support_kind_meta")
+    summary_operator_expr = pl.col("summary_operator_meta")
+    anchor_policy_expr = pl.col("anchor_policy_meta")
+    support_end_expr = (
+        pl.when(observation_window_expr.is_not_null())
+        .then(ts_expr.dt.offset_by(observation_window_expr).dt.to_string("%Y-%m-%dT%H:%M:%S"))
+        .otherwise(support_start_expr)
+    )
+    anchor_time_expr = (
+        pl.when(anchor_policy_expr == AnchorPolicy.SUPPORT_START.value)
+        .then(support_start_expr)
+        .otherwise(support_end_expr)
+    )
+
+    df = df.with_columns(
+        anchor_time_expr.alias("anchor_time"),
+        support_kind_expr.alias("support_kind"),
+        summary_operator_expr.alias("summary_operator"),
+        anchor_policy_expr.alias("anchor_policy"),
+        observation_window_expr.alias("observation_window"),
+        support_start_expr.alias("support_start"),
+        support_end_expr.alias("support_end"),
+    ).drop(
+        "support_kind_meta",
+        "summary_operator_meta",
+        "anchor_policy_meta",
+        "observation_window_meta",
+    )
+
+    if time_col != "anchor_time" and time_col in df.columns:
+        df = df.drop(time_col)
+
+    return df
+
+
 def get_latest_preprocessed_file(
     directory: Path | None = None,
     exclude: set[str] | None = None,
@@ -240,8 +379,7 @@ def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     conversion, and column renaming.
 
     Args:
-        raw_data: Polars DataFrame with columns: indicator, value, and either
-            timestamp (raw) or time_bucket (aggregated).
+        raw_data: Polars DataFrame with columns: indicator, value, anchor_time.
 
     Returns:
         Wide-format Polars DataFrame with 'time' column and one column per indicator.
@@ -250,7 +388,9 @@ def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     if raw_data.is_empty():
         return pl.DataFrame()
 
-    time_col = "time_bucket" if "time_bucket" in raw_data.columns else "timestamp"
+    time_col = "anchor_time"
+    if time_col not in raw_data.columns:
+        raise ValueError("Raw observation data must include an 'anchor_time' column.")
 
     # Parse string timestamps to datetime before pivoting so the
     # datetime→fractional-days conversion below always triggers.

@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import polars as pl
 import pytest
 
-from causal_ssm_agent.models.ssm.model import SSMSpec
-from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from causal_ssm_agent.models.ssm_compilation import (
     compile_priors,
     normalize_prior_params,
@@ -264,3 +264,147 @@ class TestPrepareFitInputs:
         assert jnp.isnan(observations[0, 1])
         assert jnp.isnan(observations[1, 0])
         assert jnp.isclose(observations[1, 1], 30.0)
+
+
+class TestPrepareModelRuntime:
+    def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
+        raw_data = pl.DataFrame(
+            {
+                "indicator": ["stress_score"],
+                "value": [1.0],
+                "anchor_time": ["2024-02-01T00:00:00"],
+                "support_kind": ["interval"],
+                "summary_operator": ["mean"],
+                "anchor_policy": ["support_end"],
+                "observation_window": ["1mo"],
+                "support_start": ["2024-01-01T00:00:00"],
+                "support_end": ["2024-02-01T00:00:00"],
+            }
+        )
+
+        class StubModel:
+            def __init__(self):
+                self.observation_support = None
+
+            def set_observation_support(self, observation_support):
+                self.observation_support = observation_support
+
+        class StubBuilder:
+            def __init__(self):
+                self._model = StubModel()
+
+            def prepare_fit_inputs(self, wide_data: pl.DataFrame):
+                return (
+                    jnp.array([[jnp.nan], [1.0]], dtype=jnp.float32),
+                    jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
+                    ["stress_score"],
+                )
+
+        with caplog.at_level("INFO"):
+            runtime = prepare_model_runtime(raw_data, builder=StubBuilder())
+
+        assert runtime.observation_data is not None
+        assert runtime.observation_data.columns == raw_data.columns
+        assert runtime.observation_data["observation_window"][0] == "1mo"
+        assert runtime.observation_data["support_end"][0] == "2024-02-01T00:00:00"
+        assert runtime.observation_data["anchor_time"][0] == "2024-02-01T00:00:00"
+        assert runtime.wide_data["time"].to_list() == [-31.0, 0.0]
+        assert runtime.observation_support is not None
+        assert runtime.observation_support.manifest_names == ["stress_score"]
+        assert runtime.observation_support.support_kinds == ["interval"]
+        assert runtime.observation_support.summary_operators == ["mean"]
+        assert runtime.observation_support.anchor_policies == ["support_end"]
+        assert runtime.observation_support.observation_windows == ["1mo"]
+        assert runtime.observation_support.requires_interval_summary_handling is True
+        assert runtime.observation_support.interval_summary_manifest_names == ["stress_score"]
+        assert runtime.observation_support.support_start_times.shape == (2, 1)
+        assert runtime.observation_support.support_end_times.shape == (2, 1)
+        assert runtime.observation_support.support_start_times[1, 0] == pytest.approx(-31.0)
+        assert runtime.observation_support.support_end_times[1, 0] == pytest.approx(0.0)
+        assert runtime.observation_support.interval_prev_coeffs.shape == (2, 1, 1)
+        assert runtime.observation_support.interval_curr_coeffs.shape == (2, 1, 1)
+        assert runtime.observation_support.interval_weights.shape == (2, 1, 1)
+        assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [0]]
+        assert runtime.observation_support.interval_prev_coeffs[1, 0, 0] == pytest.approx(15.5)
+        assert runtime.observation_support.interval_curr_coeffs[1, 0, 0] == pytest.approx(15.5)
+        assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
+        assert runtime.manifest_names == ["stress_score"]
+        assert runtime.builder._model.observation_support is runtime.observation_support
+        assert "support-aware observation semantics" in caplog.text
+
+    def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
+        raw_data = pl.DataFrame(
+            {
+                "indicator": ["stress_score", "stress_score"],
+                "value": [3.0, 5.0],
+                "anchor_time": ["2024-01-03T00:00:00", "2024-01-04T00:00:00"],
+                "support_kind": ["interval", "interval"],
+                "summary_operator": ["mean", "mean"],
+                "anchor_policy": ["support_end", "support_end"],
+                "observation_window": ["2d", "2d"],
+                "support_start": ["2024-01-01T00:00:00", "2024-01-02T00:00:00"],
+                "support_end": ["2024-01-03T00:00:00", "2024-01-04T00:00:00"],
+            }
+        )
+
+        class StubModel:
+            def __init__(self):
+                self.observation_support = None
+
+            def set_observation_support(self, observation_support):
+                self.observation_support = observation_support
+
+        class StubBuilder:
+            def __init__(self):
+                self._model = StubModel()
+
+            def prepare_fit_inputs(self, wide_data: pl.DataFrame):
+                return (
+                    jnp.array([[jnp.nan], [jnp.nan], [3.0], [5.0]], dtype=jnp.float32),
+                    jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
+                    ["stress_score"],
+                )
+
+        runtime = prepare_model_runtime(raw_data, builder=StubBuilder())
+
+        assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
+        assert runtime.observation_support is not None
+        assert runtime.observation_support.max_active_windows == 2
+        assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [-1], [0], [1]]
+        assert runtime.observation_support.interval_weights.shape == (4, 1, 2)
+        assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(1.0)
+        assert runtime.observation_support.interval_weights[2, 0, 0] == pytest.approx(1.0)
+        assert runtime.observation_support.interval_weights[2, 0, 1] == pytest.approx(1.0)
+        assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
+
+    def test_builder_prior_predictive_reuses_prepared_support_schedule(self):
+        raw_data = pl.DataFrame(
+            {
+                "indicator": ["stress_score"],
+                "value": [1.0],
+                "anchor_time": ["2024-02-01T00:00:00"],
+                "support_kind": ["interval"],
+                "summary_operator": ["mean"],
+                "anchor_policy": ["support_end"],
+                "observation_window": ["1mo"],
+                "support_start": ["2024-01-01T00:00:00"],
+                "support_end": ["2024-02-01T00:00:00"],
+            }
+        )
+        builder = SSMModelBuilder(
+            ssm_spec=SSMSpec(
+                n_latent=1,
+                n_manifest=1,
+                lambda_mat=jnp.eye(1, dtype=jnp.float32),
+                diffusion="diag",
+                manifest_names=["stress_score"],
+            ),
+            ssm_priors=SSMPriors(),
+        )
+        runtime = prepare_model_runtime(raw_data, builder=builder)
+
+        samples = runtime.builder.sample_prior_predictive(samples=3)
+
+        assert samples["observations"].shape == (3, 2, 1)
+        assert jnp.isnan(samples["observations"][:, 0, 0]).all()
+        assert jnp.isfinite(samples["observations"][:, 1, 0]).all()

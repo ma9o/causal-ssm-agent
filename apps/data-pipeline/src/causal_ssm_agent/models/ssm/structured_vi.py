@@ -24,7 +24,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
+from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    trajectory_observation_log_prob,
+)
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 
@@ -166,7 +169,9 @@ def _compute_elbo(
     R,
     init_mean,
     init_cov,
-    emission_log_prob_fn,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support,
 ):
     """Compute the ELBO for a single sampled trajectory.
 
@@ -176,12 +181,18 @@ def _compute_elbo(
     T, D = z.shape
     jitter = jnp.eye(D) * 1e-6
 
-    # 1. Emission log-probs
-    mask_float = obs_mask.astype(jnp.float32)
-    emission_lls = jax.vmap(lambda y, zz, mm: emission_log_prob_fn(y, zz, H, d_meas, R, mm))(
-        observations, z, mask_float
+    # 1. Observation log-prob over the full trajectory
+    total_emission_ll = trajectory_observation_log_prob(
+        z,
+        observations,
+        obs_mask,
+        H,
+        d_meas,
+        R,
+        obs_kernel,
+        mean_log_prob_fn,
+        observation_support,
     )
-    total_emission_ll = jnp.sum(emission_lls)
 
     # 2. Transition log-probs (forward model)
     from numpyro.distributions import MultivariateNormal
@@ -230,6 +241,7 @@ class StructuredVILikelihood:
         n_vi_steps: int = 20,
         n_mc_samples: int = 4,
         vi_lr: float = 0.01,
+        observation_support=None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
@@ -238,6 +250,7 @@ class StructuredVILikelihood:
         self.n_vi_steps = n_vi_steps
         self.n_mc_samples = n_mc_samples
         self.vi_lr = vi_lr
+        self.observation_support = observation_support
 
     def compute_log_likelihood(
         self,
@@ -265,12 +278,12 @@ class StructuredVILikelihood:
         if cd is None:
             cd = jnp.zeros((T, n))
 
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-        obs_kernel = build_observation_kernel(
-            DistributionFamily(self.manifest_dist),
-            LinkFunction(self.manifest_link),
-            extra_params,
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dist,
+            manifest_cov=measurement_params.manifest_cov,
+            extra_params=extra_params,
+            manifest_link=self.manifest_link,
+            observation_support=self.observation_support,
         )
 
         H = measurement_params.lambda_mat
@@ -303,7 +316,9 @@ class StructuredVILikelihood:
                     R,
                     initial_state.mean,
                     initial_state.cov,
-                    obs_kernel.emission_fn,
+                    measurement_semantics.obs_kernel,
+                    measurement_semantics.mean_log_prob_fn,
+                    self.observation_support,
                 )
 
             return jnp.mean(jax.vmap(_single_elbo)(keys))
@@ -371,6 +386,7 @@ def fit_structured_vi(
             n_vi_steps=n_vi_steps,
             n_mc_samples=n_mc_samples,
             vi_lr=vi_lr,
+            observation_support=getattr(model, "observation_support", None),
         )
     return run_tempered_smc(
         model,

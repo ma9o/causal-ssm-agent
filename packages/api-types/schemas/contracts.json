@@ -36,6 +36,15 @@
     }
   },
   "$defs": {
+    "AnchorPolicy": {
+      "description": "Which support boundary receives the observation anchor.",
+      "enum": [
+        "support_start",
+        "support_end"
+      ],
+      "title": "AnchorPolicy",
+      "type": "string"
+    },
     "CausalEdge": {
       "description": "A directed causal relationship between constructs.",
       "properties": {
@@ -275,7 +284,7 @@
           ],
           "title": "Value"
         },
-        "tick": {
+        "anchor_time": {
           "anyOf": [
             {
               "type": "string"
@@ -284,12 +293,12 @@
               "type": "null"
             }
           ],
-          "title": "Tick"
+          "title": "Anchor Time"
         }
       },
       "required": [
+        "anchor_time",
         "indicator",
-        "tick",
         "value"
       ],
       "title": "ExtractionContract",
@@ -399,9 +408,22 @@
           "type": "string"
         },
         "aggregation": {
-          "description": "Aggregation function applied when bucketing raw extractions within aggregation window. Available: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
+          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-model support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
           "title": "Aggregation",
           "type": "string"
+        },
+        "observation_window": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.",
+          "title": "Observation Window"
         },
         "ordinal_levels": {
           "anyOf": [
@@ -432,16 +454,33 @@
           "description": "'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.",
           "title": "Extraction Mode",
           "type": "string"
+        },
+        "support_kind": {
+          "$ref": "#/$defs/SupportKind",
+          "description": "Whether this indicator is point-local or interval-summary.",
+          "readOnly": true
+        },
+        "summary_operator": {
+          "$ref": "#/$defs/SummaryOperator",
+          "description": "Canonical summary operator used by extraction and likelihoods.",
+          "readOnly": true
+        },
+        "anchor_policy": {
+          "$ref": "#/$defs/AnchorPolicy",
+          "readOnly": true
         }
       },
       "required": [
         "aggregation",
+        "anchor_policy",
         "construct_name",
         "extraction_mode",
         "how_to_measure",
         "measurement_dtype",
         "name",
-        "source_columns"
+        "source_columns",
+        "summary_operator",
+        "support_kind"
       ],
       "title": "Indicator",
       "type": "object"
@@ -1200,7 +1239,7 @@
           "type": "array"
         },
         "model_clock": {
-          "description": "Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per tick.",
+          "description": "Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per support window.",
           "title": "Model Clock",
           "type": "string"
         }
@@ -2872,6 +2911,28 @@
       "title": "Stage6Contract",
       "type": "object"
     },
+    "SummaryOperator": {
+      "description": "Supported summary operators for indicator observations.",
+      "enum": [
+        "first",
+        "last",
+        "sum",
+        "count",
+        "mean",
+        "std"
+      ],
+      "title": "SummaryOperator",
+      "type": "string"
+    },
+    "SupportKind": {
+      "description": "Whether the measurement equation is point-local or interval-summary.",
+      "enum": [
+        "point",
+        "interval"
+      ],
+      "title": "SupportKind",
+      "type": "string"
+    },
     "TRuleResult": {
       "description": "Result of the t-rule (counting condition) check.\n\nThe t-rule is a necessary condition for identification: if the number\nof free parameters exceeds the number of available moment conditions,\nthe model is provably non-identified.\n\nFor cross-sectional SEMs the constraint is n_params <= p(p+1)/2.\nFor time series (SSMs), autocovariance at each lag provides p^2\nadditional moment conditions, so the constraint is much weaker.",
       "properties": {
@@ -3303,8 +3364,8 @@
           "title": "N Extractions",
           "type": "integer"
         },
-        "n_ticks": {
-          "title": "N Ticks",
+        "n_windows": {
+          "title": "N Windows",
           "type": "integer"
         },
         "error": {
@@ -3322,7 +3383,7 @@
       },
       "required": [
         "n_extractions",
-        "n_ticks",
+        "n_windows",
         "status",
         "worker_id"
       ],

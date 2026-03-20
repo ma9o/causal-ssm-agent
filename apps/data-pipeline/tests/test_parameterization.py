@@ -8,6 +8,7 @@ import jax.random as random
 import numpyro.distributions as dist
 import pytest
 from jax.flatten_util import ravel_pytree
+from numpyro import handlers
 
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
 from causal_ssm_agent.models.ssm.parameterization import (
@@ -29,6 +30,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     verify_registry_matches_trace,
 )
 from causal_ssm_agent.models.ssm.utils import _discover_sites
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -156,6 +158,30 @@ class TestSiteRegistry:
         assert support_map["diffusion_diag_pop"] == SupportClass.POSITIVE
         assert support_map["manifest_var_diag"] == SupportClass.POSITIVE
         assert support_map["t0_var_diag"] == SupportClass.POSITIVE
+
+    def test_mixed_diffusion_includes_proc_df_site(self):
+        """Any student-t latent in diffusion_dists should expose proc_df."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=1,
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        registry = build_site_registry(spec)
+        assert "proc_df" in {site.name for site in registry}
+
+    def test_mixed_diffusion_sampling_emits_proc_df(self):
+        """The traced model should sample proc_df when diffusion_dists include student_t."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=1,
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+        model = SSMModel(spec, likelihood="particle")
+
+        with handlers.seed(rng_seed=0):
+            trace = handlers.trace(lambda: model._sample_likelihood_extra_params(spec)).get_trace()
+
+        assert "proc_df" in trace
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +778,7 @@ class TestCompiledArtifactIntegration:
             {
                 "indicator": ["mood_score"] * n,
                 "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
-                "timestamp": list(range(n)),
+                "anchor_time": list(range(n)),
             }
         )
         builder = build_ssm_builder(wide_data=pivot_to_wide(raw_data), compiled_ssm=artifact)

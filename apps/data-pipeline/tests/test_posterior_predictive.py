@@ -20,6 +20,7 @@ from causal_ssm_agent.models.posterior_predictive import (
     run_posterior_predictive_checks,
     simulate_posterior_predictive,
 )
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 def _make_samples(
@@ -84,6 +85,24 @@ def _make_samples(
 class TestForwardSimulation:
     """Tests for simulate_posterior_predictive."""
 
+    @staticmethod
+    def _window_average_support() -> ObservationSupportRuntime:
+        nan = np.nan
+        return ObservationSupportRuntime(
+            anchor_times=np.array([0.0, 1.0, 2.0], dtype=np.float32),
+            manifest_names=["y"],
+            support_kinds=["interval"],
+            summary_operators=["mean"],
+            anchor_policies=["support_end"],
+            observation_windows=["2d"],
+            support_start_times=np.array([[nan], [nan], [0.0]], dtype=np.float32),
+            support_end_times=np.array([[nan], [nan], [2.0]], dtype=np.float32),
+            interval_prev_coeffs=np.array([[[0.0]], [[0.5]], [[0.5]]], dtype=np.float32),
+            interval_curr_coeffs=np.array([[[0.0]], [[0.5]], [[0.5]]], dtype=np.float32),
+            interval_weights=np.array([[[0.0]], [[1.0]], [[1.0]]], dtype=np.float32),
+            emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int32),
+        )
+
     def test_switch_indices_follow_registry_order(self):
         """Posterior predictive dispatch indices come from the shared registry order."""
         for idx, (dist, link) in enumerate(POSTERIOR_PREDICTIVE_SWITCH_ORDER):
@@ -117,6 +136,34 @@ class TestForwardSimulation:
         y_sim = simulate_posterior_predictive(samples=samples, times=times, n_subsample=10)
 
         assert y_sim.shape[0] == 10
+
+    def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
+        """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
+        samples = {
+            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
+            "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
+            "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
+            "t0_means": jnp.array([[1.0]], dtype=jnp.float32),
+            "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
+        }
+        times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+        obs_mask = jnp.array([[False], [False], [True]])
+
+        y_sim = simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            manifest_dist="gaussian",
+            observation_support=self._window_average_support(),
+            observation_mask=obs_mask,
+            n_subsample=1,
+            rng_seed=0,
+        )
+
+        assert y_sim.shape == (1, 3, 1)
+        assert jnp.isnan(y_sim[0, 0, 0])
+        assert jnp.isnan(y_sim[0, 1, 0])
+        assert abs(float(y_sim[0, 2, 0]) - 1.0) < 0.05
 
     def test_forward_simulate_uses_t0_for_first_observation(self, monkeypatch):
         """The first observation is emitted from the initial state, not a fake transition."""
@@ -208,6 +255,23 @@ class TestForwardSimulation:
         assert y_sim.shape == (10, 15, 2)
         # Poisson samples are non-negative integers
         assert jnp.all(y_sim >= 0)
+
+    def test_forward_simulate_mixed_diffusion_process(self):
+        """Predictive simulation should honor mixed per-latent diffusion families."""
+        samples = _make_samples(n_draws=6, n_latent=2, n_manifest=2, obs_sd=0.1)
+        samples["proc_df"] = jnp.full((6,), 5.0)
+        times = jnp.arange(6, dtype=float)
+
+        y_sim = simulate_posterior_predictive(
+            samples=samples,
+            times=times,
+            diffusion_dists=["gaussian", "student_t"],
+            n_subsample=6,
+            rng_seed=0,
+        )
+
+        assert y_sim.shape == (6, 6, 2)
+        assert jnp.all(jnp.isfinite(y_sim))
 
     def test_forward_simulate_student_t(self):
         """Student-t noise family produces finite values with heavier tails."""

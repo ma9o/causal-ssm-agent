@@ -168,12 +168,12 @@ describe("generateMarkdown", () => {
       "stage-2": {
         outcome: "success",
         workers: [
-          { worker_id: 0, status: "completed" as const, n_extractions: 10, n_ticks: 5 },
+          { worker_id: 0, status: "completed" as const, n_extractions: 10, n_windows: 5 },
         ],
         per_indicator_counts: { heart_rate: 10 },
         combined_extractions_sample: [
-          { indicator: "heart_rate", value: 72, tick: "2024-01-01T00:00:00Z" },
-          { indicator: "heart_rate", value: 75, tick: "2024-01-02T00:00:00Z" },
+          { indicator: "heart_rate", value: 72, anchor_time: "2024-01-01T00:00:00Z" },
+          { indicator: "heart_rate", value: 75, anchor_time: "2024-01-02T00:00:00Z" },
         ],
       } as AllStageData["stage-2"],
     };

@@ -106,12 +106,12 @@ def valid_stage_payloads() -> dict[str, dict]:
                     "worker_id": 0,
                     "status": "completed",
                     "n_extractions": 3,
-                    "n_ticks": 7,
+                    "n_windows": 7,
                 }
             ],
             "combined_extractions_sample": [
-                {"indicator": "stress_score", "value": 1.2, "tick": "2024-01-01T00:00:00Z"},
-                {"indicator": "late_night", "value": True, "tick": "2024-01-02T00:00:00Z"},
+                {"indicator": "stress_score", "value": 1.2, "anchor_time": "2024-01-01T00:00:00Z"},
+                {"indicator": "late_night", "value": True, "anchor_time": "2024-01-02T00:00:00Z"},
             ],
             "per_indicator_counts": {"stress_score": 2, "late_night": 1},
         },

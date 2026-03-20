@@ -4,1063 +4,1063 @@
       "worker_id": 0,
       "status": "completed",
       "n_extractions": 145,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 1,
       "status": "completed",
       "n_extractions": 132,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 2,
       "status": "completed",
       "n_extractions": 158,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 3,
       "status": "completed",
       "n_extractions": 121,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 4,
       "status": "completed",
       "n_extractions": 167,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 5,
       "status": "completed",
       "n_extractions": 139,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 6,
       "status": "completed",
       "n_extractions": 148,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 7,
       "status": "completed",
       "n_extractions": 155,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 8,
       "status": "completed",
       "n_extractions": 128,
-      "chunk_size": 100
+      "n_windows": 100
     },
     {
       "worker_id": 9,
       "status": "completed",
       "n_extractions": 143,
-      "chunk_size": 100
+      "n_windows": 100
     }
   ],
   "combined_extractions_sample": [
     {
       "indicator": "youtube_watch_time",
       "value": 45.5,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 30.2,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 62.1,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 18.7,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 55.3,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 38.9,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 41.0,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 27.4,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 52.8,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 35.6,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 48.2,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 22.1,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 59.4,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 33.7,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 44.6,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 29.3,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 51.1,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 36.8,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 42.5,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 15.9,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 67.2,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 39.1,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 46.7,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 25.8,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 57.0,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 31.4,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 43.9,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 20.5,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 54.6,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "youtube_watch_time",
       "value": 37.3,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 12,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 8,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 5,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 15,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 3,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 9,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 7,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 11,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 6,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 10,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 4,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 14,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 2,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 8,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 13,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 6,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 9,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 11,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 7,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 10,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 5,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 16,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 3,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 12,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 8,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 1,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 9,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 7,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 11,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "search_count",
       "value": 4,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": true,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "late_night_activity",
       "value": false,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.6,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.75,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.45,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.82,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.55,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.68,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.71,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.38,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.85,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.52,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.63,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.79,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.41,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.66,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.73,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.58,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.81,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.47,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.69,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.54,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.77,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.43,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.88,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.61,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.56,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.72,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.49,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.64,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.83,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "task_completion_rate",
       "value": 0.57,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 3,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 5,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 2,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 4,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 2,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 3,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 6,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 2,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 3,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 4,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 2,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 5,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 3,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 2,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 1,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 4,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "deadline_proximity_searches",
       "value": 0,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.2,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 6.8,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 4.1,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 7.3,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 3.5,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.9,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 6.2,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 4.7,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 7.1,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.5,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 3.8,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 6.4,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.0,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 7.6,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 4.3,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 6.0,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.7,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 4.9,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 6.6,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "productive_hours",
       "value": 5.3,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 4,
-      "timestamp": "2024-01-15T00:00:00Z"
+      "anchor_time": "2024-01-15T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 7,
-      "timestamp": "2024-01-16T00:00:00Z"
+      "anchor_time": "2024-01-16T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 3,
-      "timestamp": "2024-01-17T00:00:00Z"
+      "anchor_time": "2024-01-17T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 5,
-      "timestamp": "2024-01-18T00:00:00Z"
+      "anchor_time": "2024-01-18T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 8,
-      "timestamp": "2024-01-19T00:00:00Z"
+      "anchor_time": "2024-01-19T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 2,
-      "timestamp": "2024-01-20T00:00:00Z"
+      "anchor_time": "2024-01-20T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 6,
-      "timestamp": "2024-01-21T00:00:00Z"
+      "anchor_time": "2024-01-21T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 4,
-      "timestamp": "2024-01-22T00:00:00Z"
+      "anchor_time": "2024-01-22T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 9,
-      "timestamp": "2024-01-23T00:00:00Z"
+      "anchor_time": "2024-01-23T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 3,
-      "timestamp": "2024-01-24T00:00:00Z"
+      "anchor_time": "2024-01-24T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 5,
-      "timestamp": "2024-01-25T00:00:00Z"
+      "anchor_time": "2024-01-25T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 7,
-      "timestamp": "2024-01-26T00:00:00Z"
+      "anchor_time": "2024-01-26T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 2,
-      "timestamp": "2024-01-27T00:00:00Z"
+      "anchor_time": "2024-01-27T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 6,
-      "timestamp": "2024-01-28T00:00:00Z"
+      "anchor_time": "2024-01-28T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 4,
-      "timestamp": "2024-01-29T00:00:00Z"
+      "anchor_time": "2024-01-29T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 8,
-      "timestamp": "2024-01-30T00:00:00Z"
+      "anchor_time": "2024-01-30T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 3,
-      "timestamp": "2024-01-31T00:00:00Z"
+      "anchor_time": "2024-01-31T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 5,
-      "timestamp": "2024-02-01T00:00:00Z"
+      "anchor_time": "2024-02-01T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 7,
-      "timestamp": "2024-02-02T00:00:00Z"
+      "anchor_time": "2024-02-02T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 4,
-      "timestamp": "2024-02-03T00:00:00Z"
+      "anchor_time": "2024-02-03T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 6,
-      "timestamp": "2024-02-04T00:00:00Z"
+      "anchor_time": "2024-02-04T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 1,
-      "timestamp": "2024-02-05T00:00:00Z"
+      "anchor_time": "2024-02-05T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 5,
-      "timestamp": "2024-02-06T00:00:00Z"
+      "anchor_time": "2024-02-06T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 8,
-      "timestamp": "2024-02-07T00:00:00Z"
+      "anchor_time": "2024-02-07T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 3,
-      "timestamp": "2024-02-08T00:00:00Z"
+      "anchor_time": "2024-02-08T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 6,
-      "timestamp": "2024-02-09T00:00:00Z"
+      "anchor_time": "2024-02-09T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 4,
-      "timestamp": "2024-02-10T00:00:00Z"
+      "anchor_time": "2024-02-10T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 7,
-      "timestamp": "2024-02-11T00:00:00Z"
+      "anchor_time": "2024-02-11T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 2,
-      "timestamp": "2024-02-12T00:00:00Z"
+      "anchor_time": "2024-02-12T00:00:00Z"
     },
     {
       "indicator": "workload_events",
       "value": 5,
-      "timestamp": "2024-02-13T00:00:00Z"
+      "anchor_time": "2024-02-13T00:00:00Z"
     }
   ],
   "per_indicator_counts": {
@@ -1099,7 +1099,9 @@
         "tool_calls": [
           {
             "name": "submit_extractions",
-            "arguments": { "extractions": "[{\"indicator\": \"youtube_watch_time\", \"value\": 45.5, \"timestamp\": \"2024-01-15\"}, ...]" }
+            "arguments": {
+              "extractions": "[{\"indicator\": \"youtube_watch_time\", \"value\": 45.5, \"timestamp\": \"2024-01-15\"}, ...]"
+            }
           }
         ],
         "tool_name": null,

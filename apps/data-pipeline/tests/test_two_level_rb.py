@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 # =============================================================================
@@ -165,8 +166,8 @@ class TestMakeLikelihoodBackend:
         model = SSMModel(spec=spec)
         backend = model.make_likelihood_backend()
         assert isinstance(backend, ParticleLikelihood)
-        # Should not use Rao-Blackwellization at all
-        assert backend.diffusion_dist != "mixed"
+        # Should not use Rao-Blackwellization at all, but should preserve mixed diffusion semantics.
+        assert backend.diffusion_dist == "mixed"
         assert not backend._block_rb
 
     def test_kalman_override_bypasses_analysis(self):
@@ -178,3 +179,34 @@ class TestMakeLikelihoodBackend:
         model = SSMModel(spec=spec, likelihood="kalman")
         backend = model.make_likelihood_backend()
         assert isinstance(backend, KalmanLikelihood)
+
+    def test_non_point_support_disables_first_pass_rb_and_uses_full_particle(self):
+        """Interval-summary support should bypass composed/RB dispatch."""
+        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
+        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.ssm.model import SSMModel
+
+        spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
+        support = ObservationSupportRuntime(
+            anchor_times=np.array([0.0, 1.0]),
+            manifest_names=["y0", "y1", "y2"],
+            support_kinds=["point", "point", "interval"],
+            summary_operators=["last", "last", "mean"],
+            anchor_policies=["support_end", "support_end", "support_end"],
+            observation_windows=["1d", "1d", "1d"],
+            support_start_times=np.array([[np.nan, np.nan, np.nan], [np.nan, np.nan, 0.0]]),
+            support_end_times=np.array([[np.nan, np.nan, np.nan], [np.nan, np.nan, 1.0]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [0.5]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [0.5]]]),
+            interval_weights=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [1.0]]]),
+            emission_slot_indices=np.array([[-1, -1, -1], [-1, -1, 0]], dtype=np.int32),
+        )
+
+        model = SSMModel(spec=spec)
+        model.set_observation_support(support)
+        backend = model.make_likelihood_backend()
+
+        assert isinstance(backend, ParticleLikelihood)
+        assert not isinstance(backend, ComposedLikelihood)
+        assert backend.observation_support is support
+        assert not backend._block_rb

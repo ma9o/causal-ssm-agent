@@ -523,7 +523,7 @@ class TestE2ESpecToDiscretization:
                     "stress_cortisol",
                 ],
                 "value": [6.0, 4.0, 10.0, 7.0, 5.0, 11.0],
-                "timestamp": [
+                "anchor_time": [
                     "2024-01-01T00:00:00",
                     "2024-01-01T00:00:00",
                     "2024-01-01T00:00:00",

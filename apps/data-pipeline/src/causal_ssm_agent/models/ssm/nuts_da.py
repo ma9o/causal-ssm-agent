@@ -41,6 +41,10 @@ from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import ClippedAdam
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    trajectory_observation_log_probs,
+)
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import (
@@ -48,7 +52,7 @@ from causal_ssm_agent.models.ssm.inference import (
     _filter_public_samples,
     _trace_public_sites,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
@@ -87,6 +91,10 @@ def _da_model(
     spec = ssm_model.spec
     n_l = spec.n_latent
     T = observations.shape[0]
+    support = getattr(ssm_model, "observation_support", None)
+    requires_interval_summary_handling = bool(
+        support is not None and support.requires_interval_summary_handling
+    )
 
     # --- Sample all model parameters (reuse SSMModel machinery) ---
     drift = ssm_model._sample_drift(spec)
@@ -121,57 +129,113 @@ def _da_model(
         eps_0 = numpyro.sample("eps_0", dist.Normal(0, 1).expand((n_l,)).to_event(1))
         eta_0 = t0_means + t0_chol @ eps_0
 
-    # Score first observation
-    pred_0 = lambda_mat @ eta_0 + manifest_means
-    numpyro.sample(
-        "obs_0",
-        dist.MultivariateNormal(loc=pred_0, scale_tril=manifest_chol),
-        obs=observations[0],
-    )
-
     # --- Sequential state sampling via scan ---
     cd_scan = cd_all[1:] if cd_all is not None else jnp.zeros((T - 1, n_l))
 
+    if not requires_interval_summary_handling:
+        pred_0 = lambda_mat @ eta_0 + manifest_means
+        numpyro.sample(
+            "obs_0",
+            dist.MultivariateNormal(loc=pred_0, scale_tril=manifest_chol),
+            obs=observations[0],
+        )
+
     if centered:
+        if requires_interval_summary_handling:
 
-        def transition(eta_prev, inputs):
-            Ad, Qd_chol, cd, obs_t = inputs
-            mean = Ad @ eta_prev + cd
-            eta_t = numpyro.sample("eta", dist.MultivariateNormal(mean, scale_tril=Qd_chol))
-            pred_t = lambda_mat @ eta_t + manifest_means
-            numpyro.sample(
-                "obs",
-                dist.MultivariateNormal(loc=pred_t, scale_tril=manifest_chol),
-                obs=obs_t,
+            def transition(eta_prev, inputs):
+                Ad, Qd_chol, cd = inputs
+                mean = Ad @ eta_prev + cd
+                eta_t = numpyro.sample("eta", dist.MultivariateNormal(mean, scale_tril=Qd_chol))
+                return eta_t, eta_t
+
+            _, eta_hist = scan(
+                transition,
+                eta_0,
+                (Ad_all[1:], Qd_chol_scan, cd_scan),
+                length=T - 1,
             )
-            return eta_t, None
+        else:
 
-        scan(
-            transition,
-            eta_0,
-            (Ad_all[1:], Qd_chol_scan, cd_scan, observations[1:]),
-            length=T - 1,
-        )
+            def transition(eta_prev, inputs):
+                Ad, Qd_chol, cd, obs_t = inputs
+                mean = Ad @ eta_prev + cd
+                eta_t = numpyro.sample("eta", dist.MultivariateNormal(mean, scale_tril=Qd_chol))
+                pred_t = lambda_mat @ eta_t + manifest_means
+                numpyro.sample(
+                    "obs",
+                    dist.MultivariateNormal(loc=pred_t, scale_tril=manifest_chol),
+                    obs=obs_t,
+                )
+                return eta_t, None
+
+            scan(
+                transition,
+                eta_0,
+                (Ad_all[1:], Qd_chol_scan, cd_scan, observations[1:]),
+                length=T - 1,
+            )
+            eta_hist = None
     else:
+        if requires_interval_summary_handling:
 
-        def transition(eta_prev, inputs):
-            Ad, Qd_chol, cd, obs_t = inputs
-            eps = numpyro.sample("eps", dist.Normal(0, 1).expand((n_l,)).to_event(1))
-            eta_t = Ad @ eta_prev + cd + Qd_chol @ eps
-            pred_t = lambda_mat @ eta_t + manifest_means
-            numpyro.sample(
-                "obs",
-                dist.MultivariateNormal(loc=pred_t, scale_tril=manifest_chol),
-                obs=obs_t,
+            def transition(eta_prev, inputs):
+                Ad, Qd_chol, cd = inputs
+                eps = numpyro.sample("eps", dist.Normal(0, 1).expand((n_l,)).to_event(1))
+                eta_t = Ad @ eta_prev + cd + Qd_chol @ eps
+                return eta_t, eta_t
+
+            _, eta_hist = scan(
+                transition,
+                eta_0,
+                (Ad_all[1:], Qd_chol_scan, cd_scan),
+                length=T - 1,
             )
-            return eta_t, None
+        else:
 
-        scan(
-            transition,
-            eta_0,
-            (Ad_all[1:], Qd_chol_scan, cd_scan, observations[1:]),
-            length=T - 1,
+            def transition(eta_prev, inputs):
+                Ad, Qd_chol, cd, obs_t = inputs
+                eps = numpyro.sample("eps", dist.Normal(0, 1).expand((n_l,)).to_event(1))
+                eta_t = Ad @ eta_prev + cd + Qd_chol @ eps
+                pred_t = lambda_mat @ eta_t + manifest_means
+                numpyro.sample(
+                    "obs",
+                    dist.MultivariateNormal(loc=pred_t, scale_tril=manifest_chol),
+                    obs=obs_t,
+                )
+                return eta_t, None
+
+            scan(
+                transition,
+                eta_0,
+                (Ad_all[1:], Qd_chol_scan, cd_scan, observations[1:]),
+                length=T - 1,
+            )
+            eta_hist = None
+
+    if requires_interval_summary_handling:
+        trajectory = eta_0[None] if T == 1 else jnp.concatenate([eta_0[None], eta_hist], axis=0)
+        obs_mask = ~jnp.isnan(observations)
+        clean_obs = jnp.nan_to_num(observations, nan=0.0)
+        manifest_cov = manifest_chol @ manifest_chol.T
+        measurement_semantics = compile_measurement_semantics(
+            DistributionFamily.GAUSSIAN,
+            manifest_cov=manifest_cov,
+            manifest_link=LinkFunction.IDENTITY,
+            observation_support=support,
         )
+        ll_per_timestep = trajectory_observation_log_probs(
+            trajectory,
+            clean_obs,
+            obs_mask,
+            lambda_mat,
+            manifest_means,
+            manifest_cov,
+            measurement_semantics.obs_kernel,
+            measurement_semantics.mean_log_prob_fn,
+            support,
+        )
+        numpyro.factor("obs_support_loglik", jnp.sum(ll_per_timestep))
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +713,13 @@ def fit_nuts_da(
     Returns:
         InferenceResult with posterior samples (latent states excluded)
     """
+    requires_interval_summary_handling = bool(
+        getattr(
+            getattr(model, "observation_support", None),
+            "requires_interval_summary_handling",
+            False,
+        )
+    )
     if model.spec.manifest_dist != DistributionFamily.GAUSSIAN:
         raise ValueError(
             f"NUTS-DA only supports Gaussian observations, got {model.spec.manifest_dist}. "
@@ -657,6 +728,12 @@ def fit_nuts_da(
             f"correlations). Use a marginalizing backend instead: 'nuts', 'svi', 'hessmc2', "
             f"'pgas', or 'tempered_smc'."
         )
+    if requires_interval_summary_handling and svi_warmstart:
+        logger.info(
+            "NUTS-DA: disabling Kalman warmstart because interval-summary observations "
+            "do not match the point-observation smoother."
+        )
+        svi_warmstart = False
 
     base_model_fn = functools.partial(_da_model, model, centered=centered)
     public_sites = _trace_public_sites(

@@ -168,12 +168,111 @@ class TestGetLatestPreprocessedFile:
 # =============================================================================
 
 
+class TestAnnotateObservationRows:
+    def test_adds_observation_metadata_from_indicator_specs(self):
+        from causal_ssm_agent.utils.data import annotate_observation_rows
+
+        raw = pl.DataFrame(
+            {
+                "indicator": ["stress_score"],
+                "value": ["4.0"],
+                "timestamp": ["2024-01-01T00:00:00Z"],
+            }
+        )
+        causal_spec = {
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
+            }
+        }
+
+        annotated = annotate_observation_rows(raw, causal_spec)
+
+        assert "timestamp" not in annotated.columns
+        assert annotated["anchor_time"][0] == "2024-01-02T00:00:00"
+        assert annotated["support_kind"][0] == "interval"
+        assert annotated["summary_operator"][0] == "mean"
+        assert annotated["anchor_policy"][0] == "support_end"
+        assert annotated["support_start"][0] == "2024-01-01T00:00:00"
+        assert annotated["support_end"][0] == "2024-01-02T00:00:00"
+
+    def test_uses_indicator_specific_observation_window_when_present(self):
+        from causal_ssm_agent.utils.data import annotate_observation_rows
+
+        raw = pl.DataFrame(
+            {
+                "indicator": ["monthly_stress_score"],
+                "value": ["4.0"],
+                "timestamp": ["2024-01-01T00:00:00Z"],
+            }
+        )
+        causal_spec = {
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "monthly_stress_score",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "observation_window": "1mo",
+                    }
+                ],
+            }
+        }
+
+        annotated = annotate_observation_rows(raw, causal_spec)
+
+        assert "timestamp" not in annotated.columns
+        assert annotated["anchor_time"][0] == "2024-02-01T00:00:00"
+        assert annotated["observation_window"][0] == "1mo"
+        assert annotated["support_start"][0] == "2024-01-01T00:00:00"
+        assert annotated["support_end"][0] == "2024-02-01T00:00:00"
+
+    def test_point_last_observations_anchor_at_window_end(self):
+        from causal_ssm_agent.utils.data import annotate_observation_rows
+
+        raw = pl.DataFrame(
+            {
+                "indicator": ["closing_mood"],
+                "value": ["4.0"],
+                "timestamp": ["2024-01-01T00:00:00Z"],
+            }
+        )
+        causal_spec = {
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "closing_mood",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "last",
+                    }
+                ],
+            }
+        }
+
+        annotated = annotate_observation_rows(raw, causal_spec)
+
+        assert annotated["support_kind"][0] == "point"
+        assert annotated["summary_operator"][0] == "last"
+        assert annotated["anchor_policy"][0] == "support_end"
+        assert annotated["anchor_time"][0] == "2024-01-02T00:00:00"
+        assert annotated["support_start"][0] == "2024-01-01T00:00:00"
+        assert annotated["support_end"][0] == "2024-01-02T00:00:00"
+
+
 class TestPivotToWide:
     def test_basic_pivot(self):
         """Simple long-to-wide conversion."""
         df = pl.DataFrame(
             {
-                "timestamp": [1.0, 2.0, 1.0, 2.0],
+                "anchor_time": [1.0, 2.0, 1.0, 2.0],
                 "indicator": ["x", "x", "y", "y"],
                 "value": [10.0, 20.0, 30.0, 40.0],
             }
@@ -190,17 +289,17 @@ class TestPivotToWide:
         """Empty input returns empty output."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({"timestamp": [], "indicator": [], "value": []})
+        df = pl.DataFrame({"anchor_time": [], "indicator": [], "value": []})
         result = pivot_to_wide(df)
         assert result.is_empty()
 
-    def test_time_bucket_column(self):
-        """Uses time_bucket column when present."""
+    def test_anchor_time_column(self):
+        """Uses anchor_time as the canonical observation time."""
         from causal_ssm_agent.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
-                "time_bucket": [1.0, 2.0],
+                "anchor_time": [1.0, 2.0],
                 "indicator": ["x", "x"],
                 "value": [10.0, 20.0],
             }
@@ -217,7 +316,7 @@ class TestPivotToWide:
         t2 = t0 + timedelta(days=2)
         df = pl.DataFrame(
             {
-                "timestamp": [t0, t1, t2],
+                "anchor_time": [t0, t1, t2],
                 "indicator": ["x", "x", "x"],
                 "value": [1.0, 2.0, 3.0],
             }
@@ -235,7 +334,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": [3.0, 1.0, 2.0],
+                "anchor_time": [3.0, 1.0, 2.0],
                 "indicator": ["x", "x", "x"],
                 "value": [30.0, 10.0, 20.0],
             }
@@ -250,7 +349,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": [1.0, 2.0, 2.0],
+                "anchor_time": [1.0, 2.0, 2.0],
                 "indicator": ["x", "x", "y"],
                 "value": [10.0, 20.0, 30.0],
             }
@@ -266,7 +365,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": ["2024-01-01", "2024-01-02"],
+                "anchor_time": ["2024-01-01", "2024-01-02"],
                 "indicator": ["x", "x"],
                 "value": [1.0, 2.0],
             }
@@ -283,7 +382,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": [1.0, 2.0],
+                "anchor_time": [1.0, 2.0],
                 "indicator": ["x", "x"],
                 "value": ["10.5", "20.3"],
             }
@@ -298,7 +397,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": [1.0, 1.0, 2.0],
+                "anchor_time": [1.0, 1.0, 2.0],
                 "indicator": ["x", "x", "x"],
                 "value": [10.0, 20.0, 30.0],
             }
@@ -315,7 +414,7 @@ class TestPivotToWide:
 
         df = pl.DataFrame(
             {
-                "timestamp": [1.0],
+                "anchor_time": [1.0],
                 "indicator": ["x"],
                 "value": [42.0],
             }
@@ -337,9 +436,9 @@ class TestPivotToWideSparsity:
 
         rows = []
         for h in range(24):
-            rows.append({"indicator": "hourly_var", "value": float(h), "time_bucket": h})
-        rows.append({"indicator": "daily_b", "value": 5.0, "time_bucket": 0})
-        rows.append({"indicator": "daily_c", "value": 9.0, "time_bucket": 0})
+            rows.append({"indicator": "hourly_var", "value": float(h), "anchor_time": h})
+        rows.append({"indicator": "daily_b", "value": 5.0, "anchor_time": 0})
+        rows.append({"indicator": "daily_c", "value": 9.0, "anchor_time": 0})
 
         raw = pl.DataFrame(rows)
         logger = logging.getLogger("causal_ssm_agent.utils.data")
@@ -358,8 +457,8 @@ class TestPivotToWideSparsity:
 
         rows = []
         for t in range(10):
-            rows.append({"indicator": "A", "value": float(t), "time_bucket": t})
-            rows.append({"indicator": "B", "value": float(t * 2), "time_bucket": t})
+            rows.append({"indicator": "A", "value": float(t), "anchor_time": t})
+            rows.append({"indicator": "B", "value": float(t * 2), "anchor_time": t})
 
         raw = pl.DataFrame(rows)
         with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
@@ -375,7 +474,7 @@ class TestPivotToWideTimezoneStrings:
 
         df = pl.DataFrame(
             {
-                "timestamp": ["2024-01-01T00:00:00Z", "2024-01-02T12:00:00Z"],
+                "anchor_time": ["2024-01-01T00:00:00Z", "2024-01-02T12:00:00Z"],
                 "indicator": ["x", "x"],
                 "value": [1.0, 2.0],
             }

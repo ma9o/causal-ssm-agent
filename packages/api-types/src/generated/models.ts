@@ -18,6 +18,18 @@ export type Role = "endogenous" | "exogenous";
  */
 export type TemporalStatus = "time_varying" | "time_invariant";
 /**
+ * Whether the measurement equation is point-local or interval-summary.
+ */
+export type SupportKind = "point" | "interval";
+/**
+ * Supported summary operators for indicator observations.
+ */
+export type SummaryOperator = "first" | "last" | "sum" | "count" | "mean" | "std";
+/**
+ * Which support boundary receives the observation anchor.
+ */
+export type AnchorPolicy = "support_start" | "support_end";
+/**
  * Distribution families for observation and process noise.
  *
  * Used throughout the SSM pipeline: from LLM-proposed likelihoods to
@@ -223,7 +235,7 @@ export interface MeasurementModel {
    */
   indicators: Indicator[];
   /**
-   * Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per tick.
+   * Observation window width for extraction and SSM discretization. Any Polars-compatible duration string (e.g. '1h', '4h', '1d', '1w'). Choose based on data density: need enough events per support window.
    */
   model_clock: string;
 }
@@ -251,9 +263,13 @@ export interface Indicator {
    */
   measurement_dtype: string;
   /**
-   * Aggregation function applied when bucketing raw extractions within aggregation window. Available: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var
+   * Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-model support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var
    */
   aggregation: string;
+  /**
+   * Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.
+   */
+  observation_window?: string | null;
   /**
    * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
    */
@@ -266,6 +282,9 @@ export interface Indicator {
    * 'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.
    */
   extraction_mode: string;
+  support_kind: SupportKind;
+  summary_operator: SummaryOperator;
+  anchor_policy: AnchorPolicy;
 }
 /**
  * Status of causal effect identifiability.
@@ -334,13 +353,13 @@ export interface WorkerStatusContract {
   worker_id: number;
   status: "pending" | "running" | "completed" | "failed";
   n_extractions: number;
-  n_ticks: number;
+  n_windows: number;
   error?: string | null;
 }
 export interface ExtractionContract {
   indicator: string;
   value: number | boolean | string | null;
-  tick: string | null;
+  anchor_time: string | null;
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";

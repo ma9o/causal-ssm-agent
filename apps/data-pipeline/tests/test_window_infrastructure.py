@@ -1,7 +1,7 @@
-"""Tests for tick-based extraction infrastructure.
+"""Tests for support-window extraction infrastructure.
 
 Covers: detect_time_column, bucket_by_clock (data.py),
-chunk_ticks, format_tick_chunk (workers/ticks.py).
+chunk_windows, format_window_chunk (workers/windows.py).
 """
 
 from datetime import datetime
@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.utils.data import bucket_by_clock, detect_time_column
-from causal_ssm_agent.workers.ticks import chunk_ticks, format_tick_chunk
+from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
 
 # =============================================================================
 # detect_time_column
@@ -151,51 +151,51 @@ class TestBucketByClock:
 
 
 # =============================================================================
-# chunk_ticks
+# chunk_windows
 # =============================================================================
 
 
-def _make_ticks(n: int) -> list[tuple[str, pl.DataFrame]]:
-    """Create N dummy ticks."""
+def _make_windows(n: int) -> list[tuple[str, pl.DataFrame]]:
+    """Create N dummy support windows."""
     return [(f"2024-01-{i + 1:02d}", pl.DataFrame({"value": [i]})) for i in range(n)]
 
 
-class TestChunkTicks:
+class TestChunkWindows:
     def test_exact_division(self):
-        ticks = _make_ticks(6)
-        chunks = chunk_ticks(ticks, 3)
+        windows = _make_windows(6)
+        chunks = chunk_windows(windows, 3)
         assert len(chunks) == 2
         assert len(chunks[0]) == 3
         assert len(chunks[1]) == 3
 
     def test_remainder(self):
-        ticks = _make_ticks(7)
-        chunks = chunk_ticks(ticks, 3)
+        windows = _make_windows(7)
+        chunks = chunk_windows(windows, 3)
         assert len(chunks) == 3
         assert len(chunks[2]) == 1  # remainder
 
-    def test_single_tick(self):
-        ticks = _make_ticks(1)
-        chunks = chunk_ticks(ticks, 7)
+    def test_single_window(self):
+        windows = _make_windows(1)
+        chunks = chunk_windows(windows, 7)
         assert len(chunks) == 1
         assert len(chunks[0]) == 1
 
     def test_empty_input(self):
-        assert chunk_ticks([], 7) == []
+        assert chunk_windows([], 7) == []
 
     def test_preserves_order(self):
-        ticks = _make_ticks(5)
-        chunks = chunk_ticks(ticks, 2)
-        flat = [tick_id for chunk in chunks for tick_id, _ in chunk]
-        assert flat == [t[0] for t in ticks]
+        windows = _make_windows(5)
+        chunks = chunk_windows(windows, 2)
+        flat = [window_start for chunk in chunks for window_start, _ in chunk]
+        assert flat == [window[0] for window in windows]
 
 
 # =============================================================================
-# format_tick_chunk
+# format_window_chunk
 # =============================================================================
 
 
-class TestFormatTickChunk:
+class TestFormatWindowChunk:
     def test_basic_formatting(self):
         events = pl.DataFrame(
             {
@@ -204,14 +204,14 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events)]
-        text = format_tick_chunk(chunk, "timestamp", ["action"])
-        assert "## Tick: 2024-01-01" in text
+        text = format_window_chunk(chunk, "timestamp", ["action"])
+        assert "## Window Start: 2024-01-01" in text
         assert "searched python" in text
         assert "viewed stackoverflow" in text
         assert "08:00" in text
         assert "12:30" in text
 
-    def test_multiple_ticks(self):
+    def test_multiple_windows(self):
         events1 = pl.DataFrame(
             {
                 "timestamp": [datetime(2024, 1, 1, 8, 0)],
@@ -225,14 +225,14 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events1), ("2024-01-02", events2)]
-        text = format_tick_chunk(chunk, "timestamp", ["action"])
-        assert "## Tick: 2024-01-01" in text
-        assert "## Tick: 2024-01-02" in text
+        text = format_window_chunk(chunk, "timestamp", ["action"])
+        assert "## Window Start: 2024-01-01" in text
+        assert "## Window Start: 2024-01-02" in text
         assert "event1" in text
         assert "event2" in text
 
     def test_truncation(self):
-        """Events exceeding max_events_per_tick should be truncated."""
+        """Events exceeding max_events_per_window should be truncated."""
         n = 50
         events = pl.DataFrame(
             {
@@ -241,7 +241,7 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events)]
-        text = format_tick_chunk(chunk, "timestamp", ["action"], max_events_per_tick=20)
+        text = format_window_chunk(chunk, "timestamp", ["action"], max_events_per_window=20)
         assert "showing 20 of 50 events" in text
 
     def test_no_truncation_under_limit(self):
@@ -252,7 +252,7 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events)]
-        text = format_tick_chunk(chunk, "timestamp", ["action"], max_events_per_tick=300)
+        text = format_window_chunk(chunk, "timestamp", ["action"], max_events_per_window=300)
         assert "showing" not in text
 
     def test_multiple_display_columns(self):
@@ -264,7 +264,7 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events)]
-        text = format_tick_chunk(chunk, "timestamp", ["col1", "col2"])
+        text = format_window_chunk(chunk, "timestamp", ["col1", "col2"])
         assert "val1" in text
         assert "val2" in text
 
@@ -276,6 +276,6 @@ class TestFormatTickChunk:
             }
         )
         chunk = [("2024-01-01", events)]
-        text = format_tick_chunk(chunk, "timestamp", ["action"])
-        # Should still produce a tick header
-        assert "## Tick: 2024-01-01" in text
+        text = format_window_chunk(chunk, "timestamp", ["action"])
+        # Should still produce a support-window header
+        assert "## Window Start: 2024-01-01" in text

@@ -32,12 +32,14 @@ def _full_spec():
                     "construct_name": "stress",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Extract PSS score",
+                    "aggregation": "mean",
                 },
                 {
                     "name": "mood_rating",
                     "construct_name": "mood",
                     "measurement_dtype": "ordinal",
                     "how_to_measure": "Rate mood 1-5",
+                    "aggregation": "last",
                 },
             ],
         },
@@ -64,6 +66,10 @@ class TestMakeExtractionContext:
             "how_to_measure",
             "source_columns",
             "aggregation",
+            "support_kind",
+            "summary_operator",
+            "anchor_policy",
+            "observation_window",
         }
         assert "construct_name" not in ind
 
@@ -80,7 +86,13 @@ class TestMakeExtractionContext:
             "latent": {"constructs": [{"name": "x", "role": "exogenous"}]},
             "measurement": {
                 "model_clock": "1d",
-                "indicators": [{"name": "ind", "measurement_dtype": "continuous"}],
+                "indicators": [
+                    {
+                        "name": "ind",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
             },
         }
         ctx = make_extraction_context(spec)

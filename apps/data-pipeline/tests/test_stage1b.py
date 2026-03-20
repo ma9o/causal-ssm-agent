@@ -114,7 +114,7 @@ class TestMeasurementCompiler:
                     "name": "treatment_count",
                     "construct_name": "Treatment",
                     "how_to_measure": "Count the number of treatments administered",
-                    "measurement_dtype": "count",
+                    "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
                 stage1b_measurement_all_observed["indicators"][1],

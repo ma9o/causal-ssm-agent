@@ -197,27 +197,16 @@ def build_prior_predictive_samples(
         return {}
 
     try:
-        import jax.numpy as jnp
         import numpy as np
 
-        from causal_ssm_agent.models.posterior_predictive import (
-            simulate_posterior_predictive,
-        )
         from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
         spec = ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
         manifest_names = [lik.variable for lik in spec.likelihoods]
-        manifest_dists = [lik.distribution.value for lik in spec.likelihoods]
-        manifest_links = [lik.link.value for lik in spec.likelihoods]
-
-        y_sim = simulate_posterior_predictive(
-            validation.pp_raw_samples,
-            times=jnp.arange(30, dtype=jnp.float32),
-            manifest_dists=manifest_dists,
-            manifest_links=manifest_links,
-            n_subsample=100,
-        )
-        y_np = np.asarray(y_sim)
+        if "observations" in validation.pp_raw_samples:
+            y_np = np.asarray(validation.pp_raw_samples["observations"])
+        else:
+            return {}
 
         samples: dict[str, list[float]] = {}
         for idx, name in enumerate(manifest_names):

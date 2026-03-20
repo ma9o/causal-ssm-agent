@@ -34,7 +34,18 @@ import jax.scipy.linalg as jla
 from numpyro.distributions import MultivariateNormal, Normal
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.likelihoods.kernels import build_observation_kernel
+from causal_ssm_agent.models.likelihoods.emissions import (
+    build_predictive_observation_sampler,
+)
+from causal_ssm_agent.models.likelihoods.kernels import (
+    compile_measurement_semantics,
+)
+from causal_ssm_agent.models.likelihoods.particle import _systematic_resampling
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    advance_support_observation_state,
+    project_response_trajectory,
+    support_observation_log_prob,
+)
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 
@@ -133,6 +144,28 @@ def _soft_resample(log_weights, particles, alpha=0.5):
     # are approximately uniform after soft resampling
     new_log_weights = jnp.zeros_like(log_weights)
     return resampled, new_log_weights
+
+
+def _soft_resample_tree(log_weights, state_tree, alpha=0.5):
+    """Soft-resample an arbitrary particle-state pytree."""
+    weights = jnp.exp(log_weights - jax.nn.logsumexp(log_weights))
+
+    def _mix(arr):
+        expand_shape = (arr.shape[0],) + (1,) * (arr.ndim - 1)
+        weighted_mean = jnp.sum(weights.reshape(expand_shape) * arr, axis=0)
+        return alpha * arr + (1.0 - alpha) * weighted_mean[None, ...]
+
+    resampled = jax.tree.map(_mix, state_tree)
+    new_log_weights = jnp.zeros_like(log_weights)
+    return resampled, new_log_weights
+
+
+class _SupportAwareDPFState(eqx.Module):
+    latent: jnp.ndarray
+    response: jnp.ndarray
+    accum_sum: jnp.ndarray
+    accum_sumsq: jnp.ndarray
+    accum_weight: jnp.ndarray
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +293,170 @@ def _dpf_forward(
     return log_Z_total
 
 
+def _dpf_forward_support_aware(
+    proposal_net,
+    observations,
+    obs_mask,
+    Ad,
+    Qd,
+    cd,
+    H,
+    d_meas,
+    R,
+    init_mean,
+    init_cov,
+    measurement_semantics,
+    n_particles,
+    rng_key,
+    soft_resample_alpha=0.5,
+    training=True,
+):
+    """Run DPF with interval-summary observation semantics."""
+    T, _n_manifest = observations.shape
+    D = init_mean.shape[0]
+    jitter = jnp.eye(D) * 1e-6
+    mask_float = obs_mask.astype(jnp.float32)
+    obs_kernel = measurement_semantics.obs_kernel
+    observation_operator = measurement_semantics.observation_operator
+    mean_log_prob_fn = measurement_semantics.mean_log_prob_fn
+    if mean_log_prob_fn is None or not observation_operator.requires_interval_summary_handling:
+        raise ValueError(
+            "_dpf_forward_support_aware requires compiled interval-summary measurement semantics"
+        )
+    assert observation_operator.prev_coeffs is not None
+    assert observation_operator.curr_coeffs is not None
+    assert observation_operator.interval_weights is not None
+    assert observation_operator.emission_slots is not None
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=observations.dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=observations.dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=observations.dtype)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+
+    key_init, rng_key = random.split(rng_key)
+    chol_P0 = jla.cholesky(init_cov + jitter, lower=True)
+    init_keys = random.split(key_init, n_particles)
+    init_latents = jax.vmap(lambda k: init_mean + chol_P0 @ random.normal(k, (D,)))(init_keys)
+    init_responses = jax.vmap(lambda z: obs_kernel.response_fn(H @ z + d_meas))(init_latents)
+    zeros = observation_operator.empty_accumulators(observations.dtype, (n_particles,))
+    states = _SupportAwareDPFState(
+        latent=init_latents,
+        response=init_responses,
+        accum_sum=zeros,
+        accum_sumsq=zeros,
+        accum_weight=zeros,
+    )
+
+    log_weights = jax.vmap(
+        lambda z: obs_kernel.emission_fn(
+            observations[0],
+            z,
+            H,
+            d_meas,
+            R,
+            mask_float[0] * observation_operator.point_like_mask(mask_float.dtype),
+        )
+    )(states.latent)
+    log_Z = jax.nn.logsumexp(log_weights) - jnp.log(float(n_particles))
+
+    def _pf_step(carry, inputs):
+        state_prev, log_weights_prev, log_Z_acc, rng_key = carry
+        y_t, mask_t, Ad_t, Qd_t, cd_t, prev_coeff_t, curr_coeff_t, weight_t, emission_slots_t = (
+            inputs
+        )
+
+        if training:
+            states_resampled, _ = _soft_resample_tree(
+                log_weights_prev,
+                state_prev,
+                soft_resample_alpha,
+            )
+        else:
+            rng_key, resample_key = random.split(rng_key)
+            idx = _systematic_resampling(resample_key, log_weights_prev, n_particles)
+            states_resampled = jax.tree.map(lambda arr: arr[idx], state_prev)
+
+        rng_key, propose_key = random.split(rng_key)
+        propose_keys = random.split(propose_key, n_particles)
+
+        Qd_reg = Qd_t + jitter
+
+        def _propose_and_weight(
+            key, latent_prev, response_prev, accum_sum, accum_sumsq, accum_weight
+        ):
+            z_new, log_q = proposal_net.sample(latent_prev, y_t, key)
+            mean_trans = Ad_t @ latent_prev + cd_t
+            log_trans = MultivariateNormal(mean_trans, covariance_matrix=Qd_reg).log_prob(z_new)
+            response_new = obs_kernel.response_fn(H @ z_new + d_meas)
+            step_result = advance_support_observation_state(
+                observation_operator,
+                response_prev,
+                accum_sum,
+                accum_sumsq,
+                accum_weight,
+                response_new,
+                mask_t,
+                prev_coeff_t,
+                curr_coeff_t,
+                weight_t,
+                emission_slots_t,
+            )
+            log_w = support_observation_log_prob(
+                observation_operator,
+                obs_kernel,
+                mean_log_prob_fn,
+                y_t,
+                mask_t,
+                z_new,
+                H,
+                d_meas,
+                R,
+                step_result.summary,
+            )
+            next_state = _SupportAwareDPFState(
+                latent=z_new,
+                response=response_new,
+                accum_sum=step_result.next_accum_sum,
+                accum_sumsq=step_result.next_accum_sumsq,
+                accum_weight=step_result.next_accum_weight,
+            )
+            return next_state, log_w + log_trans - log_q
+
+        states_new, log_w_new = jax.vmap(_propose_and_weight)(
+            propose_keys,
+            states_resampled.latent,
+            states_resampled.response,
+            states_resampled.accum_sum,
+            states_resampled.accum_sumsq,
+            states_resampled.accum_weight,
+        )
+
+        log_Z_step = jax.nn.logsumexp(log_w_new) - jnp.log(float(n_particles))
+        log_Z_new = log_Z_acc + log_Z_step
+        return (states_new, log_w_new, log_Z_new, rng_key), None
+
+    if T > 1:
+        scan_inputs = (
+            observations[1:],
+            mask_float[1:],
+            Ad[1:],
+            Qd[1:],
+            cd[1:],
+            prev_coeffs[1:],
+            curr_coeffs[1:],
+            interval_weights[1:],
+            emission_slots[1:],
+        )
+        (_states_final, _log_weights_final, log_Z_total, _), _ = jax.lax.scan(
+            _pf_step,
+            (states, log_weights, log_Z, rng_key),
+            scan_inputs,
+        )
+    else:
+        log_Z_total = log_Z
+
+    return log_Z_total
+
+
 # ---------------------------------------------------------------------------
 # Prior-predictive training
 # ---------------------------------------------------------------------------
@@ -277,7 +474,11 @@ def _simulate_from_prior(
     d_meas,
     R,
     manifest_dist="gaussian",
+    manifest_link="identity",
     extra_params=None,
+    time_intervals=None,
+    observation_support=None,
+    obs_mask_template=None,
 ):
     """Simulate a single trajectory from the prior predictive distribution.
 
@@ -289,7 +490,7 @@ def _simulate_from_prior(
         init_mean: (D,)
         init_cov: (D, D)
     """
-    from causal_ssm_agent.models.ssm.discretization import discretize_system
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
     k1, k2, k3, k4, k5 = random.split(rng_key, 5)
 
@@ -301,47 +502,66 @@ def _simulate_from_prior(
     diff_diag = jnp.abs(random.normal(k2, (D,)) * diff_prior_sigma + 0.3)
     diffusion_cov = jnp.diag(diff_diag**2)
 
-    # Discretize with dt=1.0
-    dt = 1.0
-    Ad_single, Qd_single, _ = discretize_system(drift, diffusion_cov, None, dt)
+    if time_intervals is None:
+        time_intervals = jnp.ones((T,), dtype=jnp.float32)
+    else:
+        time_intervals = jnp.asarray(time_intervals, dtype=jnp.float32)
+
+    Ad_all, Qd_all, cd_all = discretize_system_batched(drift, diffusion_cov, None, time_intervals)
+    if cd_all is None:
+        cd_all = jnp.zeros((T, D), dtype=jnp.float32)
     jitter = jnp.eye(D) * 1e-6
-    chol_Qd = jla.cholesky(Qd_single + jitter, lower=True)
+    chol_Qd = jax.vmap(lambda q_t: jla.cholesky(q_t + jitter, lower=True))(Qd_all)
 
     # Simulate latent trajectory
     init_mean = jnp.zeros(D)
     init_cov = jnp.eye(D)
     z0 = init_mean + jla.cholesky(init_cov + jitter, lower=True) @ random.normal(k3, (D,))
 
-    def _sim_step(z_prev, key):
-        z_new = Ad_single @ z_prev + chol_Qd @ random.normal(key, (D,))
+    def _sim_step(z_prev, inputs):
+        Ad_t, chol_Qd_t, cd_t, key = inputs
+        z_new = Ad_t @ z_prev + cd_t + chol_Qd_t @ random.normal(key, (D,))
         return z_new, z_new
 
-    sim_keys = random.split(k4, T - 1)
-    _, z_rest = jax.lax.scan(_sim_step, z0, sim_keys)
-    z_all = jnp.concatenate([z0[None], z_rest], axis=0)  # (T, D)
+    if T > 1:
+        sim_keys = random.split(k4, T - 1)
+        _, z_rest = jax.lax.scan(
+            _sim_step,
+            z0,
+            (Ad_all[1:], chol_Qd[1:], cd_all[1:], sim_keys),
+        )
+        z_all = jnp.concatenate([z0[None], z_rest], axis=0)
+    else:
+        z_all = z0[None]
 
-    # Simulate observations
-    obs_keys = random.split(k5, T)
+    measurement_semantics = compile_measurement_semantics(
+        DistributionFamily(manifest_dist),
+        manifest_cov=R,
+        extra_params=extra_params,
+        manifest_link=LinkFunction(manifest_link),
+        observation_support=observation_support,
+    )
+    obs_kernel = measurement_semantics.obs_kernel
+    responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d_meas))(z_all)
+    try:
+        predictive_sampler = build_predictive_observation_sampler(
+            manifest_dist=manifest_dist,
+            manifest_cov=R,
+            manifest_link=manifest_link,
+            extra_params=extra_params,
+        )
+    except ValueError as exc:
+        raise NotImplementedError(
+            f"Support-aware DPF proposal training does not support '{manifest_dist}'."
+        ) from exc
 
-    def _sim_obs(key, z_t):
-        eta = H @ z_t + d_meas
-        if manifest_dist == "poisson":
-            rate = jnp.exp(eta)
-            return random.poisson(key, rate).astype(jnp.float32)
-        if manifest_dist == "gamma":
-            shape = extra_params.get("obs_shape", 1.0) if extra_params else 1.0
-            scale = jnp.exp(eta) / shape
-            return random.gamma(key, shape, shape=eta.shape) * scale
-        # Gaussian
-        chol_R = jla.cholesky(R + jnp.eye(n_manifest) * 1e-6, lower=True)
-        return eta + chol_R @ random.normal(key, (n_manifest,))
+    if obs_mask_template is None:
+        obs_mask_template = jnp.ones((T, n_manifest), dtype=bool)
 
-    observations = jax.vmap(_sim_obs)(obs_keys, z_all)
-
-    # Broadcast Ad, Qd for all timesteps
-    Ad_all = jnp.broadcast_to(Ad_single, (T, D, D))
-    Qd_all = jnp.broadcast_to(Qd_single, (T, D, D))
-    cd_all = jnp.zeros((T, D))
+    expected_means, semantic_mask = project_response_trajectory(responses, observation_support)
+    effective_mask = obs_mask_template & (semantic_mask > 0.5)
+    observations = predictive_sampler.sample_mean_trajectory(k5, expected_means)
+    observations = jnp.where(effective_mask, observations, jnp.zeros_like(observations))
 
     return observations, Ad_all, Qd_all, cd_all, init_mean, init_cov
 
@@ -355,6 +575,9 @@ def _train_proposal(
     manifest_dist="gaussian",
     manifest_link="identity",
     extra_params=None,
+    observation_support=None,
+    time_intervals=None,
+    obs_mask_template=None,
     n_train_seqs=50,
     n_train_steps=200,
     n_particles_train=32,
@@ -395,9 +618,14 @@ def _train_proposal(
     rng_key, data_key = random.split(rng_key)
     data_keys = random.split(data_key, n_train_seqs)
 
-    obs_kernel = build_observation_kernel(
-        DistributionFamily(manifest_dist), LinkFunction(manifest_link), extra_params
+    measurement_semantics = compile_measurement_semantics(
+        DistributionFamily(manifest_dist),
+        manifest_cov=R,
+        extra_params=extra_params,
+        manifest_link=LinkFunction(manifest_link),
+        observation_support=observation_support,
     )
+    obs_kernel = measurement_semantics.obs_kernel
     init_mean = jnp.zeros(D_latent)
     init_cov = jnp.eye(D_latent)
 
@@ -414,13 +642,23 @@ def _train_proposal(
             d_meas=d_meas,
             R=R,
             manifest_dist=manifest_dist,
+            manifest_link=manifest_link,
             extra_params=extra_params,
+            time_intervals=time_intervals,
+            observation_support=observation_support,
+            obs_mask_template=obs_mask_template,
         )
         return obs, Ad, Qd, cd
 
     all_obs, all_Ad, all_Qd, all_cd = jax.vmap(_gen_one)(data_keys)
 
-    obs_mask_all = jnp.ones_like(all_obs, dtype=bool)  # No missing data in training
+    if obs_mask_template is None:
+        obs_mask_all = jnp.ones_like(all_obs, dtype=bool)
+    else:
+        obs_mask_all = jnp.broadcast_to(
+            jnp.asarray(obs_mask_template, dtype=bool),
+            all_obs.shape,
+        )
 
     optimizer = optax.chain(optax.clip_by_global_norm(5.0), optax.adam(lr))
     opt_state = optimizer.init(eqx.filter(proposal_net, eqx.is_array))
@@ -433,24 +671,47 @@ def _train_proposal(
         cd = all_cd[batch_idx]
         mask = obs_mask_all[batch_idx]
 
-        log_Z = _dpf_forward(
-            proposal_net,
-            obs,
-            mask,
-            Ad,
-            Qd,
-            cd,
-            H,
-            d_meas,
-            R,
-            init_mean,
-            init_cov,
-            obs_kernel.emission_fn,
-            n_particles_train,
-            rng_key,
-            soft_resample_alpha=0.5,
-            training=True,
-        )
+        if (
+            observation_support is not None
+            and observation_support.requires_interval_summary_handling
+        ):
+            log_Z = _dpf_forward_support_aware(
+                proposal_net,
+                obs,
+                mask,
+                Ad,
+                Qd,
+                cd,
+                H,
+                d_meas,
+                R,
+                init_mean,
+                init_cov,
+                measurement_semantics,
+                n_particles_train,
+                rng_key,
+                soft_resample_alpha=0.5,
+                training=True,
+            )
+        else:
+            log_Z = _dpf_forward(
+                proposal_net,
+                obs,
+                mask,
+                Ad,
+                Qd,
+                cd,
+                H,
+                d_meas,
+                R,
+                init_mean,
+                init_cov,
+                obs_kernel.emission_fn,
+                n_particles_train,
+                rng_key,
+                soft_resample_alpha=0.5,
+                training=True,
+            )
         return -log_Z  # Minimize negative VSMC
 
     @eqx.filter_jit
@@ -498,6 +759,7 @@ class DPFLikelihood:
         n_particles: int = 100,
         proposal_net: ProposalNetwork | None = None,
         rng_key: jax.Array | None = None,
+        observation_support=None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
@@ -506,6 +768,7 @@ class DPFLikelihood:
         self.n_particles = n_particles
         self.proposal_net = proposal_net
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
+        self.observation_support = observation_support
 
     def compute_log_likelihood(
         self,
@@ -531,16 +794,36 @@ class DPFLikelihood:
         if cd is None:
             cd = jnp.zeros((T, n))
 
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-        obs_kernel = build_observation_kernel(
-            DistributionFamily(self.manifest_dist),
-            LinkFunction(self.manifest_link),
-            extra_params,
+        measurement_semantics = compile_measurement_semantics(
+            self.manifest_dist,
+            manifest_cov=measurement_params.manifest_cov,
+            extra_params=extra_params,
+            manifest_link=self.manifest_link,
+            observation_support=self.observation_support,
         )
+        obs_kernel = measurement_semantics.obs_kernel
 
         if self.proposal_net is None:
             raise ValueError("Proposal not trained. Call _train_proposal first.")
+
+        if measurement_semantics.requires_interval_summary_handling:
+            return _dpf_forward_support_aware(
+                self.proposal_net,
+                clean_obs,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                measurement_params.lambda_mat,
+                measurement_params.manifest_means,
+                measurement_params.manifest_cov,
+                initial_state.mean,
+                initial_state.cov,
+                measurement_semantics,
+                self.n_particles,
+                self.rng_key,
+                training=False,
+            )
 
         log_Z = _dpf_forward(
             self.proposal_net,
@@ -599,7 +882,18 @@ def fit_dpf(
              estimation, with tempered SMC for parameter inference.
     """
     T_data = observations.shape[0]
-    if T_train is None:
+    observation_support = getattr(model, "observation_support", None)
+    requires_interval_summary_handling = bool(
+        observation_support is not None and observation_support.requires_interval_summary_handling
+    )
+    if requires_interval_summary_handling:
+        if T_train is not None and T_train != T_data:
+            raise ValueError(
+                "Support-aware DPF proposal training requires T_train to match the "
+                "prepared observation schedule."
+            )
+        T_train = T_data
+    elif T_train is None:
         T_train = min(T_data, 50)
 
     rng_key = random.PRNGKey(seed)
@@ -625,6 +919,17 @@ def fit_dpf(
 
     logger.info("DPF: Phase 1 - Training proposal network...")
     rng_key, train_key = random.split(rng_key)
+    train_time_intervals = None
+    train_obs_mask = None
+    if requires_interval_summary_handling:
+        train_time_intervals = jnp.diff(times, prepend=times[0])
+        first_dt = (
+            jnp.maximum(times[1] - times[0], 1e-3)
+            if times.shape[0] > 1
+            else jnp.asarray(1.0, dtype=times.dtype)
+        )
+        train_time_intervals = train_time_intervals.at[0].set(first_dt)
+        train_obs_mask = ~jnp.isnan(observations)
     proposal_net = _train_proposal(
         D_latent=spec.n_latent,
         n_manifest=spec.n_manifest,
@@ -633,6 +938,9 @@ def fit_dpf(
         R=R_train,
         manifest_dist=spec.manifest_dist,
         manifest_link=spec.manifest_link,
+        observation_support=observation_support,
+        time_intervals=train_time_intervals,
+        obs_mask_template=train_obs_mask,
         n_train_seqs=n_train_seqs,
         n_train_steps=n_train_steps,
         n_particles_train=n_particles_train,
@@ -656,6 +964,7 @@ def fit_dpf(
             n_particles=n_pf_particles,
             proposal_net=proposal_net,
             rng_key=dpf_key,
+            observation_support=observation_support,
         )
     return run_tempered_smc(
         model,

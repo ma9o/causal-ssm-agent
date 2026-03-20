@@ -12,13 +12,13 @@ stage1_structure_proposal:
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
 
-# Stage 2: Tick-Based Extraction
-# Workers process chunks of model-clock ticks in parallel to extract indicator values
+# Stage 2: Support-Window Extraction
+# Workers process chunks of support windows in parallel to extract indicator values
 stage2_workers:
   model: openrouter/google/gemini-3.1-flash-lite-preview
-  ticks_per_chunk: 1           # Clock ticks per LLM call
+  windows_per_chunk: 1         # Support windows per LLM call
   max_concurrent_workers: 30   # Actual concurrent LLM worker calls
-  max_events_per_tick: 300     # Truncate/sample text beyond this per tick
+  max_events_per_window: 300   # Truncate/sample text beyond this per support window
   max_rpm: 450                 # OpenRouter sliding-window RPM limit
   worker_timeout: 120          # Per-LLM-call timeout in seconds (prevents hung workers)
 

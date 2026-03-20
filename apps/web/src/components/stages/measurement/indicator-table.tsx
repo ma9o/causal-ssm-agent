@@ -18,6 +18,23 @@ const columns = [
     header: "Aggregation",
     cell: (info) => <Badge variant="secondary">{info.getValue()}</Badge>,
   }),
+  col.display({
+    id: "semantics",
+    header: "Semantics",
+    cell: ({ row }) => (
+      <div className="flex flex-wrap gap-1">
+        <Badge variant="outline">{row.original.support_kind}</Badge>
+        <Badge variant="outline">{row.original.summary_operator}</Badge>
+        <Badge variant="outline">{row.original.anchor_policy}</Badge>
+      </div>
+    ),
+  }),
+  col.accessor("observation_window", {
+    header: "Window",
+    cell: (info) => (
+      <span className="text-sm text-muted-foreground">{info.getValue() ?? "model_clock"}</span>
+    ),
+  }),
   col.accessor("how_to_measure", {
     header: "How to Measure",
     cell: (info) => <span className="max-w-xs text-muted-foreground">{info.getValue()}</span>,

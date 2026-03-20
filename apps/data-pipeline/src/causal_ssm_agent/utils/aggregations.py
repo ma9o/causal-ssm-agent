@@ -113,13 +113,14 @@ def compute_indicators(
     """Compute indicator values directly via Polars aggregation.
 
     For indicators with extraction_mode='computed', applies the aggregation
-    function to the single source column, grouped by model_clock ticks.
+    function to the single source column, grouped by each indicator's effective
+    observation window (explicit observation_window or fallback model_clock).
 
     Args:
         raw_df: Raw wide-format DataFrame with actual column names.
         indicators: List of indicator dicts with extraction_mode="computed".
             Each must have exactly one source_column.
-        model_clock: Polars duration string for truncation (e.g., "1d").
+        model_clock: Global fallback duration string for truncation (e.g., "1d").
         time_col: Name of the datetime column in raw_df.
 
     Returns:
@@ -135,14 +136,12 @@ def compute_indicators(
     if df.schema[time_col] == pl.Utf8:
         df = df.with_columns(pl.col(time_col).str.to_datetime(strict=False).alias(time_col))
 
-    # Add tick column via truncation
-    df = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__"))
-
     frames: list[pl.DataFrame] = []
     for ind in indicators:
         name = ind["name"]
         source_col = ind["source_columns"][0]
         agg_name = ind["aggregation"]
+        observation_window = ind.get("observation_window") or model_clock
 
         if source_col not in df.columns:
             logger.warning(
@@ -157,7 +156,7 @@ def compute_indicators(
             fn = _build_map_groups_fn(agg_name)
             agg_df = (
                 df.select(
-                    "__tick__",
+                    pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
                     pl.col(source_col).cast(pl.Float64, strict=False).alias("value"),
                 )
                 .sort("__tick__")
@@ -168,7 +167,7 @@ def compute_indicators(
             expr = _build_agg_expr(agg_name, source_col)
             agg_df = (
                 df.select(
-                    "__tick__",
+                    pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
                     pl.col(source_col).cast(pl.Float64, strict=False).alias(source_col),
                 )
                 .group_by("__tick__", maintain_order=True)

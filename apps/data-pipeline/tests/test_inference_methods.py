@@ -748,7 +748,7 @@ class TestLaplaceEMDoctolib:
 
         causal_spec, model_spec, priors, raw_data = _build_executable_doctolib_fixture_v2()
 
-        assert raw_data.schema["timestamp"] == pl.String
+        assert raw_data.schema["anchor_time"] == pl.String
 
         compiled = compile_ssm_artifact(
             model_spec,

@@ -207,6 +207,7 @@ def compute_interventions(
     manifest_names: list[str] | None = None,
     ps_result: dict | None = None,
     times: jnp.ndarray | None = None,
+    observation_support=None,
 ) -> list[dict[str, Any]]:
     """Compute intervention effects for all treatments from posterior samples.
 
@@ -223,6 +224,8 @@ def compute_interventions(
         ps_result: Optional power-scaling result dict for flagging prior-dominated effects.
         times: Optional observation time points (fractional days). When provided,
             forward simulation is run alongside steady-state analysis.
+        observation_support: Optional compiled observation semantics. Non-point
+            manifests are excluded from simple loading-based manifest effects.
 
     Returns:
         List of intervention result dicts, sorted by |effect_size| descending.
@@ -280,6 +283,17 @@ def compute_interventions(
     lambda_mean: jnp.ndarray | None = None
     if lambda_draws is not None:
         lambda_mean = jnp.mean(lambda_draws, axis=0) if lambda_draws.ndim == 3 else lambda_draws
+    point_like_manifests: set[str] | None = None
+    if observation_support is not None:
+        point_like_manifests = {
+            name
+            for name, support_kind in zip(
+                observation_support.manifest_names,
+                observation_support.support_kinds,
+                strict=False,
+            )
+            if support_kind in (None, "point")
+        }
 
     results: list[dict[str, Any]] = []
     for treatment_name in treatments:
@@ -326,6 +340,11 @@ def compute_interventions(
                         loading_val = float(loadings[mi])
                         if abs(loading_val) > CHOL_JITTER:
                             name = m_names[mi] if mi < len(m_names) else f"manifest_{mi}"
+                            if (
+                                point_like_manifests is not None
+                                and name not in point_like_manifests
+                            ):
+                                continue
                             manifest_effects[name] = loading_val * mean_effect
                     if manifest_effects:
                         entry["manifest_effects"] = manifest_effects

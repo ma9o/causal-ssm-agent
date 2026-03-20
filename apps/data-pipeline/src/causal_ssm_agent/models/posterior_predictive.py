@@ -12,20 +12,32 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
 import jax
 import jax.numpy as jnp
+import jax.random as random
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
+from causal_ssm_agent.models.likelihoods.emissions import build_predictive_observation_sampler
+from causal_ssm_agent.models.likelihoods.kernels import (
+    build_composite_observation_kernel,
+    build_observation_kernel,
+    build_transition_kernel,
+    compile_transition_semantics,
+)
 from causal_ssm_agent.models.likelihoods.observation_families import (
-    POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
     any_family_needs_level_metadata,
-    get_posterior_predictive_switch_index,
+    resolve_manifest_families_and_links,
+)
+from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    compile_observation_operator,
 )
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 # ---------------------------------------------------------------------------
 # PPC models
@@ -113,276 +125,200 @@ def _stable_cholesky(cov: jnp.ndarray) -> jnp.ndarray:
     return jnp.linalg.cholesky(cov_sym + jitter * eye)
 
 
-def _sample_gaussian_observation(
-    eta: jnp.ndarray,
+def _linear_predictors_from_latent_trajectory(
+    latent_trajectory: jnp.ndarray,
     lambda_mat: jnp.ndarray,
     manifest_means: jnp.ndarray,
-    manifest_chol: jnp.ndarray,
-    obs_key: jax.Array,
 ) -> jnp.ndarray:
-    """Sample one Gaussian observation vector from the current latent state."""
-    n_manifest = lambda_mat.shape[0]
-    delta = jax.random.normal(obs_key, (n_manifest,))
-    return lambda_mat @ eta + manifest_means + manifest_chol @ delta
+    """Map a latent trajectory to observation linear predictors."""
+    return jax.vmap(lambda eta_t: lambda_mat @ eta_t + manifest_means)(latent_trajectory)
 
 
-def _simulate_one_draw_gaussian(
+def _simulate_latent_trajectory(
     drift: jnp.ndarray,
     diffusion_chol: jnp.ndarray,
     cint: jnp.ndarray | None,
-    lambda_mat: jnp.ndarray,
-    manifest_means: jnp.ndarray,
-    manifest_chol: jnp.ndarray,
     t0_mean: jnp.ndarray,
     t0_chol: jnp.ndarray,
     transition_dt_array: jnp.ndarray,
     n_timepoints: int,
     rng_key: jax.Array,
+    transition_semantics,
+    proc_df: float | jnp.ndarray = 5.0,
 ) -> jnp.ndarray:
-    """Simulate one trajectory for Gaussian observation noise.
-
-    Returns:
-        y_sim: (T, n_manifest) simulated observations
-    """
+    """Simulate one latent trajectory from the continuous-time dynamics."""
     n_latent = drift.shape[0]
     T = n_timepoints
 
-    # Split rng keys
-    key_init, key_proc, key_obs = jax.random.split(rng_key, 3)
-
-    # Initial state
-    eta_0 = t0_mean + t0_chol @ jax.random.normal(key_init, (n_latent,))
-    obs_keys = jax.random.split(key_obs, T)
-    y_0 = _sample_gaussian_observation(
-        eta=eta_0,
-        lambda_mat=lambda_mat,
-        manifest_means=manifest_means,
-        manifest_chol=manifest_chol,
-        obs_key=obs_keys[0],
-    )
-
+    key_init, key_proc = random.split(rng_key)
+    eta_0 = t0_mean + t0_chol @ random.normal(key_init, (n_latent,))
     if T == 1:
-        return y_0[None, :]
+        return eta_0[None, :]
 
     diffusion_cov = diffusion_chol @ diffusion_chol.T
     Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, transition_dt_array)
-
-    # If cd is None, use zeros
     if cd is None:
         cd = jnp.zeros((T - 1, n_latent))
 
-    # Process noise keys
-    proc_keys = jax.random.split(key_proc, T - 1)
+    proc_keys = random.split(key_proc, T - 1)
+    transition_kernel = build_transition_kernel(transition_semantics, {"proc_df": proc_df})
 
     def scan_fn(eta_prev, inputs):
-        Ad_t, Qd_t, cd_t, pkey, okey = inputs
+        Ad_t, Qd_t, cd_t, pkey = inputs
         Qd_chol = _stable_cholesky(Qd_t)
-        eps = jax.random.normal(pkey, (n_latent,))
-        eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
+        noise = transition_kernel.sample_noise_fn(pkey, Qd_chol)
+        eta_t = Ad_t @ eta_prev + cd_t + noise
+        return eta_t, eta_t
 
-        y_t = _sample_gaussian_observation(
-            eta=eta_t,
-            lambda_mat=lambda_mat,
-            manifest_means=manifest_means,
-            manifest_chol=manifest_chol,
-            obs_key=okey,
-        )
-        return eta_t, y_t
-
-    _, y_rest = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys[1:]))
-    return jnp.concatenate((y_0[None, :], y_rest), axis=0)  # (T, n_manifest)
+    _, eta_rest = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys))
+    return jnp.concatenate((eta_0[None, :], eta_rest), axis=0)
 
 
-def _sample_channel(
-    loc_j,
-    key,
-    dist_idx,
-    std_j,
-    df,
-    shape_p,
-    r_p,
-    phi_p,
-    level_count,
-    cutpoints,
-    cat_intercepts,
-    cat_slopes,
-):
-    """Sample one observation from a channel's distribution using registry dispatch."""
-    return jax.lax.switch(
-        dist_idx,
-        POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
-        loc_j,
-        key,
-        std_j,
-        df,
-        shape_p,
-        r_p,
-        phi_p,
-        level_count,
-        cutpoints,
-        cat_intercepts,
-        cat_slopes,
-    )
-
-
-def _sample_mixed_observation(
-    eta: jnp.ndarray,
-    lambda_mat: jnp.ndarray,
-    manifest_means: jnp.ndarray,
-    obs_key: jax.Array,
-    dist_indices: jnp.ndarray,
-    manifest_std: jnp.ndarray,
-    obs_df: float,
-    obs_shape: float,
-    obs_r: float,
-    obs_concentration: float,
-    manifest_level_counts: jnp.ndarray | None = None,
-    ordered_cutpoints: jnp.ndarray | None = None,
-    cat_intercepts: jnp.ndarray | None = None,
-    cat_slopes: jnp.ndarray | None = None,
-) -> jnp.ndarray:
-    """Sample one mixed-family observation vector from the current latent state."""
-    n_manifest = lambda_mat.shape[0]
-    loc = lambda_mat @ eta + manifest_means
-    channel_keys = jax.random.split(obs_key, n_manifest)
-    return vmap(_sample_channel)(
-        loc,
-        channel_keys,
-        dist_indices,
-        manifest_std,
-        jnp.full(n_manifest, obs_df),
-        jnp.full(n_manifest, obs_shape),
-        jnp.full(n_manifest, obs_r),
-        jnp.full(n_manifest, obs_concentration),
-        manifest_level_counts
-        if manifest_level_counts is not None
-        else jnp.ones(n_manifest, dtype=jnp.int32),
-        ordered_cutpoints if ordered_cutpoints is not None else jnp.zeros((n_manifest, 1)),
-        cat_intercepts if cat_intercepts is not None else jnp.zeros((n_manifest, 1)),
-        cat_slopes if cat_slopes is not None else jnp.zeros((n_manifest, 1)),
-    )
-
-
-def _resolve_dist_indices(
+def _build_response_kernel(
     manifest_dist: str,
-    manifest_link: str | None,
     manifest_dists: list[str] | None,
     manifest_links: list[str] | None,
     n_manifest: int,
-) -> jnp.ndarray:
-    effective_dists = manifest_dists or [manifest_dist] * n_manifest
-    effective_links = manifest_links or [manifest_link] * n_manifest
-    return jnp.array(
-        [
-            get_posterior_predictive_switch_index(dist, link=link)
-            for dist, link in zip(effective_dists, effective_links, strict=False)
-        ]
+    extra_params: dict | None,
+):
+    """Build the response-space observation kernel for one posterior draw."""
+    dists, links = resolve_manifest_families_and_links(
+        manifest_dist,
+        n_manifest,
+        manifest_dists=manifest_dists,
+        manifest_links=manifest_links,
     )
+    if len(set(zip(dists, links))) == 1:
+        return build_observation_kernel(dists[0], links[0], extra_params)
+    return build_composite_observation_kernel(dists, links, extra_params)
 
 
-def _simulate_one_draw_mixed(
+def _slice_extra_params_for_indices(
+    extra_params: dict | None,
+    indices: list[int],
+) -> dict | None:
+    """Slice per-channel extra params down to a manifest subset."""
+    if extra_params is None:
+        return None
+
+    sliced: dict = {}
+    idx = jnp.asarray(indices, dtype=jnp.int32)
+    for key, value in extra_params.items():
+        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
+            try:
+                if value.shape[0] >= len(indices):
+                    sliced[key] = value[idx]
+                    continue
+            except TypeError:
+                pass
+        sliced[key] = value
+    return sliced
+
+
+def _apply_observation_mask(
+    y_sim: jnp.ndarray,
+    semantic_mask: jnp.ndarray | None,
+    observation_mask: jnp.ndarray | None,
+) -> jnp.ndarray:
+    """Set structurally absent observations to NaN."""
+    if y_sim.ndim == 2:
+        target_shape = y_sim.shape
+    else:
+        target_shape = y_sim.shape[1:]
+    effective_mask = jnp.ones(target_shape, dtype=bool)
+    if semantic_mask is not None:
+        effective_mask = effective_mask & (semantic_mask > 0.5)
+    if observation_mask is not None:
+        effective_mask = effective_mask & observation_mask.astype(bool)
+    if y_sim.ndim == 2:
+        return jnp.where(effective_mask, y_sim, jnp.nan)
+    return jnp.where(effective_mask[None, :, :], y_sim, jnp.nan)
+
+
+def _simulate_one_draw(
     drift: jnp.ndarray,
     diffusion_chol: jnp.ndarray,
     cint: jnp.ndarray | None,
+    transition_semantics,
+    proc_df: float | jnp.ndarray,
     lambda_mat: jnp.ndarray,
     manifest_means: jnp.ndarray,
-    manifest_cov: jnp.ndarray,
     t0_mean: jnp.ndarray,
     t0_chol: jnp.ndarray,
     transition_dt_array: jnp.ndarray,
     n_timepoints: int,
     rng_key: jax.Array,
-    dist_indices: jnp.ndarray,
-    obs_df: float = 5.0,
-    obs_shape: float = 2.0,
-    obs_r: float = 5.0,
-    obs_concentration: float = 10.0,
-    manifest_level_counts: jnp.ndarray | None = None,
-    ordered_cutpoints: jnp.ndarray | None = None,
-    cat_intercepts: jnp.ndarray | None = None,
-    cat_slopes: jnp.ndarray | None = None,
+    *,
+    manifest_dist: str,
+    manifest_dists: list[str] | None,
+    manifest_links: list[str] | None,
+    point_sampler,
+    interval_summary_sampler,
+    observation_operator,
+    observation_mask: jnp.ndarray | None,
+    extra_params: dict | None,
 ) -> jnp.ndarray:
-    """Simulate one trajectory with per-channel distribution types.
+    """Simulate one draw using shared transition and observation operators."""
+    key_latent, key_point, key_interval_summary = random.split(rng_key, 3)
+    latent_trajectory = _simulate_latent_trajectory(
+        drift,
+        diffusion_chol,
+        cint,
+        t0_mean,
+        t0_chol,
+        transition_dt_array,
+        n_timepoints,
+        key_latent,
+        transition_semantics,
+        proc_df=proc_df,
+    )
+    linear_predictors = _linear_predictors_from_latent_trajectory(
+        latent_trajectory,
+        lambda_mat,
+        manifest_means,
+    )
+    point_samples = point_sampler.sample_point_trajectory(key_point, linear_predictors)
 
-    Uses jax.lax.switch + vmap for per-channel dispatch, so each manifest
-    variable can have a different observation noise distribution and link function.
+    if not observation_operator.requires_interval_summary_handling:
+        return _apply_observation_mask(point_samples, None, observation_mask)
 
-    Args:
-        dist_indices: (n_manifest,) integer array mapping each channel to
-            a combined distribution+link type index.
+    n_manifest = linear_predictors.shape[1]
+    response_kernel = _build_response_kernel(
+        manifest_dist,
+        manifest_dists,
+        manifest_links,
+        n_manifest,
+        extra_params,
+    )
+    responses = jax.vmap(response_kernel.response_fn)(linear_predictors)
+    expected_means, semantic_mask = observation_operator.project_response_trajectory(responses)
 
-    Returns:
-        y_sim: (T, n_manifest) simulated observations
-    """
-    n_latent = drift.shape[0]
-    T = n_timepoints
-
-    key_init, key_proc, key_obs = jax.random.split(rng_key, 3)
-    eta_0 = t0_mean + t0_chol @ jax.random.normal(key_init, (n_latent,))
-    manifest_std = jnp.sqrt(jnp.diag(manifest_cov))
-    obs_keys = jax.random.split(key_obs, T)
-    y_0 = _sample_mixed_observation(
-        eta=eta_0,
-        lambda_mat=lambda_mat,
-        manifest_means=manifest_means,
-        obs_key=obs_keys[0],
-        dist_indices=dist_indices,
-        manifest_std=manifest_std,
-        obs_df=obs_df,
-        obs_shape=obs_shape,
-        obs_r=obs_r,
-        obs_concentration=obs_concentration,
-        manifest_level_counts=manifest_level_counts,
-        ordered_cutpoints=ordered_cutpoints,
-        cat_intercepts=cat_intercepts,
-        cat_slopes=cat_slopes,
+    interval_summary_indices = list(observation_operator.interval_summary_indices)
+    interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
+    assert interval_summary_sampler is not None
+    sampled_interval_summary = interval_summary_sampler.sample_mean_trajectory(
+        key_interval_summary,
+        expected_means[:, interval_summary_idx],
+    )
+    point_samples = jax.vmap(lambda y_t, sampled_t: y_t.at[interval_summary_idx].set(sampled_t))(
+        point_samples,
+        sampled_interval_summary,
     )
 
-    if T == 1:
-        return y_0[None, :]
-
-    diffusion_cov = diffusion_chol @ diffusion_chol.T
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, transition_dt_array)
-    if cd is None:
-        cd = jnp.zeros((T - 1, n_latent))
-
-    proc_keys = jax.random.split(key_proc, T - 1)
-
-    def scan_fn(eta_prev, inputs):
-        Ad_t, Qd_t, cd_t, pkey, okey = inputs
-        Qd_chol = _stable_cholesky(Qd_t)
-        eps = jax.random.normal(pkey, (n_latent,))
-        eta_t = Ad_t @ eta_prev + cd_t + Qd_chol @ eps
-
-        y_t = _sample_mixed_observation(
-            eta=eta_t,
-            lambda_mat=lambda_mat,
-            manifest_means=manifest_means,
-            obs_key=okey,
-            dist_indices=dist_indices,
-            manifest_std=manifest_std,
-            obs_df=obs_df,
-            obs_shape=obs_shape,
-            obs_r=obs_r,
-            obs_concentration=obs_concentration,
-            manifest_level_counts=manifest_level_counts,
-            ordered_cutpoints=ordered_cutpoints,
-            cat_intercepts=cat_intercepts,
-            cat_slopes=cat_slopes,
-        )
-        return eta_t, y_t
-
-    _, y_rest = lax.scan(scan_fn, eta_0, (Ad, Qd, cd, proc_keys, obs_keys[1:]))
-    return jnp.concatenate((y_0[None, :], y_rest), axis=0)  # (T, n_manifest)
+    return _apply_observation_mask(point_samples, semantic_mask, observation_mask)
 
 
 def simulate_posterior_predictive(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
+    diffusion_dist: DistributionFamily | str = "gaussian",
+    diffusion_dists: list[DistributionFamily | str] | None = None,
     manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
     manifest_level_counts: list[int] | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
+    observation_mask: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> jnp.ndarray:
@@ -394,6 +330,9 @@ def simulate_posterior_predictive(
             "t0_means", "t0_cov". Optional: "cint", "manifest_means",
             "obs_df", "obs_shape".
         times: (T,) observation times.
+        diffusion_dist: Scalar process-noise family (fallback).
+        diffusion_dists: Per-latent process-noise families. When provided,
+            mixed diffusion simulation uses the declared per-latent shock family.
         manifest_dist: Scalar noise family string (fallback when manifest_dists
             is None or all channels share the same distribution).
         manifest_dists: Per-channel noise families. When provided and channels
@@ -403,6 +342,11 @@ def simulate_posterior_predictive(
             used together with manifest_dists for combined dispatch.
         manifest_level_counts: Per-channel encoded category counts for
             ordered-logistic/categorical emissions.
+        observation_support: Optional compiled observation-window semantics
+            aligned to ``times``. When provided, interval-summary manifests are
+            emitted only on their anchor rows using aggregated mean semantics.
+        observation_mask: Optional boolean template aligned to ``times`` and
+            manifests. False entries are set to NaN in the simulated output.
         n_subsample: Number of posterior draws to use.
         rng_seed: Random seed for simulation.
 
@@ -447,6 +391,11 @@ def simulate_posterior_predictive(
     )
     cat_intercepts_sub = _broadcast_draw_param(samples.get("obs_cat_intercepts"), n_use, indices)
     cat_slopes_sub = _broadcast_draw_param(samples.get("obs_cat_slopes"), n_use, indices)
+    obs_df_sub = _broadcast_draw_param(samples.get("obs_df"), n_use, indices)
+    proc_df_sub = _broadcast_draw_param(samples.get("proc_df"), n_use, indices)
+    obs_shape_sub = _broadcast_draw_param(samples.get("obs_shape"), n_use, indices)
+    obs_r_sub = _broadcast_draw_param(samples.get("obs_r"), n_use, indices)
+    obs_conc_sub = _broadcast_draw_param(samples.get("obs_concentration"), n_use, indices)
     level_counts = (
         jnp.asarray(manifest_level_counts, dtype=jnp.int32)
         if manifest_level_counts is not None
@@ -455,101 +404,118 @@ def simulate_posterior_predictive(
 
     n_timepoints = int(times.shape[0])
     transition_dt_array = jnp.maximum(jnp.diff(times), MIN_DT)
+    transition_semantics = compile_transition_semantics(
+        diffusion_dists or diffusion_dist, drift_sub.shape[-1]
+    )
 
     rng = jax.random.PRNGKey(rng_seed)
     draw_keys = jax.random.split(rng, n_use)
 
-    # Determine dispatch path: all-Gaussian, uniform non-Gaussian, or mixed
-    effective_dists = manifest_dists or None
-    effective_links = manifest_links or None
-    unique_dists = set(effective_dists) if effective_dists else {manifest_dist}
-    all_gaussian = unique_dists == {DistributionFamily.GAUSSIAN} or unique_dists == {"gaussian"}
+    resolved_dists, _resolved_links = resolve_manifest_families_and_links(
+        manifest_dist,
+        n_manifest,
+        manifest_dists=manifest_dists,
+        manifest_links=manifest_links,
+    )
+    unique_dists = {dist.value for dist in resolved_dists}
+    observation_operator = compile_observation_operator(observation_support)
 
     if level_counts is None and any_family_needs_level_metadata(unique_dists):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
 
-    def _scalar(arr):
-        """Collapse a posterior draw array to a scalar mean."""
-        if arr is None:
-            return None
-        return float(jnp.mean(arr)) if hasattr(arr, "ndim") and arr.ndim > 0 else arr
+    observation_mask_array = None
+    if observation_mask is not None:
+        observation_mask_array = jnp.asarray(observation_mask, dtype=bool)
+        if observation_mask_array.shape != (n_timepoints, n_manifest):
+            raise ValueError(
+                "observation_mask must have shape (T, n_manifest) matching the predictive grid"
+            )
 
     # Cholesky decomposition of t0_cov (needed by all paths)
     t0_chol_sub = vmap(_stable_cholesky)(t0_cov_sub)
 
-    if all_gaussian:
-        # Fast path: correlated Gaussian observation noise via Cholesky
-        manifest_chol_sub = vmap(_stable_cholesky)(manifest_cov_sub)
+    if observation_operator.requires_interval_summary_handling:
+        support = observation_operator.observation_support
+        assert support is not None
+        if support.anchor_times.shape != times.shape or not bool(
+            jnp.allclose(jnp.asarray(support.anchor_times), times)
+        ):
+            raise ValueError("observation_support is not aligned to the predictive time grid")
 
-        def sim_one(i):
-            ci = cint_sub[i] if cint_sub is not None else None
-            return _simulate_one_draw_gaussian(
-                drift=drift_sub[i],
-                diffusion_chol=diffusion_sub[i],
-                cint=ci,
-                lambda_mat=lambda_sub[i],
-                manifest_means=manifest_means_sub[i],
-                manifest_chol=manifest_chol_sub[i],
-                t0_mean=t0_means_sub[i],
-                t0_chol=t0_chol_sub[i],
-                transition_dt_array=transition_dt_array,
-                n_timepoints=n_timepoints,
-                rng_key=draw_keys[i],
-            )
+    def _draw_extra_params(i: int) -> dict[str, jnp.ndarray | float]:
+        extra_params: dict[str, jnp.ndarray | float] = {}
+        if obs_df_sub is not None:
+            extra_params["obs_df"] = obs_df_sub[i]
+        if obs_shape_sub is not None:
+            extra_params["obs_shape"] = obs_shape_sub[i]
+        if obs_r_sub is not None:
+            extra_params["obs_r"] = obs_r_sub[i]
+        if obs_conc_sub is not None:
+            extra_params["obs_concentration"] = obs_conc_sub[i]
+        if level_counts is not None:
+            extra_params["obs_level_counts"] = level_counts
+        if ordered_cutpoints_sub is not None:
+            extra_params["obs_ordered_cutpoints"] = ordered_cutpoints_sub[i]
+        if cat_intercepts_sub is not None:
+            extra_params["obs_cat_intercepts"] = cat_intercepts_sub[i]
+        if cat_slopes_sub is not None:
+            extra_params["obs_cat_slopes"] = cat_slopes_sub[i]
+        return extra_params
 
-        y_sim = vmap(sim_one)(jnp.arange(n_use))
-
-    else:
-        # Non-Gaussian path: per-channel dispatch via _simulate_one_draw_mixed
-        # Works for both mixed (heterogeneous) and uniform non-Gaussian cases
-        if effective_dists is None:
-            effective_dists = [manifest_dist] * n_manifest
-
-        dist_indices = _resolve_dist_indices(
+    def sim_one(i):
+        ci = cint_sub[i] if cint_sub is not None else None
+        extra_params = _draw_extra_params(i)
+        point_sampler = build_predictive_observation_sampler(
             manifest_dist=manifest_dist,
-            manifest_link=None,
-            manifest_dists=effective_dists,
-            manifest_links=effective_links,
-            n_manifest=n_manifest,
+            manifest_cov=manifest_cov_sub[i],
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
+            extra_params=extra_params,
+        )
+        interval_summary_sampler = None
+        if observation_operator.requires_interval_summary_handling:
+            interval_summary_indices = list(observation_operator.interval_summary_indices)
+            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
+            interval_summary_sampler = build_predictive_observation_sampler(
+                manifest_dist=manifest_dist,
+                manifest_cov=manifest_cov_sub[i][
+                    jnp.ix_(interval_summary_idx, interval_summary_idx)
+                ],
+                manifest_dists=[
+                    point_sampler.manifest_dists[idx] for idx in interval_summary_indices
+                ],
+                extra_params=_slice_extra_params_for_indices(
+                    extra_params, interval_summary_indices
+                ),
+            )
+        return _simulate_one_draw(
+            drift=drift_sub[i],
+            diffusion_chol=diffusion_sub[i],
+            cint=ci,
+            transition_semantics=transition_semantics,
+            proc_df=proc_df_sub[i] if proc_df_sub is not None else 5.0,
+            lambda_mat=lambda_sub[i],
+            manifest_means=manifest_means_sub[i],
+            t0_mean=t0_means_sub[i],
+            t0_chol=t0_chol_sub[i],
+            transition_dt_array=transition_dt_array,
+            n_timepoints=n_timepoints,
+            rng_key=draw_keys[i],
+            manifest_dist=manifest_dist,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
+            point_sampler=point_sampler,
+            interval_summary_sampler=interval_summary_sampler,
+            observation_operator=observation_operator,
+            observation_mask=observation_mask_array,
+            extra_params=extra_params,
         )
 
-        obs_df_val = _scalar(samples.get("obs_df")) or 5.0
-        obs_shape_val = _scalar(samples.get("obs_shape")) or 2.0
-        obs_r_val = _scalar(samples.get("obs_r")) or 5.0
-        obs_conc_val = _scalar(samples.get("obs_concentration")) or 10.0
+    y_sim = vmap(sim_one)(jnp.arange(n_use))
 
-        def sim_one(i):
-            ci = cint_sub[i] if cint_sub is not None else None
-            return _simulate_one_draw_mixed(
-                drift=drift_sub[i],
-                diffusion_chol=diffusion_sub[i],
-                cint=ci,
-                lambda_mat=lambda_sub[i],
-                manifest_means=manifest_means_sub[i],
-                manifest_cov=manifest_cov_sub[i],
-                t0_mean=t0_means_sub[i],
-                t0_chol=t0_chol_sub[i],
-                transition_dt_array=transition_dt_array,
-                n_timepoints=n_timepoints,
-                rng_key=draw_keys[i],
-                dist_indices=dist_indices,
-                obs_df=obs_df_val,
-                obs_shape=obs_shape_val,
-                obs_r=obs_r_val,
-                obs_concentration=obs_conc_val,
-                manifest_level_counts=level_counts,
-                ordered_cutpoints=ordered_cutpoints_sub[i]
-                if ordered_cutpoints_sub is not None
-                else None,
-                cat_intercepts=cat_intercepts_sub[i] if cat_intercepts_sub is not None else None,
-                cat_slopes=cat_slopes_sub[i] if cat_slopes_sub is not None else None,
-            )
-
-        y_sim = vmap(sim_one)(jnp.arange(n_use))
-
-    return y_sim  # (n_subsample, T, n_manifest)
+    return y_sim
 
 
 # ---------------------------------------------------------------------------
@@ -917,10 +883,14 @@ def run_posterior_predictive_checks(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     manifest_names: list[str],
+    diffusion_dist: DistributionFamily | str = "gaussian",
+    diffusion_dists: list[DistributionFamily | str] | None = None,
     manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
     manifest_level_counts: list[int] | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
+    observation_mask: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> PPCResult:
@@ -931,10 +901,14 @@ def run_posterior_predictive_checks(
         observations: (T, n_manifest) observed data
         times: (T,) observation times
         manifest_names: list of manifest variable names
+        diffusion_dist: scalar process-noise family (fallback)
+        diffusion_dists: per-latent process-noise families (overrides diffusion_dist)
         manifest_dist: scalar observation noise family (fallback)
         manifest_dists: per-channel noise families (overrides manifest_dist)
         manifest_links: per-channel link function strings
         manifest_level_counts: per-channel encoded category counts
+        observation_support: optional compiled interval-summary semantics
+        observation_mask: optional boolean observation schedule mask
         n_subsample: number of posterior draws to forward-simulate
         rng_seed: random seed
 
@@ -944,10 +918,14 @@ def run_posterior_predictive_checks(
     y_sim = simulate_posterior_predictive(
         samples=samples,
         times=times,
+        diffusion_dist=diffusion_dist,
+        diffusion_dists=diffusion_dists,
         manifest_dist=manifest_dist,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
         manifest_level_counts=manifest_level_counts,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
         n_subsample=n_subsample,
         rng_seed=rng_seed,
     )

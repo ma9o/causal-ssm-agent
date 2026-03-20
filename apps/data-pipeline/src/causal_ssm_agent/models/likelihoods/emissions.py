@@ -8,6 +8,9 @@ Used by: Laplace-EM, Structured VI, DPF, Rao-Blackwell PF, bootstrap PF.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
@@ -21,6 +24,9 @@ from causal_ssm_agent.models.likelihoods.base import (
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _logistic_pdf(x: jnp.ndarray) -> jnp.ndarray:
@@ -514,3 +520,442 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
             f"No emission function for manifest_dist='{manifest_dist}', link='{link}'."
         )
     return factory(extra_params)
+
+
+def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
+    """Return log-prob(y | mean-parameter) for one observation vector.
+
+    Unlike ``get_emission_fn()``, this operates directly on the expected mean /
+    location in observation space. It is used for interval-summary measurement
+    semantics where the mean is aggregated over a support window after applying
+    the link function.
+    """
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    extra_params = extra_params or {}
+    dist = DistributionFamily(manifest_dist)
+
+    def gaussian(y_t, mean_t, R, obs_mask_t):
+        residual = (y_t - mean_t) * obs_mask_t
+        n_obs = jnp.sum(obs_mask_t)
+        R_adj = R + jnp.diag((1.0 - obs_mask_t) * MISSING_DATA_LARGE_VAR)
+        R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(R.shape[0]) * CHOL_JITTER
+        _, logdet = jnp.linalg.slogdet(R_adj)
+        n_missing = y_t.shape[0] - n_obs
+        logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
+        mahal = residual @ jla.solve(R_adj, residual, assume_a="pos")
+        return jnp.where(
+            n_obs > 0,
+            -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal),
+            0.0,
+        )
+
+    def student_t(y_t, mean_t, R, obs_mask_t):
+        df = extra_params.get("obs_df", 5.0)
+        scale = jnp.sqrt(jnp.diag(R))
+        log_probs = jax.scipy.stats.t.logpdf(y_t, df, loc=mean_t, scale=scale)
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    def poisson(y_t, mean_t, _R, obs_mask_t):
+        rate = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        log_probs = jax.scipy.stats.poisson.logpmf(y_t, rate)
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    def gamma(y_t, mean_t, _R, obs_mask_t):
+        shape = extra_params.get("obs_shape", 1.0)
+        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        scale = safe_mean / shape
+        log_probs = jax.scipy.stats.gamma.logpdf(y_t, shape, scale=scale)
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    def bernoulli(y_t, mean_t, _R, obs_mask_t):
+        p = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+        log_probs = y_t * jnp.log(p) + (1.0 - y_t) * jnp.log(1.0 - p)
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    def negative_binomial(y_t, mean_t, _R, obs_mask_t):
+        r = extra_params.get("obs_r", 5.0)
+        mu = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        log_probs = (
+            jax.lax.lgamma(y_t + r)
+            - jax.lax.lgamma(r)
+            - jax.lax.lgamma(y_t + 1.0)
+            + r * jnp.log(r / (r + mu))
+            + y_t * jnp.log(mu / (r + mu) + NUMERICAL_EPSILON)
+        )
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    def beta(y_t, mean_t, _R, obs_mask_t):
+        concentration = extra_params.get("obs_concentration", 10.0)
+        clipped_mean = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+        alpha = clipped_mean * concentration
+        beta_ = (1.0 - clipped_mean) * concentration
+        log_probs = jax.scipy.stats.beta.logpdf(y_t, alpha, beta_)
+        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+
+    mean_log_prob_fns = {
+        DistributionFamily.GAUSSIAN: gaussian,
+        DistributionFamily.STUDENT_T: student_t,
+        DistributionFamily.POISSON: poisson,
+        DistributionFamily.GAMMA: gamma,
+        DistributionFamily.BERNOULLI: bernoulli,
+        DistributionFamily.NEGATIVE_BINOMIAL: negative_binomial,
+        DistributionFamily.BETA: beta,
+    }
+    if dist not in mean_log_prob_fns:
+        raise ValueError(
+            f"Mean-parameter log-prob is not defined for manifest_dist='{manifest_dist}'."
+        )
+    return mean_log_prob_fns[dist]
+
+
+def get_mean_param_sample_fn(manifest_dist, extra_params=None):
+    """Return a sampler operating directly in observation mean-parameter space."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    extra_params = extra_params or {}
+    dist = DistributionFamily(manifest_dist)
+
+    def gaussian(key, mean_t, R):
+        R_adj = 0.5 * (R + R.T) + jnp.eye(R.shape[0], dtype=R.dtype) * CHOL_JITTER
+        chol = jnp.linalg.cholesky(R_adj)
+        return mean_t + chol @ jax.random.normal(key, mean_t.shape)
+
+    def student_t(key, mean_t, R):
+        df = extra_params.get("obs_df", 5.0)
+        scale = jnp.sqrt(jnp.maximum(jnp.diag(R), NUMERICAL_EPSILON))
+        key_num, key_den = jax.random.split(key)
+        z = jax.random.normal(key_num, mean_t.shape)
+        chi2 = 2.0 * jax.random.gamma(key_den, df / 2.0, shape=mean_t.shape)
+        t_val = z * jnp.sqrt(df / jnp.maximum(chi2, NUMERICAL_EPSILON))
+        return mean_t + scale * t_val
+
+    def poisson(key, mean_t, _R):
+        rate = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        return jax.random.poisson(key, rate).astype(jnp.float32)
+
+    def gamma(key, mean_t, _R):
+        shape = extra_params.get("obs_shape", 1.0)
+        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        scale = safe_mean / jnp.maximum(shape, NUMERICAL_EPSILON)
+        return jax.random.gamma(key, shape, shape=mean_t.shape) * scale
+
+    def bernoulli(key, mean_t, _R):
+        p = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+        return jax.random.bernoulli(key, p).astype(jnp.float32)
+
+    def negative_binomial(key, mean_t, _R):
+        r = extra_params.get("obs_r", 5.0)
+        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        key_gamma, key_poisson = jax.random.split(key)
+        gamma_draw = (
+            jax.random.gamma(key_gamma, r, shape=mean_t.shape) * safe_mean / jnp.maximum(r, 1e-8)
+        )
+        return jax.random.poisson(
+            key_poisson,
+            jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
+        ).astype(jnp.float32)
+
+    def beta(key, mean_t, _R):
+        concentration = extra_params.get("obs_concentration", 10.0)
+        clipped_mean = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+        alpha = jnp.maximum(clipped_mean * concentration, 1e-4)
+        beta_param = jnp.maximum((1.0 - clipped_mean) * concentration, 1e-4)
+        key_alpha, key_beta = jax.random.split(key)
+        gamma_alpha = jax.random.gamma(key_alpha, alpha)
+        gamma_beta = jax.random.gamma(key_beta, beta_param)
+        return gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+
+    mean_sample_fns = {
+        DistributionFamily.GAUSSIAN: gaussian,
+        DistributionFamily.STUDENT_T: student_t,
+        DistributionFamily.POISSON: poisson,
+        DistributionFamily.GAMMA: gamma,
+        DistributionFamily.BERNOULLI: bernoulli,
+        DistributionFamily.NEGATIVE_BINOMIAL: negative_binomial,
+        DistributionFamily.BETA: beta,
+    }
+    if dist not in mean_sample_fns:
+        raise ValueError(
+            f"Mean-parameter sampler is not defined for manifest_dist='{manifest_dist}'."
+        )
+    return mean_sample_fns[dist]
+
+
+@dataclass(frozen=True)
+class PredictiveObservationSampler:
+    """Compiled predictive sampler shared by posterior/prior predictive paths."""
+
+    sample_point_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
+    sample_mean_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
+    all_gaussian: bool
+    manifest_dists: tuple[str, ...]
+
+
+def _slice_per_channel_extra_params(
+    extra_params: dict | None,
+    ch_indices: list[int],
+) -> dict | None:
+    if extra_params is None:
+        return None
+
+    sliced: dict = {}
+    idx = jnp.array(ch_indices, dtype=jnp.int32)
+    for key, value in extra_params.items():
+        if (
+            hasattr(value, "ndim")
+            and hasattr(value, "shape")
+            and value.ndim >= 1
+            and value.shape[0] == len(idx)
+        ):
+            sliced[key] = value
+            continue
+        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
+            try:
+                if value.shape[0] >= len(ch_indices):
+                    sliced[key] = value[idx]
+                    continue
+            except TypeError:
+                pass
+        sliced[key] = value
+    return sliced
+
+
+def build_predictive_observation_sampler(
+    manifest_dist,
+    manifest_cov: jnp.ndarray,
+    *,
+    manifest_dists=None,
+    manifest_link=None,
+    manifest_links=None,
+    extra_params: dict | None = None,
+) -> PredictiveObservationSampler:
+    """Compile predictive samplers for point observations and mean-space summaries."""
+    from causal_ssm_agent.models.likelihoods.observation_families import (
+        POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
+        get_posterior_predictive_switch_index,
+        resolve_manifest_families_and_links,
+    )
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    n_manifest = int(manifest_cov.shape[0])
+    dists, links = resolve_manifest_families_and_links(
+        manifest_dist,
+        n_manifest,
+        manifest_dists=manifest_dists,
+        manifest_link=manifest_link,
+        manifest_links=manifest_links,
+    )
+    all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
+    manifest_dist_values = tuple(dist.value for dist in dists)
+    try:
+        mean_sample_fn = build_composite_mean_sample_fn(manifest_dist_values, extra_params)
+    except ValueError as exc:
+        mean_sample_fn = None
+        mean_sampler_error = exc
+    else:
+        mean_sampler_error = None
+
+    def _sample_mean_vector(key, mean_t):
+        if mean_sample_fn is None:
+            raise ValueError(
+                f"Mean-parameter sampler is not defined for manifest_dists={manifest_dist_values}."
+            ) from mean_sampler_error
+        return mean_sample_fn(key, mean_t, manifest_cov)
+
+    def _sample_mean_trajectory(key, mean_trajectory):
+        mean_keys = jax.random.split(key, mean_trajectory.shape[0])
+        return jax.vmap(_sample_mean_vector)(mean_keys, mean_trajectory)
+
+    if all_gaussian:
+        manifest_cov_adj = (
+            0.5 * (manifest_cov + manifest_cov.T)
+            + jnp.eye(n_manifest, dtype=manifest_cov.dtype) * CHOL_JITTER
+        )
+        manifest_chol = jnp.linalg.cholesky(manifest_cov_adj)
+
+        def _sample_point_vector(key, linear_predictor):
+            return linear_predictor + manifest_chol @ jax.random.normal(key, linear_predictor.shape)
+
+        def _sample_point_trajectory(key, linear_predictors):
+            point_keys = jax.random.split(key, linear_predictors.shape[0])
+            return jax.vmap(_sample_point_vector)(point_keys, linear_predictors)
+
+        return PredictiveObservationSampler(
+            sample_point_trajectory=_sample_point_trajectory,
+            sample_mean_trajectory=_sample_mean_trajectory,
+            all_gaussian=True,
+            manifest_dists=manifest_dist_values,
+        )
+
+    dist_indices = jnp.asarray(
+        [
+            get_posterior_predictive_switch_index(dist, link=link)
+            for dist, link in zip(dists, links, strict=False)
+        ],
+        dtype=jnp.int32,
+    )
+    manifest_std = jnp.sqrt(jnp.maximum(jnp.diag(manifest_cov), NUMERICAL_EPSILON))
+    params = extra_params or {}
+    level_counts = params.get("obs_level_counts")
+    if level_counts is None:
+        level_counts = jnp.ones((n_manifest,), dtype=jnp.int32)
+    else:
+        level_counts = jnp.asarray(level_counts, dtype=jnp.int32)
+    ordered_cutpoints = params.get("obs_ordered_cutpoints")
+    if ordered_cutpoints is None:
+        ordered_cutpoints = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
+    cat_intercepts = params.get("obs_cat_intercepts")
+    if cat_intercepts is None:
+        cat_intercepts = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
+    cat_slopes = params.get("obs_cat_slopes")
+    if cat_slopes is None:
+        cat_slopes = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
+    obs_df = jnp.asarray(params.get("obs_df", 5.0), dtype=manifest_cov.dtype)
+    obs_shape = jnp.asarray(params.get("obs_shape", 2.0), dtype=manifest_cov.dtype)
+    obs_r = jnp.asarray(params.get("obs_r", 5.0), dtype=manifest_cov.dtype)
+    obs_concentration = jnp.asarray(
+        params.get("obs_concentration", 10.0),
+        dtype=manifest_cov.dtype,
+    )
+
+    def _sample_channel(
+        loc_j,
+        key,
+        dist_idx,
+        std_j,
+        df,
+        shape_p,
+        r_p,
+        phi_p,
+        level_count,
+        cutpoints,
+        cat_intercepts_j,
+        cat_slopes_j,
+    ):
+        return jax.lax.switch(
+            dist_idx,
+            POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
+            loc_j,
+            key,
+            std_j,
+            df,
+            shape_p,
+            r_p,
+            phi_p,
+            level_count,
+            cutpoints,
+            cat_intercepts_j,
+            cat_slopes_j,
+        )
+
+    def _sample_point_vector(key, linear_predictor):
+        channel_keys = jax.random.split(key, n_manifest)
+        return jax.vmap(_sample_channel)(
+            linear_predictor,
+            channel_keys,
+            dist_indices,
+            manifest_std,
+            jnp.full((n_manifest,), obs_df),
+            jnp.full((n_manifest,), obs_shape),
+            jnp.full((n_manifest,), obs_r),
+            jnp.full((n_manifest,), obs_concentration),
+            level_counts,
+            ordered_cutpoints,
+            cat_intercepts,
+            cat_slopes,
+        )
+
+    def _sample_point_trajectory(key, linear_predictors):
+        point_keys = jax.random.split(key, linear_predictors.shape[0])
+        return jax.vmap(_sample_point_vector)(point_keys, linear_predictors)
+
+    return PredictiveObservationSampler(
+        sample_point_trajectory=_sample_point_trajectory,
+        sample_mean_trajectory=_sample_mean_trajectory,
+        all_gaussian=False,
+        manifest_dists=manifest_dist_values,
+    )
+
+
+def build_composite_mean_log_prob_fn(
+    manifest_dists,
+    extra_params: dict | None = None,
+):
+    """Build an observation-space log-prob for heterogeneous manifest families."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    if len(set(dists)) == 1:
+        return get_mean_param_log_prob_fn(dists[0], extra_params)
+
+    from collections import defaultdict
+
+    groups: dict[DistributionFamily, list[int]] = defaultdict(list)
+    for ch_idx, dist in enumerate(dists):
+        groups[dist].append(ch_idx)
+
+    group_fns: list[tuple[list[int], callable]] = []
+    for dist, ch_indices in groups.items():
+        group_fns.append(
+            (
+                ch_indices,
+                get_mean_param_log_prob_fn(
+                    dist,
+                    _slice_per_channel_extra_params(extra_params, ch_indices),
+                ),
+            )
+        )
+
+    def composite_mean_log_prob(y_t, mean_t, R, obs_mask_t):
+        total_ll = 0.0
+        for ch_indices, group_fn in group_fns:
+            idx = jnp.array(ch_indices)
+            y_g = y_t[idx]
+            mean_g = mean_t[idx]
+            R_g = R[jnp.ix_(idx, idx)]
+            mask_g = obs_mask_t[idx]
+            total_ll = total_ll + group_fn(y_g, mean_g, R_g, mask_g)
+        return total_ll
+
+    return composite_mean_log_prob
+
+
+def build_composite_mean_sample_fn(
+    manifest_dists,
+    extra_params: dict | None = None,
+):
+    """Build an observation-space sampler for heterogeneous manifest families."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    if len(set(dists)) == 1:
+        return get_mean_param_sample_fn(dists[0], extra_params)
+
+    from collections import defaultdict
+
+    groups: dict[DistributionFamily, list[int]] = defaultdict(list)
+    for ch_idx, dist in enumerate(dists):
+        groups[dist].append(ch_idx)
+
+    group_fns: list[tuple[list[int], callable]] = []
+    for dist, ch_indices in groups.items():
+        group_fns.append(
+            (
+                ch_indices,
+                get_mean_param_sample_fn(
+                    dist,
+                    _slice_per_channel_extra_params(extra_params, ch_indices),
+                ),
+            )
+        )
+
+    def composite_mean_sample(key, mean_t, R):
+        sampled = jnp.zeros_like(mean_t)
+        keys = jax.random.split(key, len(group_fns))
+        for subkey, (ch_indices, group_fn) in zip(keys, group_fns, strict=False):
+            idx = jnp.array(ch_indices)
+            sampled = sampled.at[idx].set(group_fn(subkey, mean_t[idx], R[jnp.ix_(idx, idx)]))
+        return sampled
+
+    return composite_mean_sample

@@ -21,6 +21,8 @@ import numpyro.distributions as dist
 if TYPE_CHECKING:
     import numpy as np
 
+    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
@@ -296,12 +298,24 @@ class SSMModel:
         self.likelihood = likelihood
         self._assembler = SSMAssembler(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
+        self.observation_support: ObservationSupportRuntime | None = None
 
     def get_cached_artifact(self, cache_key: tuple[Any, ...], factory) -> Any:
         """Construct an artifact once per model instance and reuse it afterwards."""
         if cache_key not in self._artifact_cache:
             self._artifact_cache[cache_key] = factory()
         return self._artifact_cache[cache_key]
+
+    def set_observation_support(
+        self, observation_support: ObservationSupportRuntime | None
+    ) -> None:
+        """Attach prepared observation-support metadata and invalidate backend caches."""
+        self.observation_support = observation_support
+        self._artifact_cache = {
+            key: value
+            for key, value in self._artifact_cache.items()
+            if not (isinstance(key, tuple) and key and key[0] == "backend")
+        }
 
     def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample drift matrix with stability constraints."""
@@ -490,14 +504,24 @@ class SSMModel:
                 self.likelihood,
                 self.n_particles,
                 self.pf_key,
+                observation_support=self.observation_support,
             ),
         )
 
     def make_laplace_backend(self, n_ieks_iters: int):
         """Construct or reuse the Laplace likelihood backend for this model."""
         return self.get_cached_artifact(
-            ("backend", "laplace", n_ieks_iters),
-            lambda: _build_laplace_backend(self.spec, n_ieks_iters),
+            (
+                "backend",
+                "laplace",
+                n_ieks_iters,
+                id(self.observation_support),
+            ),
+            lambda: _build_laplace_backend(
+                self.spec,
+                n_ieks_iters,
+                observation_support=self.observation_support,
+            ),
         )
 
     def _sample_likelihood_extra_params(self, spec: SSMSpec) -> dict[str, jnp.ndarray]:
@@ -550,7 +574,9 @@ class SSMModel:
                     dist.Normal(0.0, 1.0).expand(cat_shape),
                 )
 
-        if spec.diffusion_dist == DistributionFamily.STUDENT_T:
+        from causal_ssm_agent.models.likelihoods.graph_analysis import has_student_t_diffusion
+
+        if has_student_t_diffusion(spec):
             sampled_values["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
 
         return assemble_sampled_extra_params(spec, sampled_values)
@@ -624,7 +650,11 @@ class SSMModel:
             numpyro.deterministic("ll_per_timestep", ll_per_timestep)
 
 
-def _build_laplace_backend(spec: SSMSpec, n_ieks_iters: int):
+def _build_laplace_backend(
+    spec: SSMSpec,
+    n_ieks_iters: int,
+    observation_support: ObservationSupportRuntime | None = None,
+):
     from causal_ssm_agent.models.likelihoods.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
@@ -637,6 +667,7 @@ def _build_laplace_backend(spec: SSMSpec, n_ieks_iters: int):
         manifest_dists=get_per_channel_manifest(spec),
         manifest_links=get_per_channel_links(spec),
         n_ieks_iters=n_ieks_iters,
+        observation_support=observation_support,
     )
 
 
@@ -650,6 +681,7 @@ def make_likelihood_backend(
     likelihood: Literal["particle", "kalman"] = "particle",
     n_particles: int = 200,
     pf_key: jnp.ndarray | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
 ):
     """Construct a likelihood backend from model configuration.
 
@@ -667,6 +699,13 @@ def make_likelihood_backend(
     """
     if pf_key is None:
         pf_key = jax.random.PRNGKey(0)
+
+    requires_interval_summary_handling = bool(
+        observation_support is not None and observation_support.requires_interval_summary_handling
+    )
+
+    if requires_interval_summary_handling:
+        likelihood = "particle"
 
     if likelihood == "kalman":
         from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
@@ -688,7 +727,7 @@ def make_likelihood_backend(
     per_links = get_per_channel_links(spec)
 
     # First-pass RB analysis: identify decoupled Gaussian sub-blocks
-    if spec.first_pass_rb:
+    if spec.first_pass_rb and not requires_interval_summary_handling:
         from causal_ssm_agent.models.likelihoods.graph_analysis import (
             analyze_first_pass_rb,
         )
@@ -750,6 +789,7 @@ def make_likelihood_backend(
                     diffusion_dist=particle_diffs,
                     block_rb=spec.second_pass_rb,
                     manifest_link=pf_manifest_link,
+                    observation_support=None,
                 ),
             )
 
@@ -763,6 +803,7 @@ def make_likelihood_backend(
         rng_key=pf_key,
         manifest_dist=spec.manifest_dist,
         diffusion_dist=per_var,
-        block_rb=spec.second_pass_rb,
+        block_rb=False if requires_interval_summary_handling else spec.second_pass_rb,
         manifest_link=spec.manifest_link,
+        observation_support=observation_support,
     )

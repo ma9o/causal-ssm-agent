@@ -18,6 +18,7 @@ from causal_ssm_agent.models.likelihoods.graph_analysis import (
 )
 from causal_ssm_agent.models.ssm.inference import select_default_method
 from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 # =============================================================================
@@ -548,6 +549,26 @@ class TestAnalyzeFirstPassRB:
 
 
 class TestSelectDefaultMethod:
+    def test_non_point_observation_support_routes_to_svi(self):
+        """Interval-summary observations should bypass IEKS/Kalman auto-routing."""
+        spec = _make_spec()
+        support = ObservationSupportRuntime(
+            anchor_times=np.array([0.0, 1.0]),
+            manifest_names=["y1", "y2"],
+            support_kinds=["interval", "point"],
+            summary_operators=["mean", "last"],
+            anchor_policies=["support_end", "support_end"],
+            observation_windows=["1d", "1d"],
+            support_start_times=np.array([[np.nan, np.nan], [0.0, np.nan]]),
+            support_end_times=np.array([[np.nan, np.nan], [1.0, np.nan]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
+            interval_weights=np.array([[[0.0], [0.0]], [[1.0], [0.0]]]),
+            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
+        )
+
+        assert select_default_method(spec, support) == "svi"
+
     def test_gaussian_model_routes_to_nuts(self):
         """Fully Gaussian model with identity links → nuts."""
         spec = _make_spec(

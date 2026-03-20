@@ -118,7 +118,7 @@ export function parsePrefectStageProgressEvent(
 export interface WorkerProgressEvent {
   workerId: number;
   status: "submitted" | "completed" | "failed";
-  nTicks: number;
+  nWindows: number;
   totalWorkers: number;
   completedCount: number;
   nExtractions?: number;
@@ -138,7 +138,7 @@ export function parseWorkerProgressEvent(
   return {
     workerId: p.worker_id as number,
     status,
-    nTicks: (p.n_ticks as number) ?? 0,
+    nWindows: (p.n_windows as number) ?? 0,
     totalWorkers: (p.total_workers as number) ?? 0,
     completedCount: (p.completed_count as number) ?? 0,
     nExtractions: typeof p.n_extractions === "number" ? p.n_extractions : undefined,
