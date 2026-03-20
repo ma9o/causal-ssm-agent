@@ -71,15 +71,18 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
     if value is None:
         return True  # None is always acceptable
 
+    def _is_integer_numeric(v: Any) -> bool:
+        return not isinstance(v, bool) and (
+            isinstance(v, int) or (isinstance(v, float) and v == int(v))
+        )
+
     dtype_checks = {
         "continuous": lambda v: isinstance(v, (int, float)),
         "binary": lambda v: (
             isinstance(v, bool) or v in (0, 1, "0", "1", "true", "false", "True", "False")
         ),
         "count": lambda v: isinstance(v, int) or (isinstance(v, float) and v == int(v) and v >= 0),
-        "ordinal": lambda v: isinstance(
-            v, (int, float, str)
-        ),  # Flexible - can be numeric or string
+        "ordinal": _is_integer_numeric,
         "categorical": lambda v: isinstance(v, str),
     }
 
@@ -168,6 +171,22 @@ def validate_worker_output(
                 f"expected dtype '{expected_dtype}'"
             )
             continue
+
+        if expected_dtype == "ordinal" and value is not None:
+            ordinal_levels = indicator_info[ind_name].get("ordinal_levels") or []
+            ordinal_code = int(value)
+            if ordinal_code < 0:
+                errors.append(
+                    f"extractions[{i}]: ordinal value {value!r} for '{ind_name}' must be >= 0"
+                )
+                continue
+            if ordinal_levels and ordinal_code >= len(ordinal_levels):
+                errors.append(
+                    f"extractions[{i}]: ordinal value {value!r} for '{ind_name}' "
+                    f"must be in 0..{len(ordinal_levels) - 1}"
+                )
+                continue
+            value = ordinal_code
 
         normalized = {
             "window_start": window_start,

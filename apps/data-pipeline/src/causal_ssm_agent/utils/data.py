@@ -309,7 +309,15 @@ def annotate_observation_rows(
         )
 
     ts_expr = (
-        pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC")
+        # Stage 2 merges support-window starts coming from both paths:
+        # computed rows use naive bucket strings while semantic rows can carry
+        # the same UTC boundary with an explicit `+00:00` suffix from the
+        # worker header. Normalize the redundant UTC suffix so mixed batches
+        # parse consistently into the same support bounds.
+        pl.col(time_col)
+        .str.replace(r"[Zz]$", "")
+        .str.replace(r"[+-]\d{2}:\d{2}$", "")
+        .str.to_datetime(strict=False)
         if df.schema.get(time_col) == pl.Utf8
         else pl.col(time_col)
     )

@@ -90,17 +90,18 @@ Determines whether the indicator is computed directly via Polars or extracted by
 
 Use `"computed"` when ALL of these hold:
 - Exactly ONE source column
-- The column contains numeric values (measurement_dtype is `continuous` or `count`)
-- The aggregation function applies directly to the column with no filtering, transformation, or interpretation needed
-- Examples: "Use the `steps` column directly" + aggregation=sum, "Use the `heart_rate` column directly" + aggregation=mean
+- The indicator can be derived deterministically from that direct source column with the declared aggregation and dtype semantics
+- No filtering, transformation, formula, thresholding, or interpretation is needed beyond the direct aggregation itself
+- Examples: "Use the `steps` column directly" + aggregation=sum, "Use the last observed `mood_label` in the day" + aggregation=last, "Use the first recorded `care_setting` in the window" + aggregation=first
+
+If those conditions hold, choose `"computed"` rather than `"semantic"`. Do not send a direct single-column deterministic aggregation through the worker path.
 
 Use `"semantic"` (default) when ANY of these hold:
 - Multiple source columns needed (e.g., "Compute MAP from `systolic_bp` and `diastolic_bp`")
-- Non-numeric dtype (binary, ordinal, categorical)
-- how_to_measure requires conditional logic or filtering (e.g., "set to 1 if `medication_log` is non-empty")
+- how_to_measure requires conditional logic or filtering (e.g., "set to 1 if `medication_log` is non-empty", thresholding, counting only rows that satisfy a predicate)
 - how_to_measure requires interpretation or qualitative judgment
 
-`"computed"` indicators are aggregated instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` when possible to reduce cost and latency.
+`"computed"` indicators are aggregated instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` whenever the direct-column deterministic path is sufficient.
 
 ## how_to_measure Guidelines
 
@@ -118,7 +119,15 @@ The `how_to_measure` field must tell workers exactly what to do inside each supp
 - Reference specific column names from the dataset so workers know exactly where to look
 - Describe any derivation, transformation, or filtering needed
 - Say whether workers should aggregate event-level evidence across the whole support window or look for an explicit summary mention inside the window
+- For indicators that remain `"semantic"`, explicitly define missingness semantics in `how_to_measure`:
+  use `null` when there is no usable observation for the indicator in that support window, and use `0` (or the negative category) only when the relevant source evidence is actually present and indicates a negative result
+- For semantic count indicators, say whether `0` means "observed relevant events and none matched" versus `null` meaning "no usable source observation in the window"
 - Workers only see one support window at a time, so do not require cross-window comparisons or rolling calculations that depend on prior/future windows
+
+### Missingness Examples
+- Good: "Inspect `temperature_c`. Return 1 if any observed temperature is >= 38.0 C, 0 if at least one temperature is observed and all are below 38.0 C, and null if no temperature is recorded in that day."
+- Good: "Inspect `message_text` for infection mentions. Return 1 if infection is explicitly mentioned, 0 if relevant symptom text is present and clearly indicates no infection, and null if there is no usable text evidence in that window."
+- Bad: "Return 1 if found, otherwise 0." This is ambiguous because it collapses no observation and observed negative into the same value.
 
 ## Temporal Independence (A8)
 
@@ -159,7 +168,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "observation_window": "1mo",  // optional; omit unless support window differs from model_clock
       "ordinal_levels": ["low", "medium", "high"],  // required when measurement_dtype is "ordinal", ordered low→high
       "source_columns": ["col_a", "col_b"],  // raw data columns referenced by how_to_measure
-      "extraction_mode": "computed" | "semantic"  // default "semantic"; use "computed" for single numeric column + direct aggregation
+      "extraction_mode": "computed" | "semantic"  // default "semantic"; use "computed" for direct single-column deterministic aggregation
     }
   ]
 }
@@ -208,8 +217,10 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Every time-varying construct needs at least one indicator
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
+- If an indicator satisfies the schema constraints for `"computed"`, use `"computed"` instead of `"semantic"`
 - Add `observation_window` only when an indicator summarizes a wider interval than `model_clock`
 - When relevant, make clear whether workers should aggregate event-level evidence across the window or extract a one-off summary mention within the window
+- For `"semantic"` indicators, make `0` versus `null` explicit in `how_to_measure`
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 
@@ -234,7 +245,8 @@ Review your proposed measurement model for operationalization coherence.
 6. **Redundancy**: Are there indicators that are essentially duplicates?
 7. **Local independence**: Would any two indicators of the same construct remain correlated after conditioning on the construct? If so, they violate pure indicators.
 8. **Temporal independence (A8)**: Do any indicators have their own temporal dynamics beyond the construct?
-9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? (single numeric column + direct aggregation = no LLM needed, faster and cheaper)
+9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? (direct single-column deterministic aggregation = no LLM needed, faster and cheaper)
+10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
 
 ## Red Flags
 
@@ -243,6 +255,7 @@ Review your proposed measurement model for operationalization coherence.
 - monthly/weekly summary indicator lacks `observation_window` or fails to say whether to extract an explicit summary mention versus aggregate raw events
 - unsupported aggregation operator (`min`, `median`, `trend`, etc.)
 - Vague instructions that workers can't follow
+- semantic instructions like "return 1 if found, otherwise 0" that do not distinguish `0` from `null`
 - Indicators that directly cause each other → violates pure indicators assumption
 - Cumulative/running metrics → violates A8 (temporal independence)
 

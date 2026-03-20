@@ -38,8 +38,8 @@ def _build_agg_expr(agg_name: str, col_name: str = "value") -> pl.Expr:
         "max": col.max(),
         "std": col.std(),
         "var": col.var(),
-        "last": col.last(),
-        "first": col.first(),
+        "last": col.drop_nulls().last(),
+        "first": col.drop_nulls().first(),
         "count": col.count(),
         "median": col.median(),
         "n_unique": col.n_unique(),
@@ -112,14 +112,17 @@ def compute_indicators(
 ) -> pl.DataFrame:
     """Compute indicator values directly via Polars aggregation.
 
-    For indicators with extraction_mode='computed', applies the aggregation
-    function to the single source column, grouped by each indicator's effective
-    observation window (explicit observation_window or fallback model_clock).
+    For indicators with extraction_mode='computed', applies a deterministic
+    aggregation to the single source column, grouped by each indicator's
+    effective observation window (explicit observation_window or fallback
+    model_clock). Non-numeric direct columns are supported for point
+    aggregations (`first`/`last`), and ordinal direct columns are converted to
+    their declared integer codes before emission.
 
     Args:
         raw_df: Raw wide-format DataFrame with actual column names.
         indicators: List of indicator dicts with extraction_mode="computed".
-            Each must have exactly one source_column.
+            Each must have exactly one directly aggregated source column.
         model_clock: Global fallback duration string for truncation (e.g., "1d").
         time_col: Name of the datetime column in raw_df.
 
@@ -144,6 +147,7 @@ def compute_indicators(
         name = ind["name"]
         source_col = ind["source_columns"][0]
         agg_name = ind["aggregation"]
+        measurement_dtype = ind.get("measurement_dtype", "continuous")
         observation_window = ind.get("observation_window") or model_clock
 
         if source_col not in df.columns:
@@ -154,28 +158,29 @@ def compute_indicators(
             )
             continue
 
+        prepared = _prepare_computed_indicator_frame(
+            df,
+            time_col=time_col,
+            source_col=source_col,
+            observation_window=observation_window,
+            measurement_dtype=measurement_dtype,
+            ordinal_levels=ind.get("ordinal_levels"),
+        )
+
         if agg_name in _MAP_GROUPS_AGGREGATIONS:
             # trend etc: rename source_col → "value" for map_groups function
             fn = _build_map_groups_fn(agg_name)
             agg_df = (
-                df.select(
-                    pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
-                    pl.col(source_col).cast(pl.Float64, strict=False).alias("value"),
+                prepared.select(
+                    "__tick__", pl.col("__value__").cast(pl.Float64, strict=False).alias("value")
                 )
                 .sort("__tick__")
                 .group_by("__tick__", maintain_order=True)
                 .map_groups(fn)
             )
         else:
-            expr = _build_agg_expr(agg_name, source_col)
-            agg_df = (
-                df.select(
-                    pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
-                    pl.col(source_col).cast(pl.Float64, strict=False).alias(source_col),
-                )
-                .group_by("__tick__", maintain_order=True)
-                .agg(expr)
-            )
+            expr = _build_agg_expr(agg_name, "__value__")
+            agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
         agg_df = agg_df.select(
             pl.lit(name).alias("indicator"),
@@ -188,6 +193,85 @@ def compute_indicators(
         return pl.DataFrame(schema=output_schema)
 
     return pl.concat(frames, how="vertical").sort("timestamp", "indicator")
+
+
+def _prepare_computed_indicator_frame(
+    df: pl.DataFrame,
+    *,
+    time_col: str,
+    source_col: str,
+    observation_window: str,
+    measurement_dtype: str,
+    ordinal_levels: list[str] | None,
+) -> pl.DataFrame:
+    """Prepare a computed indicator's source values for deterministic aggregation."""
+    value_expr = _computed_value_expr(
+        source_col,
+        measurement_dtype=measurement_dtype,
+        ordinal_levels=ordinal_levels,
+    ).alias("__value__")
+    return df.select(
+        pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
+        value_expr,
+    )
+
+
+def _computed_value_expr(
+    source_col: str,
+    *,
+    measurement_dtype: str,
+    ordinal_levels: list[str] | None,
+) -> pl.Expr:
+    """Build the deterministic source-value expression for a computed indicator."""
+    source = pl.col(source_col)
+    if measurement_dtype == "ordinal":
+        max_code = len(ordinal_levels or []) - 1
+        label_map = {
+            str(level).strip().lower(): idx for idx, level in enumerate(ordinal_levels or [])
+        }
+        return source.map_elements(
+            lambda value, _max=max_code, _label_map=label_map: _coerce_ordinal_code(
+                value, _label_map, _max
+            ),
+            return_dtype=pl.Int64,
+        )
+    return source
+
+
+def _coerce_ordinal_code(
+    value: object,
+    label_map: dict[str, int],
+    max_code: int,
+) -> int | None:
+    """Normalize an ordinal source value to its canonical integer code."""
+    if value is None or isinstance(value, bool):
+        return None
+
+    code: int | None = None
+    if isinstance(value, int):
+        code = value
+    elif isinstance(value, float):
+        if value.is_integer():
+            code = int(value)
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            numeric = float(stripped)
+        except ValueError:
+            code = label_map.get(stripped.lower())
+        else:
+            if numeric.is_integer():
+                code = int(numeric)
+
+    if code is None:
+        return None
+    if code < 0:
+        return None
+    if max_code >= 0 and code > max_code:
+        return None
+    return code
 
 
 _BINARY_TRUE = {"true", "yes", "1", "1.0", "t", "y"}
@@ -254,14 +338,41 @@ def _encode_non_continuous(
                     n_null,
                     len(subset),
                 )
+        elif dtype == "ordinal":
+            explicit_levels = ordinal_levels_lookup.get(name)
+            max_code = len(explicit_levels) - 1 if explicit_levels else None
+            subset = (
+                subset.with_columns(
+                    pl.col("value").cast(pl.Float64, strict=False).alias("__ordinal_code")
+                )
+                .with_columns(
+                    pl.when(pl.col("__ordinal_code").is_null())
+                    .then(None)
+                    .when(pl.col("__ordinal_code") != pl.col("__ordinal_code").round(0))
+                    .then(None)
+                    .when(pl.col("__ordinal_code") < 0)
+                    .then(None)
+                    .when(
+                        pl.lit(max_code is not None)
+                        & (pl.col("__ordinal_code") > pl.lit(max_code or 0))
+                    )
+                    .then(None)
+                    .otherwise(pl.col("__ordinal_code"))
+                    .alias("value")
+                )
+                .drop("__ordinal_code")
+            )
+            n_null = subset["value"].null_count()
+            if n_null > 0:
+                logger.warning(
+                    "Ordinal indicator '%s': %d/%d values could not be encoded",
+                    name,
+                    n_null,
+                    len(subset),
+                )
         else:
             # ordinal/categorical: label encoding
-            # Use explicit ordinal_levels if provided, otherwise fall back to sorted
-            explicit_levels = ordinal_levels_lookup.get(name)
-            if explicit_levels and dtype == "ordinal":
-                unique_vals = explicit_levels
-            else:
-                unique_vals = sorted(v for v in subset["value"].unique().to_list() if v is not None)
+            unique_vals = sorted(v for v in subset["value"].unique().to_list() if v is not None)
             # Normalize for case-insensitive matching (mirrors binary branch)
             label_map = {
                 v.strip().lower() if isinstance(v, str) else v: float(i)

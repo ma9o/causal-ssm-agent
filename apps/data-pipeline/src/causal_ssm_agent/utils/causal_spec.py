@@ -43,6 +43,7 @@ def get_indicator_info(causal_spec: dict) -> dict[str, dict]:
         ind["name"]: {
             "dtype": ind.get("measurement_dtype"),
             "construct_name": ind.get("construct_name"),
+            "ordinal_levels": ind.get("ordinal_levels"),
             "support_kind": get_support_kind(ind),
             "summary_operator": get_summary_operator(ind),
             "anchor_policy": get_anchor_policy(ind),
@@ -71,6 +72,7 @@ _WORKER_INDICATOR_KEYS = (
     "source_columns",
     "aggregation",
     "observation_window",
+    "ordinal_levels",
 )
 
 
@@ -82,8 +84,9 @@ def make_extraction_context(causal_spec: dict) -> dict:
       aggregation, support_kind, summary_operator, anchor_policy, observation_window
     - outcome: name, description (for prompt context)
 
-    Does not include: construct_name, ordinal_levels, latent edges, or
-    non-outcome constructs.
+    Does not include: construct_name, latent edges, or non-outcome constructs.
+    Includes ordinal_levels only for ordinal indicators so workers can use a
+    stable numeric codebook.
     """
     model_clock = causal_spec.get("measurement", {}).get("model_clock")
     slim_indicators = [

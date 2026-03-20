@@ -16,7 +16,7 @@ For each support window, produce exactly ONE value per indicator by:
 3. Producing a single value using one of two extraction strategies (see below)
 
 There are two extraction strategies:
-- **Event-derived window statistics**: inspect relevant events inside the window, map each event to a value or label as instructed, then aggregate across the full window. Example: classify each search as anxiety-related and count them within the day.
+- **Event-derived window statistics**: inspect relevant events inside the window, map each event to a value as instructed, then aggregate across the full window. Example: classify each search as anxiety-related and count them within the day.
 - **Explicit summary mentions**: sometimes the raw data contains a value that already summarizes a wider period (for example a monthly average HRV value mentioned once somewhere in that month). In that case, search anywhere inside the provided support window for that explicit summary mention and extract that value directly. Do **not** recompute the summary from unrelated event-level mentions unless `how_to_measure` explicitly tells you to.
 
 ## Data Types (measurement_dtype)
@@ -41,6 +41,39 @@ Each indicator has metadata describing its measurement semantics:
 Only the operators listed above are supported. Do not invent `min`, `max`, `median`, percentiles, `trend`, or other unsupported summaries.
 
 You output one value per window per indicator. Support-window metadata is added downstream — focus on extracting the correct scalar for the provided window contents.
+
+## Ordinal Output Contract
+
+For `ordinal` indicators, output the integer code, not the label text.
+
+- Use the provided `ordinal_codes` mapping.
+- Codes are always `0..K-1` in `ordinal_levels` order from lowest to highest.
+- Example: if `ordinal_codes=0=poor, 1=fair, 2=good`, then return `2` for `good`.
+- If no relevant evidence exists in the support window, return `null`.
+
+## Missingness Versus Zero
+
+Do not use `0` to mean "I did not see evidence."
+
+- Return `null` when the source columns needed for an indicator are missing,
+  empty, or never observed in that support window.
+- Return `0` only when the relevant source columns are actually observed in the
+  window and those observations indicate a negative result.
+- Windows that contain only unrelated events should usually produce `null`, not
+  `0`, for semantic indicators.
+- If a column like `event_type` is only a filter/context field, it is not
+  enough by itself to justify `0`; you still need observed values in the
+  informative source fields.
+
+Examples:
+- `glucose_out_of_range = 0` only if at least one glucose reading is observed
+  and all observed readings are in range.
+- `low_spo2 = 0` only if at least one SpO2 reading is observed and all observed
+  readings are >= 92.
+- `fever = 0` only if at least one temperature reading is observed and all
+  observed readings are < 38.0 C.
+- `missed_doses = 0` only if medication-administration evidence is observed and
+  none of those administrations are marked missed.
 
 ## Validation Tool
 

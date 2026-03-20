@@ -164,6 +164,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
 
 def test_production_registry_offloads_stage4_to_modal(monkeypatch):
+    pytest.importorskip("modal")
     from causal_ssm_agent.flows import modal_runners
 
     _reset_stage_registry(monkeypatch)
@@ -1025,6 +1026,83 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
     assert manifest_names == ["daytime_screen_events", "last_evening_activity_hour"]
     assert jnp.isclose(observations[0, 0], 5.0)
     assert jnp.isnan(observations[0, 1])
+
+
+def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
+    stub = _AsyncSubflowStub(
+        {
+            "raw_data": [
+                {
+                    "indicator": "stress_score",
+                    "value": "4.0",
+                    "anchor_time": "2024-01-02T00:00:00",
+                    "support_kind": "interval",
+                    "summary_operator": "mean",
+                    "anchor_policy": "support_end",
+                    "observation_window": "1d",
+                    "support_start": "2024-01-01T00:00:00",
+                    "support_end": "2024-01-02T00:00:00",
+                },
+                {
+                    "indicator": "closing_mood",
+                    "value": "1",
+                    "anchor_time": "2024-01-02T00:00:00",
+                    "support_kind": "point",
+                    "summary_operator": "last",
+                    "anchor_policy": "support_end",
+                    "observation_window": "1d",
+                    "support_start": "2024-01-01T00:00:00",
+                    "support_end": "2024-01-02T00:00:00",
+                },
+            ],
+            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 2}],
+            "n_total_extractions": 2,
+        }
+    )
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
+    )
+
+    result = asyncio.run(
+        dag.stage2(
+            "why is this happening?",
+            {"_df_path": str(tmp_path / "input.parquet")},
+            {
+                "causal_spec": {
+                    "measurement": {
+                        "model_clock": "1d",
+                        "indicators": [
+                            {
+                                "name": "stress_score",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            {
+                                "name": "closing_mood",
+                                "measurement_dtype": "ordinal",
+                                "aggregation": "last",
+                                "ordinal_levels": ["bad", "good"],
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+    )
+
+    data_for_model = result["_data_for_model"].sort("indicator")
+    assert data_for_model.height == 2
+    assert data_for_model["indicator"].to_list() == ["closing_mood", "stress_score"]
+    assert data_for_model["support_kind"].to_list() == ["point", "interval"]
+    assert data_for_model["summary_operator"].to_list() == ["last", "mean"]
+    assert data_for_model["anchor_policy"].to_list() == ["support_end", "support_end"]
+    assert str(data_for_model["anchor_time"][0]) == "2024-01-02 00:00:00"
+    assert str(data_for_model["support_start"][0]) == "2024-01-01 00:00:00"
+    assert str(data_for_model["support_end"][0]) == "2024-01-02 00:00:00"
+    assert data_for_model.filter(pl.col("indicator") == "closing_mood")["value"][0] == 1.0
+    assert data_for_model.filter(pl.col("indicator") == "stress_score")["value"][0] == 4.0
 
 
 def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):

@@ -40,6 +40,7 @@ def _full_spec():
                     "measurement_dtype": "ordinal",
                     "how_to_measure": "Rate mood 1-5",
                     "aggregation": "last",
+                    "ordinal_levels": ["low", "medium", "high"],
                 },
             ],
         },
@@ -72,6 +73,7 @@ class TestMakeExtractionContext:
             "observation_window",
         }
         assert "construct_name" not in ind
+        assert "ordinal_levels" not in ind
 
     def test_outcome_slimmed_to_name_and_description(self):
         spec = _full_spec()
@@ -103,3 +105,8 @@ class TestMakeExtractionContext:
         spec["measurement"]["indicators"][0]["source_columns"] = ["col_a", "col_b"]
         ctx = make_extraction_context(spec)
         assert ctx["measurement"]["indicators"][0]["source_columns"] == ["col_a", "col_b"]
+
+    def test_ordinal_levels_included_for_worker_codebook(self):
+        spec = _full_spec()
+        ctx = make_extraction_context(spec)
+        assert ctx["measurement"]["indicators"][1]["ordinal_levels"] == ["low", "medium", "high"]

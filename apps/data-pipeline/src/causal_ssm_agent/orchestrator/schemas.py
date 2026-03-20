@@ -369,9 +369,10 @@ class Indicator(BaseModel):
     extraction_mode: str = Field(
         default="semantic",
         description=(
-            "'computed' (direct Polars aggregation on source column) or "
-            "'semantic' (LLM extraction). Use 'computed' when the indicator "
-            "maps to a single numeric column and the aggregation can be applied directly."
+            "'computed' (deterministic pipeline aggregation on a direct source column) "
+            "or 'semantic' (LLM extraction). Use 'computed' when the indicator can be "
+            "derived deterministically from one direct source column using the declared "
+            "aggregation and dtype semantics."
         ),
     )
 
@@ -439,13 +440,9 @@ class Indicator(BaseModel):
             return self
         if len(self.source_columns) != 1:
             raise ValueError(
-                f"Computed indicator '{self.name}' requires exactly 1 source_column, "
+                f"Computed indicator '{self.name}' currently requires exactly 1 direct "
+                f"source_column, "
                 f"got {len(self.source_columns)}: {self.source_columns}"
-            )
-        if self.measurement_dtype not in ("continuous", "count"):
-            raise ValueError(
-                f"Computed indicator '{self.name}' requires measurement_dtype "
-                f"'continuous' or 'count', got '{self.measurement_dtype}'"
             )
         return self
 

@@ -30,6 +30,7 @@ def _causal_spec(*indicators):
                     "name": name,
                     "measurement_dtype": dtype,
                     "aggregation": default_aggregations.get(dtype, "last"),
+                    **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
                 }
                 for name, dtype in indicators
             ],
@@ -97,8 +98,8 @@ class TestCheckDtypeMatch:
     def test_ordinal_accepts_int(self):
         assert _check_dtype_match(3, "ordinal") is True
 
-    def test_ordinal_accepts_string(self):
-        assert _check_dtype_match("moderate", "ordinal") is True
+    def test_ordinal_rejects_string_label(self):
+        assert _check_dtype_match("moderate", "ordinal") is False
 
     def test_categorical_string(self):
         assert _check_dtype_match("category_a", "categorical") is True
@@ -257,6 +258,36 @@ class TestValidateWorkerOutput:
         )
         assert output is None
         assert any("not in expected support windows" in e for e in errors)
+
+    def test_ordinal_requires_numeric_code(self):
+        spec = _causal_spec(("severity", "ordinal"))
+        data = {
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator": "severity", "value": "high"}
+            ]
+        }
+        output, errors = validate_worker_output(data, spec)
+        assert output is None
+        assert any("expected dtype 'ordinal'" in e for e in errors)
+
+    def test_ordinal_code_must_be_in_range(self):
+        spec = _causal_spec(("severity", "ordinal"))
+        data = {
+            "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 3}]
+        }
+        output, errors = validate_worker_output(data, spec)
+        assert output is None
+        assert any("must be in 0..2" in e for e in errors)
+
+    def test_ordinal_value_normalized_to_int(self):
+        spec = _causal_spec(("severity", "ordinal"))
+        data = {
+            "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 2.0}]
+        }
+        output, errors = validate_worker_output(data, spec)
+        assert errors == []
+        assert output is not None
+        assert output.extractions[0].value == 2
 
 
 # =============================================================================
