@@ -51,6 +51,14 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
         </div>
       )}
 
+      {data.combined_extractions_sample.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Showing a sample of {data.combined_extractions_sample.length} rows out of{" "}
+          {Object.values(data.per_indicator_counts)
+            .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
+            ?.toLocaleString()}
+        </p>
+      )}
       <DataTable rows={data.combined_extractions_sample} />
     </div>
   );

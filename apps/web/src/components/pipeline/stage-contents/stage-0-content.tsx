@@ -25,7 +25,12 @@ export default function Stage0Content({ data }: { data: Stage0Data }) {
         <ExploreDataframeButton stage="stage-0" />
       </div>
       {data.sample.length > 0 && (
-        <DataTable rows={data.sample} maxHeight="max-h-64" columnTooltips={columnTooltips} />
+        <>
+          <p className="text-xs text-muted-foreground">
+            Showing a sample of {data.sample.length} rows out of {data.n_records.toLocaleString()}
+          </p>
+          <DataTable rows={data.sample} maxHeight="max-h-64" columnTooltips={columnTooltips} />
+        </>
       )}
     </div>
   );
