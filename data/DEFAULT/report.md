@@ -250,10 +250,15 @@ $$
 - **Moment conditions**: 15
 - **Satisfies**: Yes
 
-### Rao-Blackwellization Partition
+### Inference Structure
 
-- **Kalman**: stress
-- **Particle**: procrastination
+- **Likelihood path**: composed
+- **Auto method**: laplace_em
+- **First-pass RB**: active
+- **Latents (Kalman)**: stress
+- **Latents (Particle)**: procrastination
+- **Observed Channels (Kalman-side)**: cortisol_level, sleep_quality
+- **Observed Channels (Particle-side)**: task_completion_rate, missed_deadlines
 
 ### Parameter Classification
 

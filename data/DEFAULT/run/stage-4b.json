@@ -45,17 +45,23 @@
       }
     ]
   },
-  "rb_partition": {
-    "latent_variables": [
-      { "name": "procrastination", "method": "particle" },
-      { "name": "stress", "method": "kalman" }
-    ],
-    "obs_variables": [
-      { "name": "task_completion_rate", "method": "particle" },
-      { "name": "missed_deadlines", "method": "particle" },
-      { "name": "cortisol_level", "method": "kalman" },
-      { "name": "sleep_quality", "method": "kalman" }
-    ]
+  "inference_structure": {
+    "likelihood_path": "composed",
+    "auto_method": "laplace_em",
+    "first_pass_rb": {
+      "status": "active",
+      "inactive_reason": null,
+      "latent_variables": [
+        { "name": "procrastination", "method": "particle" },
+        { "name": "stress", "method": "kalman" }
+      ],
+      "obs_variables": [
+        { "name": "task_completion_rate", "method": "particle" },
+        { "name": "missed_deadlines", "method": "particle" },
+        { "name": "cortisol_level", "method": "kalman" },
+        { "name": "sleep_quality", "method": "kalman" }
+      ]
+    }
   },
   "gate_overridden": { "reason": "Parametric identification has 1 boundary parameter (sigma_stress, contraction ratio 0.45). User chose to continue." }
 }
