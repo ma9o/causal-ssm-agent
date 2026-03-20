@@ -15,6 +15,7 @@ data/
 │   └── run/               # Persisted stage JSON + artifacts
 ├── DEFAULT/               # Tracked mock user fixture
 ├── DOCTOLIB/              # Tracked mock user fixture
+├── MEDICAL_SEMANTICS/     # Tracked medical archive fixture for stage 0-2 golden tests
 ├── GOLDEN/                # Golden input dataset submodule
 ├── processed/             # Preprocessed text chunks for eval/manual tools (gitignored)
 ├── sessions.seed.json     # Tracked fixture run metadata keyed by user ID
