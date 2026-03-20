@@ -76,7 +76,7 @@ def parametric_id_task(
             runtime.inference_structure,
         )
 
-        # T-rule: fast necessary condition (hard gate)
+        # T-rule: fast conservative screen surfaced as a warning if it fails
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         t_rule = check_t_rule(ssm_model.spec, T=T)
@@ -89,9 +89,9 @@ def parametric_id_task(
                     "t_rule": t_rule.model_dump(),
                     "summary": {},
                     "error": (
-                        f"T-rule violated: {t_rule.n_free_params} free params "
-                        f"> {t_rule.n_moments} moment conditions. "
-                        "Model is provably non-identified."
+                        f"T-rule warning: {t_rule.n_free_params} free params "
+                        f"> conservative lower-bound {t_rule.n_moments} moment conditions. "
+                        "This screen is warning-only and does not halt inference."
                     ),
                 },
                 "inference_structure": inference_structure_payload,

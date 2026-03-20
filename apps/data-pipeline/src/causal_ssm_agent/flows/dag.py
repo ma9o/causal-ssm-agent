@@ -399,8 +399,8 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     )
 
 
-def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
-    """Check parametric identifiability gate."""
+def stage4b_gate(stage4b: dict, _override_gates: bool) -> dict:
+    """Summarize Stage 4b diagnostics without hard-gating the pipeline."""
     param_id = stage4b.get("parametric_id") or {}
     gate_failed = False
     gate_overridden = False
@@ -409,14 +409,11 @@ def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
     if param_id.get("checked", False):
         t_rule = param_id.get("t_rule", {})
         if not t_rule.get("satisfies", True):
-            gate_failed = True
-            if override_gates:
-                logger.warning(
-                    "GATE 4b OVERRIDDEN: T-rule violated (%s free params > %s moments), continuing",
-                    t_rule.get("n_free_params"),
-                    t_rule.get("n_moments"),
-                )
-                gate_overridden = True
+            logger.warning(
+                "Stage 4b warning: T-rule screen failed (%s free params > conservative lower-bound %s moments), continuing",
+                t_rule.get("n_free_params"),
+                t_rule.get("n_moments"),
+            )
         summary = param_id.get("summary", {})
         if summary.get("structural_issues"):
             logger.warning(
@@ -433,12 +430,11 @@ def stage4b_gate(stage4b: dict, override_gates: bool) -> dict:
         logger.info("  Skipped: %s", param_id.get("error", "unknown"))
 
     # Compute outcome
-    if gate_failed:
-        outcome = "fail"
-    elif param_id.get("checked", False):
+    if param_id.get("checked", False):
         summary = param_id.get("summary", {})
         has_issues = (
-            summary.get("structural_issues")
+            not t_rule.get("satisfies", True)
+            or summary.get("structural_issues")
             or summary.get("boundary_issues")
             or summary.get("weak_params")
         )
