@@ -1,4 +1,4 @@
-import { RBPartitionCard } from "@/components/stages/parametric-id/rb-partition-card";
+import { InferenceStructureCard } from "@/components/stages/parametric-id/inference-structure-card";
 import { SensitivityAnalysisTable } from "@/components/stages/parametric-id/sensitivity-analysis-table";
 import type { Stage4bData } from "@causal-ssm/api-types";
 
@@ -7,7 +7,9 @@ export default function Stage4bContent({ data }: { data: Stage4bData }) {
 
   return (
     <div className="space-y-4">
-      {data.rb_partition && <RBPartitionCard partition={data.rb_partition} />}
+      {data.inference_structure && (
+        <InferenceStructureCard inferenceStructure={data.inference_structure} />
+      )}
       {pid.sensitivity_analysis && <SensitivityAnalysisTable result={pid.sensitivity_analysis} />}
     </div>
   );
