@@ -376,6 +376,34 @@ describe("generateMarkdown", () => {
     expect(result).toContain("fail");
   });
 
+  it("surfaces stage 4b t-rule warnings as warnings rather than hard gate blocks", () => {
+    const data: AllStageData = {
+      "stage-4b": {
+        outcome: "warn",
+        parametric_id: {
+          checked: true,
+          t_rule: {
+            n_free_params: 12,
+            n_manifest: 3,
+            n_timepoints: 8,
+            n_moments: 10,
+            satisfies: false,
+            param_counts: {},
+          },
+          error:
+            "T-rule warning: 12 free params > conservative lower-bound 10 moment conditions. This screen is warning-only and does not halt inference.",
+        },
+      } as AllStageData["stage-4b"],
+    };
+
+    const result = generateMarkdown(data, "run-4b-warning");
+
+    expect(result).toContain("**WARNING**");
+    expect(result).toContain("T-Rule screen failed");
+    expect(result).toContain("Lower-bound moment conditions");
+    expect(result).not.toContain("GATE BLOCKED");
+  });
+
   it("includes stage 5a SVI preflight", () => {
     const data: AllStageData = {
       "stage-5a": {

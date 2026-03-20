@@ -76,7 +76,8 @@ causal-ssm-agent/                  # Turborepo monorepo
 │           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes (+ colocated route tests)
 │           │   └── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
-│           │   └── stages/parametric-id/inference-structure-card.tsx  # Stage 4b inference-structure surface and rendering tests/stories
+│           │   ├── pipeline/stage-contents/stage-4b-content.test.ts  # Verifies the Stage 4b surface renders T-rule payloads
+│           │   └── stages/parametric-id/  # Stage 4b surfaces such as inference-structure-card.tsx and t-rule-card.tsx
 │           └── lib/               # API clients, hooks, user-id helpers, types, utilities
 │               ├── api/analysis.ts  # Shared typed contracts + client helpers for sessions, replay, and analysis manifests
 │               ├── hooks/         # Prefect progress state, event streaming, stage telemetry

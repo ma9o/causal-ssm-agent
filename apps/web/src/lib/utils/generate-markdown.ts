@@ -540,7 +540,7 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
 
     if (pid.t_rule && !pid.t_rule.satisfies) {
       lines.push(
-        `> **GATE BLOCKED**: T-Rule violated \u2014 ${pid.t_rule.n_free_params} free parameters but only ${pid.t_rule.n_moments} moment conditions.`,
+        `> **WARNING**: T-Rule screen failed \u2014 ${pid.t_rule.n_free_params} free parameters exceed the conservative lower-bound ${pid.t_rule.n_moments} moment conditions.`,
       );
       lines.push("");
     }
@@ -548,6 +548,7 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
     if (pid.t_rule) {
       lines.push(section(3, "T-Rule"));
       lines.push("");
+      lines.push(`- **Status**: ${pid.t_rule.satisfies ? "Pass" : "Warning"}`);
       lines.push(`- **Free parameters**: ${pid.t_rule.n_free_params}`);
       if (pid.t_rule.n_manifest != null) {
         lines.push(`- **Manifest variables**: ${pid.t_rule.n_manifest}`);
@@ -555,8 +556,11 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
       if (pid.t_rule.n_timepoints != null) {
         lines.push(`- **Timepoints**: ${pid.t_rule.n_timepoints}`);
       }
-      lines.push(`- **Moment conditions**: ${pid.t_rule.n_moments}`);
-      lines.push(`- **Satisfies**: ${pid.t_rule.satisfies ? "Yes" : "No"}`);
+      lines.push(`- **Lower-bound moment conditions**: ${pid.t_rule.n_moments}`);
+      lines.push(`- **Satisfies lower bound**: ${pid.t_rule.satisfies ? "Yes" : "No"}`);
+      if (pid.error) {
+        lines.push(`- **Note**: ${pid.error}`);
+      }
       lines.push("");
     }
 
