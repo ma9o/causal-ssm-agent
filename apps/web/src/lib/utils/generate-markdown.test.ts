@@ -116,6 +116,38 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Stage 3");
   });
 
+  it("includes first-pass RB latent and observation assignments", () => {
+    const data: AllStageData = {
+      "stage-4b": {
+        outcome: "success",
+        parametric_id: { checked: true },
+        inference_structure: {
+          likelihood_path: "composed",
+          auto_method: "laplace_em",
+          first_pass_rb: {
+            status: "active",
+            inactive_reason: null,
+            latent_variables: [
+              { name: "g0", method: "kalman" },
+              { name: "s0", method: "particle" },
+            ],
+            obs_variables: [
+              { name: "yg0", method: "kalman" },
+              { name: "ys0", method: "particle" },
+            ],
+          },
+        },
+      } as AllStageData["stage-4b"],
+    };
+    const result = generateMarkdown(data, "rb-stage");
+    expect(result).toContain("Inference Structure");
+    expect(result).toContain("Likelihood path");
+    expect(result).toContain("Latents (Kalman)");
+    expect(result).toContain("Observed Channels (Particle-side)");
+    expect(result).toContain("yg0");
+    expect(result).toContain("ys0");
+  });
+
   it("contains date in header", () => {
     const result = generateMarkdown({}, "test");
     // Should have ISO-like date format

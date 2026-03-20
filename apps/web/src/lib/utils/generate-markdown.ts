@@ -560,18 +560,33 @@ export function generateMarkdown(data: AllStageData, userId: string): string {
       lines.push("");
     }
 
-    // RB partition
-    if (s4b.rb_partition) {
-      lines.push(section(3, "Rao-Blackwellization Partition"));
+    // Inference structure
+    if (s4b.inference_structure) {
+      const structure = s4b.inference_structure;
+      lines.push(section(3, "Inference Structure"));
       lines.push("");
-      const kalman = s4b.rb_partition.latent_variables
+      lines.push(`- **Likelihood path**: ${structure.likelihood_path}`);
+      lines.push(`- **Auto method**: ${structure.auto_method}`);
+      lines.push(`- **First-pass RB**: ${structure.first_pass_rb.status}`);
+      if (structure.first_pass_rb.inactive_reason) {
+        lines.push(`- **First-pass RB reason**: ${structure.first_pass_rb.inactive_reason}`);
+      }
+      const latentKalman = structure.first_pass_rb.latent_variables
         .filter((v) => v.method === "kalman")
         .map((v) => v.name);
-      const particle = s4b.rb_partition.latent_variables
+      const latentParticle = structure.first_pass_rb.latent_variables
         .filter((v) => v.method === "particle")
         .map((v) => v.name);
-      if (kalman.length > 0) lines.push(`- **Kalman**: ${kalman.join(", ")}`);
-      if (particle.length > 0) lines.push(`- **Particle**: ${particle.join(", ")}`);
+      const obsKalman = structure.first_pass_rb.obs_variables
+        .filter((v) => v.method === "kalman")
+        .map((v) => v.name);
+      const obsParticle = structure.first_pass_rb.obs_variables
+        .filter((v) => v.method === "particle")
+        .map((v) => v.name);
+      if (latentKalman.length > 0) lines.push(`- **Latents (Kalman)**: ${latentKalman.join(", ")}`);
+      if (latentParticle.length > 0) lines.push(`- **Latents (Particle)**: ${latentParticle.join(", ")}`);
+      if (obsKalman.length > 0) lines.push(`- **Observed Channels (Kalman-side)**: ${obsKalman.join(", ")}`);
+      if (obsParticle.length > 0) lines.push(`- **Observed Channels (Particle-side)**: ${obsParticle.join(", ")}`);
       lines.push("");
     }
 
