@@ -49,10 +49,13 @@ def parametric_id_task(
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:
-        Dict with parametric ID diagnostics
+        Dict with parametric ID diagnostics and the prepared inference structure
     """
     import jax.numpy as jnp
 
+    from causal_ssm_agent.models.ssm.inference_structure import (
+        build_inference_structure_payload,
+    )
     from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
     from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
@@ -68,6 +71,11 @@ def parametric_id_task(
         times = runtime.times
         T = int(times.shape[0])
 
+        inference_structure_payload = build_inference_structure_payload(
+            ssm_model.spec,
+            runtime.inference_structure,
+        )
+
         # T-rule: fast necessary condition (hard gate)
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
@@ -76,14 +84,17 @@ def parametric_id_task(
 
         if not t_rule.satisfies:
             return {
-                "checked": True,
-                "t_rule": t_rule.model_dump(),
-                "summary": {},
-                "error": (
-                    f"T-rule violated: {t_rule.n_free_params} free params "
-                    f"> {t_rule.n_moments} moment conditions. "
-                    "Model is provably non-identified."
-                ),
+                "parametric_id": {
+                    "checked": True,
+                    "t_rule": t_rule.model_dump(),
+                    "summary": {},
+                    "error": (
+                        f"T-rule violated: {t_rule.n_free_params} free params "
+                        f"> {t_rule.n_moments} moment conditions. "
+                        "Model is provably non-identified."
+                    ),
+                },
+                "inference_structure": inference_structure_payload,
             }
 
         from causal_ssm_agent.utils.parametric_id import get_stage4b_sweep_context
@@ -116,25 +127,24 @@ def parametric_id_task(
                 "Sensitivity analysis failed, continuing with profile likelihood", exc_info=True
             )
 
-        # Compute RB partition to restrict profiling to Kalman-block params
+        # Restrict profiling to the active first-pass Kalman block when a
+        # composed likelihood path is actually available in the prepared runtime.
         kalman_indices = None
-        if ssm_model.spec.first_pass_rb:
-            try:
-                from causal_ssm_agent.models.likelihoods.graph_analysis import (
-                    analyze_first_pass_rb,
-                    kalman_block_profile_indices,
-                )
+        try:
+            from causal_ssm_agent.models.likelihoods.graph_analysis import (
+                kalman_block_profile_indices,
+            )
 
-                partition = analyze_first_pass_rb(ssm_model.spec)
-                if partition.has_particle_block:
-                    kalman_indices = kalman_block_profile_indices(ssm_model.spec, partition)
-                    logger.info(
-                        "RB partition: profiling %d/%d Kalman-block params (skipping particle block)",
-                        len(kalman_indices),
-                        ssm_model.spec.n_latent,
-                    )
-            except Exception:
-                logger.debug("RB partition for profile filtering failed", exc_info=True)
+            partition = runtime.inference_structure.first_pass_rb.partition
+            if partition is not None and runtime.inference_structure.likelihood_path == "composed":
+                kalman_indices = kalman_block_profile_indices(ssm_model.spec, partition)
+                logger.info(
+                    "First-pass RB plan: profiling %d/%d Kalman-block params (skipping particle block)",
+                    len(kalman_indices),
+                    ssm_model.spec.n_latent,
+                )
+        except Exception:
+            logger.debug("Inference-structure profile filtering failed", exc_info=True)
 
         # Run profile likelihood check (only Kalman-block params when mixed)
         result = profile_likelihood(
@@ -166,55 +176,28 @@ def parametric_id_task(
             )
 
         return {
-            "checked": True,
-            "t_rule": t_rule.model_dump(),
-            "sensitivity_analysis": sensitivity_payload,
-            "summary": summary,
-            "per_param_classification": per_param,
-            "threshold": float(result.threshold),
-            "n_parameters": len(result.parameter_names),
-            "parameter_names": result.parameter_names,
+            "parametric_id": {
+                "checked": True,
+                "t_rule": t_rule.model_dump(),
+                "sensitivity_analysis": sensitivity_payload,
+                "summary": summary,
+                "per_param_classification": per_param,
+                "threshold": float(result.threshold),
+                "n_parameters": len(result.parameter_names),
+                "parameter_names": result.parameter_names,
+            },
+            "inference_structure": inference_structure_payload,
         }
 
     except Exception as e:
         logger.exception("Parametric ID check failed")
         return {
-            "checked": False,
-            "error": str(e),
+            "parametric_id": {
+                "checked": False,
+                "error": str(e),
+            },
+            "inference_structure": None,
         }
-
-
-def _compute_rb_partition_payload(builder: Any) -> dict | None:
-    """Compute RB partition from builder for both profile filtering and UI."""
-    try:
-        from causal_ssm_agent.models.likelihoods.graph_analysis import analyze_first_pass_rb
-
-        if builder._model is None:
-            return None
-        spec = builder._model.spec
-        partition = analyze_first_pass_rb(spec)
-        latent_names = spec.latent_names or [f"latent_{i}" for i in range(spec.n_latent)]
-        manifest_names = spec.manifest_names or [f"obs_{i}" for i in range(spec.n_manifest)]
-
-        return {
-            "latent_variables": [
-                {
-                    "name": latent_names[i],
-                    "method": "kalman" if i in partition.kalman_idx else "particle",
-                }
-                for i in range(spec.n_latent)
-            ],
-            "obs_variables": [
-                {
-                    "name": manifest_names[i],
-                    "method": "kalman" if i in partition.obs_kalman_idx else "particle",
-                }
-                for i in range(spec.n_manifest)
-            ],
-        }
-    except Exception:
-        logger.debug("RB partition computation skipped", exc_info=True)
-        return None
 
 
 @flow(name="stage4b-parametric-id", log_prints=True, persist_result=True, result_serializer="json")
@@ -234,17 +217,14 @@ def stage4b_parametric_id_flow(
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:
-        stage4_result augmented with 'parametric_id' and 'rb_partition' keys
+        stage4_result augmented with 'parametric_id' and 'inference_structure' keys
     """
     model_spec = stage4_result["model_spec"]
     priors = stage4_result["priors"]
     causal_spec = stage4_result.get("causal_spec")
     compiled_ssm = stage4_result.get("_compiled_ssm")
 
-    # Compute RB partition once — reused for profile filtering and UI
-    rb_partition = _compute_rb_partition_payload(builder) if builder is not None else None
-
-    id_result = parametric_id_task(
+    diagnostics = parametric_id_task(
         model_spec,
         priors,
         raw_data,
@@ -255,6 +235,6 @@ def stage4b_parametric_id_flow(
 
     return {
         **stage4_result,
-        "parametric_id": id_result,
-        "rb_partition": rb_partition,
+        "parametric_id": diagnostics["parametric_id"],
+        "inference_structure": diagnostics["inference_structure"],
     }

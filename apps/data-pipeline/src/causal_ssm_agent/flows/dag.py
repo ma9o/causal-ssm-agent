@@ -388,7 +388,7 @@ async def stage4(
 def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     """Parametric identifiability diagnostics.
 
-    Returns: {parametric_id, rb_partition, ...stage4 passthrough}
+    Returns: {parametric_id, inference_structure, ...stage4 passthrough}
     """
     from .stages import stage4b_parametric_id_flow
 

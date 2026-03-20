@@ -22,12 +22,12 @@ from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCWarning,
 )
 from causal_ssm_agent.models.ssm.schemas_inference import (  # noqa: TC001
+    InferenceStructureResult,
     LOODiagnostics,
     MCMCDiagnostics,
     ParametricIdResult,
     PosteriorMarginal,
     PosteriorPair,
-    RBPartitionResult,
     SMCDiagnostics,
     SVIDiagnostics,
     TemporalEffect,
@@ -447,7 +447,7 @@ class Stage4Contract(LLMStageContract):
 
 class Stage4bContract(BaseStageContract):
     parametric_id: ParametricIdResult
-    rb_partition: RBPartitionResult | None = None
+    inference_structure: InferenceStructureResult | None = None
     gate_overridden: GateOverrideContract | None = None
 
     def summary_message(self) -> str:
