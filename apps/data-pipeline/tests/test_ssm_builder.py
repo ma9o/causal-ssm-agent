@@ -285,6 +285,13 @@ class TestPrepareModelRuntime:
         class StubModel:
             def __init__(self):
                 self.observation_support = None
+                self.likelihood = "particle"
+                self.spec = SSMSpec(
+                    n_latent=1,
+                    n_manifest=1,
+                    lambda_mat=jnp.eye(1, dtype=jnp.float32),
+                    manifest_names=["stress_score"],
+                )
 
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
@@ -292,6 +299,7 @@ class TestPrepareModelRuntime:
         class StubBuilder:
             def __init__(self):
                 self._model = StubModel()
+                self._spec = self._model.spec
 
             def prepare_fit_inputs(self, wide_data: pl.DataFrame):
                 return (
@@ -330,6 +338,9 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
         assert runtime.manifest_names == ["stress_score"]
         assert runtime.builder._model.observation_support is runtime.observation_support
+        assert runtime.inference_structure.likelihood_path == "particle"
+        assert runtime.inference_structure.auto_method == "svi"
+        assert runtime.inference_structure.first_pass_rb.inactive_reason == "interval_summary_support"
         assert "support-aware observation semantics" in caplog.text
 
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
@@ -350,6 +361,13 @@ class TestPrepareModelRuntime:
         class StubModel:
             def __init__(self):
                 self.observation_support = None
+                self.likelihood = "particle"
+                self.spec = SSMSpec(
+                    n_latent=1,
+                    n_manifest=1,
+                    lambda_mat=jnp.eye(1, dtype=jnp.float32),
+                    manifest_names=["stress_score"],
+                )
 
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
@@ -357,6 +375,7 @@ class TestPrepareModelRuntime:
         class StubBuilder:
             def __init__(self):
                 self._model = StubModel()
+                self._spec = self._model.spec
 
             def prepare_fit_inputs(self, wide_data: pl.DataFrame):
                 return (
@@ -370,6 +389,8 @@ class TestPrepareModelRuntime:
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
         assert runtime.observation_support is not None
         assert runtime.observation_support.max_active_windows == 2
+        assert runtime.inference_structure.likelihood_path == "particle"
+        assert runtime.inference_structure.first_pass_rb.inactive_reason == "interval_summary_support"
         assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [-1], [0], [1]]
         assert runtime.observation_support.interval_weights.shape == (4, 1, 2)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(1.0)

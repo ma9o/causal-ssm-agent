@@ -17,6 +17,7 @@ from causal_ssm_agent.models.likelihoods.graph_analysis import (
     get_per_variable_diffusion,
 )
 from causal_ssm_agent.models.ssm.inference import select_default_method
+from causal_ssm_agent.models.ssm.inference_structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -567,7 +568,7 @@ class TestSelectDefaultMethod:
             emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
         )
 
-        assert select_default_method(spec, support) == "svi"
+        assert select_default_method(spec, observation_support=support) == "svi"
 
     def test_gaussian_model_routes_to_nuts(self):
         """Fully Gaussian model with identity links → nuts."""
@@ -587,6 +588,94 @@ class TestSelectDefaultMethod:
             manifest_link=LinkFunction.LOG,
         )
         assert select_default_method(spec) == "laplace_em"
+
+    def test_explicit_kalman_override_routes_to_nuts(self):
+        """Explicit likelihood override should drive auto routing to nuts."""
+        spec = _make_spec(
+            manifest_dist=DistributionFamily.POISSON,
+            manifest_link=LinkFunction.LOG,
+        )
+        assert select_default_method(spec, likelihood="kalman") == "nuts"
+
+
+class TestPlanInferenceStructure:
+    def test_interval_summary_support_uses_particle_path_and_disables_first_pass(self):
+        spec = _make_spec()
+        support = ObservationSupportRuntime(
+            anchor_times=np.array([0.0, 1.0]),
+            manifest_names=["y1", "y2"],
+            support_kinds=["interval", "point"],
+            summary_operators=["mean", "last"],
+            anchor_policies=["support_end", "support_end"],
+            observation_windows=["1d", "1d"],
+            support_start_times=np.array([[np.nan, np.nan], [0.0, np.nan]]),
+            support_end_times=np.array([[np.nan, np.nan], [1.0, np.nan]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
+            interval_weights=np.array([[[0.0], [0.0]], [[1.0], [0.0]]]),
+            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
+        )
+
+        plan = plan_inference_structure(spec, observation_support=support)
+
+        assert plan.likelihood_path == "particle"
+        assert plan.auto_method == "svi"
+        assert not plan.first_pass_rb.active
+        assert plan.first_pass_rb.inactive_reason == "interval_summary_support"
+
+    def test_separable_mixed_model_uses_composed_path(self):
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3),
+            drift="free",
+            drift_mask=np.eye(3, dtype=bool),
+            diffusion_dists=[
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.GAUSSIAN,
+                DistributionFamily.STUDENT_T,
+            ],
+        )
+
+        plan = plan_inference_structure(spec)
+
+        assert plan.likelihood_path == "composed"
+        assert plan.auto_method == "laplace_em"
+        assert plan.first_pass_rb.active
+        assert plan.first_pass_rb.partition is not None
+
+    def test_shared_observations_disable_executable_first_pass_split(self):
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift=jnp.diag(jnp.array([-0.5, -0.3])),
+            lambda_mat=jnp.ones((2, 2)),
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+        )
+
+        plan = plan_inference_structure(spec)
+
+        assert plan.likelihood_path == "particle"
+        assert plan.auto_method == "laplace_em"
+        assert not plan.first_pass_rb.active
+        assert plan.first_pass_rb.inactive_reason == "no_executable_partition"
+
+    def test_first_pass_disabled_keeps_particle_path(self):
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift="free",
+            drift_mask=np.eye(2, dtype=bool),
+            first_pass_rb=False,
+        )
+
+        plan = plan_inference_structure(spec)
+
+        assert plan.likelihood_path == "particle"
+        assert plan.auto_method == "nuts"
+        assert not plan.first_pass_rb.active
+        assert plan.first_pass_rb.inactive_reason == "disabled_in_spec"
 
     def test_student_t_diffusion_routes_to_laplace_em(self):
         """Student-t diffusion noise → laplace_em."""
