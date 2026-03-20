@@ -10,7 +10,7 @@ const stage = STAGES.find((s) => s.id === "stage-4b")!;
 const data = fixture as Stage4bData;
 
 const meta = {
-  title: "Pipeline/Stages/4b – Parametric ID [gated]",
+  title: "Pipeline/Stages/4b – Parametric ID",
   component: Stage4bContent,
   decorators: [
     (Story) => (
@@ -33,7 +33,7 @@ export const Pending: StoryObj = {
       title={stage.label}
       status="pending"
       context={stage.description}
-      hasGate
+      hasGate={stage.hasGate}
     />
   ),
 };
@@ -45,7 +45,7 @@ export const Running: StoryObj = {
       title={stage.label}
       status="running"
       context={stage.description}
-      hasGate
+      hasGate={stage.hasGate}
       loadingHint={stage.loadingHint}
     />
   ),
@@ -60,7 +60,7 @@ export const Completed: Story = {
       status="completed"
       outcome={data.outcome}
       context={stage.description}
-      hasGate
+      hasGate={stage.hasGate}
       gateOverridden={data.gate_overridden ?? undefined}
       elapsedMs={8_400}
     >
@@ -76,7 +76,7 @@ export const Failed: StoryObj = {
       title={stage.label}
       status="failed"
       context={stage.description}
-      hasGate
+      hasGate={stage.hasGate}
     />
   ),
 };
