@@ -2994,7 +2994,7 @@
       "type": "string"
     },
     "TRuleResult": {
-      "description": "Result of the t-rule (counting condition) check.\n\nThe t-rule is a necessary condition for identification: if the number\nof free parameters exceeds the number of available moment conditions,\nthe model is provably non-identified.\n\nFor cross-sectional SEMs the constraint is n_params <= p(p+1)/2.\nFor time series (SSMs), autocovariance at each lag provides p^2\nadditional moment conditions, so the constraint is much weaker.",
+      "description": "Result of the t-rule (counting condition) check.\n\nThis implementation uses a conservative lower bound on available moment\nconditions. If the number of free parameters exceeds that lower bound,\nthe model is at high risk of non-identifiability and should be reviewed,\nbut the result is not treated as a proof.\n\nFor cross-sectional SEMs the constraint is n_params <= p(p+1)/2.\nFor time series (SSMs), lagged autocovariance contributes additional\ninformation; this implementation counts only a conservative p moments\nper lag.",
       "properties": {
         "n_free_params": {
           "title": "N Free Params",

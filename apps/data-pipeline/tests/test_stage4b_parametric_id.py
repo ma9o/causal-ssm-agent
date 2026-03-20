@@ -203,7 +203,7 @@ class TestStage4bInferenceStructurePayload:
                     },
                 }
             },
-            override_gates=False,
+            False,
         )
 
         assert gate["gate_failed"] is False
