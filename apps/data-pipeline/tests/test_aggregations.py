@@ -453,6 +453,104 @@ class TestComputeIndicators:
 
         assert result["value"].to_list() == ["2"]
 
+    def test_computed_rule_multi_column_formula(self):
+        """Computed rules can deterministically derive window values from multiple columns."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 2, 9, 0),
+                ],
+                "systolic_bp": [120.0, 150.0, 110.0],
+                "diastolic_bp": [80.0, 90.0, 70.0],
+            }
+        )
+        indicators = [
+            {
+                "name": "map",
+                "source_columns": ["systolic_bp", "diastolic_bp"],
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "computed_rule": {
+                    "window_expr": "mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)"
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        values = [float(value) for value in result["value"].to_list()]
+        assert values[0] == pytest.approx((80 + (120 - 80) / 3 + 90 + (150 - 90) / 3) / 2)
+        assert values[1] == pytest.approx(70 + (110 - 70) / 3)
+
+    def test_computed_rule_filtered_count_preserves_zero_vs_null(self):
+        """Filtered deterministic counts should distinguish observed zero from no observation."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 1, 14, 0),
+                    datetime(2024, 1, 2, 9, 0),
+                    datetime(2024, 1, 3, 10, 0),
+                ],
+                "event_type": ["med_admin", "med_admin", "note", "med_admin", "note"],
+                "admin_status": ["missed", "taken", None, "taken", None],
+            }
+        )
+        indicators = [
+            {
+                "name": "missed_doses",
+                "source_columns": ["event_type", "admin_status"],
+                "measurement_dtype": "count",
+                "aggregation": "sum",
+                "computed_rule": {
+                    "window_expr": 'None if count_true(event_type == "med_admin") == 0 else sum(1 if (event_type == "med_admin" and admin_status == "missed") else 0)'
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["timestamp"].to_list() == [
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+        ]
+        assert result["value"].to_list() == ["1", "0", None]
+
+    def test_computed_rule_binary_flag_preserves_zero_vs_null(self):
+        """Binary deterministic window flags should keep observed negative distinct from missing."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 2, 8, 0),
+                    datetime(2024, 1, 2, 12, 0),
+                    datetime(2024, 1, 3, 8, 0),
+                    datetime(2024, 1, 3, 12, 0),
+                ],
+                "spo2_pct": [95.0, 94.0, 91.0, 95.0, None, None],
+            }
+        )
+        indicators = [
+            {
+                "name": "low_spo2",
+                "source_columns": ["spo2_pct"],
+                "measurement_dtype": "binary",
+                "aggregation": "last",
+                "computed_rule": {
+                    "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["value"].to_list() == ["0", "1", None]
+
     def test_timestamp_format_matches_bucket_by_clock(self):
         """Computed timestamps match the ISO format from bucket_by_clock."""
         df = _make_raw_df()

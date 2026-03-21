@@ -321,6 +321,111 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_support_window(
+    monkeypatch, tmp_path
+):
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.workers.windows as windows_mod
+
+    raw_df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-05T08:00:00Z", "2024-01-22T14:00:00Z"],
+            "report_text": [
+                "Chest CT follow-up scheduled for this month.",
+                "Radiology summary: stable pulmonary nodule on January CT.",
+            ],
+        }
+    )
+    raw_path = tmp_path / "input.parquet"
+    raw_df.write_parquet(raw_path)
+
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(
+                windows_per_chunk=8,
+                max_events_per_window=50,
+                max_concurrent_workers=2,
+                max_rpm=0,
+            )
+        ),
+    )
+    monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
+    monkeypatch.setattr(
+        windows_mod,
+        "format_window_chunk",
+        lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
+    )
+
+    def fake_map(chunk_texts, **kwargs):
+        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
+        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
+        return [
+            _FakeFuture(
+                {
+                    "dataframe": [
+                        {
+                            "indicator": "monthly_ct_impression",
+                            "value": "stable_nodule",
+                            "timestamp": "2024-01-01T00:00:00+00:00",
+                        }
+                    ],
+                    "n_extractions": 1,
+                    "status": "completed",
+                }
+            )
+        ]
+
+    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
+    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+
+    causal_spec = {
+        "latent": {"constructs": [], "edges": []},
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "monthly_ct_impression",
+                    "measurement_dtype": "categorical",
+                    "how_to_measure": (
+                        "Within each month, scan report_text for an explicit monthly chest CT "
+                        "summary mention and extract the summarized impression directly."
+                    ),
+                    "aggregation": "last",
+                    "observation_window": "1mo",
+                    "source_columns": ["timestamp", "report_text"],
+                    "extraction_mode": "semantic",
+                },
+            ],
+        },
+    }
+
+    result = _run(
+        stage2_extract.stage2_extraction_flow.fn(
+            raw_df_path=str(raw_path),
+            question="How do imaging findings evolve over time?",
+            causal_spec=causal_spec,
+        )
+    )
+
+    rows = pl.DataFrame(result["raw_data"])
+    assert result["n_total_extractions"] == 1
+    assert rows.height == 1
+
+    imaging = rows.row(0, named=True)
+    assert imaging["indicator"] == "monthly_ct_impression"
+    assert imaging["value"] == "stable_nodule"
+    assert imaging["support_kind"] == "point"
+    assert imaging["summary_operator"] == "last"
+    assert imaging["anchor_policy"] == "support_end"
+    assert imaging["observation_window"] == "1mo"
+    assert imaging["support_start"] == "2024-01-01T00:00:00"
+    assert imaging["support_end"] == "2024-02-01T00:00:00"
+    assert imaging["anchor_time"] == "2024-02-01T00:00:00"
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observation_rows(
     monkeypatch, tmp_path
 ):
@@ -444,3 +549,110 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
     assert stress["support_start"][0] == "2024-01-01T00:00:00"
     assert stress["support_end"][0] == "2024-01-02T00:00:00"
     assert stress["anchor_time"][0] == "2024-01-02T00:00:00"
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(monkeypatch, tmp_path):
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.workers.windows as windows_mod
+
+    raw_df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-01T08:00:00Z", "2024-01-01T10:00:00Z"],
+            "spo2_pct": [95.0, 91.0],
+            "mood_label": ["good", "bad"],
+        }
+    )
+    raw_path = tmp_path / "input.parquet"
+    raw_df.write_parquet(raw_path)
+
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(
+                windows_per_chunk=8,
+                max_events_per_window=50,
+                max_concurrent_workers=2,
+                max_rpm=0,
+            )
+        ),
+    )
+    monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
+    monkeypatch.setattr(
+        windows_mod,
+        "format_window_chunk",
+        lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
+    )
+
+    def fake_map(chunk_texts, **kwargs):
+        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
+        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
+        return [
+            _FakeFuture(
+                {
+                    "dataframe": [
+                        {
+                            "indicator": "closing_mood",
+                            "value": "bad",
+                            "timestamp": "2024-01-01T00:00:00+00:00",
+                        }
+                    ],
+                    "n_extractions": 1,
+                    "status": "completed",
+                }
+            )
+        ]
+
+    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
+    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+
+    causal_spec = {
+        "latent": {"constructs": [], "edges": []},
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "low_spo2",
+                    "measurement_dtype": "binary",
+                    "how_to_measure": "Deterministically flag any low SpO2 in the window",
+                    "aggregation": "last",
+                    "source_columns": ["spo2_pct"],
+                    "computed_rule": {
+                        "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
+                    },
+                    "extraction_mode": "computed",
+                },
+                {
+                    "name": "closing_mood",
+                    "measurement_dtype": "ordinal",
+                    "how_to_measure": "Take the last mood label in the window",
+                    "aggregation": "last",
+                    "ordinal_levels": ["bad", "good"],
+                    "source_columns": ["timestamp", "mood_label"],
+                    "extraction_mode": "semantic",
+                },
+            ],
+        },
+    }
+
+    result = _run(
+        stage2_extract.stage2_extraction_flow.fn(
+            raw_df_path=str(raw_path),
+            question="Does oxygen saturation affect mood?",
+            causal_spec=causal_spec,
+        )
+    )
+
+    rows = pl.DataFrame(result["raw_data"]).sort("indicator")
+    assert result["n_total_extractions"] == 2
+    assert rows["indicator"].to_list() == ["closing_mood", "low_spo2"]
+
+    low_spo2 = rows.filter(pl.col("indicator") == "low_spo2")
+    assert low_spo2["value"][0] == "1"
+    assert low_spo2["support_kind"][0] == "point"
+    assert low_spo2["summary_operator"][0] == "last"
+    assert low_spo2["anchor_policy"][0] == "support_end"
+    assert low_spo2["support_start"][0] == "2024-01-01T00:00:00"
+    assert low_spo2["support_end"][0] == "2024-01-02T00:00:00"
+    assert low_spo2["anchor_time"][0] == "2024-01-02T00:00:00"
