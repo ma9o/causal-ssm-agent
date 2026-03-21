@@ -98,7 +98,7 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64", colu
                     role="gridcell"
                   >
                     {row[col] == null
-                      ? ""
+                      ? <span className="text-muted-foreground/40 italic">N/A</span>
                       : typeof row[col] === "boolean"
                         ? row[col]
                           ? "true"
