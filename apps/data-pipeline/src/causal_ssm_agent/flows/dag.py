@@ -243,6 +243,12 @@ async def stage2(
             "indicator": str(row.get("indicator", "")),
             "value": row.get("value"),
             "anchor_time": row.get("anchor_time"),
+            "support_kind": row.get("support_kind"),
+            "summary_operator": row.get("summary_operator"),
+            "anchor_policy": row.get("anchor_policy"),
+            "observation_window": row.get("observation_window"),
+            "support_start": row.get("support_start"),
+            "support_end": row.get("support_end"),
         }
         for row in sample_rows
     ]
