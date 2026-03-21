@@ -12,60 +12,17 @@ from causal_ssm_agent.utils.data import bucket_by_clock, detect_time_column
 
 FIXTURE_DIR = Path(__file__).resolve().parents[3] / "data" / "MEDICAL_SEMANTICS"
 RUN_DIR = FIXTURE_DIR / "run"
-
-EXPECTED_SUPPORT_STARTS = [
-    "2025-03-03T00:00:00",
-    "2025-03-04T00:00:00",
-    "2025-03-05T00:00:00",
-    "2025-03-06T00:00:00",
-    "2025-03-07T00:00:00",
-    "2025-03-08T00:00:00",
-    "2025-03-09T00:00:00",
-    "2025-03-10T00:00:00",
-    "2025-03-11T00:00:00",
-    "2025-03-12T00:00:00",
-    "2025-03-13T00:00:00",
-    "2025-03-14T00:00:00",
-    "2025-03-15T00:00:00",
-    "2025-03-16T00:00:00",
-    "2025-03-17T00:00:00",
-    "2025-03-18T00:00:00",
-    "2025-03-19T00:00:00",
-    "2025-03-23T00:00:00",
-    "2025-03-29T00:00:00",
-    "2025-03-31T00:00:00",
-]
-
+EXPECTED_SHAPE = json.loads((FIXTURE_DIR / "expected-stage2-shape.json").read_text())
+EXPECTED_SUPPORT_STARTS = EXPECTED_SHAPE["expected_support_starts"]
 EXPECTED_SEMANTICS = {
-    "daily_pain": ("interval", "mean", "support_end"),
-    "daily_fatigue": ("point", "last", "support_end"),
-    "missed_doses": ("interval", "sum", "support_end"),
-    "glucose_std": ("interval", "std", "support_end"),
-    "glucose_out_of_range": ("interval", "sum", "support_end"),
-    "inhaler_usage": ("interval", "sum", "support_end"),
-    "low_spo2": ("point", "last", "support_end"),
-    "sleep_duration": ("interval", "sum", "support_end"),
-    "sleep_rating": ("point", "last", "support_end"),
-    "psychological_distress_flags": ("point", "last", "support_end"),
-    "hrv_measure": ("interval", "mean", "support_end"),
-    "daily_steps": ("interval", "sum", "support_end"),
-    "environmental_conditions": ("point", "last", "support_end"),
-    "fever": ("point", "last", "support_end"),
-    "infection_mentions": ("point", "last", "support_end"),
-    "patient_baseline": ("point", "last", "support_end"),
+    indicator: (
+        semantics["support_kind"],
+        semantics["summary_operator"],
+        semantics["anchor_policy"],
+    )
+    for indicator, semantics in EXPECTED_SHAPE["indicators"].items()
 }
-
-EXPECTED_STAGE2_COLUMNS = [
-    "indicator",
-    "value",
-    "anchor_time",
-    "support_kind",
-    "summary_operator",
-    "anchor_policy",
-    "observation_window",
-    "support_start",
-    "support_end",
-]
+EXPECTED_STAGE2_COLUMNS = EXPECTED_SHAPE["stage2_columns"]
 
 
 def _load_stage1b() -> dict:
@@ -103,14 +60,19 @@ def test_medical_semantics_stage2_fixture_contract() -> None:
 
     assert raw.columns == EXPECTED_STAGE2_COLUMNS
     assert model.columns == EXPECTED_STAGE2_COLUMNS
-    assert raw.schema["value"] == pl.String
-    assert model.schema["value"] == pl.Float64
-    assert str(model.schema["anchor_time"]).startswith("Datetime(")
-    assert str(model.schema["support_start"]).startswith("Datetime(")
-    assert str(model.schema["support_end"]).startswith("Datetime(")
+    assert raw.schema["value"] == getattr(pl, EXPECTED_SHAPE["raw_schema"]["value"])
+    assert model.schema["value"] == getattr(pl, EXPECTED_SHAPE["model_schema"]["value"])
+    assert str(raw.schema["anchor_time"]) == EXPECTED_SHAPE["raw_schema"]["anchor_time"]
+    assert str(raw.schema["support_start"]) == EXPECTED_SHAPE["raw_schema"]["support_start"]
+    assert str(raw.schema["support_end"]) == EXPECTED_SHAPE["raw_schema"]["support_end"]
+    assert str(model.schema["anchor_time"]).startswith(EXPECTED_SHAPE["model_schema"]["anchor_time"])
+    assert str(model.schema["support_start"]).startswith(EXPECTED_SHAPE["model_schema"]["support_start"])
+    assert str(model.schema["support_end"]).startswith(EXPECTED_SHAPE["model_schema"]["support_end"])
 
     model_clock = causal_spec["measurement"]["model_clock"]
-    assert model_clock == "1d"
+    assert model_clock == EXPECTED_SHAPE["model_clock"]
+    assert len(EXPECTED_SUPPORT_STARTS) == EXPECTED_SHAPE["support_window_count"]
+    assert len(EXPECTED_SEMANTICS) == EXPECTED_SHAPE["indicator_count"]
 
     time_col = detect_time_column(stage0)
     observed_support_starts = [
@@ -121,7 +83,7 @@ def test_medical_semantics_stage2_fixture_contract() -> None:
     indicators = get_indicators(causal_spec)
     assert [ind["name"] for ind in indicators] == list(EXPECTED_SEMANTICS)
 
-    expected_rows = len(EXPECTED_SUPPORT_STARTS) * len(EXPECTED_SEMANTICS)
+    expected_rows = EXPECTED_SHAPE["row_count"]
     assert raw.height == expected_rows
     assert model.height == expected_rows
     assert stage2["per_indicator_counts"] == {

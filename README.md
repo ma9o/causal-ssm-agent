@@ -94,7 +94,8 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── DEFAULT/                   # Tracked mock fixture user workspace
 │   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
 │   ├── MEDICAL_SEMANTICS/         # Tracked stage 0-2 medical archive fixture workspace
-│   │   └── README.md              # Expected Stage 2 artifact shape and observation semantics contract
+│   │   ├── expected-stage2-shape.json  # Machine-readable Stage 2 dataframe contract for fixture validation
+│   │   └── README.md              # Human-readable Stage 2 artifact shape and observation semantics contract
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
 │   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
