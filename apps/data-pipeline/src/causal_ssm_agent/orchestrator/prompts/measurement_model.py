@@ -40,6 +40,7 @@ Each indicator needs:
 | **aggregation** | How to collapse within aggregation window |
 | **observation_window** | Optional support window summarized by this indicator when it differs from `model_clock` (for example `"1mo"` for a monthly summary on a daily model clock). |
 | **source_columns** | List of raw data column names referenced by how_to_measure (e.g. `["systolic_bp", "diastolic_bp"]`). Must be actual column names from the dataset. If a time/date column is needed for temporal context, include it here for at least one indicator. |
+| **computed_rule** | Optional deterministic support-window expression used only when `extraction_mode="computed"` and direct single-column aggregation is not enough. |
 | **extraction_mode** | `"computed"` or `"semantic"` (default). See extraction_mode guidelines below. |
 
 ### measurement_dtype
@@ -88,20 +89,32 @@ When you use `observation_window`, make `how_to_measure` explicit about which of
 
 Determines whether the indicator is computed directly via Polars or extracted by an LLM worker.
 
-Use `"computed"` when ALL of these hold:
-- Exactly ONE source column
-- The indicator can be derived deterministically from that direct source column with the declared aggregation and dtype semantics
-- No filtering, transformation, formula, thresholding, or interpretation is needed beyond the direct aggregation itself
-- Examples: "Use the `steps` column directly" + aggregation=sum, "Use the last observed `mood_label` in the day" + aggregation=last, "Use the first recorded `care_setting` in the window" + aggregation=first
+Use `"computed"` when the indicator can be derived deterministically from the raw columns without qualitative interpretation.
 
-If those conditions hold, choose `"computed"` rather than `"semantic"`. Do not send a direct single-column deterministic aggregation through the worker path.
+There are two `"computed"` patterns:
+- Direct aggregation: exactly one source column, no extra rule needed. Examples: "Use the `steps` column directly" + aggregation=sum, "Use the last observed `mood_label` in the day" + aggregation=last, "Use the first recorded `care_setting` in the window" + aggregation=first.
+- Deterministic support-window rule: multiple columns, formulas, thresholds, filtering, or explicit `0`/`null` logic are needed, but the result is still fully deterministic. In that case, set `computed_rule.window_expr` to a Python-like expression that returns exactly one scalar per support window.
+
+Examples of `computed_rule.window_expr`:
+- `mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)`
+- `1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)`
+- `None if count_non_null(glucose_mg_dl) == 0 else sum(1 if (glucose_mg_dl < 70 or glucose_mg_dl > 180) else 0)`
+- `None if count_true(event_type == "med_admin") == 0 else sum(1 if (event_type == "med_admin" and admin_status == "missed") else 0)`
+
+Available helper functions inside `computed_rule.window_expr`:
+- `any`, `all`, `sum`, `mean`, `std`, `min`, `max`, `first`, `last`
+- `count_true`, `count_non_null`
+- `lower`, `contains`, `contains_any`, `coalesce`, `abs`
+
+Use Python `None` for missing values inside `computed_rule.window_expr`.
+
+If a deterministic rule is possible, choose `"computed"` rather than `"semantic"`. Do not send deterministic formulas, thresholds, or filtered counts through the worker path.
 
 Use `"semantic"` (default) when ANY of these hold:
-- Multiple source columns needed (e.g., "Compute MAP from `systolic_bp` and `diastolic_bp`")
-- how_to_measure requires conditional logic or filtering (e.g., "set to 1 if `medication_log` is non-empty", thresholding, counting only rows that satisfy a predicate)
 - how_to_measure requires interpretation or qualitative judgment
+- The raw columns do not contain enough deterministic structure to specify the result as a clear `computed_rule.window_expr`
 
-`"computed"` indicators are aggregated instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` whenever the direct-column deterministic path is sufficient.
+`"computed"` indicators are executed instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` whenever a deterministic direct aggregation or deterministic support-window rule is sufficient.
 
 ## how_to_measure Guidelines
 
@@ -168,7 +181,10 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "observation_window": "1mo",  // optional; omit unless support window differs from model_clock
       "ordinal_levels": ["low", "medium", "high"],  // required when measurement_dtype is "ordinal", ordered low→high
       "source_columns": ["col_a", "col_b"],  // raw data columns referenced by how_to_measure
-      "extraction_mode": "computed" | "semantic"  // default "semantic"; use "computed" for direct single-column deterministic aggregation
+      "computed_rule": {
+        "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
+      },  // optional; use only for deterministic computed indicators that need formulas/thresholds/filtering
+      "extraction_mode": "computed" | "semantic"  // default "semantic"; use "computed" for deterministic direct aggregation or deterministic computed_rule logic
     }
   ]
 }
@@ -217,7 +233,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Every time-varying construct needs at least one indicator
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
-- If an indicator satisfies the schema constraints for `"computed"`, use `"computed"` instead of `"semantic"`
+- If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule.window_expr` when direct aggregation is not enough
 - Add `observation_window` only when an indicator summarizes a wider interval than `model_clock`
 - When relevant, make clear whether workers should aggregate event-level evidence across the window or extract a one-off summary mention within the window
 - For `"semantic"` indicators, make `0` versus `null` explicit in `how_to_measure`
@@ -245,7 +261,7 @@ Review your proposed measurement model for operationalization coherence.
 6. **Redundancy**: Are there indicators that are essentially duplicates?
 7. **Local independence**: Would any two indicators of the same construct remain correlated after conditioning on the construct? If so, they violate pure indicators.
 8. **Temporal independence (A8)**: Do any indicators have their own temporal dynamics beyond the construct?
-9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? (direct single-column deterministic aggregation = no LLM needed, faster and cheaper)
+9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? Deterministic direct aggregations and deterministic support-window rules should not go through LLM workers.
 10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
 
 ## Red Flags
