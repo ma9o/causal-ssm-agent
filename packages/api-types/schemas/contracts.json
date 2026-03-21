@@ -294,6 +294,78 @@
             }
           ],
           "title": "Anchor Time"
+        },
+        "support_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Kind"
+        },
+        "summary_operator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary Operator"
+        },
+        "anchor_policy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Anchor Policy"
+        },
+        "observation_window": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observation Window"
+        },
+        "support_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Start"
+        },
+        "support_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support End"
         }
       },
       "required": [
@@ -503,7 +575,7 @@
         },
         "extraction_mode": {
           "default": "semantic",
-          "description": "'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.",
+          "description": "'computed' (deterministic pipeline aggregation on a direct source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically from one direct source column using the declared aggregation and dtype semantics.",
           "title": "Extraction Mode",
           "type": "string"
         },

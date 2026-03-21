@@ -279,7 +279,7 @@ export interface Indicator {
    */
   source_columns: string[];
   /**
-   * 'computed' (direct Polars aggregation on source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator maps to a single numeric column and the aggregation can be applied directly.
+   * 'computed' (deterministic pipeline aggregation on a direct source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically from one direct source column using the declared aggregation and dtype semantics.
    */
   extraction_mode: string;
   support_kind: SupportKind;
@@ -360,6 +360,12 @@ export interface ExtractionContract {
   indicator: string;
   value: number | boolean | string | null;
   anchor_time: string | null;
+  support_kind?: string | null;
+  summary_operator?: string | null;
+  anchor_policy?: string | null;
+  observation_window?: string | null;
+  support_start?: string | null;
+  support_end?: string | null;
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";
