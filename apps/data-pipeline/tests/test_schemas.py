@@ -425,7 +425,7 @@ class TestIndicator:
         assert ind.extraction_mode == "computed"
 
     def test_computed_requires_single_source_column(self):
-        """Computed with 0 or 2+ source_columns is rejected."""
+        """Direct computed indicators with 0 or 2+ source_columns are rejected."""
         with pytest.raises(ValueError, match="exactly 1 direct source_column"):
             Indicator(
                 name="avg_hr",
@@ -444,6 +444,67 @@ class TestIndicator:
                 measurement_dtype="continuous",
                 aggregation="mean",
                 source_columns=["systolic_bp", "diastolic_bp"],
+                extraction_mode="computed",
+            )
+
+    def test_computed_rule_allows_multi_source_deterministic_formula(self):
+        """Computed rules can reference multiple source columns deterministically."""
+        ind = Indicator(
+            name="mean_arterial_pressure",
+            construct_name="cardiovascular_health",
+            how_to_measure="Compute deterministically from systolic and diastolic blood pressure",
+            measurement_dtype="continuous",
+            aggregation="mean",
+            source_columns=["systolic_bp", "diastolic_bp"],
+            computed_rule={"window_expr": "mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)"},
+            extraction_mode="computed",
+        )
+        assert ind.extraction_mode == "computed"
+        assert ind.computed_rule is not None
+
+    def test_computed_rule_rejects_semantic_mode(self):
+        """computed_rule is only valid when extraction_mode='computed'."""
+        with pytest.raises(ValueError, match="computed_rule but extraction_mode is 'semantic'"):
+            Indicator(
+                name="low_spo2",
+                construct_name="respiratory_status",
+                how_to_measure="Deterministically compute low SpO2 from spo2_pct",
+                measurement_dtype="binary",
+                aggregation="last",
+                source_columns=["spo2_pct"],
+                computed_rule={
+                    "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
+                },
+                extraction_mode="semantic",
+            )
+
+    def test_computed_rule_rejects_undeclared_source_column(self):
+        """computed_rule must reference only declared source_columns."""
+        with pytest.raises(ValueError, match="references undeclared source_columns"):
+            Indicator(
+                name="glucose_out_of_range",
+                construct_name="glycemic_control",
+                how_to_measure="Count out-of-range glucose values deterministically",
+                measurement_dtype="count",
+                aggregation="sum",
+                source_columns=["glucose_mg_dl"],
+                computed_rule={
+                    "window_expr": "None if count_non_null(glucose_mg_dl) == 0 else sum(1 if (glucose_mg_dl < 70 or serum_glucose > 180) else 0)"
+                },
+                extraction_mode="computed",
+            )
+
+    def test_computed_rule_requires_source_reference(self):
+        """computed_rule must actually use at least one declared source column."""
+        with pytest.raises(ValueError, match="does not reference any source_columns"):
+            Indicator(
+                name="constant_flag",
+                construct_name="monitoring",
+                how_to_measure="Always emit a constant flag",
+                measurement_dtype="binary",
+                aggregation="last",
+                source_columns=["spo2_pct"],
+                computed_rule={"window_expr": "1"},
                 extraction_mode="computed",
             )
 

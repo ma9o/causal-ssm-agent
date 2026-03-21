@@ -5,6 +5,7 @@ Separates:
 2. MeasurementModel - observed indicators that reflect constructs (data-driven)
 """
 
+import ast
 import re
 from enum import StrEnum
 from typing import get_args
@@ -87,6 +88,65 @@ class TemporalStatus(StrEnum):
 
     TIME_VARYING = "time_varying"  # Changes within person over time
     TIME_INVARIANT = "time_invariant"  # Fixed for each person
+
+
+_COMPUTED_RULE_FUNCTIONS = {
+    "abs",
+    "all",
+    "any",
+    "coalesce",
+    "contains",
+    "contains_any",
+    "count_non_null",
+    "count_true",
+    "first",
+    "last",
+    "lower",
+    "max",
+    "mean",
+    "min",
+    "std",
+    "sum",
+}
+
+
+def _parse_computed_rule_expr(expr: str) -> ast.Expression:
+    """Parse a computed-rule expression and surface a stable error."""
+    try:
+        parsed = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Invalid computed_rule.window_expr: {exc.msg}") from exc
+    return parsed
+
+
+def _computed_rule_source_names(expr: str) -> set[str]:
+    """Collect source-column references from a computed-rule expression."""
+    parsed = _parse_computed_rule_expr(expr)
+    names: set[str] = set()
+
+    class _NameCollector(ast.NodeVisitor):
+        def visit_Call(self, node: ast.Call) -> None:
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("computed_rule.window_expr only supports simple function calls")
+            if node.func.id not in _COMPUTED_RULE_FUNCTIONS:
+                available = ", ".join(sorted(_COMPUTED_RULE_FUNCTIONS))
+                raise ValueError(
+                    f"Unsupported computed_rule function '{node.func.id}'. Available: {available}"
+                )
+            if node.keywords:
+                raise ValueError("computed_rule.window_expr does not support keyword arguments")
+            for arg in node.args:
+                self.visit(arg)
+
+        def visit_Attribute(self, _node: ast.Attribute) -> None:
+            raise ValueError("computed_rule.window_expr does not support attribute access")
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id not in _COMPUTED_RULE_FUNCTIONS:
+                names.add(node.id)
+
+    _NameCollector().visit(parsed.body)
+    return names
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -184,6 +244,20 @@ class CausalEdge(BaseModel):
             "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). "
             "If False (contemporaneous), effect at t is caused by cause at t."
         ),
+    )
+
+
+class ComputedRule(BaseModel):
+    """Deterministic per-window expression for computed indicators."""
+
+    window_expr: str = Field(
+        description=(
+            "Deterministic support-window expression that returns one scalar per window. "
+            "Use Python-like syntax over source_columns with arithmetic, comparisons, "
+            "if/else, and helper functions such as any(), sum(), mean(), std(), "
+            "first(), last(), count_true(), count_non_null(), lower(), contains(), "
+            "and contains_any(). Use None for missing values."
+        )
     )
 
 
@@ -366,13 +440,22 @@ class Indicator(BaseModel):
             "Used to project chunks to only relevant columns before extraction."
         ),
     )
+    computed_rule: "ComputedRule | None" = Field(
+        default=None,
+        description=(
+            "Optional deterministic support-window expression for extraction_mode='computed'. "
+            "Use this when a computed indicator needs formulas, thresholds, or multiple "
+            "source columns instead of a direct single-column aggregation. "
+            "The expression must return one scalar per support window."
+        ),
+    )
     extraction_mode: str = Field(
         default="semantic",
         description=(
-            "'computed' (deterministic pipeline aggregation on a direct source column) "
-            "or 'semantic' (LLM extraction). Use 'computed' when the indicator can be "
-            "derived deterministically from one direct source column using the declared "
-            "aggregation and dtype semantics."
+            "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). "
+            "Use 'computed' when the indicator can be derived deterministically either from "
+            "a direct source-column aggregation or from a computed_rule support-window "
+            "expression over the declared source_columns."
         ),
     )
 
@@ -408,6 +491,14 @@ class Indicator(BaseModel):
             )
         return v
 
+    @field_validator("computed_rule")
+    @classmethod
+    def validate_computed_rule(cls, v: "ComputedRule | None") -> "ComputedRule | None":
+        if v is None:
+            return None
+        _computed_rule_source_names(v.window_expr)
+        return v
+
     @model_validator(mode="after")
     def validate_ordinal_levels(self) -> "Indicator":
         """Ensure ordinal_levels is valid when measurement_dtype is 'ordinal'."""
@@ -436,14 +527,39 @@ class Indicator(BaseModel):
     @model_validator(mode="after")
     def validate_computed_mode(self) -> "Indicator":
         """Enforce constraints when extraction_mode='computed'."""
+        if self.computed_rule is not None and self.extraction_mode != "computed":
+            raise ValueError(
+                f"Indicator '{self.name}' sets computed_rule but extraction_mode is "
+                f"'{self.extraction_mode}'. computed_rule is only valid for "
+                "extraction_mode='computed'."
+            )
         if self.extraction_mode != "computed":
             return self
-        if len(self.source_columns) != 1:
+        if self.computed_rule is None and len(self.source_columns) != 1:
             raise ValueError(
                 f"Computed indicator '{self.name}' currently requires exactly 1 direct "
                 f"source_column, "
                 f"got {len(self.source_columns)}: {self.source_columns}"
             )
+        if self.computed_rule is not None:
+            if not self.source_columns:
+                raise ValueError(
+                    f"Computed indicator '{self.name}' with computed_rule must declare "
+                    "at least 1 source_column."
+                )
+            referenced = _computed_rule_source_names(self.computed_rule.window_expr)
+            if not referenced:
+                raise ValueError(
+                    f"Computed indicator '{self.name}' has computed_rule.window_expr "
+                    "that does not reference any source_columns."
+                )
+            unknown = sorted(referenced - set(self.source_columns))
+            if unknown:
+                raise ValueError(
+                    f"Computed indicator '{self.name}' computed_rule.window_expr "
+                    f"references undeclared source_columns: {unknown}. "
+                    f"Declared source_columns: {self.source_columns}"
+                )
         return self
 
     @model_validator(mode="after")
