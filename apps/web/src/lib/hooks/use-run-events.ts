@@ -11,7 +11,6 @@ import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
-import ReconnectingWebSocket from "reconnecting-websocket";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import { getStageForPrefectRunName } from "../constants/stages";
 import {
@@ -21,7 +20,12 @@ import {
   type PipelineProgress,
   type StageRunStatus,
 } from "./pipeline-progress";
-import type { Stage2Worker } from "./use-stage2-workers";
+import {
+  getStage2WorkerQueryKey,
+  getStage2WorkerQueryKeyPrefix,
+  type Stage2Worker,
+} from "./use-stage2-workers";
+import { usePrefectSocketSubscription } from "./use-prefect-socket";
 
 export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
 
@@ -46,10 +50,6 @@ function getPipelineStatusQueryKey(userId: string) {
 
 function getStageQueryKey(userId: string, stageId: StageId) {
   return ["pipeline", userId, "stage", stageId] as const;
-}
-
-function getWorkerQueryKey(userId: string) {
-  return ["pipeline", userId, "stage2-workers"] as const;
 }
 
 export function buildPrefectEventFilterMessage(rootFlowRunId: string, now = new Date()) {
@@ -226,65 +226,6 @@ function isPipelineTerminal(
   return progress?.isComplete === true || progress?.isFailed === true;
 }
 
-function createRunEventSocket(
-  userId: string,
-  rootFlowRunId: string,
-  updateStage: (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => void,
-  queryClient: ReturnType<typeof useQueryClient>,
-) {
-  // In dev, connect directly to the Prefect server (Next.js rewrites don't proxy WS).
-  // In prod, a reverse proxy forwards WS at /prefect/ — derive from window.location.
-  const wsUrl = getPrefectEventsUrl(window.location.origin);
-  const ws = new ReconnectingWebSocket(wsUrl, ["prefect"], {
-    maxRetries: MAX_RECONNECT_ATTEMPTS,
-    minReconnectionDelay: BASE_DELAY_MS,
-    maxReconnectionDelay: BASE_DELAY_MS * 2 ** MAX_RECONNECT_ATTEMPTS,
-    reconnectionDelayGrowFactor: 2,
-  });
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "auth", token: null }));
-  };
-
-  ws.onmessage = (event: MessageEvent) => {
-    try {
-      const message = JSON.parse(event.data) as PrefectEventSocketMessage;
-      if (message.type === "auth_success") {
-        ws.send(JSON.stringify(buildPrefectEventFilterMessage(rootFlowRunId)));
-        return;
-      }
-
-      // Worker progress events (stage-2 chunks)
-      const workerEvent = parseWorkerProgressEvent(message.event);
-      if (workerEvent) {
-        queryClient.setQueryData<Stage2Worker[]>(
-          getWorkerQueryKey(userId),
-          (old) => applyWorkerEvent(old ?? [], workerEvent),
-        );
-        return;
-      }
-
-      // Stage progress events
-      const stageEvent = parsePrefectStageProgressEvent(message.event);
-      if (!stageEvent) return;
-
-      queryClient.invalidateQueries({ queryKey: getAnalysisManifestQueryKey(userId) });
-      updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime, stageEvent.outcome);
-      if (stageEvent.status === "completed") {
-        invalidateStageData(queryClient, userId, stageEvent.stageId);
-      }
-
-      if (isPipelineTerminal(queryClient, userId)) {
-        ws.close();
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  };
-
-  return ws;
-}
-
 function hydrateFromManifest(
   userId: string,
   stageRuns: AnalysisStageRuns,
@@ -307,9 +248,6 @@ function hydrateFromManifest(
   return progress;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-const BASE_DELAY_MS = 1000;
-
 export function useRunEvents(
   userId: string | null,
   rootFlowRunIds: string[],
@@ -328,6 +266,39 @@ export function useRunEvents(
     [queryClient, userId],
   );
 
+  const handlePrefectEventMessage = useCallback(
+    (message: PrefectEventSocketMessage, socket: { close: () => void }) => {
+      if (!userId || !activeRootFlowRunId) {
+        return;
+      }
+
+      const workerEvent = parseWorkerProgressEvent(message.event);
+      if (workerEvent) {
+        queryClient.setQueryData<Stage2Worker[]>(
+          getStage2WorkerQueryKey(userId, activeRootFlowRunId),
+          (old) => applyWorkerEvent(old ?? [], workerEvent),
+        );
+        return;
+      }
+
+      const stageEvent = parsePrefectStageProgressEvent(message.event);
+      if (!stageEvent) {
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: getAnalysisManifestQueryKey(userId) });
+      updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime, stageEvent.outcome);
+      if (stageEvent.status === "completed") {
+        invalidateStageData(queryClient, userId, stageEvent.stageId);
+      }
+
+      if (isPipelineTerminal(queryClient, userId)) {
+        socket.close();
+      }
+    },
+    [activeRootFlowRunId, queryClient, updateStage, userId],
+  );
+
   useEffect(() => {
     if (!userId) return;
     const normalizedRootFlowRunIds = dedupeRootFlowRunIds(rootFlowRunIds);
@@ -341,6 +312,7 @@ export function useRunEvents(
     // Initialize progress, then hydrate from Prefect to catch up on
     // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(getPipelineStatusQueryKey(userId), initialProgress());
+    queryClient.removeQueries({ queryKey: getStage2WorkerQueryKeyPrefix(userId) });
 
     if (stageRuns) {
       queryClient.setQueryData(
@@ -352,7 +324,6 @@ export function useRunEvents(
 
   useEffect(() => {
     if (!userId) return;
-    let cancelled = false;
 
     if (isMockMode()) {
       const cleanup = simulatePipelineEvents({
@@ -363,22 +334,15 @@ export function useRunEvents(
         },
       });
       return () => {
-        cancelled = true;
         cleanup();
       };
     }
-
-    if (!activeRootFlowRunId) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const ws = createRunEventSocket(userId, activeRootFlowRunId, updateStage, queryClient);
-
-    return () => {
-      cancelled = true;
-      ws.close();
-    };
   }, [activeRootFlowRunId, queryClient, updateStage, userId]);
+
+  usePrefectSocketSubscription<PrefectEventSocketMessage>({
+    enabled: !isMockMode() && !!userId && !!activeRootFlowRunId,
+    getSocketUrl: () => getPrefectEventsUrl(window.location.origin),
+    buildFilterMessage: () => buildPrefectEventFilterMessage(activeRootFlowRunId as string),
+    onMessage: handlePrefectEventMessage,
+  });
 }
