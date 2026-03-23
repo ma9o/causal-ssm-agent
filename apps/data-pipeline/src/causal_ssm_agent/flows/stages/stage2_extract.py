@@ -9,7 +9,7 @@ merged output into canonical observation rows with ``anchor_time``,
 ``support_start``, and ``support_end``.
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -25,6 +25,7 @@ logger = get_prefect_logger(__name__)
 
 WORKER_EVENT_PREFIX = "causal-ssm.worker"
 MAX_FREE_WINDOWS = 100
+SemanticChunkRunner = Callable[..., Awaitable[tuple[list[dict], list[dict], int, dict | None]]]
 
 
 def _emit_worker_event(
@@ -244,6 +245,314 @@ def _collect_batch_results(
     return ordered_rows, ordered_statuses, n_total, sampled_trace
 
 
+def _prepare_semantic_chunks(
+    *,
+    raw_df: pl.DataFrame,
+    semantic_inds: list[dict],
+    causal_spec: dict,
+    model_clock: str,
+    time_col: str,
+    windows_per_chunk: int,
+    max_events_per_window: int,
+    max_windows: int | None,
+) -> tuple[list[str], list[list[str]], list[dict]]:
+    """Prepare semantic extraction chunks without executing them.
+
+    This isolates the deterministic Stage 2 windowing/chunking logic from the
+    execution backend so both Prefect flows and eval harnesses can reuse it.
+    """
+    from causal_ssm_agent.utils.causal_spec import make_extraction_context
+    from causal_ssm_agent.utils.data import bucket_by_clock
+    from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
+
+    chunk_texts: list[str] = []
+    chunk_window_starts: list[list[str]] = []
+    chunk_contexts: list[dict] = []
+
+    for observation_window, semantic_group in _group_indicators_by_window(semantic_inds, model_clock):
+        semantic_spec = {
+            **causal_spec,
+            "measurement": {**causal_spec.get("measurement", {}), "indicators": semantic_group},
+        }
+        extraction_ctx = make_extraction_context(semantic_spec)
+
+        projected = _project_to_source_columns(raw_df, semantic_group)
+        if time_col not in projected.columns:
+            projected = projected.with_columns(raw_df[time_col])
+
+        windows = bucket_by_clock(projected, observation_window, time_col)
+        logger.info(
+            "Stage 2: bucketed %d rows into %d support windows (window=%s, indicators=%d)",
+            len(projected),
+            len(windows),
+            observation_window,
+            len(semantic_group),
+        )
+
+        if max_windows is not None and len(windows) > max_windows:
+            logger.warning(
+                "Stage 2: free-tier window cap active for window=%s — truncating %d windows to most recent %d",
+                observation_window,
+                len(windows),
+                max_windows,
+            )
+            windows = windows[-max_windows:]
+
+        if not windows:
+            continue
+
+        display_cols = [c for c in projected.columns if c != time_col]
+        chunks = chunk_windows(windows, windows_per_chunk)
+        for chunk in chunks:
+            chunk_texts.append(
+                format_window_chunk(chunk, time_col, display_cols, max_events_per_window)
+            )
+            chunk_window_starts.append([window_start for window_start, _ in chunk])
+            chunk_contexts.append(extraction_ctx)
+
+    return chunk_texts, chunk_window_starts, chunk_contexts
+
+
+async def _run_semantic_chunks_prefect(
+    *,
+    chunk_texts: list[str],
+    chunk_window_starts: list[list[str]],
+    chunk_contexts: list[dict],
+    question: str,
+    root_run_id: str | None,
+    max_concurrent_workers: int,
+    max_rpm: int,
+) -> tuple[list[dict], list[dict], int, dict | None]:
+    """Execute semantic chunks through the existing Prefect worker path."""
+    from prefect.utilities.annotations import unmapped
+
+    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
+
+    all_indices = list(range(len(chunk_texts)))
+    all_n_windows = [len(ids) for ids in chunk_window_starts]
+
+    logger.info(
+        "Stage 2: %d semantic chunks of up to %d windows each (max_concurrent_workers=%d, max_rpm=%d)",
+        len(chunk_texts),
+        max(all_n_windows) if all_n_windows else 0,
+        max_concurrent_workers,
+        max_rpm,
+    )
+
+    if max_rpm:
+        set_limiter("llm", RpmLimiter(max_rpm))
+
+    try:
+        results = extract_window_chunk_task.map(
+            chunk_texts,
+            window_starts=chunk_window_starts,
+            chunk_idx=all_indices,
+            question=unmapped(question),
+            causal_spec=chunk_contexts,
+        )
+        if root_run_id:
+            for idx, n_w in zip(all_indices, all_n_windows, strict=True):
+                _emit_worker_event(
+                    root_run_id,
+                    worker_id=idx,
+                    status="submitted",
+                    total_workers=len(chunk_texts),
+                    completed_count=0,
+                    n_windows=n_w,
+                )
+        return _collect_batch_results(
+            futures=results,
+            batch_indices=all_indices,
+            batch_n_windows=all_n_windows,
+            logger=logger,
+            completed_before=0,
+            total_chunks=len(chunk_texts),
+            root_run_id=root_run_id,
+        )
+    finally:
+        set_limiter("llm", None)
+
+
+async def run_stage2_extraction_core(
+    *,
+    raw_df: pl.DataFrame,
+    question: str,
+    causal_spec: dict,
+    stage2_workers: Any,
+    root_run_id: str | None = None,
+    max_windows: int | None = None,
+    semantic_chunk_runner: SemanticChunkRunner | None = None,
+) -> dict:
+    """Shared Stage 2 extraction helper for flows and evals.
+
+    This is the deterministic orchestration core for:
+    1. splitting computed vs semantic indicators
+    2. computing direct indicators via Polars
+    3. preparing semantic support-window chunks
+    4. delegating semantic execution to an injected backend
+    5. annotating canonical observation-row support metadata
+    """
+    from causal_ssm_agent.utils.causal_spec import get_indicators
+    from causal_ssm_agent.utils.data import annotate_observation_rows, detect_time_column
+
+    semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_prefect
+
+    all_indicators = get_indicators(causal_spec)
+    time_col = detect_time_column(raw_df)
+    model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
+    logger.info("Stage 2: detected time column '%s', model_clock='%s'", time_col, model_clock)
+
+    computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
+    semantic_inds = [
+        i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
+    ]
+    logger.info(
+        "Stage 2: %d computed + %d semantic indicators",
+        len(computed_inds),
+        len(semantic_inds),
+    )
+
+    computed_dicts: list[dict] = []
+    if computed_inds:
+        from causal_ssm_agent.utils.aggregations import compute_indicators
+
+        computed_df = compute_indicators(raw_df, computed_inds, model_clock, time_col)
+        computed_dicts = computed_df.to_dicts()
+        logger.info(
+            "Stage 2: computed %d indicator(s) via Polars (%d rows)",
+            len(computed_inds),
+            len(computed_df),
+        )
+
+    semantic_dicts: list[dict] = []
+    worker_statuses: list[dict] = []
+    sampled_llm_trace: dict | None = None
+    n_semantic_total = 0
+
+    if semantic_inds:
+        chunk_texts, chunk_window_starts, chunk_contexts = _prepare_semantic_chunks(
+            raw_df=raw_df,
+            semantic_inds=semantic_inds,
+            causal_spec=causal_spec,
+            model_clock=model_clock,
+            time_col=time_col,
+            windows_per_chunk=stage2_workers.windows_per_chunk,
+            max_events_per_window=stage2_workers.max_events_per_window,
+            max_windows=max_windows,
+        )
+
+        if chunk_texts:
+            (
+                semantic_dicts,
+                worker_statuses,
+                n_semantic_total,
+                sampled_llm_trace,
+            ) = await semantic_chunk_runner(
+                chunk_texts=chunk_texts,
+                chunk_window_starts=chunk_window_starts,
+                chunk_contexts=chunk_contexts,
+                question=question,
+                root_run_id=root_run_id,
+                max_concurrent_workers=stage2_workers.max_concurrent_workers,
+                max_rpm=stage2_workers.max_rpm,
+            )
+
+    all_dicts = computed_dicts + semantic_dicts
+    n_total = len(computed_dicts) + n_semantic_total
+    logger.info(
+        "Stage 2: %d total extractions (%d computed, %d semantic from %d workers)",
+        n_total,
+        len(computed_dicts),
+        n_semantic_total,
+        len(worker_statuses),
+    )
+
+    raw_data = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
+
+    result = {
+        "raw_data": raw_data,
+        "worker_statuses": worker_statuses,
+        "n_total_extractions": n_total,
+    }
+    if sampled_llm_trace is not None:
+        result["llm_trace"] = sampled_llm_trace
+    return result
+
+
+def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[str, Any]:
+    """Materialize raw/model Stage 2 tables from a serialized extraction result."""
+    from causal_ssm_agent.utils.aggregations import _encode_non_continuous
+    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
+    from causal_ssm_agent.utils.data import observation_row_schema
+
+    raw_data_dicts = stage2_result.get("raw_data", [])
+    if raw_data_dicts:
+        raw_data = pl.DataFrame(raw_data_dicts)
+    else:
+        raw_data = pl.DataFrame(schema=observation_row_schema())
+
+    n_observations = len(raw_data)
+    if n_observations > 0:
+        dtype_lookup = get_indicator_dtypes(causal_spec)
+        ordinal_levels_lookup: dict[str, list[str]] = {
+            ind["name"]: ind["ordinal_levels"]
+            for ind in get_indicators(causal_spec)
+            if ind.get("ordinal_levels")
+        }
+        data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
+        data_for_model = (
+            data_for_model.with_columns(
+                pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+                pl.col("anchor_time")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("anchor_time"),
+                pl.col("support_start")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("support_start"),
+                pl.col("support_end")
+                .str.replace(r"[Zz]$", "")
+                .str.replace(r"[+-]\d{2}:\d{2}$", "")
+                .str.to_datetime(strict=False)
+                .alias("support_end"),
+            ).drop_nulls(subset=["anchor_time"])
+        )
+        data_for_model = data_for_model.sort("indicator", "anchor_time")
+    else:
+        data_for_model = raw_data
+
+    sample_rows = raw_data.head(20).to_dicts() if n_observations > 0 else []
+    per_indicator_counts = (
+        dict(raw_data.group_by("indicator").len().iter_rows()) if n_observations > 0 else {}
+    )
+    combined_extractions_sample = [
+        {
+            "indicator": str(row.get("indicator", "")),
+            "value": row.get("value"),
+            "anchor_time": row.get("anchor_time"),
+            "support_kind": row.get("support_kind"),
+            "summary_operator": row.get("summary_operator"),
+            "anchor_policy": row.get("anchor_policy"),
+            "observation_window": row.get("observation_window"),
+            "support_start": row.get("support_start"),
+            "support_end": row.get("support_end"),
+        }
+        for row in sample_rows
+    ]
+
+    return {
+        "raw_data": raw_data,
+        "data_for_model": data_for_model,
+        "worker_statuses": stage2_result.get("worker_statuses", []),
+        "per_indicator_counts": per_indicator_counts,
+        "combined_extractions_sample": combined_extractions_sample,
+        "llm_trace": stage2_result.get("llm_trace"),
+    }
+
+
 @task(
     retries=2,
     retry_delay_seconds=10,
@@ -372,177 +681,16 @@ async def stage2_extraction_flow(
         Dict with 'raw_data' (long-format DataFrame as list of dicts),
         'worker_statuses', and 'n_total_extractions'.
     """
-    from causal_ssm_agent.utils.causal_spec import get_indicators, make_extraction_context
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.data import (
-        annotate_observation_rows,
-        detect_time_column,
-    )
-    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
 
     config = get_config()
-    windows_per_chunk = config.stage2_workers.windows_per_chunk
-    max_events_per_window = config.stage2_workers.max_events_per_window
-
-    # Load DataFrame and detect time column
     raw_df = pl.read_parquet(Path(raw_df_path))
-    all_indicators = get_indicators(causal_spec)
-    time_col = detect_time_column(raw_df)
-    model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
-    logger.info("Stage 2: detected time column '%s', model_clock='%s'", time_col, model_clock)
-
-    # Split indicators by extraction mode
-    computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
-    semantic_inds = [
-        i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
-    ]
-    logger.info(
-        "Stage 2: %d computed + %d semantic indicators",
-        len(computed_inds),
-        len(semantic_inds),
+    return await run_stage2_extraction_core(
+        raw_df=raw_df,
+        question=question,
+        causal_spec=causal_spec,
+        stage2_workers=config.stage2_workers,
+        root_run_id=root_run_id,
+        max_windows=max_windows,
+        semantic_chunk_runner=_run_semantic_chunks_prefect,
     )
-
-    # ── Computed path (fast Polars aggregation) ──────────────────────────
-    computed_dicts: list[dict] = []
-    if computed_inds:
-        from causal_ssm_agent.utils.aggregations import compute_indicators
-
-        computed_df = compute_indicators(raw_df, computed_inds, model_clock, time_col)
-        computed_dicts = computed_df.to_dicts()
-        logger.info(
-            "Stage 2: computed %d indicator(s) via Polars (%d rows)",
-            len(computed_inds),
-            len(computed_df),
-        )
-
-    # ── Semantic path (LLM workers) ─────────────────────────────────────
-    semantic_dicts: list[dict] = []
-    worker_statuses: list[dict] = []
-    sampled_llm_trace: dict | None = None
-    n_semantic_total = 0
-
-    if semantic_inds:
-        from prefect.utilities.annotations import unmapped
-
-        from causal_ssm_agent.utils.data import bucket_by_clock
-        from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
-
-        chunk_texts: list[str] = []
-        chunk_window_starts: list[list[str]] = []
-        chunk_contexts: list[dict] = []
-
-        for observation_window, semantic_group in _group_indicators_by_window(
-            semantic_inds, model_clock
-        ):
-            semantic_spec = {
-                **causal_spec,
-                "measurement": {**causal_spec.get("measurement", {}), "indicators": semantic_group},
-            }
-            extraction_ctx = make_extraction_context(semantic_spec)
-
-            # Project only the columns needed by this support-window group.
-            projected = _project_to_source_columns(raw_df, semantic_group)
-            if time_col not in projected.columns:
-                projected = projected.with_columns(raw_df[time_col])
-
-            windows = bucket_by_clock(projected, observation_window, time_col)
-            logger.info(
-                "Stage 2: bucketed %d rows into %d support windows (window=%s, indicators=%d)",
-                len(projected),
-                len(windows),
-                observation_window,
-                len(semantic_group),
-            )
-
-            if max_windows is not None and len(windows) > max_windows:
-                logger.warning(
-                    "Stage 2: free-tier window cap active for window=%s — truncating %d windows to most recent %d",
-                    observation_window,
-                    len(windows),
-                    max_windows,
-                )
-                windows = windows[-max_windows:]
-
-            if not windows:
-                continue
-
-            display_cols = [c for c in projected.columns if c != time_col]
-            chunks = chunk_windows(windows, windows_per_chunk)
-            for chunk in chunks:
-                chunk_texts.append(
-                    format_window_chunk(chunk, time_col, display_cols, max_events_per_window)
-                )
-                chunk_window_starts.append([window_start for window_start, _ in chunk])
-                chunk_contexts.append(extraction_ctx)
-
-        if chunk_texts:
-            all_indices = list(range(len(chunk_texts)))
-            all_n_windows = [len(ids) for ids in chunk_window_starts]
-
-            logger.info(
-                "Stage 2: %d semantic chunks of up to %d windows each (max_concurrent_workers=%d, max_rpm=%d)",
-                len(chunk_texts),
-                windows_per_chunk,
-                config.stage2_workers.max_concurrent_workers,
-                config.stage2_workers.max_rpm,
-            )
-
-            if config.stage2_workers.max_rpm:
-                set_limiter("llm", RpmLimiter(config.stage2_workers.max_rpm))
-
-            try:
-                results = extract_window_chunk_task.map(
-                    chunk_texts,
-                    window_starts=chunk_window_starts,
-                    chunk_idx=all_indices,
-                    question=unmapped(question),
-                    causal_spec=chunk_contexts,
-                )
-                if root_run_id:
-                    for idx, n_w in zip(all_indices, all_n_windows, strict=True):
-                        _emit_worker_event(
-                            root_run_id,
-                            worker_id=idx,
-                            status="submitted",
-                            total_workers=len(chunk_texts),
-                            completed_count=0,
-                            n_windows=n_w,
-                        )
-                (
-                    semantic_dicts,
-                    worker_statuses,
-                    n_semantic_total,
-                    sampled_llm_trace,
-                ) = _collect_batch_results(
-                    futures=results,
-                    batch_indices=all_indices,
-                    batch_n_windows=all_n_windows,
-                    logger=logger,
-                    completed_before=0,
-                    total_chunks=len(chunk_texts),
-                    root_run_id=root_run_id,
-                )
-            finally:
-                set_limiter("llm", None)
-
-    # ── Merge results ───────────────────────────────────────────────────
-    all_dicts = computed_dicts + semantic_dicts
-    n_total = len(computed_dicts) + n_semantic_total
-    logger.info(
-        "Stage 2: %d total extractions (%d computed, %d semantic from %d workers)",
-        n_total,
-        len(computed_dicts),
-        n_semantic_total,
-        len(worker_statuses),
-    )
-
-    raw_data = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
-
-    result = {
-        "raw_data": raw_data,
-        "worker_statuses": worker_statuses,
-        "n_total_extractions": n_total,
-    }
-    if sampled_llm_trace is not None:
-        result["llm_trace"] = sampled_llm_trace
-    return result
