@@ -94,7 +94,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
 │   └── typescript-config/         # Shared TS config
 ├── data/                          # Root data workspace shared by web + pipeline
-│   ├── <USER_ID>/                 # User workspace: input/, query.txt, run/
+│   ├── <USER_ID>/                 # User workspace: input/, query.txt, session.json, run/
 │   ├── DEFAULT/                   # Tracked mock fixture user workspace
 │   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
 │   ├── MEDICAL_SEMANTICS/         # Tracked stage 0-2 medical archive fixture workspace
@@ -103,8 +103,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   └── README.md              # Human-readable Stage 2 artifact shape and observation semantics contract
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
-│   ├── sessions.seed.json         # Tracked fixture run metadata keyed by user ID
-│   └── sessions.json              # Runtime run metadata keyed by user ID (gitignored)
+│   └── <USER_ID>/session.json     # Per-user run lineage metadata persisted alongside query.txt
 ├── docs/                          # Project documentation (see docs/index.md)
 │   ├── modeling/                  # Theoretical foundations + SSM compilation pipeline
 │   ├── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing

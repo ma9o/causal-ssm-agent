@@ -12,14 +12,13 @@ data/
 ├── <USER_ID>/             # User workspace
 │   ├── input/             # Raw uploaded files for stage 0
 │   ├── query.txt          # Materialized research question
+│   ├── session.json       # Per-user run lineage metadata
 │   └── run/               # Persisted stage JSON + artifacts
 ├── DEFAULT/               # Tracked mock user fixture
 ├── DOCTOLIB/              # Tracked mock user fixture
 ├── MEDICAL_SEMANTICS/     # Tracked medical archive fixture for stage 0-2 golden tests
 ├── GOLDEN/                # Golden input dataset submodule
-├── processed/             # Preprocessed text chunks for eval/manual tools (gitignored)
-├── sessions.seed.json     # Tracked fixture run metadata keyed by user ID
-└── sessions.json          # Runtime run metadata keyed by user ID (gitignored)
+└── processed/             # Preprocessed text chunks for eval/manual tools (gitignored)
 ```
 
 ## User Runs
@@ -33,8 +32,8 @@ cp /path/to/export.json data/$USER_ID/input/
 ```
 
 Stage 0 scans `data/{user_id}/input/` and ingests the most recent non-hidden file.
-The question is stored in `data/{user_id}/query.txt`, and stage outputs land in
-`data/{user_id}/run/`.
+The question is stored in `data/{user_id}/query.txt`, run lineage is stored in
+`data/{user_id}/session.json`, and stage outputs land in `data/{user_id}/run/`.
 
 ## Preprocessed Chunk Workflow
 

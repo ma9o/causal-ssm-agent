@@ -9,7 +9,7 @@ import { STAGES, type StageId } from "@causal-ssm/api-types";
 import {
   getLatestSessionRootFlowRunId,
   readQuestion,
-  readSessions,
+  readSession,
 } from "../sessions/_shared";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
@@ -247,8 +247,7 @@ export async function buildAnalysisManifest(
   userId: string,
   bootstrapRootFlowRunIds: string[] = [],
 ): Promise<AnalysisManifest | null> {
-  const sessions = await readSessions();
-  const session = sessions[userId];
+  const session = await readSession(userId);
   const rootFlowRunIds = dedupeRootFlowRunIds([
     ...(session?.rootFlowRunIds ?? []),
     ...bootstrapRootFlowRunIds,
@@ -276,7 +275,8 @@ export async function buildAnalysisManifest(
     createdAt,
     question: question ?? bootstrapQuestion,
     rootFlowRunIds,
-    latestRootFlowRunId: rootFlowRunIds.at(-1) ?? getLatestSessionRootFlowRunId(session),
+    latestRootFlowRunId:
+      rootFlowRunIds.at(-1) ?? getLatestSessionRootFlowRunId(session ?? undefined),
     stages: stagesResolved,
   };
 }

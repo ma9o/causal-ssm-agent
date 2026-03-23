@@ -7,7 +7,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 vi.mock("./_shared", () => ({
-  readSessions: vi.fn().mockResolvedValue({}),
+  readSession: vi.fn().mockResolvedValue(null),
   normalizeSession: vi.fn((session) => ({
     createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
     rootFlowRunIds: session?.rootFlowRunIds ?? [],
@@ -16,11 +16,11 @@ vi.mock("./_shared", () => ({
     createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
     rootFlowRunIds: [...(session?.rootFlowRunIds ?? []), rootFlowRunId],
   })),
-  writeSessions: vi.fn().mockResolvedValue(undefined),
+  writeSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { writeData, ensureDir } from "@/lib/storage";
-import { readSessions, writeSessions } from "./_shared";
+import { readSession, writeSession } from "./_shared";
 import { POST } from "./route";
 
 describe("POST /api/sessions", () => {
@@ -28,7 +28,7 @@ describe("POST /api/sessions", () => {
     vi.clearAllMocks();
   });
 
-  it("writes query.txt and sessions.json", async () => {
+  it("writes query.txt and the per-user session lineage file", async () => {
     const response = await POST(
       new Request("http://localhost/api/sessions", {
         method: "POST",
@@ -50,29 +50,16 @@ describe("POST /api/sessions", () => {
       "How does screen time affect sleep?",
     );
 
-    // Should write sessions.json without the question
-    expect(writeSessions).toHaveBeenCalledWith(
-      expect.objectContaining({
-        "openrouter-user-123": expect.objectContaining({
-          createdAt: expect.any(String),
-        }),
-      }),
-    );
-
-    // Verify question is NOT in sessions.json
-    const mock = writeSessions as unknown as { mock: { calls: [Record<string, unknown>][] } };
-    const written = mock.mock.calls[0][0];
-    expect(written["openrouter-user-123"]).not.toHaveProperty("question");
-    expect(written["openrouter-user-123"]).toHaveProperty("createdAt");
-    expect(written["openrouter-user-123"]).toHaveProperty("rootFlowRunIds", []);
+    expect(writeSession).toHaveBeenCalledWith("openrouter-user-123", {
+      createdAt: "2026-03-14T00:00:00.000Z",
+      rootFlowRunIds: [],
+    });
   });
 
   it("appends a new flow run to the stored session lineage", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "openrouter-user-123": {
-        createdAt: "2026-03-13T00:00:00.000Z",
-        rootFlowRunIds: ["older-run", "old-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T00:00:00.000Z",
+      rootFlowRunIds: ["older-run", "old-run"],
     });
 
     const response = await POST(
@@ -88,11 +75,9 @@ describe("POST /api/sessions", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(writeSessions).toHaveBeenCalledWith({
-      "openrouter-user-123": {
-        createdAt: "2026-03-13T00:00:00.000Z",
-        rootFlowRunIds: ["older-run", "old-run", "new-run"],
-      },
+    expect(writeSession).toHaveBeenCalledWith("openrouter-user-123", {
+      createdAt: "2026-03-13T00:00:00.000Z",
+      rootFlowRunIds: ["older-run", "old-run", "new-run"],
     });
   });
 });

@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../sessions/_shared", () => ({
-  readSessions: vi.fn(),
+  readSession: vi.fn(),
   getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
   appendSessionRootFlowRunId: vi.fn((session, rootFlowRunId) => ({
     createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
     rootFlowRunIds: [...(session?.rootFlowRunIds ?? []), rootFlowRunId],
   })),
-  writeSessions: vi.fn().mockResolvedValue(undefined),
+  writeSession: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { readSessions, writeSessions } from "../sessions/_shared";
+import { readSession, writeSession } from "../sessions/_shared";
 import { POST } from "./route";
 
 const originalFetch = globalThis.fetch;
@@ -36,11 +36,9 @@ describe("POST /api/replay", () => {
   });
 
   it("cancels the current flow run before starting the replay and appends the new run to the session lineage", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T10:00:00.000Z",
-        rootFlowRunIds: ["older-run", "old-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T10:00:00.000Z",
+      rootFlowRunIds: ["older-run", "old-run"],
     });
 
     const fetchMock = vi
@@ -135,20 +133,16 @@ describe("POST /api/replay", () => {
       },
     });
     expect(createBody.idempotency_key).toMatch(/^replay:user-123:stage-1a:[0-9a-f]{64}$/);
-    expect(writeSessions).toHaveBeenCalledWith({
-      "user-123": {
-        createdAt: "2026-03-13T10:00:00.000Z",
-        rootFlowRunIds: ["older-run", "old-run", "new-run"],
-      },
+    expect(writeSession).toHaveBeenCalledWith("user-123", {
+      createdAt: "2026-03-13T10:00:00.000Z",
+      rootFlowRunIds: ["older-run", "old-run", "new-run"],
     });
   });
 
   it("skips cancellation when the tracked flow run is already terminal", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T10:00:00.000Z",
-        rootFlowRunIds: ["done-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T10:00:00.000Z",
+      rootFlowRunIds: ["done-run"],
     });
 
     const fetchMock = vi
@@ -186,11 +180,9 @@ describe("POST /api/replay", () => {
   });
 
   it("drops stale resume bounds from the previous run before creating the replay", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T10:00:00.000Z",
-        rootFlowRunIds: ["resume-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T10:00:00.000Z",
+      rootFlowRunIds: ["resume-run"],
     });
 
     const fetchMock = vi
@@ -268,11 +260,9 @@ describe("POST /api/replay", () => {
   });
 
   it("retries retryable Prefect API responses during replay creation", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T10:00:00.000Z",
-        rootFlowRunIds: ["done-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T10:00:00.000Z",
+      rootFlowRunIds: ["done-run"],
     });
 
     const fetchMock = vi
@@ -317,8 +307,8 @@ describe("POST /api/replay", () => {
   });
 
   it("still returns the new root flow run when session persistence fails and falls back to the explicit source run id", async () => {
-    vi.mocked(readSessions).mockResolvedValue({});
-    vi.mocked(writeSessions).mockRejectedValueOnce(new Error("disk full"));
+    vi.mocked(readSession).mockResolvedValue(null);
+    vi.mocked(writeSession).mockRejectedValueOnce(new Error("disk full"));
 
     const fetchMock = vi
       .fn()
