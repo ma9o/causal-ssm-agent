@@ -1,7 +1,11 @@
 "use client";
 
-import type { PrefectLogEntry } from "./use-stage-logs";
 import type { StageRunStatus } from "./use-run-events";
+import type {
+  PrefectLogEntry,
+  PrefectLogsResult,
+} from "./use-stage-logs";
+import { useStageLogs } from "./use-stage-logs";
 import { useQuery } from "@tanstack/react-query";
 
 export interface Stage2Worker {
@@ -15,78 +19,56 @@ export interface Stage2Worker {
 export interface Stage2WorkerProgress {
   workers: Stage2Worker[];
   logs: PrefectLogEntry[];
+  logBootstrapStatus: PrefectLogsResult["bootstrapStatus"];
+  logConnectionState: PrefectLogsResult["connectionState"];
+}
+
+const STAGE2_LOG_PAGE_SIZE = 500;
+
+export function getStage2WorkerQueryKey(
+  userId: string,
+  rootFlowRunId: string | null,
+) {
+  return ["pipeline", userId, "stage2-workers", rootFlowRunId] as const;
+}
+
+export function getStage2WorkerQueryKeyPrefix(userId: string) {
+  return ["pipeline", userId, "stage2-workers"] as const;
 }
 
 /**
- * Stage-2 worker progress via WebSocket events + log polling.
+ * Stage-2 worker progress via WebSocket events + bootstrap/backfill + Prefect live log streaming.
  *
  * Worker states (submitted/completed/failed) arrive over the existing
  * WebSocket connection in use-run-events.ts and are written into the
- * ["pipeline", userId, "stage2-workers"] query cache key.
+ * ["pipeline", userId, "stage2-workers", rootFlowRunId] query cache key.
  *
- * Logs must still be polled — Prefect has no log WebSocket API.
+ * Logs are bootstrapped via REST once and then appended from Prefect's logs/out socket.
  */
 export function useStage2Workers(
   userId: string,
+  rootFlowRunId: string | null,
   stageSubflowRunId: string | null,
+  initialLogFlowRunIds: string[],
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
   const isActive = stageStatus === "running";
 
   // Workers: populated by WebSocket events in use-run-events.ts
   const { data: workers = [] } = useQuery<Stage2Worker[]>({
-    queryKey: ["pipeline", userId, "stage2-workers"],
+    queryKey: getStage2WorkerQueryKey(userId, rootFlowRunId),
     queryFn: () => [],
-    enabled: isActive,
+    enabled: isActive && !!rootFlowRunId,
     staleTime: Infinity,
   });
 
-  // Logs: still polled (Prefect has no log WebSocket)
-  const { data: logs = [] } = useQuery({
-    queryKey: ["pipeline", userId, "stage2-logs", stageSubflowRunId],
-    queryFn: () => fetchStage2Logs(stageSubflowRunId),
-    enabled: isActive && workers.length > 0 && !!stageSubflowRunId,
-    refetchInterval: 3000,
-    staleTime: 1000,
+  const {
+    logs,
+    bootstrapStatus: logBootstrapStatus,
+    connectionState: logConnectionState,
+  } = useStageLogs(userId, "stage-2", stageSubflowRunId, initialLogFlowRunIds, stageStatus, {
+    pageSize: STAGE2_LOG_PAGE_SIZE,
   });
 
-  return { workers, logs };
-}
-
-async function fetchStage2Logs(stageSubflowRunId: string | null): Promise<PrefectLogEntry[]> {
-  // Find the stage-2 subflow run ID and all its nested flow runs,
-  // then fetch logs from all of them (workers run in a nested extraction flow).
-  if (!stageSubflowRunId) return [];
-
-  const logFlowRunIds = [stageSubflowRunId];
-
-  // Find nested flow runs (stage2-worker-extraction flow is a child)
-  try {
-    const childRes = await fetch("/prefect/flow_runs/filter", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
-        limit: 5,
-      }),
-    });
-    if (childRes.ok) {
-      const children: { id: string }[] = await childRes.json();
-      logFlowRunIds.push(...children.map((c) => c.id));
-    }
-  } catch {
-    // Best-effort — still fetch logs from the parent flow
-  }
-
-  const res = await fetch("/prefect/logs/filter", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      logs: { flow_run_id: { any_: logFlowRunIds } },
-      sort: "TIMESTAMP_ASC",
-      limit: 500,
-    }),
-  });
-  if (!res.ok) return [];
-  return res.json();
+  return { workers, logs, logBootstrapStatus, logConnectionState };
 }
