@@ -1,6 +1,6 @@
 # Stage 1a: Latent Model Proposal
 
-Translates a natural-language research question into a theoretical causal DAG over constructs. For the construct ontology and temporal-status rules that shape this DAG, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the assumptions that constrain the graph, see [../concepts/assumptions.md](../concepts/assumptions.md).
+Translates a natural-language research question into a theoretical causal DAG over constructs. This page is the authoritative definition of `LatentModel`. For the construct ontology and temporal-status rules that shape this DAG, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the assumptions that constrain the graph, see [../concepts/assumptions.md](../concepts/assumptions.md).
 
 ## At a Glance
 
@@ -33,6 +33,19 @@ This stage is purely theoretical and does not inspect the dataset.
 | `outcome_name` | `str` | Primary outcome construct |
 | `treatments` | `list[str]` | Candidate treatment variables |
 | `llm_trace` | `LLMTrace?` | Conversation trace |
+
+## Artifact Introduced
+
+### LatentModel
+
+`LatentModel` is the theoretical causal graph over constructs proposed before any measurement choices are made. It owns:
+
+- the construct set
+- the causal edges between constructs
+- the outcome designation
+- the candidate treatment set derived from that graph
+
+Later stages may consume or refine assumptions around this object, but Stage 1a is the authoritative definition of what `LatentModel` means in this pipeline.
 
 ## Key Structures
 

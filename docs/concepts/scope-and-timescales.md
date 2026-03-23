@@ -2,7 +2,7 @@
 
 This framework models dynamics of time-varying constructs with optional time-invariant covariates. This is a **causal effect estimation** framework.
 
-Within the pipeline, this document constrains the objects that appear in the `LatentModel`, measurement model, and `CausalSpec`. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). For short artifact definitions, see [artifact-glossary.md](artifact-glossary.md).
+Within the pipeline, this document constrains the objects that appear in the [`LatentModel`](../pipeline/01a-latent-model.md#latentmodel), [measurement model](../pipeline/01b-measurement-identifiability.md#measurement-model), and [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec). For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [artifact-index.md](artifact-index.md).
 
 ---
 

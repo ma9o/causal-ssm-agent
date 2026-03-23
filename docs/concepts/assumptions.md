@@ -2,7 +2,7 @@
 
 This document enumerates the core modeling assumptions underlying the causal-ssm-agent framework. Each assumption constrains what can be modeled and has implications for interpretation.
 
-These assumptions cut across the full pipeline: they shape the latent model, measurement model, identifiability logic, functional specification, and estimation runtime. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). For short artifact definitions, see [artifact-glossary.md](artifact-glossary.md).
+These assumptions cut across the full pipeline: they shape the [`LatentModel`](../pipeline/01a-latent-model.md#latentmodel), [measurement model](../pipeline/01b-measurement-identifiability.md#measurement-model), [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec), functional specification, and estimation runtime. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [artifact-index.md](artifact-index.md).
 
 ---
 

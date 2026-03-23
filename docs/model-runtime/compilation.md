@@ -1,13 +1,13 @@
 # SSM Compilation Pipeline
 
-This document describes the compilation pipeline that translates a `ModelSpec` (the Stage 4 output) into a NumPyro-ready `SSMModel`. The pipeline is a pure, deterministic transformation -- no LLM calls, no data access. It lives in `apps/data-pipeline/src/causal_ssm_agent/models/`.
+This document describes the compilation pipeline that translates a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) (the Stage 4 output) into a NumPyro-ready `SSMModel`. The pipeline is a pure, deterministic transformation -- no LLM calls, no data access. It lives in `apps/data-pipeline/src/causal_ssm_agent/models/`.
 
-Within the pipeline artifact lineage, this document sits between the Stage 4 functional specification and the estimation runtime. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). For short artifact definitions, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
+Within the pipeline artifact lineage, this document sits between the Stage 4 functional specification and the estimation runtime. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [../concepts/artifact-index.md](../concepts/artifact-index.md).
 
 ## Data Flow
 
 ```
-ModelSpec + PriorProposal + CausalSpec
+[ModelSpec](../pipeline/04-model-specification-priors.md#modelspec) + [PriorProposal](../pipeline/04-model-specification-priors.md#priorproposal) + [CausalSpec](../pipeline/01b-measurement-identifiability.md#causalspec)
     │
     ▼
 compile_ssm_artifact()                    [ssm_compiler.py]
@@ -43,8 +43,8 @@ build_compiled_ssm_builder()              [ssm_builder.py]
 
 | Type | Defined in | Purpose |
 |------|-----------|---------|
-| `ModelSpec` | `orchestrator/schemas_model.py` | User-facing model spec: parameters, likelihoods, roles |
-| `CausalSpec` | `utils/causal_spec.py` | DAG edges, construct metadata, temporal granularity |
+| [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) | `orchestrator/schemas_model.py` | User-facing model spec: parameters, likelihoods, roles |
+| [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | `utils/causal_spec.py` | DAG edges, construct metadata, temporal granularity |
 | `SSMSpec` | `models/ssm/model.py` | Structural SSM template: dimensions, masks, distributions |
 | `SSMPriors` | `models/ssm/model.py` | Prior distributions for all SSM parameters |
 | `PriorIndexMaps` | `ssm_compilation_common.py` | 5-tuple mapping param names → (prior field, flat index) |
