@@ -2,7 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import { getUserApiKey } from "@/lib/auth";
-import { useRefinement } from "@/lib/contexts/refinement-context";
+import {
+  refinementNeedsActivation,
+  useRefinement,
+} from "@/lib/contexts/refinement-context";
+import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import { useChat } from "@ai-sdk/react";
@@ -12,6 +16,9 @@ import { DefaultChatTransport } from "ai";
 import { Clock, Cpu, Loader2, MessageSquare, Send } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChatMessages } from "./chat-messages";
+
+const EMPTY_STAGE_PATCH: Record<string, unknown> = {};
+const EMPTY_REFINEMENT_MESSAGES: RefinementUIMessage[] = [];
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
@@ -64,32 +71,67 @@ export function LLMTracePanel({
   const [input, setInput] = useState("");
   const queuedMessageRef = useRef<string | null>(null);
 
-  const { refiningStageId, invalidatedAfter, requestRefinement, markSettled } = useRefinement();
+  const normalizedStageId = stageId as StageId | undefined;
+  const {
+    refiningStageId,
+    pendingStagePatches,
+    refinementMessages: savedRefinementMessages,
+    requestRefinement,
+    markSettled,
+    setPendingMaterialization,
+  } = useRefinement();
 
   const canRefine = interactive && !!workspaceId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
+  const pendingStagePatch = normalizedStageId
+    ? (pendingStagePatches[normalizedStageId] ?? EMPTY_STAGE_PATCH)
+    : EMPTY_STAGE_PATCH;
+  const initialRefinementMessages = normalizedStageId
+    ? (savedRefinementMessages[normalizedStageId] ?? EMPTY_REFINEMENT_MESSAGES)
+    : EMPTY_REFINEMENT_MESSAGES;
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.
   const transport = useMemo(() => {
     if (!canRefine) return undefined;
     const apiKey = getUserApiKey();
-    return new DefaultChatTransport({
+    return new DefaultChatTransport<RefinementUIMessage>({
       api: "/api/refine",
-      body: { workspaceId, stageId },
+      body: { workspaceId, stageId, pendingStagePatch },
       ...(apiKey ? { headers: { "x-openrouter-key": apiKey } } : {}),
     });
-  }, [workspaceId, stageId, canRefine]);
+  }, [workspaceId, stageId, canRefine, pendingStagePatch]);
 
   const {
     messages: refinementMessages,
     sendMessage,
     status,
-  } = useChat({
-    transport: transport ?? new DefaultChatTransport({ api: "/api/refine" }),
+  } = useChat<RefinementUIMessage>({
+    messages: initialRefinementMessages,
+    transport: transport ?? new DefaultChatTransport<RefinementUIMessage>({ api: "/api/refine" }),
+    onFinish: ({ message, messages }) => {
+      if (!normalizedStageId) {
+        return;
+      }
+
+      setPendingMaterialization(normalizedStageId, {
+        messages,
+        stagePatch: message.metadata?.stagePatch ?? pendingStagePatch,
+      });
+    },
   });
 
   const isLoading = status === "streaming" || status === "submitted";
   const hasRefinement = refinementMessages.length > 0;
+
+  useEffect(() => {
+    if (!normalizedStageId || refinementMessages.length === 0) {
+      return;
+    }
+
+    setPendingMaterialization(normalizedStageId, {
+      messages: refinementMessages,
+    });
+  }, [normalizedStageId, refinementMessages, setPendingMaterialization]);
 
   // Report settled state to the context so the ResumeButton can appear
   useEffect(() => {
@@ -119,14 +161,14 @@ export function LLMTracePanel({
     if (!text || isLoading || !canRefine) return;
     setInput("");
 
-    // If downstream stages aren't invalidated yet, show the confirmation modal
-    if (!invalidatedAfter) {
+    // First message enters refinement mode. Non-terminal stages open the invalidation modal.
+    if (refinementNeedsActivation(stageId as StageId, refiningStageId)) {
       queuedMessageRef.current = text;
       requestRefinement(stageId as StageId);
       return;
     }
 
-    // Already confirmed — send immediately
+    // Stage is already in refinement mode, or it's terminal and can refine in place.
     sendMessage({ text });
   }
 
@@ -143,7 +185,7 @@ export function LLMTracePanel({
           <div className="my-3 flex items-center gap-2 text-xs text-muted-foreground">
             <div className="flex-1 border-t" />
             <MessageSquare className="h-3 w-3" />
-            <span>Refinement</span>
+            <span>Follow-up Chat</span>
             <div className="flex-1 border-t" />
           </div>
         )}
@@ -160,7 +202,7 @@ export function LLMTracePanel({
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Refine the output..."
+            placeholder="Ask a follow-up question or request a change..."
             disabled={isLoading}
             className="flex-1 rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
           />

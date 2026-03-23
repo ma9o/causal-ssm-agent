@@ -1,14 +1,18 @@
 "use client";
 
 import type { RefineApplyResponse } from "@/lib/api/analysis";
+import { useRefinement } from "@/lib/contexts/refinement-context";
 import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
+import type { StageId } from "@causal-ssm/api-types";
 import { Loader2, Play } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 
 /**
- * Bottom-of-feed CTA that applies the refinement draft and triggers
- * a pipeline replay from the next stage after the one being refined.
+ * Bottom-of-feed CTA that materializes the current interactive result.
+ *
+ * Earlier stages trigger a replay from the next stage boundary.
+ * Terminal Stage 6 persists the finalized interactive result in place.
  */
 export function ResumeButton({
   workspaceId,
@@ -20,12 +24,21 @@ export function ResumeButton({
   rootFlowRunId?: string | null;
 }) {
   const [applying, setApplying] = useState(false);
+  const {
+    clearPendingMaterialization,
+    pendingStagePatches,
+    refinementMessages,
+  } = useRefinement();
+  const normalizedStageId = stageId as StageId;
 
   const nextStageIdx = STAGE_IDS.indexOf(stageId as (typeof STAGE_IDS)[number]) + 1;
   const nextStage = STAGES[nextStageIdx];
-  const resumeLabel = nextStage
-    ? `Resume Pipeline from Stage ${nextStage.number}`
-    : "Resume Pipeline";
+  const isTerminalStage = nextStage == null;
+  const pendingStagePatch = pendingStagePatches[normalizedStageId] ?? {};
+  const pendingMessages = refinementMessages[normalizedStageId] ?? [];
+  const resumeLabel = isTerminalStage
+    ? "Persist Final Results"
+    : `Apply Changes and Re-run from Stage ${nextStage.number}`;
 
   const handleResume = useCallback(async () => {
     if (applying) return;
@@ -37,6 +50,8 @@ export function ResumeButton({
         body: JSON.stringify({
           workspaceId,
           stageId,
+          stagePatch: pendingStagePatch,
+          messages: pendingMessages,
           ...(rootFlowRunId ? { rootFlowRunId } : {}),
         }),
       });
@@ -48,6 +63,17 @@ export function ResumeButton({
 
       const result = (await res.json()) as RefineApplyResponse;
       if (result.ok) {
+        clearPendingMaterialization(normalizedStageId);
+        if (isTerminalStage) {
+          window.location.reload();
+          return;
+        }
+
+        if (!result.rootFlowRunId) {
+          console.error("Resume failed: missing rootFlowRunId in replay response");
+          return;
+        }
+
         window.location.href = `/analysis/${workspaceId}?${new URLSearchParams({
           rootFlowRunId: result.rootFlowRunId,
         }).toString()}`;
@@ -55,7 +81,17 @@ export function ResumeButton({
     } finally {
       setApplying(false);
     }
-  }, [workspaceId, stageId, rootFlowRunId, applying]);
+  }, [
+    workspaceId,
+    stageId,
+    rootFlowRunId,
+    pendingStagePatch,
+    pendingMessages,
+    clearPendingMaterialization,
+    normalizedStageId,
+    applying,
+    isTerminalStage,
+  ]);
 
   return (
     <motion.div
@@ -73,7 +109,7 @@ export function ResumeButton({
         {applying ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            Applying changes & re-running...
+            {isTerminalStage ? "Persisting final results..." : "Applying changes and re-running..."}
           </>
         ) : (
           <>
