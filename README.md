@@ -83,6 +83,8 @@ causal-ssm-agent/                  # Turborepo monorepo
 │           │   └── explore/[userId]/[stage]/  # Standalone Perspective-powered full-data explorer
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
 │           │   ├── pipeline/stage-contents/stage-4b-content.test.ts  # Verifies the Stage 4b surface renders T-rule payloads
+│           │   ├── stages/inference/  # Inference diagnostics, treatment ranking, and the Stage 6 assistant shell
+│           │   │   └── stage-6-assistant-live-panel.tsx  # Lazily loaded live Stage 6 chat to keep static stories Storybook-safe
 │           │   └── stages/parametric-id/  # Stage 4b surfaces such as inference-structure-card.tsx and t-rule-card.tsx
 │           └── lib/               # API clients, hooks, user-id helpers, types, utilities
 │               ├── api/analysis.ts  # Shared typed contracts + client helpers for sessions, replay, and analysis manifests
