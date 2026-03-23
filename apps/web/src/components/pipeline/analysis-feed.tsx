@@ -21,11 +21,13 @@ function FeedContent({
   stageRuns,
   question,
   progress,
+  latestRootFlowRunId,
 }: {
   userId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress;
+  latestRootFlowRunId?: string | null;
 }) {
   const { refiningStageId, settled } = useRefinement();
 
@@ -56,7 +58,13 @@ function FeedContent({
             <ActiveStageIndicator stageId={progress.currentStage} />
           </div>
         )}
-        {refiningStageId && settled && <ResumeButton userId={userId} stageId={refiningStageId} />}
+        {refiningStageId && settled && (
+          <ResumeButton
+            userId={userId}
+            stageId={refiningStageId}
+            rootFlowRunId={latestRootFlowRunId}
+          />
+        )}
       </div>
       <InvalidationWarningModal />
       <NewStagesNotification progress={progress} />
@@ -70,11 +78,13 @@ export function AnalysisFeed({
   stageRuns,
   question,
   progress,
+  latestRootFlowRunId,
 }: {
   userId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress | undefined;
+  latestRootFlowRunId?: string | null;
 }) {
   if (!progress) {
     return (
@@ -96,7 +106,13 @@ export function AnalysisFeed({
 
   return (
     <RefinementProvider>
-      <FeedContent userId={userId} stageRuns={stageRuns} question={question} progress={progress} />
+      <FeedContent
+        userId={userId}
+        stageRuns={stageRuns}
+        question={question}
+        progress={progress}
+        latestRootFlowRunId={latestRootFlowRunId}
+      />
     </RefinementProvider>
   );
 }

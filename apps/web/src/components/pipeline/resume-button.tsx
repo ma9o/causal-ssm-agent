@@ -13,9 +13,11 @@ import { useCallback, useState } from "react";
 export function ResumeButton({
   userId,
   stageId,
+  rootFlowRunId,
 }: {
   userId: string;
   stageId: string;
+  rootFlowRunId?: string | null;
 }) {
   const [applying, setApplying] = useState(false);
 
@@ -32,7 +34,11 @@ export function ResumeButton({
       const res = await fetch("/api/refine/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, stageId }),
+        body: JSON.stringify({
+          userId,
+          stageId,
+          ...(rootFlowRunId ? { rootFlowRunId } : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -42,12 +48,14 @@ export function ResumeButton({
 
       const result = (await res.json()) as RefineApplyResponse;
       if (result.ok) {
-        window.location.href = `/analysis/${userId}`;
+        window.location.href = `/analysis/${userId}?${new URLSearchParams({
+          rootFlowRunId: result.rootFlowRunId,
+        }).toString()}`;
       }
     } finally {
       setApplying(false);
     }
-  }, [userId, stageId, applying]);
+  }, [userId, stageId, rootFlowRunId, applying]);
 
   return (
     <motion.div

@@ -67,6 +67,7 @@ export default function AnalysisPage({
       question={manifest?.question}
       stageRuns={manifest?.stages}
       progress={progress}
+      latestRootFlowRunId={manifest?.latestRootFlowRunId}
     />
   );
 }
