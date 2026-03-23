@@ -1,8 +1,8 @@
 # Artifact Glossary
 
-This glossary names the main artifacts that move through the pipeline. It is the shortest path for answering "what is this object?" before reading the stage or modeling docs.
+This glossary names the main artifacts that move through the pipeline. It is the shortest path for answering "what is this object?" before reading the stage or model-runtime docs.
 
-For the cross-cutting pipeline map, see [pipeline_dimensions.md](pipeline_dimensions.md). For execution and persistence behavior, see [runtime_semantics.md](runtime_semantics.md).
+For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). For execution and persistence behavior, see [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md).
 
 ## Core Pipeline Artifacts
 
@@ -56,7 +56,8 @@ They are related, but they are not interchangeable.
 
 Use this document when you need to disambiguate names quickly:
 
-- "What is `CausalSpec`?" -> this document, then [../pipeline_stages.md](../pipeline_stages.md)
-- "How is `ModelSpec` different from the causal model?" -> this document, then [../modeling/functional_spec.md](../modeling/functional_spec.md)
-- "What object does compilation consume?" -> this document, then [../modeling/compilation.md](../modeling/compilation.md)
-- "What is persisted vs exposed to the web?" -> this document, then [runtime_semantics.md](runtime_semantics.md)
+- "What is `CausalSpec`?" -> this document, then [../pipeline/01b-measurement-identifiability.md](../pipeline/01b-measurement-identifiability.md)
+- "What is `CausalSpec`?" -> this document, then [../pipeline/01b-measurement-identifiability.md](../pipeline/01b-measurement-identifiability.md)
+- "How is `ModelSpec` different from the causal model?" -> this document, then [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md)
+- "What object does compilation consume?" -> this document, then [../model-runtime/compilation.md](../model-runtime/compilation.md)
+- "What is persisted vs exposed to the web?" -> this document, then [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md)

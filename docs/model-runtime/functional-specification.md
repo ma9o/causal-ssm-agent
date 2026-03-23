@@ -2,7 +2,7 @@
 
 This document describes how Stage 4 translates the causal DAG (topological structure) into a fully specified NumPyro/JAX state-space model (functional specification). The approach combines rule-based constraints with LLM-assisted prior elicitation.
 
-Within the pipeline artifact lineage, this document explains the transition from `CausalSpec` to `ModelSpec` plus priors. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+Within the pipeline artifact lineage, this document explains the transition from `CausalSpec` to `ModelSpec` plus priors. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). For short artifact definitions, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
 
 ---
 
@@ -30,9 +30,9 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 
 The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via per-indicator entries in the `likelihoods` field of `ModelSpec`.
 
-**1.2 Temporal Structure:** AR(1) for all endogenous time-varying constructs. See [assumptions.md](assumptions.md) A3.
+**1.2 Temporal Structure:** AR(1) for all endogenous time-varying constructs. See [../concepts/assumptions.md](../concepts/assumptions.md) A3.
 
-**1.3 Measurement Model Structure:** Single-indicator constructs fix λ=1; multi-indicator constructs use CFA with first loading fixed. See [assumptions.md](assumptions.md) A6/A9.
+**1.3 Measurement Model Structure:** Single-indicator constructs fix λ=1; multi-indicator constructs use CFA with first loading fixed. See [../concepts/assumptions.md](../concepts/assumptions.md) A6/A9.
 
 **1.4 Cross-Timescale Aggregation**
 

@@ -7,18 +7,32 @@ This index is the top-level map of the documentation for readers and coding agen
 ```
 docs/
 ├── index.md              # This file
-├── architecture/
-│   ├── artifact_glossary.md    # Short definitions for the core pipeline objects (`LatentModel`, `CausalSpec`, `ModelSpec`, fitted artifact, etc.)
-│   ├── pipeline_dimensions.md  # Cross-cutting pipeline map: artifact lineage, temporal semantics, validation surfaces, and persistence/runtime semantics
-│   └── runtime_semantics.md    # Execution DAG, restore/recompute behavior, replay/override semantics, and persistence surfaces
-├── pipeline_stages.md    # Complete pipeline stage reference (inputs, outputs, logic for stage-0 → stage-6, including stage-1a/1b, stage-4b, and stage-5a/5b)
-├── modeling/
-│   ├── scope.md          # Construct taxonomy, temporal granularity, what's in/out of scope
-│   ├── assumptions.md    # Core technical assumptions (A1-A9)
-│   ├── estimation.md     # CT-SDE pipeline, discretization, likelihood backends, counterfactuals
-│   ├── inference-strategies.md  # Inference routing (three axes, structural decision tree, 9 methods)
-│   ├── functional_spec.md      # Stage 4 model specification (rules, LLM prior elicitation, parametric ID)
-│   └── compilation.md    # SSM compilation pipeline (ModelSpec → SSMModel data flow)
+├── pipeline.md           # Ordered pipeline map and links to each stage file
+├── pipeline/
+│   ├── 00-ingestion.md
+│   ├── 01a-latent-model.md
+│   ├── 01b-measurement-identifiability.md
+│   ├── 02-indicator-extraction.md
+│   ├── 03-extraction-validation.md
+│   ├── 04-model-specification-priors.md
+│   ├── 04b-parametric-identifiability.md
+│   ├── 05a-svi-preflight.md
+│   ├── 05b-inference-diagnostics.md
+│   └── 06-intervention-analysis.md
+├── concepts/
+│   ├── artifact-glossary.md    # Short definitions for the core pipeline objects (`LatentModel`, `CausalSpec`, `ModelSpec`, fitted artifact, etc.)
+│   ├── pipeline-dimensions.md  # Cross-cutting pipeline map: artifact lineage, temporal semantics, validation surfaces, and control-flow semantics
+│   ├── assumptions.md          # Core technical assumptions (A1-A9)
+│   └── scope-and-timescales.md # Construct taxonomy, temporal granularity, cross-timescale rules, and scope boundaries
+├── model-runtime/
+│   ├── handoff-map.md          # Stage 4 -> Stage 6 artifact handoff chain
+│   ├── functional-specification.md
+│   ├── compilation.md
+│   ├── estimation.md
+│   └── inference-routing.md
+├── runtime/
+│   ├── execution-and-replay.md
+│   └── persistence-and-exposure.md
 ├── guides/
 │   ├── dev_setup.md      # Local development setup (bootstrapping from a fresh clone)
 │   ├── data_workflow.md  # Data organization for users and evals
@@ -31,18 +45,16 @@ docs/
 ## Quick Links by Task
 
 **Understanding the pipeline:**
-- Start with `architecture/artifact_glossary.md` if you need the object vocabulary first
-- Start with `architecture/pipeline_dimensions.md` for the cross-cutting map: artifact lineage, temporal semantics, execution modality, assurance surfaces, and persistence/runtime semantics
-- Then read `architecture/runtime_semantics.md` for execution DAG, restore/recompute behavior, and replay/override semantics
-- Then read `pipeline_stages.md` for the complete stage-by-stage reference: inputs, outputs, internal logic, gates, and resume behavior
+- Start with `concepts/artifact-glossary.md` if you need the object vocabulary first
+- Start with `concepts/pipeline-dimensions.md` for the cross-cutting map: artifact lineage, temporal semantics, execution modality, assurance surfaces, and control-flow semantics
+- Then read `pipeline.md` for the ordered stage map
+- Then open the relevant file under `pipeline/` for stage-specific detail
 
 **Understanding the modeling approach:**
-- Start with `modeling/scope.md` for construct taxonomy, ontology, temporal granularity, cross-timescale rules, and what's in/out of scope
-- Check `modeling/assumptions.md` for specific technical assumptions (A1-A9)
-- See `modeling/estimation.md` for the estimation pipeline (CT-SDE, discretization, likelihood backends, counterfactual inference)
-- See `modeling/inference-strategies.md` for inference routing (three orthogonal axes, structural decision tree, 9 methods)
-- See `modeling/functional_spec.md` for Stage 4 model specification (rule-based constraints, LLM prior elicitation, parametric ID)
-- See `modeling/compilation.md` for the SSM compilation pipeline (ModelSpec → SSMSpec → SSMModel)
+- Start with `concepts/scope-and-timescales.md` for construct taxonomy, ontology, temporal granularity, cross-timescale rules, and what's in/out of scope
+- Check `concepts/assumptions.md` for specific technical assumptions (A1-A9)
+- See `model-runtime/handoff-map.md` for the Stage 4 -> Stage 6 chain
+- See `model-runtime/functional-specification.md`, `model-runtime/compilation.md`, `model-runtime/estimation.md`, and `model-runtime/inference-routing.md` for the downstream model-runtime path
 
 **Running the system:**
 - `guides/dev_setup.md` for bootstrapping from a fresh clone
@@ -52,13 +64,13 @@ docs/
 - `guides/agentic_integration_testing.md` for end-to-end integration testing
 
 **Jump in by question:**
-- "What is `CausalSpec`, `ModelSpec`, or the fitted artifact?" -> `architecture/artifact_glossary.md`
-- "What objects move through the pipeline?" -> `architecture/pipeline_dimensions.md`
-- "What does each stage do?" -> `pipeline_stages.md`
-- "How does time work across extraction, fitting, and interventions?" -> `architecture/pipeline_dimensions.md`, then `modeling/scope.md` and `modeling/estimation.md`
-- "What gets validated where?" -> `architecture/pipeline_dimensions.md`, then `pipeline_stages.md` and `modeling/functional_spec.md`
-- "How do resume, replay, overrides, and gates work?" -> `architecture/runtime_semantics.md`
-- "What gets persisted, restored, or exposed to the web?" -> `architecture/runtime_semantics.md`, then `pipeline_stages.md`
+- "What is `CausalSpec`, `ModelSpec`, or the fitted artifact?" -> `concepts/artifact-glossary.md`
+- "What objects move through the pipeline?" -> `concepts/pipeline-dimensions.md`
+- "What does each stage do?" -> `pipeline.md`, then the relevant file under `pipeline/`
+- "How does time work across extraction, fitting, and interventions?" -> `concepts/pipeline-dimensions.md`, then `concepts/scope-and-timescales.md` and `model-runtime/estimation.md`
+- "What gets validated where?" -> `concepts/pipeline-dimensions.md`, then `pipeline.md` and `model-runtime/functional-specification.md`
+- "How do resume, replay, overrides, and gates work?" -> `runtime/execution-and-replay.md`
+- "What gets persisted, restored, or exposed to the web?" -> `runtime/persistence-and-exposure.md`, then `pipeline.md`
 
 **Benchmarks:**
 - `../apps/data-pipeline/benchmarks/results.md` for inference method parameter recovery results

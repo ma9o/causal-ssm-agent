@@ -1,8 +1,8 @@
-# Scope
+# Scope and Timescales
 
 This framework models dynamics of time-varying constructs with optional time-invariant covariates. This is a **causal effect estimation** framework.
 
-Within the pipeline, this document constrains the objects that appear in the `LatentModel`, measurement model, and `CausalSpec`. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+Within the pipeline, this document constrains the objects that appear in the `LatentModel`, measurement model, and `CausalSpec`. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). For short artifact definitions, see [artifact-glossary.md](artifact-glossary.md).
 
 ---
 

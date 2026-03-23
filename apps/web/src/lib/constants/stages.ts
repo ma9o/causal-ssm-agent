@@ -5,7 +5,7 @@ export { STAGES, STAGE_IDS };
 export type { StageId, StageMeta } from "@causal-ssm/api-types";
 
 export const FUNCTIONAL_SPEC_URL =
-  "https://github.com/ma9o/causal-ssm-agent/blob/master/docs/modeling/functional_spec.md#15-parameter-roles-and-constraints";
+  "https://github.com/ma9o/causal-ssm-agent/blob/master/docs/model-runtime/functional-specification.md#15-parameter-roles-and-constraints";
 
 export function getStageForPrefectRunName(runName: string): StageMeta | undefined {
   let bestMatch: StageMeta | undefined;

@@ -17,8 +17,8 @@ Unlike traditional discrete-time approaches that require upfront aggregation, th
 
 ## Start Here
 
-- Curious readers: start with [`docs/index.md`](docs/index.md), [`docs/architecture/artifact_glossary.md`](docs/architecture/artifact_glossary.md), [`docs/architecture/pipeline_dimensions.md`](docs/architecture/pipeline_dimensions.md), and [`docs/pipeline_stages.md`](docs/pipeline_stages.md)
-- Causal inference practitioners: then read [`docs/modeling/scope.md`](docs/modeling/scope.md), [`docs/modeling/assumptions.md`](docs/modeling/assumptions.md), and [`docs/modeling/estimation.md`](docs/modeling/estimation.md)
+- Curious readers: start with [`docs/index.md`](docs/index.md), [`docs/concepts/artifact-glossary.md`](docs/concepts/artifact-glossary.md), [`docs/concepts/pipeline-dimensions.md`](docs/concepts/pipeline-dimensions.md), and [`docs/pipeline.md`](docs/pipeline.md)
+- Causal inference practitioners: then read [`docs/concepts/scope-and-timescales.md`](docs/concepts/scope-and-timescales.md), [`docs/concepts/assumptions.md`](docs/concepts/assumptions.md), and [`docs/model-runtime/estimation.md`](docs/model-runtime/estimation.md)
 - Software engineers: start with [`docs/guides/dev_setup.md`](docs/guides/dev_setup.md), [`docs/guides/data_workflow.md`](docs/guides/data_workflow.md), and [`docs/guides/codegen.md`](docs/guides/codegen.md)
 
 ## Key Feature: Natural Language Causal Queries
@@ -47,8 +47,10 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the full documentation structure.
 
-- **[Architecture](docs/architecture/)** - Cross-cutting pipeline semantics: artifact lineage, temporal semantics, runtime DAG, replay/restore, and persistence boundaries
-- **[Modeling](docs/modeling/)** - Theoretical foundations: scope, assumptions, estimation
+- **[Pipeline](docs/pipeline.md)** - Ordered stage map plus per-stage reference files
+- **[Concepts](docs/concepts/)** - Cross-cutting domain concepts: artifacts, assumptions, temporal semantics, and scope
+- **[Model Runtime](docs/model-runtime/)** - Stage 4 to Stage 6 handoff path: functional specification, compilation, estimation, and inference routing
+- **[Runtime](docs/runtime/)** - Replay, restore, persistence, and web/internal exposure boundaries
 - **[Guides](docs/guides/)** - Practical usage: data workflow, running evals, codegen
 
 ## Structure
@@ -119,11 +121,11 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── <WORKSPACE_ID>/access.json # Hashed workspace resume-code metadata stored separately from session lineage
 │   └── <WORKSPACE_ID>/session.json # Per-workspace run lineage metadata persisted alongside query.txt
 ├── docs/                          # Project documentation (see docs/index.md)
-│   ├── architecture/              # Cross-cutting pipeline semantics and runtime behavior
-│   │   ├── artifact_glossary.md   # Short definitions for the pipeline's main domain and runtime objects
-│   │   ├── pipeline_dimensions.md # Artifact lineage, temporal semantics, assurance surfaces, and persistence boundaries
-│   │   └── runtime_semantics.md   # Execution DAG, resume/replay, gates, and stage state surfaces
-│   ├── modeling/                  # Theoretical foundations + SSM compilation pipeline
+│   ├── pipeline.md                # Ordered stage map with links to the per-stage docs
+│   ├── pipeline/                  # One file per stage (0, 1a, 1b, 2, 3, 4, 4b, 5a, 5b, 6)
+│   ├── concepts/                  # Cross-cutting domain concepts: artifacts, assumptions, timescales, and scope
+│   ├── model-runtime/             # Stage 4 -> 6 handoff path: functional spec, compilation, estimation, inference routing
+│   ├── runtime/                   # Replay, restore, persistence, and web/internal exposure
 │   ├── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing
 │   └── literature.md              # Consolidated bibliography
 └── scratchpad/                    # Temporary work files (gitignored)

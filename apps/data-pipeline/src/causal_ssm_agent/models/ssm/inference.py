@@ -6,7 +6,7 @@ model; this module provides fit() to run inference with different backends.
 Structural routing (method="auto", the default) selects the best method
 from model properties: "nuts" for Kalman-eligible models (all Gaussian +
 identity link), "laplace_em" for non-Gaussian emissions. Users can override
-to any specific method. See docs/modeling/inference-strategies.md for details.
+to any specific method. See docs/model-runtime/inference-routing.md for details.
 
 Available methods:
 - NUTS: HMC-based sampling. Gold standard for Kalman-eligible models.
