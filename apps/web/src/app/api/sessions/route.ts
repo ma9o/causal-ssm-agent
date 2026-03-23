@@ -4,8 +4,8 @@ import { writeData, ensureDir } from "@/lib/storage";
 import {
   appendSessionRootFlowRunId,
   normalizeSession,
-  readSessions,
-  writeSessions,
+  readSession,
+  writeSession,
 } from "./_shared";
 
 const MAX_USER_ID_LENGTH = 200;
@@ -49,14 +49,11 @@ export async function POST(request: Request) {
   await ensureDir(normalizedUserId);
   await writeData(`${normalizedUserId}/query.txt`, question);
 
-  // Store session metadata (without question — it lives on disk)
-  const sessions = await readSessions();
-  const existingSession = sessions[normalizedUserId];
-
-  sessions[normalizedUserId] = rootFlowRunId
+  const existingSession = await readSession(normalizedUserId) ?? undefined;
+  const session = rootFlowRunId
     ? appendSessionRootFlowRunId(existingSession, rootFlowRunId)
     : normalizeSession(existingSession);
 
-  await writeSessions(sessions);
+  await writeSession(normalizedUserId, session);
   return NextResponse.json({ ok: true });
 }

@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../sessions/_shared", () => ({
   getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
   readQuestion: vi.fn(),
-  readSessions: vi.fn(),
+  readSession: vi.fn(),
 }));
 
-import { readQuestion, readSessions } from "../sessions/_shared";
+import { readQuestion, readSession } from "../sessions/_shared";
 import { buildAnalysisManifest } from "./_shared";
 
 const originalFetch = globalThis.fetch;
@@ -27,11 +27,9 @@ afterEach(() => {
 
 describe("buildAnalysisManifest", () => {
   it("assigns each stage to the root run that owns it after a resume", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T18:33:26.268Z",
-        rootFlowRunIds: ["full-run", "resume-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T18:33:26.268Z",
+      rootFlowRunIds: ["full-run", "resume-run"],
     });
     vi.mocked(readQuestion).mockResolvedValue("Why does this happen?");
 
@@ -140,11 +138,9 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("matches Prefect's suffixed wrapper task names when resolving a stage subflow", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T18:33:26.268Z",
-        rootFlowRunIds: ["run-abc"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T18:33:26.268Z",
+      rootFlowRunIds: ["run-abc"],
     });
     vi.mocked(readQuestion).mockResolvedValue(undefined);
 
@@ -197,11 +193,9 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("resolves stage-2 log flow sources server-side, including nested worker flows", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T18:33:26.268Z",
-        rootFlowRunIds: ["run-abc"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T18:33:26.268Z",
+      rootFlowRunIds: ["run-abc"],
     });
     vi.mocked(readQuestion).mockResolvedValue(undefined);
 
@@ -258,11 +252,9 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("keeps downstream stage ownership on the original run for single-stage reruns", async () => {
-    vi.mocked(readSessions).mockResolvedValue({
-      "user-123": {
-        createdAt: "2026-03-13T18:33:26.268Z",
-        rootFlowRunIds: ["full-run", "rerun-run"],
-      },
+    vi.mocked(readSession).mockResolvedValue({
+      createdAt: "2026-03-13T18:33:26.268Z",
+      rootFlowRunIds: ["full-run", "rerun-run"],
     });
     vi.mocked(readQuestion).mockResolvedValue("Why does this happen?");
 
@@ -353,7 +345,7 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("can bootstrap a manifest directly from a root flow run when session registration fails", async () => {
-    vi.mocked(readSessions).mockResolvedValue({});
+    vi.mocked(readSession).mockResolvedValue(null);
     vi.mocked(readQuestion).mockResolvedValue(undefined);
 
     globalThis.fetch = vi.fn(async (input, init) => {

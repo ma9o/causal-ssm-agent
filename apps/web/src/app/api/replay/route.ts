@@ -5,8 +5,8 @@ import { getPrefectApiUrl } from "@/lib/runtime-urls";
 import {
   appendSessionRootFlowRunId,
   getLatestSessionRootFlowRunId,
-  readSessions,
-  writeSessions,
+  readSession,
+  writeSession,
 } from "../sessions/_shared";
 
 const PREFECT_API = getPrefectApiUrl();
@@ -231,8 +231,7 @@ export async function POST(request: Request) {
   try {
     // Use the current page's explicit root flow run when available so replay still
     // works even if session registration failed after the source run launched.
-    const sessions = await readSessions();
-    const session = sessions[safeUserId];
+    const session = await readSession(safeUserId) ?? undefined;
     const latestRootFlowRunId = safeRootFlowRunId ?? getLatestSessionRootFlowRunId(session);
 
     // Build parameters: if we have a prior flow run, reuse its params
@@ -329,8 +328,7 @@ export async function POST(request: Request) {
     const newFlowRun = await createRes.json();
     let sessionPersisted = true;
     try {
-      sessions[safeUserId] = appendSessionRootFlowRunId(session, newFlowRun.id);
-      await writeSessions(sessions);
+      await writeSession(safeUserId, appendSessionRootFlowRunId(session, newFlowRun.id));
     } catch {
       sessionPersisted = false;
     }

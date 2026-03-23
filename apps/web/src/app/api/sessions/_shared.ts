@@ -1,10 +1,5 @@
-import { join } from "node:path";
 import { getLatestRootFlowRunId, mergeRootFlowRunIds } from "@/lib/root-flow-runs";
-import { readData, writeData, LOCAL_DATA_DIR } from "@/lib/storage";
-
-export const DATA_DIR = LOCAL_DATA_DIR;
-export const SESSIONS_PATH = join(DATA_DIR, "sessions.json");
-export const SESSIONS_SEED_PATH = join(DATA_DIR, "sessions.seed.json");
+import { readData, writeData } from "@/lib/storage";
 
 export interface Session {
   createdAt: string;
@@ -32,42 +27,21 @@ export function appendSessionRootFlowRunId(
   };
 }
 
-async function readSessionFile(relativePath: string): Promise<Record<string, Session>> {
+function getSessionPath(userId: string): string {
+  return `${userId}/session.json`;
+}
+
+export async function readSession(userId: string): Promise<Session | null> {
   try {
-    const parsed = JSON.parse(await readData(relativePath)) as Record<string, Session>;
-    return Object.fromEntries(
-      Object.entries(parsed).map(([userId, session]) => [
-        userId,
-        normalizeSession(session),
-      ]),
-    );
+    const parsed = JSON.parse(await readData(getSessionPath(userId))) as Session;
+    return normalizeSession(parsed);
   } catch {
-    return {};
+    return null;
   }
 }
 
-export async function readSessions(): Promise<Record<string, Session>> {
-  // Merge tracked seed (fixture sessions) with runtime sessions.json
-  return {
-    ...(await readSessionFile("sessions.seed.json")),
-    ...(await readSessionFile("sessions.json")),
-  };
-}
-
-export async function writeSessions(sessions: Record<string, Session>): Promise<void> {
-  await writeData(
-    "sessions.json",
-    JSON.stringify(
-      Object.fromEntries(
-        Object.entries(sessions).map(([userId, session]) => [
-          userId,
-          normalizeSession(session),
-        ]),
-      ),
-      null,
-      2,
-    ),
-  );
+export async function writeSession(userId: string, session: Session): Promise<void> {
+  await writeData(getSessionPath(userId), JSON.stringify(normalizeSession(session), null, 2));
 }
 
 /** Read the research question from ``data/{userId}/query.txt``. */

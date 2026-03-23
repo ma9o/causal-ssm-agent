@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import type { SessionResponse } from "@/lib/api/analysis";
-import { readQuestion, readSessions } from "../_shared";
+import { readQuestion, readSession } from "../_shared";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
@@ -17,8 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ use
   }
 
   try {
-    const sessions = await readSessions();
-    const session = sessions[normalizedUserId];
+    const session = await readSession(normalizedUserId);
     if (session) {
       const question = await readQuestion(normalizedUserId);
       const response: SessionResponse = { ...session, question };
