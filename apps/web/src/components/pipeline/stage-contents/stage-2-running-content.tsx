@@ -116,10 +116,14 @@ function RpmGauge({ rpm }: { rpm: number }) {
 export function Stage2RunningView({
   workers,
   logs,
+  logBootstrapStatus = "success",
+  logConnectionState = "streaming",
   rpm = 0,
 }: {
   workers: Stage2Worker[];
   logs: PrefectLogEntry[];
+  logBootstrapStatus?: "pending" | "error" | "success";
+  logConnectionState?: "idle" | "connecting" | "authenticating" | "streaming" | "error";
   rpm?: number;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -128,6 +132,16 @@ export function Stage2RunningView({
   const completed = workers.filter((w) => w.state === "completed").length;
   const failed = workers.filter((w) => w.state === "failed").length;
   const running = workers.filter((w) => w.state === "running").length;
+  const emptyMessage =
+    logBootstrapStatus === "pending"
+      ? "Loading log backlog..."
+      : logBootstrapStatus === "error"
+        ? "Failed to load historical logs."
+      : logConnectionState === "error"
+        ? "Live log stream unavailable."
+        : logConnectionState === "connecting" || logConnectionState === "authenticating"
+          ? "Connecting to live log stream..."
+          : "Waiting for worker logs...";
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,10 +189,15 @@ export function Stage2RunningView({
       <WorkerGrid workers={workers} />
 
       {/* Log viewer */}
+      {logConnectionState === "error" && (
+        <p className="text-xs text-destructive">
+          Live log stream disconnected. Prefect `logs/out` must remain available during Stage 2.
+        </p>
+      )}
       <div className="max-h-64 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-[11px] leading-relaxed">
         {logs.length === 0 ? (
           <p className="text-muted-foreground/50 text-center py-4">
-            Waiting for worker logs...
+            {emptyMessage}
           </p>
         ) : (
           logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
@@ -191,15 +210,33 @@ export function Stage2RunningView({
 
 export default function Stage2RunningContent({
   userId,
+  rootFlowRunId,
   stageStatus,
   stageSubflowRunId,
+  logFlowRunIds,
 }: {
   userId: string;
+  rootFlowRunId?: string | null;
   stageStatus: StageRunStatus;
   stageSubflowRunId?: string | null;
+  logFlowRunIds?: string[];
 }) {
-  const { workers, logs } = useStage2Workers(userId, stageSubflowRunId ?? null, stageStatus);
+  const { workers, logs, logBootstrapStatus, logConnectionState } = useStage2Workers(
+    userId,
+    rootFlowRunId ?? null,
+    stageSubflowRunId ?? null,
+    logFlowRunIds ?? [],
+    stageStatus,
+  );
   const rpm = useRpm(workers);
 
-  return <Stage2RunningView workers={workers} logs={logs} rpm={rpm} />;
+  return (
+    <Stage2RunningView
+      workers={workers}
+      logs={logs}
+      logBootstrapStatus={logBootstrapStatus}
+      logConnectionState={logConnectionState}
+      rpm={rpm}
+    />
+  );
 }

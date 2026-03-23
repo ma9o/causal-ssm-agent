@@ -2,6 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
+import type { StageId } from "@causal-ssm/api-types";
 import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
@@ -12,6 +13,7 @@ import { StageLogViewer } from "./stage-log-viewer";
 
 export function StageSection({
   id,
+  stageId,
   number,
   title,
   status,
@@ -26,9 +28,12 @@ export function StageSection({
   runningContent,
   userId,
   stageSubflowRunId,
+  logFlowRunIds = [],
   invalidated = false,
+  showLogViewer = true,
 }: {
   id?: string;
+  stageId?: StageId;
   number: string;
   title: string;
   status: StageRunStatus;
@@ -43,7 +48,9 @@ export function StageSection({
   runningContent?: ReactNode;
   userId?: string;
   stageSubflowRunId?: string | null;
+  logFlowRunIds?: string[];
   invalidated?: boolean;
+  showLogViewer?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -157,8 +164,14 @@ export function StageSection({
           </div>
         </motion.div>
       )}
-      {userId && status !== "pending" && (
-        <StageLogViewer userId={userId} stageSubflowRunId={stageSubflowRunId} status={status} />
+      {showLogViewer && userId && stageId && status !== "pending" && (
+        <StageLogViewer
+          userId={userId}
+          stageId={stageId}
+          stageSubflowRunId={stageSubflowRunId}
+          logFlowRunIds={logFlowRunIds}
+          status={status}
+        />
       )}
     </motion.section>
   );

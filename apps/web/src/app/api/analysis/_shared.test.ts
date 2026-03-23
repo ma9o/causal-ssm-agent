@@ -108,11 +108,13 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-3"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
+      logFlowRunIds: [],
       wrapperTaskRun: null,
     });
     expect(manifest?.stages["stage-4"]).toMatchObject({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: "stage-4-subflow",
+      logFlowRunIds: ["stage-4-subflow"],
       wrapperTaskRun: {
         id: "stage-4-task",
         name: "stage-4-flow-0",
@@ -122,6 +124,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4b"]).toMatchObject({
       ownerRootFlowRunId: "resume-run",
       stageSubflowRunId: "stage-4b-subflow",
+      logFlowRunIds: ["stage-4b-subflow"],
       wrapperTaskRun: {
         id: "stage-4b-task",
         name: "stage-4b-flow-0",
@@ -131,6 +134,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-5b"]).toEqual({
       ownerRootFlowRunId: "resume-run",
       stageSubflowRunId: null,
+      logFlowRunIds: [],
       wrapperTaskRun: null,
     });
   });
@@ -184,9 +188,71 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4b"]).toMatchObject({
       ownerRootFlowRunId: "run-abc",
       stageSubflowRunId: "flow-123",
+      logFlowRunIds: ["flow-123"],
       wrapperTaskRun: {
         id: "task-1",
         name: "stage-4b-flow-0",
+      },
+    });
+  });
+
+  it("resolves stage-2 log flow sources server-side, including nested worker flows", async () => {
+    vi.mocked(readSessions).mockResolvedValue({
+      "user-123": {
+        createdAt: "2026-03-13T18:33:26.268Z",
+        rootFlowRunIds: ["run-abc"],
+      },
+    });
+    vi.mocked(readQuestion).mockResolvedValue(undefined);
+
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/run-abc") {
+        return jsonResponse({ id: "run-abc", parameters: {} });
+      }
+
+      if (url === "http://localhost:4200/api/task_runs/filter") {
+        return jsonResponse([
+          {
+            id: "stage-2-task",
+            name: "stage-2-flow-0",
+            state_type: "RUNNING",
+            start_time: "2026-03-13T18:33:00.000Z",
+            end_time: null,
+          },
+        ]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          flow_runs?: {
+            parent_task_run_id?: { any_?: string[] };
+            parent_flow_run_id?: { any_?: string[] };
+          };
+        };
+
+        if (body.flow_runs?.parent_task_run_id?.any_?.[0] === "stage-2-task") {
+          return jsonResponse([{ id: "stage-2-subflow" }]);
+        }
+
+        if (body.flow_runs?.parent_flow_run_id?.any_?.[0] === "stage-2-subflow") {
+          return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest?.stages["stage-2"]).toMatchObject({
+      ownerRootFlowRunId: "run-abc",
+      stageSubflowRunId: "stage-2-subflow",
+      logFlowRunIds: ["stage-2-subflow", "worker-flow-1", "worker-flow-2"],
+      wrapperTaskRun: {
+        id: "stage-2-task",
+        name: "stage-2-flow-0",
       },
     });
   });
@@ -268,15 +334,18 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4"]).toMatchObject({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: "stage-4-subflow",
+      logFlowRunIds: ["stage-4-subflow"],
     });
     expect(manifest?.stages["stage-4b"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
+      logFlowRunIds: [],
       wrapperTaskRun: null,
     });
     expect(manifest?.stages["stage-6"]).toMatchObject({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: "stage-6-subflow",
+      logFlowRunIds: ["stage-6-subflow"],
       wrapperTaskRun: {
         id: "stage-6-task",
       },
@@ -294,7 +363,7 @@ describe("buildAnalysisManifest", () => {
         return jsonResponse({
           id: "live-run",
           created: "2026-03-14T10:00:00.000Z",
-          parameters: {},
+          parameters: { query: "Why did this launch?" },
         });
       }
 
@@ -326,13 +395,14 @@ describe("buildAnalysisManifest", () => {
     expect(manifest).toMatchObject({
       userId: "user-123",
       createdAt: "2026-03-14T10:00:00.000Z",
-      question: undefined,
+      question: "Why did this launch?",
       rootFlowRunIds: ["live-run"],
       latestRootFlowRunId: "live-run",
     });
     expect(manifest?.stages["stage-0"]).toMatchObject({
       ownerRootFlowRunId: "live-run",
       stageSubflowRunId: "stage-0-subflow",
+      logFlowRunIds: ["stage-0-subflow"],
       wrapperTaskRun: {
         id: "stage-0-task",
         stateType: "RUNNING",
