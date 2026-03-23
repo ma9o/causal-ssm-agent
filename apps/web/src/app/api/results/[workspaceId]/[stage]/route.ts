@@ -1,6 +1,6 @@
-import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { readData } from "@/lib/storage";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 function normalizeNonFiniteJsonTokens(serialized: string): string {
   let normalized = "";
@@ -67,17 +67,23 @@ function parseStoredStagePayload(raw: string): unknown {
 }
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ userId: string; stage: string }> },
+  request: Request,
+  { params }: { params: Promise<{ workspaceId: string; stage: string }> },
 ) {
-  const { userId, stage } = await params;
+  const { workspaceId, stage } = await params;
 
-  // Sanitize path components to prevent directory traversal
-  const safeUserId = basename(userId);
-  const safeStage = basename(stage);
+  const safeStage = stage.trim();
+  if (!safeStage || /[\\/]/.test(safeStage)) {
+    return NextResponse.json({ error: "Invalid route parameters" }, { status: 400 });
+  }
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
+  }
+  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   try {
-    const raw = await readData(`${safeUserId}/run/${safeStage}.json`);
+    const raw = await readData(`${safeWorkspaceId}/run/${safeStage}.json`);
 
     try {
       return NextResponse.json(parseStoredStagePayload(raw));

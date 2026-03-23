@@ -26,7 +26,7 @@ export function StageSection({
   outcome = "success",
   loadingHint,
   runningContent,
-  userId,
+  workspaceId,
   stageSubflowRunId,
   logFlowRunIds = [],
   invalidated = false,
@@ -46,7 +46,7 @@ export function StageSection({
   outcome?: StageOutcome;
   loadingHint?: string;
   runningContent?: ReactNode;
-  userId?: string;
+  workspaceId?: string;
   stageSubflowRunId?: string | null;
   logFlowRunIds?: string[];
   invalidated?: boolean;
@@ -164,9 +164,9 @@ export function StageSection({
           </div>
         </motion.div>
       )}
-      {showLogViewer && userId && stageId && status !== "pending" && (
+      {showLogViewer && workspaceId && stageId && status !== "pending" && (
         <StageLogViewer
-          userId={userId}
+          workspaceId={workspaceId}
           stageId={stageId}
           stageSubflowRunId={stageSubflowRunId}
           logFlowRunIds={logFlowRunIds}

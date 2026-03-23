@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { readData } from "@/lib/storage";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 /**
  * POST /api/refine/apply
@@ -9,23 +10,19 @@ import { readData } from "@/lib/storage";
  * during refinement, merges with the original stage data, and triggers
  * a pipeline replay from that stage.
  *
- * Body: { userId, stageId, rootFlowRunId? }
+ * Body: { workspaceId, stageId, rootFlowRunId? }
  */
 export async function POST(request: Request) {
-  const { userId, stageId, rootFlowRunId } = await request.json();
+  const { workspaceId, stageId, rootFlowRunId } = await request.json();
 
-  if (!userId || !stageId) {
+  if (!workspaceId || !stageId) {
     return NextResponse.json(
-      { error: "Missing userId or stageId" },
+      { error: "Missing workspaceId or stageId" },
       { status: 400 },
     );
   }
 
-  const safeUserId = basename(userId.trim());
   const safeStageId = basename(stageId.trim());
-  if (!safeUserId || safeUserId !== userId.trim() || safeUserId === "." || safeUserId === "..") {
-    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
-  }
   if (
     !safeStageId ||
     safeStageId !== stageId.trim() ||
@@ -35,10 +32,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
 
-  // Read the draft from the last successful tool call
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
+  }
+  const { workspaceId: safeWorkspaceId } = workspaceAccess;
+
   let draft: Record<string, unknown>;
   try {
-    draft = JSON.parse(await readData(`${safeUserId}/run/${safeStageId}-draft.json`));
+    draft = JSON.parse(await readData(`${safeWorkspaceId}/run/${safeStageId}-draft.json`));
   } catch {
     return NextResponse.json(
       {
@@ -49,12 +51,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // Load original stage data for fields the draft doesn't cover
   let originalDomain: Record<string, unknown>;
   try {
-    const raw = await readData(`${safeUserId}/run/${safeStageId}.json`);
+    const raw = await readData(`${safeWorkspaceId}/run/${safeStageId}.json`);
     const currentData = JSON.parse(raw);
-    // Strip internal fields — keep only domain data
     const {
       llm_trace: _trace,
       outcome: _outcome,
@@ -72,12 +72,11 @@ export async function POST(request: Request) {
   const merged = { ...originalDomain, ...draft };
 
   try {
-    // Trigger replay
     const replayRes = await fetch(new URL("/api/replay", request.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: safeUserId,
+        workspaceId: safeWorkspaceId,
         stageId: safeStageId,
         stageData: merged,
         ...(typeof rootFlowRunId === "string" ? { rootFlowRunId } : {}),

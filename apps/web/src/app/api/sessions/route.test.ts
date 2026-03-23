@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/workspace-access", () => ({
+  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
+    ok: true,
+    workspaceId,
+  })),
+  setWorkspaceAccessCookie: vi.fn((response: Response) => response),
+}));
+
 vi.mock("@/lib/storage", () => ({
   writeData: vi.fn().mockResolvedValue(undefined),
   ensureDir: vi.fn().mockResolvedValue(undefined),
@@ -20,6 +28,7 @@ vi.mock("./_shared", () => ({
 }));
 
 import { writeData, ensureDir } from "@/lib/storage";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { readSession, writeSession } from "./_shared";
 import { POST } from "./route";
 
@@ -28,13 +37,14 @@ describe("POST /api/sessions", () => {
     vi.clearAllMocks();
   });
 
-  it("writes query.txt and the per-user session lineage file", async () => {
+  it("writes query.txt and the per-workspace session lineage file", async () => {
     const response = await POST(
       new Request("http://localhost/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "openrouter-user-123",
+          workspaceId: "openrouter-user-123",
+          accessCode: "shared-test-code",
           question: "How does screen time affect sleep?",
         }),
       }),
@@ -54,6 +64,11 @@ describe("POST /api/sessions", () => {
       createdAt: "2026-03-14T00:00:00.000Z",
       rootFlowRunIds: [],
     });
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(
+      expect.any(Request),
+      "openrouter-user-123",
+      { accessCode: "shared-test-code", allowCreate: true },
+    );
   });
 
   it("appends a new flow run to the stored session lineage", async () => {
@@ -67,7 +82,8 @@ describe("POST /api/sessions", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "openrouter-user-123",
+          workspaceId: "openrouter-user-123",
+          accessCode: "shared-test-code",
           question: "How does screen time affect sleep?",
           rootFlowRunId: "new-run",
         }),

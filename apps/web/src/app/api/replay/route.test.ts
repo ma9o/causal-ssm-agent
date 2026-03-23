@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/workspace-access", () => ({
+  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
+    ok: true,
+    workspaceId,
+  })),
+}));
+
 vi.mock("../sessions/_shared", () => ({
   readSession: vi.fn(),
   getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
@@ -10,6 +17,7 @@ vi.mock("../sessions/_shared", () => ({
   writeSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { readSession, writeSession } from "../sessions/_shared";
 import { POST } from "./route";
 
@@ -46,7 +54,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "old-run",
-          parameters: { user_id: "user-123", query: "Why?" },
+          parameters: { workspace_id: "user-123", query: "Why?" },
           state: { type: "RUNNING", name: "Running" },
         }),
       )
@@ -54,7 +62,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "old-run",
-          parameters: { user_id: "user-123", query: "Why?" },
+          parameters: { workspace_id: "user-123", query: "Why?" },
           state: { type: "CANCELLED", name: "Cancelled" },
         }),
       )
@@ -68,7 +76,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "user-123",
+          workspaceId: "user-123",
           stageId: "stage-1a",
           stageData: { latent_model: { constructs: [] } },
         }),
@@ -119,12 +127,12 @@ describe("POST /api/replay", () => {
       },
       labels: {
         replay: true,
-        user_id: "user-123",
+        workspace_id: "user-123",
         edited_stage: "stage-1a",
         source_root_flow_run_id: "old-run",
       },
       parameters: {
-        user_id: "user-123",
+        workspace_id: "user-123",
         query: "Why?",
         start_stage: "stage-1a",
         stage_overrides: {
@@ -137,6 +145,7 @@ describe("POST /api/replay", () => {
       createdAt: "2026-03-13T10:00:00.000Z",
       rootFlowRunIds: ["older-run", "old-run", "new-run"],
     });
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123");
   });
 
   it("skips cancellation when the tracked flow run is already terminal", async () => {
@@ -150,7 +159,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "done-run",
-          parameters: { user_id: "user-123" },
+          parameters: { workspace_id: "user-123" },
           state: { type: "COMPLETED", name: "Completed" },
         }),
       )
@@ -164,7 +173,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "user-123",
+          workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, priors: {} },
         }),
@@ -191,7 +200,7 @@ describe("POST /api/replay", () => {
         jsonResponse({
           id: "resume-run",
           parameters: {
-            user_id: "user-123",
+            workspace_id: "user-123",
             start_stage: "stage-4b",
             end_stage: "stage-6",
             stage_overrides: {
@@ -211,7 +220,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "user-123",
+          workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: { nodes: [] }, priors: {} },
         }),
@@ -244,12 +253,12 @@ describe("POST /api/replay", () => {
       },
       labels: {
         replay: true,
-        user_id: "user-123",
+        workspace_id: "user-123",
         edited_stage: "stage-4",
         source_root_flow_run_id: "resume-run",
       },
       parameters: {
-        user_id: "user-123",
+        workspace_id: "user-123",
         start_stage: "stage-4",
         stage_overrides: {
           "stage-1a": { latent_model: { constructs: ["existing"] } },
@@ -270,7 +279,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "done-run",
-          parameters: { user_id: "user-123" },
+          parameters: { workspace_id: "user-123" },
           state: { type: "COMPLETED", name: "Completed" },
         }),
       )
@@ -285,7 +294,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "user-123",
+          workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, priors: {} },
         }),
@@ -315,7 +324,7 @@ describe("POST /api/replay", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           id: "bootstrap-run",
-          parameters: { user_id: "user-123", query: "Why?" },
+          parameters: { workspace_id: "user-123", query: "Why?" },
           state: { type: "COMPLETED", name: "Completed" },
         }),
       )
@@ -329,7 +338,7 @@ describe("POST /api/replay", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "user-123",
+          workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, priors: {} },
           rootFlowRunId: "bootstrap-run",

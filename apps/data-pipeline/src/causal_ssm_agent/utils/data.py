@@ -38,14 +38,14 @@ DATA_DIR = Path(get_base_uri()) if not get_base_uri().startswith("s3://") else P
 PROCESSED_DIR = DATA_DIR / "processed"
 
 
-def input_dir(user_id: str) -> str:
-    """Return the input directory for a user ID: ``data/{user_id}/input/``."""
-    return join(DATA_URI, user_id, "input")
+def input_dir(workspace_id: str) -> str:
+    """Return the input directory for a user ID: ``data/{workspace_id}/input/``."""
+    return join(DATA_URI, workspace_id, "input")
 
 
-def runs_dir(user_id: str) -> str:
-    """Return the single run directory for a user ID: ``data/{user_id}/run/``."""
-    return join(DATA_URI, user_id, "run")
+def runs_dir(workspace_id: str) -> str:
+    """Return the single run directory for a user ID: ``data/{workspace_id}/run/``."""
+    return join(DATA_URI, workspace_id, "run")
 
 
 def get_orchestrator_chunk_size() -> int:

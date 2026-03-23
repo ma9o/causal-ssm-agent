@@ -17,13 +17,13 @@ import { ResumeButton } from "./resume-button";
 import { StageSectionRouter } from "./stage-section-router";
 
 function FeedContent({
-  userId,
+  workspaceId,
   stageRuns,
   question,
   progress,
   latestRootFlowRunId,
 }: {
-  userId: string;
+  workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress;
@@ -41,13 +41,13 @@ function FeedContent({
 
   return (
     <div>
-      <PipelineProgressBar progress={progress} question={question} userId={userId} />
+      <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
         {visibleStages.map((stage) => (
           <StageSectionRouter
             key={stage.id}
             stage={stage}
-            userId={userId}
+            workspaceId={workspaceId}
             stageRun={stageRuns?.[stage.id]}
             status={progress.stages[stage.id]}
             timing={progress.timings[stage.id]}
@@ -60,7 +60,7 @@ function FeedContent({
         )}
         {refiningStageId && settled && (
           <ResumeButton
-            userId={userId}
+            workspaceId={workspaceId}
             stageId={refiningStageId}
             rootFlowRunId={latestRootFlowRunId}
           />
@@ -74,13 +74,13 @@ function FeedContent({
 }
 
 export function AnalysisFeed({
-  userId,
+  workspaceId,
   stageRuns,
   question,
   progress,
   latestRootFlowRunId,
 }: {
-  userId: string;
+  workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress | undefined;
@@ -107,7 +107,7 @@ export function AnalysisFeed({
   return (
     <RefinementProvider>
       <FeedContent
-        userId={userId}
+        workspaceId={workspaceId}
         stageRuns={stageRuns}
         question={question}
         progress={progress}

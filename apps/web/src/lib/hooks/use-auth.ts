@@ -2,29 +2,30 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { clearUserApiKey, getUserApiKey } from "@/lib/auth";
-import { getIdentity, setIdentity, type UserIdentity } from "@/lib/identity";
-import { generateAnonymousUserId } from "@/lib/user-id";
+import { getIdentity, setIdentity, type WorkspaceIdentity } from "@/lib/identity";
+import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
+import { generateWorkspaceAccessCode } from "@/lib/resume-key";
 
 export type AuthState = {
   /** User's OpenRouter API key (null if anonymous / signed out) */
   userKey: string | null;
   /** Persistent identity (null until first submit or OAuth) */
-  identity: UserIdentity | null;
+  identity: WorkspaceIdentity | null;
   /** Server trial credits available */
   hasCredits: boolean | null;
   /** True when user has no access at all (no key + no trial credits) */
   noAccess: boolean;
   /** Sign out — clears API key but preserves identity */
   signOut: () => void;
-  /** Ensure identity exists; creates anonymous one if needed. Returns userId. */
-  ensureIdentity: () => string;
+  /** Ensure identity exists; creates anonymous one if needed. Returns workspace identity. */
+  ensureIdentity: () => WorkspaceIdentity;
 };
 
 export function useAuth(): AuthState {
   const [userKey, setUserKey] = useState<string | null>(() =>
     typeof window !== "undefined" ? getUserApiKey() : null
   );
-  const [identity, setIdentityState] = useState<UserIdentity | null>(() =>
+  const [identity, setIdentityState] = useState<WorkspaceIdentity | null>(() =>
     typeof window !== "undefined" ? getIdentity() : null
   );
   const [hasCredits, setHasCredits] = useState<boolean | null>(null);
@@ -42,18 +43,20 @@ export function useAuth(): AuthState {
     // Identity is NOT cleared — user can sign back in and recover it
   }, []);
 
-  const ensureIdentity = useCallback((): string => {
-    // Already have identity — reuse
+  const ensureIdentity = useCallback((): WorkspaceIdentity => {
     const existing = getIdentity();
     if (existing) {
       setIdentityState(existing);
-      return existing.userId;
+      return existing;
     }
-    // Create anonymous identity
-    const id: UserIdentity = { userId: generateAnonymousUserId(), kind: "anonymous" };
+    const id: WorkspaceIdentity = {
+      workspaceId: generateAnonymousWorkspaceId(),
+      accessCode: generateWorkspaceAccessCode(),
+      kind: "anonymous",
+    };
     setIdentity(id);
     setIdentityState(id);
-    return id.userId;
+    return id;
   }, []);
 
   return {

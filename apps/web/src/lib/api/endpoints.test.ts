@@ -42,7 +42,7 @@ describe("uploadFile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends FormData with file and userId", async () => {
+  it("sends FormData with file, workspaceId, and accessCode", async () => {
     const mockResponse = { path: "/uploads/test.json" };
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
@@ -50,7 +50,7 @@ describe("uploadFile", () => {
     } as Response);
 
     const file = new File(["content"], "test.json", { type: "application/json" });
-    const result = await uploadFile(file, "user-1");
+    const result = await uploadFile(file, "user-1", "access-code-1");
 
     expect(result).toEqual(mockResponse);
 
@@ -58,6 +58,9 @@ describe("uploadFile", () => {
     expect(url).toBe("/api/upload");
     expect(init.method).toBe("POST");
     expect(init.body).toBeInstanceOf(FormData);
+    const formData = init.body as FormData;
+    expect(formData.get("workspaceId")).toBe("user-1");
+    expect(formData.get("accessCode")).toBe("access-code-1");
   });
 
   it("throws on upload failure", async () => {
@@ -67,6 +70,8 @@ describe("uploadFile", () => {
     } as Response);
 
     const file = new File(["x"], "big.json");
-    await expect(uploadFile(file, "user-1")).rejects.toThrow("Upload failed: 413");
+    await expect(uploadFile(file, "user-1", "access-code-1")).rejects.toThrow(
+      "Upload failed: 413",
+    );
   });
 });

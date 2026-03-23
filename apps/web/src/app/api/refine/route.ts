@@ -9,6 +9,7 @@ import { resolveApiKey } from "@/lib/api/resolve-api-key";
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import { readData, writeData, ensureDir } from "@/lib/storage";
 import { traceToModelMessages } from "@/lib/utils/trace-to-core";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 const TOOL_SERVER = getToolServerUrl();
 
@@ -18,7 +19,7 @@ const TOOL_SERVER = getToolServerUrl();
  * Streams a refinement conversation with full pipeline trace context
  * and the same tools the pipeline used (proxied to Python for execution).
  *
- * Body: { messages, userId, stageId }
+ * Body: { messages, workspaceId, stageId }
  */
 export async function POST(req: Request) {
   const resolved = resolveApiKey(req);
@@ -26,22 +27,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
-  const { messages, userId, stageId } = await req.json();
-  const safeUserId = typeof userId === "string" ? basename(userId.trim()) : "";
+  const { messages, workspaceId, stageId } = await req.json();
   const safeStageId = typeof stageId === "string" ? basename(stageId.trim()) : "";
 
-  if (userId && (!safeUserId || safeUserId !== userId.trim())) {
-    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
+  let normalizedWorkspaceId = "";
+  if (workspaceId) {
+    const workspaceAccess = await requireWorkspaceAccess(req, workspaceId);
+    if (!workspaceAccess.ok) {
+      return workspaceAccess.response;
+    }
+    normalizedWorkspaceId = workspaceAccess.workspaceId;
   }
+
   if (stageId && (!safeStageId || safeStageId !== stageId.trim())) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
 
-  // Build trace context if we have a userId and stage
   let traceContext: ReturnType<typeof traceToModelMessages> = [];
-  if (safeUserId && safeStageId) {
+  if (normalizedWorkspaceId && safeStageId) {
     try {
-      const raw = await readData(`${safeUserId}/run/${safeStageId}.json`);
+      const raw = await readData(`${normalizedWorkspaceId}/run/${safeStageId}.json`);
       const stageData = JSON.parse(raw);
 
       if (stageData.llm_trace) {
@@ -53,9 +58,8 @@ export async function POST(req: Request) {
     }
   }
 
-  // Build tools if this is an interactive stage
   const toolDefs =
-    safeUserId && safeStageId && INTERACTIVE_STAGES.includes(safeStageId)
+    normalizedWorkspaceId && safeStageId && INTERACTIVE_STAGES.includes(safeStageId)
       ? STAGE_TOOLS[safeStageId] ?? []
       : [];
 
@@ -71,7 +75,7 @@ export async function POST(req: Request) {
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ user_id: safeUserId, input: args }),
+              body: JSON.stringify({ workspace_id: normalizedWorkspaceId, input: args }),
             },
           );
           if (!res.ok) {
@@ -80,11 +84,10 @@ export async function POST(req: Request) {
           }
           const data = await res.json();
 
-          // Persist draft on successful tool call (stage_output is set)
           if (data.stage_output) {
-            await ensureDir(`${safeUserId}/run`);
+            await ensureDir(`${normalizedWorkspaceId}/run`);
             await writeData(
-              `${safeUserId}/run/${safeStageId}-draft.json`,
+              `${normalizedWorkspaceId}/run/${safeStageId}-draft.json`,
               JSON.stringify(data.stage_output),
             );
           }

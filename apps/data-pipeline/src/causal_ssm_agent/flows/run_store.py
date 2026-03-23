@@ -37,18 +37,18 @@ STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 # ---------------------------------------------------------------------------
 
 
-def ensure_run_dir(user_id: str) -> str:
+def ensure_run_dir(workspace_id: str) -> str:
     """Return the run directory, creating it if needed."""
-    path = runs_dir(user_id)
+    path = runs_dir(workspace_id)
     storage.makedirs(path)
     return path
 
 
-def existing_run_dir(user_id: str) -> str:
+def existing_run_dir(workspace_id: str) -> str:
     """Return the run directory, raising if it doesn't exist."""
-    path = runs_dir(user_id)
+    path = runs_dir(workspace_id)
     if not storage.exists(path):
-        raise FileNotFoundError(f"No results directory found for user_id {user_id}")
+        raise FileNotFoundError(f"No results directory found for workspace_id {workspace_id}")
     return path
 
 
@@ -57,9 +57,9 @@ def existing_run_dir(user_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def save_parquet(df: Any, user_id: str, filename: str) -> str:
+def save_parquet(df: Any, workspace_id: str, filename: str) -> str:
     """Write a Polars DataFrame to parquet in the run directory."""
-    path = storage.join(ensure_run_dir(user_id), filename)
+    path = storage.join(ensure_run_dir(workspace_id), filename)
     if storage.is_remote():
         with storage.get_fs().open(path, "wb") as f:
             df.write_parquet(f)
@@ -80,9 +80,9 @@ def load_parquet(path: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def save_pickle(value: Any, user_id: str, filename: str) -> str:
+def save_pickle(value: Any, workspace_id: str, filename: str) -> str:
     """Pickle a value into the run directory."""
-    path = storage.join(ensure_run_dir(user_id), filename)
+    path = storage.join(ensure_run_dir(workspace_id), filename)
     with storage.open_file(path, "wb") as f:
         cloudpickle.dump(value, f)
     return path
@@ -99,18 +99,18 @@ def load_pickle(path: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def save_stage_snapshot(stage_id: str, state: dict[str, Any], user_id: str) -> None:
+def save_stage_snapshot(stage_id: str, state: dict[str, Any], workspace_id: str) -> None:
     """Persist full stage state (result + web + gate) for resume."""
-    path = storage.join(ensure_run_dir(user_id), f"{stage_id}-state.pkl")
+    path = storage.join(ensure_run_dir(workspace_id), f"{stage_id}-state.pkl")
     with storage.open_file(path, "wb") as f:
         cloudpickle.dump(state, f)
 
 
-def load_stage_snapshot(user_id: str, stage_id: str) -> dict[str, Any]:
+def load_stage_snapshot(workspace_id: str, stage_id: str) -> dict[str, Any]:
     """Load a previously saved stage snapshot."""
-    path = storage.join(existing_run_dir(user_id), f"{stage_id}-state.pkl")
+    path = storage.join(existing_run_dir(workspace_id), f"{stage_id}-state.pkl")
     if not storage.exists(path):
-        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in user_id {user_id}")
+        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in workspace_id {workspace_id}")
     with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
 
@@ -132,17 +132,17 @@ def _unwrap_persisted_result(raw: Any) -> Any:
     return raw
 
 
-def load_public_payload(user_id: str, stage_id: str) -> dict[str, Any]:
+def load_public_payload(workspace_id: str, stage_id: str) -> dict[str, Any]:
     """Load a persisted web-facing stage payload."""
-    path = storage.join(existing_run_dir(user_id), f"{stage_id}.json")
+    path = storage.join(existing_run_dir(workspace_id), f"{stage_id}.json")
     if not storage.exists(path):
         raise FileNotFoundError(
-            f"No public stage payload found for {stage_id} in user_id {user_id}"
+            f"No public stage payload found for {stage_id} in workspace_id {workspace_id}"
         )
     raw = storage.read_json(path)
     payload = _unwrap_persisted_result(raw)
     if not isinstance(payload, dict):
-        raise TypeError(f"Persisted payload for {stage_id} in user_id {user_id} is not a dict")
+        raise TypeError(f"Persisted payload for {stage_id} in workspace_id {workspace_id} is not a dict")
     return payload
 
 
@@ -151,15 +151,15 @@ def load_public_payload(user_id: str, stage_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def find_run_artifact(user_id: str, filenames: tuple[str, ...]) -> str:
+def find_run_artifact(workspace_id: str, filenames: tuple[str, ...]) -> str:
     """Return the path of the first existing artifact from a list of candidates."""
-    run_dir = existing_run_dir(user_id)
+    run_dir = existing_run_dir(workspace_id)
     for filename in filenames:
         path = storage.join(run_dir, filename)
         if storage.exists(path):
             return path
     expected = ", ".join(filenames)
-    raise FileNotFoundError(f"None of [{expected}] exist for user_id {user_id}")
+    raise FileNotFoundError(f"None of [{expected}] exist for workspace_id {workspace_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ def stage_state(
 def finalize_stage(
     stage_id: str,
     result: dict[str, Any],
-    user_id: str,
+    workspace_id: str,
     *,
     extras: dict[str, Any] | None = None,
     gate: dict[str, Any] | None = None,
@@ -201,10 +201,10 @@ def finalize_stage(
     web = {k: v for k, v in result.items() if k in contract_fields}
     if extras:
         web.update(extras)
-    web = persist_web_result(stage_id, web, user_id)
+    web = persist_web_result(stage_id, web, workspace_id)
 
     state = stage_state(result, web, gate=gate)
-    save_stage_snapshot(stage_id, state, user_id)
+    save_stage_snapshot(stage_id, state, workspace_id)
     return state
 
 

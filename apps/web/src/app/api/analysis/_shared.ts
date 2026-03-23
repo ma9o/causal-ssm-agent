@@ -244,10 +244,10 @@ async function buildStageRuns(
 }
 
 export async function buildAnalysisManifest(
-  userId: string,
+  workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
 ): Promise<AnalysisManifest | null> {
-  const session = await readSession(userId);
+  const session = await readSession(workspaceId);
   const rootFlowRunIds = dedupeRootFlowRunIds([
     ...(session?.rootFlowRunIds ?? []),
     ...bootstrapRootFlowRunIds,
@@ -255,7 +255,7 @@ export async function buildAnalysisManifest(
   if (!session && rootFlowRunIds.length === 0) return null;
 
   const [question, lineage] = await Promise.all([
-    readQuestion(userId),
+    readQuestion(workspaceId),
     fetchRootFlowRunLineage(rootFlowRunIds),
   ]);
   const stagesResolved = await buildStageRuns(rootFlowRunIds, lineage);
@@ -271,7 +271,7 @@ export async function buildAnalysisManifest(
     new Date(0).toISOString();
 
   return {
-    userId,
+    workspaceId,
     createdAt,
     question: question ?? bootstrapQuestion,
     rootFlowRunIds,

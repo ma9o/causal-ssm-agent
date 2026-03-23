@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/workspace-access", () => ({
+  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
+    ok: true,
+    workspaceId,
+  })),
+}));
+
 vi.mock("@/lib/storage", () => ({
   readData: vi.fn(),
   LOCAL_DATA_DIR: "/tmp/data",
 }));
 
 import { readData } from "@/lib/storage";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
 
-describe("GET /api/results/[userId]/[stage]", () => {
+describe("GET /api/results/[workspaceId]/[stage]", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -23,7 +31,7 @@ describe("GET /api/results/[userId]/[stage]", () => {
     );
 
     const response = await GET(new Request("http://localhost/api/results/user/stage-5a"), {
-      params: Promise.resolve({ userId: "user", stage: "stage-5a" }),
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5a" }),
     });
 
     expect(response.status).toBe(200);
@@ -33,13 +41,14 @@ describe("GET /api/results/[userId]/[stage]", () => {
       lower: null,
       label: "Infinity should stay a string",
     });
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user");
   });
 
   it("returns a parse error when the persisted payload is invalid", async () => {
     vi.mocked(readData).mockResolvedValue('{"metadata":{},"result":"{"}');
 
     const response = await GET(new Request("http://localhost/api/results/user/stage-5a"), {
-      params: Promise.resolve({ userId: "user", stage: "stage-5a" }),
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5a" }),
     });
 
     expect(response.status).toBe(500);

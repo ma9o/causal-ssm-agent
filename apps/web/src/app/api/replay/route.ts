@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import {
   appendSessionRootFlowRunId,
   getLatestSessionRootFlowRunId,
@@ -118,26 +118,26 @@ function slugifyForPrefect(value: string, fallback: string): string {
   return slug || fallback;
 }
 
-function buildReplayRunName(userId: string, stageId: string): string {
-  const user = slugifyForPrefect(userId, "user").slice(0, 24);
+function buildReplayRunName(workspaceId: string, stageId: string): string {
+  const workspace = slugifyForPrefect(workspaceId, "workspace").slice(0, 24);
   const stage = slugifyForPrefect(stageId, "stage");
-  return `replay-${user}-${stage}-${Date.now()}`;
+  return `replay-${workspace}-${stage}-${Date.now()}`;
 }
 
 function buildReplayIdempotencyKey(
   sourceRootFlowRunId: string | null,
-  userId: string,
+  workspaceId: string,
   stageId: string,
   stageData: unknown,
 ): string {
   const payload = JSON.stringify({
     sourceRootFlowRunId,
-    userId,
+    workspaceId,
     stageId,
     stageData,
   });
   const digest = createHash("sha256").update(payload).digest("hex");
-  return `replay:${userId}:${stageId}:${digest}`;
+  return `replay:${workspaceId}:${stageId}:${digest}`;
 }
 
 async function fetchFlowRun(flowRunId: string): Promise<PrefectFlowRun | null> {
@@ -197,31 +197,29 @@ async function waitForFlowRunToStop(flowRunId: string): Promise<PrefectFlowRun> 
  * the pipeline treats the override as that stage's output and re-runs all
  * downstream stages with the new data.
  *
- * Body: { userId: string, stageId: string, stageData: object, rootFlowRunId?: string }
+ * Body: { workspaceId: string, stageId: string, stageData: object, rootFlowRunId?: string }
  */
 export async function POST(request: Request) {
-  const { userId, stageId, stageData, rootFlowRunId } = await request.json();
+  const { workspaceId, stageId, stageData, rootFlowRunId } = await request.json();
 
-  if (!userId || !stageId || !stageData) {
-    return NextResponse.json({ error: "Missing userId, stageId, or stageData" }, { status: 400 });
+  if (!workspaceId || !stageId || !stageData) {
+    return NextResponse.json({ error: "Missing workspaceId, stageId, or stageData" }, { status: 400 });
   }
 
-  const safeUserId = basename(userId.trim());
-  const safeStageId = basename(stageId);
-  const safeRootFlowRunId =
-    isNonEmptyString(rootFlowRunId) ? basename(rootFlowRunId.trim()) : null;
+  const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
+  const safeRootFlowRunId = isNonEmptyString(rootFlowRunId) ? rootFlowRunId.trim() : null;
 
-  if (!safeUserId || safeUserId !== userId.trim() || safeUserId === "." || safeUserId === "..") {
-    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
+  if (!safeStageId || /[\\/]/.test(safeStageId)) {
+    return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
-  if (
-    safeRootFlowRunId &&
-    (safeRootFlowRunId !== rootFlowRunId.trim() ||
-      safeRootFlowRunId === "." ||
-      safeRootFlowRunId === "..")
-  ) {
+  if (safeRootFlowRunId && /[\\/]/.test(safeRootFlowRunId)) {
     return NextResponse.json({ error: "Invalid rootFlowRunId format" }, { status: 400 });
   }
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
+  }
+  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   const stageIdx = STAGE_ORDER.indexOf(safeStageId);
   if (stageIdx === -1) {
@@ -231,7 +229,7 @@ export async function POST(request: Request) {
   try {
     // Use the current page's explicit root flow run when available so replay still
     // works even if session registration failed after the source run launched.
-    const session = await readSession(safeUserId) ?? undefined;
+    const session = await readSession(safeWorkspaceId) ?? undefined;
     const latestRootFlowRunId = safeRootFlowRunId ?? getLatestSessionRootFlowRunId(session);
 
     // Build parameters: if we have a prior flow run, reuse its params
@@ -254,17 +252,17 @@ export async function POST(request: Request) {
     const { start_stage: _startStage, end_stage: _endStage, ...baseParams } = originalParams;
     const newParams = {
       ...baseParams,
-      user_id: safeUserId,
+      workspace_id: safeWorkspaceId,
       start_stage: safeStageId,
       stage_overrides: {
         ...existingOverrides,
         [safeStageId]: stageData,
       },
     };
-    const replayRunName = buildReplayRunName(safeUserId, safeStageId);
+    const replayRunName = buildReplayRunName(safeWorkspaceId, safeStageId);
     const replayIdempotencyKey = buildReplayIdempotencyKey(
       latestRootFlowRunId,
-      safeUserId,
+      safeWorkspaceId,
       safeStageId,
       stageData,
     );
@@ -312,7 +310,7 @@ export async function POST(request: Request) {
           },
           labels: {
             replay: true,
-            user_id: safeUserId,
+            workspace_id: safeWorkspaceId,
             edited_stage: safeStageId,
             source_root_flow_run_id: latestRootFlowRunId ?? "none",
           },
@@ -328,7 +326,7 @@ export async function POST(request: Request) {
     const newFlowRun = await createRes.json();
     let sessionPersisted = true;
     try {
-      await writeSession(safeUserId, appendSessionRootFlowRunId(session, newFlowRun.id));
+      await writeSession(safeWorkspaceId, appendSessionRootFlowRunId(session, newFlowRun.id));
     } catch {
       sessionPersisted = false;
     }

@@ -20,7 +20,7 @@ Parses arbitrary user-uploaded files into a typed Polars DataFrame with column-l
 
 | Input | Source | Description |
 |---|---|---|
-| `user_id` | Pipeline request | Identifies the user workspace; the stage discovers the latest uploaded file under `data/{user_id}/input/`. |
+| `workspace_id` | Pipeline request | Identifies the workspace; the stage discovers the latest uploaded file under `data/{workspace_id}/input/`. |
 
 ### Process
 

@@ -40,7 +40,7 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
 /**
  * LLM Trace Panel — three modes:
  *
- * 1. Read-only (no userId/stageId or non-refinable stage): just shows the trace
+ * 1. Read-only (no workspaceId/stageId or non-refinable stage): just shows the trace
  * 2. Completed + refinable: trace (read-only) + refinement chat (interactive)
  * 3. Refining: trace + ongoing refinement conversation with tools
  *
@@ -50,12 +50,12 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
  */
 export function LLMTracePanel({
   trace,
-  userId,
+  workspaceId,
   stageId,
   interactive = true,
 }: {
   trace: LLMTrace;
-  userId?: string;
+  workspaceId?: string;
   stageId?: string;
   interactive?: boolean;
 }) {
@@ -66,7 +66,7 @@ export function LLMTracePanel({
 
   const { refiningStageId, invalidatedAfter, requestRefinement, markSettled } = useRefinement();
 
-  const canRefine = interactive && !!userId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
+  const canRefine = interactive && !!workspaceId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
 
   // Refinement chat — independent from trace, NOT initialized with trace messages.
   // The server prepends the trace as CoreMessages for LLM context.
@@ -75,10 +75,10 @@ export function LLMTracePanel({
     const apiKey = getUserApiKey();
     return new DefaultChatTransport({
       api: "/api/refine",
-      body: { userId, stageId },
+      body: { workspaceId, stageId },
       ...(apiKey ? { headers: { "x-openrouter-key": apiKey } } : {}),
     });
-  }, [userId, stageId, canRefine]);
+  }, [workspaceId, stageId, canRefine]);
 
   const {
     messages: refinementMessages,

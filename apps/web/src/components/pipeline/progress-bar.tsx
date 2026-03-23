@@ -1,35 +1,41 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { getIdentity } from "@/lib/identity";
 import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
+import { formatResumeKey, getSharedWorkspaceAccessCode } from "@/lib/resume-key";
 import { STAGES } from "@causal-ssm/api-types";
 import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-function formatUserIdBadge(userId: string): string {
-  if (userId.length <= 18) return userId;
-  return `${userId.slice(0, 8)}...${userId.slice(-6)}`;
+function formatWorkspaceIdBadge(workspaceId: string): string {
+  if (workspaceId.length <= 18) return workspaceId;
+  return `${workspaceId.slice(0, 8)}...${workspaceId.slice(-6)}`;
 }
 
 export function PipelineProgressBar({
   progress,
   question,
-  userId,
+  workspaceId,
 }: {
   progress: PipelineProgress | undefined;
   question?: string;
-  userId: string;
+  workspaceId: string;
 }) {
   const [copied, setCopied] = useState(false);
 
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const handleCopy = useCallback(() => {
-    if (!userId) return;
-    navigator.clipboard.writeText(userId);
+    if (!workspaceId) return;
+    const identity = getIdentity();
+    const accessCode =
+      identity?.workspaceId === workspaceId ? identity.accessCode : getSharedWorkspaceAccessCode(workspaceId);
+    const valueToCopy = accessCode ? formatResumeKey(workspaceId, accessCode) : workspaceId;
+    navigator.clipboard.writeText(valueToCopy);
     setCopied(true);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-  }, [userId]);
+  }, [workspaceId]);
   useEffect(
     () => () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -37,7 +43,7 @@ export function PipelineProgressBar({
     [],
   );
 
-  const { exportToMarkdown } = useExportMarkdown(userId);
+  const { exportToMarkdown } = useExportMarkdown(workspaceId);
 
   if (!progress) return null;
 
@@ -54,14 +60,14 @@ export function PipelineProgressBar({
             Causal SSM Agent
           </Link>
           <div className="flex items-center gap-2">
-            {userId && (
+            {workspaceId && (
               <button
                 type="button"
                 onClick={handleCopy}
                 className="flex items-center gap-1 rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:bg-secondary"
-                title="Copy user ID"
+                title="Copy resume key"
               >
-                {formatUserIdBadge(userId)}
+                {formatWorkspaceIdBadge(workspaceId)}
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               </button>
             )}

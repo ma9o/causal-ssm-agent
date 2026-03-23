@@ -26,14 +26,14 @@ export interface Stage2WorkerProgress {
 const STAGE2_LOG_PAGE_SIZE = 500;
 
 export function getStage2WorkerQueryKey(
-  userId: string,
+  workspaceId: string,
   rootFlowRunId: string | null,
 ) {
-  return ["pipeline", userId, "stage2-workers", rootFlowRunId] as const;
+  return ["pipeline", workspaceId, "stage2-workers", rootFlowRunId] as const;
 }
 
-export function getStage2WorkerQueryKeyPrefix(userId: string) {
-  return ["pipeline", userId, "stage2-workers"] as const;
+export function getStage2WorkerQueryKeyPrefix(workspaceId: string) {
+  return ["pipeline", workspaceId, "stage2-workers"] as const;
 }
 
 /**
@@ -41,12 +41,12 @@ export function getStage2WorkerQueryKeyPrefix(userId: string) {
  *
  * Worker states (submitted/completed/failed) arrive over the existing
  * WebSocket connection in use-run-events.ts and are written into the
- * ["pipeline", userId, "stage2-workers", rootFlowRunId] query cache key.
+ * ["pipeline", workspaceId, "stage2-workers", rootFlowRunId] query cache key.
  *
  * Logs are bootstrapped via REST once and then appended from Prefect's logs/out socket.
  */
 export function useStage2Workers(
-  userId: string,
+  workspaceId: string,
   rootFlowRunId: string | null,
   stageSubflowRunId: string | null,
   initialLogFlowRunIds: string[],
@@ -56,7 +56,7 @@ export function useStage2Workers(
 
   // Workers: populated by WebSocket events in use-run-events.ts
   const { data: workers = [] } = useQuery<Stage2Worker[]>({
-    queryKey: getStage2WorkerQueryKey(userId, rootFlowRunId),
+    queryKey: getStage2WorkerQueryKey(workspaceId, rootFlowRunId),
     queryFn: () => [],
     enabled: isActive && !!rootFlowRunId,
     staleTime: Infinity,
@@ -66,7 +66,7 @@ export function useStage2Workers(
     logs,
     bootstrapStatus: logBootstrapStatus,
     connectionState: logConnectionState,
-  } = useStageLogs(userId, "stage-2", stageSubflowRunId, initialLogFlowRunIds, stageStatus, {
+  } = useStageLogs(workspaceId, "stage-2", stageSubflowRunId, initialLogFlowRunIds, stageStatus, {
     pageSize: STAGE2_LOG_PAGE_SIZE,
   });
 

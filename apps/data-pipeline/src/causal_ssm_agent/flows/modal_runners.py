@@ -43,14 +43,14 @@ def _run_stage5b(
     stage4: dict,
     stage2: dict,
     inference_method: str | None,
-    user_id: str,
+    workspace_id: str,
 ) -> dict:
     """Run stage 5b on Modal and persist artifacts to R2."""
     from causal_ssm_agent.flows.dag import stage5b
     from causal_ssm_agent.flows.stage_registry import _persist_stage5b
 
     result = stage5b(stage4, stage2, inference_method)
-    return _persist_stage5b(result, user_id)
+    return _persist_stage5b(result, workspace_id)
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
@@ -76,10 +76,10 @@ def modal_stage5b_runner(
     stage4: dict,
     stage2: dict,
     inference_method: str | None,
-    user_id: str = "",
+    workspace_id: str = "",
 ) -> dict:
     """Invoke stage 5b on Modal."""
-    return _run_stage5b.remote(stage4, stage2, inference_method, user_id)
+    return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
 
 
 async def modal_stage4_runner(
@@ -98,6 +98,6 @@ async def modal_stage4_runner(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def persist_noop(result: dict, user_id: str) -> dict:
+def persist_noop(result: dict, workspace_id: str) -> dict:
     """Pass through — artifacts were already persisted inside Modal."""
     return result

@@ -48,7 +48,7 @@ export const Running: StoryObj = {
 
 export const CompletedSVI: Story = {
   name: "Completed (SVI / Laplace EM)",
-  args: { data, userId: "demo-user" },
+  args: { data, workspaceId: "demo-user" },
   render: (args) => (
     <StageSection
       number={stage.number}
@@ -65,7 +65,7 @@ export const CompletedSVI: Story = {
 
 export const CompletedNUTS: Story = {
   name: "Completed (NUTS / DA)",
-  args: { data: nutsdaData, userId: "demo-user" },
+  args: { data: nutsdaData, workspaceId: "demo-user" },
   render: (args) => (
     <StageSection
       number={stage.number}

@@ -3,13 +3,15 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { getSession } from "@/lib/api/analysis";
+import { unlockWorkspace } from "@/lib/api/analysis";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
 import { initiateOpenRouterAuth } from "@/lib/auth";
+import { getIdentity, setIdentity } from "@/lib/identity";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { ANONYMOUS_USER_ID_LENGTH } from "@/lib/user-id";
+import { ANONYMOUS_WORKSPACE_ID_LENGTH } from "@/lib/workspace-id";
+import { getSharedWorkspaceAccessCode, parseResumeKey } from "@/lib/resume-key";
 import {
   ArrowRight,
   FileText,
@@ -60,14 +62,25 @@ export default function LandingPage() {
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
-      const userId = getMockFixture();
-      router.push(`/analysis/${userId}`);
+      const workspaceId = getMockFixture();
+      const sharedAccessCode = getSharedWorkspaceAccessCode(workspaceId);
+      if (!sharedAccessCode) {
+        router.push(`/analysis/${workspaceId}`);
+        return;
+      }
+      setIdentity({ workspaceId, accessCode: sharedAccessCode, kind: "anonymous" });
+      void unlockWorkspace(workspaceId, sharedAccessCode).catch(() => {
+        // The analysis page retries with the stored identity if the cookie was not set here.
+      }).finally(() => {
+        setIdentity({ workspaceId, accessCode: sharedAccessCode, kind: "anonymous" });
+        router.push(`/analysis/${workspaceId}`);
+      });
     }
   }, [router]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [resumeUserId, setResumeUserId] = useState("");
+  const [resumeKeyInput, setResumeKeyInput] = useState("");
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [isResuming, setIsResuming] = useState(false);
 
@@ -120,13 +133,13 @@ export default function LandingPage() {
         return;
       }
 
-      const userId = auth.ensureIdentity();
-      await uploadFile(file, userId);
+      const identity = auth.ensureIdentity();
+      await uploadFile(file, identity.workspaceId, identity.accessCode);
 
       const deploymentId = await getDeploymentId();
       const rootFlowRunId = await triggerRun(deploymentId, {
         query: question,
-        user_id: userId,
+        workspace_id: identity.workspaceId,
         override_gates: overrideGates || undefined,
         openrouter_api_key: auth.userKey || undefined,
       });
@@ -135,13 +148,20 @@ export default function LandingPage() {
         await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, question, rootFlowRunId }),
+          body: JSON.stringify({
+            workspaceId: identity.workspaceId,
+            accessCode: identity.accessCode,
+            question,
+            rootFlowRunId,
+          }),
         });
       } catch {
         // The analysis page can bootstrap directly from the root flow run ID.
       }
 
-      router.push(`/analysis/${userId}?${new URLSearchParams({ rootFlowRunId }).toString()}`);
+      router.push(
+        `/analysis/${identity.workspaceId}?${new URLSearchParams({ rootFlowRunId }).toString()}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
@@ -149,30 +169,38 @@ export default function LandingPage() {
   };
 
   const handleResume = async () => {
-    const rawUserId = resumeUserId.trim();
-    if (!rawUserId) {
-      setResumeError("Enter a user ID.");
+    const parsedResume = parseResumeKey(resumeKeyInput);
+    if (!parsedResume) {
+      setResumeError("Enter a resume key or fixture ID.");
       return;
     }
 
-    const userId =
-      rawUserId.length === ANONYMOUS_USER_ID_LENGTH && /^[A-Za-z0-9]+$/.test(rawUserId)
-        ? rawUserId.toUpperCase()
-        : rawUserId;
+    const rawWorkspaceId = parsedResume.workspaceId.trim();
+    const workspaceId =
+      rawWorkspaceId.length === ANONYMOUS_WORKSPACE_ID_LENGTH && /^[A-Za-z0-9]+$/.test(rawWorkspaceId)
+        ? rawWorkspaceId.toUpperCase()
+        : rawWorkspaceId;
+    const storedIdentity = getIdentity();
+    const accessCode =
+      parsedResume.accessCode ??
+      getSharedWorkspaceAccessCode(workspaceId) ??
+      (storedIdentity?.workspaceId === workspaceId ? storedIdentity.accessCode : null);
 
     setIsResuming(true);
     setResumeError(null);
 
     try {
-      const session = await getSession(userId);
-      if (session.rootFlowRunIds.length === 0) {
-        setResumeError("No analysis found for that user ID.");
+      if (!accessCode) {
+        setResumeError("Use the full resume key for this workspace.");
         setIsResuming(false);
         return;
       }
-      router.push(`/analysis/${userId}`);
-    } catch {
-      setResumeError("Failed to look up session.");
+
+      await unlockWorkspace(workspaceId, accessCode);
+      setIdentity({ workspaceId, accessCode, kind: storedIdentity?.kind ?? "anonymous" });
+      router.push(`/analysis/${workspaceId}`);
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : "Failed to unlock workspace.");
       setIsResuming(false);
     }
   };
@@ -433,22 +461,22 @@ export default function LandingPage() {
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input
               type="text"
-              aria-label="User ID"
-              placeholder="ABC123 or OpenRouter user ID"
-              value={resumeUserId}
-              onChange={(e) => {
-                setResumeUserId(e.target.value);
+              aria-label="Resume key or fixture ID"
+                placeholder="Resume key or fixture ID"
+                value={resumeKeyInput}
+                onChange={(e) => {
+                setResumeKeyInput(e.target.value);
                 if (resumeError) setResumeError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && resumeUserId.trim()) handleResume();
+                if (e.key === "Enter" && resumeKeyInput.trim()) handleResume();
               }}
               className="flex-1 rounded-md border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground/40"
             />
             <Button
               variant="outline"
               onClick={handleResume}
-              disabled={isResuming || !resumeUserId.trim()}
+              disabled={isResuming || !resumeKeyInput.trim()}
             >
               {isResuming ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -458,6 +486,9 @@ export default function LandingPage() {
               Resume
             </Button>
           </div>
+          <p className="text-center text-xs text-muted-foreground/70">
+            Paste your resume key, or enter a shared fixture ID like <span className="font-mono">DEFAULT</span>.
+          </p>
           {resumeError && <p className="text-center text-sm text-destructive">{resumeError}</p>}
         </motion.div>
       </div>

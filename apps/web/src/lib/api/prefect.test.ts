@@ -74,7 +74,7 @@ describe("triggerRun", () => {
       state: { type: "SCHEDULED", name: "Scheduled" },
     });
 
-    const id = await triggerRun("dep-123", { user_id: "test" });
+    const id = await triggerRun("dep-123", { workspace_id: "test" });
     expect(id).toBe("run-789");
   });
 
@@ -84,13 +84,13 @@ describe("triggerRun", () => {
       state: { type: "SCHEDULED", name: "Scheduled" },
     });
 
-    await triggerRun("dep-123", { user_id: "test", query: "test.txt" });
+    await triggerRun("dep-123", { workspace_id: "test", query: "test.txt" });
 
     expect(apiFetch).toHaveBeenCalledWith(
       "/prefect/deployments/dep-123/create_flow_run",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ parameters: { user_id: "test", query: "test.txt" } }),
+        body: JSON.stringify({ parameters: { workspace_id: "test", query: "test.txt" } }),
       }),
     );
   });
@@ -98,6 +98,6 @@ describe("triggerRun", () => {
   it("propagates API errors from apiFetch", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("API error 500: Internal Server Error"));
 
-    await expect(triggerRun("dep-123", { user_id: "test" })).rejects.toThrow("API error 500");
+    await expect(triggerRun("dep-123", { workspace_id: "test" })).rejects.toThrow("API error 500");
   });
 });

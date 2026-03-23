@@ -104,7 +104,7 @@ export function buildPrefectLogStreamFilterMessage(
 }
 
 export function buildStageLogSourcesPath(
-  userId: string,
+  workspaceId: string,
   stageId: StageId,
   stageSubflowRunId: string,
 ) {
@@ -112,7 +112,7 @@ export function buildStageLogSourcesPath(
     stageId,
     stageSubflowRunId,
   });
-  return `/api/analysis/${userId}/stage-log-sources?${search.toString()}`;
+  return `/api/analysis/${workspaceId}/stage-log-sources?${search.toString()}`;
 }
 
 async function fetchPrefectLogPage(
@@ -161,7 +161,7 @@ export async function fetchIncrementalPrefectLogs(
 }
 
 function useStageLogFlowRunIds(
-  userId: string,
+  workspaceId: string,
   stageId: StageId,
   stageSubflowRunId: string | null,
   initialLogFlowRunIds: string[],
@@ -180,7 +180,7 @@ function useStageLogFlowRunIds(
   const { data } = useQuery({
     queryKey: [
       "analysis",
-      userId,
+      workspaceId,
       "stage-log-sources",
       stageId,
       stageSubflowRunId,
@@ -188,7 +188,7 @@ function useStageLogFlowRunIds(
     ] as const,
     queryFn: async () => {
       const response = await fetch(
-        buildStageLogSourcesPath(userId, stageId, stageSubflowRunId as string),
+        buildStageLogSourcesPath(workspaceId, stageId, stageSubflowRunId as string),
         { cache: "no-store" },
       );
       if (!response.ok) {
@@ -306,7 +306,7 @@ export function usePrefectLogs(
 }
 
 export function useStageLogs(
-  userId: string,
+  workspaceId: string,
   stageId: StageId,
   stageSubflowRunId: string | null,
   initialLogFlowRunIds: string[],
@@ -318,12 +318,12 @@ export function useStageLogs(
   } = {},
 ): PrefectLogsResult {
   const flowRunIds = useStageLogFlowRunIds(
-    userId,
+    workspaceId,
     stageId,
     stageSubflowRunId,
     initialLogFlowRunIds,
     status,
   );
-  const queryKey = ["pipeline", userId, "logs", stageId, stageSubflowRunId] as const;
+  const queryKey = ["pipeline", workspaceId, "logs", stageId, stageSubflowRunId] as const;
   return usePrefectLogs(queryKey, flowRunIds, status, { pageSize });
 }
