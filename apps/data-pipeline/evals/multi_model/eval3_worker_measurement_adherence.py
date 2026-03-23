@@ -20,15 +20,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import asyncio
 import json
-import random
 
 from evals.common import (
     discover_questions,
+    format_labeled_candidates,
     get_generate_config,
     get_questions_with_causal_spec,
     get_sample_chunks_worker,
     load_eval_config,
+    make_anonymous_label_mapping,
     make_generate_fn,
+    parse_csv_task_arg,
+    score_judge_ranking_response,
     select_question,
 )
 from inspect_ai import Task, task
@@ -120,31 +123,6 @@ async def generate_worker_output(
     )
 
     return json.dumps(result.output.model_dump(), indent=2)
-
-
-def format_candidates_for_judge(outputs: dict[str, str], label_map: dict[str, str]) -> str:
-    """Format candidate outputs for the judge prompt.
-
-    Args:
-        outputs: Dict of model_id -> completion text
-        label_map: Dict of model_id -> anonymous label (A, B, C, etc.)
-
-    Returns:
-        Formatted string with labeled candidates
-    """
-    parts = []
-    for model_id, label in sorted(label_map.items(), key=lambda x: x[1]):
-        output = outputs.get(model_id, "[ERROR: No output]")
-        # Extract just the JSON part for cleaner comparison
-        try:
-            data = parse_json_response(output)
-            json_str = json.dumps(data, indent=2)
-        except Exception:
-            json_str = output[:2000] + "..." if len(output) > 2000 else output
-
-        parts.append(f"### Candidate {label}\n\n```json\n{json_str}\n```")
-
-    return "\n\n".join(parts)
 
 
 def create_eval_dataset(
@@ -277,18 +255,26 @@ def judge_solver(
             outputs = dict(results)
 
             # Create anonymous labels and shuffle
-            labels = [chr(ord("A") + i) for i in range(len(model_ids))]
-            shuffled_models = model_ids.copy()
-            random.seed(hash(state.sample_id))  # Deterministic shuffle per sample
-            random.shuffle(shuffled_models)
-            label_map = dict(zip(shuffled_models, labels))
+            label_mapping = make_anonymous_label_mapping(
+                sample_id=state.sample_id,
+                candidate_ids=model_ids,
+            )
 
             # Format candidates for judge
-            candidates_text = format_candidates_for_judge(outputs, label_map)
+            def _render_candidate(model_id: str) -> str:
+                output = outputs.get(model_id, "[ERROR: No output]")
+                try:
+                    data = parse_json_response(output)
+                    json_str = json.dumps(data, indent=2)
+                except Exception:
+                    json_str = output[:2000] + "..." if len(output) > 2000 else output
+                return f"```json\n{json_str}\n```"
+
+            candidates_text = format_labeled_candidates(label_mapping, _render_candidate)
 
             # Store label_map in metadata for scorer
-            state.metadata["label_map"] = label_map
-            state.metadata["reverse_label_map"] = {v: k for k, v in label_map.items()}
+            state.metadata["label_map"] = label_mapping.label_map
+            state.metadata["reverse_label_map"] = label_mapping.reverse_label_map
 
             # Build judge prompt with full worker prompts
             judge_prompt = JUDGE_USER.format(
@@ -325,61 +311,10 @@ def measurement_adherence_scorer():
     """
 
     async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
-        completion = state.output.completion
-        reverse_label_map = state.metadata.get("reverse_label_map", {})
-
-        # Extract JSON from judge response
-        try:
-            # Find JSON in response
-            import re
-
-            json_match = re.search(r"\{[\s\S]*\}", completion)
-            if not json_match:
-                return Score(
-                    value=0.0,
-                    answer="[No JSON found in judge response]",
-                    explanation=f"Judge response: {completion[:500]}...",
-                )
-
-            judge_data = json.loads(json_match.group())
-            ranking = judge_data.get("ranking", [])
-            rationale = judge_data.get("rationale", {})
-
-        except json.JSONDecodeError as e:
-            return Score(
-                value=0.0,
-                answer="[JSON parse error]",
-                explanation=f"Error: {e}\nResponse: {completion[:500]}...",
-            )
-
-        # Build ranking with model aliases
-        ranking_aliases = []
-        for label in ranking:
-            model_id = reverse_label_map.get(label, "unknown")
-            alias = WORKER_MODELS.get(model_id, model_id)
-            ranking_aliases.append(alias)
-
-        # Format as "1st > 2nd > 3rd > ..."
-        ranking_str = " > ".join(ranking_aliases)
-
-        # Build rationale summary
-        rationale_parts = []
-        for label in ranking:
-            model_id = reverse_label_map.get(label, "unknown")
-            alias = WORKER_MODELS.get(model_id, model_id)
-            rationale_parts.append(f"{alias}: {rationale.get(label, 'N/A')}")
-
-        explanation = "\n".join(rationale_parts)
-
-        return Score(
-            value=1.0,  # Successfully parsed
-            answer=ranking_str,
-            explanation=explanation,
-            metadata={
-                "ranking_aliases": ranking_aliases,
-                "ranking_labels": ranking,
-                "rationale": rationale,
-            },
+        return score_judge_ranking_response(
+            completion=state.output.completion,
+            reverse_label_map=state.metadata.get("reverse_label_map", {}),
+            alias_lookup=WORKER_MODELS,
         )
 
     return score
@@ -391,7 +326,7 @@ def worker_measurement_adherence_eval(
     n_chunks: int = 2,
     seed: int = 42,
     input_file: str | None = None,
-    models: str | None = None,
+    models: str | list[str] | None = None,
     worker_timeout: int | None = None,
 ):
     """Evaluate worker models on measurement instruction adherence.
@@ -408,9 +343,7 @@ def worker_measurement_adherence_eval(
         worker_timeout: Timeout in seconds for each worker (default: from config, 180s)
     """
     # Parse models argument
-    model_ids = None
-    if models:
-        model_ids = [m.strip() for m in models.split(",")]
+    model_ids = parse_csv_task_arg(models)
 
     return Task(
         dataset=create_eval_dataset(
