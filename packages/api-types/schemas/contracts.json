@@ -134,6 +134,21 @@
       "title": "ColumnDescriptionContract",
       "type": "object"
     },
+    "ComputedRule": {
+      "description": "Deterministic per-window expression for computed indicators.",
+      "properties": {
+        "window_expr": {
+          "description": "Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values.",
+          "title": "Window Expr",
+          "type": "string"
+        }
+      },
+      "required": [
+        "window_expr"
+      ],
+      "title": "ComputedRule",
+      "type": "object"
+    },
     "Construct": {
       "description": "A theoretical entity in the causal model.\n\nConstructs are conceptually 'latent' - they represent theoretical entities\nthat may be measured by one or more observed indicators.",
       "properties": {
@@ -573,9 +588,21 @@
           "title": "Source Columns",
           "type": "array"
         },
+        "computed_rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputedRule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+        },
         "extraction_mode": {
           "default": "semantic",
-          "description": "'computed' (deterministic pipeline aggregation on a direct source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically from one direct source column using the declared aggregation and dtype semantics.",
+          "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
           "title": "Extraction Mode",
           "type": "string"
         },
