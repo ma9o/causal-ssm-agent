@@ -582,6 +582,16 @@ async def stage6(
 
     from .stages import run_interventions
 
+    def _first_assistant_summary(trace: Any) -> str | None:
+        messages = getattr(trace, "messages", None) or []
+        for message in messages:
+            if getattr(message, "role", None) != "assistant":
+                continue
+            content = (getattr(message, "content", "") or "").strip()
+            if content:
+                return content
+        return None
+
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
     outcome_name = stage1a.get("outcome_name", "")
@@ -720,9 +730,11 @@ async def stage6(
     async with LLMStageContext("stage-6") as ctx:
         generate = ctx.make_generate(get_config().stage0_ingestion.model)
         await generate(commentary_messages, label="comment-results")
-        return ctx.finalize(
-            {
-                "intervention_results": intervention_results,
-                "outcome": "warn" if has_warnings else "success",
-            }
-        )
+        result = {
+            "intervention_results": intervention_results,
+            "outcome": "warn" if has_warnings else "success",
+        }
+        final_summary = _first_assistant_summary(ctx.trace_capture.get("trace"))
+        if final_summary:
+            result["final_summary"] = final_summary
+        return ctx.finalize(result)

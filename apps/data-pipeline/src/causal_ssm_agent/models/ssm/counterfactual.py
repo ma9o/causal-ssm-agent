@@ -197,6 +197,192 @@ def _summarize_trajectory(
     }
 
 
+def summarize_draws(draws: jnp.ndarray) -> dict[str, float]:
+    """Compact posterior summary for effect draws."""
+    return {
+        "mean": float(jnp.mean(draws)),
+        "median": float(jnp.median(draws)),
+        "lower_95": float(jnp.quantile(draws, 0.025)),
+        "upper_95": float(jnp.quantile(draws, 0.975)),
+        "prob_positive": float(jnp.mean(draws > 0)),
+    }
+
+
+def resolve_action_value(
+    baseline_value: float | jnp.ndarray,
+    *,
+    mode: str,
+    value: float | None = None,
+    amount: float | None = None,
+) -> jnp.ndarray:
+    """Resolve an intervention action against a baseline treatment value."""
+    baseline = jnp.asarray(baseline_value)
+    if mode == "set":
+        if value is None:
+            raise ValueError("mode='set' requires value")
+        return jnp.asarray(value, dtype=baseline.dtype)
+    if mode == "shift":
+        if amount is None:
+            raise ValueError("mode='shift' requires amount")
+        return baseline + jnp.asarray(amount, dtype=baseline.dtype)
+    raise ValueError(f"Unsupported action mode: {mode}")
+
+
+def treatment_effect_for_action(
+    drift: jnp.ndarray,
+    cint: jnp.ndarray,
+    treat_idx: int,
+    outcome_idx: int,
+    *,
+    mode: str,
+    value: float | None = None,
+    amount: float | None = None,
+) -> jnp.ndarray:
+    """Generalized steady-state effect for set/shift interventions."""
+    baseline = steady_state(drift, cint)
+    do_value = resolve_action_value(
+        baseline[treat_idx],
+        mode=mode,
+        value=value,
+        amount=amount,
+    )
+    intervened = do(drift, cint, treat_idx, do_value)
+    return intervened[outcome_idx] - baseline[outcome_idx]
+
+
+def forward_simulate_from_state(
+    drift: jnp.ndarray,
+    cint: jnp.ndarray,
+    initial_state: jnp.ndarray,
+    outcome_idx: int,
+    dt: float,
+    horizon_steps: int,
+) -> jnp.ndarray:
+    """Forecast the baseline mean trajectory from an evidence-conditioned state."""
+    n = drift.shape[0]
+    diffusion_cov = jnp.zeros((n, n))
+    Ad, _, cd = discretize_system(drift, diffusion_cov, cint, dt)
+    if cd is None:
+        cd = jnp.zeros(n)
+
+    def _step(eta, _):
+        eta_next = Ad @ eta + cd
+        return eta_next, eta_next[outcome_idx]
+
+    _, trajectory = jax.lax.scan(_step, initial_state, None, length=horizon_steps)
+    return trajectory
+
+
+def forward_simulate_action_from_state(
+    drift: jnp.ndarray,
+    cint: jnp.ndarray,
+    initial_state: jnp.ndarray,
+    treat_idx: int,
+    outcome_idx: int,
+    *,
+    mode: str,
+    value: float | None = None,
+    amount: float | None = None,
+    dt: float,
+    horizon_steps: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Forecast baseline and counterfactual paths from a conditioned latent state."""
+    n = drift.shape[0]
+    diffusion_cov = jnp.zeros((n, n))
+    Ad, _, cd = discretize_system(drift, diffusion_cov, cint, dt)
+    if cd is None:
+        cd = jnp.zeros(n)
+
+    do_value = resolve_action_value(
+        initial_state[treat_idx],
+        mode=mode,
+        value=value,
+        amount=amount,
+    )
+
+    def _baseline_step(eta, _):
+        eta_next = Ad @ eta + cd
+        return eta_next, eta_next[outcome_idx]
+
+    def _cf_step(eta, _):
+        eta_next = Ad @ eta + cd
+        eta_next = eta_next.at[treat_idx].set(do_value)
+        return eta_next, eta_next[outcome_idx]
+
+    _, baseline = jax.lax.scan(_baseline_step, initial_state, None, length=horizon_steps)
+    cf_init = initial_state.at[treat_idx].set(do_value)
+    _, counterfactual = jax.lax.scan(_cf_step, cf_init, None, length=horizon_steps)
+    return baseline, counterfactual, counterfactual - baseline
+
+
+def approximate_abducted_state(
+    samples: dict[str, jnp.ndarray],
+    ssm_model: Any,
+    spec: Any,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    evidence_start_idx: int,
+    evidence_end_idx: int,
+) -> dict[str, Any]:
+    """Approximate rung-3 abduction from observed history.
+
+    Uses a Kalman smoother on posterior-mean parameters when available.
+    Falls back to a least-squares inversion of the contemporaneous observation
+    model at the evidence boundary.
+    """
+    from causal_ssm_agent.models.ssm.nuts_da import _try_smoother
+    from causal_ssm_agent.models.ssm.utils import _assemble_single_deterministics
+
+    posterior_means = {name: jnp.mean(value, axis=0) for name, value in samples.items()}
+    det_values = _assemble_single_deterministics(posterior_means, spec)
+
+    if "manifest_means" in posterior_means:
+        det_values["manifest_means"] = posterior_means["manifest_means"]
+    elif isinstance(getattr(spec, "manifest_means", None), jnp.ndarray):
+        det_values["manifest_means"] = spec.manifest_means
+    else:
+        det_values["manifest_means"] = jnp.zeros(spec.n_manifest)
+
+    evidence_obs = observations[evidence_start_idx : evidence_end_idx + 1]
+    evidence_times = times[evidence_start_idx : evidence_end_idx + 1]
+    smoothed = _try_smoother(ssm_model, evidence_obs, evidence_times, det_values)
+    if smoothed is not None:
+        return {
+            "state": smoothed[-1],
+            "method": "kalman_smoother",
+            "warning": None,
+        }
+
+    lambda_mat = det_values.get("lambda")
+    if lambda_mat is None:
+        lambda_mat = spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else None
+    if lambda_mat is None:
+        return {
+            "state": jnp.zeros(spec.n_latent),
+            "method": "zero_state",
+            "warning": "Could not reconstruct observation operator; using zero latent state.",
+        }
+
+    obs_t = observations[evidence_end_idx]
+    obs_mask = ~jnp.isnan(obs_t)
+    if not bool(jnp.any(obs_mask)):
+        return {
+            "state": jnp.zeros(spec.n_latent),
+            "method": "zero_state",
+            "warning": "Evidence boundary has no observed values; using zero latent state.",
+        }
+
+    manifest_means = det_values["manifest_means"]
+    H_obs = lambda_mat[obs_mask]
+    y_obs = obs_t[obs_mask] - manifest_means[obs_mask]
+    state = jnp.linalg.pinv(H_obs) @ y_obs
+    return {
+        "state": state,
+        "method": "observation_pseudoinverse",
+        "warning": "Kalman smoother unavailable; counterfactual state estimated from the final observed measurement slice.",
+    }
+
+
 def compute_interventions(
     samples: dict[str, jnp.ndarray],
     treatments: list[str],

@@ -8,10 +8,14 @@ import jax.numpy as jnp
 
 from causal_ssm_agent.models.ssm.counterfactual import (
     _summarize_trajectory,
+    approximate_abducted_state,
     compute_interventions,
     do,
+    forward_simulate_action_from_state,
     forward_simulate_intervention,
+    resolve_action_value,
     steady_state,
+    summarize_draws,
     treatment_effect,
 )
 
@@ -178,6 +182,31 @@ class TestSummarizeTrajectory:
 
 
 # =============================================================================
+# summarize_draws / resolve_action_value
+# =============================================================================
+
+
+class TestSummarizeDraws:
+    def test_reports_mean_interval_and_prob_positive(self):
+        draws = jnp.array([-1.0, 0.0, 2.0, 3.0])
+        summary = summarize_draws(draws)
+        assert summary["mean"] == 1.0
+        assert summary["median"] == 1.0
+        assert summary["prob_positive"] == 0.5
+        assert summary["lower_95"] <= summary["upper_95"]
+
+
+class TestResolveActionValue:
+    def test_set_mode_uses_absolute_value(self):
+        resolved = resolve_action_value(2.0, mode="set", value=5.0)
+        assert float(resolved) == 5.0
+
+    def test_shift_mode_offsets_baseline(self):
+        resolved = resolve_action_value(2.0, mode="shift", amount=-0.5)
+        assert float(resolved) == 1.5
+
+
+# =============================================================================
 # forward_simulate_intervention
 # =============================================================================
 
@@ -243,6 +272,76 @@ class TestForwardSimulateIntervention:
             horizon_steps=50,
         )
         assert jnp.allclose(traj, 0.0, atol=1e-4)
+
+
+class TestForwardSimulateActionFromState:
+    def test_returns_baseline_counterfactual_and_effect_paths(self):
+        A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
+        c = jnp.array([1.0, 0.5])
+        initial_state = jnp.array([1.0, 0.5])
+        baseline, counterfactual, effect = forward_simulate_action_from_state(
+            A,
+            c,
+            initial_state,
+            treat_idx=0,
+            outcome_idx=1,
+            mode="shift",
+            amount=1.0,
+            dt=0.1,
+            horizon_steps=25,
+        )
+        assert baseline.shape == (25,)
+        assert counterfactual.shape == (25,)
+        assert effect.shape == (25,)
+        assert jnp.allclose(effect, counterfactual - baseline, atol=1e-6)
+        assert float(effect[-1]) > 0
+
+
+class TestApproximateAbductedState:
+    def test_smoother_uses_selected_evidence_window(self, monkeypatch):
+        captured = {}
+
+        def fake_try_smoother(_ssm_model, observations, times, _det_values):
+            captured["observations"] = observations
+            captured["times"] = times
+            return jnp.array([[0.1], [0.2]])
+
+        def fake_assemble_single_deterministics(_posterior_means, _spec):
+            return {
+                "lambda": jnp.array([[1.0]]),
+            }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.nuts_da._try_smoother",
+            fake_try_smoother,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.utils._assemble_single_deterministics",
+            fake_assemble_single_deterministics,
+        )
+
+        class DummySpec:
+            n_manifest = 1
+            n_latent = 1
+            manifest_means = jnp.zeros(1)
+            lambda_mat = None
+
+        observations = jnp.array([[1.0], [2.0], [3.0], [4.0]])
+        times = jnp.array([0.0, 1.0, 2.0, 3.0])
+        result = approximate_abducted_state(
+            samples={"drift": jnp.ones((2, 1, 1))},
+            ssm_model=object(),
+            spec=DummySpec(),
+            observations=observations,
+            times=times,
+            evidence_start_idx=1,
+            evidence_end_idx=2,
+        )
+
+        assert result["method"] == "kalman_smoother"
+        assert jnp.allclose(result["state"], jnp.array([0.2]))
+        assert jnp.array_equal(captured["observations"], observations[1:3])
+        assert jnp.array_equal(captured["times"], times[1:3])
 
 
 # =============================================================================

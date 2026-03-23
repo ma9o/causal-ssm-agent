@@ -8,7 +8,11 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS, validate_stage_payload
+from causal_ssm_agent.flows.stages.contracts import (
+    INTERACTIVE_STAGES,
+    STAGE_TOOLS,
+    validate_stage_payload,
+)
 from causal_ssm_agent.flows.stages.persist import persist_web_result
 
 
@@ -239,6 +243,14 @@ def valid_stage_payloads() -> dict[str, dict]:
                     "identifiable": True,
                 }
             ],
+            "saved_scenarios": [
+                {
+                    "label": "Stress shift",
+                    "query": "simulate_intervention(shift=-0.5)",
+                    "summary": "Negative stress shift improves the outcome in the forward simulation.",
+                }
+            ],
+            "final_summary": "Stress reduction remains the dominant actionable lever.",
         },
     }
 
@@ -247,6 +259,16 @@ def test_stage1_tool_contract_names_match_pipeline_runtime() -> None:
     """Refinement proxy must expose the same tool names used in pipeline prompts."""
     assert [tool.name for tool in STAGE_TOOLS["stage-1a"]] == ["validate_latent_model"]
     assert [tool.name for tool in STAGE_TOOLS["stage-1b"]] == ["validate_measurement_model"]
+
+
+def test_stage6_tool_contract_names_match_analysis_assistant_runtime() -> None:
+    """Stage 6 assistant must expose the read-only model + simulation tool surface."""
+    assert [tool.name for tool in STAGE_TOOLS["stage-6"]] == [
+        "get_model_info",
+        "simulate_intervention",
+        "simulate_counterfactual",
+    ]
+    assert "stage-6" in INTERACTIVE_STAGES
 
 
 def test_validate_stage_payload_accepts_all_stages(valid_stage_payloads: dict[str, dict]):
@@ -315,6 +337,14 @@ def test_stage6_rejects_extra_fields(valid_stage_payloads: dict[str, dict]):
     """Extra fields on intervention results should be rejected (extra=forbid)."""
     bad = deepcopy(valid_stage_payloads["stage-6"])
     bad["intervention_results"][0]["unknown_field"] = 42
+    with pytest.raises(ValidationError):
+        validate_stage_payload("stage-6", bad)
+
+
+def test_stage6_saved_scenarios_reject_extra_fields(valid_stage_payloads: dict[str, dict]):
+    """Saved stage-6 scenario entries should remain schema-checked."""
+    bad = deepcopy(valid_stage_payloads["stage-6"])
+    bad["saved_scenarios"][0]["unknown_field"] = 42
     with pytest.raises(ValidationError):
         validate_stage_payload("stage-6", bad)
 

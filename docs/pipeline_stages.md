@@ -502,8 +502,8 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
    - Temporal effects (time-varying effect trajectory, if applicable)
    - Manifest effects (per-indicator effect decomposition)
 4. Ranks treatments by `|effect_size|` in descending order.
-5. Generates an opening Stage 6 commentary and persists it as both:
-   - `opening_commentary` for direct rendering in the web payload
+5. Generates the initial Stage 6 interpretation and persists it as both:
+   - `final_summary` for direct rendering in the web payload
    - `llm_trace` for full conversational audit/history
 6. Exposes a narrow read-only interactive surface for follow-up analysis:
    - `get_model_info` for model, measurement, identifiability, and diagnostics summaries
@@ -516,9 +516,8 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
 | Output | Type | Description |
 |---|---|---|
 | `intervention_results` | `list[TreatmentEffect]` | Ranked treatment effects |
-| `opening_commentary` | `str?` | Initial Stage 6 narrative generated from the baseline ranking |
 | `saved_scenarios` | `list[SavedScenario]` | Optional saved follow-up simulations or scenario notes from interactive use |
-| `final_summary` | `str?` | Optional final persisted interpretation from the terminal interactive workflow |
+| `final_summary` | `str?` | Persisted Stage 6 interpretation, initialized from the baseline ranking and optionally updated by the terminal interactive workflow |
 | `llm_trace` | `LLMTrace?` | Opening commentary plus any follow-up interactive turns |
 
 ### Key Structures
