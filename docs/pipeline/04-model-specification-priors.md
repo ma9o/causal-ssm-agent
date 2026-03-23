@@ -1,6 +1,6 @@
 # Stage 4: Model Specification and Prior Elicitation
 
-Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature.
+Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. This is the point where the pipeline enters the downstream model-runtime path: see [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md) for the rules and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
 
 ## At a Glance
 
@@ -9,7 +9,7 @@ Runs a multi-turn agentic conversation to choose the statistical model and elici
 | Type | Semantic |
 | Interactive | Yes |
 | Gate | No |
-| Produces | `ModelSpec`, priors, prior predictive samples |
+| Produces | [`ModelSpec`](../concepts/artifact-glossary.md), priors, prior predictive samples |
 
 ## Inputs
 
@@ -30,6 +30,8 @@ Runs a multi-turn agentic conversation to choose the statistical model and elici
    - `elicit_prior_gmm(...)` when paraphrased elicitation is enabled
 3. Validate schema shape, trial compilation, and prior predictive behavior before finalizing.
 
+The full functional-specification deep dive lives in [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md). The handoff from Stage 4 into compilation is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
+
 ## Outputs
 
 | Output | Type | Description |
@@ -48,9 +50,3 @@ Runs a multi-turn agentic conversation to choose the statistical model and elici
 | `ParameterSpec` | `{name, role, constraint, description}` | Parameter definition in the compiled model |
 | `LikelihoodSpec` | `{variable, distribution, link, reasoning, sources}` | Observation model choice per variable |
 | `PriorProposal` | `{parameter, distribution, params, sources, reasoning, reference_interval_days, density_points}` | Supports DT-to-CT translation of prior information |
-
-## Related Docs
-
-- [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md)
-- [../model-runtime/compilation.md](../model-runtime/compilation.md)
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)

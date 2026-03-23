@@ -1,6 +1,6 @@
 # Stage 1a: Latent Model Proposal
 
-Translates a natural-language research question into a theoretical causal DAG over constructs.
+Translates a natural-language research question into a theoretical causal DAG over constructs. For the construct ontology and temporal-status rules that shape this DAG, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the assumptions that constrain the graph, see [../concepts/assumptions.md](../concepts/assumptions.md).
 
 ## At a Glance
 
@@ -41,10 +41,4 @@ This stage is purely theoretical and does not inspect the dataset.
 | `Construct` | `{name, description, role, is_outcome, temporal_status}` | Theoretical variable in the latent model |
 | `CausalEdge` | `{cause, effect, description, lagged}` | `lagged=True` means the effect at time `t` depends on the cause at `t-1` |
 
-Unobserved confounding is modeled as explicit latent nodes in the DAG. ADMGs are only used internally for the y0 identification algorithm.
-
-## Related Docs
-
-- [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md)
-- [../concepts/assumptions.md](../concepts/assumptions.md)
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)
+Unobserved confounding is modeled as explicit latent nodes in the DAG. ADMGs are only used internally for the y0 identification algorithm; see [../concepts/assumptions.md](../concepts/assumptions.md) for the bounded-temporal-reach assumption that makes the later identification check finite.

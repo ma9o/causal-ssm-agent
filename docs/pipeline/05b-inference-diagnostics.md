@@ -1,6 +1,6 @@
 # Stage 5b: Inference and Diagnostics
 
-Fits the model with the configured backend and runs post-fit diagnostics.
+Fits the model with the configured backend and runs post-fit diagnostics. Backend selection follows [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and the fitted artifact produced here is the handoff into Stage 6 described in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
 
 ## At a Glance
 
@@ -9,7 +9,7 @@ Fits the model with the configured backend and runs post-fit diagnostics.
 | Type | Computed |
 | Interactive | No |
 | Gate | No |
-| Produces | Fitted artifact plus PPC and sensitivity diagnostics |
+| Produces | fitted artifact plus PPC and sensitivity diagnostics |
 
 ## Inputs
 
@@ -24,7 +24,7 @@ Fits the model with the configured backend and runs post-fit diagnostics.
 1. Fit the model with the configured or auto-routed backend.
 2. Run power-scaling sensitivity analysis after fitting.
 3. Run posterior predictive checks.
-4. Persist the fitted artifact for Stage 6 and resume.
+4. Persist the fitted artifact for Stage 6 and resume; see [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md) for the persistence surfaces involved.
 
 ## Outputs
 
@@ -39,10 +39,3 @@ Fits the model with the configured backend and runs post-fit diagnostics.
 | `loo_diagnostics` | `LOODiagnostics?` | Pareto-k diagnostics |
 | `posterior_marginals` | `list[PosteriorMarginal]?` | Marginal distributions |
 | `posterior_pairs` | `list[PosteriorPair]?` | Pairwise posterior views |
-
-## Related Docs
-
-- [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md)
-- [../model-runtime/estimation.md](../model-runtime/estimation.md)
-- [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md)
-- [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md)

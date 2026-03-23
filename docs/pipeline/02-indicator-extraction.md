@@ -1,6 +1,6 @@
 # Stage 2: Indicator Extraction
 
-Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers.
+Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers. The support-window and aggregation semantics used here come from [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md), and the resulting observation rows feed the artifact chain summarized in [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
 
 ## At a Glance
 
@@ -26,7 +26,7 @@ Extracts numeric indicator values from raw data using direct Polars aggregation 
 1. Group indicators by extraction mode and observation window.
 2. Run the computed path with direct Polars aggregation for `extraction_mode="computed"`.
 3. Run the semantic path with concurrent LLM workers over support windows.
-4. Merge both paths into canonical observation rows `{indicator, value, anchor_time, support_start, support_end}`.
+4. Merge both paths into canonical observation rows `{indicator, value, anchor_time, support_start, support_end}` with explicit support-window semantics.
 5. Encode non-continuous types and sort by indicator then anchor time.
 
 ## Outputs
@@ -43,10 +43,4 @@ Extracts numeric indicator values from raw data using direct Polars aggregation 
 | Structure | Shape | Notes |
 |---|---|---|
 | `WorkerStatus` | `{worker_id, status, n_extractions, n_windows, error}` | Runtime status for semantic workers |
-| Observation row | `{indicator, value, anchor_time, support_start, support_end}` | Canonical extracted datum |
-
-## Related Docs
-
-- [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md)
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)
-- [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md)
+| Observation row | `{indicator, value, anchor_time, support_start, support_end}` | Canonical extracted datum; persisted as described in [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md) |

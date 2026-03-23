@@ -1,6 +1,6 @@
 # Stage 0: Agentic Data Ingestion
 
-Parses arbitrary user-uploaded files into a typed Polars dataframe with column-level metadata.
+Parses arbitrary user-uploaded files into a typed Polars dataframe with column-level metadata. For how this dataframe summary fits into the pipeline artifact chain, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md). For how the full dataframe is persisted versus exposed to the web, see [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md).
 
 ## At a Glance
 
@@ -35,8 +35,3 @@ Parses arbitrary user-uploaded files into a typed Polars dataframe with column-l
 | `sample` | `list[dict]` | First rows of the ingested table |
 | `column_descriptions` | `list[{name, dtype, description}]` | Per-column metadata |
 | `llm_trace` | `LLMTrace?` | Tool-call history |
-
-## Related Docs
-
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)
-- [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md)
