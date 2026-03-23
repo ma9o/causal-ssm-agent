@@ -62,9 +62,11 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
 │   │   │   │   └── stages/llm_stage_task.py       # Shared Prefect task factory for LLM-backed stages
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
-│   │   │       └── observation_semantics.py  # Canonical support-kind / summary-operator / anchor-policy semantics
+│   │   │       ├── observation_semantics.py  # Canonical support-kind / summary-operator / anchor-policy semantics
+│   │   │       └── medical_semantics_fixture.py  # Shared MEDICAL_SEMANTICS fixture loading + ordered Stage 2 comparison reports
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
 │   │   ├── evals/                 # Inspect AI evals for active Stage 1a/1b/2 surfaces + filesystem-discovered questions
+│   │   │   └── multi_model/eval_medical_semantics_orchestrator.py  # Judge-ranked orchestrator eval on the fixed MEDICAL_SEMANTICS fixture
 │   │   ├── notebooks/             # Showcase notebooks
 │   │   ├── tests/                 # pytest tests
 │   │   │   ├── test_pipeline.py   # Flow orchestration and replay contract coverage
@@ -76,7 +78,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │       ├── scripts/               # Install-time asset helpers (for example Perspective WASM/CSS copying)
 │       └── src/
 │           ├── app/               # Next.js app router pages + userId-keyed analysis/API routes (+ colocated route tests)
-│           │   ├── api/analysis/  # Server-side analysis manifest for resolved root runs, stage wrappers, and subflows
+│           │   ├── api/analysis/  # Server-side analysis manifest, stage log-source resolution, and resumed-run hydration
 │           │   ├── api/results/[userId]/[stage]/dataframe/  # Stage parquet download endpoint for full-data exploration
 │           │   └── explore/[userId]/[stage]/  # Standalone Perspective-powered full-data explorer
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
@@ -84,7 +86,9 @@ causal-ssm-agent/                  # Turborepo monorepo
 │           │   └── stages/parametric-id/  # Stage 4b surfaces such as inference-structure-card.tsx and t-rule-card.tsx
 │           └── lib/               # API clients, hooks, user-id helpers, types, utilities
 │               ├── api/analysis.ts  # Shared typed contracts + client helpers for sessions, replay, and analysis manifests
-│               ├── hooks/         # Prefect progress state, event streaming, stage telemetry
+│               ├── hooks/         # Prefect progress state, shared websocket transport, and stage log telemetry
+│               │   ├── use-prefect-socket.ts  # Shared Prefect WebSocket auth/subscription hook used by events and logs
+│               │   └── use-stage-logs.test.ts  # Covers Prefect log backlog/bootstrap routing and stream filter contracts
 │               └── root-flow-runs.ts  # Shared root Prefect run lineage helpers used by sessions + manifest hydration
 ├── packages/
 │   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
@@ -94,7 +98,8 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── DEFAULT/                   # Tracked mock fixture user workspace
 │   ├── DOCTOLIB/                  # Tracked mock fixture user workspace
 │   ├── MEDICAL_SEMANTICS/         # Tracked stage 0-2 medical archive fixture workspace
-│   │   ├── expected-stage2-shape.json  # Machine-readable Stage 2 dataframe contract for fixture validation
+│   │   ├── expected-stage2-raw-data.csv  # Expected full Stage 2 raw observation rows for fixture regression
+│   │   ├── expected-stage2-model-data.csv  # Expected full Stage 2 model-ready rows for fixture regression
 │   │   └── README.md              # Human-readable Stage 2 artifact shape and observation semantics contract
 │   ├── GOLDEN/                    # Golden dataset submodule
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
