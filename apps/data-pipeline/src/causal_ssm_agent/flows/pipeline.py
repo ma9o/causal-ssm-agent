@@ -344,11 +344,18 @@ async def causal_inference_pipeline(
     raise AssertionError("Unreachable: pipeline did not terminate at a stage boundary")
 
 
+def build_main_deployment():
+    from prefect.client.schemas.objects import ConcurrencyLimitConfig
+
+    return causal_inference_pipeline.to_deployment(
+        name="causal-inference",
+        tags=["causal", "llm"],
+        concurrency_limit=ConcurrencyLimitConfig(limit=1, collision_strategy="ENQUEUE"),
+        enforce_parameter_schema=True,
+    )
+
+
 if __name__ == "__main__":
     from prefect import serve as serve_deployments
 
-    main_dep = causal_inference_pipeline.to_deployment(
-        name="causal-inference",
-        tags=["causal", "llm"],
-    )
-    serve_deployments(main_dep)
+    serve_deployments(build_main_deployment())
