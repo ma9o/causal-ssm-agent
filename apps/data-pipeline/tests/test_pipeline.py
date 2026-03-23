@@ -180,6 +180,15 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
     assert registry["stage-4"].runner is fake_stage4_runner
 
 
+def test_build_main_deployment_enforces_schema_and_serial_concurrency():
+    deployment = pipeline.build_main_deployment()
+
+    assert deployment.name == "causal-inference"
+    assert deployment.enforce_parameter_schema is True
+    assert deployment.concurrency_limit == 1
+    assert deployment.concurrency_options.collision_strategy.value == "ENQUEUE"
+
+
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
