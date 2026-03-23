@@ -4,6 +4,25 @@ The causal inference pipeline has 10 stages (0 through 6, with sub-stages 4b, 5a
 
 Every stage below uses the same frame: at a glance, inputs, process, outputs, and key structures when the payload needs extra shape detail.
 
+This document is intentionally stage-ordered. For the cross-cutting view of the pipeline, including artifact lineage, temporal semantics, assurance surfaces, and persistence/runtime semantics, see [architecture/pipeline_dimensions.md](architecture/pipeline_dimensions.md).
+
+## Stage Matrix
+
+This matrix is the quick cross-stage summary. The sections below remain the canonical per-stage reference.
+
+| Stage | Primary artifact | Modality | Interactive | Gate semantics | Runtime note |
+|---|---|---|---|---|---|
+| 0 | Typed ingested dataframe | Semantic | No | None | Persists raw dataframe parquet |
+| 1a | `LatentModel` | Semantic | Yes | None | Replay override eligible |
+| 1b | `CausalSpec` | Semantic | Yes | Hard gate | Replay override eligible |
+| 2 | Observation rows | Hybrid | No | None | Persists raw + model-ready parquet |
+| 3 | Indicator audits | Computed | No | None | Standard restore |
+| 4 | `ModelSpec` + priors | Semantic | Yes | None | Replay override eligible; restores compiled runtime state |
+| 4b | Parametric identifiability payload | Computed | No | Warning-only | Restores compiled analysis state |
+| 5a | SVI preflight | Computed | No | None | Always recomputed on resume |
+| 5b | Fitted artifact + diagnostics | Computed | No | None | Persists fitted pickle artifact |
+| 6 | Intervention ranking + follow-up trace | Hybrid | Yes | None | Terminal in-place persistence; no downstream replay |
+
 ## Stage 0 - Agentic Data Ingestion
 
 Parses arbitrary user-uploaded files into a typed Polars DataFrame with column-level metadata.
@@ -185,7 +204,7 @@ Extracts numeric indicator values from the raw data using parallel LLM workers (
 
 | Output | Type | Description |
 |---|---|---|
-| `workers` | `list[WorkerStatus]` | Per-worker status (`id`, `status`, `n_extractions`, `n_windows`, `error`) |
+| `workers` | `list[WorkerStatus]` | Per-worker status (`worker_id`, `status`, `n_extractions`, `n_windows`, `error`) |
 | `combined_extractions_sample` | `list[{indicator, value, anchor_time}]` | First 20 rows |
 | `per_indicator_counts` | `dict[str, int]` | Extraction count per indicator |
 | `llm_trace` | `LLMTrace?` | Sampled from one worker |
@@ -194,7 +213,7 @@ Extracts numeric indicator values from the raw data using parallel LLM workers (
 
 | Structure | Shape | Notes |
 |---|---|---|
-| `WorkerStatus` | `{id, status, n_extractions, n_windows, error}` | Runtime status for each semantic worker |
+| `WorkerStatus` | `{worker_id, status, n_extractions, n_windows, error}` | Runtime status for each semantic worker |
 | Observation row | `{indicator, value, anchor_time, support_start, support_end}` | Canonical row shape after computed and semantic paths are merged |
 
 ---
@@ -280,9 +299,10 @@ An agentic LLM conversation that specifies the statistical model (likelihoods, p
    - Loading parameters (fixed vs free)
    - Construct scale anchoring (intercept, coefficients)
    - Prior cards for parameters needing prior specification
-2. Runs a multi-turn LLM conversation with two tools:
-   - `search_literature(query, parameter_name)` - search for empirical effect sizes in the literature when enabled
+2. Runs a multi-turn LLM conversation with tools:
    - `validate_model(model_json)` - validates and compiles the model spec plus priors, runs prior predictive simulation, and returns feedback
+   - `search_literature(query, parameter_name)` - searches for empirical effect sizes in the literature when enabled
+   - `elicit_prior_gmm(...)` - optional paraphrased prior elicitation with GMM aggregation when Stage 4 paraphrasing is enabled
 3. The validation tool performs:
    - Schema validation of `ModelSpec` and `PriorProposal` structures
    - Trial compilation (translates spec -> SSM, compiles priors, binds parameters)
@@ -354,7 +374,7 @@ Pre-fit checks for whether the model parameters can be uniquely recovered from t
 
 | Structure | Shape | Notes |
 |---|---|---|
-| `ParametricIdResult` | `{checked, t_rule, summary, error}` | Combined parametric-identifiability payload |
+| `ParametricIdResult` | `{checked, t_rule, sensitivity_analysis?, summary, per_param_classification?, threshold?, error}` | Combined parametric-identifiability payload |
 | `t_rule` | `{satisfies, n_free_params, n_moments}` | Necessary-condition check |
 | `summary` | `{structural_issues, boundary_issues, weak_params}` | High-level diagnosis from sensitivity and profile-likelihood checks |
 
@@ -391,7 +411,7 @@ Always recomputed on resume (never restored from checkpoint).
 
 | Output | Type | Description |
 |---|---|---|
-| `inference_metadata` | `{method, n_samples, duration_seconds}` | Always `method="svi"` |
+| `inference_metadata` | `{method, n_samples, duration_seconds}` | Web-facing summary metadata; current implementation always reports `method="svi"`, `n_samples=500`, and placeholder `duration_seconds=0.0` |
 | `svi_diagnostics` | `SVIDiagnostics?` | ELBO curve and convergence metrics |
 | `posterior_marginals` | `list[PosteriorMarginal]?` | Approximate marginal distributions |
 | `posterior_pairs` | `list[PosteriorPair]?` | Pairwise posterior scatter plots |
@@ -437,7 +457,7 @@ Full Bayesian inference with post-fit diagnostics: power-scaling sensitivity ana
 |---|---|---|
 | `power_scaling` | `list[PowerScalingResult]` | Per-parameter sensitivity diagnosis |
 | `ppc` | `PPCResult` | PPC warnings, overlays, and test statistics |
-| `inference_metadata` | `{method, n_samples, duration_seconds}` | Sampler used and runtime |
+| `inference_metadata` | `{method, n_samples, duration_seconds}` | Web-facing summary metadata; current implementation reports the inferred method plus placeholder `n_samples=10000` and `duration_seconds=0.0` |
 | `mcmc_diagnostics` | `MCMCDiagnostics?` | Rhat, ESS, and divergences for NUTS or NUTS-DA |
 | `svi_diagnostics` | `SVIDiagnostics?` | ELBO curve for SVI |
 | `smc_diagnostics` | `SMCDiagnostics?` | Log evidence and effective sample size for SMC |
@@ -455,8 +475,8 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
 
 | Property | Value |
 |---|---|
-| Type | Computed |
-| Interactive | No |
+| Type | Computed baseline ranking + interactive terminal follow-up |
+| Interactive | Yes |
 | Gate | No |
 
 ### Inputs
@@ -467,11 +487,12 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
 | `stage1a.result` | Stage 1a | Outcome name and treatment list |
 | `stage1b.result` | Stage 1b | `CausalSpec`, including identifiability status |
 | `stage1b_gate.result` | Stage 1b gate | Filtered treatment list with non-identifiable treatments removed |
+| `question` | Pipeline request | Optional question used when generating the opening Stage 6 commentary |
 
 ### Process
 
-1. For each identifiable treatment:
-   - Applies `do(treatment = baseline + 1sigma)` intervention
+1. Computes the canonical Stage 6 baseline ranking:
+   - For each identifiable treatment, applies a default steady-state intervention of `do(treatment = baseline + 1)` in latent units
    - Computes the counterfactual outcome at steady state
    - Defines effect size as `E[outcome | do(treatment)] - E[outcome | no intervention]`
 2. Repeats the intervention per posterior sample to get posterior draws of the effect size, then computes `prob_positive = P(effect > 0)`.
@@ -481,12 +502,24 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
    - Temporal effects (time-varying effect trajectory, if applicable)
    - Manifest effects (per-indicator effect decomposition)
 4. Ranks treatments by `|effect_size|` in descending order.
+5. Generates an opening Stage 6 commentary and persists it as both:
+   - `opening_commentary` for direct rendering in the web payload
+   - `llm_trace` for full conversational audit/history
+6. Exposes a narrow read-only interactive surface for follow-up analysis:
+   - `get_model_info` for model, measurement, identifiability, and diagnostics summaries
+   - `simulate_intervention` for Pearl rung-2 intervention queries
+   - `simulate_counterfactual` for Pearl rung-3 counterfactual queries conditioned on an observed history window
+7. Stage 6 is terminal: applying an interactive draft persists it in place rather than triggering downstream replay.
 
 ### Outputs
 
 | Output | Type | Description |
 |---|---|---|
 | `intervention_results` | `list[TreatmentEffect]` | Ranked treatment effects |
+| `opening_commentary` | `str?` | Initial Stage 6 narrative generated from the baseline ranking |
+| `saved_scenarios` | `list[SavedScenario]` | Optional saved follow-up simulations or scenario notes from interactive use |
+| `final_summary` | `str?` | Optional final persisted interpretation from the terminal interactive workflow |
+| `llm_trace` | `LLMTrace?` | Opening commentary plus any follow-up interactive turns |
 
 ### Key Structures
 
@@ -497,6 +530,14 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
 | `manifest_effects` | Effect decomposed by indicator | Optional per-indicator effect breakdown |
 | `temporal` | Time-varying effect trajectory | Present when the intervention effect is time-dependent |
 
+### Follow-Up Tools
+
+| Tool | Purpose |
+|---|---|
+| `get_model_info` | Read-only summary of variables, measurement, identifiability, diagnostics, and baseline effects |
+| `simulate_intervention` | Pearl rung-2 intervention simulation (`set` or `shift`, steady-state or trajectory) |
+| `simulate_counterfactual` | Pearl rung-3 forecast conditioned on an observed evidence window |
+
 ---
 
 ## Cross-Cutting Concerns
@@ -504,7 +545,7 @@ Applies do-operator interventions to the fitted model and ranks treatments by es
 ### Resume and Replay
 
 - Resume from checkpoint: specify `start_stage` plus `end_stage` to re-run only that window. Earlier stages are restored from persisted snapshots and parquet or pickle artifacts.
-- Stage overrides: stages 1a, 1b, and 4 are interactive. Submit a custom payload and the pipeline skips computation, resuming downstream with the override.
+- Interactive edits: stages 1a, 1b, 4, and 6 expose interactive surfaces. For stages 1a/1b/4, submitting a custom payload skips computation and resumes downstream. Stage 6 is terminal, so applying an interactive draft persists the updated result in place.
 - Stage 5a is always recomputed on resume (never restored from checkpoint).
 
 ### Persisted Artifacts

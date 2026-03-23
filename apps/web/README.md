@@ -3,10 +3,12 @@
 Next.js app for session management and pipeline stage visualization. Part of the [causal-ssm-agent](../../README.md) monorepo.
 
 ```bash
-bun run dev    # Start dev server on port 3000
+bun run dev    # Start dev server on port 3000 if one is not already running
 bun run build  # Production build
 bun run test   # Vitest unit tests
 ```
+
+In this repo's shared dev workflow, the web dev server is often already running on port `3000`. Reuse that server when possible; do not start a second copy from the same worktree. For runtime diagnostics, prefer the Next.js devtools MCP (`get_errors`, `get_routes`, `get_project_metadata`) over ad hoc browser-only checks.
 
 Server-side routes default to local pipeline services:
 - `PREFECT_API_URL=http://localhost:4200/api`
