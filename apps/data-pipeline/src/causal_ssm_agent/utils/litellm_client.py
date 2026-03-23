@@ -138,6 +138,8 @@ class GenerateConfig:
 
     max_tokens: int | None = None
     timeout: int | None = None
+    verbosity: Literal["low", "medium", "high", "max"] | None = None
+    effort: Literal["low", "medium", "high", "max"] | None = None
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
     reasoning_history: str | None = None
     max_tool_output: int = 16_000
@@ -417,6 +419,10 @@ async def call_model(
         kwargs["max_tokens"] = request.max_tokens
     if request.timeout is not None:
         kwargs["timeout"] = request.timeout
+    if request.verbosity is not None:
+        kwargs["verbosity"] = request.verbosity
+    if request.effort is not None:
+        kwargs["effort"] = request.effort
     if request.reasoning_effort is not None:
         kwargs["reasoning_effort"] = request.reasoning_effort
     if tools:

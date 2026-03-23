@@ -67,7 +67,7 @@ inference:
 llm:
   max_tokens: 65536
   timeout: 900
-  reasoning_effort: high
+  reasoning_effort: xhigh
 
 # Pipeline-level behavior
 pipeline:
