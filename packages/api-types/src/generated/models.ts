@@ -279,12 +279,25 @@ export interface Indicator {
    */
   source_columns: string[];
   /**
-   * 'computed' (deterministic pipeline aggregation on a direct source column) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically from one direct source column using the declared aggregation and dtype semantics.
+   * Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window.
+   */
+  computed_rule?: ComputedRule | null;
+  /**
+   * 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
    */
   extraction_mode: string;
   support_kind: SupportKind;
   summary_operator: SummaryOperator;
   anchor_policy: AnchorPolicy;
+}
+/**
+ * Deterministic per-window expression for computed indicators.
+ */
+export interface ComputedRule {
+  /**
+   * Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values.
+   */
+  window_expr: string;
 }
 /**
  * Status of causal effect identifiability.
