@@ -154,15 +154,12 @@ async def stage2(
     - ``_worker_statuses``: per-worker status list
     - plus web-serializable fields
     """
-    import polars as pl
     from prefect.task_runners import ThreadPoolTaskRunner
 
-    from causal_ssm_agent.utils.aggregations import _encode_non_continuous
-    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.data import observation_row_schema
 
     from .stages import stage2_extraction_flow
+    from .stages.stage2_extract import materialize_stage2_outputs
 
     config = get_config()
     causal_spec = stage1b["causal_spec"]
@@ -178,12 +175,12 @@ async def stage2(
         max_windows=max_windows,
     )
 
-    # Reconstruct canonical observation-row data from Stage 2 results.
-    raw_data_dicts = stage2_result.get("raw_data", [])
-    if raw_data_dicts:
-        raw_data = pl.DataFrame(raw_data_dicts)
-    else:
-        raw_data = pl.DataFrame(schema=observation_row_schema())
+    materialized = materialize_stage2_outputs(stage2_result, causal_spec)
+    raw_data = materialized["raw_data"]
+    data_for_model = materialized["data_for_model"]
+    worker_statuses = materialized["worker_statuses"]
+    combined_extractions_sample = materialized["combined_extractions_sample"]
+    per_ind_counts = materialized["per_indicator_counts"]
 
     n_observations = len(raw_data)
     n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
@@ -193,67 +190,7 @@ async def stage2(
         n_unique_indicators,
     )
 
-    # Encode non-continuous types and prepare for modeling
-    # Data is already at model_clock resolution — no aggregation needed
-    if n_observations > 0:
-        dtype_lookup = get_indicator_dtypes(causal_spec)
-        ordinal_levels_lookup: dict[str, list[str]] = {
-            ind["name"]: ind["ordinal_levels"]
-            for ind in get_indicators(causal_spec)
-            if ind.get("ordinal_levels")
-        }
-        data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
-        data_for_model = (
-            data_for_model.with_columns(
-                pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-                pl.col("anchor_time")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("anchor_time"),
-                pl.col("support_start")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("support_start"),
-                pl.col("support_end")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("support_end"),
-            )
-            # Preserve null values so sparse measurements reach inference as
-            # missing observations instead of being deleted at the serialization
-            # boundary. Rows without a valid anchor time are still unusable.
-            .drop_nulls(subset=["anchor_time"])
-        )
-        data_for_model = data_for_model.sort("indicator", "anchor_time")
-    else:
-        data_for_model = raw_data
-
     logger.info("  Data for model: %d observations", len(data_for_model))
-
-    # Build web payload
-    sample_rows = raw_data.head(20).to_dicts() if n_observations > 0 else []
-    per_ind_counts = (
-        dict(raw_data.group_by("indicator").len().iter_rows()) if n_observations > 0 else {}
-    )
-    combined_extractions_sample = [
-        {
-            "indicator": str(row.get("indicator", "")),
-            "value": row.get("value"),
-            "anchor_time": row.get("anchor_time"),
-            "support_kind": row.get("support_kind"),
-            "summary_operator": row.get("summary_operator"),
-            "anchor_policy": row.get("anchor_policy"),
-            "observation_window": row.get("observation_window"),
-            "support_start": row.get("support_start"),
-            "support_end": row.get("support_end"),
-        }
-        for row in sample_rows
-    ]
-
-    worker_statuses = stage2_result.get("worker_statuses", [])
 
     result = {
         "_raw_data": raw_data,

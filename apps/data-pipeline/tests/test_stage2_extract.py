@@ -224,6 +224,89 @@ def test_project_missing_columns_warns(caplog):
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
+    monkeypatch,
+):
+    import causal_ssm_agent.utils.data as data_mod
+    import causal_ssm_agent.workers.windows as windows_mod
+
+    raw_df = pl.DataFrame(
+        {
+            "timestamp": ["2024-01-01T08:00:00", "2024-01-15T08:00:00"],
+            "stress_score": [4.0, 5.0],
+            "sleep_hours": [7.0, 6.0],
+        }
+    )
+
+    bucket_windows: list[str] = []
+
+    def fake_bucket_by_clock(df: pl.DataFrame, model_clock: str, time_col: str):
+        bucket_windows.append(model_clock)
+        return [(f"{model_clock}-window", df)]
+
+    monkeypatch.setattr(data_mod, "bucket_by_clock", fake_bucket_by_clock)
+    monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
+    monkeypatch.setattr(
+        windows_mod,
+        "format_window_chunk",
+        lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
+    )
+
+    captured_runner: dict[str, object] = {}
+
+    async def fake_semantic_chunk_runner(**kwargs):
+        captured_runner.update(kwargs)
+        return [], [], 0, None
+
+    causal_spec = {
+        "latent": {"constructs": [], "edges": []},
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "stress_score",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average stress score in the window",
+                    "aggregation": "mean",
+                    "source_columns": ["timestamp", "stress_score"],
+                },
+                {
+                    "name": "monthly_sleep_hours",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average sleep hours over the last month",
+                    "aggregation": "mean",
+                    "observation_window": "1mo",
+                    "source_columns": ["timestamp", "sleep_hours"],
+                },
+            ],
+        },
+    }
+
+    result = _run(
+        stage2_extract.run_stage2_extraction_core(
+            raw_df=raw_df,
+            question="Does stress affect sleep?",
+            causal_spec=causal_spec,
+            stage2_workers=SimpleNamespace(
+                windows_per_chunk=8,
+                max_events_per_window=50,
+                max_concurrent_workers=2,
+                max_rpm=0,
+            ),
+            semantic_chunk_runner=fake_semantic_chunk_runner,
+        )
+    )
+
+    assert bucket_windows == ["1d", "1mo"]
+    assert [ctx["measurement"]["indicators"][0]["name"] for ctx in captured_runner["chunk_contexts"]] == [
+        "stress_score",
+        "monthly_sleep_hours",
+    ]
+    assert captured_runner["chunk_texts"] == ["chunk:1d-window", "chunk:1mo-window"]
+    assert result["raw_data"] == []
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_window(
     monkeypatch, tmp_path
 ):
