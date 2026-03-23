@@ -135,6 +135,6 @@ export const STAGES: StageMeta[] = [
     loadingHint: "Computing interventional effects...",
     description:
       "Computes interventional treatment effects and ranks them by magnitude and certainty.",
-    interactive: false,
+    interactive: true,
   },
 ];

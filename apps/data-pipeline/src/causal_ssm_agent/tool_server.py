@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 
 from causal_ssm_agent.flows.run_store import load_parquet, load_pickle, load_stage_snapshot
 from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS
+from causal_ssm_agent.flows.stages.persist import persist_web_patch
 from causal_ssm_agent.flows.stages.stage_tools import (
     search_literature,
     stage1a_grounding,
@@ -639,6 +640,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         spec,
         runtime.observations,
         runtime.times,
+        evidence_start_idx,
         evidence_end_idx,
     )
     initial_state = abducted["state"]
@@ -787,6 +789,11 @@ class ToolCallRequest(BaseModel):
     input: dict[str, Any]
 
 
+class PersistStagePatchRequest(BaseModel):
+    workspace_id: str
+    patch: dict[str, Any]
+
+
 @app.get("/api/tools/{stage_id}")
 def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
     """Return tool definitions for a stage (name, description, JSON Schema parameters)."""
@@ -825,3 +832,12 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
     if inspect.iscoroutinefunction(impl):
         return await impl(ctx, validated_input)
     return impl(ctx, validated_input)
+
+
+@app.post("/api/stages/{stage_id}/persist-web-patch")
+def persist_stage_web_patch(stage_id: str, request: PersistStagePatchRequest) -> dict[str, Any]:
+    """Persist a validated patch to a stage's public payload and refresh snapshot web state."""
+    return {
+        "ok": True,
+        "payload": persist_web_patch(stage_id, request.patch, request.workspace_id),
+    }

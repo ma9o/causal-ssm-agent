@@ -879,7 +879,10 @@ export interface LOODiagnostics {
 }
 export interface Stage6Contract {
   outcome: "success" | "warn" | "fail";
+  llm_trace?: LLMTrace | null;
   intervention_results: TreatmentEffectContract[];
+  saved_scenarios?: SavedScenarioContract[] | null;
+  final_summary?: string | null;
 }
 export interface TreatmentEffectContract {
   treatment: string;
@@ -903,4 +906,9 @@ export interface TemporalEffect {
   effect_30d: number;
   peak_effect: number;
   time_to_peak_days: number;
+}
+export interface SavedScenarioContract {
+  label: string;
+  query: string;
+  summary?: string | null;
 }

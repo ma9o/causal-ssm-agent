@@ -2352,6 +2352,37 @@
       "title": "SVIDiagnostics",
       "type": "object"
     },
+    "SavedScenarioContract": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "label",
+        "query"
+      ],
+      "title": "SavedScenarioContract",
+      "type": "object"
+    },
     "SensitivityAnalysisResult": {
       "description": "Output sensitivity analysis result (pre-inference identifiability).\n\nStructural identifiability check via the Jacobian of the forward model's\npredicted observation means and variances. Near-zero singular values\nindicate parameter combinations that observations cannot distinguish.",
       "properties": {
@@ -3028,12 +3059,50 @@
           "title": "Outcome",
           "type": "string"
         },
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "intervention_results": {
           "items": {
             "$ref": "#/$defs/TreatmentEffectContract"
           },
           "title": "Intervention Results",
           "type": "array"
+        },
+        "saved_scenarios": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedScenarioContract"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Scenarios"
+        },
+        "final_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Summary"
         }
       },
       "required": [

@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCOverlay,
@@ -167,6 +167,139 @@ class ValidateModelInput(BaseModel):
     )
 
 
+# --- Stage 6 tool inputs ---
+
+
+class GetModelInfoInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sections: list[
+        Literal[
+            "overview",
+            "variables",
+            "measurement",
+            "identifiability",
+            "diagnostics",
+            "baseline_effects",
+            "capabilities",
+        ]
+    ] = Field(
+        default_factory=lambda: ["overview", "variables", "capabilities"],
+        description="Named sections to include in the read-only model summary.",
+    )
+    names: list[str] = Field(
+        default_factory=list,
+        description="Optional construct or indicator names to focus the summary on.",
+    )
+
+
+class InterventionActionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    variable: str = Field(description="Latent construct to intervene on.")
+    mode: Literal["set", "shift"] = Field(
+        description="'set' clamps the construct to a value; 'shift' adds an amount to baseline."
+    )
+    value: float | None = Field(
+        default=None,
+        description="Required when mode='set'. Absolute latent-space value to clamp to.",
+    )
+    amount: float | None = Field(
+        default=None,
+        description="Required when mode='shift'. Additive latent-space delta from baseline.",
+    )
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> InterventionActionInput:
+        if self.mode == "set" and self.value is None:
+            raise ValueError("mode='set' requires value")
+        if self.mode == "shift" and self.amount is None:
+            raise ValueError("mode='shift' requires amount")
+        return self
+
+
+class InterventionQueryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    estimand: Literal["steady_state", "trajectory"] = Field(
+        default="steady_state",
+        description="Steady-state effect or forward trajectory effect.",
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Forward horizon in days when estimand='trajectory'.",
+    )
+    projection: Literal["latent", "manifest", "both"] = Field(
+        default="latent",
+        description="Whether to report latent outcome effects, manifest projections, or both.",
+    )
+
+
+class SimulateInterventionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: InterventionActionInput
+    outcome: str | None = Field(
+        default=None,
+        description="Outcome construct. Defaults to the stage-1a outcome.",
+    )
+    query: InterventionQueryInput = Field(default_factory=InterventionQueryInput)
+
+
+class CounterfactualEvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["observed_window"] = Field(
+        default="observed_window",
+        description="Condition on an actual observed history window from the run.",
+    )
+    start_time: str | None = Field(
+        default=None,
+        description="Inclusive ISO-8601 lower bound for the evidence window.",
+    )
+    end_time: str | None = Field(
+        default=None,
+        description="Inclusive ISO-8601 upper bound for the evidence window. Defaults to the final observed time.",
+    )
+    variables: list[str] = Field(
+        default_factory=list,
+        description="Optional constructs or indicators to highlight when describing evidence coverage.",
+    )
+
+
+class CounterfactualQueryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    estimand: Literal["end_state", "trajectory"] = Field(
+        default="end_state",
+        description="Compare the final forecasted outcome or the full effect trajectory.",
+    )
+    horizon_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Forward horizon in days for the counterfactual forecast.",
+    )
+    projection: Literal["latent", "manifest", "both"] = Field(
+        default="latent",
+        description="Whether to report latent outcome effects, manifest projections, or both.",
+    )
+
+
+class SimulateCounterfactualInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence: CounterfactualEvidenceInput = Field(default_factory=CounterfactualEvidenceInput)
+    action: InterventionActionInput
+    outcome: str | None = Field(
+        default=None,
+        description="Outcome construct. Defaults to the stage-1a outcome.",
+    )
+    query: CounterfactualQueryInput = Field(default_factory=CounterfactualQueryInput)
+
+
 # --- Stage tools registry ---
 
 STAGE_TOOLS: dict[str, list[ToolContract]] = {
@@ -225,12 +358,29 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
             input_schema=ValidateModelInput,
         ),
     ],
+    "stage-6": [
+        ToolContract(
+            name="get_model_info",
+            description="Return a read-only summary of the fitted model, variables, identifiability status, diagnostics, and stage-6 baseline effects.",
+            input_schema=GetModelInfoInput,
+        ),
+        ToolContract(
+            name="simulate_intervention",
+            description="Run a Pearl rung-2 interventional simulation on the fitted generative model.",
+            input_schema=SimulateInterventionInput,
+        ),
+        ToolContract(
+            name="simulate_counterfactual",
+            description="Run a Pearl rung-3 counterfactual forecast by conditioning on an observed history window, then applying an action.",
+            input_schema=SimulateCounterfactualInput,
+        ),
+    ],
 }
 
 # Stages with an interactive LLM trace panel in the refinement UI.
 # Stage 0 is excluded (tools depend on sandbox/filesystem state).
 # Stage 2 is excluded (parallel worker extraction, not a single LLM conversation).
-INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4"})
+INTERACTIVE_STAGES: frozenset[str] = frozenset({"stage-1a", "stage-1b", "stage-4", "stage-6"})
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +633,14 @@ class TreatmentEffectContract(BaseModel):
     manifest_effects: dict[str, float] | None = None
 
 
+class SavedScenarioContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    query: str
+    summary: str | None = None
+
+
 class PowerScalingResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -549,8 +707,10 @@ class Stage5bContract(BaseStageContract):
         )
 
 
-class Stage6Contract(BaseStageContract):
+class Stage6Contract(LLMStageContract):
     intervention_results: list[TreatmentEffectContract]
+    saved_scenarios: list[SavedScenarioContract] | None = None
+    final_summary: str | None = None
 
     def summary_message(self) -> str:
         warnings = sum(
