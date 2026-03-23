@@ -1,6 +1,6 @@
 # Stage 5a: SVI Preflight
 
-Runs a cheap approximate fit as a sanity check before expensive inference.
+Runs a cheap approximate fit as a sanity check before expensive inference. It uses the estimation runtime described in [../model-runtime/estimation.md](../model-runtime/estimation.md), and its recompute-only behavior follows the rules in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
 
 ## At a Glance
 
@@ -32,8 +32,3 @@ Runs a cheap approximate fit as a sanity check before expensive inference.
 | `svi_diagnostics` | `SVIDiagnostics?` | ELBO curve and convergence metrics |
 | `posterior_marginals` | `list[PosteriorMarginal]?` | Approximate marginals |
 | `posterior_pairs` | `list[PosteriorPair]?` | Pairwise posterior views |
-
-## Related Docs
-
-- [../model-runtime/estimation.md](../model-runtime/estimation.md)
-- [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md)

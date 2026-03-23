@@ -1,6 +1,6 @@
 # Stage 6: Intervention Analysis
 
-Applies do-operator interventions to the fitted model, ranks treatments, and exposes a narrow terminal interactive surface.
+Applies do-operator interventions to the fitted model, ranks treatments, and exposes a narrow terminal interactive surface. The counterfactual math lives in [../model-runtime/estimation.md](../model-runtime/estimation.md), the upstream artifact handoff is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md), and the terminal no-replay behavior is defined in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
 
 ## At a Glance
 
@@ -48,10 +48,3 @@ Applies do-operator interventions to the fitted model, ranks treatments, and exp
 |---|---|---|
 | `TreatmentEffect` | `{treatment, effect_size, posterior_draws, prob_positive, identifiable, ppc_warnings, prior_sensitivity_warning, temporal, manifest_effects}` | Final intervention-analysis payload |
 | `prob_positive` | `P(effect > 0)` | Posterior probability that the effect is positive |
-
-## Related Docs
-
-- [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md)
-- [../model-runtime/estimation.md](../model-runtime/estimation.md)
-- [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md)
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)

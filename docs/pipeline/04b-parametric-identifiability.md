@@ -1,6 +1,6 @@
 # Stage 4b: Parametric Identifiability Diagnostics
 
-Checks whether the chosen functional specification looks recoverable before full inference.
+Checks whether the chosen functional specification looks recoverable before full inference. It sits between Stage 4 and the inference backends described in [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and corresponds to the pre-fit assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md).
 
 ## At a Glance
 
@@ -9,7 +9,7 @@ Checks whether the chosen functional specification looks recoverable before full
 | Type | Computed |
 | Interactive | No |
 | Gate | Warning-only |
-| Produces | `ParametricIdResult` plus inference-structure summary |
+| Produces | [`ParametricIdResult`](../concepts/artifact-glossary.md) plus inference-structure summary |
 
 ## Inputs
 
@@ -38,10 +38,4 @@ Checks whether the chosen functional specification looks recoverable before full
 | Structure | Shape | Notes |
 |---|---|---|
 | `ParametricIdResult` | `{checked, t_rule, sensitivity_analysis?, summary, per_param_classification?, threshold?, error}` | Combined pre-fit diagnostic payload |
-| `t_rule` | `{satisfies, n_free_params, n_moments}` | Necessary-condition check |
-
-## Related Docs
-
-- [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md)
-- [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md)
-- [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md)
+| `t_rule` | `{satisfies, n_free_params, n_moments}` | Necessary-condition check; the upstream model shape comes from [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md) |

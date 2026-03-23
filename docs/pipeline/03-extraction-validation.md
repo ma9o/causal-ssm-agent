@@ -1,6 +1,6 @@
 # Stage 3: Extraction Validation
 
-Audits extracted observations and computes empirical profiles per indicator.
+Audits extracted observations and computes empirical profiles per indicator. This is the extraction-quality assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md), applied to the observation artifacts defined in [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
 
 ## At a Glance
 
@@ -38,8 +38,3 @@ Audits extracted observations and computes empirical profiles per indicator.
 |---|---|---|
 | `IndicatorAudit` | `{profile, validation}` | Empirical statistics bundled with findings |
 | `validation` | `{issues: [...], checks: {check_name: status}}` | Each status is `ok`, `warning`, or `error` |
-
-## Related Docs
-
-- [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md)
-- [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md)
