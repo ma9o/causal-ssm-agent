@@ -205,9 +205,9 @@ async def run_agentic_ingestion(
     )
 
 
-def _find_raw_input(user_id: str) -> str:
-    """Find the most recent uploaded file for a user."""
-    user_dir = input_dir(user_id)
+def _find_raw_input(workspace_id: str) -> str:
+    """Find the most recent uploaded file for a workspace."""
+    user_dir = input_dir(workspace_id)
     if not storage.exists(user_dir):
         raise FileNotFoundError(f"No raw data directory: {user_dir}")
 
@@ -245,11 +245,11 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
 
 
 @task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
-async def agentic_ingest(user_id: str = "test_user") -> IngestionResult:
+async def agentic_ingest(workspace_id: str = "test_workspace") -> IngestionResult:
     """Run Stage 0 end to end for the latest uploaded file."""
-    raw_storage_path = _find_raw_input(user_id)
+    raw_storage_path = _find_raw_input(workspace_id)
     raw_name = raw_storage_path.rsplit("/", 1)[-1]
-    logger.info("Ingesting %s for user %s", raw_name, user_id)
+    logger.info("Ingesting %s for workspace %s", raw_name, workspace_id)
 
     config = get_config()
     async with LLMStageContext("stage-0") as ctx:

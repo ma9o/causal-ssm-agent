@@ -1,23 +1,17 @@
-import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { type StageId, STAGES } from "@causal-ssm/api-types";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { fetchStageLogFlowRunIds } from "../../_shared";
 
 function isStageId(value: string): value is StageId {
   return STAGES.some((stage) => stage.id === value);
 }
 
-export async function GET(request: Request, { params }: { params: Promise<{ userId: string }> }) {
-  const { userId } = await params;
-  const normalizedUserId = basename(userId);
-
-  if (
-    !normalizedUserId ||
-    normalizedUserId !== userId ||
-    normalizedUserId === "." ||
-    normalizedUserId === ".."
-  ) {
-    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
+export async function GET(request: Request, { params }: { params: Promise<{ workspaceId: string }> }) {
+  const { workspaceId } = await params;
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
   }
 
   const url = new URL(request.url);
@@ -32,13 +26,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
     return NextResponse.json({ logFlowRunIds: [] });
   }
 
-  const normalizedStageSubflowRunId = basename(stageSubflowRunId);
-  if (
-    !normalizedStageSubflowRunId ||
-    normalizedStageSubflowRunId !== stageSubflowRunId ||
-    normalizedStageSubflowRunId === "." ||
-    normalizedStageSubflowRunId === ".."
-  ) {
+  const normalizedStageSubflowRunId = stageSubflowRunId.trim();
+  if (!normalizedStageSubflowRunId || /[\\/]/.test(normalizedStageSubflowRunId)) {
     return NextResponse.json({ error: "Invalid stageSubflowRunId format" }, { status: 400 });
   }
 

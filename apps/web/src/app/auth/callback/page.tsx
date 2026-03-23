@@ -1,8 +1,9 @@
 "use client";
 
 import { clearCodeVerifier, getCodeVerifier, setUserApiKey } from "@/lib/auth";
-import { setIdentity } from "@/lib/identity";
-import { generateAnonymousUserId } from "@/lib/user-id";
+import { getIdentity, setIdentity } from "@/lib/identity";
+import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
+import { generateWorkspaceAccessCode } from "@/lib/resume-key";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -32,10 +33,12 @@ export default function AuthCallbackPage({
         if (!res.ok) throw new Error("Exchange failed");
         return res.json();
       })
-      .then(({ key, user_id }) => {
+      .then(({ key, workspace_id: _workspaceId }) => {
         setUserApiKey(key);
+        const existingIdentity = getIdentity();
         setIdentity({
-          userId: user_id ?? generateAnonymousUserId(),
+          workspaceId: existingIdentity?.workspaceId ?? generateAnonymousWorkspaceId(),
+          accessCode: existingIdentity?.accessCode ?? generateWorkspaceAccessCode(),
           kind: "openrouter",
         });
         router.push("/");

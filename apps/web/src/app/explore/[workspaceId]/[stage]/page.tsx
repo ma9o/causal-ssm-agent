@@ -5,9 +5,9 @@ import { useEffect, useRef, useState, use } from "react";
 export default function ExplorePage({
   params,
 }: {
-  params: Promise<{ userId: string; stage: string }>;
+  params: Promise<{ workspaceId: string; stage: string }>;
 }) {
-  const { userId, stage } = use(params);
+  const { workspaceId, stage } = use(params);
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -18,7 +18,7 @@ export default function ExplorePage({
     async function init() {
       try {
         // 1. Fetch parquet
-        const resp = await fetch(`/api/results/${userId}/${stage}/dataframe`);
+        const resp = await fetch(`/api/results/${workspaceId}/${stage}/dataframe`);
         if (!resp.ok) {
           throw new Error(
             resp.status === 404
@@ -106,7 +106,7 @@ export default function ExplorePage({
     return () => {
       cancelled = true;
     };
-  }, [userId, stage]);
+  }, [workspaceId, stage]);
 
   const stageLabel = stage
     .replace("-", " ")
@@ -118,7 +118,7 @@ export default function ExplorePage({
       <header className="flex shrink-0 items-center justify-between border-b border-neutral-800 px-4 py-2">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-medium">{stageLabel} — Full Dataset</h1>
-          <span className="text-xs text-neutral-500">{userId}</span>
+          <span className="text-xs text-neutral-500">{workspaceId}</span>
         </div>
         {status === "loading" && (
           <span className="animate-pulse text-xs text-neutral-500">

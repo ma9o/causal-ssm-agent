@@ -28,8 +28,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { key, user_id } = await res.json();
-    return NextResponse.json({ key, user_id: user_id ?? null });
+    const { key, user_id: openrouterUserId } = await res.json();
+    return NextResponse.json({ key, workspace_id: openrouterUserId ?? null });
   } catch {
     return NextResponse.json({ error: "Failed to exchange code" }, { status: 500 });
   }

@@ -58,7 +58,7 @@ describe("getMockFixture", () => {
     expect(getMockFixture()).toBe("DEFAULT");
   });
 
-  it("returns uppercase fixture userId from env var", () => {
+  it("returns uppercase fixture workspaceId from env var", () => {
     process.env.NEXT_PUBLIC_MOCK_DATA = "doctolib";
     expect(getMockFixture()).toBe("DOCTOLIB");
   });

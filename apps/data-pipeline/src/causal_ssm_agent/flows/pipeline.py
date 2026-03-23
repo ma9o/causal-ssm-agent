@@ -78,20 +78,20 @@ def _resolve_stage_window(
 def _resolve_question(
     *,
     query: str | None,
-    user_id: str,
+    workspace_id: str,
     relevant_stage_ids: tuple[str, ...],
     question_stages: frozenset[str],
 ) -> str | None:
     """Resolve the research question, materializing it to disk.
 
     On a fresh run the caller passes ``query`` (raw text from the web UI).
-    The text is written to ``data/{user_id}/query.txt`` so that future
+    The text is written to ``data/{workspace_id}/query.txt`` so that future
     resume runs can pick it up automatically without re-supplying it.
 
     On a resume run ``query`` is typically None; the function reads from the
     previously-materialized file instead.
     """
-    query_path = storage.join(DATA_URI, user_id, "query.txt")
+    query_path = storage.join(DATA_URI, workspace_id, "query.txt")
     requires_question = any(stage_id in question_stages for stage_id in relevant_stage_ids)
     if query:
         question = query.strip()
@@ -147,9 +147,9 @@ def _emit_stage_progress_event(
     )
 
 
-def _partial_pipeline_result(user_id: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
+def _partial_pipeline_result(workspace_id: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
     return {
-        "user_id": user_id,
+        "workspace_id": workspace_id,
         "final_stage": stage_id,
         "stage": state["web"],
     }
@@ -169,7 +169,7 @@ def _raise_if_restored_gate_failed(defn: Any, state: dict[str, Any]) -> None:
     result_serializer="pickle",
 )
 async def causal_inference_pipeline(
-    user_id: str = "test_user",
+    workspace_id: str = "test_workspace",
     inference_method: str | None = None,
     enable_literature: bool | None = None,
     override_gates: bool | None = None,
@@ -182,17 +182,17 @@ async def causal_inference_pipeline(
     """Run the causal pipeline end to end.
 
     Args:
-        user_id: User ID naming the workspace under ``data/{user_id}/``.
+        workspace_id: Workspace ID naming the workspace under ``data/{workspace_id}/``.
         inference_method: Override inference method (e.g. "auto", "svi", "nuts")
         enable_literature: Override literature search
         override_gates: Continue past stage failures instead of halting
         query: Raw query text (used by web UI). Materialized to
-            ``data/{user_id}/query.txt`` so resume runs auto-resolve it.
+            ``data/{workspace_id}/query.txt`` so resume runs auto-resolve it.
         stage_overrides: Dict mapping editable stage ids (e.g. "stage-1a") to
             replacement payloads. The pipeline skips that stage's computation and
             resumes execution from the overridden output.
         start_stage: First stage to execute in this run. Earlier stages are
-            loaded from existing artifacts in data/{user_id}/run/.
+            loaded from existing artifacts in data/{workspace_id}/run/.
         end_stage: Final stage to execute in this run. Useful for stage-specific
             development replays such as rerunning only stage 2.
         openrouter_api_key: User-provided OpenRouter API key (BYOK). Overrides the
@@ -236,7 +236,7 @@ async def causal_inference_pipeline(
     )
     question = _resolve_question(
         query=query,
-        user_id=user_id,
+        workspace_id=workspace_id,
         relevant_stage_ids=execution_order[start_idx : end_idx + 1],
         question_stages=question_stages,
     )
@@ -251,9 +251,9 @@ async def causal_inference_pipeline(
     )
 
     logger.info(
-        "Pipeline starting: user_id=%s source=%s inference_method=%s literature=%s "
+        "Pipeline starting: workspace_id=%s source=%s inference_method=%s literature=%s "
         "override_gates=%s start_stage=%s end_stage=%s stage_overrides=%s",
-        user_id,
+        workspace_id,
         "raw text" if query else "resume/no-query",
         inference_method or "config default",
         lit_enabled,
@@ -270,10 +270,10 @@ async def causal_inference_pipeline(
     prefect_run_id = str(get_run_context().flow_run.id)
 
     # Ensure the run directory exists
-    storage.makedirs(runs_dir(user_id))
+    storage.makedirs(runs_dir(workspace_id))
 
     ctx = PipelineContext(
-        user_id=user_id,
+        workspace_id=workspace_id,
         prefect_run_id=prefect_run_id,
         question=question,
         gates_overridden=gates_overridden,
@@ -294,7 +294,7 @@ async def causal_inference_pipeline(
             logger.info("Pipeline complete: run finished successfully")
             return {**stage_states["stage-5b"]["web"], **stage_states["stage-6"]["web"]}
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
-        return _partial_pipeline_result(user_id, stage_id, stage_states[stage_id])
+        return _partial_pipeline_result(workspace_id, stage_id, stage_states[stage_id])
 
     for idx, stage_id in enumerate(execution_order):
         defn = registry[stage_id]
@@ -306,7 +306,7 @@ async def causal_inference_pipeline(
             # Restore from prior run (stages before the execution window)
             if defn.skip_restore:
                 continue
-            restored = load_stage_state(user_id, stage_id, prior_states=stage_states)
+            restored = load_stage_state(workspace_id, stage_id, prior_states=stage_states)
             stage_states[stage_id] = restored
             _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
             _raise_if_restored_gate_failed(defn, restored)

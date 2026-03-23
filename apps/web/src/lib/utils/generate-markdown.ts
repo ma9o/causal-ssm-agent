@@ -131,13 +131,13 @@ function asciiBins(binCounts: number[], expected: number, label: string): string
   return lines.join("\n");
 }
 
-export function generateMarkdown(data: AllStageData, userId: string): string {
+export function generateMarkdown(data: AllStageData, workspaceId: string): string {
   const lines: string[] = [];
 
   // --- Header ---
   lines.push("# Causal Inference Pipeline Report");
   lines.push("");
-  lines.push(`**User ID**: \`${userId}\``);
+  lines.push(`**Workspace ID**: \`${workspaceId}\``);
   lines.push(`**Generated**: ${new Date().toISOString().slice(0, 10)}`);
   lines.push("");
   lines.push("---");

@@ -11,7 +11,7 @@ The methodology splits responsibilities between two modes:
 | File placement, pipeline trigger, run registration | **Programmatic** (`cp`, `curl`) | Reliable, fast, no UI fragility |
 | UI rendering verification, visual regression | **browser_eval** (Playwright) | Only way to see rendered output |
 
-The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, then hand off to `browser_eval` only for the lightweight "enter a user ID, click Resume, screenshot" loop.
+The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, then hand off to `browser_eval` only for the lightweight "enter a resume key, click Resume, screenshot" loop.
 
 ## Prerequisites
 
@@ -73,15 +73,16 @@ All three must succeed before proceeding.
 
 ### 1. Place data
 
-Copy an input file into the user workspace:
+Copy an input file into the workspace:
 
 ```bash
-USER_ID="T3ST42"
-mkdir -p data/$USER_ID/input
-cp data/GOLDEN/input/MyActivity.json data/$USER_ID/input/
+WORKSPACE_ID="T3ST42"
+ACCESS_CODE="test"
+mkdir -p data/$WORKSPACE_ID/input
+cp data/GOLDEN/input/MyActivity.json data/$WORKSPACE_ID/input/
 ```
 
-Stage 0 scans `data/{user_id}/input/` for non-hidden files and uses the most
+Stage 0 scans `data/{workspace_id}/input/` for non-hidden files and uses the most
 recent one in that directory. If that file is a zip archive, it is extracted
 before ingestion. Otherwise it is copied unchanged into the agent's working
 directory for inspection. Plain-text inputs such as JSON, CSV, TSV, TXT,
@@ -100,7 +101,7 @@ DEPLOY_ID=$(curl -s -X POST http://localhost:4200/api/deployments/filter \
 # Create flow run
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"user_id\":\"$USER_ID\",\"override_gates\":true}}" \
+  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true}}" \
   | jq -r '.id')
 
 echo "Flow Run ID: $FLOW_RUN_ID"
@@ -111,14 +112,20 @@ echo "Flow Run ID: $FLOW_RUN_ID"
 ```bash
 curl -s -X POST http://localhost:3000/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 # → {"ok":true}
 ```
 
-### 4. Verify user lookup
+### 4. Verify workspace lookup
 
 ```bash
-curl -s http://localhost:3000/api/sessions/$USER_ID
+COOKIE_JAR=$(mktemp)
+
+curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/workspaces/unlock \
+  -H 'Content-Type: application/json' \
+  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\"}"
+
+curl -s -b "$COOKIE_JAR" http://localhost:3000/api/sessions/$WORKSPACE_ID
 # → {"rootFlowRunIds":["..."],"question":"...","createdAt":"..."}
 ```
 
@@ -128,11 +135,11 @@ Using the `browser_eval` tool:
 
 ```
 1. Navigate to http://localhost:3000
-2. Type the user ID into the resume input
+2. Type the resume key (`{WORKSPACE_ID}.{ACCESS_CODE}`) into the resume input
 3. Click "Resume" button
-4. Verify redirect to /analysis/{USER_ID}
+4. Verify redirect to /analysis/{WORKSPACE_ID}
    If the session write failed but the run launched successfully, the URL may include ?rootFlowRunId=...
-5. Screenshot the progress bar (should show the user ID badge)
+5. Screenshot the progress bar (should show the workspace ID badge)
 ```
 
 ### 6. Screenshot stages as they complete
@@ -151,7 +158,7 @@ The screenshots serve as visual regression artifacts — an agent can compare th
 ## Resuming After a Stage Failure
 
 **Do not restart the pipeline from scratch.** Every stage persists its output to
-`data/{user_id}/run/` (both `{stage_id}-state.pkl` snapshots and `{stage_id}.json`
+`data/{workspace_id}/run/` (both `{stage_id}-state.pkl` snapshots and `{stage_id}.json`
 web payloads). When a stage fails, the earlier stages' artifacts are already on disk
 and can be reused.
 
@@ -164,7 +171,7 @@ Check the Prefect flow run to find which stage failed:
 curl -s "http://localhost:4200/api/flow_runs/$FLOW_RUN_ID" | jq '{state: .state.type, name: .state.name}'
 
 # List which stage artifacts already exist on disk
-ls data/$USER_ID/run/
+ls data/$WORKSPACE_ID/run/
 ```
 
 The last successfully written `stage-*-state.pkl` tells you where execution stopped.
@@ -174,13 +181,13 @@ If `stage-2-state.pkl` exists but `stage-3-state.pkl` does not, `stage-3` failed
 
 Use the `start_stage` parameter to skip all earlier stages — they are restored from
 their on-disk snapshots automatically. You do **not** need to re-supply the `query`
-parameter; it was materialized to `data/{user_id}/query.txt` during the original run.
+parameter; it was materialized to `data/{workspace_id}/query.txt` during the original run.
 
 ```bash
 # Example: stage-3 failed, rerun from stage-3 onward
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"user_id\":\"$USER_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
+  -d "{\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
   | jq -r '.id')
 ```
 
@@ -191,7 +198,7 @@ You can also scope the rerun to a single stage by combining `start_stage` and
 # Rerun only stage-4, then stop
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"user_id\":\"$USER_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
+  -d "{\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
   | jq -r '.id')
 ```
 
@@ -203,7 +210,7 @@ flow run ID:
 ```bash
 curl -s -X POST http://localhost:3000/api/sessions \
   -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
+  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
 ```
 
 ### Valid stage IDs

@@ -36,13 +36,13 @@ function LogLine({ entry }: { entry: PrefectLogEntry }) {
 }
 
 export function StageLogViewer({
-  userId,
+  workspaceId,
   stageId,
   status,
   stageSubflowRunId,
   logFlowRunIds,
 }: {
-  userId: string;
+  workspaceId: string;
   stageId: StageId;
   status: StageRunStatus;
   stageSubflowRunId?: string | null;
@@ -53,7 +53,7 @@ export function StageLogViewer({
     bootstrapStatus,
     connectionState,
   } = useStageLogs(
-    userId,
+    workspaceId,
     stageId,
     stageSubflowRunId ?? null,
     logFlowRunIds ?? [],

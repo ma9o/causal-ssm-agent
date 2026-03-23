@@ -11,11 +11,11 @@ import { useCallback, useState } from "react";
  * a pipeline replay from the next stage after the one being refined.
  */
 export function ResumeButton({
-  userId,
+  workspaceId,
   stageId,
   rootFlowRunId,
 }: {
-  userId: string;
+  workspaceId: string;
   stageId: string;
   rootFlowRunId?: string | null;
 }) {
@@ -35,7 +35,7 @@ export function ResumeButton({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
+          workspaceId,
           stageId,
           ...(rootFlowRunId ? { rootFlowRunId } : {}),
         }),
@@ -48,14 +48,14 @@ export function ResumeButton({
 
       const result = (await res.json()) as RefineApplyResponse;
       if (result.ok) {
-        window.location.href = `/analysis/${userId}?${new URLSearchParams({
+        window.location.href = `/analysis/${workspaceId}?${new URLSearchParams({
           rootFlowRunId: result.rootFlowRunId,
         }).toString()}`;
       }
     } finally {
       setApplying(false);
     }
-  }, [userId, stageId, rootFlowRunId, applying]);
+  }, [workspaceId, stageId, rootFlowRunId, applying]);
 
   return (
     <motion.div

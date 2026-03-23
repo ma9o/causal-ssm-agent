@@ -237,10 +237,10 @@ class TestFindRawInput:
         import causal_ssm_agent.flows.stages.stage0_ingest as mod
         from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
 
-        user_dir = tmp_path / "test_user"
-        user_dir.mkdir()
-        older = user_dir / "data.zip"
-        newer = user_dir / "notes.txt"
+        workspace_dir = tmp_path / "test_workspace"
+        workspace_dir.mkdir()
+        older = workspace_dir / "data.zip"
+        newer = workspace_dir / "notes.txt"
 
         with zipfile.ZipFile(older, "w") as zf:
             zf.writestr("test.txt", "hello")
@@ -249,20 +249,20 @@ class TestFindRawInput:
         os.utime(older, (1_700_000_000, 1_700_000_000))
         os.utime(newer, (1_700_000_100, 1_700_000_100))
 
-        monkeypatch.setattr(mod, "input_dir", lambda user_id: str(tmp_path / user_id))
-        result = _find_raw_input("test_user")
+        monkeypatch.setattr(mod, "input_dir", lambda workspace_id: str(tmp_path / workspace_id))
+        result = _find_raw_input("test_workspace")
         assert result.endswith("/notes.txt")
 
     def test_no_files_raises(self, tmp_path, monkeypatch):
         import causal_ssm_agent.flows.stages.stage0_ingest as mod
         from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
 
-        user_dir = tmp_path / "empty_user"
-        user_dir.mkdir()
+        workspace_dir = tmp_path / "empty_workspace"
+        workspace_dir.mkdir()
 
-        monkeypatch.setattr(mod, "input_dir", lambda user_id: str(tmp_path / user_id))
+        monkeypatch.setattr(mod, "input_dir", lambda workspace_id: str(tmp_path / workspace_id))
         with pytest.raises(FileNotFoundError):
-            _find_raw_input("empty_user")
+            _find_raw_input("empty_workspace")
 
 
 class TestPrepareRawInput:

@@ -18,6 +18,10 @@ export interface RefineApplyResponse extends ReplayResponse {
   updatedFields: string[];
 }
 
+export interface WorkspaceUnlockResponse {
+  ok: true;
+}
+
 export interface AnalysisStageTaskRun {
   id: string;
   name: string;
@@ -36,30 +40,40 @@ export interface AnalysisStageRun {
 export type AnalysisStageRuns = Record<StageId, AnalysisStageRun>;
 
 export interface AnalysisManifest extends SessionResponse {
-  userId: string;
+  workspaceId: string;
   latestRootFlowRunId: string | null;
   stages: AnalysisStageRuns;
 }
 
-export async function getSession(userId: string): Promise<SessionResponse> {
-  return apiFetch<SessionResponse>(`/api/sessions/${userId}`);
+export async function getSession(workspaceId: string): Promise<SessionResponse> {
+  return apiFetch<SessionResponse>(`/api/sessions/${workspaceId}`);
+}
+
+export async function unlockWorkspace(
+  workspaceId: string,
+  accessCode: string,
+): Promise<WorkspaceUnlockResponse> {
+  return apiFetch<WorkspaceUnlockResponse>("/api/workspaces/unlock", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, accessCode }),
+  });
 }
 
 export function getAnalysisManifestQueryKey(
-  userId: string,
+  workspaceId: string,
   rootFlowRunId?: string | null,
 ) {
   return rootFlowRunId == null
-    ? (["analysis", userId, "manifest"] as const)
-    : (["analysis", userId, "manifest", rootFlowRunId] as const);
+    ? (["analysis", workspaceId, "manifest"] as const)
+    : (["analysis", workspaceId, "manifest", rootFlowRunId] as const);
 }
 
 export async function getAnalysisManifest(
-  userId: string,
+  workspaceId: string,
   rootFlowRunId?: string | null,
 ): Promise<AnalysisManifest> {
   const search = rootFlowRunId
     ? `?${new URLSearchParams({ rootFlowRunId }).toString()}`
     : "";
-  return apiFetch<AnalysisManifest>(`/api/analysis/${userId}${search}`);
+  return apiFetch<AnalysisManifest>(`/api/analysis/${workspaceId}${search}`);
 }

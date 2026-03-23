@@ -27,27 +27,27 @@ export function appendSessionRootFlowRunId(
   };
 }
 
-function getSessionPath(userId: string): string {
-  return `${userId}/session.json`;
+function getSessionPath(workspaceId: string): string {
+  return `${workspaceId}/session.json`;
 }
 
-export async function readSession(userId: string): Promise<Session | null> {
+export async function readSession(workspaceId: string): Promise<Session | null> {
   try {
-    const parsed = JSON.parse(await readData(getSessionPath(userId))) as Session;
+    const parsed = JSON.parse(await readData(getSessionPath(workspaceId))) as Session;
     return normalizeSession(parsed);
   } catch {
     return null;
   }
 }
 
-export async function writeSession(userId: string, session: Session): Promise<void> {
-  await writeData(getSessionPath(userId), JSON.stringify(normalizeSession(session), null, 2));
+export async function writeSession(workspaceId: string, session: Session): Promise<void> {
+  await writeData(getSessionPath(workspaceId), JSON.stringify(normalizeSession(session), null, 2));
 }
 
-/** Read the research question from ``data/{userId}/query.txt``. */
-export async function readQuestion(userId: string): Promise<string | undefined> {
+/** Read the research question from ``data/{workspaceId}/query.txt``. */
+export async function readQuestion(workspaceId: string): Promise<string | undefined> {
   try {
-    const text = await readData(`${userId}/query.txt`);
+    const text = await readData(`${workspaceId}/query.txt`);
     return text.trim() || undefined;
   } catch {
     return undefined;

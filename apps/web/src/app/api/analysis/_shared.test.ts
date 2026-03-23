@@ -96,7 +96,7 @@ describe("buildAnalysisManifest", () => {
     const manifest = await buildAnalysisManifest("user-123");
 
     expect(manifest).toMatchObject({
-      userId: "user-123",
+      workspaceId: "user-123",
       createdAt: "2026-03-13T18:33:26.268Z",
       question: "Why does this happen?",
       rootFlowRunIds: ["full-run", "resume-run"],
@@ -385,7 +385,7 @@ describe("buildAnalysisManifest", () => {
     const manifest = await buildAnalysisManifest("user-123", ["live-run"]);
 
     expect(manifest).toMatchObject({
-      userId: "user-123",
+      workspaceId: "user-123",
       createdAt: "2026-03-14T10:00:00.000Z",
       question: "Why did this launch?",
       rootFlowRunIds: ["live-run"],

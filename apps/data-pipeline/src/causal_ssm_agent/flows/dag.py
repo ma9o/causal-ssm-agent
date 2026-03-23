@@ -7,6 +7,7 @@ handled by the stage registry (``stage_registry.py``).
 
 from __future__ import annotations
 
+import json
 from inspect import isawaitable
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,7 @@ logger = get_prefect_logger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage0(user_id: str) -> dict:
+async def stage0(workspace_id: str) -> dict:
     """Agentic ingestion of raw data.
 
     Returns dict with web-serializable fields PLUS internal data:
@@ -36,7 +37,7 @@ async def stage0(user_id: str) -> dict:
     from .pipeline_helpers import build_stage0_payload
     from .stages import agentic_ingest
 
-    result = await agentic_ingest(user_id)
+    result = await agentic_ingest(workspace_id)
     df = result.dataframe
 
     payload = build_stage0_payload(result, df)
@@ -568,12 +569,16 @@ async def stage6(
     stage1a: dict,
     stage1b: dict,
     stage1b_gate: dict,
+    question: str | None = None,
 ) -> dict:
     """Run do-operator interventions and rank treatments.
 
     Returns: {intervention_results, outcome}
     """
     from prefect.artifacts import create_table_artifact
+
+    from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.utils.llm import LLMStageContext
 
     from .stages import run_interventions
 
@@ -641,7 +646,83 @@ async def stage6(
         r.get("ppc_warnings") or r.get("prior_sensitivity_warning") for r in intervention_results
     )
 
-    return {
-        "intervention_results": intervention_results,
-        "outcome": "warn" if has_warnings else "success",
+    top_results = [
+        {
+            "treatment": entry.get("treatment"),
+            "effect_size": entry.get("effect_size"),
+            "prob_positive": entry.get("prob_positive"),
+            "identifiable": entry.get("identifiable", True),
+            "prior_sensitivity_warning": entry.get("prior_sensitivity_warning"),
+            "ppc_warning_variables": [
+                warning.get("variable")
+                for warning in (entry.get("ppc_warnings") or [])
+                if isinstance(warning, dict) and warning.get("variable")
+            ],
+        }
+        for entry in intervention_results[:5]
+    ]
+    power_scaling_issues = [
+        {
+            "parameter": item.get("parameter"),
+            "diagnosis": item.get("diagnosis"),
+            "prior_sensitivity": item.get("prior_sensitivity"),
+            "likelihood_sensitivity": item.get("likelihood_sensitivity"),
+        }
+        for item in stage5b.get("power_scaling", [])
+        if item.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
+    ][:5]
+    ppc_warnings = [
+        {
+            "variable": warning.get("variable"),
+            "issue_type": warning.get("issue_type"),
+            "severity": warning.get("severity"),
+            "message": warning.get("message"),
+        }
+        for warning in stage5b.get("ppc", {}).get("per_variable_warnings", [])
+    ][:5]
+
+    commentary_input = {
+        "question": question,
+        "outcome": outcome_name,
+        "identifiable_treatments": treatments,
+        "excluded_non_identifiable_treatments": sorted(stage1b_gate.get("non_identifiable", {}).keys()),
+        "top_ranked_effects": top_results,
+        "power_scaling_issues": power_scaling_issues,
+        "ppc_warnings": ppc_warnings,
+        "follow_up_capabilities": {
+            "get_model_info": "Inspect variables, measurement, identifiability, diagnostics, and baseline effects.",
+            "simulate_intervention": "Run Pearl rung-2 intervention simulations on the fitted generative model.",
+            "simulate_counterfactual": "Run Pearl rung-3 counterfactual simulations conditioned on an observed history window.",
+        },
     }
+
+    commentary_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are writing the opening commentary for Stage 6 of a causal state-space "
+                "analysis. Comment on the treatment-effect results for a technical user. "
+                "Be concise and grounded. Do not invent certainty. Mention the strongest "
+                "effects, note warnings or identifiability limits, and end by stating that "
+                "follow-up chat can inspect model details or run Pearl rung 2 and rung 3 "
+                "simulations. Return plain Markdown only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Comment the results of Stage 6.\n\n"
+                f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
+            ),
+        },
+    ]
+
+    async with LLMStageContext("stage-6") as ctx:
+        generate = ctx.make_generate(get_config().stage0_ingestion.model)
+        await generate(commentary_messages, label="comment-results")
+        return ctx.finalize(
+            {
+                "intervention_results": intervention_results,
+                "outcome": "warn" if has_warnings else "success",
+            }
+        )

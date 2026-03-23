@@ -1,5 +1,5 @@
-import { basename } from "node:path";
 import { readBinary } from "@/lib/storage";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 /**
  * Map stage IDs to their parquet artifact filenames.
@@ -11,12 +11,19 @@ const PARQUET_MAP: Record<string, string[]> = {
 };
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ userId: string; stage: string }> },
+  request: Request,
+  { params }: { params: Promise<{ workspaceId: string; stage: string }> },
 ) {
-  const { userId, stage } = await params;
-  const safeUserId = basename(userId);
-  const safeStage = basename(stage);
+  const { workspaceId, stage } = await params;
+  const safeStage = stage.trim();
+  if (!safeStage || /[\\/]/.test(safeStage)) {
+    return new Response("Invalid route parameters", { status: 400 });
+  }
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
+  }
+  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   const filenames = PARQUET_MAP[safeStage];
   if (!filenames) {
@@ -25,7 +32,7 @@ export async function GET(
 
   for (const filename of filenames) {
     try {
-      const bytes = await readBinary(`${safeUserId}/run/${filename}`);
+      const bytes = await readBinary(`${safeWorkspaceId}/run/${filename}`);
       return new Response(bytes.buffer as ArrayBuffer, {
         headers: {
           "Content-Type": "application/octet-stream",

@@ -49,7 +49,7 @@ logger = get_prefect_logger(__name__)
 class PipelineContext:
     """Non-stage runtime values threaded through the pipeline."""
 
-    user_id: str
+    workspace_id: str
     prefect_run_id: str
     question: str | None
     gates_overridden: bool
@@ -136,8 +136,8 @@ async def run_stage_flow(
             result = await result
 
     # Persist artifacts (save_parquet, save_pickle, etc.)
-    result = defn.materializer.persist(result, ctx.user_id)
-    extras = defn.materializer.finalize_extras(result, ctx.user_id)
+    result = defn.materializer.persist(result, ctx.workspace_id)
+    extras = defn.materializer.finalize_extras(result, ctx.workspace_id)
 
     # Gate check
     gate_result = None
@@ -150,7 +150,7 @@ async def run_stage_flow(
     state = finalize_stage(
         defn.stage_id,
         result,
-        ctx.user_id,
+        ctx.workspace_id,
         extras=extras or None,
         gate=gate_result,
         contract=defn.contract,
@@ -169,7 +169,7 @@ async def run_stage_flow(
 
 
 def load_stage_state(
-    user_id: str,
+    workspace_id: str,
     stage_id: str,
     prior_states: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -177,9 +177,9 @@ def load_stage_state(
     prior_states = prior_states or {}
     defn = get_stage_registry()[stage_id]
     try:
-        snapshot = load_stage_snapshot(user_id, stage_id)
-        web = snapshot.get("web") or load_public_payload(user_id, stage_id)
-        restored = defn.materializer.restore(user_id, web, prior_states)
+        snapshot = load_stage_snapshot(workspace_id, stage_id)
+        web = snapshot.get("web") or load_public_payload(workspace_id, stage_id)
+        restored = defn.materializer.restore(workspace_id, web, prior_states)
         result = dict(snapshot.get("result", {}) or {})
         result.update(restored)
 
@@ -190,13 +190,13 @@ def load_stage_state(
         return stage_state(result, web, gate=gate_result)
     except FileNotFoundError:
         logger.info(
-            "Reconstructing %s state from public payloads for user_id %s",
+            "Reconstructing %s state from public payloads for workspace_id %s",
             stage_id,
-            user_id,
+            workspace_id,
         )
 
-    web = load_public_payload(user_id, stage_id)
-    result = defn.materializer.restore(user_id, web, prior_states)
+    web = load_public_payload(workspace_id, stage_id)
+    result = defn.materializer.restore(workspace_id, web, prior_states)
 
     gate_result = None
     if defn.gate is not None:
@@ -221,15 +221,15 @@ def _gate_extras(defn: StageDefinition, gate_result: dict) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _persist_noop(result: dict, user_id: str) -> dict:
+def _persist_noop(result: dict, workspace_id: str) -> dict:
     return result
 
 
-def _finalize_noop(result: dict, user_id: str) -> dict[str, Any]:
+def _finalize_noop(result: dict, workspace_id: str) -> dict[str, Any]:
     return {}
 
 
-def _restore_default(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_default(workspace_id: str, web: dict, prior_states: dict) -> dict:
     return dict(web)
 
 
@@ -249,32 +249,32 @@ def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _persist_stage0(result: dict, user_id: str) -> dict:
+def _persist_stage0(result: dict, workspace_id: str) -> dict:
     raw_df = result.pop("_df")
-    result["_df_path"] = save_parquet(raw_df, user_id, "stage0-raw-input.parquet")
+    result["_df_path"] = save_parquet(raw_df, workspace_id, "stage0-raw-input.parquet")
     return result
 
 
-def _persist_stage2(result: dict, user_id: str) -> dict:
+def _persist_stage2(result: dict, workspace_id: str) -> dict:
     raw_data = result.pop("_raw_data")
     data_for_model = result.pop("_data_for_model")
     result["_raw_data_row_count"] = len(raw_data)
-    result["_raw_data_path"] = save_parquet(raw_data, user_id, "stage2-raw-data.parquet")
+    result["_raw_data_path"] = save_parquet(raw_data, workspace_id, "stage2-raw-data.parquet")
     result["_data_for_model_path"] = save_parquet(
-        data_for_model, user_id, "stage2-model-data.parquet"
+        data_for_model, workspace_id, "stage2-model-data.parquet"
     )
     return result
 
 
-def _finalize_stage2_extras(result: dict, user_id: str) -> dict[str, Any]:
+def _finalize_stage2_extras(result: dict, workspace_id: str) -> dict[str, Any]:
     row_count = int(result.get("_raw_data_row_count", 0))
     return {"outcome": "success" if row_count > 0 else "fail"}
 
 
-def _persist_stage5b(result: dict, user_id: str) -> dict:
+def _persist_stage5b(result: dict, workspace_id: str) -> dict:
     fitted_artifact = result.pop("_fitted_artifact")
     result["_fitted_result_path"] = save_pickle(
-        fitted_artifact, user_id, "stage5b-fitted-result.pkl"
+        fitted_artifact, workspace_id, "stage5b-fitted-result.pkl"
     )
     return result
 
@@ -284,24 +284,24 @@ def _persist_stage5b(result: dict, user_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _restore_stage0(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_stage0(workspace_id: str, web: dict, prior_states: dict) -> dict:
     result = dict(web)
-    result["_df_path"] = find_run_artifact(user_id, STAGE0_PARQUET_FILENAMES)
+    result["_df_path"] = find_run_artifact(workspace_id, STAGE0_PARQUET_FILENAMES)
     result["_column_descriptions"] = _column_descriptions_from_web(web)
     return result
 
 
-def _restore_stage2(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_stage2(workspace_id: str, web: dict, prior_states: dict) -> dict:
     workers = list(web.get("workers", []) or [])
     result = dict(web)
     result["workers"] = workers
     result["_worker_statuses"] = workers
-    result["_raw_data_path"] = find_run_artifact(user_id, STAGE2_RAW_PARQUET_FILENAMES)
-    result["_data_for_model_path"] = find_run_artifact(user_id, STAGE2_MODEL_PARQUET_FILENAMES)
+    result["_raw_data_path"] = find_run_artifact(workspace_id, STAGE2_RAW_PARQUET_FILENAMES)
+    result["_data_for_model_path"] = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     return result
 
 
-def _restore_stage4(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_stage4(workspace_id: str, web: dict, prior_states: dict) -> dict:
     result = dict(web)
     stage1b_state = prior_states.get("stage-1b")
     if stage1b_state is not None:
@@ -309,11 +309,11 @@ def _restore_stage4(user_id: str, web: dict, prior_states: dict) -> dict:
     return result
 
 
-def _restore_stage4b(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_stage4b(workspace_id: str, web: dict, prior_states: dict) -> dict:
     return {"parametric_id": web.get("parametric_id", {})}
 
 
-def _restore_stage5b(user_id: str, web: dict, prior_states: dict) -> dict:
+def _restore_stage5b(workspace_id: str, web: dict, prior_states: dict) -> dict:
     power_scaling = list(web.get("power_scaling", []) or [])
     return {
         "outcome": web.get("outcome", "success"),
@@ -326,7 +326,7 @@ def _restore_stage5b(user_id: str, web: dict, prior_states: dict) -> dict:
         "loo_diagnostics": web.get("loo_diagnostics"),
         "posterior_marginals": web.get("posterior_marginals"),
         "posterior_pairs": web.get("posterior_pairs"),
-        "_fitted_result_path": find_run_artifact(user_id, STAGE5B_PICKLE_FILENAMES),
+        "_fitted_result_path": find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES),
     }
 
 
@@ -336,7 +336,7 @@ def _restore_stage5b(user_id: str, web: dict, prior_states: dict) -> dict:
 
 
 def _bind_stage0(ctx: PipelineContext, states: dict) -> dict:
-    return {"user_id": ctx.user_id}
+    return {"workspace_id": ctx.workspace_id}
 
 
 def _bind_stage1a(ctx: PipelineContext, states: dict) -> dict:
@@ -404,6 +404,7 @@ def _bind_stage5b(ctx: PipelineContext, states: dict) -> dict:
 
 def _bind_stage6(ctx: PipelineContext, states: dict) -> dict:
     return {
+        "question": ctx.question,
         "stage5b": states["stage-5b"]["result"],
         "stage1a": states["stage-1a"]["result"],
         "stage1b": states["stage-1b"]["result"],
@@ -589,7 +590,7 @@ def _build_registry() -> dict[str, StageDefinition]:
 
         def _bind_stage5b_modal(ctx: PipelineContext, states: dict) -> dict:
             base = _bind_stage5b(ctx, states)
-            base["user_id"] = ctx.user_id
+            base["workspace_id"] = ctx.workspace_id
             return base
 
         registry["stage-5b"] = replace(

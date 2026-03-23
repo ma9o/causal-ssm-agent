@@ -58,7 +58,7 @@ function r2Key(relativePath: string): string {
 
 /**
  * Read a text file from storage.
- * @param relativePath  Path relative to the data root (e.g. "userId/run/stage-1a.json")
+ * @param relativePath  Path relative to the data root (e.g. "workspaceId/run/stage-1a.json")
  */
 export async function readData(relativePath: string): Promise<string> {
   if (isRemote) {

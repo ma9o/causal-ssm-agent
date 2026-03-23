@@ -1,38 +1,49 @@
-import { basename } from "node:path";
 import { NextResponse } from "next/server";
 import { writeBinary, ensureDir } from "@/lib/storage";
+import {
+  requireWorkspaceAccess,
+  setWorkspaceAccessCookie,
+} from "@/lib/workspace-access";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
-  const userId = formData.get("userId") as string | null;
+  const workspaceId = formData.get("workspaceId") as string | null;
+  const accessCode = formData.get("accessCode") as string | null;
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
-  if (!userId) {
-    return NextResponse.json({ error: "No userId provided" }, { status: 400 });
+  if (!workspaceId) {
+    return NextResponse.json({ error: "No workspaceId provided" }, { status: 400 });
+  }
+  if (!accessCode) {
+    return NextResponse.json({ error: "No accessCode provided" }, { status: 400 });
   }
 
-  // Sanitize path components to prevent directory traversal
-  const trimmedUserId = userId.trim();
-  const safeUserId = basename(trimmedUserId);
-  const safeFileName = basename(file.name);
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
+    accessCode: accessCode.trim(),
+    allowCreate: true,
+  });
+  if (!workspaceAccess.ok) {
+    return workspaceAccess.response;
+  }
+  const { workspaceId: normalizedWorkspaceId, setCookieCode } = workspaceAccess;
 
-  if (
-    !safeUserId ||
-    safeUserId !== trimmedUserId ||
-    safeUserId === "." ||
-    safeUserId === ".."
-  ) {
-    return NextResponse.json({ error: "Invalid userId format" }, { status: 400 });
+  const safeFileName = file.name.split("/").at(-1)?.split("\\").at(-1) ?? "";
+  if (!safeFileName) {
+    return NextResponse.json({ error: "Invalid file name" }, { status: 400 });
   }
 
-  const relativePath = `${safeUserId}/input/${safeFileName}`;
-  await ensureDir(`${safeUserId}/input`);
+  const relativePath = `${normalizedWorkspaceId}/input/${safeFileName}`;
+  await ensureDir(`${normalizedWorkspaceId}/input`);
 
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeBinary(relativePath, buffer);
 
-  return NextResponse.json({ path: relativePath });
+  const response = NextResponse.json({ path: relativePath });
+  if (setCookieCode) {
+    setWorkspaceAccessCookie(response, normalizedWorkspaceId, setCookieCode);
+  }
+  return response;
 }
