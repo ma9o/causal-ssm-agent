@@ -1085,6 +1085,12 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     lines.push(`> ${STAGES[9].description}`);
     lines.push("");
 
+    const stage6Narrative = s6.final_summary?.trim();
+    if (stage6Narrative) {
+      lines.push(stage6Narrative);
+      lines.push("");
+    }
+
     if (s6.intervention_results.length === 0) {
       lines.push("No treatment effects were estimated.");
       lines.push("");

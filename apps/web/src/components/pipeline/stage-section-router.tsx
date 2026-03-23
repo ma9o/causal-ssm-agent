@@ -51,6 +51,25 @@ const Stage5aContent = lazy(() => import("./stage-contents/stage-5a-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
 const Stage6Content = lazy(() => import("./stage-contents/stage-6-content"));
 
+type AnyStageData =
+  | Stage0Data
+  | Stage1aData
+  | Stage1bData
+  | Stage2Data
+  | Stage3Data
+  | Stage4Data
+  | Stage4bData
+  | Stage5aData
+  | Stage5bData
+  | Stage6Data;
+
+type StageViewData = AnyStageData & {
+  context?: string;
+  llm_trace?: LLMTrace;
+  gate_overridden?: GateOverride;
+  outcome?: StageOutcome;
+};
+
 function StageWithTrace({
   children,
   trace,
@@ -100,7 +119,7 @@ function StageWithTrace({
               className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
             >
               <Bot className="h-3.5 w-3.5" />
-              Show LLM Trace
+              Show Assistant Details
             </button>
           </div>
         )}
@@ -121,7 +140,7 @@ function StageWithTrace({
               className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors"
             >
               <Bot className="h-3.5 w-3.5" />
-              Hide LLM Trace
+              Hide Assistant Details
             </button>
             <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
               <LLMTracePanel
@@ -152,21 +171,20 @@ export function StageSectionRouter({
   stageRun?: AnalysisStageRun;
 }) {
   const queryClient = useQueryClient();
-  const { isInvalidated } = useRefinement();
+  const { isInvalidated, pendingStagePatches, refiningStageId } = useRefinement();
   const invalidated = isInvalidated(stage.id);
   const isCompleted = status === "completed";
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
   // Read context + trace + gate override + outcome from the stage data (once, after completion).
-  const { data: stageData } = useStageData<{
-    context?: string;
-    llm_trace?: LLMTrace;
-    gate_overridden?: GateOverride;
-    outcome?: StageOutcome;
-  }>(workspaceId, stage.id, isCompleted);
+  const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
+  const pendingStagePatch =
+    refiningStageId === stage.id ? pendingStagePatches[stage.id] ?? null : null;
+  const projectedStageData =
+    stageData && pendingStagePatch ? ({ ...stageData, ...pendingStagePatch } as StageViewData) : stageData;
 
-  const outcome: StageOutcome = stageData?.outcome ?? "success";
+  const outcome: StageOutcome = projectedStageData?.outcome ?? "success";
 
   // Sync outcome into pipeline progress so the progress bar can reflect it
   useEffect(() => {
@@ -194,7 +212,7 @@ export function StageSectionRouter({
       elapsedMs={elapsedMs}
       context={stage.description}
       hasGate={stage.hasGate}
-      gateOverridden={stageData?.gate_overridden}
+      gateOverridden={projectedStageData?.gate_overridden}
       outcome={outcome}
       loadingHint={stage.loadingHint}
       runningContent={
@@ -219,17 +237,17 @@ export function StageSectionRouter({
       {isCompleted && (
         <ErrorBoundary>
           <Suspense fallback={null}>
-            <StageContent stageId={stage.id} workspaceId={workspaceId} />
+            <StageContent stageId={stage.id} workspaceId={workspaceId} data={projectedStageData} />
           </Suspense>
         </ErrorBoundary>
       )}
     </StageSection>
   );
 
-  if (stageData?.llm_trace) {
+  if (projectedStageData?.llm_trace) {
     return (
       <StageWithTrace
-        trace={stageData.llm_trace}
+        trace={projectedStageData.llm_trace}
         workspaceId={workspaceId}
         stageId={stage.id}
         interactive={stage.interactive}
@@ -242,25 +260,9 @@ export function StageSectionRouter({
   return <div className="max-w-6xl mx-auto">{section}</div>;
 }
 
-function SimpleStageWrapper<T>({
-  workspaceId,
-  stageId,
-  Component,
-}: {
-  workspaceId: string;
-  stageId: StageId;
-  Component: ComponentType<{ data: T }>;
-}) {
-  const { data } = useStageData<T>(workspaceId, stageId, true);
-  if (!data) return null;
-  return <Component data={data} />;
-}
-
-function Stage4Wrapper({ workspaceId }: { workspaceId: string }) {
-  const { data } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
+function Stage4Wrapper({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
   const { data: stage2 } = useStageData<Stage2Data>(workspaceId, "stage-2", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
-  if (!data) return null;
   return (
     <Stage4Content
       data={data}
@@ -270,82 +272,46 @@ function Stage4Wrapper({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function Stage5bWrapper({ workspaceId }: { workspaceId: string }) {
-  const { data } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
-  if (!data) return null;
+function Stage5bWrapper({ workspaceId, data }: { workspaceId: string; data: Stage5bData }) {
   return <Stage5bContent workspaceId={workspaceId} data={data} />;
 }
 
-function StageContent({ stageId, workspaceId }: { stageId: string; workspaceId: string }) {
+function Stage6Wrapper({ data }: { data: Stage6Data }) {
+  return <Stage6Content data={data} />;
+}
+
+function StageContent({
+  stageId,
+  workspaceId,
+  data,
+}: {
+  stageId: string;
+  workspaceId: string;
+  data?: StageViewData;
+}) {
+  if (!data) return null;
+
   switch (stageId) {
     case "stage-0":
-      return (
-        <SimpleStageWrapper<Stage0Data>
-          workspaceId={workspaceId}
-          stageId="stage-0"
-          Component={Stage0Content}
-        />
-      );
+      return <Stage0Content data={data as Stage0Data} />;
     case "stage-1a":
-      return (
-        <SimpleStageWrapper<Stage1aData>
-          workspaceId={workspaceId}
-          stageId="stage-1a"
-          Component={Stage1aContent}
-        />
-      );
+      return <Stage1aContent data={data as Stage1aData} />;
     case "stage-1b":
-      return (
-        <SimpleStageWrapper<Stage1bData>
-          workspaceId={workspaceId}
-          stageId="stage-1b"
-          Component={Stage1bContent}
-        />
-      );
+      return <Stage1bContent data={data as Stage1bData} />;
     case "stage-2":
-      return (
-        <SimpleStageWrapper<Stage2Data>
-          workspaceId={workspaceId}
-          stageId="stage-2"
-          Component={Stage2Content}
-        />
-      );
+      return <Stage2Content data={data as Stage2Data} />;
     case "stage-3":
-      return (
-        <SimpleStageWrapper<Stage3Data>
-          workspaceId={workspaceId}
-          stageId="stage-3"
-          Component={Stage3Content}
-        />
-      );
+      return <Stage3Content data={data as Stage3Data} />;
     case "stage-4":
-      return <Stage4Wrapper workspaceId={workspaceId} />;
+      return <Stage4Wrapper workspaceId={workspaceId} data={data as Stage4Data} />;
     case "stage-4b":
-      return (
-        <SimpleStageWrapper<Stage4bData>
-          workspaceId={workspaceId}
-          stageId="stage-4b"
-          Component={Stage4bContent}
-        />
-      );
+      return <Stage4bContent data={data as Stage4bData} />;
     case "stage-5a":
-      return (
-        <SimpleStageWrapper<Stage5aData>
-          workspaceId={workspaceId}
-          stageId="stage-5a"
-          Component={Stage5aContent}
-        />
-      );
+      return <Stage5aContent data={data as Stage5aData} />;
     case "stage-5b":
-      return <Stage5bWrapper workspaceId={workspaceId} />;
+      return <Stage5bWrapper workspaceId={workspaceId} data={data as Stage5bData} />;
     case "stage-6":
-      return (
-        <SimpleStageWrapper<Stage6Data>
-          workspaceId={workspaceId}
-          stageId="stage-6"
-          Component={Stage6Content}
-        />
-      );
+      return <Stage6Wrapper data={data as Stage6Data} />;
     default:
       return null;
   }

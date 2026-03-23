@@ -1,17 +1,50 @@
 import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { jsonSchema, streamText, tool } from "ai";
-import { basename } from "node:path";
+import { convertToModelMessages, jsonSchema, streamText, tool } from "ai";
 import { NextResponse } from "next/server";
 
 import { resolveApiKey } from "@/lib/api/resolve-api-key";
 import { getToolServerUrl } from "@/lib/runtime-urls";
-import { readData, writeData, ensureDir } from "@/lib/storage";
-import { traceToModelMessages } from "@/lib/utils/trace-to-core";
+import { readData } from "@/lib/storage";
+import {
+  type RefinementMessageMetadata,
+  type RefinementUIMessage,
+  traceToModelMessages,
+} from "@/lib/utils/trace-to-core";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 const TOOL_SERVER = getToolServerUrl();
+const REFINE_MODEL = "anthropic/claude-sonnet-4";
+
+async function loadTraceContext(
+  workspaceId: string,
+  stageId: string,
+): Promise<{
+  traceContext: ReturnType<typeof traceToModelMessages>;
+}> {
+  try {
+    const raw = await readData(`${workspaceId}/run/${stageId}.json`);
+    const stageData = JSON.parse(raw);
+
+    if (stageData.llm_trace) {
+      const baseTrace = stageData.llm_trace as LLMTrace;
+      return {
+        traceContext: traceToModelMessages(baseTrace.messages),
+      };
+    }
+  } catch {
+    // No trace available — proceed without context
+  }
+
+  return {
+    traceContext: [],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * POST /api/refine
@@ -27,37 +60,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
-  const { messages, workspaceId, stageId } = await req.json();
-  const safeStageId = typeof stageId === "string" ? basename(stageId.trim()) : "";
-
-  let normalizedWorkspaceId = "";
-  if (workspaceId) {
-    const workspaceAccess = await requireWorkspaceAccess(req, workspaceId);
-    if (!workspaceAccess.ok) {
-      return workspaceAccess.response;
-    }
-    normalizedWorkspaceId = workspaceAccess.workspaceId;
+  const { messages, workspaceId, stageId, pendingStagePatch } = await req.json();
+  if (!Array.isArray(messages)) {
+    return NextResponse.json({ error: "messages must be an array" }, { status: 400 });
   }
 
-  if (stageId && (!safeStageId || safeStageId !== stageId.trim())) {
+  const uiMessages = messages as RefinementUIMessage[];
+  const hasWorkspaceId = typeof workspaceId === "string" && workspaceId.trim().length > 0;
+  const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
+  const safePendingStagePatch = isRecord(pendingStagePatch) ? pendingStagePatch : {};
+
+  if (stageId && (!safeStageId || /[\\/]/.test(safeStageId))) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
-
-  let traceContext: ReturnType<typeof traceToModelMessages> = [];
-  if (normalizedWorkspaceId && safeStageId) {
-    try {
-      const raw = await readData(`${normalizedWorkspaceId}/run/${safeStageId}.json`);
-      const stageData = JSON.parse(raw);
-
-      if (stageData.llm_trace) {
-        const trace: LLMTrace = stageData.llm_trace;
-        traceContext = traceToModelMessages(trace.messages);
-      }
-    } catch {
-      // No trace available — proceed without context
-    }
+  const workspaceAccess = hasWorkspaceId ? await requireWorkspaceAccess(req, workspaceId) : null;
+  if (workspaceAccess && !workspaceAccess.ok) {
+    return workspaceAccess.response;
   }
+  const normalizedWorkspaceId = workspaceAccess?.ok ? workspaceAccess.workspaceId : null;
 
+  const { traceContext } =
+    normalizedWorkspaceId && safeStageId
+      ? await loadTraceContext(normalizedWorkspaceId, safeStageId)
+      : { traceContext: [] };
+
+  const openrouter = createOpenRouter({ apiKey: resolved.key });
+
+  // Build tools if this is an interactive stage
   const toolDefs =
     normalizedWorkspaceId && safeStageId && INTERACTIVE_STAGES.includes(safeStageId)
       ? STAGE_TOOLS[safeStageId] ?? []
@@ -70,6 +99,9 @@ export async function POST(req: Request) {
         description: t.description,
         parameters: jsonSchema(t.parameters),
         execute: async (args: Record<string, unknown>) => {
+          if (!normalizedWorkspaceId) {
+            throw new Error("Tool execution requires a workspace");
+          }
           const res = await fetch(
             `${TOOL_SERVER}/api/tools/${safeStageId}/${t.name}`,
             {
@@ -85,11 +117,10 @@ export async function POST(req: Request) {
           const data = await res.json();
 
           if (data.stage_output) {
-            await ensureDir(`${normalizedWorkspaceId}/run`);
-            await writeData(
-              `${normalizedWorkspaceId}/run/${safeStageId}-draft.json`,
-              JSON.stringify(data.stage_output),
-            );
+            nextStagePatch = {
+              ...nextStagePatch,
+              ...data.stage_output,
+            };
           }
 
           return data.result;
@@ -99,13 +130,35 @@ export async function POST(req: Request) {
     ]),
   );
 
-  const openrouter = createOpenRouter({ apiKey: resolved.key });
+  const modelMessages = await convertToModelMessages(uiMessages);
+  const startedAt = Date.now();
+  let nextStagePatch = { ...safePendingStagePatch };
 
   const result = streamText({
-    model: openrouter("anthropic/claude-sonnet-4"),
-    messages: [...traceContext, ...messages],
+    model: openrouter(REFINE_MODEL),
+    messages: [...traceContext, ...modelMessages],
     ...(Object.keys(tools).length > 0 ? { tools, maxSteps: 10 } : {}),
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    originalMessages: uiMessages,
+    messageMetadata: ({ part }): RefinementMessageMetadata | undefined => {
+      if (part.type !== "finish") {
+        return undefined;
+      }
+
+      return {
+        durationSeconds: (Date.now() - startedAt) / 1000,
+        stagePatch: nextStagePatch,
+        usage: {
+          inputTokens: part.totalUsage.inputTokens ?? undefined,
+          outputTokens: part.totalUsage.outputTokens ?? undefined,
+          reasoningTokens:
+            part.totalUsage.outputTokenDetails.reasoningTokens ??
+            part.totalUsage.reasoningTokens ??
+            undefined,
+        },
+      };
+    },
+  });
 }

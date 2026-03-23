@@ -1,19 +1,31 @@
-import { basename } from "node:path";
+import type { LLMTrace } from "@causal-ssm/api-types";
+import { STAGE_IDS } from "@causal-ssm/api-types";
 import { NextResponse } from "next/server";
 import { readData } from "@/lib/storage";
+import { getToolServerUrl } from "@/lib/runtime-urls";
+import {
+  mergePersistedTrace,
+  summarizeRefinementMessages,
+  type RefinementUIMessage,
+} from "@/lib/utils/trace-to-core";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
+
+const TOOL_SERVER = getToolServerUrl();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * POST /api/refine/apply
  *
- * Reads the draft produced by the last successful validation tool call
- * during refinement, merges with the original stage data, and triggers
- * a pipeline replay from that stage.
+ * Materializes the client-held refinement payload. Earlier stages trigger
+ * replay from the next stage boundary; the terminal stage persists in place.
  *
- * Body: { workspaceId, stageId, rootFlowRunId? }
+ * Body: { workspaceId, stageId, stagePatch?, messages?, rootFlowRunId? }
  */
 export async function POST(request: Request) {
-  const { workspaceId, stageId, rootFlowRunId } = await request.json();
+  const { workspaceId, stageId, rootFlowRunId, stagePatch, messages } = await request.json();
 
   if (!workspaceId || !stageId) {
     return NextResponse.json(
@@ -22,46 +34,23 @@ export async function POST(request: Request) {
     );
   }
 
-  const safeStageId = basename(stageId.trim());
-  if (
-    !safeStageId ||
-    safeStageId !== stageId.trim() ||
-    safeStageId === "." ||
-    safeStageId === ".."
-  ) {
+  const safeStageId = stageId.trim();
+  if (!safeStageId || /[\\/]/.test(safeStageId)) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
-
   const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }
   const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
-  let draft: Record<string, unknown>;
-  try {
-    draft = JSON.parse(await readData(`${safeWorkspaceId}/run/${safeStageId}-draft.json`));
-  } catch {
-    return NextResponse.json(
-      {
-        error:
-          "No draft available. The validation tool must succeed at least once during refinement.",
-      },
-      { status: 404 },
-    );
-  }
+  const isTerminalStage = safeStageId === STAGE_IDS.at(-1);
+  const safeStagePatch = isRecord(stagePatch) ? stagePatch : {};
+  const refinementMessages = Array.isArray(messages) ? (messages as RefinementUIMessage[]) : [];
 
-  let originalDomain: Record<string, unknown>;
+  let currentStageData: Record<string, unknown>;
   try {
-    const raw = await readData(`${safeWorkspaceId}/run/${safeStageId}.json`);
-    const currentData = JSON.parse(raw);
-    const {
-      llm_trace: _trace,
-      outcome: _outcome,
-      _live: _liveField,
-      ...domain
-    } = currentData;
-    originalDomain = domain;
+    currentStageData = JSON.parse(await readData(`${safeWorkspaceId}/run/${safeStageId}.json`));
   } catch {
     return NextResponse.json(
       { error: "Could not read current stage data" },
@@ -69,9 +58,69 @@ export async function POST(request: Request) {
     );
   }
 
-  const merged = { ...originalDomain, ...draft };
+  const { llm_trace: existingTrace, outcome: _outcome, _live: _liveField, ...originalDomain } =
+    currentStageData;
+  const refinementSummary = summarizeRefinementMessages(refinementMessages);
+  const mergedStagePatch = {
+    ...refinementSummary.stagePatch,
+    ...safeStagePatch,
+  };
+  const baseTrace = isRecord(existingTrace) ? (existingTrace as unknown as LLMTrace) : null;
+  const materializedPatch = {
+    ...mergedStagePatch,
+    ...(refinementMessages.length > 0
+      ? {
+          llm_trace: mergePersistedTrace(baseTrace, refinementMessages, {
+            durationSeconds: refinementSummary.durationSeconds,
+            usage: refinementSummary.usage,
+          }),
+        }
+      : {}),
+  };
+
+  if (Object.keys(materializedPatch).length === 0) {
+    return NextResponse.json(
+      { error: "Nothing to materialize" },
+      { status: 400 },
+    );
+  }
+
+  if (isTerminalStage) {
+    try {
+      const persistRes = await fetch(`${TOOL_SERVER}/api/stages/${safeStageId}/persist-web-patch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_id: safeWorkspaceId,
+          patch: materializedPatch,
+        }),
+      });
+
+      if (!persistRes.ok) {
+        const error = await persistRes.text();
+        return NextResponse.json(
+          { error: `Persist failed: ${error}` },
+          { status: 502 },
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        updatedFields: Object.keys(materializedPatch),
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: `Persist failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        { status: 500 },
+      );
+    }
+  }
+  const merged = { ...originalDomain, ...materializedPatch };
 
   try {
+    // Trigger replay
     const replayRes = await fetch(new URL("/api/replay", request.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,7 +143,7 @@ export async function POST(request: Request) {
     const replayResult = await replayRes.json();
     return NextResponse.json({
       ok: true,
-      updatedFields: Object.keys(draft),
+      updatedFields: Object.keys(materializedPatch),
       ...replayResult,
     });
   } catch (err) {

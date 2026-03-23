@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
-import type { Stage6Data } from "@causal-ssm/api-types";
+import type { LLMTrace, Stage6Data } from "@causal-ssm/api-types";
+import { Badge } from "@/components/ui/badge";
+import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { UIMessage } from "ai";
+import { formatCompact } from "@/lib/utils/format";
+import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
+import { Clock, Cpu } from "lucide-react";
 import { StageSection } from "../stage-section";
 import Stage6Content from "./stage-6-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
@@ -11,146 +15,71 @@ import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-6-nutsda.js
 const stage = STAGES.find((s) => s.id === "stage-6")!;
 const data = fixture as unknown as Stage6Data;
 const nutsdaData = nutsdaFixture as unknown as Stage6Data;
-const stage6AssistantMessages: UIMessage[] = [
-  {
-    id: "assistant-user-1",
-    role: "user",
-    parts: [{ type: "text", text: "Which treatments are identifiable and what looks strongest?" }],
+const storyTrace: LLMTrace = {
+  model: "openrouter/anthropic/claude-sonnet-4",
+  total_time_seconds: 4.2,
+  usage: {
+    input_tokens: 1765,
+    output_tokens: 312,
+    reasoning_tokens: 94,
   },
-  {
-    id: "assistant-reply-1",
-    role: "assistant",
-    parts: [
-      {
-        type: "text",
-        text: "The fitted model currently supports read-only inspection plus rung 2 and rung 3 simulations. Statin adherence and antihypertensive adherence look like the strongest identifiable treatments in the baseline ranking.",
-      },
-      {
-        type: "dynamic-tool",
-        toolCallId: "tool-get-model-info",
-        toolName: "get_model_info",
-        state: "output-available",
-        input: {
-          sections: ["overview", "identifiability", "baseline_effects", "capabilities"],
-        },
-        output: {
-          overview: {
-            outcome: "CardiovascularRisk",
-            treatments: ["StatinAdherence", "BPMedAdherence", "Exercise"],
-          },
-          identifiability: {
-            identifiable_treatments: ["StatinAdherence", "BPMedAdherence", "Exercise"],
-          },
-          baseline_effects: [
-            { treatment: "StatinAdherence", effect_size: -0.41, prob_positive: 0.02 },
-            { treatment: "BPMedAdherence", effect_size: -0.28, prob_positive: 0.09 },
-            { treatment: "Exercise", effect_size: -0.17, prob_positive: 0.14 },
-          ],
-          capabilities: {
-            intervention: { rung: 2, estimands: ["steady_state", "trajectory"] },
-            counterfactual: { rung: 3, estimands: ["end_state", "trajectory"] },
-          },
-        },
-      },
-    ],
-  },
-  {
-    id: "assistant-user-2",
-    role: "user",
-    parts: [
-      {
-        type: "text",
-        text: "Run a 30-day rung 2 trajectory where StatinAdherence is shifted up by 1 latent unit.",
-      },
-    ],
-  },
-  {
-    id: "assistant-reply-2",
-    role: "assistant",
-    parts: [
-      {
-        type: "text",
-        text: "Rung 2 suggests a sustained reduction in cardiovascular risk over the 30-day horizon, with most of the effect accumulating in the first week and then flattening toward a lower-risk steady state.",
-      },
-      {
-        type: "dynamic-tool",
-        toolCallId: "tool-rung-2",
-        toolName: "simulate_intervention",
-        state: "output-available",
-        input: {
-          action: { variable: "StatinAdherence", mode: "shift", amount: 1 },
-          query: { estimand: "trajectory", horizon_days: 30, projection: "both" },
-        },
-        output: {
-          rung: 2,
-          outcome: "CardiovascularRisk",
-          summary: {
-            mean: -0.43,
-            lower_95: -0.67,
-            upper_95: -0.19,
-            prob_positive: 0.01,
-          },
-          temporal: {
-            effect_1d: -0.12,
-            effect_7d: -0.31,
-            effect_30d: -0.43,
-            peak_effect: -0.45,
-          },
-          warnings: ["Prior sensitivity warning present for StatinAdherence."],
-        },
-      },
-    ],
-  },
-  {
-    id: "assistant-user-3",
-    role: "user",
-    parts: [
-      {
-        type: "text",
-        text: "Now do rung 3 using the last two observed weeks as evidence and compare the final forecast.",
-      },
-    ],
-  },
-  {
-    id: "assistant-reply-3",
-    role: "assistant",
-    parts: [
-      {
-        type: "text",
-        text: "Conditioning on the recent observed history preserves the same direction but shrinks the magnitude slightly. The posterior state was conditioned with an approximate smoother step before applying the action.",
-      },
-      {
-        type: "dynamic-tool",
-        toolCallId: "tool-rung-3",
-        toolName: "simulate_counterfactual",
-        state: "output-available",
-        input: {
-          evidence: {
-            mode: "observed_window",
-            start_time: "2024-09-16T00:00:00Z",
-            end_time: "2024-09-30T00:00:00Z",
-          },
-          action: { variable: "StatinAdherence", mode: "shift", amount: 1 },
-          query: { estimand: "end_state", horizon_days: 30, projection: "latent" },
-        },
-        output: {
-          rung: 3,
-          baseline_forecast_mean: 1.34,
-          counterfactual_forecast_mean: 0.98,
-          summary: {
-            mean: -0.36,
-            lower_95: -0.58,
-            upper_95: -0.11,
-            prob_positive: 0.03,
-          },
-          warnings: [
-            "Kalman smoother unavailable; counterfactual state estimated from the final observed measurement slice.",
-          ],
-        },
-      },
-    ],
-  },
-];
+  messages: [
+    {
+      role: "system",
+      content:
+        "You are writing the opening commentary for Stage 6 of a causal state-space analysis. Comment on the treatment-effect results for a technical user.",
+      tool_is_error: false,
+    },
+    {
+      role: "user",
+      content:
+        "Comment the results of Stage 6 for the fitted model, note warnings, and mention available rung 2 and rung 3 follow-up simulations.",
+      tool_is_error: false,
+    },
+    {
+      role: "assistant",
+      content:
+        "Statin adherence and blood-pressure medication adherence appear to be the strongest identifiable levers in the baseline ranking, both pointing toward lower downstream cardiovascular risk. The main caveat is that the fit still carries sensitivity and posterior-predictive warnings for some variables, so the ranking is informative but not fully clean. You can now inspect model details or ask for Pearl rung 2 and rung 3 simulations directly from this stage.",
+      tool_is_error: false,
+    },
+  ],
+};
+const dataWithTrace = {
+  ...data,
+  llm_trace: storyTrace,
+  final_summary:
+    "Statin adherence and blood-pressure medication adherence appear to be the strongest identifiable levers in the baseline ranking, both pointing toward lower downstream cardiovascular risk. The main caveat is that the fit still carries sensitivity and posterior-predictive warnings for some variables, so the ranking is informative but not fully clean. You can now inspect model details or ask for Pearl rung 2 and rung 3 simulations directly from this stage.",
+} as Stage6Data;
+
+function StoryTracePanel({ trace }: { trace: LLMTrace }) {
+  const messages = traceToUIMessages(trace);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="shrink-0 flex flex-wrap items-center gap-2 border-b bg-background pb-2 text-xs">
+        <Badge variant="secondary" className="gap-1 text-[10px]">
+          <Cpu className="h-3 w-3" />
+          {trace.model}
+        </Badge>
+        <span className="text-muted-foreground">
+          {formatCompact(trace.usage.input_tokens)} in / {formatCompact(trace.usage.output_tokens)} out
+        </span>
+        {trace.usage.reasoning_tokens ? (
+          <span className="text-muted-foreground">
+            ({formatCompact(trace.usage.reasoning_tokens)} reasoning)
+          </span>
+        ) : null}
+        <span className="ml-auto flex items-center gap-1 text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          {trace.total_time_seconds.toFixed(1)}s
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <ChatMessages messages={messages} />
+      </div>
+    </div>
+  );
+}
 
 const meta = {
   title: "Pipeline/Stages/6 – Treatment Effects",
@@ -221,28 +150,25 @@ export const CompletedNUTS: Story = {
   ),
 };
 
-export const CompletedWithAssistant: Story = {
-  name: "Completed With Assistant",
-  args: {
-    data,
-    userId: "storybook-demo",
-    assistantDemoState: {
-      messages: stage6AssistantMessages,
-      status: "ready",
-      showExamplePrompts: true,
-    },
-  },
+export const CompletedWithTrace: Story = {
+  name: "Completed With Trace",
+  args: { data: dataWithTrace },
   render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={6_700}
-    >
-      <Stage6Content {...args} />
-    </StageSection>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      <StageSection
+        number={stage.number}
+        title={stage.label}
+        status="completed"
+        outcome={dataWithTrace.outcome}
+        context={stage.description}
+        elapsedMs={6_700}
+      >
+        <Stage6Content {...args} />
+      </StageSection>
+      <div className="min-h-0 rounded-lg border bg-muted/30 p-3">
+        <StoryTracePanel trace={storyTrace} />
+      </div>
+    </div>
   ),
 };
 

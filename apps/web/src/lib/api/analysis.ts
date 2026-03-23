@@ -14,8 +14,12 @@ export interface ReplayResponse {
   sessionPersisted: boolean;
 }
 
-export interface RefineApplyResponse extends ReplayResponse {
+export interface RefineApplyResponse {
+  ok: true;
   updatedFields: string[];
+  resumeFrom?: StageId | null;
+  rootFlowRunId?: string;
+  sessionPersisted?: boolean;
 }
 
 export interface WorkspaceUnlockResponse {
@@ -43,10 +47,6 @@ export interface AnalysisManifest extends SessionResponse {
   workspaceId: string;
   latestRootFlowRunId: string | null;
   stages: AnalysisStageRuns;
-}
-
-export async function getSession(workspaceId: string): Promise<SessionResponse> {
-  return apiFetch<SessionResponse>(`/api/sessions/${workspaceId}`);
 }
 
 export async function unlockWorkspace(

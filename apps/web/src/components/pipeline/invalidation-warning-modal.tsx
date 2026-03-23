@@ -46,14 +46,13 @@ export function InvalidationWarningModal() {
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-base font-semibold">Invalidate downstream stages?</h3>
+                <h3 className="text-base font-semibold">Clear later stages and continue?</h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">
-                  Editing{" "}
+                  Following up on{" "}
                   <span className="font-medium text-foreground">
                     Stage {pendingStage?.number} — {pendingStage?.label}
                   </span>{" "}
-                  will invalidate all downstream results. They will need to be re-computed after
-                  your changes.
+                  will clear all later results. They will be re-run after you apply your changes.
                 </p>
                 {invalidatedStages.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -76,14 +75,14 @@ export function InvalidationWarningModal() {
                 onClick={cancelRefinement}
                 className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
               >
-                Cancel
+                Keep Current Results
               </button>
               <button
                 type="button"
                 onClick={confirmRefinement}
                 className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700"
               >
-                Continue & Invalidate
+                Continue
               </button>
             </div>
           </motion.div>
