@@ -1,6 +1,10 @@
 # causal-ssm-agent
 
-This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and NumPyro for full Bayesian state-space model estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
+This project explores an end-to-end, LLM-orchestrated framework for causal inference over long-context, multi-source data (e.g. large document collections or aggregated web search). An "orchestrator" LLM proposes candidate variables, time granularities, and a causal DAG; "worker" LLMs then populate those dimensions at scale, after which we use y0 for identifiability checks (via Pearl's ID algorithm), and NumPyro for Bayesian state-space model estimation with LLM-elicited priors. The goal is to build a system that not only estimates causal effects and counterfactuals from messy, high-dimensional evidence, but also knows when to trust those numeric estimates and when to fall back to purely structural, qualitative reasoning.
+
+Current implementation status:
+- The pipeline and web app are implemented end to end, including interactive refinement for stages 1a, 1b, 4, and 6.
+- The estimation stack currently targets single-subject or already-aggregated time series. Hierarchical multi-subject panel modeling is not implemented yet.
 
 **Key Innovation: Continuous-Time Modeling**
 
@@ -8,8 +12,14 @@ Unlike traditional discrete-time approaches that require upfront aggregation, th
 - Handles irregularly-spaced observations natively via Kalman/particle filtering
 - Avoids information loss from pre-aggregation
 - Models dynamics via stochastic differential equations
-- Supports hierarchical (multi-subject) panel data
+- Keeps irregular-time dynamics explicit rather than forcing fixed-width bins up front
 - Computes counterfactual effects via do-operator on CT steady states
+
+## Start Here
+
+- Curious readers: start with [`docs/index.md`](docs/index.md), [`docs/architecture/artifact_glossary.md`](docs/architecture/artifact_glossary.md), [`docs/architecture/pipeline_dimensions.md`](docs/architecture/pipeline_dimensions.md), and [`docs/pipeline_stages.md`](docs/pipeline_stages.md)
+- Causal inference practitioners: then read [`docs/modeling/scope.md`](docs/modeling/scope.md), [`docs/modeling/assumptions.md`](docs/modeling/assumptions.md), and [`docs/modeling/estimation.md`](docs/modeling/estimation.md)
+- Software engineers: start with [`docs/guides/dev_setup.md`](docs/guides/dev_setup.md), [`docs/guides/data_workflow.md`](docs/guides/data_workflow.md), and [`docs/guides/codegen.md`](docs/guides/codegen.md)
 
 ## Key Feature: Natural Language Causal Queries
 
@@ -37,6 +47,7 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the full documentation structure.
 
+- **[Architecture](docs/architecture/)** - Cross-cutting pipeline semantics: artifact lineage, temporal semantics, runtime DAG, replay/restore, and persistence boundaries
 - **[Modeling](docs/modeling/)** - Theoretical foundations: scope, assumptions, estimation
 - **[Guides](docs/guides/)** - Practical usage: data workflow, running evals, codegen
 
@@ -59,7 +70,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   │   ├── ssm_observation_metadata.py    # Observation-family metadata hydration and support validation
 │   │   │   │   ├── ssm/inference_structure.py     # Shared likelihood-path + auto-routing + first-pass RB planning
 │   │   │   │   └── ssm/prior_predictive_runtime.py  # Compile-stable prior predictive runtime from serialized semantics
-│   │   │   ├── flows/             # Prefect pipeline stages (0 → 6) + replay/resume orchestration
+│   │   │   ├── flows/             # Prefect pipeline stages (stage-0 → stage-6, including stage-1a/1b, stage-4b, and stage-5a/5b) + replay/resume orchestration
 │   │   │   │   └── stages/llm_stage_task.py       # Shared Prefect task factory for LLM-backed stages
 │   │   │   └── utils/             # Shared utilities (config, llm runtime, LiteLLM client, data, identifiability)
 │   │   │       ├── observation_semantics.py  # Canonical support-kind / summary-operator / anchor-policy semantics
@@ -108,6 +119,10 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── <WORKSPACE_ID>/access.json # Hashed workspace resume-code metadata stored separately from session lineage
 │   └── <WORKSPACE_ID>/session.json # Per-workspace run lineage metadata persisted alongside query.txt
 ├── docs/                          # Project documentation (see docs/index.md)
+│   ├── architecture/              # Cross-cutting pipeline semantics and runtime behavior
+│   │   ├── artifact_glossary.md   # Short definitions for the pipeline's main domain and runtime objects
+│   │   ├── pipeline_dimensions.md # Artifact lineage, temporal semantics, assurance surfaces, and persistence boundaries
+│   │   └── runtime_semantics.md   # Execution DAG, resume/replay, gates, and stage state surfaces
 │   ├── modeling/                  # Theoretical foundations + SSM compilation pipeline
 │   ├── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing
 │   └── literature.md              # Consolidated bibliography

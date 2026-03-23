@@ -2,6 +2,8 @@
 
 This document covers the inference methods available for continuous-time state-space models, the design axes that distinguish them, and the structural routing logic that selects a method based on model properties. For likelihood backend details and the CT-SDE formulation, see [estimation.md](estimation.md).
 
+Within the pipeline artifact lineage, this document explains how the fitted runtime chooses or exposes inference behavior after functional specification and compilation. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+
 ## The Marginalization Challenge
 
 Given a state-space model with latent states **x**\_1:T and observations **y**\_1:T, parameter inference requires the marginal likelihood:

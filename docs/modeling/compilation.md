@@ -2,6 +2,8 @@
 
 This document describes the compilation pipeline that translates a `ModelSpec` (the Stage 4 output) into a NumPyro-ready `SSMModel`. The pipeline is a pure, deterministic transformation -- no LLM calls, no data access. It lives in `apps/data-pipeline/src/causal_ssm_agent/models/`.
 
+Within the pipeline artifact lineage, this document sits between the Stage 4 functional specification and the estimation runtime. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+
 ## Data Flow
 
 ```

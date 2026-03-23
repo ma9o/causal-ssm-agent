@@ -2,6 +2,8 @@
 
 This document describes how Stage 4 translates the causal DAG (topological structure) into a fully specified NumPyro/JAX state-space model (functional specification). The approach combines rule-based constraints with LLM-assisted prior elicitation.
 
+Within the pipeline artifact lineage, this document explains the transition from `CausalSpec` to `ModelSpec` plus priors. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+
 ---
 
 ## Terminology
@@ -26,7 +28,7 @@ Deterministic rules that enforce modeling assumptions and constrain the space of
 | `ordinal` | OrderedLogistic | cumulative logit | — |
 | `categorical` | Categorical | softmax | — |
 
-The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via the `observation_model` field in the model spec.
+The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via per-indicator entries in the `likelihoods` field of `ModelSpec`.
 
 **1.2 Temporal Structure:** AR(1) for all endogenous time-varying constructs. See [assumptions.md](assumptions.md) A3.
 
@@ -85,15 +87,15 @@ For parameters not fully determined by rules, we use LLM elicitation following r
 | AR ρ | Mean, SD | Bounded to (−1, 1) for stationarity |
 | Residual σ² | Scale | Must be positive (Exponential/HalfNormal) |
 
-**2.2 Elicitation Protocol (AutoElicit-style)** *(planned, not yet implemented)*
+**2.2 Elicitation Protocol (AutoElicit-style, optional)**
 
-Based on Capstick et al. (2024), the planned approach uses paraphrased prompting to handle LLM overconfidence:
+Based on Capstick et al. (2024), Stage 4 can optionally use paraphrased prompting to handle LLM overconfidence. When `stage4_prior_elicitation.paraphrasing.enabled=true`, the agent receives an `elicit_prior_gmm` tool that:
 
 1. Generate N paraphrased task descriptions (N=10-100)
 2. For each paraphrase, elicit prior parameters from LLM
 3. Aggregate into mixture-of-Gaussians: p(β) = Σ π_k · N(μ_k, σ_k)
 
-**Current implementation:** A single prompt per parameter is used (Section 2.3). Paraphrased prompting with mixture aggregation is a planned enhancement.
+**Default behavior:** Paraphrased prompting is disabled by default for cost, so the common path is still a single direct elicitation per parameter (Section 2.3).
 
 **2.3 Prompt Structure**
 
@@ -118,7 +120,7 @@ Output as JSON: {"mean": X, "std": Y, "reasoning": "..."}
 
 **2.4 Aggregation Strategy**
 
-From N elicited priors {(μ_k, σ_k)}:
+When paraphrasing is enabled, Stage 4 aggregates N elicited priors {(μ_k, σ_k)}:
 
 1. **Simple aggregation**: Use mean of means, pooled SD
    - μ_pooled = mean(μ_k)
@@ -144,9 +146,9 @@ Stage 4b applies a cascade of diagnostics:
 2. **Output sensitivity analysis:** Perturbs each parameter and measures the effect on model outputs. Parameters with near-zero sensitivity are structurally non-identifiable (the data cannot distinguish different values).
 3. **Profile likelihood:** For each parameter, optimizes over all other parameters to trace out the profile likelihood surface. A flat profile indicates non-identifiability; a bounded but shallow profile indicates weak identifiability (Raue et al., 2009).
 
-Additional optional diagnostics include SBC (simulation-based calibration) and power-scaling sensitivity analysis.
+The checked-in Stage 4b runtime currently covers the three diagnostics above. Post-fit power-scaling sensitivity belongs to Stage 5b after fitting, and SBC is not part of the current Stage 4b flow.
 
-See `stage4b_parametric_id.py` and `parametric_id.py` for implementation.
+See `flows/stages/stage4b_parametric_id.py` and `utils/parametric_id.py` for implementation.
 
 ---
 

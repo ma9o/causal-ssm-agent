@@ -2,6 +2,8 @@
 
 This document describes the end-to-end estimation pipeline: from continuous-time SDE specification through discretization, likelihood computation, and Bayesian inference. For inference strategy selection rationale, see [inference-strategies.md](inference-strategies.md).
 
+Within the pipeline artifact lineage, this document starts after Stage 4 has produced a `ModelSpec` and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+
 ## 1. CT-SDE Formulation
 
 The latent process is a multivariate Ornstein-Uhlenbeck SDE:

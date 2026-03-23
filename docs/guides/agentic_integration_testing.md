@@ -1,6 +1,6 @@
 # Agentic Integration Testing
 
-How to run full end-to-end integration tests of the pipeline and web UI using an AI agent (Claude Code) with the `browser_eval` tool.
+How to run full end-to-end integration checks of the pipeline and web UI using an AI agent with Next.js devtools MCP plus browser automation.
 
 ## Design Principles
 
@@ -9,25 +9,25 @@ The methodology splits responsibilities between two modes:
 | Concern | Mode | Why |
 |---------|------|-----|
 | File placement, pipeline trigger, run registration | **Programmatic** (`cp`, `curl`) | Reliable, fast, no UI fragility |
-| UI rendering verification, visual regression | **browser_eval** (Playwright) | Only way to see rendered output |
+| Runtime errors, route discovery, build state | **Next.js devtools MCP** | Reads the running app directly and catches server/runtime errors before UI debugging |
+| UI rendering verification, visual regression | **browser automation** (`browser_eval` / Playwright) | Only way to see rendered output |
 
-The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, then hand off to `browser_eval` only for the lightweight "enter a resume key, click Resume, screenshot" loop.
+The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, check the running app with Next.js devtools MCP, then hand off to browser automation only for the lightweight "enter a resume key, click Resume, screenshot" loop.
 
 ## Prerequisites
 
-You need three long-running services for integration testing.
+You need two long-running backend services plus the existing web frontend on port `3000`.
 
-### 1. Check for Next.js dev lock
+### 1. Reuse the existing Next.js dev server
 
-The Next.js dev server acquires a lock at `apps/web/.next/dev/lock`. You cannot run two instances from the same `apps/web/` directory. Before starting the test server, check:
+Do not start another Next.js dev server from the same worktree. This repo normally already has one running on port `3000`. If you think it needs a restart, ask first.
 
-```bash
-ls apps/web/.next/dev/lock 2>/dev/null && echo "LOCKED" || echo "OK"
-```
+Before doing browser work, use the Next.js devtools MCP against port `3000`:
+- `nextjs_index(port=3000)` to discover the server
+- `get_errors` to confirm there are no current runtime/build errors
+- `get_routes` to confirm the route surface you expect
 
-If **LOCKED**: stop and ask the user to clear the lock or stop the existing process manually. Do NOT kill the process yourself.
-
-### 2. Start services
+### 2. Start backend services
 
 Start these processes in separate terminals (or background them). **Order matters** — Prefect must be up before the pipeline deployment registers.
 
@@ -35,7 +35,7 @@ Start these processes in separate terminals (or background them). **Order matter
 |---|---------|------|---------------|--------------|
 | 1 | Prefect server | 4200 | See below | Central API coordinator |
 | 2 | Pipeline deployment | — | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
-| 3 | Next.js frontend | 3000 | `cd apps/web && bun run dev -p 3000` | Web UI for session resume and stage visualization |
+| 3 | Next.js frontend | 3000 | Reuse the existing dev server | Web UI for session resume and stage visualization |
 
 #### Prefect server (file-backed SQLite)
 
@@ -51,7 +51,7 @@ cd apps/data-pipeline && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlit
 Delete the database files before every restart so each integration run starts from
 a clean Prefect state.
 
-### 3. Health-check the HTTP services
+### 3. Health-check the services
 
 ```bash
 # Prefect server
@@ -67,7 +67,7 @@ curl -s -X POST http://localhost:4200/api/deployments/filter \
 curl -sf -o /dev/null http://localhost:3000 && echo "next.js ok"
 ```
 
-All three must succeed before proceeding.
+All three must succeed before proceeding. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
 
 ## Step-by-Step Flow
 
@@ -129,9 +129,9 @@ curl -s -b "$COOKIE_JAR" http://localhost:3000/api/sessions/$WORKSPACE_ID
 # → {"rootFlowRunIds":["..."],"question":"...","createdAt":"..."}
 ```
 
-### 5. Resume via browser_eval
+### 5. Resume via browser automation
 
-Using the `browser_eval` tool:
+Using browser automation:
 
 ```
 1. Navigate to http://localhost:3000
@@ -153,7 +153,7 @@ Poll and screenshot as the pipeline progresses:
 4. Final screenshot when "Complete" badge appears
 ```
 
-The screenshots serve as visual regression artifacts — an agent can compare them against expected layouts.
+The screenshots serve as visual regression artifacts. If the UI behaves unexpectedly, check Next.js devtools MCP errors before assuming the browser script is wrong.
 
 ## Resuming After a Stage Failure
 

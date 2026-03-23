@@ -2,11 +2,15 @@
 
 Evaluate LLM performance on pipeline tasks using Inspect AI.
 
+## Cost and Workflow Warning
+
+These evals consume paid model calls. In normal repo work, do **not** run them casually. If you are validating code changes rather than evaluating model quality, use `uv run pytest tests/` instead.
+
 ## Available Evals
 
-The active checked-in eval surface currently covers the stable pre-Stage-4
-pipeline areas. Some eval filenames keep older stage numbering. The current
-pipeline stages are `stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6`.
+The active checked-in eval surface mostly covers the pre-Stage-4 pipeline
+areas, plus one tracked fixture-level orchestrator eval. Some eval filenames
+keep older stage numbering. The current pipeline stages are `stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6`.
 
 | File | Current pipeline area | What it tests |
 |------|-----------------------|---------------|
@@ -14,12 +18,19 @@ pipeline stages are `stage-0 → stage-1a → stage-1b → stage-2 → stage-3 �
 | `evals/single_model/eval1b_measurement_model.py` | Stage 1b | Measurement model proposal |
 | `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
 | `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
+| `evals/multi_model/eval_medical_semantics_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `MEDICAL_SEMANTICS` fixture |
 
 The old split Stage 4 evals were removed because they no longer match the
 current agentic Stage 4 runtime. Reintroduce Stage 4 eval coverage as a single
 end-to-end eval around `causal_ssm_agent.orchestrator.stage4.run_stage4()`.
 
+`evals/scripts/run_parallel_evals.py` currently wraps only the Stage 1a
+orchestrator eval and the Stage 2 worker eval. The `MEDICAL_SEMANTICS`
+fixture eval is run directly with `inspect eval`.
+
 ## Run all models in parallel
+
+Only run these when you explicitly intend to spend tokens on evals.
 
 ```bash
 # Stage 1a orchestrator eval (default) — runs configured models concurrently
@@ -43,9 +54,16 @@ uv run python evals/scripts/run_parallel_evals.py -q 1,3
 
 ## Run individual models
 
+Again: these are opt-in costful commands, not the default verification path for everyday development.
+
 ```bash
 uv run inspect eval evals/single_model/eval1a_latent_model.py \
     --model openrouter/anthropic/claude-opus-4.6
+
+# MEDICAL_SEMANTICS fixture orchestrator eval
+uv run inspect eval evals/multi_model/eval_medical_semantics_orchestrator.py
+uv run inspect eval evals/multi_model/eval_medical_semantics_orchestrator.py \
+    -T models=openrouter/anthropic/claude-opus-4.6,openrouter/openai/gpt-5.1
 
 # View detailed results
 uv run inspect view
