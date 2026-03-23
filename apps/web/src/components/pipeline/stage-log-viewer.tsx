@@ -1,6 +1,11 @@
 "use client";
 
-import { type PrefectLogEntry, logLevelLabel, useStageLogs } from "@/lib/hooks/use-stage-logs";
+import type { StageId } from "@causal-ssm/api-types";
+import {
+  type PrefectLogEntry,
+  logLevelLabel,
+  useStageLogs,
+} from "@/lib/hooks/use-stage-logs";
 import { cn } from "@/lib/utils";
 import { Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -32,14 +37,28 @@ function LogLine({ entry }: { entry: PrefectLogEntry }) {
 
 export function StageLogViewer({
   userId,
+  stageId,
   status,
   stageSubflowRunId,
+  logFlowRunIds,
 }: {
   userId: string;
+  stageId: StageId;
   status: StageRunStatus;
   stageSubflowRunId?: string | null;
+  logFlowRunIds?: string[];
 }) {
-  const logs = useStageLogs(userId, stageSubflowRunId ?? null, status);
+  const {
+    logs,
+    bootstrapStatus,
+    connectionState,
+  } = useStageLogs(
+    userId,
+    stageId,
+    stageSubflowRunId ?? null,
+    logFlowRunIds ?? [],
+    status,
+  );
   const [open, setOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -51,6 +70,17 @@ export function StageLogViewer({
   }, [logs.length, open, status]);
 
   if (logs.length === 0 && status !== "running") return null;
+
+  const emptyMessage =
+    bootstrapStatus === "pending"
+      ? "Loading log backlog..."
+      : bootstrapStatus === "error"
+        ? "Failed to load historical logs."
+      : connectionState === "error"
+        ? "Live log stream unavailable."
+        : connectionState === "connecting" || connectionState === "authenticating"
+          ? "Connecting to live log stream..."
+          : "Waiting for logs...";
 
   return (
     <div className="mt-3 border-t pt-3">
@@ -65,10 +95,15 @@ export function StageLogViewer({
           <span className="text-muted-foreground/50">({logs.length})</span>
         )}
       </button>
+      {status === "running" && connectionState === "error" && (
+        <p className="mt-2 text-xs text-destructive">
+          Live log stream disconnected. Prefect `logs/out` must be available for running-stage logs.
+        </p>
+      )}
       {open && (
         <div className="mt-2 max-h-64 overflow-y-auto rounded-md bg-muted/30 p-2 font-mono text-[11px]">
           {logs.length === 0 ? (
-            <p className="text-muted-foreground/50 text-center py-2">Waiting for logs...</p>
+            <p className="text-muted-foreground/50 text-center py-2">{emptyMessage}</p>
           ) : (
             logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
           )}

@@ -10,6 +10,8 @@ export interface SessionResponse {
 export interface ReplayResponse {
   ok: true;
   resumeFrom: StageId | null;
+  rootFlowRunId: string;
+  sessionPersisted: boolean;
 }
 
 export interface RefineApplyResponse extends ReplayResponse {
@@ -27,6 +29,7 @@ export interface AnalysisStageTaskRun {
 export interface AnalysisStageRun {
   ownerRootFlowRunId: string | null;
   stageSubflowRunId: string | null;
+  logFlowRunIds: string[];
   wrapperTaskRun: AnalysisStageTaskRun | null;
 }
 

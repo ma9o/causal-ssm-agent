@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PREFECT_API_URL,
   DEFAULT_PREFECT_EVENTS_URL,
+  DEFAULT_PREFECT_LOGS_URL,
   DEFAULT_TOOL_SERVER_URL,
   getPrefectApiUrl,
   getPrefectEventsUrl,
+  getPrefectLogsUrl,
   getToolServerUrl,
 } from "./runtime-urls";
 
@@ -14,6 +16,9 @@ describe("runtime-urls", () => {
     expect(getToolServerUrl({})).toBe(DEFAULT_TOOL_SERVER_URL);
     expect(getPrefectEventsUrl("http://example.test", { NODE_ENV: "development" })).toBe(
       DEFAULT_PREFECT_EVENTS_URL,
+    );
+    expect(getPrefectLogsUrl("http://example.test", { NODE_ENV: "development" })).toBe(
+      DEFAULT_PREFECT_LOGS_URL,
     );
   });
 
@@ -33,11 +38,21 @@ describe("runtime-urls", () => {
         NEXT_PUBLIC_PREFECT_EVENTS_URL: "wss://prefect.example/events/out/",
       }),
     ).toBe("wss://prefect.example/events/out");
+
+    expect(
+      getPrefectLogsUrl("https://app.example", {
+        NODE_ENV: "production",
+        NEXT_PUBLIC_PREFECT_LOGS_URL: "wss://prefect.example/logs/out/",
+      }),
+    ).toBe("wss://prefect.example/logs/out");
   });
 
   it("falls back to the app origin for production websocket traffic", () => {
     expect(getPrefectEventsUrl("https://app.example", { NODE_ENV: "production" })).toBe(
       "wss://app.example/prefect/events/out",
+    );
+    expect(getPrefectLogsUrl("https://app.example", { NODE_ENV: "production" })).toBe(
+      "wss://app.example/prefect/logs/out",
     );
   });
 });

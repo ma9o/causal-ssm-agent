@@ -187,6 +187,7 @@ export function StageSectionRouter({
   const section = (
     <StageSection
       id={stage.id}
+      stageId={stage.id}
       number={stage.number}
       title={stage.label}
       status={status}
@@ -201,15 +202,19 @@ export function StageSectionRouter({
           <Suspense fallback={null}>
             <Stage2RunningContent
               userId={userId}
+              rootFlowRunId={stageRun?.ownerRootFlowRunId ?? null}
               stageStatus={status}
               stageSubflowRunId={stageRun?.stageSubflowRunId ?? null}
+              logFlowRunIds={stageRun?.logFlowRunIds ?? []}
             />
           </Suspense>
         ) : undefined
       }
       userId={userId}
       stageSubflowRunId={stageRun?.stageSubflowRunId ?? null}
+      logFlowRunIds={stageRun?.logFlowRunIds ?? []}
       invalidated={invalidated}
+      showLogViewer={!isStage2Running}
     >
       {isCompleted && (
         <ErrorBoundary>
