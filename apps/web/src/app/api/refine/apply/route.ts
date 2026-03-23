@@ -9,10 +9,10 @@ import { readData } from "@/lib/storage";
  * during refinement, merges with the original stage data, and triggers
  * a pipeline replay from that stage.
  *
- * Body: { userId, stageId }
+ * Body: { userId, stageId, rootFlowRunId? }
  */
 export async function POST(request: Request) {
-  const { userId, stageId } = await request.json();
+  const { userId, stageId, rootFlowRunId } = await request.json();
 
   if (!userId || !stageId) {
     return NextResponse.json(
@@ -80,6 +80,7 @@ export async function POST(request: Request) {
         userId: safeUserId,
         stageId: safeStageId,
         stageData: merged,
+        ...(typeof rootFlowRunId === "string" ? { rootFlowRunId } : {}),
       }),
     });
 
