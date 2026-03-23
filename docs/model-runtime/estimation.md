@@ -1,8 +1,8 @@
 # Estimation Pipeline
 
-This document describes the end-to-end estimation pipeline: from continuous-time SDE specification through discretization, likelihood computation, and Bayesian inference. For inference strategy selection rationale, see [inference-strategies.md](inference-strategies.md).
+This document describes the end-to-end estimation pipeline: from continuous-time SDE specification through discretization, likelihood computation, and Bayesian inference. For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
-Within the pipeline artifact lineage, this document starts after Stage 4 has produced a `ModelSpec` and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [../architecture/pipeline_dimensions.md](../architecture/pipeline_dimensions.md). For short artifact definitions, see [../architecture/artifact_glossary.md](../architecture/artifact_glossary.md).
+Within the pipeline artifact lineage, this document starts after Stage 4 has produced a `ModelSpec` and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). For short artifact definitions, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
 
 ## 1. CT-SDE Formulation
 
@@ -131,7 +131,7 @@ Effects are estimated as relationships between constructs as measured through th
 
 - **AR coefficients** as inertia in the construct
 - **Cross-lag coefficients** as causal relationships between constructs
-- **Time-invariant latents** as stable subject-level intercepts (see [assumptions.md](assumptions.md) A5)
+- **Time-invariant latents** as stable subject-level intercepts (see [../concepts/assumptions.md](../concepts/assumptions.md) A5)
 
 Causal interpretation requires that the DAG correctly captures the true causal structure and that all relevant confounders are included.
 

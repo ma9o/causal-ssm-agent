@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 const GITHUB_BASE = "https://github.com/ma9o/causal-ssm-agent/blob/master";
 
 /**
- * Detect file paths ending in .md (e.g. `docs/modeling/functional_spec.md`)
+ * Detect file paths ending in .md (e.g. `docs/model-runtime/functional-specification.md`)
  * and wrap them in links to the GitHub repo.
  */
 const MD_PATH_RE = /(?<!\S)((?:[\w.-]+\/)*[\w.-]+\.md)(?!\S)/g;
