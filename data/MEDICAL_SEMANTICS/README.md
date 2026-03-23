@@ -3,10 +3,13 @@
 This fixture exists to lock down Stage 2 observation semantics for a mixed
 computed/semantic measurement model.
 
-The machine-readable Stage 2 dataframe contract lives in
-[`expected-stage2-shape.json`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/expected-stage2-shape.json).
-Use that artifact for exact row/column coverage checks; this README explains the
-meaning of the contract.
+The checked-in expected full Stage 2 tables live in:
+
+- [`expected-stage2-raw-data.csv`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/expected-stage2-raw-data.csv)
+- [`expected-stage2-model-data.csv`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/expected-stage2-model-data.csv)
+
+Use those artifacts for exact row/value regression checks; this README explains
+the meaning of the contract.
 
 ## Stage 2 Contract
 
