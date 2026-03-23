@@ -1,6 +1,9 @@
 """Shared utilities for evals."""
 
 import json
+import random
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +18,7 @@ from inspect_ai.model import (
     execute_tools,
     get_model,
 )
+from inspect_ai.scorer import Score
 from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
@@ -36,6 +40,134 @@ def load_eval_config() -> dict:
     config_path = Path(__file__).parent / "config.yaml"
     with config_path.open() as f:
         return yaml.safe_load(f)
+
+
+@dataclass(frozen=True)
+class AnonymousLabelMapping:
+    """Anonymous labels assigned to candidate IDs for a single sample."""
+
+    label_map: dict[str, str]
+    reverse_label_map: dict[str, str]
+
+
+@dataclass(frozen=True)
+class JudgeRanking:
+    """Parsed judge ranking response."""
+
+    ranking: list[str]
+    rationale: dict[str, str]
+
+
+def make_anonymous_label_mapping(sample_id: str, candidate_ids: list[str]) -> AnonymousLabelMapping:
+    """Assign deterministic anonymous labels for judge-facing candidate sections."""
+    labels = [chr(ord("A") + i) for i in range(len(candidate_ids))]
+    shuffled_candidate_ids = candidate_ids.copy()
+    random.seed(hash(sample_id))
+    random.shuffle(shuffled_candidate_ids)
+    label_map = dict(zip(shuffled_candidate_ids, labels))
+    reverse_label_map = {label: candidate_id for candidate_id, label in label_map.items()}
+    return AnonymousLabelMapping(label_map=label_map, reverse_label_map=reverse_label_map)
+
+
+def format_labeled_candidates(
+    mapping: AnonymousLabelMapping,
+    render_candidate_body: Callable[[str], str],
+) -> str:
+    """Format anonymous candidate sections for a judge prompt."""
+    sections = []
+    for candidate_id, label in sorted(mapping.label_map.items(), key=lambda item: item[1]):
+        body = render_candidate_body(candidate_id).strip()
+        if body:
+            sections.append(f"### Candidate {label}\n\n{body}")
+        else:
+            sections.append(f"### Candidate {label}")
+    return "\n\n".join(sections)
+
+
+def parse_judge_ranking_response(completion: str) -> JudgeRanking:
+    """Extract ranking JSON from a judge completion."""
+    json_match = re.search(r"\{[\s\S]*\}", completion)
+    if not json_match:
+        raise ValueError("No JSON found in judge response")
+
+    try:
+        judge_data = json.loads(json_match.group())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON parse error: {exc}") from exc
+
+    ranking = judge_data.get("ranking", [])
+    rationale = judge_data.get("rationale", {})
+
+    if not isinstance(ranking, list):
+        raise ValueError("Judge response 'ranking' must be a list")
+    if not isinstance(rationale, dict):
+        raise ValueError("Judge response 'rationale' must be an object")
+
+    return JudgeRanking(
+        ranking=[str(label) for label in ranking],
+        rationale={str(label): str(reason) for label, reason in rationale.items()},
+    )
+
+
+def score_judge_ranking_response(
+    *,
+    completion: str,
+    reverse_label_map: dict[str, str],
+    alias_lookup: dict[str, str],
+    extra_metadata: dict[str, Any] | None = None,
+) -> Score:
+    """Build a standard ranking score from a parsed judge response."""
+    try:
+        ranking_result = parse_judge_ranking_response(completion)
+    except ValueError as exc:
+        message = str(exc)
+        answer = "[JSON parse error]" if message.startswith("JSON parse error:") else "[No JSON found in judge response]"
+        return Score(
+            value=0.0,
+            answer=answer,
+            explanation=f"{message}\nResponse: {completion[:500]}...",
+        )
+
+    ranking_aliases = []
+    for label in ranking_result.ranking:
+        candidate_id = reverse_label_map.get(label, "unknown")
+        ranking_aliases.append(alias_lookup.get(candidate_id, candidate_id))
+
+    explanation = "\n".join(
+        f"{alias_lookup.get(reverse_label_map.get(label, 'unknown'), reverse_label_map.get(label, 'unknown'))}: {ranking_result.rationale.get(label, 'N/A')}"
+        for label in ranking_result.ranking
+    )
+
+    metadata: dict[str, Any] = {
+        "ranking_aliases": ranking_aliases,
+        "ranking_labels": ranking_result.ranking,
+        "rationale": ranking_result.rationale,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
+    return Score(
+        value=1.0,
+        answer=" > ".join(ranking_aliases),
+        explanation=explanation,
+        metadata=metadata,
+    )
+
+
+def parse_csv_task_arg(value: str | list[str] | None) -> list[str] | None:
+    """Normalize Inspect task args that may arrive as CSV strings or lists."""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        parts = value.split(",")
+    else:
+        parts = []
+        for item in value:
+            parts.extend(item.split(","))
+
+    normalized = [part.strip() for part in parts if part.strip()]
+    return normalized or None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -260,6 +392,7 @@ def make_generate_fn(
         messages: list[dict[str, Any]],
         tools: list[Tool] | None = None,
         follow_ups: list[str] | None = None,
+        label: str | None = None,  # noqa: ARG001
     ) -> str:
         chat_messages = _dict_messages_to_chat(messages)
         if follow_ups or tools:
