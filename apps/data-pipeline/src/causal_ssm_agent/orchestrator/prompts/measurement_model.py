@@ -11,6 +11,12 @@ You are given:
 
 Your job is to propose INDICATORS that operationalize constructs using the available data columns. Each indicator gets a semantic `name` (it does NOT need to match a column name). The `how_to_measure` field must describe exactly how to derive the indicator value from the raw data columns — worker LLMs will follow these instructions to extract values.
 
+Prefer a parsimonious, source-faithful measurement model:
+- Start from raw columns that already directly express the construct.
+- If a direct deterministic measurement exists, operationalize that first.
+- Reuse deterministic computed operationalizations instead of inventing broader semantic proxies for the same construct.
+- Do not introduce wider support windows or weak proxy indicators unless the data genuinely requires them.
+
 ## Reflective Measurement Model (A1)
 
 We use a REFLECTIVE measurement model: the latent construct CAUSES its indicators.
@@ -116,6 +122,14 @@ Use `"semantic"` (default) when ANY of these hold:
 
 `"computed"` indicators are executed instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` whenever a deterministic direct aggregation or deterministic support-window rule is sufficient.
 
+### Measurement Parsimony and Stability
+
+- Prefer the narrowest faithful operationalization of each construct. If a raw column already directly measures the construct, use that signal rather than creating a more interpretive semantic indicator.
+- Prefer reusing an existing computed signal over introducing a new semantic indicator that restates the same phenomenon less directly.
+- Keep indicator names concrete and close to the observed quantity. Avoid gratuitous renaming or abstract aliases for direct measurements.
+- Do not widen `observation_window` unless the source evidence itself is only available as a wider summary or the construct truly requires interval summarization. On a daily `model_clock`, do not introduce weekly or monthly indicators when the signal can be operationalized per day.
+- For time-invariant constructs, add proxy indicators only when the dataset contains stable, explicit evidence for them. Do not invent weak semantic proxies from incidental mentions just to improve coverage or identifiability.
+
 ## how_to_measure Guidelines
 
 The `how_to_measure` field must tell workers exactly what to do inside each support window:
@@ -206,7 +220,7 @@ If the tool reports identifiability issues, it will tell you:
 
 To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement model (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder — add it as a new indicator with the confounder as its `construct_name`.
 
-If no suitable proxy exists in the available data columns, proceed anyway — those effects will remain non-identifiable and be flagged in downstream analysis.
+If no suitable strong proxy exists in the available data columns, proceed anyway — those effects will remain non-identifiable and be flagged in downstream analysis. Do not invent speculative semantic proxies from sparse incidental text just to satisfy identifiability.
 
 IMPORTANT: Once you get "VALID", STOP. Do not output anything else — the validated result is already saved by the tool. Any additional output will be ignored.
 """
@@ -234,9 +248,13 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
 - If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule.window_expr` when direct aggregation is not enough
+- Prefer deterministic direct operationalizations over broader semantic proxies for the same construct
+- Keep indicator names concrete and close to the observed signal; avoid gratuitous renaming
 - Add `observation_window` only when an indicator summarizes a wider interval than `model_clock`
+- Avoid wider `observation_window` values when the signal can already be operationalized at `model_clock`
 - When relevant, make clear whether workers should aggregate event-level evidence across the window or extract a one-off summary mention within the window
 - For `"semantic"` indicators, make `0` versus `null` explicit in `how_to_measure`
+- For time-invariant constructs, only add indicators when there is explicit stable proxy evidence in the data
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 
@@ -263,15 +281,19 @@ Review your proposed measurement model for operationalization coherence.
 8. **Temporal independence (A8)**: Do any indicators have their own temporal dynamics beyond the construct?
 9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? Deterministic direct aggregations and deterministic support-window rules should not go through LLM workers.
 10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
+11. **Parsimony/stability**: Did you introduce a broader semantic proxy, a gratuitously renamed indicator, or a wider support window where a narrower deterministic operationalization would suffice?
 
 ## Red Flags
 
 - how_to_measure describes computed metrics → move to aggregation
 - how_to_measure requires cross-chunk data → not possible
 - monthly/weekly summary indicator lacks `observation_window` or fails to say whether to extract an explicit summary mention versus aggregate raw events
+- weekly/monthly indicator introduced even though the signal can be operationalized at `model_clock`
 - unsupported aggregation operator (`min`, `median`, `trend`, etc.)
 - Vague instructions that workers can't follow
 - semantic instructions like "return 1 if found, otherwise 0" that do not distinguish `0` from `null`
+- semantic proxy duplicates or weakens an available deterministic computed measurement
+- weak proxy for a time-invariant construct inferred from sparse incidental text
 - Indicators that directly cause each other → violates pure indicators assumption
 - Cumulative/running metrics → violates A8 (temporal independence)
 
