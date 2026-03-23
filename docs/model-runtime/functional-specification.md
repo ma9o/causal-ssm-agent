@@ -2,7 +2,7 @@
 
 This document describes how Stage 4 translates the causal DAG (topological structure) into a fully specified NumPyro/JAX state-space model (functional specification). The approach combines rule-based constraints with LLM-assisted prior elicitation.
 
-Within the pipeline artifact lineage, this document explains the transition from `CausalSpec` to `ModelSpec` plus priors. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). For short artifact definitions, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
+Within the pipeline artifact lineage, this document explains the transition from [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) to [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) plus priors. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [../concepts/artifact-index.md](../concepts/artifact-index.md).
 
 ---
 

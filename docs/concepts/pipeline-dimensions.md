@@ -1,6 +1,6 @@
 # Pipeline Dimensions
 
-This document is the cross-cutting map of the pipeline. [pipeline.md](../pipeline.md) is the stage-ordered reference, but stage order is only one way to understand the system. For short definitions of the main pipeline objects, see [artifact-glossary.md](artifact-glossary.md).
+This document is the cross-cutting map of the pipeline. [pipeline.md](../pipeline.md) is the stage-ordered reference, but stage order is only one way to understand the system. The authoritative definition of each pipeline artifact lives in the stage doc that introduces it; use [artifact-index.md](artifact-index.md) only to locate that owner quickly.
 
 The more useful view for design, implementation, and documentation is a small set of orthogonal dimensions that recur across stages.
 
@@ -11,12 +11,12 @@ The most important dimension is the sequence of domain objects the pipeline prod
 | Layer | Primary artifact | Produced in | Purpose |
 |---|---|---|---|
 | Research intent | Natural-language question | Pipeline request | Declares the causal query |
-| Theoretical causal structure | `LatentModel` | Stage 1a | Defines constructs, edges, outcome, and candidate treatments |
-| Measurement + identification | `CausalSpec` | Stage 1b | Binds constructs to indicators and records identifiability |
+| Theoretical causal structure | [`LatentModel`](../pipeline/01a-latent-model.md#latentmodel) | Stage 1a | Defines constructs, edges, outcome, and candidate treatments |
+| Measurement + identification | [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | Stage 1b | Binds constructs to indicators and records identifiability |
 | Observational evidence | Raw and model-ready observation rows | Stage 2 | Converts source data into time-indexed indicator values |
 | Data quality surface | Indicator audits and dataset issues | Stage 3 | Describes whether extracted observations are usable |
-| Functional specification | `ModelSpec` + priors | Stage 4 | Chooses likelihoods, parameters, and prior beliefs |
-| Parametric recoverability | `ParametricIdResult` + inference structure | Stage 4b | Checks whether the functional specification is plausibly estimable |
+| Functional specification | [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) + priors | Stage 4 | Chooses likelihoods, parameters, and prior beliefs |
+| Parametric recoverability | [`ParametricIdResult`](../pipeline/04b-parametric-identifiability.md#parametricidresult) + inference structure | Stage 4b | Checks whether the functional specification is plausibly estimable |
 | Approximate fit preflight | SVI diagnostics | Stage 5a | Cheap sanity check before expensive fitting |
 | Fitted model artifact | Persisted fitted result + diagnostics | Stage 5b | Holds posterior inference outputs used downstream |
 | Causal decision surface | Intervention rankings and interactive simulations | Stage 6 | Answers rung-2 and rung-3 causal questions |

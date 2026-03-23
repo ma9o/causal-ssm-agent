@@ -1,6 +1,6 @@
 # Stage 2: Indicator Extraction
 
-Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers. The support-window and aggregation semantics used here come from [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md), and the resulting observation rows feed the artifact chain summarized in [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
+Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers. This page is the authoritative definition of observation rows and model-ready data. The support-window and aggregation semantics used here come from [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md).
 
 ## At a Glance
 
@@ -37,6 +37,23 @@ Extracts numeric indicator values from raw data using direct Polars aggregation 
 | `combined_extractions_sample` | `list[{indicator, value, anchor_time}]` | First extracted rows |
 | `per_indicator_counts` | `dict[str, int]` | Count per indicator |
 | `llm_trace` | `LLMTrace?` | Sampled worker trace |
+
+## Artifacts Introduced
+
+### Observation Row
+
+An observation row is the canonical extracted indicator datum. It owns:
+
+- the indicator name
+- the extracted value
+- the anchor time used downstream
+- the explicit support window over which that value was measured or aggregated
+
+This is the authoritative definition for the extracted-fact layer of the pipeline.
+
+### Model-Ready Data
+
+Model-ready data is the encoded numerical table derived from observation rows for the fitting backends. It is not just "the same thing in another file": it is the fitting contract used by Stage 4 onward.
 
 ## Key Structures
 

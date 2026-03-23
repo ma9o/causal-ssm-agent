@@ -1,6 +1,6 @@
 # Stage 3: Extraction Validation
 
-Audits extracted observations and computes empirical profiles per indicator. This is the extraction-quality assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md), applied to the observation artifacts defined in [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
+Audits extracted observations and computes empirical profiles per indicator. This page is the authoritative definition of `IndicatorAudit`. It is the extraction-quality assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md), applied to the Stage 2 observation artifacts.
 
 ## At a Glance
 
@@ -31,6 +31,17 @@ Audits extracted observations and computes empirical profiles per indicator. Thi
 | `is_valid` | `bool` | `True` if no errors are present |
 | `indicators` | `dict[str, IndicatorAudit]` | Per-indicator profile plus findings |
 | `dataset_issues` | `list[ValidationIssue]` | Dataset-level issues |
+
+## Artifact Introduced
+
+### IndicatorAudit
+
+`IndicatorAudit` is the validation object for one indicator. It bundles:
+
+- the empirical profile computed from extracted data
+- the validation findings attached to that indicator
+
+This is the authoritative definition of the data-quality surface emitted by Stage 3.
 
 ## Key Structures
 

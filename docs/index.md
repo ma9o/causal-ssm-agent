@@ -20,7 +20,7 @@ docs/
 │   ├── 05b-inference-diagnostics.md
 │   └── 06-intervention-analysis.md
 ├── concepts/
-│   ├── artifact-glossary.md    # Short definitions for the core pipeline objects (`LatentModel`, `CausalSpec`, `ModelSpec`, fitted artifact, etc.)
+│   ├── artifact-index.md       # Artifact -> owner-stage lookup table; definitions live in the stage docs
 │   ├── pipeline-dimensions.md  # Cross-cutting pipeline map: artifact lineage, temporal semantics, validation surfaces, and control-flow semantics
 │   ├── assumptions.md          # Core technical assumptions (A1-A9)
 │   └── scope-and-timescales.md # Construct taxonomy, temporal granularity, cross-timescale rules, and scope boundaries
@@ -45,9 +45,9 @@ docs/
 ## Quick Links by Task
 
 **Understanding the pipeline:**
-- Start with `concepts/artifact-glossary.md` if you need the object vocabulary first
+- Start with `pipeline.md` for the ordered stage map
+- Use `concepts/artifact-index.md` only if you know an artifact name but do not know which stage owns it
 - Start with `concepts/pipeline-dimensions.md` for the cross-cutting map: artifact lineage, temporal semantics, execution modality, assurance surfaces, and control-flow semantics
-- Then read `pipeline.md` for the ordered stage map
 - Then open the relevant file under `pipeline/` for stage-specific detail
 
 **Understanding the modeling approach:**
@@ -64,7 +64,7 @@ docs/
 - `guides/agentic_integration_testing.md` for end-to-end integration testing
 
 **Jump in by question:**
-- "What is `CausalSpec`, `ModelSpec`, or the fitted artifact?" -> `concepts/artifact-glossary.md`
+- "What is `CausalSpec`, `ModelSpec`, or the fitted artifact?" -> use `concepts/artifact-index.md` to find the owner stage, then open that stage doc
 - "What objects move through the pipeline?" -> `concepts/pipeline-dimensions.md`
 - "What does each stage do?" -> `pipeline.md`, then the relevant file under `pipeline/`
 - "How does time work across extraction, fitting, and interventions?" -> `concepts/pipeline-dimensions.md`, then `concepts/scope-and-timescales.md` and `model-runtime/estimation.md`

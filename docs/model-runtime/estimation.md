@@ -2,7 +2,7 @@
 
 This document describes the end-to-end estimation pipeline: from continuous-time SDE specification through discretization, likelihood computation, and Bayesian inference. For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
-Within the pipeline artifact lineage, this document starts after Stage 4 has produced a `ModelSpec` and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). For short artifact definitions, see [../concepts/artifact-glossary.md](../concepts/artifact-glossary.md).
+Within the pipeline artifact lineage, this document starts after Stage 4 has produced a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [../concepts/artifact-index.md](../concepts/artifact-index.md).
 
 ## 1. CT-SDE Formulation
 
@@ -94,7 +94,7 @@ The estimation pipeline composes three main libraries:
 ### Data flow
 
 ```
-ModelSpec (orchestrator)
+[ModelSpec](../pipeline/04-model-specification-priors.md#modelspec) (orchestrator)
     |
     v
 SSMModelBuilder.compile_inputs()

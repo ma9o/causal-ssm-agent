@@ -1,6 +1,6 @@
 # Stage 6: Intervention Analysis
 
-Applies do-operator interventions to the fitted model, ranks treatments, and exposes a narrow terminal interactive surface. The counterfactual math lives in [../model-runtime/estimation.md](../model-runtime/estimation.md), the upstream artifact handoff is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md), and the terminal no-replay behavior is defined in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
+Applies do-operator interventions to the fitted model, ranks treatments, and exposes a narrow terminal interactive surface. This page is the authoritative definition of `TreatmentEffect`. The counterfactual math lives in [../model-runtime/estimation.md](../model-runtime/estimation.md), the upstream artifact handoff is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md), and the terminal no-replay behavior is defined in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
 
 ## At a Glance
 
@@ -41,6 +41,20 @@ Applies do-operator interventions to the fitted model, ranks treatments, and exp
 | `saved_scenarios` | `list[SavedScenario]` | Optional saved follow-up simulations |
 | `final_summary` | `str?` | Persisted Stage 6 interpretation |
 | `llm_trace` | `LLMTrace?` | Opening commentary plus follow-up turns |
+
+## Artifact Introduced
+
+### TreatmentEffect
+
+`TreatmentEffect` is the final intervention-analysis object for one treatment. It owns:
+
+- the ranked effect-size summary
+- posterior draws for that effect
+- positivity probability
+- any attached diagnostic warnings
+- any temporal or manifest-level decomposition included in the result
+
+This is the authoritative definition of the final causal-decision object emitted by the pipeline.
 
 ## Key Structures
 

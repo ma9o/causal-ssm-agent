@@ -2,7 +2,7 @@
 
 This is the stage-ordered map of the causal inference pipeline. Use it when the question is "what happens next?" or "which stage owns this artifact?"
 
-Stage order is only one view of the system. For cross-cutting domain concepts, see [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md), [concepts/artifact-glossary.md](concepts/artifact-glossary.md), [concepts/assumptions.md](concepts/assumptions.md), and [concepts/scope-and-timescales.md](concepts/scope-and-timescales.md). For replay, persistence, and web/internal boundaries, see [runtime/execution-and-replay.md](runtime/execution-and-replay.md) and [runtime/persistence-and-exposure.md](runtime/persistence-and-exposure.md).
+Stage order is only one view of the system. The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. If you know an artifact name but not its owner stage, use [concepts/artifact-index.md](concepts/artifact-index.md). For cross-cutting domain concepts, see [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md), [concepts/assumptions.md](concepts/assumptions.md), and [concepts/scope-and-timescales.md](concepts/scope-and-timescales.md). For replay, persistence, and web/internal boundaries, see [runtime/execution-and-replay.md](runtime/execution-and-replay.md) and [runtime/persistence-and-exposure.md](runtime/persistence-and-exposure.md).
 
 ## Stage Map
 
@@ -22,7 +22,7 @@ Stage order is only one view of the system. For cross-cutting domain concepts, s
 ## Reading Guide
 
 - "What does each stage do?" -> start here, then open the stage file.
-- "What object flows between stages?" -> [concepts/artifact-glossary.md](concepts/artifact-glossary.md).
+- "What object flows between stages?" -> open the stage that introduces it, or use [concepts/artifact-index.md](concepts/artifact-index.md) to locate the owner.
 - "What assumptions or timescale rules recur across stages?" -> [concepts/assumptions.md](concepts/assumptions.md) and [concepts/scope-and-timescales.md](concepts/scope-and-timescales.md).
 - "How does Stage 4 become something Stage 6 can use?" -> [model-runtime/handoff-map.md](model-runtime/handoff-map.md), then [model-runtime/compilation.md](model-runtime/compilation.md) and [model-runtime/estimation.md](model-runtime/estimation.md).
 - "Why did this stage rerun or restore from disk?" -> [runtime/execution-and-replay.md](runtime/execution-and-replay.md).

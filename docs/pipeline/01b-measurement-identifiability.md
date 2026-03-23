@@ -1,6 +1,6 @@
 # Stage 1b: Measurement Model and Identifiability
 
-Maps constructs to observable indicators and checks whether each treatment-outcome effect is causally identifiable. For the construct-versus-indicator split and timescale rules that govern this stage, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the identification assumptions behind the y0 check, see [../concepts/assumptions.md](../concepts/assumptions.md).
+Maps constructs to observable indicators and checks whether each treatment-outcome effect is causally identifiable. This page is the authoritative definition of the measurement model, `CausalSpec`, and `IdentifiabilityStatus`. For the construct-versus-indicator split and timescale rules that govern this stage, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the identification assumptions behind the y0 check, see [../concepts/assumptions.md](../concepts/assumptions.md).
 
 ## At a Glance
 
@@ -9,7 +9,7 @@ Maps constructs to observable indicators and checks whether each treatment-outco
 | Type | Semantic |
 | Interactive | Yes |
 | Gate | Hard gate |
-| Produces | [`CausalSpec`](../concepts/artifact-glossary.md) plus identifiability status |
+| Produces | [`CausalSpec`](#causalspec) plus identifiability status |
 
 ## Inputs
 
@@ -37,6 +37,33 @@ Maps constructs to observable indicators and checks whether each treatment-outco
 | `causal_spec` | `CausalSpec` | Combined latent, measurement, and identifiability payload |
 | `gate_overridden` | `GateOverrideContract?` | Present if the hard gate was overridden |
 | `llm_trace` | `LLMTrace?` | Conversation trace |
+
+## Artifacts Introduced
+
+### Measurement Model
+
+The measurement model defines how theoretical constructs are observed in data. It owns:
+
+- the indicator list
+- the construct-to-indicator mapping
+- extraction mode
+- aggregation semantics
+- observation-window semantics
+- the `model_clock` used by later extraction and discretization steps
+
+### CausalSpec
+
+`CausalSpec` is the combined causal-and-measurement payload. It packages:
+
+- the Stage 1a `LatentModel`
+- the measurement model introduced here
+- the treatment-level identifiability result
+
+Later stages should treat `CausalSpec` as the authoritative handoff object for "what causal question are we fitting?" and "how is it measured?"
+
+### IdentifiabilityStatus
+
+`IdentifiabilityStatus` is the causal-identification result attached to the `CausalSpec`. It records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked.
 
 ## Key Structures
 

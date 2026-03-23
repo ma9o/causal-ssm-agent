@@ -1,6 +1,6 @@
 # Stage 4b: Parametric Identifiability Diagnostics
 
-Checks whether the chosen functional specification looks recoverable before full inference. It sits between Stage 4 and the inference backends described in [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and corresponds to the pre-fit assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md).
+Checks whether the chosen functional specification looks recoverable before full inference. This page is the authoritative definition of `ParametricIdResult` and `InferenceStructureResult`. It sits between Stage 4 and the inference backends described in [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and corresponds to the pre-fit assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md).
 
 ## At a Glance
 
@@ -9,7 +9,7 @@ Checks whether the chosen functional specification looks recoverable before full
 | Type | Computed |
 | Interactive | No |
 | Gate | Warning-only |
-| Produces | [`ParametricIdResult`](../concepts/artifact-glossary.md) plus inference-structure summary |
+| Produces | [`ParametricIdResult`](#parametricidresult) plus inference-structure summary |
 
 ## Inputs
 
@@ -32,6 +32,16 @@ Checks whether the chosen functional specification looks recoverable before full
 | `parametric_id` | `ParametricIdResult` | T-rule, sensitivity, and profile-likelihood results |
 | `inference_structure` | `InferenceStructureResult?` | Active likelihood path and auto-routing summary |
 | `gate_overridden` | `GateOverrideContract?` | Present if the warning gate was overridden |
+
+## Artifacts Introduced
+
+### ParametricIdResult
+
+`ParametricIdResult` is the combined pre-fit recoverability payload for the chosen functional specification. It owns the T-rule result, sensitivity analysis, and profile-likelihood diagnoses.
+
+### InferenceStructureResult
+
+`InferenceStructureResult` is the routing and likelihood-structure summary emitted alongside parametric identifiability. It records which likelihood path is active and how the runtime is expected to route inference.
 
 ## Key Structures
 

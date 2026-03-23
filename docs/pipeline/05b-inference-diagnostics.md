@@ -1,6 +1,6 @@
 # Stage 5b: Inference and Diagnostics
 
-Fits the model with the configured backend and runs post-fit diagnostics. Backend selection follows [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and the fitted artifact produced here is the handoff into Stage 6 described in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
+Fits the model with the configured backend and runs post-fit diagnostics. This page is the authoritative definition of `FittedArtifact`. Backend selection follows [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and the fitted artifact produced here is the handoff into Stage 6 described in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
 
 ## At a Glance
 
@@ -39,3 +39,16 @@ Fits the model with the configured backend and runs post-fit diagnostics. Backen
 | `loo_diagnostics` | `LOODiagnostics?` | Pareto-k diagnostics |
 | `posterior_marginals` | `list[PosteriorMarginal]?` | Marginal distributions |
 | `posterior_pairs` | `list[PosteriorPair]?` | Pairwise posterior views |
+
+## Artifact Introduced
+
+### FittedArtifact
+
+`FittedArtifact` is the persisted fitted runtime object produced by Stage 5b. It owns:
+
+- the inference result
+- the runtime builder needed downstream
+- timing and observation-support metadata
+- post-fit diagnostics attached to the fitted run
+
+This is the authoritative definition of the object consumed by Stage 6 and used during resume.

@@ -17,7 +17,7 @@ Unlike traditional discrete-time approaches that require upfront aggregation, th
 
 ## Start Here
 
-- Curious readers: start with [`docs/index.md`](docs/index.md), [`docs/concepts/artifact-glossary.md`](docs/concepts/artifact-glossary.md), [`docs/concepts/pipeline-dimensions.md`](docs/concepts/pipeline-dimensions.md), and [`docs/pipeline.md`](docs/pipeline.md)
+- Curious readers: start with [`docs/index.md`](docs/index.md), [`docs/pipeline.md`](docs/pipeline.md), and [`docs/concepts/pipeline-dimensions.md`](docs/concepts/pipeline-dimensions.md). If you know an artifact name but not its owner stage, use [`docs/concepts/artifact-index.md`](docs/concepts/artifact-index.md)
 - Causal inference practitioners: then read [`docs/concepts/scope-and-timescales.md`](docs/concepts/scope-and-timescales.md), [`docs/concepts/assumptions.md`](docs/concepts/assumptions.md), and [`docs/model-runtime/estimation.md`](docs/model-runtime/estimation.md)
 - Software engineers: start with [`docs/guides/dev_setup.md`](docs/guides/dev_setup.md), [`docs/guides/data_workflow.md`](docs/guides/data_workflow.md), and [`docs/guides/codegen.md`](docs/guides/codegen.md)
 
