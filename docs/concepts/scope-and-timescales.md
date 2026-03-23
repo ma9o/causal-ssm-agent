@@ -54,6 +54,8 @@ Identifiability is checked by y0 in Stage 1b, not enforced at the schema level. 
 
 Each treatment-outcome pair is checked independently. Non-identifiability of one effect does not affect identifiability of others, because the ID algorithm (Shpitser & Pearl, 2006) restricts attention to ancestors of the outcome — additions elsewhere cannot introduce new blocking structures.
 
+**Reference:** Shpitser, I., & Pearl, J. (2006). *Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models.* AAAI.
+
 ---
 
 ## Temporal Granularity

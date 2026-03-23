@@ -94,7 +94,9 @@ But NOT via U_{t-2} or earlier, because U_{t-1} d-separates U_{t-2} from current
 
 **Identification implication:** When checking causal identifiability, we unroll the temporal graph to 2 timesteps (per A3a) and apply the Shpitser-Pearl ID algorithm to this finite graph. This correctly handles lagged confounding—an unobserved U_{t-1} affecting both X_t and Y_t blocks identification of X_t → Y_t. The unrolled DAG is projected to an ADMG internally for the ID algorithm.
 
-**Reference:** Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic structural equation models. *Structural Equation Modeling*, 25(3), 359-388. https://doi.org/10.1080/10705511.2017.1406803
+**References:**
+- Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic structural equation models. *Structural Equation Modeling*, 25(3), 359-388. https://doi.org/10.1080/10705511.2017.1406803
+- Shpitser, I., & Pearl, J. (2006). *Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models.* AAAI.
 
 ---
 
