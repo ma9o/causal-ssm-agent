@@ -39,8 +39,9 @@ docs/
 │   ├── running_evals.md  # Inspect AI evaluation framework
 │   ├── codegen.md        # Python → TypeScript type generation
 │   └── agentic_integration_testing.md  # E2E integration testing with browser automation
-├── literature.md         # Consolidated bibliography (all papers referenced across docs)
 ```
+
+References are kept in the docs that use them rather than in a shared bibliography file.
 
 ## Quick Links by Task
 

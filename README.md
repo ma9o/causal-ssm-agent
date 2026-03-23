@@ -47,6 +47,8 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the full documentation structure.
 
+References are colocated with the docs that use them rather than collected in a standalone bibliography page.
+
 - **[Pipeline](docs/pipeline.md)** - Ordered stage map plus per-stage reference files
 - **[Concepts](docs/concepts/)** - Cross-cutting domain concepts: artifacts, assumptions, temporal semantics, and scope
 - **[Model Runtime](docs/model-runtime/)** - Stage 4 to Stage 6 handoff path: functional specification, compilation, estimation, and inference routing
@@ -120,14 +122,13 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   ├── processed/                 # Preprocessed chunk files for eval/manual tools (gitignored)
 │   ├── <WORKSPACE_ID>/access.json # Hashed workspace resume-code metadata stored separately from session lineage
 │   └── <WORKSPACE_ID>/session.json # Per-workspace run lineage metadata persisted alongside query.txt
-├── docs/                          # Project documentation (see docs/index.md)
+├── docs/                          # Project documentation (see docs/index.md; references live in the relevant docs)
 │   ├── pipeline.md                # Ordered stage map with links to the per-stage docs
 │   ├── pipeline/                  # One file per stage (0, 1a, 1b, 2, 3, 4, 4b, 5a, 5b, 6)
 │   ├── concepts/                  # Cross-cutting domain concepts: artifacts, assumptions, timescales, and scope
 │   ├── model-runtime/             # Stage 4 -> 6 handoff path: functional spec, compilation, estimation, inference routing
 │   ├── runtime/                   # Replay, restore, persistence, and web/internal exposure
-│   ├── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing
-│   └── literature.md              # Consolidated bibliography
+│   └── guides/                    # Practical usage: dev setup, data workflow, evals, codegen, integration testing
 └── scratchpad/                    # Temporary work files (gitignored)
 ```
 

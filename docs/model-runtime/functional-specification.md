@@ -128,6 +128,14 @@ When paraphrasing is enabled, Stage 4 aggregates N elicited priors {(μ_k, σ_k)
 
 2. **Mixture model**: Fit K-component GMM (if responses are multimodal)
 
+**References for LLM-assisted prior elicitation**
+
+- Capstick et al. (2024). *AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling.* arXiv: [2411.17284](https://arxiv.org/abs/2411.17284).
+- Chen et al. (2025). *LLM-BI: Towards Fully Automated Bayesian Inference with Large Language Models.* arXiv: [2508.08300](https://arxiv.org/abs/2508.08300).
+- Huang (2025). *LLM-Prior: A Framework for Knowledge-Driven Prior Elicitation and Aggregation.* arXiv: [2508.03766](https://arxiv.org/abs/2508.03766).
+- Riegler et al. (2025). *Using large language models to suggest informative prior distributions in Bayesian regression analysis.* *Scientific Reports*. DOI: [10.1038/s41598-025-18425-9](https://www.nature.com/articles/s41598-025-18425-9).
+- Selby et al. (2024). *Had Enough of Experts? Elicitation and Evaluation of Bayesian Priors from Large Language Models.* NeurIPS BDU Workshop.
+
 ---
 
 ## Output
@@ -150,11 +158,7 @@ The checked-in Stage 4b runtime currently covers the three diagnostics above. Po
 
 See `flows/stages/stage4b_parametric_id.py` and `utils/parametric_id.py` for implementation.
 
----
-
-## Literature
-
-See [literature.md](../literature.md) for the full bibliography. Key papers for Stage 4: AutoElicit (Capstick et al. 2024), LLM-BI (Chen et al. 2025), LLM-Prior (Huang 2025).
+**Reference:** Raue et al. (2009). *Structural and practical identifiability analysis of partially observed dynamical models by exploiting the profile likelihood.* *Bioinformatics*.
 
 ---
 
@@ -243,3 +247,10 @@ Bayesian model validation uses predictive checks at two points in the workflow. 
 ### Why Not CFA First?
 
 Traditional SEM validates the measurement model via CFA before fitting the structural model (Anderson & Gerbing, 1988). In Bayesian workflow, the full generative model is specified and fit together; prior/posterior predictive checks replace the separate CFA validation step. See Gelman et al. (2020), Betancourt (2018).
+
+**References for predictive-check workflow**
+
+- Anderson, J. C., & Gerbing, D. W. (1988). *Structural equation modeling in practice: A review and recommended two-step approach.* *Psychological Bulletin*, 103(3), 411-423.
+- Betancourt, M. (2018). *Towards a Principled Bayesian Workflow.*
+- Gabry, J., Simpson, D., Vehtari, A., Betancourt, M., & Gelman, A. (2019). *Visualization in Bayesian Workflow.* *JRSS-A*, 182(2), 389-402.
+- Gelman et al. (2020). *Bayesian Workflow.* arXiv: [2011.01808](https://arxiv.org/abs/2011.01808).
