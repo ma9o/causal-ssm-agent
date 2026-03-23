@@ -28,8 +28,7 @@ export default function AnalysisPage({
     queryKey: getAnalysisManifestQueryKey(userId, bootstrapRootFlowRunId),
     queryFn: () => getAnalysisManifest(userId, bootstrapRootFlowRunId),
     enabled: !!userId,
-    refetchInterval: progress && !progress.isComplete && !progress.isFailed ? 3000 : false,
-    staleTime: progress && !progress.isComplete && !progress.isFailed ? 1000 : Infinity,
+    staleTime: Infinity,
   });
 
   useRunEvents(userId, manifest?.rootFlowRunIds ?? [], manifest?.stages);
