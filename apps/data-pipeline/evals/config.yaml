@@ -40,3 +40,9 @@ judge_model: openrouter/anthropic/claude-opus-4.6
 
 # Worker timeout in seconds (for measurement adherence eval)
 worker_timeout_seconds: 1200
+
+# Timeout in seconds for each orchestrator candidate in the MEDICAL_SEMANTICS eval
+orchestrator_candidate_timeout_seconds: 1800
+
+# Timeout in seconds for each semantic chunk worker in the MEDICAL_SEMANTICS eval
+orchestrator_chunk_timeout_seconds: 300

@@ -139,7 +139,7 @@ def _dataset_summary(stage0_df) -> str:
     return f"{stage0_df.shape[0]} rows x {stage0_df.shape[1]} columns"
 
 
-def _make_eval_semantic_chunk_runner(worker_model_id: str):
+def _make_eval_semantic_chunk_runner(worker_model_id: str, chunk_timeout_seconds: float):
     """Create a non-Prefect semantic chunk runner for Inspect evals."""
     worker_model = get_model(worker_model_id)
     worker_generate = make_generate_fn(worker_model)
@@ -160,15 +160,26 @@ def _make_eval_semantic_chunk_runner(worker_model_id: str):
         async def _run_chunk(idx: int) -> tuple[int, dict]:
             async with semaphore:
                 try:
-                    result = await run_worker_extraction(
-                        window_text=chunk_texts[idx],
-                        window_starts=chunk_window_starts[idx],
-                        question=question,
-                        causal_spec=chunk_contexts[idx],
-                        generate=worker_generate,
-                        logger=LOGGER,
-                        call_label=f"eval stage2 chunk={idx}",
+                    result = await asyncio.wait_for(
+                        run_worker_extraction(
+                            window_text=chunk_texts[idx],
+                            window_starts=chunk_window_starts[idx],
+                            question=question,
+                            causal_spec=chunk_contexts[idx],
+                            generate=worker_generate,
+                            logger=LOGGER,
+                            call_label=f"eval stage2 chunk={idx}",
+                        ),
+                        timeout=chunk_timeout_seconds,
                     )
+                except TimeoutError:
+                    return idx, {
+                        "dataframe": [],
+                        "n_extractions": 0,
+                        "status": "failed",
+                        "n_windows": len(chunk_window_starts[idx]),
+                        "error": f"chunk timed out after {chunk_timeout_seconds}s",
+                    }
                 except Exception as exc:
                     return idx, {
                         "dataframe": [],
@@ -210,7 +221,11 @@ def _make_eval_semantic_chunk_runner(worker_model_id: str):
     return _runner
 
 
-async def _run_orchestrator_candidate(model_id: str, worker_model_id: str) -> CandidateRun:
+async def _run_orchestrator_candidate(
+    model_id: str,
+    worker_model_id: str,
+    chunk_timeout_seconds: float,
+) -> CandidateRun:
     fixture = load_medical_semantics_fixture()
     config = get_config()
     stage2_workers = config.stage2_workers
@@ -243,7 +258,10 @@ async def _run_orchestrator_candidate(model_id: str, worker_model_id: str) -> Ca
         question=fixture.question,
         causal_spec=stage1b_result.causal_spec,
         stage2_workers=stage2_workers,
-        semantic_chunk_runner=_make_eval_semantic_chunk_runner(worker_model_id),
+        semantic_chunk_runner=_make_eval_semantic_chunk_runner(
+            worker_model_id,
+            chunk_timeout_seconds,
+        ),
     )
     materialized = materialize_stage2_outputs(stage2_result, stage1b_result.causal_spec)
 
@@ -283,12 +301,21 @@ def _format_candidate_report(candidate: CandidateRun) -> str:
     )
 
 
-def judge_solver(models: list[str] | None = None, worker_model: str | None = None):
+def judge_solver(
+    models: list[str] | None = None,
+    worker_model: str | None = None,
+    candidate_timeout_seconds: float | None = None,
+    chunk_timeout_seconds: float | None = None,
+):
     """Run candidates and ask the judge model to rank them."""
     if models is None:
         models = list(ORCHESTRATOR_MODELS.keys())
     if worker_model is None:
         worker_model = get_config().stage2_workers.model
+    if candidate_timeout_seconds is None:
+        candidate_timeout_seconds = _CONFIG.get("orchestrator_candidate_timeout_seconds", 1800)
+    if chunk_timeout_seconds is None:
+        chunk_timeout_seconds = _CONFIG.get("orchestrator_chunk_timeout_seconds", 300)
 
     @solver
     def _solver():
@@ -297,7 +324,19 @@ def judge_solver(models: list[str] | None = None, worker_model: str | None = Non
 
             async def _safe_run(model_id: str) -> tuple[str, CandidateRun | str]:
                 try:
-                    return model_id, await _run_orchestrator_candidate(model_id, worker_model)
+                    return model_id, await asyncio.wait_for(
+                        _run_orchestrator_candidate(
+                            model_id,
+                            worker_model,
+                            chunk_timeout_seconds,
+                        ),
+                        timeout=candidate_timeout_seconds,
+                    )
+                except TimeoutError:
+                    return (
+                        model_id,
+                        f"[TIMEOUT: Candidate did not finish within {candidate_timeout_seconds}s]",
+                    )
                 except Exception as exc:
                     return model_id, f"[ERROR: {exc}]"
 
@@ -377,11 +416,20 @@ def medical_semantics_ranking_scorer():
 def medical_semantics_orchestrator_eval(
     models: str | list[str] | None = None,
     worker_model: str | None = None,
+    candidate_timeout_seconds: float | None = None,
+    chunk_timeout_seconds: float | None = None,
 ):
     """Judge-rank orchestrator models on MEDICAL_SEMANTICS fixture reproduction."""
     model_ids = parse_csv_task_arg(models)
     return Task(
         dataset=create_eval_dataset(),
-        solver=[judge_solver(models=model_ids, worker_model=worker_model)],
+        solver=[
+            judge_solver(
+                models=model_ids,
+                worker_model=worker_model,
+                candidate_timeout_seconds=candidate_timeout_seconds,
+                chunk_timeout_seconds=chunk_timeout_seconds,
+            )
+        ],
         scorer=medical_semantics_ranking_scorer(),
     )
