@@ -1,5 +1,6 @@
-import type { Stage0PersistedData, StageId } from "@causal-ssm/api-types";
+import type { Stage0PersistedData, Stage2PersistedData, StageId } from "@causal-ssm/api-types";
 import { deriveStage0Data } from "@/lib/stage0-data";
+import { deriveStage2Data } from "@/lib/stage2-data";
 import { readBinary } from "@/lib/storage";
 
 type StageResultLoader = (payload: unknown, workspaceId: string) => Promise<unknown>;
@@ -72,6 +73,10 @@ const STAGE_RESULT_LOADERS: Partial<Record<StageId, StageResultLoader>> = {
   "stage-0": async (payload, workspaceId) => {
     const parquet = await readBinary(`${workspaceId}/run/stage0-raw-input.parquet`);
     return deriveStage0Data(payload as Stage0PersistedData, parquet);
+  },
+  "stage-2": async (payload, workspaceId) => {
+    const parquet = await readBinary(`${workspaceId}/run/stage2-raw-data.parquet`);
+    return deriveStage2Data(payload as Stage2PersistedData, parquet);
   },
 };
 

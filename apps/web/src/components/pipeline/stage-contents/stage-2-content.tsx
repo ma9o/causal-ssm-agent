@@ -4,7 +4,12 @@ import type { Stage2Data } from "@causal-ssm/api-types";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 export default function Stage2Content({ data }: { data: Stage2Data }) {
-  if (data.workers.length === 0) {
+  const totalExtractions = Object.values(data.per_indicator_counts).reduce<number>(
+    (sum, count) => sum + (count ?? 0),
+    0,
+  );
+
+  if (data.workers.length === 0 && totalExtractions === 0) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
         No extraction workers were dispatched. Check if indicators were defined in the previous
@@ -32,10 +37,7 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
             </span>
           )}
           <span className="text-muted-foreground">
-            {Object.values(data.per_indicator_counts)
-              .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
-              ?.toLocaleString()}{" "}
-            extractions
+            {totalExtractions.toLocaleString()} extractions
           </span>
         </div>
         <ExploreDataframeButton stage="stage-2" />
@@ -54,9 +56,7 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
       {data.combined_extractions_sample.length > 0 && (
         <p className="text-xs text-muted-foreground">
           Showing a sample of {data.combined_extractions_sample.length} rows out of{" "}
-          {Object.values(data.per_indicator_counts)
-            .reduce((a, b) => (a ?? 0) + (b ?? 0), 0)
-            ?.toLocaleString()}
+          {totalExtractions.toLocaleString()}
         </p>
       )}
       <DataTable rows={data.combined_extractions_sample} />

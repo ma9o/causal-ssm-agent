@@ -524,31 +524,10 @@ def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[s
     else:
         data_for_model = raw_data
 
-    sample_rows = raw_data.head(20).to_dicts() if n_observations > 0 else []
-    per_indicator_counts = (
-        dict(raw_data.group_by("indicator").len().iter_rows()) if n_observations > 0 else {}
-    )
-    combined_extractions_sample = [
-        {
-            "indicator": str(row.get("indicator", "")),
-            "value": row.get("value"),
-            "anchor_time": row.get("anchor_time"),
-            "support_kind": row.get("support_kind"),
-            "summary_operator": row.get("summary_operator"),
-            "anchor_policy": row.get("anchor_policy"),
-            "observation_window": row.get("observation_window"),
-            "support_start": row.get("support_start"),
-            "support_end": row.get("support_end"),
-        }
-        for row in sample_rows
-    ]
-
     return {
         "raw_data": raw_data,
         "data_for_model": data_for_model,
         "worker_statuses": stage2_result.get("worker_statuses", []),
-        "per_indicator_counts": per_indicator_counts,
-        "combined_extractions_sample": combined_extractions_sample,
         "llm_trace": stage2_result.get("llm_trace"),
     }
 

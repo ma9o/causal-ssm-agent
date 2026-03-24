@@ -270,7 +270,6 @@ async def _run_orchestrator_candidate(
         stage0=fixture.stage0,
         raw=materialized["raw_data"],
         model=materialized["data_for_model"],
-        per_indicator_counts=materialized["per_indicator_counts"],
         expected_raw=fixture.expected_raw,
         expected_model=fixture.expected_model,
     )

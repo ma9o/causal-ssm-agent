@@ -30,7 +30,6 @@ export type {
   DistributionFamily,
   EnergyDiagnostics,
   EnergyHistogram,
-  ExtractionContract as Extraction,
   IdentifiabilityStatus,
   IdentifiedTreatmentStatus,
   Indicator,
@@ -75,7 +74,7 @@ export type {
   Stage0Contract as Stage0PersistedData,
   Stage1AContract as Stage1aData,
   Stage1BContract as Stage1bData,
-  Stage2Contract as Stage2Data,
+  Stage2Contract as Stage2PersistedData,
   Stage3Contract as Stage3Data,
   Stage4BContract as Stage4bData,
   Stage4Contract as Stage4Data,
@@ -144,6 +143,28 @@ export interface Stage0Data {
     [k: string]: (string | null) | undefined;
   }[];
   column_descriptions: Stage0ColumnDescription[];
+}
+
+export interface Extraction {
+  indicator: string;
+  value: number | boolean | string | null;
+  anchor_time: string | null;
+  support_kind?: string | null;
+  summary_operator?: string | null;
+  anchor_policy?: string | null;
+  observation_window?: string | null;
+  support_start?: string | null;
+  support_end?: string | null;
+}
+
+export interface Stage2Data {
+  outcome: StageOutcome;
+  llm_trace?: import("./generated/models").LLMTrace | null;
+  workers: import("./generated/models").WorkerStatusContract[];
+  per_indicator_counts: {
+    [k: string]: number | undefined;
+  };
+  combined_extractions_sample: Extraction[];
 }
 
 export type AggregationFunction =

@@ -156,7 +156,7 @@ async def stage2(
     - ``_raw_data``: long-format Polars DataFrame of canonical observation rows
     - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
     - ``_worker_statuses``: per-worker status list
-    - plus web-serializable fields
+    - plus web-serializable worker metadata
     """
     from prefect.task_runners import ThreadPoolTaskRunner
 
@@ -183,8 +183,6 @@ async def stage2(
     raw_data = materialized["raw_data"]
     data_for_model = materialized["data_for_model"]
     worker_statuses = materialized["worker_statuses"]
-    combined_extractions_sample = materialized["combined_extractions_sample"]
-    per_ind_counts = materialized["per_indicator_counts"]
 
     n_observations = len(raw_data)
     n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
@@ -201,8 +199,6 @@ async def stage2(
         "_data_for_model": data_for_model,
         "_worker_statuses": worker_statuses,
         "workers": worker_statuses,
-        "combined_extractions_sample": combined_extractions_sample,
-        "per_indicator_counts": per_ind_counts,
     }
     if "llm_trace" in stage2_result:
         result["llm_trace"] = stage2_result["llm_trace"]

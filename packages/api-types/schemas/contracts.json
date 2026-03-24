@@ -229,125 +229,6 @@
       "title": "EnergyHistogram",
       "type": "object"
     },
-    "ExtractionContract": {
-      "additionalProperties": false,
-      "properties": {
-        "indicator": {
-          "title": "Indicator",
-          "type": "string"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value"
-        },
-        "anchor_time": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Anchor Time"
-        },
-        "support_kind": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Support Kind"
-        },
-        "summary_operator": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Summary Operator"
-        },
-        "anchor_policy": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Anchor Policy"
-        },
-        "observation_window": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Observation Window"
-        },
-        "support_start": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Support Start"
-        },
-        "support_end": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Support End"
-        }
-      },
-      "required": [
-        "anchor_time",
-        "indicator",
-        "value"
-      ],
-      "title": "ExtractionContract",
-      "type": "object"
-    },
     "FirstPassRBResult": {
       "description": "Active first-pass Rao-Blackwellization plan for the prepared runtime.",
       "properties": {
@@ -2635,26 +2516,10 @@
           },
           "title": "Workers",
           "type": "array"
-        },
-        "combined_extractions_sample": {
-          "items": {
-            "$ref": "#/$defs/ExtractionContract"
-          },
-          "title": "Combined Extractions Sample",
-          "type": "array"
-        },
-        "per_indicator_counts": {
-          "additionalProperties": {
-            "type": "integer"
-          },
-          "title": "Per Indicator Counts",
-          "type": "object"
         }
       },
       "required": [
-        "combined_extractions_sample",
         "outcome",
-        "per_indicator_counts",
         "workers"
       ],
       "title": "Stage2Contract",

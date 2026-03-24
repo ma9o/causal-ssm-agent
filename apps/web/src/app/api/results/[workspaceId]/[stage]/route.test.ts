@@ -119,4 +119,61 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
       }),
     );
   });
+
+  it("hydrates stage 2 from the raw parquet artifact instead of trusting persisted convenience fields", async () => {
+    const [stage2Json, parquetBytes] = await Promise.all([
+      readFile(
+        new URL(
+          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage-2.json",
+          import.meta.url,
+        ),
+        "utf-8",
+      ),
+      readFile(
+        new URL(
+          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage2-raw-data.parquet",
+          import.meta.url,
+        ),
+      ),
+    ]);
+    const persisted = JSON.parse(stage2Json) as {
+      outcome: "success" | "warn" | "fail";
+      llm_trace?: unknown;
+      workers: Array<{
+        worker_id: number;
+        indicator: string;
+        status: "completed" | "failed";
+        n_windows: number;
+        n_extractions: number;
+        error?: string | null;
+      }>;
+      per_indicator_counts: Record<string, number>;
+      combined_extractions_sample: Array<Record<string, unknown>>;
+    };
+
+    vi.mocked(readData).mockResolvedValue(
+      JSON.stringify({
+        outcome: persisted.outcome,
+        llm_trace: persisted.llm_trace,
+        workers: persisted.workers,
+      }),
+    );
+    vi.mocked(readBinary).mockResolvedValue(
+      new Uint8Array(parquetBytes.buffer, parquetBytes.byteOffset, parquetBytes.byteLength),
+    );
+
+    const response = await GET(new Request("http://localhost/api/results/user/stage-2"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-2" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        outcome: "success",
+        workers: persisted.workers,
+        per_indicator_counts: persisted.per_indicator_counts,
+        combined_extractions_sample: persisted.combined_extractions_sample,
+      }),
+    );
+  });
 });

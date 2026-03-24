@@ -548,8 +548,6 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
             "_raw_data": raw_data,
             "_worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
             "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
-            "combined_extractions_sample": [],
-            "per_indicator_counts": {},
         }
 
     monkeypatch.setattr(dag, "stage0", stage0)
@@ -595,8 +593,6 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
     web_payload = {
         "outcome": "success",
         "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
-        "combined_extractions_sample": [],
-        "per_indicator_counts": {"stress_score": 1},
     }
     _write_public_result(tmp_path, workspace_id, "stage-2", web_payload)
     run_store_module.save_stage_snapshot(

@@ -237,7 +237,6 @@ def compare_medical_semantics_outputs(
     stage0: pl.DataFrame,
     raw: pl.DataFrame,
     model: pl.DataFrame,
-    per_indicator_counts: dict[str, int],
     expected_raw: pl.DataFrame,
     expected_model: pl.DataFrame,
 ) -> MedicalSemanticsComparison:
@@ -348,12 +347,12 @@ def compare_medical_semantics_outputs(
     )
     _add_issue(
         stage2_structure_issues,
-        per_indicator_counts
+        dict(raw.group_by("indicator").len().iter_rows())
         == {
             indicator: expected_raw.filter(pl.col("indicator") == indicator).height
             for indicator in expected_semantics
         },
-        f"stage-2 per_indicator_counts mismatch: {per_indicator_counts}",
+        "stage-2 per_indicator_counts mismatch against raw parquet",
     )
 
     raw_pairs = raw.select("indicator", "support_start").sort("indicator", "support_start")
