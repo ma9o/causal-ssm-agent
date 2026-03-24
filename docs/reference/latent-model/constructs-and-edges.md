@@ -63,8 +63,18 @@ The graph stays a DAG in the user-facing contract:
 
 ## Outcome Designation
 
-The `LatentModel` carries exactly one designated outcome. Candidate treatments are derived later from the validated graph rather than stored as a separate artifact.
+The `LatentModel` carries exactly one designated outcome. See the [Stage 1a definition](../../pipeline/01a-latent-model.md#latent-model) for encoding and treatment derivation.
 
 ## Example
 
-For a question about whether staffing pressure affects patient deterioration through care delays, Stage 1a may posit constructs such as `Staffing Pressure`, `Care Delay`, `Patient Severity`, and `Patient Deterioration`, plus directed edges between them and an explicit latent confounder node if an unobserved common cause is believed to exist.
+For a question about whether staffing pressure affects patient deterioration through care delays:
+
+| Construct | Role | Temporal |
+|---|---|---|
+| Staffing Pressure | Exogenous | Time-varying |
+| Care Delay | Endogenous | Time-varying |
+| Patient Severity | Endogenous | Time-varying |
+| Patient Deterioration | Endogenous | Time-varying (outcome) |
+| Hospital Type | Exogenous | Time-invariant |
+
+All edges between endogenous time-varying constructs are lagged (`t−1 → t`) so cross-construct effects enter through [drift](assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated). `Hospital Type` may have a contemporaneous edge to any endogenous construct because it is exogenous. If an unobserved common cause (such as regional healthcare funding) is believed to exist, it appears as an explicit latent confounder node with directed edges—never as a bidirected edge.

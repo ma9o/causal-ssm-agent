@@ -22,8 +22,8 @@
 - [Estimation](reference/estimation.md): CT-SDE formulation, discretization, likelihood
 - [Stage 6 intervention analysis](pipeline/06-intervention-analysis.md): do-operator semantics, trajectory simulation, and interpretation guidance
 - [Inference routing](reference/inference-routing.md): method selection and structural routing
-- [Execution and replay](reference/execution-and-replay.md): dependency DAG, resume, gating
-- [Persistence and exposure](reference/persistence-and-exposure.md): internal, web, and snapshot surfaces
+- [Control-flow semantics](reference/pipeline-dimensions.md#7-control-flow-semantics): dependency DAG, resume, gating
+- [Persistence and exposure](reference/pipeline-dimensions.md#8-persistence-and-exposure-boundary): internal, web, and snapshot surfaces
 
 ## Terminology Note
 
@@ -53,5 +53,5 @@ This project separates them:
 | Why do the docs say `latent model`, `topological structure`, and `functional specification` instead of `structural model`? | [Terminology note](#terminology-note) | The relevant primitive or stage doc |
 | How does time work across extraction, fitting, and interventions? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#temporal-semantics) | [reference/estimation.md](reference/estimation.md) |
 | What gets validated where? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#assurance-surface) | [pipeline.md](pipeline.md) |
-| How do resume, replay, overrides, and gates work? | [reference/execution-and-replay.md](reference/execution-and-replay.md) | [pipeline.md](pipeline.md) |
-| What gets persisted, restored, or exposed to the web? | [reference/persistence-and-exposure.md](reference/persistence-and-exposure.md) | [pipeline.md](pipeline.md) |
+| How do resume, replay, overrides, and gates work? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#7-control-flow-semantics) | [pipeline.md](pipeline.md) |
+| What gets persisted, restored, or exposed to the web? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#8-persistence-and-exposure-boundary) | [pipeline.md](pipeline.md) |

@@ -64,20 +64,18 @@ Examples:
 
 Raw data may be finer-grained than an indicator's target granularity. The `MeasurementModel` therefore specifies an aggregation for each indicator, defining how raw observations collapse to the construct's causal timescale.
 
-Different aggregations encode different substantive meanings:
+The current end-to-end measurement stack supports these summary operators:
 
-- Mean: average level matters
-- Sum: cumulative amount matters
-- Max/Min: extremes matter
-- Last/First: most recent or earliest state matters
-- Variance/Std: instability itself matters
-- Median, Skew, Kurtosis, Entropy: distributional shape matters
-- Percentiles (p10, p25, p75, p90, p99): tail behavior matters
-- Range, IQR, CV: spread relative to level matters
-- Instability (MSSD): mean squared successive differences
-- Trend: OLS slope over time within the aggregation window
+- `mean`: average level matters
+- `sum`: cumulative amount matters
+- `count`: event frequency matters
+- `last`: the most recent state in the support window matters
+- `first`: the earliest state in the support window matters
+- `std`: within-window instability matters
 
-These choices are substantive, not just technical. A daily mean mood score and a daily max mood spike encode different theories of what matters.
+These choices are substantive, not just technical. A daily mean mood score and a daily end-of-day mood score encode different theories of what matters.
+
+Other operators such as `min`, `max`, `median`, percentiles, or `trend` may appear in parser utilities or older prose, but they are not currently supported as end-to-end measurement-model operators.
 
 ## Derived Observation Semantics
 
