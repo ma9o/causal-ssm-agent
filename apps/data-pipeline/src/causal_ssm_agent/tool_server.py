@@ -660,6 +660,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
 
     query = dict(args.get("query") or {})
+    estimand = str(query.get("estimand", "end_state"))
     dt_days, horizon_steps = _stage6_time_config(
         causal_spec,
         runtime.times,
@@ -682,18 +683,21 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     )(drift_draws, cint_draws)
 
     effect_draws = effect_paths[:, -1]
-    mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
     mean_baseline = jnp.mean(baseline_paths[:, -1])
     mean_counterfactual = jnp.mean(counterfactual_paths[:, -1])
     summary = summarize_draws(effect_draws)
-    temporal = _summarize_trajectory(mean_effect_trajectory, dt_days)
-    trajectory = [
-        {
-            "day": round((idx + 1) * dt_days, 3),
-            "effect": float(value),
-        }
-        for idx, value in enumerate(mean_effect_trajectory.tolist())
-    ]
+    temporal = None
+    trajectory = None
+    if estimand == "trajectory":
+        mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
+        temporal = _summarize_trajectory(mean_effect_trajectory, dt_days)
+        trajectory = [
+            {
+                "day": round((idx + 1) * dt_days, 3),
+                "effect": float(value),
+            }
+            for idx, value in enumerate(mean_effect_trajectory.tolist())
+        ]
 
     manifest_effects = None
     if query.get("projection", "latent") in {"manifest", "both"}:
@@ -720,7 +724,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             },
             "action": action,
             "outcome": outcome,
-            "estimand": query.get("estimand", "end_state"),
+            "estimand": estimand,
             "baseline_forecast_mean": float(mean_baseline),
             "counterfactual_forecast_mean": float(mean_counterfactual),
             "summary": summary,
