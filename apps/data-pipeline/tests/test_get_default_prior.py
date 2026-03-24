@@ -1,5 +1,6 @@
 """Tests for get_default_prior fallback logic in prior_research."""
 
+from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.orchestrator.schemas_model import (
     ParameterConstraint,
     ParameterRole,
@@ -25,25 +26,25 @@ class TestGetDefaultPrior:
     def test_unconstrained_returns_normal(self):
         p = _make_param(constraint=ParameterConstraint.NONE)
         result = get_default_prior(p)
-        assert result.distribution == "Normal"
+        assert result.distribution == PriorDistributionFamily.NORMAL
         assert result.params == {"mu": 0.0, "sigma": 0.5}
 
     def test_positive_constraint_returns_half_normal(self):
         p = _make_param(constraint=ParameterConstraint.POSITIVE)
         result = get_default_prior(p)
-        assert result.distribution == "HalfNormal"
+        assert result.distribution == PriorDistributionFamily.HALF_NORMAL
         assert result.params == {"sigma": 1.0}
 
     def test_unit_interval_returns_beta(self):
         p = _make_param(constraint=ParameterConstraint.UNIT_INTERVAL)
         result = get_default_prior(p)
-        assert result.distribution == "Beta"
+        assert result.distribution == PriorDistributionFamily.BETA
         assert result.params == {"alpha": 2.0, "beta": 2.0}
 
     def test_correlation_constraint_returns_uniform(self):
         p = _make_param(constraint=ParameterConstraint.CORRELATION)
         result = get_default_prior(p)
-        assert result.distribution == "Uniform"
+        assert result.distribution == PriorDistributionFamily.UNIFORM
         assert result.params == {"lower": -1.0, "upper": 1.0}
 
     def test_residual_sd_role_overrides_constraint(self):
@@ -53,7 +54,7 @@ class TestGetDefaultPrior:
             constraint=ParameterConstraint.NONE,
         )
         result = get_default_prior(p)
-        assert result.distribution == "HalfNormal"
+        assert result.distribution == PriorDistributionFamily.HALF_NORMAL
         assert result.params == {"sigma": 1.0}
 
     def test_static_state_sd_role_overrides_constraint(self):
@@ -62,7 +63,7 @@ class TestGetDefaultPrior:
             constraint=ParameterConstraint.NONE,
         )
         result = get_default_prior(p)
-        assert result.distribution == "HalfNormal"
+        assert result.distribution == PriorDistributionFamily.HALF_NORMAL
         assert result.params == {"sigma": 1.0}
 
     def test_ar_role_overrides_correlation_constraint(self):
@@ -71,7 +72,7 @@ class TestGetDefaultPrior:
             constraint=ParameterConstraint.CORRELATION,
         )
         result = get_default_prior(p)
-        assert result.distribution == "Beta"
+        assert result.distribution == PriorDistributionFamily.BETA
         assert result.params == {"alpha": 2.0, "beta": 2.0}
 
     def test_parameter_name_propagated(self):

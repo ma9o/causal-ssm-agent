@@ -77,4 +77,6 @@ It owns:
 - provenance and reasoning
 - interval metadata needed for downstream time-scale translation
 
+Its `distribution` field uses a prior-specific family vocabulary (`Normal`, `HalfNormal`, `Beta`, `Uniform`, `TruncatedNormal`, `Gamma`), not the observation-side `DistributionFamily` enum used by likelihoods.
+
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.

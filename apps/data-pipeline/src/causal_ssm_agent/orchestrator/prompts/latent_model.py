@@ -49,7 +49,7 @@ Edges represent causal relationships between constructs.
 
 ### Edge Timing
 - **lagged=true** (default): cause at t-1 → effect at t (one model_clock tick delay)
-- **lagged=false**: cause at t → effect at t (contemporaneous)
+- **lagged=false**: cause at t → effect at t (contemporaneous). Do not use this for directed edges between constructs that are both endogenous and time_varying; represent those with lagged=true.
 
 Multi-step effects (e.g., "sleep 2 days ago affects mood today") should be modeled as indirect chains through intermediary constructs.
 
@@ -60,6 +60,7 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 - Cycles ACROSS time are fine - that's the point of dynamic models (use lagged=true)
 - Exogenous constructs cannot be effects
 - Time-varying constructs cannot cause time-invariant constructs
+- Directed edges between endogenous time-varying constructs must use lagged=true
 - All endogenous time-varying constructs automatically get AR(1) - do NOT add self-loops
 
 ## Output Schema

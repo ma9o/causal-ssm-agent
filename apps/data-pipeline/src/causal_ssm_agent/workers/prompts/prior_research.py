@@ -4,6 +4,10 @@ Each worker researches a single parameter, using literature evidence
 to propose an informed prior distribution.
 """
 
+from causal_ssm_agent.distributions import PriorDistributionFamily
+
+PRIOR_DISTRIBUTION_CHOICE_LIST = "|".join(family.value for family in PriorDistributionFamily)
+
 SYSTEM = """\
 You are a Bayesian statistician eliciting a prior distribution for a single model parameter.
 
@@ -26,6 +30,7 @@ Your task is to propose an **informative prior** based on:
 - **Beta(alpha, beta)**: Parameters in [0, 1] (probabilities)
 - **Uniform(lower, upper)**: When you want to bound the parameter
 - **TruncatedNormal(mu, sigma, lower, upper)**: Bounded with a center
+- **Gamma(concentration, rate)**: Positive-only parameters when a right-skewed prior is more plausible
 
 ### Express Uncertainty Via Prior Width
 - Good literature: Use smaller sigma (tighter prior)
@@ -44,7 +49,7 @@ Return a JSON object:
 ```json
 {
   "parameter": "parameter_name",
-  "distribution": "Normal|HalfNormal|Beta|Uniform|TruncatedNormal",
+  "distribution": "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
   "params": {"mu": 0.3, "sigma": 0.15},
   "sources": [
     {
@@ -70,6 +75,11 @@ Return a JSON object:
 
 **Important**: Both beta and rho priors should be on the **discrete-time scale** (e.g. standardized regression coefficients from the literature). They are automatically converted to continuous-time rates internally.
 """
+
+SYSTEM = SYSTEM.replace(
+    "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
+    PRIOR_DISTRIBUTION_CHOICE_LIST,
+)
 
 USER = """\
 ## Parameter to Elicit

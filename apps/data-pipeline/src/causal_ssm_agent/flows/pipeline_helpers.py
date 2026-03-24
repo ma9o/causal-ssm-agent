@@ -40,6 +40,7 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
 
     return "\n".join(lines)
 
+
 def build_stage0_payload(ingestion_result: object) -> dict:
     """Build the web-serializable stage 0 payload from an IngestionResult."""
     return {

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.orchestrator.schemas_model import ParameterRole
 
 if TYPE_CHECKING:
@@ -64,31 +65,47 @@ GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(
 )
 
 
-def normalize_prior_params(distribution: str, params: dict) -> dict[str, float]:
-    """Convert distribution-specific params to the mu/sigma shape used by SSMPriors."""
-    dist_lower = distribution.lower()
+def normalize_prior_params(
+    distribution: PriorDistributionFamily | str,
+    params: dict,
+) -> dict[str, float | int]:
+    """Convert a typed prior distribution into the SSMPriors parameter shape."""
+    try:
+        family = PriorDistributionFamily(distribution)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported prior distribution family: {distribution!r}") from exc
 
-    if dist_lower in {"normal", "truncatednormal"}:
+    if family in {
+        PriorDistributionFamily.NORMAL,
+        PriorDistributionFamily.TRUNCATED_NORMAL,
+    }:
         return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
 
-    if dist_lower == "halfnormal":
+    if family == PriorDistributionFamily.HALF_NORMAL:
         return {"sigma": params.get("sigma", 1.0)}
 
-    if dist_lower == "beta":
+    if family == PriorDistributionFamily.BETA:
         alpha = params.get("alpha", 2.0)
         beta = params.get("beta", 2.0)
         mu = alpha / (alpha + beta)
         var = (alpha * beta) / ((alpha + beta) ** 2 * (alpha + beta + 1))
         return {"mu": mu, "sigma": var**0.5}
 
-    if dist_lower == "uniform":
+    if family == PriorDistributionFamily.UNIFORM:
         lower = params.get("lower", -1.0)
         upper = params.get("upper", 1.0)
         mu = (lower + upper) / 2
         sigma = (upper - lower) / 4
         return {"mu": mu, "sigma": sigma, "lower": lower, "upper": upper}
 
-    return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
+    if family == PriorDistributionFamily.GAMMA:
+        return {
+            "family": 1,
+            "concentration": params.get("concentration", 2.0),
+            "rate": params.get("rate", 1.0),
+        }
+
+    raise ValueError(f"Unsupported prior distribution family: {distribution!r}")
 
 
 def split_compound_name(
@@ -147,10 +164,10 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
 
 def build_array_prior_payload(
     attr: str,
-    entries: list[tuple[int, dict[str, float]]],
-    current: dict[str, float],
+    entries: list[tuple[int, dict[str, float | int]]],
+    current: dict[str, float | int],
     ssm_spec: SSMSpec | None,
-) -> dict[str, list[float]]:
+) -> dict[str, list[float] | list[int]]:
     """Build the array-valued SSMPriors payload for a structured parameter family."""
     expected_size = expected_prior_size(attr, ssm_spec)
     n_total = max(idx for idx, _ in entries) + 1
@@ -159,21 +176,43 @@ def build_array_prior_payload(
 
     include_mu = "mu" in current or any("mu" in normalized for _, normalized in entries)
     include_sigma = "sigma" in current or any("sigma" in normalized for _, normalized in entries)
+    include_family = "family" in current or any("family" in normalized for _, normalized in entries)
+    include_concentration = "concentration" in current or any(
+        "concentration" in normalized for _, normalized in entries
+    )
+    include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
 
     mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
     sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
+    family_arr = [int(current.get("family", 0))] * n_total if include_family else None
+    concentration_arr = (
+        [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
+    )
+    rate_arr = [float(current.get("rate", 1.0))] * n_total if include_rate else None
 
     for idx, normalized in entries:
         if "mu" in normalized and mu_arr is not None:
             mu_arr[idx] = float(normalized["mu"])
         if "sigma" in normalized and sigma_arr is not None:
             sigma_arr[idx] = float(normalized["sigma"])
+        if "family" in normalized and family_arr is not None:
+            family_arr[idx] = int(normalized["family"])
+        if "concentration" in normalized and concentration_arr is not None:
+            concentration_arr[idx] = float(normalized["concentration"])
+        if "rate" in normalized and rate_arr is not None:
+            rate_arr[idx] = float(normalized["rate"])
 
-    result: dict[str, list[float]] = {}
+    result: dict[str, list[float] | list[int]] = {}
     if mu_arr is not None:
         result["mu"] = mu_arr
     if sigma_arr is not None:
         result["sigma"] = sigma_arr
+    if family_arr is not None:
+        result["family"] = family_arr
+    if concentration_arr is not None:
+        result["concentration"] = concentration_arr
+    if rate_arr is not None:
+        result["rate"] = rate_arr
 
     if any("lower" in normalized for _, normalized in entries):
         lower_arr = [-1e6] * n_total

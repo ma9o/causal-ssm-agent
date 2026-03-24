@@ -142,10 +142,10 @@ def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, Param
 
 
 def _append_structured_prior(
-    per_element: dict[str, list[tuple[int, dict[str, float]]]],
+    per_element: dict[str, list[tuple[int, dict[str, float | int]]]],
     attr: str,
     idx: int,
-    normalized: dict[str, float],
+    normalized: dict[str, float | int],
 ) -> None:
     per_element.setdefault(attr, []).append((idx, normalized))
 
@@ -160,7 +160,7 @@ def compile_priors(
     """Compile prior proposals into ``SSMPriors`` with explicit index maps."""
     ssm_priors = SSMPriors()
     role_by_name = _collect_role_lookup(model_spec)
-    per_element: dict[str, list[tuple[int, dict[str, float]]]] = {}
+    per_element: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
     index_maps = build_prior_index_maps(ssm_spec, model_spec, causal_spec=causal_spec)
     (
         offdiag_param_index,
@@ -259,7 +259,7 @@ def compile_priors(
         role = role_by_name.get(param_name)
         if role and role in ROLE_TO_SSM:
             attr, defaults = ROLE_TO_SSM[role]
-            merged = {key: normalized.get(key, value) for key, value in defaults.items()}
+            merged = {**defaults, **normalized}
             setattr(ssm_priors, attr, merged)
             logger.info(
                 "Prior '%s': role-based scalar fallback -> %s (no structural index)",
@@ -281,7 +281,7 @@ def compile_priors(
                 matching_kw[0],
                 attr,
             )
-            merged = {key: normalized.get(key, value) for key, value in defaults.items()}
+            merged = {**defaults, **normalized}
             setattr(ssm_priors, attr, merged)
             matched = True
             break

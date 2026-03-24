@@ -2,62 +2,122 @@
 
 | Type | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm+grounding | Yes | No | [`ModelSpec`](#modelspec), priors, prior predictive samples |
+| llm+grounding | Yes | No | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
 
-Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. Stage 4 enters the downstream model-runtime path: see [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) for the semantics and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
+Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against [prior predictive checks](#prior-predictive-validation). The resulting [`ModelSpec`](#modelspec) plus priors are then consumed by the [SSM compilation pipeline](../model-runtime/compilation.md) to build an executable NumPyro model.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | Pipeline request | Research question |
-| `stage1b.result` | Stage 1b | `CausalSpec` with latent and measurement models |
-| `stage2.result` | Stage 2 | Model-ready observation data |
-| `stage3.result` | Stage 3 | Indicator audits and empirical profiles |
-| `enable_literature` | Pipeline config | Whether literature search is available |
+| `question` | User | Original research question—anchors prior reasoning |
+| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | `CausalSpec` with latent model, measurement model, and identifiability status |
+| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Raw observation data (indicator, value, anchor_time, support metadata) |
+| `stage3.result` | [Stage 3](03-extraction-validation.md) | Per-indicator empirical profiles and validation audits |
+| `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
+
+Stage 4 is the first point where the pipeline reasons about statistical model form. Earlier stages defined *what* to measure and *how*; this stage decides *what distributions and priors* govern the generative model.
 
 ## Process
 
-1. Build decision cards from the `CausalSpec` and empirical profiles.
-2. Run a multi-turn conversation with:
-   - `validate_model(model_json)`
-   - `search_literature(query, parameter_name)`
-   - `elicit_prior_gmm(...)` when paraphrased elicitation is enabled
-3. Validate schema shape, trial compilation, and prior predictive behavior before finalizing.
+Stage 4 runs a single multi-turn LLM conversation that bridges causal structure and statistical specification. The conversation has two phases—model specification decisions followed by prior elicitation—both grounded by a unified `validate_model` tool. An optional literature search tool provides empirical evidence for effect sizes.
 
-The full functional-specification deep dive lives in [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md). Parameter and likelihood semantics live in [../primitives/model-spec/parameters-likelihoods-and-priors.md](../primitives/model-spec/parameters-likelihoods-and-priors.md). The handoff from Stage 4 into compilation is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
+**Deterministic skeleton pre-computation.** Before the LLM conversation begins, a deterministic engine derives everything that follows from the `CausalSpec` without statistical judgment:
+
+- *Parameter enumeration*: one AR coefficient (`rho`) per endogenous time-varying construct, one fixed effect (`beta`) per causal edge, one residual SD (`sigma`) per construct, one loading (`lambda`) per non-reference indicator in multi-indicator constructs, and one correlation (`cor`) per pair of constructs whose shared confounder was [marginalized at identifiability time](01b-measurement-identifiability.md#identifiabilitystatus).
+- *Deterministic likelihoods*: where an indicator's `measurement_dtype` maps to exactly one valid distribution and link (e.g. `binary` → `bernoulli`/`logit`), the likelihood is locked without LLM input.
+- *Ambiguous indicators*: where the dtype admits multiple valid distributions or links (e.g. `continuous` can be `gaussian`, `student_t`, `gamma`, or `beta`), a decision card is generated for the LLM.
+- *Prompt context*: the engine assembles model-topology cards, distribution decision cards, construct scale cards (with empirical profiles from Stage 3), and per-parameter prior cards. These give the LLM the fixed structural context and the exact decision surface.
+
+The deterministic rules for parameter roles, constraints, and likelihood mappings are defined in [parameters-likelihoods-and-priors.md](../primitives/model-spec/parameters-likelihoods-and-priors.md).
+
+**Phase 1: Model specification decisions.** The LLM reviews the decision cards and submits two sets of choices via a `validate_model` tool call:
+
+- *Distribution + link* for each ambiguous indicator, selected from the valid options shown on the decision card and informed by the indicator's empirical profile and domain semantics.
+- *Loading constraint* for each loading parameter: `positive` for sign identification (the default when the reference indicator and the non-reference indicator should co-vary positively) or `none` if negative loadings are theoretically plausible.
+
+The tool merges these decisions with the pre-computed skeleton to produce a complete `ModelSpec`, then runs schema validation and a trial compilation against the [SSM compiler](../model-runtime/compilation.md). On failure the tool returns specific errors; the LLM revises and resubmits within the same conversation until the model spec is accepted.
+
+**Phase 2: Prior elicitation.** With the model spec locked, the LLM proposes priors for every parameter in small batches (at most 8 per `validate_model` call). Each prior specifies a [distribution family](#priorproposal), its parameters, reasoning, literature sources, and optionally a `reference_interval_days` when the evidence comes from a study with a different observation interval than the model clock. On each submission the tool validates prior schemas, performs a real compilation with the proposed priors, and runs [prior predictive checks](#prior-predictive-validation). If prior predictive simulation reveals implausible implied data, the tool returns per-parameter feedback with suggested adjustments; the LLM revises the flagged priors and resubmits.
+
+The `validate_model` tool is **stateful**: it retains accepted model decisions and valid priors across calls. It enforces protocol constraints—no mixed decision+prior submissions, no redundant resubmissions of already-accepted state, and batch size limits on priors. After any rejection, the LLM resubmits only the changed fields.
+
+**Literature search.** When `enable_literature` is true, the LLM has access to a `search_literature` tool that queries [Exa](https://exa.ai/) for empirical studies on effect sizes. The tool is used selectively for key causal effect parameters where domain knowledge is uncertain. Each search is captured as provenance on the stage output. Literature evidence anchors priors on meta-analyses or large longitudinal studies; heterogeneous evidence widens priors.
+
+**Paraphrased elicitation (optional).** When configured, the LLM can call `elicit_prior_gmm` for a single parameter, which runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model following [Capstick et al. (2024)](../primitives/model-spec/prior-elicitation.md). This reduces brittle overconfidence from any one prompt wording. Default behavior keeps this disabled for cost reasons.
+
+### Prior Predictive Validation
+
+Prior predictive checks run automatically as part of the `validate_model` tool whenever real priors and raw data are both available. The check:
+
+1. Samples parameters from their proposed prior distributions
+2. Forward-simulates implied indicator values through the full generative model
+3. Compares the simulated data against empirical scale statistics from Stage 3 (mean, std, min, max)
+
+Failures surface as per-parameter feedback identifying whether the issue is a model-spec problem (e.g. likelihood family incompatible with observed data support) or a prior problem (e.g. implied variance too wide or too narrow). The LLM iterates until all prior predictive checks pass or the conversation exhausts its turn budget.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `model_spec` | `ModelSpec` | Full functional specification |
-| `priors` | `dict[str, PriorProposal]` | Prior distribution per parameter |
-| `search_queries` | `dict[str, str]?` | Literature searches used during elicitation |
-| `prior_predictive_samples` | `dict[str, list[float]]?` | Simulated samples from the prior |
-| `llm_trace` | `LLMTrace?` | Conversation trace |
+| `model_spec` | [`ModelSpec`](#modelspec) | Complete statistical model specification |
+| `authored_priors` | `dict[str, PriorProposal]` | LLM-authored prior per parameter, keyed by parameter name |
+| `resolved_priors` | `list[PriorProposal]` | Priors after DT→CT conversion for the compilation pipeline |
 
-## Artifacts Introduced
+The public stage payload also includes `search_queries` (literature provenance), `prior_predictive_samples` (per-variable simulated samples for the UI), and `llm_trace` as runtime provenance.
+
+## Definitions
 
 ### ModelSpec
 
-`ModelSpec` is the functional specification chosen for fitting. It owns:
+`ModelSpec` is the functional specification of the statistical model proposed by Stage 4. It owns:
 
-- the parameter set that will be estimated
-- each parameter's role and constraint
-- the likelihood choice per observed variable
+- the [likelihood specifications](#likelihoodspec)—one per observed indicator, each binding a distribution family, link function, and reasoning
+- the [parameter specifications](#parameterspec)—one per free parameter, each carrying a name, role, constraint, and description
 
-This is the authoritative definition of the statistical model as proposed by Stage 4 before pure compilation.
+Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../model-runtime/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [handoff map](../model-runtime/handoff-map.md) describes how each field maps to compilation inputs.
+
+### LikelihoodSpec
+
+`LikelihoodSpec` specifies the observation model for one indicator variable:
+
+| Field | Type | Description |
+|---|---|---|
+| `variable` | `str` | Name of the observed indicator |
+| `distribution` | `DistributionFamily` | Distribution family (`gaussian`, `student_t`, `gamma`, `beta`, `poisson`, `negative_binomial`, `bernoulli`, `ordered_logistic`, `categorical`) |
+| `link` | `LinkFunction` | Link function mapping the linear predictor to the distribution mean (`identity`, `log`, `inverse`, `logit`, `probit`, `cumulative_logit`, `softmax`) |
+| `reasoning` | `str` | Why this distribution/link was chosen |
+| `sources` | `list[LikelihoodSource]` | Optional literature evidence |
+
+### ParameterSpec
+
+`ParameterSpec` defines one free parameter in the model:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `str` | Parameter name (e.g. `beta_stress_anxiety`, `rho_mood`, `sigma_sleep`) |
+| `role` | `ParameterRole` | Role in the model: `ar_coefficient`, `fixed_effect`, `residual_sd`, `loading`, `correlation`, or `static_state_sd` |
+| `constraint` | `ParameterConstraint` | Domain constraint: `none` (unconstrained), `positive`, `unit_interval`, or `correlation` ([-1, 1]) |
+| `description` | `str` | Human-readable description |
+
+Constraints are determined by role: AR coefficients are `unit_interval`, residual SDs are `positive`, fixed effects are `none`, correlations are `correlation`. Loading constraints are the one case where the LLM decides between `positive` and `none`.
 
 ### PriorProposal
 
-`PriorProposal` is the user-facing prior object for one parameter in the `ModelSpec`. It owns the elicited distribution family, parameters, provenance, and any interval metadata needed for downstream transforms.
+`PriorProposal` is the prior distribution proposed for one parameter. It owns:
 
-## Key Structures
-
-| Structure | Shape | Notes |
+| Field | Type | Description |
 |---|---|---|
-| `ModelSpec` | `{parameters: list[ParameterSpec], likelihoods: list[LikelihoodSpec]}` | Top-level Stage 4 output |
-| `ParameterSpec` | `{name, role, constraint, description}` | Parameter definition in the compiled model |
-| `LikelihoodSpec` | `{variable, distribution, link, reasoning, sources}` | Observation model choice per variable |
-| `PriorProposal` | `{parameter, distribution, params, sources, reasoning, reference_interval_days, density_points}` | Supports DT-to-CT translation of prior information |
+| `parameter` | `str` | Name of the parameter this prior is for |
+| `distribution` | `PriorDistributionFamily` | Prior family (`Normal`, `HalfNormal`, `Beta`, `Uniform`, `TruncatedNormal`, `Gamma`) |
+| `params` | `dict[str, float]` | Distribution parameters (e.g. `{"mu": 0.3, "sigma": 0.15}`) |
+| `sources` | `list[PriorSource]` | Literature evidence supporting this prior |
+| `reasoning` | `str` | Justification for the prior |
+| `reference_interval_days` | `float?` | Observation interval (in days) the prior is expressed in, when it differs from the model clock. Used for DT→CT conversion of dynamic parameters |
+| `density_points` | `list[{x, y}]?` | Pre-computed density curve for frontend visualization |
+
+`PriorDistributionFamily` is a separate vocabulary from [`DistributionFamily`](#likelihoodspec): likelihood families describe observation noise, while prior families describe parameter uncertainty.
+
+Both fixed-effect and AR priors are specified on the **discrete-time scale** at the model clock interval. The pipeline automatically converts them to continuous-time rates during compilation.
+
+Example: for a study of classroom engagement and academic performance where Stage 1b posited constructs `Teacher Feedback Frequency`, `Student Engagement`, and `Test Scores` with model clock `1w`, Stage 4 might resolve `Test Scores` (continuous) deterministically to `gaussian`/`identity`, choose `poisson`/`log` for `Teacher Feedback Frequency` (count, low variance-to-mean ratio), set `beta_teacher_feedback_engagement` prior to `Normal(0.2, 0.15)` based on an educational psychology meta-analysis (with `reference_interval_days: 30` because the cited study measured monthly), and set `rho_engagement` prior to `Beta(5, 2)` reflecting moderate weekly persistence of engagement.
