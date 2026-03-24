@@ -1,70 +1,7 @@
 import { NextResponse } from "next/server";
+import { loadStageResult } from "@/lib/stage-result-loader";
 import { readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
-
-function normalizeNonFiniteJsonTokens(serialized: string): string {
-  let normalized = "";
-  let inString = false;
-  let escaping = false;
-
-  for (let index = 0; index < serialized.length; index += 1) {
-    const char = serialized[index];
-
-    if (inString) {
-      normalized += char;
-      if (escaping) {
-        escaping = false;
-      } else if (char === "\\") {
-        escaping = true;
-      } else if (char === "\"") {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === "\"") {
-      inString = true;
-      normalized += char;
-      continue;
-    }
-
-    if (serialized.startsWith("-Infinity", index)) {
-      normalized += "null";
-      index += "-Infinity".length - 1;
-      continue;
-    }
-
-    if (serialized.startsWith("Infinity", index)) {
-      normalized += "null";
-      index += "Infinity".length - 1;
-      continue;
-    }
-
-    if (serialized.startsWith("NaN", index)) {
-      normalized += "null";
-      index += "NaN".length - 1;
-      continue;
-    }
-
-    normalized += char;
-  }
-
-  return normalized;
-}
-
-function parseStoredStagePayload(raw: string): unknown {
-  const parsed = JSON.parse(raw);
-
-  if (!parsed?.metadata || typeof parsed.result !== "string") {
-    return parsed;
-  }
-
-  try {
-    return JSON.parse(parsed.result);
-  } catch {
-    return JSON.parse(normalizeNonFiniteJsonTokens(parsed.result));
-  }
-}
 
 export async function GET(
   request: Request,
@@ -86,7 +23,7 @@ export async function GET(
     const raw = await readData(`${safeWorkspaceId}/run/${safeStage}.json`);
 
     try {
-      return NextResponse.json(parseStoredStagePayload(raw));
+      return NextResponse.json(await loadStageResult(safeStage, raw, safeWorkspaceId));
     } catch (error) {
       return NextResponse.json(
         {

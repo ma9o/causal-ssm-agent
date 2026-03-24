@@ -110,30 +110,6 @@
       "title": "CausalSpec",
       "type": "object"
     },
-    "ColumnDescriptionContract": {
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "dtype": {
-          "title": "Dtype",
-          "type": "string"
-        },
-        "description": {
-          "title": "Description",
-          "type": "string"
-        }
-      },
-      "required": [
-        "description",
-        "dtype",
-        "name"
-      ],
-      "title": "ColumnDescriptionContract",
-      "type": "object"
-    },
     "ComputedRule": {
       "description": "Deterministic per-window expression for computed indicators.",
       "properties": {
@@ -185,25 +161,6 @@
         "temporal_status"
       ],
       "title": "Construct",
-      "type": "object"
-    },
-    "DateRangeContract": {
-      "additionalProperties": false,
-      "properties": {
-        "start": {
-          "title": "Start",
-          "type": "string"
-        },
-        "end": {
-          "title": "End",
-          "type": "string"
-        }
-      },
-      "required": [
-        "end",
-        "start"
-      ],
-      "title": "DateRangeContract",
       "type": "object"
     },
     "DistributionFamily": {
@@ -2509,6 +2466,25 @@
       "title": "SensitivityEntry",
       "type": "object"
     },
+    "Stage0ColumnDescriptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "name"
+      ],
+      "title": "Stage0ColumnDescriptionContract",
+      "type": "object"
+    },
     "Stage0Contract": {
       "additionalProperties": false,
       "properties": {
@@ -2533,41 +2509,9 @@
           ],
           "default": null
         },
-        "source_label": {
-          "title": "Source Label",
-          "type": "string"
-        },
-        "n_records": {
-          "title": "N Records",
-          "type": "integer"
-        },
-        "n_columns": {
-          "title": "N Columns",
-          "type": "integer"
-        },
-        "date_range": {
-          "$ref": "#/$defs/DateRangeContract"
-        },
-        "sample": {
-          "items": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "object"
-          },
-          "title": "Sample",
-          "type": "array"
-        },
         "column_descriptions": {
           "items": {
-            "$ref": "#/$defs/ColumnDescriptionContract"
+            "$ref": "#/$defs/Stage0ColumnDescriptionContract"
           },
           "title": "Column Descriptions",
           "type": "array"
@@ -2575,12 +2519,7 @@
       },
       "required": [
         "column_descriptions",
-        "date_range",
-        "n_columns",
-        "n_records",
-        "outcome",
-        "sample",
-        "source_label"
+        "outcome"
       ],
       "title": "Stage0Contract",
       "type": "object"

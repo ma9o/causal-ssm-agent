@@ -36,7 +36,7 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
     {
       name: "submit_table",
       description: "Validate and finalize the ingested DataFrame with column descriptions.",
-      parameters: {"additionalProperties":false,"properties":{"source_label":{"description":"A short human-readable label for the data source.","title":"Source Label","type":"string"},"column_descriptions_json":{"description":"JSON object mapping column names to descriptions.","title":"Column Descriptions Json","type":"string"}},"required":["source_label","column_descriptions_json"],"title":"SubmitTableInput","type":"object"},
+      parameters: {"additionalProperties":false,"properties":{"column_descriptions_json":{"description":"JSON object mapping column names to descriptions.","title":"Column Descriptions Json","type":"string"}},"required":["column_descriptions_json"],"title":"SubmitTableInput","type":"object"},
     },
   ],
   "stage-1a": [

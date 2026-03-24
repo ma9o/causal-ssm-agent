@@ -40,7 +40,7 @@ async def stage0(workspace_id: str) -> dict:
     result = await agentic_ingest(workspace_id)
     df = result.dataframe
 
-    payload = build_stage0_payload(result, df)
+    payload = build_stage0_payload(result)
     return {
         **payload,
         "_df": df,

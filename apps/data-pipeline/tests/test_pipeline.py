@@ -493,14 +493,9 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         "stage-0",
         {
             "outcome": "success",
-            "source_label": "prior",
-            "n_records": 1,
-            "n_columns": 2,
-            "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
-            "sample": [],
             "column_descriptions": [
-                {"name": "timestamp", "dtype": "String", "description": "ts"},
-                {"name": "value", "dtype": "String", "description": "val"},
+                {"name": "timestamp", "description": "ts"},
+                {"name": "value", "description": "val"},
             ],
         },
     )

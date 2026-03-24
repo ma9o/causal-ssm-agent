@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/workspace-access", () => ({
@@ -9,10 +10,11 @@ vi.mock("@/lib/workspace-access", () => ({
 
 vi.mock("@/lib/storage", () => ({
   readData: vi.fn(),
+  readBinary: vi.fn(),
   LOCAL_DATA_DIR: "/tmp/data",
 }));
 
-import { readData } from "@/lib/storage";
+import { readBinary, readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
 
@@ -55,6 +57,65 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         error: expect.stringContaining("Invalid persisted data for stage-5a"),
+      }),
+    );
+  });
+
+  it("hydrates stage 0 from the parquet artifact instead of trusting persisted convenience fields", async () => {
+    const [stage0Json, parquetBytes] = await Promise.all([
+      readFile(
+        new URL(
+          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage-0.json",
+          import.meta.url,
+        ),
+        "utf-8",
+      ),
+      readFile(
+        new URL(
+          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage0-raw-input.parquet",
+          import.meta.url,
+        ),
+      ),
+    ]);
+    const persisted = JSON.parse(stage0Json) as {
+      outcome: "success" | "warn" | "fail";
+      llm_trace?: unknown;
+      column_descriptions: Array<{ name: string; description: string }>;
+    };
+
+    vi.mocked(readData).mockResolvedValue(
+      JSON.stringify({
+        outcome: persisted.outcome,
+        llm_trace: persisted.llm_trace,
+        column_descriptions: persisted.column_descriptions.map(({ name, description }) => ({
+          name,
+          description,
+        })),
+      }),
+    );
+    vi.mocked(readBinary).mockResolvedValue(
+      new Uint8Array(parquetBytes.buffer, parquetBytes.byteOffset, parquetBytes.byteLength),
+    );
+
+    const response = await GET(new Request("http://localhost/api/results/user/stage-0"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-0" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        outcome: "success",
+        n_records: 95,
+        n_columns: 34,
+        date_range: { start: "2025-03-03", end: "2025-03-31" },
+        sample: expect.any(Array),
+        column_descriptions: expect.arrayContaining([
+          expect.objectContaining({
+            name: "timestamp",
+            dtype: "Datetime(time_unit='us', time_zone=None)",
+            description: "UTC datetime of the event/observation",
+          }),
+        ]),
       }),
     );
   });

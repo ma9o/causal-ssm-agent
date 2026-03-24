@@ -83,14 +83,7 @@ export interface CausalSSMContracts {
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
   llm_trace?: LLMTrace | null;
-  source_label: string;
-  n_records: number;
-  n_columns: number;
-  date_range: DateRangeContract;
-  sample: {
-    [k: string]: (string | null) | undefined;
-  }[];
-  column_descriptions: ColumnDescriptionContract[];
+  column_descriptions: Stage0ColumnDescriptionContract[];
 }
 /**
  * Full trace of an LLM multi-turn conversation.
@@ -126,13 +119,8 @@ export interface TraceUsage {
   output_tokens: number;
   reasoning_tokens?: number | null;
 }
-export interface DateRangeContract {
-  start: string;
-  end: string;
-}
-export interface ColumnDescriptionContract {
+export interface Stage0ColumnDescriptionContract {
   name: string;
-  dtype: string;
   description: string;
 }
 export interface Stage1AContract {
