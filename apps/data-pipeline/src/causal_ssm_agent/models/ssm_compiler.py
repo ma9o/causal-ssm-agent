@@ -338,6 +338,258 @@ def compile_ssm_artifact(
     )
 
 
+def _extract_serialized_prior_value(
+    params: dict[str, Any],
+    key: str,
+    flat_index: int,
+) -> float:
+    """Read one scalar parameter value from serialized compiled prior semantics."""
+    if key not in params:
+        raise ValueError(f"Compiled prior state is missing required key {key!r}")
+
+    values = np.asarray(params[key], dtype=float).ravel()
+    if values.size == 0:
+        raise ValueError(f"Compiled prior state key {key!r} is empty")
+    if values.size == 1:
+        return float(values[0])
+    if flat_index < 0 or flat_index >= values.size:
+        raise ValueError(
+            f"Compiled prior index {flat_index} is out of bounds for {key!r} with size {values.size}"
+        )
+    return float(values[flat_index])
+
+
+def _compiled_distribution_for_site(
+    site,
+    params: dict[str, Any],
+    flat_index: int,
+) -> tuple[str, dict[str, float]]:
+    """Convert one compiled site element back to a user-facing distribution row."""
+    from causal_ssm_agent.models.ssm.parameterization import SupportClass
+
+    if site.support == SupportClass.REAL:
+        return "Normal", {
+            "mu": _extract_serialized_prior_value(params, "loc", flat_index),
+            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
+        }
+
+    family = int(np.asarray(params.get("family", 0)).item())
+    if family == 0:
+        return "HalfNormal", {
+            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
+        }
+    if family == 1:
+        return "Gamma", {
+            "concentration": _extract_serialized_prior_value(params, "concentration", flat_index),
+            "rate": _extract_serialized_prior_value(params, "rate", flat_index),
+        }
+
+    raise ValueError(f"Unsupported compiled positive-support prior family index {family}")
+
+
+def _normalize_authored_prior_payload(
+    parameter: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate authored prior metadata and force the canonical parameter name."""
+    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+
+    normalized = dict(payload)
+    normalized["parameter"] = parameter
+    return PriorProposal.model_validate(normalized).model_dump(mode="json")
+
+
+def _build_compiled_parameter_prior(
+    *,
+    parameter: str,
+    binding: dict[str, Any],
+    site_by_name: dict[str, Any],
+    prior_state: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a generic public prior row from one compiler binding."""
+    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+
+    site_name = str(binding["site_name"])
+    flat_index = int(binding["flat_index"])
+    site = site_by_name.get(site_name)
+    if site is None:
+        raise ValueError(f"Compiled artifact is missing site registry entry for {site_name!r}")
+
+    params = prior_state.get(site_name)
+    if not isinstance(params, dict):
+        raise ValueError(f"Compiled artifact is missing prior state for site {site_name!r}")
+
+    distribution, distribution_params = _compiled_distribution_for_site(site, params, flat_index)
+    return PriorProposal(
+        parameter=parameter,
+        distribution=distribution,
+        params=distribution_params,
+        sources=[],
+        reasoning=f"Compiler-resolved prior for {parameter}.",
+    ).model_dump(mode="json")
+
+
+def _merge_resolved_prior_metadata(
+    resolved: dict[str, Any],
+    authored: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay authored metadata onto a compiler-resolved prior row."""
+    merged = dict(resolved)
+    for field in (
+        "distribution",
+        "params",
+        "sources",
+        "reasoning",
+        "reference_interval_days",
+        "density_points",
+    ):
+        if field in authored:
+            merged[field] = authored[field]
+    return _normalize_authored_prior_payload(str(merged["parameter"]), merged)
+
+
+def _resolve_latent_names(
+    compiled_ssm: CompiledSSMArtifact,
+    *,
+    expected: int,
+) -> list[str]:
+    """Resolve latent state names from the compiled spec with safe fallbacks."""
+    spec_payload = compiled_ssm.get("spec")
+    latent_names = []
+    if isinstance(spec_payload, dict):
+        latent_names = [str(name) for name in spec_payload.get("latent_names") or [] if name]
+
+    if len(latent_names) >= expected:
+        return latent_names[:expected]
+    return latent_names + [f"latent_{idx}" for idx in range(len(latent_names), expected)]
+
+
+def _build_compiled_initial_state_priors(
+    compiled_ssm: CompiledSSMArtifact,
+    *,
+    site_by_field: dict[str, Any],
+    prior_state: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Expose implicit initial-state compiler defaults as public prior rows."""
+    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+
+    mean_site = site_by_field.get("t0_means")
+    sd_site = site_by_field.get("t0_var_diag")
+    if mean_site is None or sd_site is None:
+        return []
+
+    mean_params = prior_state.get(mean_site.name)
+    sd_params = prior_state.get(sd_site.name)
+    if not isinstance(mean_params, dict) or not isinstance(sd_params, dict):
+        return []
+
+    n_latent = int(np.prod(mean_site.shape)) if mean_site.shape else 1
+    latent_names = _resolve_latent_names(compiled_ssm, expected=n_latent)
+
+    rows: list[dict[str, Any]] = []
+    for index, latent_name in enumerate(latent_names):
+        rows.append(
+            PriorProposal(
+                parameter=f"t0_mean_{latent_name}",
+                distribution="Normal",
+                params={
+                    "mu": _extract_serialized_prior_value(mean_params, "loc", index),
+                    "sigma": _extract_serialized_prior_value(mean_params, "scale", index),
+                },
+                sources=[],
+                reasoning=(
+                    "Default weakly informative prior for the initial state mean of "
+                    f"{latent_name.replace('_', ' ')}."
+                ),
+            ).model_dump(mode="json")
+        )
+    for index, latent_name in enumerate(latent_names):
+        rows.append(
+            PriorProposal(
+                parameter=f"t0_sd_{latent_name}",
+                distribution="HalfNormal",
+                params={"sigma": _extract_serialized_prior_value(sd_params, "scale", index)},
+                sources=[],
+                reasoning=(
+                    "Default weakly informative prior for the initial state standard deviation of "
+                    f"{latent_name.replace('_', ' ')}."
+                ),
+            ).model_dump(mode="json")
+        )
+    return rows
+
+
+def resolve_prior_proposals(
+    compiled_ssm: CompiledSSMArtifact,
+    *,
+    authored_priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
+) -> list[dict[str, Any]]:
+    """Build canonical public prior rows from a compiled artifact.
+
+    The compiler owns membership, ordering of bound parameters, and implicit
+    defaults. Authored prior metadata is overlaid when available because some
+    semantic priors (for example DT-scale Beta priors on persistence) are
+    intentionally lossy after compilation to the executable CT representation.
+    """
+    from causal_ssm_agent.models.ssm.parameterization import load_prior_runtime_bundle
+
+    semantics = compiled_ssm.get("compiled_prior_semantics")
+    if not isinstance(semantics, dict):
+        raise ValueError("Compiled artifact is missing required 'compiled_prior_semantics'")
+
+    bundle = load_prior_runtime_bundle(semantics)
+    site_by_name = {site.name: site for site in bundle.registry}
+    site_by_field = {site.priors_field: site for site in bundle.registry if site.priors_field}
+    binding_by_parameter = {
+        str(binding["parameter"]): dict(binding)
+        for binding in list(compiled_ssm.get("parameter_bindings", []) or [])
+        if isinstance(binding, dict) and "parameter" in binding
+    }
+    authored_payloads = dump_prior_payloads(authored_priors)
+
+    resolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for parameter, authored_payload in authored_payloads.items():
+        binding = binding_by_parameter.get(parameter)
+        if binding is None:
+            resolved.append(_normalize_authored_prior_payload(parameter, authored_payload))
+        else:
+            compiled_row = _build_compiled_parameter_prior(
+                parameter=parameter,
+                binding=binding,
+                site_by_name=site_by_name,
+                prior_state=bundle.prior_state,
+            )
+            resolved.append(_merge_resolved_prior_metadata(compiled_row, authored_payload))
+        seen.add(parameter)
+
+    for binding in list(compiled_ssm.get("parameter_bindings", []) or []):
+        if not isinstance(binding, dict):
+            continue
+        parameter = str(binding.get("parameter") or "")
+        if not parameter or parameter in seen:
+            continue
+        resolved.append(
+            _build_compiled_parameter_prior(
+                parameter=parameter,
+                binding=binding,
+                site_by_name=site_by_name,
+                prior_state=bundle.prior_state,
+            )
+        )
+        seen.add(parameter)
+
+    resolved.extend(
+        _build_compiled_initial_state_priors(
+            compiled_ssm,
+            site_by_field=site_by_field,
+            prior_state=bundle.prior_state,
+        )
+    )
+    return resolved
+
+
 def _reconstruct_priors_from_compiled_semantics(
     compiled_ssm: CompiledSSMArtifact,
 ):

@@ -1,5 +1,4 @@
 import type {
-  PriorProposal,
   Stage0Data,
   Stage1aData,
   Stage1bData,
@@ -17,6 +16,7 @@ import { asciiDensity, asciiHistogram, asciiMultiLine, asciiScatter } from "./as
 import { formatDateRange, formatNumber, formatPercent } from "./format";
 import { quantile } from "./histogram";
 import { mdTable } from "./markdown-tables";
+import { collectStage4Priors } from "@/lib/stage4-data";
 import {
   concreteTransitionLines,
   confounderGroupLatex,
@@ -24,8 +24,6 @@ import {
   likelihoodLine,
   paramSymbol,
   priorLine,
-  stateNames,
-  textify,
 } from "./ssm-latex";
 
 export interface AllStageData {
@@ -445,7 +443,10 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       }
       lines.push(
         latex(
-          `\\begin{aligned}\n${s4.model_spec.likelihoods.map((l) => likelihoodLine(l, indMap?.[l.variable])).join(" \\\\\n")}\n\\end{aligned}`,
+          `\\begin{aligned}\n${s4.model_spec.likelihoods
+            .map((likelihood: Stage4Data["model_spec"]["likelihoods"][number]) =>
+              likelihoodLine(likelihood, indMap?.[likelihood.variable]))
+            .join(" \\\\\n")}\n\\end{aligned}`,
         ),
       );
       lines.push("");
@@ -453,46 +454,27 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       // Measurement table with sources
       lines.push(section(3, "Measurement Model"));
       lines.push("");
-      const measRows = s4.model_spec.likelihoods.map((l) => {
-        const sourceLinks = (l.sources ?? [])
-          .map((src) => (src.url ? `[${src.title}](${src.url})` : src.title))
+      const measRows = s4.model_spec.likelihoods.map(
+        (likelihood: Stage4Data["model_spec"]["likelihoods"][number]) => {
+          const sourceLinks = (likelihood.sources ?? [])
+            .map((src: NonNullable<typeof likelihood.sources>[number]) =>
+              src.url ? `[${src.title}](${src.url})` : src.title)
           .join("; ");
-        return [
-          l.variable,
-          l.distribution,
-          l.link,
-          l.reasoning,
-          sourceLinks || "\u2014",
-        ];
-      });
+          return [
+            likelihood.variable,
+            likelihood.distribution,
+            likelihood.link,
+            likelihood.reasoning,
+            sourceLinks || "\u2014",
+          ];
+        },
+      );
       lines.push(mdTable(["Variable", "Distribution", "Link", "Reasoning", "Sources"], measRows));
       lines.push("");
 
     }
 
-    // Build initial state priors
-    const states = stateNames(s4.model_spec.parameters);
-    const t0Priors: PriorProposal[] = [];
-    for (const st of states) {
-      t0Priors.push({
-        parameter: `t0_mean_${st}`,
-        distribution: "Normal",
-        params: { mu: 0, sigma: 2 },
-        sources: [],
-        reasoning: `Default weakly informative prior for the initial state mean of ${textify(st)}.`,
-      });
-      t0Priors.push({
-        parameter: `t0_sd_${st}`,
-        distribution: "HalfNormal",
-        params: { sigma: 2 },
-        sources: [],
-        reasoning: `Default weakly informative prior for the initial state standard deviation of ${textify(st)}.`,
-      });
-    }
-    const allPriors: PriorProposal[] = [
-      ...Object.values(s4.priors).filter((p): p is PriorProposal => p != null),
-      ...t0Priors,
-    ];
+    const allPriors = collectStage4Priors(s4);
 
     // Priors as LaTeX
     if (allPriors.length > 0) {

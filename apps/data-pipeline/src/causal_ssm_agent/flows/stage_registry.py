@@ -21,12 +21,14 @@ from . import get_prefect_logger
 from .run_store import (
     STAGE0_PARQUET_FILENAMES,
     STAGE2_MODEL_PARQUET_FILENAMES,
-    STAGE2_RAW_PARQUET_FILENAMES,
+    STAGE4_COMPILED_SSM_FILENAMES,
     STAGE5B_PICKLE_FILENAMES,
     finalize_stage,
     find_run_artifact,
+    load_json,
     load_public_payload,
     load_stage_snapshot,
+    save_json,
     save_parquet,
     save_pickle,
     stage_state,
@@ -256,10 +258,8 @@ def _persist_stage0(result: dict, workspace_id: str) -> dict:
 
 
 def _persist_stage2(result: dict, workspace_id: str) -> dict:
-    raw_data = result.pop("_raw_data")
     data_for_model = result.pop("_data_for_model")
-    result["_raw_data_row_count"] = len(raw_data)
-    result["_raw_data_path"] = save_parquet(raw_data, workspace_id, "stage2-raw-data.parquet")
+    result["_data_for_model_row_count"] = len(data_for_model)
     result["_data_for_model_path"] = save_parquet(
         data_for_model, workspace_id, "stage2-model-data.parquet"
     )
@@ -267,7 +267,7 @@ def _persist_stage2(result: dict, workspace_id: str) -> dict:
 
 
 def _finalize_stage2_extras(result: dict, workspace_id: str) -> dict[str, Any]:
-    row_count = int(result.get("_raw_data_row_count", 0))
+    row_count = int(result.get("_data_for_model_row_count", 0))
     return {"outcome": "success" if row_count > 0 else "fail"}
 
 
@@ -276,6 +276,13 @@ def _persist_stage5b(result: dict, workspace_id: str) -> dict:
     result["_fitted_result_path"] = save_pickle(
         fitted_artifact, workspace_id, "stage5b-fitted-result.pkl"
     )
+    return result
+
+
+def _persist_stage4(result: dict, workspace_id: str) -> dict:
+    compiled_ssm = result.get("_compiled_ssm")
+    if compiled_ssm is not None:
+        result["_compiled_ssm_path"] = save_json(compiled_ssm, workspace_id, "stage4-compiled-ssm.json")
     return result
 
 
@@ -296,16 +303,22 @@ def _restore_stage2(workspace_id: str, web: dict, prior_states: dict) -> dict:
     result = dict(web)
     result["workers"] = workers
     result["_worker_statuses"] = workers
-    result["_raw_data_path"] = find_run_artifact(workspace_id, STAGE2_RAW_PARQUET_FILENAMES)
     result["_data_for_model_path"] = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     return result
 
 
 def _restore_stage4(workspace_id: str, web: dict, prior_states: dict) -> dict:
     result = dict(web)
+    result["authored_priors"] = dict(web.get("authored_priors", {}) or {})
     stage1b_state = prior_states.get("stage-1b")
     if stage1b_state is not None:
         result.setdefault("causal_spec", stage1b_state["result"]["causal_spec"])
+    try:
+        compiled_ssm_path = find_run_artifact(workspace_id, STAGE4_COMPILED_SSM_FILENAMES)
+    except FileNotFoundError:
+        return result
+    result["_compiled_ssm_path"] = compiled_ssm_path
+    result["_compiled_ssm"] = load_json(compiled_ssm_path)
     return result
 
 
@@ -457,8 +470,8 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
     authored = coerce_stage4_override_payload(payload)
     return materialize_stage4_result(
         model_spec=authored["model_spec"],
-        priors=authored["priors"],
-        raw_data=load_parquet(stage2_result["_data_for_model_path"]),
+        authored_priors=authored["authored_priors"],
+        data_for_model=load_parquet(stage2_result["_data_for_model_path"]),
         indicator_audits=stage3_result["indicators"],
         causal_spec=stage1b_result["causal_spec"],
         llm_trace=authored.get("llm_trace"),
@@ -535,7 +548,10 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
-            materializer=StageMaterializer(restore=_restore_stage4),
+            materializer=StageMaterializer(
+                restore=_restore_stage4,
+                persist=_persist_stage4,
+            ),
             question_required=True,
             override_eligible=True,
             prepare_override=_prepare_override_stage4,

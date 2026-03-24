@@ -77,7 +77,6 @@ export type {
   Stage2Contract as Stage2PersistedData,
   Stage3Contract as Stage3Data,
   Stage4BContract as Stage4bData,
-  Stage4Contract as Stage4Data,
   Stage5AContract as Stage5aData,
   Stage5BContract as Stage5bData,
   Stage6Contract as Stage6Data,
@@ -92,6 +91,11 @@ export type {
   ValidationIssueContract as ValidationIssue,
   WorkerStatusContract as WorkerStatus,
 } from "./generated/models";
+
+export type Stage4PersistedData = Omit<import("./generated/models").Stage4Contract, "resolved_priors"> & {
+  resolved_priors: import("./generated/models").PriorProposal[];
+};
+export type Stage4Data = Stage4PersistedData;
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
 export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";

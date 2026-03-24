@@ -43,7 +43,7 @@ class Stage4Result:
     """Result of the agentic Stage 4 flow."""
 
     model_spec: dict[str, Any]
-    priors: dict[str, dict]
+    authored_priors: dict[str, dict]
     search_queries: dict[str, str] = field(default_factory=dict)
     validation: AssemblyValidation | None = None
 
@@ -80,7 +80,7 @@ class Stage4Messages:
 async def run_stage4(
     causal_spec: dict,
     question: str,
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]],
     generate: GenerateFn,
     *,
@@ -97,7 +97,7 @@ async def run_stage4(
     Args:
         causal_spec: Full CausalSpec dict
         question: Research question
-        raw_data: Raw timestamped data
+        data_for_model: Numerically encoded observation data
         indicator_audits: Stage 3 per-indicator empirical profiles + validations
         generate: Async function (messages, tools) -> completion
         enable_literature: Whether to offer the search_literature tool
@@ -106,7 +106,7 @@ async def run_stage4(
         gmm_model: Model name for inner GMM paraphrase calls
 
     Returns:
-        Stage4Result with model_spec and priors
+        Stage4Result with model_spec and authored priors
     """
     from causal_ssm_agent.flows.stages.stage_tools import (
         _agentic_stage4_grounding,
@@ -147,7 +147,7 @@ async def run_stage4(
             data,
             causal_spec,
             current=capture,
-            raw_data=raw_data,
+            data_for_model=data_for_model,
             indicator_audits=indicator_audits,
             resolved_likelihoods=skeleton.resolved_likelihoods,
             ambiguous_indicators=skeleton.ambiguous_indicators,
@@ -173,13 +173,13 @@ async def run_stage4(
 
     # 5. Extract results from capture
     model_spec = capture.get("model_spec")
-    priors = capture.get("priors")
-    if not model_spec or not priors:
+    authored_priors = capture.get("authored_priors")
+    if not model_spec or not authored_priors:
         raise ValueError("Stage 4 agentic flow did not produce a valid model_spec + priors")
 
     return Stage4Result(
         model_spec=model_spec,
-        priors=priors,
+        authored_priors=authored_priors,
         search_queries=search_captures,
         validation=capture.get("validation"),
     )

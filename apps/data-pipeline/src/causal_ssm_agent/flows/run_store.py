@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
-STAGE2_RAW_PARQUET_FILENAMES = ("stage2-raw-data.parquet",)
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
+STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
 STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 
 # ---------------------------------------------------------------------------
@@ -92,6 +92,23 @@ def load_pickle(path: str) -> Any:
     """Unpickle a value from storage."""
     with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
+
+
+# ---------------------------------------------------------------------------
+# JSON artifact I/O
+# ---------------------------------------------------------------------------
+
+
+def save_json(value: Any, workspace_id: str, filename: str) -> str:
+    """Write a JSON-serializable value into the run directory."""
+    path = storage.join(ensure_run_dir(workspace_id), filename)
+    storage.write_text(path, json.dumps(value))
+    return path
+
+
+def load_json(path: str) -> Any:
+    """Read a JSON value from storage."""
+    return storage.read_json(path)
 
 
 # ---------------------------------------------------------------------------

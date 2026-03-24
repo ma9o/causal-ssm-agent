@@ -21,7 +21,7 @@ logger = get_prefect_logger(__name__)
 async def stage4_agentic_flow(
     causal_spec: dict,
     question: str,
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
 ) -> dict:
@@ -34,7 +34,7 @@ async def stage4_agentic_flow(
     Args:
         causal_spec: Full CausalSpec dict
         question: Research question
-        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
+        data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         enable_literature: Whether to offer the search_literature tool
 
     Returns:
@@ -53,7 +53,7 @@ async def stage4_agentic_flow(
         result = await run_stage4(
             causal_spec=causal_spec,
             question=question,
-            raw_data=raw_data,
+            data_for_model=data_for_model,
             indicator_audits=indicator_audits,
             generate=generate,
             enable_literature=enable_literature and s4.literature_search.enabled,
@@ -64,8 +64,8 @@ async def stage4_agentic_flow(
 
         materialized = materialize_stage4_result(
             model_spec=result.model_spec,
-            priors=result.priors,
-            raw_data=raw_data,
+            authored_priors=result.authored_priors,
+            data_for_model=data_for_model,
             indicator_audits=indicator_audits,
             causal_spec=causal_spec,
             validation=result.validation,

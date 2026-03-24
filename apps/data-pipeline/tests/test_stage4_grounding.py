@@ -236,7 +236,7 @@ class TestStage4GroundingCompile:
         )
         assert output is not None
         assert feedback == "VALID"
-        assert "priors" in output
+        assert "authored_priors" in output
 
     def test_model_spec_then_priors_separately(self, causal_spec, model_spec, priors):
         """model_spec and priors must be submitted in separate calls."""
@@ -256,7 +256,7 @@ class TestStage4GroundingCompile:
         )
         assert output2 is not None
         assert feedback2 == "VALID"
-        assert "priors" in output2
+        assert "authored_priors" in output2
 
     def test_model_spec_and_priors_together_rejected(self, causal_spec, model_spec, priors):
         """Submitting both model_spec and priors in one call is rejected."""
@@ -279,7 +279,7 @@ class TestStage4GroundingStateMerging:
     def test_partial_priors_merge_with_current(self, causal_spec, model_spec, priors):
         """Submitting one prior merges with existing priors in current."""
         # Start with full priors in current
-        current = {"model_spec": model_spec, "priors": dict(priors)}
+        current = {"model_spec": model_spec, "authored_priors": dict(priors)}
 
         # Submit a changed single prior
         new_beta = {
@@ -298,9 +298,9 @@ class TestStage4GroundingStateMerging:
         assert feedback == "VALID"
 
         # Output should have ALL priors (merged), not just the submitted one
-        assert len(output["priors"]) == len(priors)
+        assert len(output["authored_priors"]) == len(priors)
         # The submitted prior should be updated
-        assert output["priors"]["beta_stress_sleep"]["params"]["mu"] == -0.3
+        assert output["authored_priors"]["beta_stress_sleep"]["params"]["mu"] == -0.3
 
     def test_new_model_spec_replaces_current(self, causal_spec, model_spec):
         """Submitting model_spec replaces the one in current."""

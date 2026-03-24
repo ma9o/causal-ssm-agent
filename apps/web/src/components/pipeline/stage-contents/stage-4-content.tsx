@@ -2,40 +2,8 @@ import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-sp
 import { MeasurementTable } from "@/components/stages/model-spec/measurement-table";
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
-import type { Extraction, Indicator, PriorProposal, Stage4Data } from "@causal-ssm/api-types";
-
-/** Extract latent state names from AR coefficient parameters. */
-function stateNames(parameters: Stage4Data["model_spec"]["parameters"]): string[] {
-  return parameters
-    .filter((p) => p.role === "ar_coefficient")
-    .map((p) => p.name.split("_").slice(1).join("_"));
-}
-
-/**
- * Build synthetic PriorProposal entries for initial state parameters.
- * These match the SSMPriors defaults (t0_means and t0_var_diag).
- */
-function initialStatePriors(parameters: Stage4Data["model_spec"]["parameters"]): PriorProposal[] {
-  const states = stateNames(parameters);
-  const priors: PriorProposal[] = [];
-  for (const s of states) {
-    priors.push({
-      parameter: `t0_mean_${s}`,
-      distribution: "Normal",
-      params: { mu: 0, sigma: 2 },
-      sources: [],
-      reasoning: `Default weakly informative prior for the initial state mean of ${s.replace(/_/g, " ")}.`,
-    });
-    priors.push({
-      parameter: `t0_sd_${s}`,
-      distribution: "HalfNormal",
-      params: { sigma: 2 },
-      sources: [],
-      reasoning: `Default weakly informative prior for the initial state standard deviation of ${s.replace(/_/g, " ")}.`,
-    });
-  }
-  return priors;
-}
+import { collectStage4Priors } from "@/lib/stage4-data";
+import type { Extraction, Indicator, Stage4Data } from "@causal-ssm/api-types";
 
 export default function Stage4Content({
   data,
@@ -46,11 +14,7 @@ export default function Stage4Content({
   extractions?: Extraction[];
   indicators?: Indicator[];
 }) {
-  const t0Priors = initialStatePriors(data.model_spec.parameters);
-  const allPriors: PriorProposal[] = [
-    ...Object.values(data.priors).filter((p): p is PriorProposal => p != null),
-    ...t0Priors,
-  ];
+  const allPriors = collectStage4Priors(data);
 
   // Build indicator → construct mapping for observation model equations
   const indicatorConstructMap = indicators

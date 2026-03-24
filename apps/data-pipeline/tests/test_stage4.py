@@ -304,12 +304,18 @@ def _make_polars_data() -> pl.DataFrame:
     """Create polars long-format data for validation tests."""
     rng = np.random.default_rng(42)
     n = 30
-    times = list(range(n))
+    anchor_times = pd.date_range("2024-01-01", periods=n, freq="D").strftime("%Y-%m-%dT00:00:00Z")
     return pl.DataFrame(
         {
             "indicator": ["mood_score"] * n,
             "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
-            "timestamp": times,
+            "anchor_time": anchor_times,
+            "support_start": anchor_times,
+            "support_end": anchor_times,
+            "support_kind": ["point"] * n,
+            "summary_operator": ["last"] * n,
+            "anchor_policy": ["support_end"] * n,
+            "observation_window": [None] * n,
         }
     )
 
@@ -494,6 +500,123 @@ class TestPriorPredictiveValidation:
 
         assert is_valid is True
         assert results
+
+    def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
+        """Implicit initial-state priors should come from compiled semantics."""
+        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
+        compiled_ssm = {
+            "spec": {"latent_names": ["stress", "sleep"]},
+            "compiled_prior_semantics": {
+                "schema_version": 2,
+                "site_registry": [
+                    {
+                        "name": "t0_means_pop",
+                        "shape": [2],
+                        "support": "real",
+                        "assembly_group": "t0",
+                        "site_kind": "t0_means",
+                        "transform_kind": "identity",
+                        "deterministic_name": "t0_means",
+                        "fixed_spec_field": "t0_means",
+                        "priors_field": "t0_means",
+                        "runtime_prior_key": "t0_means_pop",
+                        "is_runtime_prior_controlled": True,
+                    },
+                    {
+                        "name": "t0_var_diag",
+                        "shape": [2],
+                        "support": "positive",
+                        "assembly_group": "t0",
+                        "site_kind": "t0_var_diag",
+                        "transform_kind": "exp",
+                        "deterministic_name": "t0_cov",
+                        "fixed_spec_field": "t0_var",
+                        "priors_field": "t0_var_diag",
+                        "runtime_prior_key": "t0_var_diag",
+                        "is_runtime_prior_controlled": True,
+                    },
+                ],
+                "prior_state": {
+                    "t0_means_pop": {"family": 0, "loc": [0.0, 1.0], "scale": [2.0, 3.0]},
+                    "t0_var_diag": {
+                        "family": 0,
+                        "scale": [4.0, 5.0],
+                        "concentration": [1.0, 1.0],
+                        "rate": [1.0, 1.0],
+                    },
+                },
+            },
+            "parameter_bindings": [],
+        }
+
+        assert resolve_prior_proposals(compiled_ssm, authored_priors={}) == [
+            {
+                "parameter": "t0_mean_stress",
+                "distribution": "Normal",
+                "params": {"mu": 0.0, "sigma": 2.0},
+                "sources": [],
+                "reasoning": "Default weakly informative prior for the initial state mean of stress.",
+                "reference_interval_days": None,
+                "density_points": None,
+            },
+            {
+                "parameter": "t0_mean_sleep",
+                "distribution": "Normal",
+                "params": {"mu": 1.0, "sigma": 3.0},
+                "sources": [],
+                "reasoning": "Default weakly informative prior for the initial state mean of sleep.",
+                "reference_interval_days": None,
+                "density_points": None,
+            },
+            {
+                "parameter": "t0_sd_stress",
+                "distribution": "HalfNormal",
+                "params": {"sigma": 4.0},
+                "sources": [],
+                "reasoning": (
+                    "Default weakly informative prior for the initial state standard deviation "
+                    "of stress."
+                ),
+                "reference_interval_days": None,
+                "density_points": None,
+            },
+            {
+                "parameter": "t0_sd_sleep",
+                "distribution": "HalfNormal",
+                "params": {"sigma": 5.0},
+                "sources": [],
+                "reasoning": (
+                    "Default weakly informative prior for the initial state standard deviation "
+                    "of sleep."
+                ),
+                "reference_interval_days": None,
+                "density_points": None,
+            },
+        ]
+
+    def test_resolve_prior_proposals_preserves_authored_metadata_for_lossy_bindings(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Resolved public priors should retain authored semantics when compilation is lossy."""
+        from causal_ssm_agent.models.ssm_compiler import (
+            compile_ssm_artifact,
+            resolve_prior_proposals,
+        )
+
+        compiled_ssm = compile_ssm_artifact(simple_model_spec, simple_priors)
+        resolved = {
+            prior["parameter"]: prior
+            for prior in resolve_prior_proposals(compiled_ssm, authored_priors=simple_priors)
+        }
+
+        assert resolved["rho_mood"]["distribution"] == "Beta"
+        assert resolved["rho_mood"]["params"] == {"alpha": 2.0, "beta": 2.0}
+        assert resolved["rho_mood"]["reasoning"] == "Weakly informative for AR coefficient"
+        assert resolved["intercept_mood_score"]["distribution"] == "Normal"
+        assert resolved["intercept_mood_score"]["params"] == {"mu": 5.0, "sigma": 1.0}
 
 
 class TestFailedParameters:
@@ -1081,7 +1204,7 @@ class TestStage4CompileOwnership:
         )
 
         assert output is not None
-        assert output["priors"]["rho_outcome"]["distribution"] == "Beta"
+        assert output["authored_priors"]["rho_outcome"]["distribution"] == "Beta"
         assert output["validation"].compile_ok is False
         assert "COMPILE ERROR" in feedback
         assert "dimension mismatch" in feedback
@@ -1124,7 +1247,7 @@ class TestStage4CompileOwnership:
         output, feedback = stage4_grounding(data, causal_spec={}, current=current, raw_data=None)
 
         assert output is not None
-        assert sorted(output["priors"]) == ["rho_mood"]
+        assert sorted(output["authored_priors"]) == ["rho_mood"]
         assert "SCHEMA ERRORS for prior 'sigma_mood'" in feedback
 
     def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, simple_model_spec):
@@ -1228,7 +1351,7 @@ class TestStage4CompileOwnership:
                     {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
                 ],
             },
-            "priors": {
+            "authored_priors": {
                 "rho_mood": {
                     "parameter": "rho_mood",
                     "distribution": "Beta",
@@ -1240,7 +1363,7 @@ class TestStage4CompileOwnership:
         }
 
         output, feedback = stage4_grounding(
-            {"priors": dict(current["priors"])},
+            {"priors": dict(current["authored_priors"])},
             causal_spec={},
             current=current,
             raw_data=None,
@@ -1313,7 +1436,7 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     validation = AssemblyValidation(pp_checked=True, pp_valid=True)
     capture = {
         "model_spec": {"likelihoods": [{"variable": "mood_score"}]},
-        "priors": {"rho_mood": {"distribution": "Beta"}},
+        "authored_priors": {"rho_mood": {"distribution": "Beta"}},
         "validation": validation,
     }
 

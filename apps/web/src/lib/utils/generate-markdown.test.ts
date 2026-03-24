@@ -309,7 +309,8 @@ describe("generateMarkdown", () => {
             },
           ],
         },
-        priors: {},
+        authored_priors: {},
+        resolved_priors: [],
       } as AllStageData["stage-4"],
     };
     const result = generateMarkdown(data, "run-4");
