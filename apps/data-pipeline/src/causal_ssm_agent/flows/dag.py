@@ -413,7 +413,11 @@ def stage5a(
 
     if not fitted_result.get("fitted", False):
         return {
-            "inference_metadata": {"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
+            "inference_metadata": {
+                "method": "svi",
+                "n_samples": 0,
+                "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
+            },
             "svi_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,
@@ -423,8 +427,8 @@ def stage5a(
     return {
         "inference_metadata": {
             "method": "svi",
-            "n_samples": 500,
-            "duration_seconds": 0.0,
+            "n_samples": int(fitted_result.get("n_samples", 0)),
+            "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
         },
         "svi_diagnostics": fitted_result.get("svi_diagnostics"),
         "posterior_marginals": fitted_result.get("posterior_marginals"),
@@ -456,6 +460,36 @@ def stage5b(
 
     fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
     fitted_result = unwrap_task_result(fitted)
+    inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
+
+    if not fitted_result.get("fitted", False):
+        ps_result = {"checked": False, "error": fitted_result.get("error", "Model not fitted")}
+        ppc_result = {"checked": False, "per_variable_warnings": []}
+        fitted_artifact = FittedArtifact(
+            result=fitted_result.get("result"),
+            builder=fitted_result.get("builder"),
+            times=fitted_result.get("times"),
+            observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
+            ppc_result=ppc_result,
+            power_scaling_result=ps_result,
+        )
+        return {
+            "_fitted_artifact": fitted_artifact,
+            "power_scaling": [],
+            "ppc": ppc_result,
+            "inference_metadata": {
+                "method": inf_method,
+                "n_samples": int(fitted_result.get("n_samples", 0)),
+                "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
+            },
+            "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
+            "svi_diagnostics": fitted_result.get("svi_diagnostics"),
+            "smc_diagnostics": fitted_result.get("smc_diagnostics"),
+            "loo_diagnostics": fitted_result.get("loo_diagnostics"),
+            "posterior_marginals": fitted_result.get("posterior_marginals"),
+            "posterior_pairs": fitted_result.get("posterior_pairs"),
+            "outcome": "fail",
+        }
 
     power_scaling = run_power_scaling(fitted_result)
     ps_result = unwrap_task_result(power_scaling)
@@ -469,7 +503,6 @@ def stage5b(
     loo_diagnostics = fitted_result.get("loo_diagnostics")
     posterior_marginals = fitted_result.get("posterior_marginals")
     posterior_pairs = fitted_result.get("posterior_pairs")
-    inf_method = fitted_result.get("inference_type", "unknown")
 
     # Build FittedArtifact — the only shape persisted and consumed by stage 6
     fitted_artifact = FittedArtifact(
@@ -539,8 +572,8 @@ def stage5b(
         "ppc": ppc_result,
         "inference_metadata": {
             "method": inf_method,
-            "n_samples": 10000,
-            "duration_seconds": 0.0,
+            "n_samples": int(fitted_result.get("n_samples", 0)),
+            "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
         },
         "mcmc_diagnostics": mcmc_diagnostics,
         "svi_diagnostics": svi_diagnostics,

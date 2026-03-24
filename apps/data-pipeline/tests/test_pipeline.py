@@ -740,6 +740,190 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     assert state["result"]["smc_diagnostics"] == {"beta_schedule": [0.1, 1.0]}
 
 
+def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
+
+    workspace_id = "test_workspace"
+    _write_public_result(
+        tmp_path,
+        workspace_id,
+        "stage-4b",
+        {
+            "outcome": "warn",
+            "parametric_id": {
+                "checked": True,
+                "summary": {
+                    "structural_issues": ["beta_x"],
+                    "boundary_issues": [],
+                    "weak_params": ["beta_y"],
+                },
+            },
+            "inference_structure": {
+                "likelihood_path": "composed",
+                "auto_method": "laplace_em",
+                "first_pass_rb": {
+                    "status": "active",
+                    "inactive_reason": None,
+                    "latent_variables": [{"name": "x", "method": "kalman"}],
+                    "obs_variables": [{"name": "y", "method": "kalman"}],
+                },
+            },
+        },
+    )
+
+    state = stage_registry.load_stage_state(workspace_id, "stage-4b")
+
+    assert state["result"]["parametric_id"]["checked"] is True
+    assert state["result"]["inference_structure"]["likelihood_path"] == "composed"
+    assert state["web"]["inference_structure"]["auto_method"] == "laplace_em"
+
+
+def test_stage5a_uses_fit_metadata(monkeypatch):
+    data_for_model = pl.DataFrame(
+        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
+    )
+
+    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.fit_model",
+        lambda *_args, **_kwargs: {
+            "fitted": True,
+            "n_samples": 321,
+            "duration_seconds": 4.25,
+            "svi_diagnostics": {"elbo_losses": [3.0, 2.0, 1.0]},
+            "posterior_marginals": [],
+            "posterior_pairs": [],
+        },
+    )
+
+    result = dag.stage5a(
+        {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
+    )
+
+    assert result["inference_metadata"] == {
+        "method": "svi",
+        "n_samples": 321,
+        "duration_seconds": 4.25,
+    }
+
+
+def test_stage5b_uses_fit_metadata(monkeypatch):
+    data_for_model = pl.DataFrame(
+        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
+    )
+
+    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.fit_model",
+        lambda *_args, **_kwargs: {
+            "fitted": True,
+            "n_samples": 654,
+            "duration_seconds": 7.5,
+            "inference_type": "svi",
+            "result": None,
+            "builder": None,
+            "runtime": SimpleNamespace(observation_support=None),
+            "times": np.array([0.0]),
+            "mcmc_diagnostics": None,
+            "svi_diagnostics": {"elbo_losses": [1.0]},
+            "smc_diagnostics": None,
+            "loo_diagnostics": None,
+            "posterior_marginals": [],
+            "posterior_pairs": [],
+        },
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.run_power_scaling",
+        lambda *_args, **_kwargs: {"checked": False, "error": "skip"},
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.run_ppc",
+        lambda *_args, **_kwargs: {"checked": False, "per_variable_warnings": []},
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        lambda: SimpleNamespace(
+            inference=SimpleNamespace(
+                to_sampler_config=lambda method_override=None: {"method": method_override or "auto"}
+            )
+        ),
+    )
+
+    result = dag.stage5b(
+        {"model_spec": {}},
+        {"_data_for_model_path": "/tmp/stage2-model-data.parquet"},
+        inference_method="svi",
+    )
+
+    assert result["inference_metadata"] == {
+        "method": "svi",
+        "n_samples": 654,
+        "duration_seconds": 7.5,
+    }
+
+
+def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch):
+    data_for_model = pl.DataFrame(
+        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
+    )
+
+    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.fit_model",
+        lambda *_args, **_kwargs: {
+            "fitted": False,
+            "error": "fit exploded",
+            "duration_seconds": 2.5,
+        },
+    )
+
+    def _unexpected_power_scaling(*_args, **_kwargs):
+        raise AssertionError("run_power_scaling should not run after a failed fit")
+
+    def _unexpected_ppc(*_args, **_kwargs):
+        raise AssertionError("run_ppc should not run after a failed fit")
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.run_power_scaling",
+        _unexpected_power_scaling,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.run_ppc",
+        _unexpected_ppc,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        lambda: SimpleNamespace(
+            inference=SimpleNamespace(
+                to_sampler_config=lambda method_override=None: {"method": method_override or "auto"}
+            )
+        ),
+    )
+
+    result = dag.stage5b(
+        {"model_spec": {}},
+        {"_data_for_model_path": "/tmp/stage2-model-data.parquet"},
+        inference_method="svi",
+    )
+
+    assert result["outcome"] == "fail"
+    assert result["power_scaling"] == []
+    assert result["ppc"] == {"checked": False, "per_variable_warnings": []}
+    assert result["inference_metadata"] == {
+        "method": "svi",
+        "n_samples": 0,
+        "duration_seconds": 2.5,
+    }
+    assert result["_fitted_artifact"].result is None
+    assert result["_fitted_artifact"].power_scaling_result == {
+        "checked": False,
+        "error": "fit exploded",
+    }
+
+
 def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
