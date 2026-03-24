@@ -1,5 +1,3 @@
-TODO
-
 # Data Contract
 
 Stage 0 is intentionally lenient about what you upload. It can ingest a single raw file or a zip bundle of related files, as long as ingestion can normalize them into one typed raw dataframe.
