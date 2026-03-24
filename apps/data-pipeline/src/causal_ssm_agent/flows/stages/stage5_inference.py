@@ -4,6 +4,7 @@ Fits the SSM model and runs counterfactual interventions to
 estimate treatment effects, ranked by effect size.
 """
 
+import time
 from typing import Any
 
 import jax.numpy as jnp
@@ -49,6 +50,7 @@ def fit_model(
         (sampler_config or {}).get("method", "config default"),
         builder is not None,
     )
+    t0 = time.monotonic()
 
     try:
         runtime = prepare_model_runtime(
@@ -95,10 +97,18 @@ def fit_model(
         # Posterior marginals and pairs
         posterior_marginals = result.get_posterior_marginals()
         posterior_pairs = result.get_posterior_pairs()
+        samples = result.get_samples()
+        n_samples = (
+            int(next(iter(samples.values())).shape[0])
+            if isinstance(samples, dict) and samples
+            else 0
+        )
 
         return {
             "fitted": True,
             "inference_type": result.method,
+            "n_samples": n_samples,
+            "duration_seconds": time.monotonic() - t0,
             "result": result,
             "builder": runtime.builder,
             "runtime": runtime,
@@ -116,12 +126,14 @@ def fit_model(
         return {
             "fitted": False,
             "error": "SSM implementation not available",
+            "duration_seconds": time.monotonic() - t0,
         }
     except Exception as e:
         logger.exception("Model fitting failed")
         return {
             "fitted": False,
             "error": str(e),
+            "duration_seconds": time.monotonic() - t0,
         }
 
 
