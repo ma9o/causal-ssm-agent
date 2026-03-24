@@ -117,7 +117,11 @@ def score_judge_ranking_response(
         ranking_result = parse_judge_ranking_response(completion)
     except ValueError as exc:
         message = str(exc)
-        answer = "[JSON parse error]" if message.startswith("JSON parse error:") else "[No JSON found in judge response]"
+        answer = (
+            "[JSON parse error]"
+            if message.startswith("JSON parse error:")
+            else "[No JSON found in judge response]"
+        )
         return Score(
             value=0.0,
             answer=answer,
@@ -403,8 +407,6 @@ def make_generate_fn(
         return response.completion
 
     return generate
-
-
 
 
 def tool_assisted_generate(

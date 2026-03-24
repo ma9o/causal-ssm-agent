@@ -232,7 +232,8 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
     """Build the appropriate numpyro distribution from a prior dict.
 
     If `lower`/`upper` bounds are present, uses TruncatedNormal to respect
-    hard parameter bounds. Otherwise uses Normal (or HalfNormal if only sigma).
+    hard parameter bounds. Otherwise uses Normal, Gamma, or HalfNormal
+    depending on the serialized prior semantics.
 
     Supports array-valued mu/sigma for per-element priors.
     """
@@ -245,6 +246,19 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
         )
     if "mu" in prior:
         return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
+    family = prior.get("family", 0)
+    if isinstance(family, list):
+        unique_families = {int(value) for value in family}
+        if len(unique_families) != 1:
+            raise ValueError(
+                "Mixed positive prior families within a single SSM field are unsupported"
+            )
+        family = unique_families.pop()
+    if int(family) == 1 or {"concentration", "rate"} <= set(prior):
+        return dist.Gamma(
+            concentration=jnp.asarray(prior.get("concentration", 2.0)),
+            rate=jnp.asarray(prior.get("rate", 1.0)),
+        )
     return dist.HalfNormal(jnp.asarray(prior["sigma"]))
 
 

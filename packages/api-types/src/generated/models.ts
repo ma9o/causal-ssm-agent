@@ -31,10 +31,6 @@ export type SummaryOperator = "first" | "last" | "sum" | "count" | "mean" | "std
 export type AnchorPolicy = "support_start" | "support_end";
 /**
  * Distribution families for observation and process noise.
- *
- * Used throughout the SSM pipeline: from LLM-proposed likelihoods to
- * emission function dispatch.  Values are lowercase so they can be
- * passed directly as strings to likelihood backends.
  */
 export type DistributionFamily =
   | "gaussian"
@@ -64,6 +60,10 @@ export type ParameterRole =
  * Constraints on parameter values.
  */
 export type ParameterConstraint = "none" | "positive" | "unit_interval" | "correlation";
+/**
+ * Distribution families allowed in Stage 4 prior proposals.
+ */
+export type PriorDistributionFamily = "Normal" | "HalfNormal" | "Beta" | "Uniform" | "TruncatedNormal" | "Gamma";
 
 /**
  * Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.
@@ -488,10 +488,7 @@ export interface PriorProposal {
    * Name of the parameter this prior is for
    */
   parameter: string;
-  /**
-   * Distribution name (e.g., 'Normal', 'HalfNormal', 'Beta', 'Uniform')
-   */
-  distribution: string;
+  distribution: PriorDistributionFamily;
   /**
    * Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})
    */

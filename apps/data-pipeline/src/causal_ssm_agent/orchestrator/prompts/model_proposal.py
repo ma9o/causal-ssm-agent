@@ -4,8 +4,13 @@ The AGENTIC_SYSTEM / AGENTIC_USER prompts drive the single-conversation
 agentic flow (``orchestrator/stage4.py``).
 
 NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
-and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py
+and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py, and prior families
+in causal_ssm_agent.distributions.PriorDistributionFamily
 """
+
+from causal_ssm_agent.distributions import PriorDistributionFamily
+
+PRIOR_DISTRIBUTION_CHOICE_LIST = "|".join(family.value for family in PriorDistributionFamily)
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -458,6 +463,7 @@ For EVERY parameter, propose a prior distribution.
 - **Beta(alpha, beta)**: Parameters in [0, 1] (probabilities)
 - **Uniform(lower, upper)**: When you want to bound the parameter
 - **TruncatedNormal(mu, sigma, lower, upper)**: Bounded with a center
+- **Gamma(concentration, rate)**: Positive-only parameters when a right-skewed prior is more plausible
 
 ### Parameter Guidelines by Type
 
@@ -574,7 +580,7 @@ Typical sequence:
   "priors": {{
     "parameter_name": {{
       "parameter": "parameter_name",
-      "distribution": "Normal|HalfNormal|Beta|Uniform|TruncatedNormal",
+      "distribution": "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
       "params": {{"mu": 0.3, "sigma": 0.15}},
       "sources": [],
       "reasoning": "Justification for the prior",
@@ -590,3 +596,8 @@ Only include `reference_interval_days` when the literature evidence is expressed
 on a different observation interval than the model interval shown in Model \
 Topology. Include a prior for EVERY parameter listed above.
 """
+
+AGENTIC_USER = AGENTIC_USER.replace(
+    "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
+    PRIOR_DISTRIBUTION_CHOICE_LIST,
+)

@@ -304,9 +304,10 @@ def _check_edge_constraint(
     if not edge.lagged and both_time_varying and both_endogenous:
         return (
             f"Directed contemporaneous edge '{edge.cause}' -> '{edge.effect}' "
-            "between endogenous latent constructs is not supported by the current "
-            "model class (linear CT-SDE). Use lagged=True for drift-mediated "
-            "effects, or model shared innovation via the diffusion covariance."
+            "between endogenous time-varying latent constructs is excluded by the "
+            "latent-model contract. Represent directed effects between evolving "
+            "latent states with lagged=True; reserve same-time dependence for "
+            "explicit confounding or diffusion covariance."
         )
 
     return None

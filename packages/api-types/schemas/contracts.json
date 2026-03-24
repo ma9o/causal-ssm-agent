@@ -164,7 +164,7 @@
       "type": "object"
     },
     "DistributionFamily": {
-      "description": "Distribution families for observation and process noise.\n\nUsed throughout the SSM pipeline: from LLM-proposed likelihoods to\nemission function dispatch.  Values are lowercase so they can be\npassed directly as strings to likelihood backends.",
+      "description": "Distribution families for observation and process noise.",
       "enum": [
         "gaussian",
         "student_t",
@@ -1956,6 +1956,19 @@
       "title": "PowerScalingResultContract",
       "type": "object"
     },
+    "PriorDistributionFamily": {
+      "description": "Distribution families allowed in Stage 4 prior proposals.",
+      "enum": [
+        "Normal",
+        "HalfNormal",
+        "Beta",
+        "Uniform",
+        "TruncatedNormal",
+        "Gamma"
+      ],
+      "title": "PriorDistributionFamily",
+      "type": "string"
+    },
     "PriorProposal": {
       "description": "A proposed prior distribution for a parameter.",
       "properties": {
@@ -1965,9 +1978,8 @@
           "type": "string"
         },
         "distribution": {
-          "description": "Distribution name (e.g., 'Normal', 'HalfNormal', 'Beta', 'Uniform')",
-          "title": "Distribution",
-          "type": "string"
+          "$ref": "#/$defs/PriorDistributionFamily",
+          "description": "Distribution family ('Normal', 'HalfNormal', 'Beta', 'Uniform', 'TruncatedNormal', 'Gamma')"
         },
         "params": {
           "additionalProperties": {

@@ -6,6 +6,8 @@ conducted by worker LLMs with Exa literature search.
 
 from pydantic import BaseModel, Field
 
+from causal_ssm_agent.distributions import PriorDistributionFamily
+
 
 class PriorSource(BaseModel):
     """A source of evidence for a prior distribution."""
@@ -26,8 +28,11 @@ class PriorProposal(BaseModel):
     """A proposed prior distribution for a parameter."""
 
     parameter: str = Field(description="Name of the parameter this prior is for")
-    distribution: str = Field(
-        description="Distribution name (e.g., 'Normal', 'HalfNormal', 'Beta', 'Uniform')"
+    distribution: PriorDistributionFamily = Field(
+        description=(
+            "Distribution family "
+            "('Normal', 'HalfNormal', 'Beta', 'Uniform', 'TruncatedNormal', 'Gamma')"
+        )
     )
     params: dict[str, float] = Field(
         description="Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})"

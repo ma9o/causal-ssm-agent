@@ -63,6 +63,7 @@ export type {
   PPCResultContract as PPCResult,
   PPCTestStat,
   PPCWarning,
+  PriorDistributionFamily,
   PriorProposal,
   PriorSource,
   RankHistogram,

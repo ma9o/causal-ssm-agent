@@ -18,6 +18,7 @@ from causal_ssm_agent.utils.litellm_client import acquire_limiter
 
 if TYPE_CHECKING:
     from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
     make_validation_tool,
@@ -341,24 +342,24 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
 
     # AR priors live on the DT persistence scale in (0, 1).
     if parameter.role == ParameterRole.AR_COEFFICIENT:
-        distribution = "Beta"
+        distribution = PriorDistributionFamily.BETA
         params = {"alpha": 2.0, "beta": 2.0}
     elif parameter.constraint == ParameterConstraint.POSITIVE:
-        distribution = "HalfNormal"
+        distribution = PriorDistributionFamily.HALF_NORMAL
         params = {"sigma": 1.0}
     elif parameter.constraint == ParameterConstraint.UNIT_INTERVAL:
-        distribution = "Beta"
+        distribution = PriorDistributionFamily.BETA
         params = {"alpha": 2.0, "beta": 2.0}
     elif parameter.constraint == ParameterConstraint.CORRELATION:
-        distribution = "Uniform"
+        distribution = PriorDistributionFamily.UNIFORM
         params = {"lower": -1.0, "upper": 1.0}
     else:
-        distribution = "Normal"
+        distribution = PriorDistributionFamily.NORMAL
         params = {"mu": 0.0, "sigma": 0.5}
 
     # Adjust based on role
     if parameter.role in (ParameterRole.RESIDUAL_SD, ParameterRole.STATIC_STATE_SD):
-        distribution = "HalfNormal"
+        distribution = PriorDistributionFamily.HALF_NORMAL
         params = {"sigma": 1.0}
 
     return PriorProposal(

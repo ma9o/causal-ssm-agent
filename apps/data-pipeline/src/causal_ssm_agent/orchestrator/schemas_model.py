@@ -10,71 +10,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-
-class DistributionFamily(StrEnum):
-    """Distribution families for observation and process noise.
-
-    Used throughout the SSM pipeline: from LLM-proposed likelihoods to
-    emission function dispatch.  Values are lowercase so they can be
-    passed directly as strings to likelihood backends.
-    """
-
-    GAUSSIAN = "gaussian"
-    STUDENT_T = "student_t"
-    POISSON = "poisson"
-    GAMMA = "gamma"
-    BERNOULLI = "bernoulli"
-    NEGATIVE_BINOMIAL = "negative_binomial"
-    BETA = "beta"
-    ORDERED_LOGISTIC = "ordered_logistic"
-    CATEGORICAL = "categorical"
-
-    @property
-    def is_discrete(self) -> bool:
-        """Whether this family has discrete (integer) support."""
-        return self in {
-            DistributionFamily.BERNOULLI,
-            DistributionFamily.POISSON,
-            DistributionFamily.NEGATIVE_BINOMIAL,
-            DistributionFamily.ORDERED_LOGISTIC,
-            DistributionFamily.CATEGORICAL,
-        }
-
-    @property
-    def support_interior_point(self) -> float:
-        """A scalar strictly inside this family's support (for dummy observations).
-
-        For discrete families this returns 0.0; callers should use alternating
-        0/1 values instead (discrete models need at least two distinct levels
-        during tracing).
-        """
-        if self == DistributionFamily.GAMMA:
-            return 1.0
-        if self == DistributionFamily.BETA:
-            return 0.5
-        return 0.0
-
-    @classmethod
-    def _missing_(cls, value: object) -> DistributionFamily | None:
-        """Allow case-insensitive and legacy PascalCase construction.
-
-        The LLM may propose PascalCase names (e.g. "Normal", "NegativeBinomial")
-        and data files may still use them.  This maps them to the canonical
-        lowercase members.
-        """
-        if not isinstance(value, str):
-            return None
-        _ALIASES: dict[str, str] = {
-            "normal": "gaussian",
-            "negativebinomial": "negative_binomial",
-            "orderedlogistic": "ordered_logistic",
-        }
-        normalized = value.lower().replace(" ", "_")
-        normalized = _ALIASES.get(normalized, normalized)
-        for member in cls:
-            if member.value == normalized:
-                return member
-        return None
+from causal_ssm_agent.distributions import DistributionFamily
 
 
 class LinkFunction(StrEnum):

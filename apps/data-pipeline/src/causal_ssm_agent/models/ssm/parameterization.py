@@ -993,10 +993,13 @@ def _params_from_prior_dict(
             scale=prior_dict.get("sigma", 1.0),
         )
     elif site.support == SupportClass.POSITIVE:
+        family = int(prior_dict.get("family", 0))
         return _make_positive_params(
             site.shape,
-            family=0,
+            family=family,
             scale=prior_dict.get("sigma", 1.0),
+            concentration=prior_dict.get("concentration", 1.0),
+            rate=prior_dict.get("rate", 1.0),
         )
     raise ValueError(f"Unknown support class: {site.support}")
 
