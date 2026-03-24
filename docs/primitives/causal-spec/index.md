@@ -16,8 +16,3 @@ The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-iden
 
 - what causal question is being fit?
 - how is each construct operationalized in observed data?
-
-## Reading Guide
-
-- For causal-identification semantics, see [identifiability.md](identifiability.md).
-- For downstream guarantees and consumers, see [handoff-contract.md](handoff-contract.md).
