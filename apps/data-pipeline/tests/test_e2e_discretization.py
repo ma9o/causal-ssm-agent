@@ -512,7 +512,7 @@ class TestE2ESpecToDiscretization:
             {"parameter": "sigma_stress", "site_name": "diffusion_diag_pop", "flat_index": 1},
         ]
 
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": [
                     "mood_rating",
@@ -534,7 +534,7 @@ class TestE2ESpecToDiscretization:
             }
         )
 
-        builder = build_compiled_ssm_builder(compiled, pivot_to_wide(raw_data))
+        builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
         assert builder._spec is not None
         assert builder._spec.latent_names == ["mood", "stress"]
         assert builder._spec.drift_mask is not None

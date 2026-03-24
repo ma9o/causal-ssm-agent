@@ -21,7 +21,7 @@ logger = get_prefect_logger(__name__)
 @task(persist_result=False)
 def fit_model(
     stage4_result: dict,
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     sampler_config: dict | None = None,
     builder: Any = None,
 ) -> Any:
@@ -30,7 +30,7 @@ def fit_model(
     Args:
         stage4_result: Result from stage4_agentic_flow containing
             model_spec, priors, and model_info
-        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
+        data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler_config: Override sampler configuration (None uses config defaults)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
@@ -43,8 +43,8 @@ def fit_model(
     compiled_ssm = stage4_result.get("_compiled_ssm")
     logger.info(
         "Fitting model: rows=%d indicators=%d parameters=%d sampler=%s builder_reused=%s",
-        len(raw_data),
-        raw_data["indicator"].n_unique() if "indicator" in raw_data.columns else 0,
+        len(data_for_model),
+        data_for_model["indicator"].n_unique() if "indicator" in data_for_model.columns else 0,
         len(model_spec.get("parameters", [])),
         (sampler_config or {}).get("method", "config default"),
         builder is not None,
@@ -52,7 +52,7 @@ def fit_model(
 
     try:
         runtime = prepare_model_runtime(
-            raw_data=raw_data,
+            data_for_model=data_for_model,
             compiled_ssm=compiled_ssm,
             sampler_config=sampler_config,
             builder=builder,

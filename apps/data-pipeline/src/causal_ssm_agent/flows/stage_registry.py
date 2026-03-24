@@ -282,7 +282,9 @@ def _persist_stage5b(result: dict, workspace_id: str) -> dict:
 def _persist_stage4(result: dict, workspace_id: str) -> dict:
     compiled_ssm = result.get("_compiled_ssm")
     if compiled_ssm is not None:
-        result["_compiled_ssm_path"] = save_json(compiled_ssm, workspace_id, "stage4-compiled-ssm.json")
+        result["_compiled_ssm_path"] = save_json(
+            compiled_ssm, workspace_id, "stage4-compiled-ssm.json"
+        )
     return result
 
 

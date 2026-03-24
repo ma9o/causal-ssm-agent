@@ -469,10 +469,10 @@ async def run_stage2_extraction_core(
         len(worker_statuses),
     )
 
-    raw_data = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
+    observation_rows = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
 
     result = {
-        "raw_data": raw_data,
+        "observation_rows": observation_rows,
         "worker_statuses": worker_statuses,
         "n_total_extractions": n_total,
     }
@@ -482,26 +482,30 @@ async def run_stage2_extraction_core(
 
 
 def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[str, Any]:
-    """Materialize raw/model Stage 2 tables from a serialized extraction result."""
+    """Materialize the Stage 2 observation table from a serialized extraction result.
+
+    Encodes non-continuous indicators in place (binary/ordinal/categorical → numeric),
+    casts values to Float64, parses timestamps, drops rows with null anchor_time,
+    and sorts by (indicator, anchor_time).
+    """
     from causal_ssm_agent.utils.aggregations import _encode_non_continuous
     from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
     from causal_ssm_agent.utils.data import observation_row_schema
 
-    raw_data_dicts = stage2_result.get("raw_data", [])
-    if raw_data_dicts:
-        raw_data = pl.DataFrame(raw_data_dicts)
+    observation_dicts = stage2_result.get("observation_rows", [])
+    if observation_dicts:
+        data_for_model = pl.DataFrame(observation_dicts)
     else:
-        raw_data = pl.DataFrame(schema=observation_row_schema())
+        data_for_model = pl.DataFrame(schema=observation_row_schema())
 
-    n_observations = len(raw_data)
-    if n_observations > 0:
+    if len(data_for_model) > 0:
         dtype_lookup = get_indicator_dtypes(causal_spec)
         ordinal_levels_lookup: dict[str, list[str]] = {
             ind["name"]: ind["ordinal_levels"]
             for ind in get_indicators(causal_spec)
             if ind.get("ordinal_levels")
         }
-        data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
+        data_for_model = _encode_non_continuous(data_for_model, dtype_lookup, ordinal_levels_lookup)
         data_for_model = data_for_model.with_columns(
             pl.col("value").cast(pl.Float64, strict=False).alias("value"),
             pl.col("anchor_time")
@@ -521,11 +525,8 @@ def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[s
             .alias("support_end"),
         ).drop_nulls(subset=["anchor_time"])
         data_for_model = data_for_model.sort("indicator", "anchor_time")
-    else:
-        data_for_model = raw_data
 
     return {
-        "raw_data": raw_data,
         "data_for_model": data_for_model,
         "worker_statuses": stage2_result.get("worker_statuses", []),
         "llm_trace": stage2_result.get("llm_trace"),
@@ -657,7 +658,7 @@ async def stage2_extraction_flow(
         causal_spec: Full CausalSpec dict with measurement model.
 
     Returns:
-        Dict with 'raw_data' (long-format DataFrame as list of dicts),
+        Dict with 'observation_rows' (long-format observation rows as list of dicts),
         'worker_statuses', and 'n_total_extractions'.
     """
     from causal_ssm_agent.utils.config import get_config

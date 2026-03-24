@@ -153,7 +153,6 @@ async def stage2(
     """Extract indicator values from data using LLM workers.
 
     Returns dict with:
-    - ``_raw_data``: long-format Polars DataFrame of canonical observation rows
     - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
     - ``_worker_statuses``: per-worker status list
     - plus web-serializable worker metadata
@@ -180,22 +179,18 @@ async def stage2(
     )
 
     materialized = materialize_stage2_outputs(stage2_result, causal_spec)
-    raw_data = materialized["raw_data"]
     data_for_model = materialized["data_for_model"]
     worker_statuses = materialized["worker_statuses"]
 
-    n_observations = len(raw_data)
-    n_unique_indicators = raw_data["indicator"].n_unique() if n_observations > 0 else 0
+    n_observations = len(data_for_model)
+    n_unique_indicators = data_for_model["indicator"].n_unique() if n_observations > 0 else 0
     logger.info(
         "Extracted %d observation rows across %d indicators",
         n_observations,
         n_unique_indicators,
     )
 
-    logger.info("  Data for model: %d observations", len(data_for_model))
-
     result = {
-        "_raw_data": raw_data,
         "_data_for_model": data_for_model,
         "_worker_statuses": worker_statuses,
         "workers": worker_statuses,
@@ -225,10 +220,9 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
     from .stages import validate_extraction
 
     causal_spec = stage1b["causal_spec"]
-    raw_data = load_parquet(stage2["_raw_data_path"])
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 
-    validation_task = validate_extraction(causal_spec, [raw_data], data_for_model)
+    validation_task = validate_extraction(causal_spec, [data_for_model])
     audit_result = unwrap_task_result(validation_task)
 
     if audit_result:
@@ -317,7 +311,7 @@ async def stage4(
     return await stage4_agentic_flow(
         causal_spec=causal_spec,
         question=question,
-        raw_data=data_for_model,
+        data_for_model=data_for_model,
         indicator_audits=stage3["indicators"],
         enable_literature=enable_literature,
     )
@@ -337,7 +331,7 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
 
     return stage4b_parametric_id_flow(
         stage4,
-        raw_data=load_parquet(stage2["_data_for_model_path"]),
+        data_for_model=load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
     )
 

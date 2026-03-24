@@ -34,16 +34,15 @@ Each chunk is dispatched to a parallel LLM worker. The worker receives the forma
 
 **Annotation.** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to derive the canonical [observation-row](#observation-row) fields: [`support_kind`](../primitives/measurement-model/windows-and-aggregation.md) (point or interval, determined by the aggregation and `measurement_dtype`), `summary_operator` (the aggregation function name), `anchor_policy` (`support_start` for `first`, `support_end` for all others), `observation_window`, and the realized `support_start` / `support_end` / `anchor_time` timestamps. These fields are not free parameters—they are derived deterministically from the measurement model.
 
-**Materialization.** The annotated observation rows become the [raw-data table](#observation-row). A parallel [model-ready table](#model-ready-data) is derived by encoding non-continuous types to Float64, parsing ISO strings to native datetimes, dropping rows with null `anchor_time`, and sorting by `(indicator, anchor_time)`. Both tables are persisted as parquet sidecar files (`stage2-raw-data.parquet`, `stage2-model-data.parquet`).
+**Materialization.** The annotated observation rows are encoded in place: non-continuous types are cast to Float64, ISO strings are parsed to native datetimes, rows with null `anchor_time` are dropped, and the result is sorted by `(indicator, anchor_time)`. The single [model-ready table](#model-ready-data) is persisted as `stage2-model-data.parquet`.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `raw_data` | [Observation rows](#observation-row) | Canonical long-format extraction table with string values and full support metadata |
-| `data_for_model` | [Model-ready data](#model-ready-data) | Numerically encoded table for downstream fitting |
+| `data_for_model` | [Model-ready data](#model-ready-data) | Numerically encoded observation table for downstream fitting |
 
-The public stage payload exposes per-worker execution summaries (`workers`: status, extraction count, window count, and error if any) and may include `llm_trace` as runtime provenance for the UI. The two data tables are persisted as parquet sidecar files rather than serialized into the web payload. The stage outcome is `"success"` if at least one observation row was extracted.
+The public stage payload exposes per-worker execution summaries (`workers`: status, extraction count, window count, and error if any) and may include `llm_trace` as runtime provenance for the UI. The data table is persisted as a parquet sidecar file rather than serialized into the web payload. The stage outcome is `"success"` if at least one observation row was extracted.
 
 ## Definitions
 
@@ -54,7 +53,7 @@ An observation row is the canonical extracted indicator datum. It owns:
 | Field | Type | Description |
 |---|---|---|
 | `indicator` | string | Indicator name, referencing the [measurement model](01b-measurement-identifiability.md#measurement-model) |
-| `value` | string | Extracted value (string-encoded; downstream stages cast by dtype) |
+| `value` | Float64 | Extracted value (numerically encoded; non-continuous types label-encoded) |
 | `anchor_time` | ISO datetime | Latent-grid attachment time—the timestamp downstream models use for this observation |
 | `support_kind` | `"point"` \| `"interval"` | Whether the measurement is point-local (`first`/`last`) or an interval summary (`sum`/`count`/`mean`/`std`) |
 | `summary_operator` | string | The aggregation applied within the support window |

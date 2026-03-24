@@ -126,7 +126,7 @@ def observation_row_schema() -> dict[str, pl.DataType]:
 
 
 def annotate_observation_rows(
-    raw_data: pl.DataFrame,
+    df: pl.DataFrame,
     causal_spec: dict,
     *,
     time_col: str = "timestamp",
@@ -141,10 +141,8 @@ def annotate_observation_rows(
     Canonical support semantics are always derived from the measurement spec,
     not preserved from any caller-supplied row metadata.
     """
-    if raw_data.is_empty():
+    if df.is_empty():
         return pl.DataFrame(schema=observation_row_schema())
-
-    df = raw_data
     for col_name, dtype in OBSERVATION_ROW_SCHEMA.items():
         if col_name not in df.columns:
             df = df.with_columns(pl.lit(None, dtype=dtype).alias(col_name))
@@ -247,35 +245,35 @@ def annotate_observation_rows(
     return df
 
 
-def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
-    """Pivot long-format raw data to wide-format Polars DataFrame.
+def pivot_to_wide(df: pl.DataFrame) -> pl.DataFrame:
+    """Pivot long-format observation data to wide-format Polars DataFrame.
 
     Handles time column detection, Float64 casting, datetime-to-fractional-days
     conversion, and column renaming.
 
     Args:
-        raw_data: Polars DataFrame with columns: indicator, value, anchor_time.
+        df: Polars DataFrame with columns: indicator, value, anchor_time.
 
     Returns:
         Wide-format Polars DataFrame with 'time' column and one column per indicator.
         Returns empty DataFrame if input is empty.
     """
-    if raw_data.is_empty():
+    if df.is_empty():
         return pl.DataFrame()
 
     time_col = "anchor_time"
-    if time_col not in raw_data.columns:
-        raise ValueError("Raw observation data must include an 'anchor_time' column.")
+    if time_col not in df.columns:
+        raise ValueError("Observation data must include an 'anchor_time' column.")
 
     # Parse string timestamps to datetime before pivoting so the
     # datetime→fractional-days conversion below always triggers.
-    if raw_data.schema.get(time_col) == pl.Utf8:
-        raw_data = raw_data.with_columns(
+    if df.schema.get(time_col) == pl.Utf8:
+        df = df.with_columns(
             pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
         )
 
     wide_data = (
-        raw_data.with_columns(pl.col("value").cast(pl.Float64, strict=False))
+        df.with_columns(pl.col("value").cast(pl.Float64, strict=False))
         .pivot(on="indicator", index=time_col, values="value", aggregate_function="mean")
         .sort(time_col)
     )

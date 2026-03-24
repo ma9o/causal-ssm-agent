@@ -180,7 +180,7 @@ class TestStage4bInferenceStructurePayload:
         result = parametric_id_task.fn(
             _model_spec={},
             _priors={},
-            raw_data=pl.DataFrame(),
+            data_for_model=pl.DataFrame(),
         )
 
         assert set(result.keys()) == {"parametric_id", "inference_structure"}

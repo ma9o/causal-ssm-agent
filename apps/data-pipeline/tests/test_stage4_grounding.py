@@ -196,6 +196,26 @@ class TestStage4GroundingSchemaValidation:
         assert output is None
         assert "SCHEMA ERRORS" in feedback
 
+    def test_invalid_prior_distribution_returns_error(self, causal_spec, model_spec):
+        """Unknown prior family should fail schema validation immediately."""
+        output, feedback = stage4_grounding(
+            {
+                "priors": {
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Cauchy",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                        "sources": [],
+                        "reasoning": "bad family",
+                    }
+                }
+            },
+            causal_spec,
+            current={"model_spec": model_spec},
+        )
+        assert output is None
+        assert "SCHEMA ERRORS" in feedback
+
     def test_valid_model_spec_saved_with_missing_priors(self, causal_spec, model_spec):
         """Valid model_spec alone is saved but feedback requests priors."""
         output, feedback = stage4_grounding(
@@ -319,15 +339,15 @@ class TestStage4GroundingStateMerging:
 
 
 # ---------------------------------------------------------------------------
-# Gate 3: prior predictive (only with raw_data)
+# Gate 3: prior predictive (only with data_for_model)
 # ---------------------------------------------------------------------------
 
 
 class TestStage4GroundingPriorPredictive:
-    """Prior predictive gate runs only when priors + raw_data are present."""
+    """Prior predictive gate runs only when priors + data_for_model are present."""
 
-    def test_with_raw_data_runs_pp(self, causal_spec, model_spec, priors):
-        """With raw_data, PP gate runs. With reasonable priors it should pass."""
+    def test_with_data_for_model_runs_pp(self, causal_spec, model_spec, priors):
+        """With data_for_model, PP gate runs. With reasonable priors it should pass."""
         import numpy as np
         import polars as pl
 
@@ -341,7 +361,7 @@ class TestStage4GroundingPriorPredictive:
                 eager=True,
             ),
         )
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["pss_score"] * n + ["sleep_quality"] * n,
                 "value": np.concatenate(
@@ -359,7 +379,7 @@ class TestStage4GroundingPriorPredictive:
             {"priors": priors},
             causal_spec,
             current={"model_spec": model_spec},
-            raw_data=raw_data,
+            data_for_model=data_for_model,
         )
         # With reasonable priors and data, should pass (or fail with PP feedback)
         # We mainly verify it runs without crashing
@@ -393,7 +413,7 @@ class TestStage4GroundingPriorPredictive:
                 eager=True,
             ),
         )
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["pss_score"] * n + ["sleep_quality"] * n,
                 "value": np.concatenate(
@@ -410,7 +430,7 @@ class TestStage4GroundingPriorPredictive:
             {"priors": extreme_priors},
             causal_spec,
             current={"model_spec": model_spec},
-            raw_data=raw_data,
+            data_for_model=data_for_model,
         )
         # Extreme priors should either fail compile or PP
         # (Normal doesn't satisfy positive constraint for sigma parameters)

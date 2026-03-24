@@ -392,7 +392,7 @@ def stage4_result(model_spec, priors, daily_data):
         "validation": {"is_valid": True, "results": [], "issues": []},
         "model_info": {"model_built": True, "model_type": "SSM", "version": "0.1.0"},
         "is_valid": True,
-        "raw_data": daily_data,
+        "data_for_model": daily_data,
         "_compiled_ssm": compile_ssm_artifact(model_spec, priors),
     }
 
@@ -529,7 +529,7 @@ class TestE2EPipeline:
         from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
         from causal_ssm_agent.models.ssm.inference import FittedArtifact
 
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": [
                     "perf_avg",
@@ -587,7 +587,7 @@ class TestE2EPipeline:
 
         fitted_result = fit_model.fn(
             {"model_spec": {}},
-            raw_data,
+            data_for_model,
             sampler_config=svi_config,
             builder=builder,
         )

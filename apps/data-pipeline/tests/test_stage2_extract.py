@@ -305,7 +305,7 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
         "monthly_sleep_hours",
     ]
     assert captured_runner["chunk_texts"] == ["chunk:1d-window", "chunk:1mo-window"]
-    assert result["raw_data"] == []
+    assert result["observation_rows"] == []
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
@@ -402,7 +402,7 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
         "stress_score",
         "monthly_sleep_hours",
     ]
-    assert result["raw_data"] == []
+    assert result["observation_rows"] == []
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
@@ -494,7 +494,7 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
         )
     )
 
-    rows = pl.DataFrame(result["raw_data"])
+    rows = pl.DataFrame(result["observation_rows"])
     assert result["n_total_extractions"] == 1
     assert rows.height == 1
 
@@ -602,7 +602,7 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
         )
     )
 
-    rows = pl.DataFrame(result["raw_data"]).sort("indicator")
+    rows = pl.DataFrame(result["observation_rows"]).sort("indicator")
     assert result["n_total_extractions"] == 2
     assert result["worker_statuses"] == [
         {
@@ -729,7 +729,7 @@ def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(mon
         )
     )
 
-    rows = pl.DataFrame(result["raw_data"]).sort("indicator")
+    rows = pl.DataFrame(result["observation_rows"]).sort("indicator")
     assert result["n_total_extractions"] == 2
     assert rows["indicator"].to_list() == ["closing_mood", "low_spo2"]
 

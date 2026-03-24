@@ -18,11 +18,11 @@ from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidatio
 logger = get_prefect_logger(__name__)
 
 
-def compute_data_stats(raw_data: pl.DataFrame) -> dict[str, dict]:
+def compute_data_stats(data_for_model: pl.DataFrame) -> dict[str, dict]:
     """Compute per-indicator mean, std, min, max from raw data."""
     stats = {}
     for row in (
-        raw_data.group_by("indicator")
+        data_for_model.group_by("indicator")
         .agg(
             [
                 pl.col("value").cast(pl.Float64, strict=False).mean().alias("mean"),
@@ -299,7 +299,7 @@ def _check_scale_plausibility(
 def validate_prior_predictive(
     model_spec: ModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
-    raw_data: pl.DataFrame | None = None,
+    data_for_model: pl.DataFrame | None = None,
     data_stats: dict[str, dict] | None = None,
     n_samples: int = 500,
     constraint_tolerance: float = 0.05,
@@ -313,12 +313,12 @@ def validate_prior_predictive(
     2. No NaN/Inf in samples
     3. Constraint violations (positive params < 0, etc.)
     4. Extreme values (|param| > 1e6)
-    5. Scale plausibility vs data (if raw_data provided)
+    5. Scale plausibility vs data (if data_for_model provided)
 
     Args:
         model_spec: Model specification
         priors: Prior proposals for each parameter
-        raw_data: Raw timestamped data (optional, for scale plausibility check)
+        data_for_model: Raw timestamped data (optional, for scale plausibility check)
         data_stats: Optional precomputed per-indicator stats for scale checks
         n_samples: Number of prior predictive samples
         constraint_tolerance: Fraction of positive-constraint violations to
@@ -357,8 +357,8 @@ def validate_prior_predictive(
         artifact = compiled_ssm or compile_ssm_artifact(
             model_spec, priors_dict, causal_spec=causal_spec
         )
-        if raw_data is not None and not raw_data.is_empty():
-            builder = prepare_model_runtime(raw_data, compiled_ssm=artifact).builder
+        if data_for_model is not None and not data_for_model.is_empty():
+            builder = prepare_model_runtime(data_for_model, compiled_ssm=artifact).builder
         else:
             # No raw data: create dummy observations inside each family's support
             X_wide = _make_support_compatible_dummy_wide_data(spec_obj)
@@ -413,8 +413,12 @@ def validate_prior_predictive(
 
     # Check 4: Scale plausibility
     scale_reference_stats = data_stats
-    if scale_reference_stats is None and raw_data is not None and not raw_data.is_empty():
-        scale_reference_stats = compute_data_stats(raw_data)
+    if (
+        scale_reference_stats is None
+        and data_for_model is not None
+        and not data_for_model.is_empty()
+    ):
+        scale_reference_stats = compute_data_stats(data_for_model)
     if scale_reference_stats:
         results.extend(_check_scale_plausibility(samples, scale_reference_stats, manifest_names))
 

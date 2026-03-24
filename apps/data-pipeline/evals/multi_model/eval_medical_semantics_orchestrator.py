@@ -114,8 +114,7 @@ class CandidateRun:
     stage1a_result: Stage1aResult
     stage1b_result: Stage1bResult
     comparison: MedicalSemanticsComparison
-    raw_row_count: int
-    model_row_count: int
+    row_count: int
 
 
 def create_eval_dataset() -> MemoryDataset:
@@ -265,12 +264,11 @@ async def _run_orchestrator_candidate(
     )
     materialized = materialize_stage2_outputs(stage2_result, stage1b_result.causal_spec)
 
+    data_for_model = materialized["data_for_model"]
     comparison = compare_medical_semantics_outputs(
         causal_spec=stage1b_result.causal_spec,
         stage0=fixture.stage0,
-        raw=materialized["raw_data"],
-        model=materialized["data_for_model"],
-        expected_raw=fixture.expected_raw,
+        data_for_model=data_for_model,
         expected_model=fixture.expected_model,
     )
 
@@ -279,8 +277,7 @@ async def _run_orchestrator_candidate(
         stage1a_result=stage1a_result,
         stage1b_result=stage1b_result,
         comparison=comparison,
-        raw_row_count=materialized["raw_data"].height,
-        model_row_count=materialized["data_for_model"].height,
+        row_count=data_for_model.height,
     )
 
 
@@ -293,7 +290,7 @@ def _format_candidate_report(candidate: CandidateRun) -> str:
             f"- stage1a edges: {candidate.stage1a_result.n_edges}",
             f"- stage1a outcome: {outcome_name}",
             f"- stage1b indicators ({len(candidate.comparison.stage1b_indicators)}): {indicators}",
-            f"- stage2 rows: raw={candidate.raw_row_count}, model={candidate.model_row_count}",
+            f"- stage2 rows: {candidate.row_count}",
             "",
             candidate.comparison.format_report(),
         ]

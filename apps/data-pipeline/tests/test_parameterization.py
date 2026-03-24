@@ -774,14 +774,14 @@ class TestCompiledArtifactIntegration:
 
         rng = np.random.default_rng(42)
         n = 30
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["mood_score"] * n,
                 "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
                 "anchor_time": list(range(n)),
             }
         )
-        builder = build_ssm_builder(wide_data=pivot_to_wide(raw_data), compiled_ssm=artifact)
+        builder = build_ssm_builder(wide_data=pivot_to_wide(data_for_model), compiled_ssm=artifact)
         assert builder._model is not None
         samples = builder.sample_prior_predictive(samples=5)
         assert samples is not None

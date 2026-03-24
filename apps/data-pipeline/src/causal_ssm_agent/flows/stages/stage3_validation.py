@@ -942,7 +942,6 @@ def run_rules(
 def validate_extraction(
     causal_spec: dict,
     dataframes: list[pl.DataFrame],
-    model_data: pl.DataFrame | None = None,
 ) -> dict:
     """Validate semantic properties of extracted data.
 
@@ -952,7 +951,6 @@ def validate_extraction(
     Args:
         causal_spec: The full causal spec with measurement model
         dataframes: List of DataFrames with columns (indicator, value, anchor_time)
-        model_data: Model-ready numeric long data used for empirical profiles
 
     Returns:
         Dict with:
@@ -1002,11 +1000,10 @@ def validate_extraction(
         validation_ctx,
     )
 
-    model_df = model_data if model_data is not None and not model_data.is_empty() else combined
     indicator_audits = build_indicator_audits(
         indicator_names=indicator_names,
         indicator_lookup=indicator_lookup,
-        model_data=model_df,
+        model_data=combined,
         indicator_issues=indicator_issues,
         indicator_health=indicator_health,
     )
