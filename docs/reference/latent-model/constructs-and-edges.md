@@ -30,6 +30,27 @@ This yields four construct types:
 
 Edge restriction: time-invariant constructs may only have time-invariant parents. A time-varying construct cannot cause a time-invariant construct, because the child is fixed within person over the modeled window. See [A5](../latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states) for the full rationale and runtime implementation (drift ≈ 0, diffusion ≈ 0).
 
+## Temporal Semantics
+
+### Shared Construct Timescale
+
+All time-varying constructs currently share a single timescale set by the [`MeasurementModel` `model_clock`](../measurement-model/indicators.md#observation-windows-and-model-clock). Time-invariant constructs have no temporal granularity of their own.
+
+### Autoregressive Structure
+
+- Endogenous time-varying constructs receive AR(1) under [A3](assumptions.md#a3-markov-property-for-temporal-dynamics).
+- Exogenous constructs do not receive AR structure; downstream models condition on their values.
+- Indicators do not receive AR structure; temporal dependence in indicator series is attributed to construct dynamics, and indicator residuals are assumed iid under [A8](../measurement-model/assumptions.md#a8-indicator-residuals-are-temporally-independent).
+
+### Edge Lag Rules
+
+Two lag values are valid under the [Markov property](assumptions.md#a3-markov-property-for-temporal-dynamics):
+
+- **Lag = 0:** Contemporaneous effect within the same time index. Under [A4b](assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), this is not a valid encoding for edges between constructs that are both endogenous and time-varying.
+- **Lag = 1 model-clock tick:** Lagged effect from `t - 1` to `t`.
+
+Higher-order lags (`t - 2`, `t - 3`, and so on) are not permitted. Under Markovian dynamics, `t - 1` is a sufficient statistic for all prior history, so information from `t - 2` is already propagated through the AR(1) path.
+
 ## Edges
 
 A `LatentModel` edge is a directed causal relation between constructs. It says which construct can affect which other construct. It does not yet say how either construct is measured.

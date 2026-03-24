@@ -75,8 +75,8 @@ The detailed time semantics live with the primitives that own them. Identifiabil
 | Question | Primary owner | Detail page |
 |---|---|---|
 | What is a construct, and which edges are legal between constructs? | LatentModel | [constructs-and-edges.md](latent-model/constructs-and-edges.md) |
-| How do lag rules work at the construct level? | LatentModel | [temporal-semantics.md](latent-model/temporal-semantics.md) |
-| How do indicators define support windows, aggregation, and `model_clock`? | MeasurementModel | [windows-and-aggregation.md](measurement-model/windows-and-aggregation.md) |
+| How do lag rules work at the construct level? | LatentModel | [constructs-and-edges.md#temporal-semantics](latent-model/constructs-and-edges.md#temporal-semantics) |
+| How do indicators define support windows, aggregation, and `model_clock`? | MeasurementModel | [indicators.md#observation-windows-and-model-clock](measurement-model/indicators.md#observation-windows-and-model-clock) |
 | How does temporal unrolling affect causal identification? | CausalSpec | [identifiability.md](causal-spec/identifiability.md) |
 | How is elapsed `dt` used in continuous-to-discrete runtime transitions? | Runtime estimation | [estimation.md](estimation.md) |
 

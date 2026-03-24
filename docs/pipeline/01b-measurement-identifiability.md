@@ -20,7 +20,7 @@ Stage 1a provided theoretical structure without seeing any data. Stage 1b is the
 
 Stage 1b runs a single LLM conversation that bridges theory and data. The LLM sees the latent model, the research question, and a schema summary of the ingested dataset. The conversation has three phases: indicator proposal grounded by a combined validation tool, identifiability repair if needed, and a self-review pass.
 
-**Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../reference/measurement-model/indicators.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), and what [measurement dtype, aggregation function, and observation window](../reference/measurement-model/windows-and-aggregation.md) apply. The LLM also selects a `model_clock`—the discretization unit that governs extraction and downstream fitting.
+**Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../reference/measurement-model/indicators.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), its [measurement dtype](../reference/measurement-model/indicators.md#measurement-dtype), its [aggregation and support window](../reference/measurement-model/indicators.md#observation-windows-and-model-clock), and the shared [`model_clock`](../reference/measurement-model/indicators.md#observation-windows-and-model-clock) that governs extraction and downstream fitting.
 
 **Validation loop.** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks three things simultaneously:
 
@@ -49,7 +49,7 @@ The public stage payload exposes that artifact directly. It may also include `ga
 The `MeasurementModel` defines how theoretical constructs are observed in data. It owns:
 
 - the indicator list—each indicator carries `name`, `construct_name`, `how_to_measure`, `measurement_dtype`, `aggregation`, `observation_window`, `source_columns`, and `extraction_mode`
-- the `model_clock`—the observation-window width used for extraction and discretization (see [windows and aggregation](../reference/measurement-model/windows-and-aggregation.md))
+- the `model_clock`—the observation-window width used for extraction and discretization (see [Observation Windows and Model Clock](../reference/measurement-model/indicators.md#observation-windows-and-model-clock))
 
 Indicators are reflective: the construct causes the indicator value, not the reverse. Each indicator's `extraction_mode` is either `"computed"` (a deterministic aggregation that [Stage 2](02-indicator-extraction.md) can evaluate mechanically) or `"semantic"` (requiring an LLM worker to interpret unstructured text).
 
