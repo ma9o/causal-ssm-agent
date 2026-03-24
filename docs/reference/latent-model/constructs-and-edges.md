@@ -28,7 +28,7 @@ This yields four construct types:
 | Endogenous | Time-varying | AR(1) | Mood, stress, sleep quality |
 | Endogenous | Time-invariant | None | Baseline severity, stable trait outcome |
 
-Edge restriction: time-invariant constructs may only have time-invariant parents. A time-varying construct cannot cause a time-invariant construct, because the child is fixed within person over the modeled window.
+Edge restriction: time-invariant constructs may only have time-invariant parents. A time-varying construct cannot cause a time-invariant construct, because the child is fixed within person over the modeled window. See [A5](../latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states) for the full rationale and runtime implementation (drift ≈ 0, diffusion ≈ 0).
 
 ## Edges
 

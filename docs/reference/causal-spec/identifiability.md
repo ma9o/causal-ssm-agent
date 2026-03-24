@@ -36,6 +36,8 @@ but not via `U_{t-2}` or earlier, because `U_{t-1}` d-separates `U_{t-2}` from c
 
 **Assumption:** Once the measurement model is identified, via factor analysis for multi-indicator constructs or by assumption for single-indicator constructs, constructs can be treated as effectively observed for the purpose of causal identification via the latent model.
 
+**Depends on:** [A1](../measurement-model/assumptions.md#a1-reflective-measurement-model) (reflective model ensures constructs cause indicators), [A6](../measurement-model/assumptions.md#a6-measurement-error-handling-depends-on-indicator-count) (multi-indicator constructs are identified via factor analysis), and [A9](../measurement-model/assumptions.md#a9-single-indicator-constructs-absorb-measurement-error) (single-indicator constructs are identified by assumption).
+
 **Rationale:** Under the pure-indicators assumption, meaning no direct indicator-to-indicator edges, the construct covariance matrix becomes identified from observed indicator covariances. That matrix then serves as "data" for the latent model, and Pearl-style identification criteria apply to the construct-level DAG. This is the logic emphasized in latent-variable SEM treatments such as Anderson and Gerbing (1988) and is one reason `CausalSpec`, not `LatentModel` alone, is the right handoff object for downstream fitting.
 
 **References:**

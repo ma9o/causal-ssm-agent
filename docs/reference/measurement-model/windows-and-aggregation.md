@@ -12,7 +12,7 @@ Examples:
 - "Number of production incidents during the previous week"
 - "Teacher feedback sentiment in the current grading period"
 
-Stage 2 later materializes `support_start`, `support_end`, and `anchor_time` for each extracted row, but the window meaning starts here.
+[Stage 2](../../pipeline/02-indicator-extraction.md) later materializes `support_start`, `support_end`, and `anchor_time` for each extracted row, but the window meaning starts here.
 
 ## Model Clock
 
