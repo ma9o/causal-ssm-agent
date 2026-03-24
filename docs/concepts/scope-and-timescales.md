@@ -2,10 +2,6 @@
 
 This framework models dynamics of time-varying constructs with optional time-invariant covariates for causal effect estimation on single-individual or already-aggregated longitudinal data. The detailed time semantics live with the primitives that own them.
 
-Within the pipeline, the pages linked below constrain the objects that appear in the `LatentModel`, `MeasurementModel`, and `CausalSpec`.
-
-For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [artifact-index.md](artifact-index.md).
-
 ## Scope Boundary
 
 In scope:
@@ -28,13 +24,7 @@ Identifiability is checked by y0 in Stage 1b rather than enforced at the schema 
 | Question | Primary owner | Detail page |
 |---|---|---|
 | What is a construct, and which edges are legal between constructs? | [LatentModel](../primitives/latent-model/index.md) | [latent-model/constructs-and-edges.md](../primitives/latent-model/constructs-and-edges.md) |
-| How do lag rules and cross-timescale edges work at the construct level? | [LatentModel](../primitives/latent-model/index.md) | [latent-model/temporal-semantics.md](../primitives/latent-model/temporal-semantics.md) |
+| How do lag rules work at the construct level? | [LatentModel](../primitives/latent-model/index.md) | [latent-model/temporal-semantics.md](../primitives/latent-model/temporal-semantics.md) |
 | How do indicators define support windows, aggregation, and `model_clock`? | [MeasurementModel](../primitives/measurement-model/index.md) | [measurement-model/windows-and-aggregation.md](../primitives/measurement-model/windows-and-aggregation.md) |
 | How does temporal unrolling affect causal identification? | [CausalSpec](../primitives/causal-spec/index.md) | [causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md) |
 | How is elapsed `dt` used in continuous-to-discrete runtime transitions? | Runtime estimation | [../model-runtime/estimation.md](../model-runtime/estimation.md) |
-
-## Reading Guide
-
-- For construct-versus-indicator terminology, start with [causal-modeling-terminology.md](causal-modeling-terminology.md).
-- For numbered assumptions such as A3, A3a, or A8, use [assumptions.md](assumptions.md).
-- For stage ownership, use [../pipeline.md](../pipeline.md).

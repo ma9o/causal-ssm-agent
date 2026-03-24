@@ -42,6 +42,20 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 - Asparouhov, T., Hamaker, E. L., & Muthen, B. (2018). Dynamic structural equation models. *Structural Equation Modeling*, 25(3), 359-388. https://doi.org/10.1080/10705511.2017.1406803
 - Shpitser, I., & Pearl, J. (2006). *Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models.* AAAI.
 
+## A4b. Endogenous Time-Varying Directed Effects Are Drift-Mediated
+
+**Assumption:** Directed effects between endogenous time-varying constructs are represented through continuous-time drift rather than contemporaneous within-slice arrows.
+
+**Definition:** For endogenous time-varying constructs `X` and `Y`, the user-facing `LatentModel` does not permit a same-slice directed edge `X_t -> Y_t`. Such a relation must be represented as a lagged edge `X_t-1 -> Y_t` in the graph and compiles downstream to an off-diagonal effect in the [continuous-time drift matrix](../../model-runtime/estimation.md#1-ct-sde-formulation). Same-time dependence at `t` belongs to explicit confounding structure or shared innovations, not a directed within-slice arrow.
+
+**Implications:**
+
+- Stage 1a rejects `lagged=false` edges between constructs that are both endogenous and time-varying
+- Directed cross-construct effects among latent states are encoded as drift-mediated temporal dependence
+- Same-time co-movement should be represented by explicit latent confounders or diffusion covariance, depending on whether the dependence is theoretical or stochastic
+
+**Justification:** The chosen latent-process family is a multivariate continuous-time SDE. In that model class, directed coupling between evolving latent states is carried by the drift term, while contemporaneous dependence is captured by common causes or shared innovation. Adding directed same-slice structural equations between endogenous time-varying states would introduce a second within-slice structural layer that is outside the project's current semantic contract.
+
 ## A5. Time-Invariant Latents as Subject-Level Static States
 
 **Assumption:** Time-invariant constructs capture stable subject-level differences over the modeled window. They may be exogenous or endogenous, but any modeled causes of a time-invariant construct must themselves be time-invariant.
@@ -62,4 +76,4 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 ## Boundary
 
-A3, A4, and A5 are primarily about what the construct-level graph is allowed to say. Identification-specific assumptions that use the graph live with the [CausalSpec](../causal-spec/identifiability.md).
+A3, A4, A4b, and A5 are primarily about what the construct-level graph is allowed to say. Identification-specific assumptions that use the graph live with the [CausalSpec](../causal-spec/identifiability.md).
