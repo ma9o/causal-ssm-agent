@@ -111,13 +111,6 @@ The pipeline has several kinds of checks. They target different failure modes an
 | Cheap prefit sanity | 5a | Does a fast approximate fit immediately reveal gross pathologies? |
 | Post-fit diagnostics | 5b | Does the fitted model behave well under posterior diagnostics and predictive checks? |
 
-These are all "validation" in a loose sense, but each validates a different object:
-
-- Stage 1b validates the causal question under the topological structure.
-- Stage 3 validates the extracted evidence.
-- Stage 4b validates the functional specification before fitting.
-- Stage 5b validates the fitted model after inference.
-
 ## 6. Assumption Map
 
 | Assumption | Primary owner primitive | Main consumers | Detail page |
@@ -137,7 +130,7 @@ These are all "validation" in a loose sense, but each validates a different obje
 
 ## 7. Control-Flow Semantics
 
-The runtime treats stages differently with respect to replay, overrides, and gating.
+Execution order is not hard-coded. It is derived from a dependency DAG declared in the stage registry, where each stage declares `stage_id`, `depends_on`, `contract`, `bind_inputs`, `runner`, optional gate behavior, and optional restore/persist/finalize behavior through a materializer. The runtime computes a topological order from `depends_on` and folds over that order.
 
 | Property | Meaning | Current stages |
 |---|---|---|
@@ -148,9 +141,22 @@ The runtime treats stages differently with respect to replay, overrides, and gat
 | `Always recompute on resume` | Stage is intentionally not restored from checkpoint | 5a |
 | `Terminal in-place persistence` | Interactive changes persist in the current stage rather than replaying downstream stages | 6 |
 
-This dimension is implemented in the stage registry and pipeline runtime, not in the stage payload schemas alone.
+### Resume Semantics
 
-See:
+Resume restores earlier dependencies and re-executes only the requested window:
+
+1. Resolve `start_stage` and `end_stage`.
+2. Restore earlier dependencies from snapshot or reconstructed artifacts.
+3. Execute only stages inside the requested window.
+4. Persist fresh web payloads and snapshots for stages that reran.
+
+Important cases: most stages restore normally from persisted state; Stage 5a is intentionally never restored; Stages 0, 2, 4, 4b, and 5b use artifact-backed restore logic.
+
+### Question and Context Resolution
+
+The natural-language research question is materialized to `data/{workspace_id}/query.txt`. This lets fresh runs start from web-submitted text while resume runs can reload the same question without resubmission.
+
+### Sources
 
 - [../pipeline.md](../pipeline.md) for the stage-facing description
 - [apps/data-pipeline/src/causal_ssm_agent/flows/stage_registry.py](../../apps/data-pipeline/src/causal_ssm_agent/flows/stage_registry.py) for the executable source of truth

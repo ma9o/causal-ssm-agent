@@ -83,3 +83,30 @@ It owns:
 Its `distribution` field uses the prior-specific vocabulary documented in [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods. Those prior-family names are also exact canonical strings; aliases are not accepted.
 
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.
+
+## LLM-Assisted Prior Elicitation
+
+For parameters not fully determined by rules, Stage 4 uses LLM elicitation. See [Stage 4](../../pipeline/04-model-specification-priors.md) for the full process.
+
+| Parameter type | LLM provides | Rule constraint |
+|---|---|---|
+| Cross-lag `beta` | `PriorProposal` with exact prior family name, params, reasoning, sources | `none` |
+| AR `rho` | `PriorProposal` with exact prior family name, params, reasoning, optional `reference_interval_days` | `unit_interval` |
+| Residual `sigma` | `PriorProposal` with exact prior family name, params, reasoning | `positive` |
+
+### Paraphrased Elicitation (AutoElicit-style, optional)
+
+When `stage4_prior_elicitation.paraphrasing.enabled = true`, Stage 4 can use paraphrased prompting to reduce brittle overconfidence from any one prompt wording (Capstick et al. 2024). The `elicit_prior_gmm` tool runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model. Default behavior keeps this disabled for cost reasons.
+
+Aggregation of elicited prior summaries `{(mu_k, sigma_k)}`:
+
+1. **Simple aggregation:** `mu_pooled = mean(mu_k)`, `sigma_pooled = sqrt(mean(sigma_k^2) + var(mu_k))` — the final uncertainty reflects both within-prompt uncertainty and between-prompt disagreement.
+2. **Mixture model:** Fit a Gaussian mixture when responses are clearly multimodal.
+
+### References
+
+- Capstick et al. (2024). *AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling.* arXiv: [2411.17284](https://arxiv.org/abs/2411.17284).
+- Chen et al. (2025). *LLM-BI: Towards Fully Automated Bayesian Inference with Large Language Models.* arXiv: [2508.08300](https://arxiv.org/abs/2508.08300).
+- Huang (2025). *LLM-Prior: A Framework for Knowledge-Driven Prior Elicitation and Aggregation.* arXiv: [2508.03766](https://arxiv.org/abs/2508.03766).
+- Riegler et al. (2025). *Using large language models to suggest informative prior distributions in Bayesian regression analysis.* *Scientific Reports*. DOI: [10.1038/s41598-025-18425-9](https://www.nature.com/articles/s41598-025-18425-9).
+- Selby et al. (2024). *Had Enough of Experts? Elicitation and Evaluation of Bayesian Priors from Large Language Models.* NeurIPS BDU Workshop.
