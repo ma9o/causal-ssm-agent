@@ -1,5 +1,7 @@
 THINK VERY HARD
 
+- Project description: causal-ssm-agent is for single-individual or already-aggregated longitudinal questions where the data are messy, irregularly sampled, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors, but quantitative answers only proceed through explicit identifiability checks and Bayesian continuous-time state-space estimation. The goal is not just to estimate effects, but to know when numeric causal claims are justified and when the system should stop at structural reasoning.
+
 - At the start of each session, check if `scratchpad/TODO.md` exists. If so, read it to understand where work left off. Only update it when the user explicitly ends the session. This file is gitignored and used for local continuity.
 
 - Interpret `cp` as an alias for "commit and push". Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one.
@@ -13,6 +15,8 @@ THINK VERY HARD
 - in `docs/pipeline`, each stage doc is the authoritative definition of its outputs and artifacts. Downstream stages should link back to these definitions rather than re-describing them.
 
 - in `docs/pipeline`, the Outputs sections should always be a table for the domain relevant fields. Internal plumbing can be described in natural language just beneath it, but still exhaustively.
+
+- when coming up with examples, avoid using the same domain repeatedly. Rotate through different contexts such as healthcare, software engineering, education, etc. Make sure the examples are conformant to the project goal and scope.
 
 ## Terminology: Causal Modeling
 
