@@ -22,8 +22,9 @@
 - [Estimation](reference/estimation.md): CT-SDE formulation, discretization, likelihood
 - [Stage 6 intervention analysis](pipeline/06-intervention-analysis.md): do-operator semantics, trajectory simulation, and interpretation guidance
 - [Inference routing](reference/inference-routing.md): method selection and structural routing
-- [Control-flow semantics](reference/pipeline-dimensions.md#7-control-flow-semantics): dependency DAG, resume, gating
-- [Persistence and exposure](reference/pipeline-dimensions.md#8-persistence-and-exposure-boundary): internal, web, and snapshot surfaces
+- [Execution semantics](reference/execution-semantics.md): dependency DAG, resume, question materialization, and persistence surfaces
+- [Control-flow semantics](reference/execution-semantics.md#1-control-flow-semantics): dependency DAG, resume, gating
+- [Persistence and exposure](reference/execution-semantics.md#2-persistence-and-exposure-boundary): internal, web, and snapshot surfaces
 
 ## Terminology Note
 
@@ -53,5 +54,5 @@ This project separates them:
 | Why do the docs say `latent model`, `topological structure`, and `functional specification` instead of `structural model`? | [Terminology note](#terminology-note) | The relevant primitive or stage doc |
 | How does time work across extraction, fitting, and interventions? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#temporal-semantics) | [reference/estimation.md](reference/estimation.md) |
 | What gets validated where? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#assurance-surface) | [pipeline.md](pipeline.md) |
-| How do resume, replay, overrides, and gates work? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#7-control-flow-semantics) | [pipeline.md](pipeline.md) |
-| What gets persisted, restored, or exposed to the web? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#8-persistence-and-exposure-boundary) | [pipeline.md](pipeline.md) |
+| How do resume, replay, overrides, and gates work? | [reference/execution-semantics.md](reference/execution-semantics.md#1-control-flow-semantics) | [pipeline.md](pipeline.md) |
+| What gets persisted, restored, or exposed to the web? | [reference/execution-semantics.md](reference/execution-semantics.md#2-persistence-and-exposure-boundary) | [pipeline.md](pipeline.md) |
