@@ -30,7 +30,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 | `timestamps` | Observation-time parseability | error if 100% unparseable; warning if >50% | fraction of `anchor_time` values that fail all nine timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
-| `dtype_range` | Values conform to declared [`measurement_dtype`](../primitives/measurement-model/index.md) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
+| `dtype_range` | Values conform to declared [`measurement_dtype`](../primitives/measurement-model/indicators.md) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
 | `time_coverage` | Data span relative to model clock | warning | time span < 10 × `model_clock` hours; skipped for time-invariant constructs |
 | `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `model_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |

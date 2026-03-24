@@ -9,7 +9,7 @@ This project separates them:
 
 | Description | Domain primitive | Owner stage |
 |---|---|---|
-| The latent-to-latent DAG proposed from theory | [`LatentModel`](../primitives/latent-model/index.md) | [Stage 1a](../pipeline/01a-latent-model.md) |
-| The construct-to-observed mapping | [`MeasurementModel`](../primitives/measurement-model/index.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
-| The combined latent, measurement, and identifiability handoff | [`CausalSpec`](../primitives/causal-spec/index.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
-| The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](../primitives/model-spec/index.md) | [Stage 4](../pipeline/04-model-specification-priors.md) |
+| The latent-to-latent DAG proposed from theory | [`LatentModel`](../primitives/latent-model/constructs-and-edges.md) | [Stage 1a](../pipeline/01a-latent-model.md) |
+| The construct-to-observed mapping | [`MeasurementModel`](../primitives/measurement-model/indicators.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
+| The combined latent, measurement, and identifiability handoff | [`CausalSpec`](../primitives/causal-spec/identifiability.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
+| The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](../primitives/model-spec/functional-specification.md) | [Stage 4](../pipeline/04-model-specification-priors.md) |

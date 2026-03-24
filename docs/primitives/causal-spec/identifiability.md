@@ -1,5 +1,7 @@
 # CausalSpec: Identifiability
 
+`CausalSpec` is the Stage 1b handoff object that bundles the [`LatentModel`](../latent-model/constructs-and-edges.md), the [`MeasurementModel`](../measurement-model/indicators.md), and the treatment-level `IdentifiabilityStatus`. The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+
 ## What Stage 1b Checks
 
 Stage 1b checks whether each treatment-to-outcome effect is causally identifiable under the latent graph and the measurement assumptions.

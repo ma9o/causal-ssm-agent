@@ -67,7 +67,7 @@ The contract also exposes `outcome` (`"success"` or `"warn"`) inherited from the
 
 ### FittedArtifact
 
-`FittedArtifact` is the persisted runtime object produced by Stage 5b and consumed by [Stage 6](06-intervention-analysis.md). It is the sole handoff object in the [model-runtime chain](../model-runtime/handoff-map.md).
+`FittedArtifact` is the persisted runtime object produced by Stage 5b and consumed by [Stage 6](06-intervention-analysis.md). It is the sole handoff object in the [model-runtime chain](../model-runtime/compilation.md).
 
 | Field | Type | Description |
 |---|---|---|
