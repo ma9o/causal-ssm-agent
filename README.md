@@ -44,9 +44,7 @@ See [`docs/index.md`](docs/index.md) for the full documentation structure.
 References are colocated with the docs that use them rather than collected in a standalone bibliography page.
 
 - **[Pipeline](docs/pipeline.md)** - Ordered stage map plus per-stage reference files
-- **[Concepts](docs/concepts/)** - Cross-cutting domain concepts: artifacts, assumptions, temporal semantics, and scope
-- **[Model Runtime](docs/model-runtime/)** - Stage 4 to Stage 6 handoff path: functional specification, compilation, estimation, and inference routing
-- **[Runtime](docs/runtime/)** - Replay, restore, persistence, and web/internal exposure boundaries
+- **[Reference](docs/reference/)** - Domain objects, cross-cutting concepts, estimation, inference routing, and execution semantics
 - **[Guides](docs/guides/)** - Practical usage: data contract, data workflow, running evals, codegen
 
 ## Structure

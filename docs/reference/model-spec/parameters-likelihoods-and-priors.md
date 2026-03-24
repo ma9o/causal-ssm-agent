@@ -49,12 +49,14 @@ Each parameter in the SSM has a **role** meaning its function in the model and a
 
 **Constraints**
 
-| Constraint | Domain | Typical prior families |
-|---|---|---|
-| `none` | `(-inf, +inf)` | Normal |
-| `positive` | `(0, +inf)` | HalfNormal, Gamma, LogNormal, Exponential |
-| `unit_interval` | `[0, 1]` | Beta, Uniform(0, 1) |
-| `correlation` | `[-1, 1]` | Uniform(-1, 1), TruncatedNormal(0, sigma, -1, 1) |
+| Constraint | Domain |
+|---|---|
+| `none` | `(-inf, +inf)` |
+| `positive` | `(0, +inf)` |
+| `unit_interval` | `[0, 1]` |
+| `correlation` | `[-1, 1]` |
+
+Typical prior-family guidance by constraint lives in [Supported Prior Distribution Families](./prior-distribution-families.md).
 
 **Role -> Constraint mapping**
 

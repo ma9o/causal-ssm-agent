@@ -4,7 +4,7 @@
 
 ## Terminology
 
-See [../../concepts/causal-modeling-terminology.md](../../concepts/causal-modeling-terminology.md) for the terminology conventions used in these docs. Stage 4 receives the topological structure from Stage 1a and Stage 1b and translates it into a functional specification: the regression equations, distributions, and priors needed to fit the model in NumPyro.
+See [../terminology.md](../terminology.md) for the terminology conventions used in these docs. Stage 4 receives the topological structure from Stage 1a and Stage 1b and translates it into a functional specification: the regression equations, distributions, and priors needed to fit the model in NumPyro.
 
 ## Two-Part Architecture
 
@@ -48,4 +48,4 @@ ModelSpec + PriorProposal
 
 ## Output
 
-Stage 4 produces a `ModelSpec` plus `PriorProposal` objects. The user-facing schema lives in `apps/data-pipeline/src/causal_ssm_agent/orchestrator/schemas_model.py`. Those outputs are then consumed by the SSM compilation pipeline described in [../../model-runtime/compilation.md](../../model-runtime/compilation.md) to build a NumPyro-ready `SSMModel`.
+Stage 4 produces a `ModelSpec` plus `PriorProposal` objects. The user-facing schema lives in `apps/data-pipeline/src/causal_ssm_agent/orchestrator/schemas_model.py`. Those outputs are then consumed by the SSM compilation pipeline described in [../compilation.md](../compilation.md) to build a NumPyro-ready `SSMModel`.

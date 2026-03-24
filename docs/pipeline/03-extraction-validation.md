@@ -30,7 +30,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 | `timestamps` | Observation-time parseability | error if 100% unparseable; warning if >50% | fraction of `anchor_time` values that fail all nine timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
-| `dtype_range` | Values conform to declared [`measurement_dtype`](../primitives/measurement-model/indicators.md) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
+| `dtype_range` | Values conform to declared [`measurement_dtype`](../reference/measurement-model/indicators.md) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
 | `time_coverage` | Data span relative to model clock | warning | time span < 10 × `model_clock` hours; skipped for time-invariant constructs |
 | `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `model_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |
@@ -45,7 +45,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 
 | Rule | Checks | Severity |
 |---|---|---|
-| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../primitives/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) | warning (when r < 0, with ≥10 aligned days) |
+| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) | warning (when r < 0, with ≥10 aligned days) |
 
 **Reduction.** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each metric key (`n_obs`, `variance`, `n_unparseable_timestamps`, `time_coverage_ratio`, `max_gap_ratio`, `dtype_violations`, `duplicate_pct`, `arithmetic_sequence_detected`), the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Rules own threshold logic; the reducer only aggregates.
 

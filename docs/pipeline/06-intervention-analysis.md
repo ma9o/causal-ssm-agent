@@ -4,7 +4,7 @@
 |---|---|---|---|
 | llm+intervention | Yes | No | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
 
-Applies [do-operator](../model-runtime/estimation.md) interventions to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
+Applies [do-operator](../reference/estimation.md) interventions to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
 
 ## Inputs
 
@@ -61,7 +61,7 @@ An optional `names` filter restricts the response to specific constructs or indi
 
 ### `simulate_intervention`
 
-Runs a [Pearl rung-2](../model-runtime/estimation.md) interventional simulation on the fitted generative model. The caller specifies:
+Runs a [Pearl rung-2](../reference/estimation.md) interventional simulation on the fitted generative model. The caller specifies:
 
 - **Action**: an [`InterventionAction`](#interventionaction) naming the treatment, the mode (`"set"` to clamp to an absolute value, `"shift"` to add a delta to baseline), and the corresponding value or amount.
 - **Query**: the estimand (`"steady_state"` for the long-run equilibrium effect, `"trajectory"` for a forward simulation over `horizon_days`), and the projection level (`"latent"`, `"manifest"`, or `"both"`).
@@ -70,7 +70,7 @@ For steady-state queries, the tool computes the intervened steady state per post
 
 ### `simulate_counterfactual`
 
-Runs a [Pearl rung-3](../model-runtime/estimation.md) counterfactual forecast. This conditions on actually observed data before asking "what would have happened if we had intervened?" The caller specifies:
+Runs a [Pearl rung-3](../reference/estimation.md) counterfactual forecast. This conditions on actually observed data before asking "what would have happened if we had intervened?" The caller specifies:
 
 - **Evidence**: an observed history window defined by optional ISO-8601 `start_time` and `end_time` bounds over the fitted observation period. Defaults to the full observed range.
 - **Action**: same [`InterventionAction`](#interventionaction) as rung-2 simulations.

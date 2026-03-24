@@ -4,7 +4,7 @@
 |---|---|---|---|
 | estimation | No | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
 
-Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../model-runtime/inference-routing.md) decision tree: NUTS for Kalman-eligible models (all Gaussian emissions with identity links), Laplace-EM for non-Gaussian emissions. The user can override to any of the nine [available methods](../model-runtime/inference-routing.md#method-taxonomy).
+Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree: NUTS for Kalman-eligible models (all Gaussian emissions with identity links), Laplace-EM for non-Gaussian emissions. The user can override to any of the nine [available methods](../reference/inference-routing.md#method-taxonomy).
 
 ## Inputs
 
@@ -12,7 +12,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 |---|---|---|
 | `stage4.result` | [Stage 4](04-model-specification-priors.md) | Compiled SSM (`_compiled_ssm`) and [model spec](04-model-specification-priors.md#modelspec) with priors |
 | `stage2.result` | [Stage 2](02-indicator-extraction.md) | Model-ready observation data (Parquet path via `_data_for_model_path`) |
-| `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../model-runtime/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the functional specification and priors; Stage 2 provided the extracted indicator time series. Stage 5b is where the compiled model is fitted to data and the posterior is characterized.
 
@@ -20,14 +20,14 @@ Stage 4 provided the functional specification and priors; Stage 2 provided the e
 
 Stage 5b runs three sequential tasks with no LLM involvement: model fitting, power-scaling sensitivity analysis, and posterior predictive checks. The output is a deterministic function of the compiled model, the data, and the inference configuration.
 
-**Runtime preparation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format `(T, n_manifest)`, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../model-runtime/estimation.md) (likelihood backend, Rao-Blackwellization partition). The result is a `PreparedModelRuntime` carrying the JAX observation array, the time array, and the built model.
+**Runtime preparation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format `(T, n_manifest)`, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization partition). The result is a `PreparedModelRuntime` carrying the JAX observation array, the time array, and the built model.
 
-**Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../model-runtime/inference-routing.md#decision-tree)—and delegates to the corresponding backend:
+**Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding backend:
 
 - *NUTS*: NumPyro's No-U-Turn Sampler with `init_to_median` initialization and dense mass matrix adaptation. Uses the Kalman filter for exact marginal likelihood gradients.
 - *Laplace-EM*: Iterated Extended Kalman Smoother (IEKS) finds the MAP latent trajectory via Newton iterations on the block-tridiagonal state-space Hessian, then a Laplace approximation provides the marginal likelihood. An outer tempered SMC loop explores the parameter posterior. O(T D³) per IEKS iteration, typically 3–8 iterations.
 - *SVI*: `AutoMultivariateNormal` guide with `ClippedAdam` optimizer (learning rate 0.01) and `Trace_ELBO` loss, drawing posterior samples via NumPyro's `Predictive`.
-- *Other backends*: tempered SMC, Hess-MC², structured VI, DPF, NUTS-DA, and PGAS are available as user overrides. See [inference-routing.md](../model-runtime/inference-routing.md#method-reference) for details.
+- *Other backends*: tempered SMC, Hess-MC², structured VI, DPF, NUTS-DA, and PGAS are available as user overrides. See [inference-routing.md](../reference/inference-routing.md#method-reference) for details.
 
 The fit produces an `InferenceResult` containing the posterior samples dict `{name: (n_draws, *shape)}`, the method identifier, and backend-specific diagnostics. From this the stage extracts backend-specific diagnostic payloads (MCMC convergence, SVI ELBO curve, SMC tempering schedule), LOO-CV diagnostics, posterior marginals, and posterior pairs.
 
@@ -67,7 +67,7 @@ The contract also exposes `outcome` (`"success"` or `"warn"`) inherited from the
 
 ### FittedArtifact
 
-`FittedArtifact` is the persisted runtime object produced by Stage 5b and consumed by [Stage 6](06-intervention-analysis.md). It is the sole handoff object in the [model-runtime chain](../model-runtime/compilation.md).
+`FittedArtifact` is the persisted runtime object produced by Stage 5b and consumed by [Stage 6](06-intervention-analysis.md). It is the sole handoff object in the [model-runtime chain](../reference/compilation.md).
 
 | Field | Type | Description |
 |---|---|---|
