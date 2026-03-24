@@ -41,6 +41,3 @@
 | How do resume, replay, overrides, and gates work? | [reference/execution-and-replay.md](reference/execution-and-replay.md) | [pipeline.md](pipeline.md) |
 | What gets persisted, restored, or exposed to the web? | [reference/persistence-and-exposure.md](reference/persistence-and-exposure.md) | [pipeline.md](pipeline.md) |
 
-**Benchmarks:**
-
-- `../apps/data-pipeline/benchmarks/results.md` for inference method parameter recovery results
