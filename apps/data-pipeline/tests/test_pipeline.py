@@ -11,8 +11,8 @@ import pytest
 from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
-from causal_ssm_agent.utils.causal_spec import get_all_treatments
 from causal_ssm_agent.utils import litellm_client
+from causal_ssm_agent.utils.causal_spec import get_all_treatments
 
 
 def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace") -> None:
@@ -320,8 +320,8 @@ def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp
             "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
             "sample": [],
             "column_descriptions": [
-                {"name": "timestamp", "dtype": "String", "description": "ts"},
-                {"name": "value", "dtype": "String", "description": "val"},
+                {"name": "timestamp", "description": "ts"},
+                {"name": "value", "description": "val"},
             ],
             "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
             "_column_descriptions": {},
