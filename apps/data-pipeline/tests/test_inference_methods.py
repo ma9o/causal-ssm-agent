@@ -582,7 +582,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     """
     stage4 = _load_doctolib_fixture("stage-4.json")
     stage1b = _load_doctolib_fixture("stage-1b.json")["causal_spec"]
-    raw_data = pl.DataFrame(_load_doctolib_fixture("stage-2.json")["combined_extractions_sample"])
+    raw_data = pl.read_parquet(DOCTOLIB_FIXTURE_DIR / "stage2-raw-data.parquet")
 
     name_map = {
         "beta_lipid_cv": "beta_lipid_burden_cardiovascular_risk",

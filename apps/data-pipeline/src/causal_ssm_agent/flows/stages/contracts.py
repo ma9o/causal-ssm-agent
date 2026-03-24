@@ -490,16 +490,13 @@ class ExtractionContract(BaseModel):
 
 class Stage2Contract(LLMStageContract):
     workers: list[WorkerStatusContract]
-    combined_extractions_sample: list[ExtractionContract]
-    per_indicator_counts: dict[str, int]
 
     def summary_message(self) -> str:
         completed = sum(1 for w in self.workers if w.status == "completed")
         failed = sum(1 for w in self.workers if w.status == "failed")
         return (
             f"Stage 2 summary: workers={len(self.workers)} completed={completed} "
-            f"failed={failed} sample_rows={len(self.combined_extractions_sample)} "
-            f"indicators={len(self.per_indicator_counts)} outcome={self.outcome}"
+            f"failed={failed} outcome={self.outcome}"
         )
 
 

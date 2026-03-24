@@ -343,10 +343,6 @@ export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";
   llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
-  combined_extractions_sample: ExtractionContract[];
-  per_indicator_counts: {
-    [k: string]: number | undefined;
-  };
 }
 export interface WorkerStatusContract {
   worker_id: number;
@@ -354,17 +350,6 @@ export interface WorkerStatusContract {
   n_extractions: number;
   n_windows: number;
   error?: string | null;
-}
-export interface ExtractionContract {
-  indicator: string;
-  value: number | boolean | string | null;
-  anchor_time: string | null;
-  support_kind?: string | null;
-  summary_operator?: string | null;
-  anchor_policy?: string | null;
-  observation_window?: string | null;
-  support_start?: string | null;
-  support_end?: string | null;
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";

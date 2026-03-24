@@ -47,7 +47,7 @@ def run_laplace_doctolib():
 
     stage4 = load("stage-4.json")
     stage1b = load("stage-1b.json")["causal_spec"]
-    raw_data = pl.DataFrame(load("stage-2.json")["combined_extractions_sample"])
+    raw_data = pl.read_parquet(fixture_dir / "stage2-raw-data.parquet")
 
     name_map = {
         "beta_lipid_cv": "beta_lipid_burden_cardiovascular_risk",
