@@ -325,7 +325,10 @@ def _restore_stage4(workspace_id: str, web: dict, prior_states: dict) -> dict:
 
 
 def _restore_stage4b(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    return {"parametric_id": web.get("parametric_id", {})}
+    return {
+        "parametric_id": web.get("parametric_id", {}),
+        "inference_structure": web.get("inference_structure"),
+    }
 
 
 def _restore_stage5b(workspace_id: str, web: dict, prior_states: dict) -> dict:
