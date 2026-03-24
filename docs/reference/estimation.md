@@ -8,7 +8,7 @@ Within the pipeline artifact lineage, this document starts after Stage 4 has pro
 
 The latent process is a multivariate Ornstein-Uhlenbeck SDE:
 
-```
+```text
 d eta(t) = (A * eta(t) + c) dt + G dW(t)
 ```
 
@@ -21,7 +21,7 @@ where:
 
 The observation (measurement) model is:
 
-```
+```text
 y(t) = Lambda * eta(t) + mu + epsilon,    epsilon ~ F(0, R)
 ```
 
@@ -95,7 +95,7 @@ The estimation pipeline composes three main libraries:
 
 ### Data flow
 
-```
+```text
 [ModelSpec](../pipeline/04-model-specification-priors.md#modelspec) (orchestrator)
     |
     v

@@ -24,7 +24,6 @@ Example:
 | Semantic evidence columns | Feed `semantic` indicators | `note_text`, `search_query`, `event_name` |
 | Context and filter columns | Help interpret values, units, and event types | `unit`, `status`, `event_type` |
 
-
 ## Timestamp Contract
 
 - Include at least one parseable date or datetime column.

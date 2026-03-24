@@ -21,6 +21,7 @@ You need two long-running backend services plus the existing web frontend on por
 Do not start another Next.js dev server from the same worktree. This repo normally already has one running on port `3000`. If you think it needs a restart, ask first.
 
 Before doing browser work, use the Next.js devtools MCP against port `3000`:
+
 - `nextjs_index(port=3000)` to discover the server
 - `get_errors` to confirm there are no current runtime/build errors
 - `get_routes` to confirm the route surface you expect
@@ -147,7 +148,7 @@ curl -s -b "$COOKIE_JAR" http://localhost:3000/api/sessions/$WORKSPACE_ID
 
 Using browser automation:
 
-```
+```text
 1. Navigate to http://localhost:3000
 2. Type the resume key (`{WORKSPACE_ID}.{ACCESS_CODE}`) into the resume input
 3. Click "Resume" button
@@ -160,7 +161,7 @@ Using browser automation:
 
 Poll and screenshot as the pipeline progresses:
 
-```
+```text
 1. Wait for stage-0 section to appear → screenshot
 2. Wait for stage-1a section → screenshot
 3. ... repeat through stage-6
@@ -231,6 +232,6 @@ curl -s -X POST http://localhost:3000/api/sessions \
 
 The full stage sequence is:
 
-```
+```text
 stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6
 ```

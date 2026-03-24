@@ -2,7 +2,6 @@
 
 causal-ssm-agent is for single-individual or already-aggregated longitudinal questions where the data are messy, irregularly sampled, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors, but quantitative answers only proceed through explicit identifiability checks and Bayesian continuous-time state-space estimation. The goal is not just to estimate effects, but to know when numeric causal claims are justified and when the system should stop at structural reasoning.
 
-
 ```mermaid
 flowchart LR
   subgraph LLM["LLM (proposals)"]
@@ -21,7 +20,6 @@ flowchart LR
 
   S1a --> S1b_llm --> S1b_gate --> S4_llm --> S4b --> S5 --> S6_post --> S6
 ```
-
 
 ## Key Feature: Natural Language Causal Queries
 
@@ -49,7 +47,7 @@ References are colocated with the docs that use them rather than collected in a 
 
 ## Structure
 
-```
+```text
 causal-ssm-agent/                  # Turborepo monorepo
 ├── apps/
 │   ├── data-pipeline/             # Python – Prefect pipeline + NumPyro models
