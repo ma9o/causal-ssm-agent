@@ -7,6 +7,7 @@
     "prepare": "git config core.hooksPath .githooks",
     "dev": "turbo dev",
     "build": "turbo build",
+    "docs:check": "markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
     "test": "turbo test",
@@ -15,6 +16,7 @@
     "storybook": "turbo storybook"
   },
   "devDependencies": {
+    "markdownlint-cli2": "^0.22.0",
     "turbo": "^2"
   }
 }

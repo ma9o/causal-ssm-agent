@@ -2,6 +2,10 @@
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env", ".env.local"],
   "tasks": {
+    "//#docs:check": {
+      "inputs": ["README.md", "docs/**/*.md", ".markdownlint-docs.json"],
+      "outputs": []
+    },
     "dev": {
       "persistent": true,
       "cache": false
