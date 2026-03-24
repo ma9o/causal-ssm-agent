@@ -11,6 +11,7 @@ THINK VERY HARD
 # Docs
 
 - NEVER clump together links or references. ALWAYS either juxtapose references to the sentence or clause they support or use hyperlinks on the terms themselves.
+- When you edit `README.md` or files under `docs/`, run `bun run docs:check` before handoff to verify the markdown docs.
 
 - in `docs/pipeline`, each stage doc is the authoritative definition of its outputs and artifacts. Downstream stages should link back to these definitions rather than re-describing them.
 
