@@ -110,7 +110,9 @@ def load_stage_snapshot(workspace_id: str, stage_id: str) -> dict[str, Any]:
     """Load a previously saved stage snapshot."""
     path = storage.join(existing_run_dir(workspace_id), f"{stage_id}-state.pkl")
     if not storage.exists(path):
-        raise FileNotFoundError(f"No stage snapshot found for {stage_id} in workspace_id {workspace_id}")
+        raise FileNotFoundError(
+            f"No stage snapshot found for {stage_id} in workspace_id {workspace_id}"
+        )
     with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
 
@@ -142,7 +144,9 @@ def load_public_payload(workspace_id: str, stage_id: str) -> dict[str, Any]:
     raw = storage.read_json(path)
     payload = _unwrap_persisted_result(raw)
     if not isinstance(payload, dict):
-        raise TypeError(f"Persisted payload for {stage_id} in workspace_id {workspace_id} is not a dict")
+        raise TypeError(
+            f"Persisted payload for {stage_id} in workspace_id {workspace_id} is not a dict"
+        )
     return payload
 
 

@@ -298,7 +298,9 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
     )
 
     assert bucket_windows == ["1d", "1mo"]
-    assert [ctx["measurement"]["indicators"][0]["name"] for ctx in captured_runner["chunk_contexts"]] == [
+    assert [
+        ctx["measurement"]["indicators"][0]["name"] for ctx in captured_runner["chunk_contexts"]
+    ] == [
         "stress_score",
         "monthly_sleep_hours",
     ]

@@ -269,7 +269,9 @@ def _prepare_semantic_chunks(
     chunk_window_starts: list[list[str]] = []
     chunk_contexts: list[dict] = []
 
-    for observation_window, semantic_group in _group_indicators_by_window(semantic_inds, model_clock):
+    for observation_window, semantic_group in _group_indicators_by_window(
+        semantic_inds, model_clock
+    ):
         semantic_spec = {
             **causal_spec,
             "measurement": {**causal_spec.get("measurement", {}), "indicators": semantic_group},
@@ -500,26 +502,24 @@ def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[s
             if ind.get("ordinal_levels")
         }
         data_for_model = _encode_non_continuous(raw_data, dtype_lookup, ordinal_levels_lookup)
-        data_for_model = (
-            data_for_model.with_columns(
-                pl.col("value").cast(pl.Float64, strict=False).alias("value"),
-                pl.col("anchor_time")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("anchor_time"),
-                pl.col("support_start")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("support_start"),
-                pl.col("support_end")
-                .str.replace(r"[Zz]$", "")
-                .str.replace(r"[+-]\d{2}:\d{2}$", "")
-                .str.to_datetime(strict=False)
-                .alias("support_end"),
-            ).drop_nulls(subset=["anchor_time"])
-        )
+        data_for_model = data_for_model.with_columns(
+            pl.col("value").cast(pl.Float64, strict=False).alias("value"),
+            pl.col("anchor_time")
+            .str.replace(r"[Zz]$", "")
+            .str.replace(r"[+-]\d{2}:\d{2}$", "")
+            .str.to_datetime(strict=False)
+            .alias("anchor_time"),
+            pl.col("support_start")
+            .str.replace(r"[Zz]$", "")
+            .str.replace(r"[+-]\d{2}:\d{2}$", "")
+            .str.to_datetime(strict=False)
+            .alias("support_start"),
+            pl.col("support_end")
+            .str.replace(r"[Zz]$", "")
+            .str.replace(r"[+-]\d{2}:\d{2}$", "")
+            .str.to_datetime(strict=False)
+            .alias("support_end"),
+        ).drop_nulls(subset=["anchor_time"])
         data_for_model = data_for_model.sort("indicator", "anchor_time")
     else:
         data_for_model = raw_data

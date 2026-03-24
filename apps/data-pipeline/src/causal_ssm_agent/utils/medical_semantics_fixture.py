@@ -182,9 +182,9 @@ def _diff_rows(actual: pl.DataFrame, expected: pl.DataFrame) -> str | None:
     if actual_sorted.equals(expected_sorted):
         return None
 
-    only_actual = actual_sorted.join(
-        expected_sorted, on=EXPECTED_STAGE2_COLUMNS, how="anti"
-    ).head(3)
+    only_actual = actual_sorted.join(expected_sorted, on=EXPECTED_STAGE2_COLUMNS, how="anti").head(
+        3
+    )
     only_expected = expected_sorted.join(
         actual_sorted, on=EXPECTED_STAGE2_COLUMNS, how="anti"
     ).head(3)
@@ -195,7 +195,12 @@ def _diff_rows(actual: pl.DataFrame, expected: pl.DataFrame) -> str | None:
 
 
 def _expected_support_starts(expected_raw: pl.DataFrame) -> list[str]:
-    return expected_raw.select("support_start").unique().sort("support_start")["support_start"].to_list()
+    return (
+        expected_raw.select("support_start")
+        .unique()
+        .sort("support_start")["support_start"]
+        .to_list()
+    )
 
 
 def _expected_support_ends(expected_support_starts: list[str], window: str) -> list[str]:
@@ -344,7 +349,10 @@ def compare_medical_semantics_outputs(
     _add_issue(
         stage2_structure_issues,
         per_indicator_counts
-        == {indicator: expected_raw.filter(pl.col("indicator") == indicator).height for indicator in expected_semantics},
+        == {
+            indicator: expected_raw.filter(pl.col("indicator") == indicator).height
+            for indicator in expected_semantics
+        },
         f"stage-2 per_indicator_counts mismatch: {per_indicator_counts}",
     )
 
@@ -439,4 +447,3 @@ def compare_medical_semantics_outputs(
         },
         stage1b_indicators=tuple(sorted(ind["name"] for ind in indicators)),
     )
-

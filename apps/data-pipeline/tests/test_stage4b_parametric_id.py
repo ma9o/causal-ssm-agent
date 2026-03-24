@@ -35,7 +35,9 @@ def _support_runtime() -> ObservationSupportRuntime:
 
 
 def _make_model(spec: SSMSpec, observation_support=None):
-    return SimpleNamespace(spec=spec, observation_support=observation_support, likelihood="particle")
+    return SimpleNamespace(
+        spec=spec, observation_support=observation_support, likelihood="particle"
+    )
 
 
 def _make_separable_spec(first_pass_rb: bool = True) -> SSMSpec:

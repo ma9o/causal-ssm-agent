@@ -92,7 +92,11 @@ def plan_inference_structure(
             first_pass_rb=FirstPassRBPlan(status="active", partition=partition),
         )
 
-    if partition.has_kalman_block and len(partition.particle_idx) > 0 and len(partition.obs_kalman_idx) > 0:
+    if (
+        partition.has_kalman_block
+        and len(partition.particle_idx) > 0
+        and len(partition.obs_kalman_idx) > 0
+    ):
         return InferenceStructurePlan(
             likelihood_path="composed",
             auto_method=auto_method,

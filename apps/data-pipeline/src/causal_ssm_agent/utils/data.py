@@ -245,6 +245,8 @@ def annotate_observation_rows(
         df = df.drop(time_col)
 
     return df
+
+
 def pivot_to_wide(raw_data: pl.DataFrame) -> pl.DataFrame:
     """Pivot long-format raw data to wide-format Polars DataFrame.
 
