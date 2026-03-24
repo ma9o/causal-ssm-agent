@@ -1,8 +1,8 @@
 # Stage 4: Model Specification and Prior Elicitation
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm+grounding | Yes | No | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
+| Semantic | Yes | No | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
 
 Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against [prior predictive checks](#prior-predictive-validation). The resulting [`ModelSpec`](#modelspec) plus priors are then consumed by the [SSM compilation pipeline](../reference/compilation.md) to build an executable NumPyro model.
 
@@ -12,7 +12,7 @@ Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causal
 |---|---|---|
 | `question` | User | Original research question—anchors prior reasoning |
 | `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | `CausalSpec` with latent model, measurement model, and identifiability status |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Raw observation data (indicator, value, anchor_time, support metadata) |
+| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Model-ready long-format observation table persisted from Stage 2 |
 | `stage3.result` | [Stage 3](03-extraction-validation.md) | Per-indicator empirical profiles and validation audits |
 | `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
 
@@ -44,17 +44,17 @@ The `validate_model` tool is **stateful**: it retains accepted model decisions a
 
 **Literature search.** When `enable_literature` is true, the LLM has access to a `search_literature` tool that queries [Exa](https://exa.ai/) for empirical studies on effect sizes. The tool is used selectively for key causal effect parameters where domain knowledge is uncertain. Each search is captured as provenance on the stage output. Literature evidence anchors priors on meta-analyses or large longitudinal studies; heterogeneous evidence widens priors.
 
-**Paraphrased elicitation (optional).** When configured, the LLM can call `elicit_prior_gmm` for a single parameter, which runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model following [Capstick et al. (2024)](../reference/model-spec/prior-elicitation.md). This reduces brittle overconfidence from any one prompt wording. Default behavior keeps this disabled for cost reasons.
+**Paraphrased elicitation (optional).** When configured, the LLM can call `elicit_prior_gmm` for a single parameter, which runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model following [Capstick et al. (2024)](../reference/model-spec/parameters-likelihoods-and-priors.md#references). This reduces brittle overconfidence from any one prompt wording. Default behavior keeps this disabled for cost reasons.
 
 ### Prior Predictive Validation
 
-Prior predictive checks run automatically as part of the `validate_model` tool whenever real priors and raw data are both available. The check:
+Prior predictive checks run automatically as part of the `validate_model` tool whenever real priors and model-ready data are both available. The validation path:
 
 1. Samples parameters from their proposed prior distributions
-2. Forward-simulates implied indicator values through the full generative model
-3. Compares the simulated data against empirical scale statistics from Stage 3 (mean, std, min, max)
+2. Builds and simulates the compiled generative model under those draws
+3. Checks for compile failures, non-finite or unstable simulations, and broad scale mismatches against Stage 3 empirical profiles
 
-Failures surface as per-parameter feedback identifying whether the issue is a model-spec problem (e.g. likelihood family incompatible with observed data support) or a prior problem (e.g. implied variance too wide or too narrow). The LLM iterates until all prior predictive checks pass or the conversation exhausts its turn budget.
+Failures surface as per-parameter or global feedback identifying whether the issue is a model-spec problem (for example, an incompatible likelihood or build failure) or a prior problem (for example, implausible implied scale). The LLM iterates until the checks pass or the conversation exhausts its turn budget.
 
 ## Outputs
 
@@ -62,7 +62,7 @@ Failures surface as per-parameter feedback identifying whether the issue is a mo
 |---|---|---|
 | `model_spec` | [`ModelSpec`](#modelspec) | Complete statistical model specification |
 | `authored_priors` | `dict[str, PriorProposal]` | LLM-authored prior per parameter, keyed by parameter name |
-| `resolved_priors` | `list[PriorProposal]` | Priors after DT→CT conversion for the compilation pipeline |
+| `resolved_priors` | `list[PriorProposal]` | Canonical public prior rows after compiler resolution, including DT→CT adjustments and implicit defaults exposed by compilation |
 
 The public stage payload also includes `search_queries` (literature provenance), `prior_predictive_samples` (per-variable simulated samples for the UI), and `llm_trace` as runtime provenance.
 

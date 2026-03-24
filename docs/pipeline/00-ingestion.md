@@ -1,8 +1,8 @@
 # Stage 0: Agentic Data Ingestion
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm | No | No | [`Raw Dataframe`](#raw-dataframe) |
+| Semantic | No | No | [`Raw Dataframe`](#raw-dataframe) |
 
 Normalizes the latest uploaded raw export into one typed Polars dataframe with human-readable descriptions for every column.
 
@@ -33,7 +33,7 @@ Additionally the stage payload includes:
 - `column_descriptions` is the persisted JSON projection of per-column descriptions, stored as `{name, description}` entries.
 - `llm_trace` is optional runtime provenance for the UI.
 
-For how the persisted payload, restored runtime state, and web-facing projection differ, see [../reference/persistence-and-exposure.md](../reference/persistence-and-exposure.md).
+For how the persisted payload, restored runtime state, and web-facing projection differ, see [pipeline-dimensions.md](../reference/pipeline-dimensions.md#8-persistence-and-exposure-boundary).
 
 ## Definitions
 

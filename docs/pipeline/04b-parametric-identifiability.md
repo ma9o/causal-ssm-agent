@@ -1,8 +1,8 @@
 # Stage 4b: Parametric Identifiability Diagnostics
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| grounding | No | Warning-only | [`ParametricIdResult`](#parametricidresult), [`InferenceStructureResult`](#inferencestructureresult) |
+| Computed | No | Warning-only | [`ParametricIdResult`](#parametricidresult), [`InferenceStructureResult`](#inferencestructureresult) |
 
 Checks whether the [Stage 4 functional specification](04-model-specification-priors.md) is recoverable from the observed data before committing to expensive inference. The stage runs three progressively finer diagnostics—a counting screen, a Jacobian-based structural check, and a profile-likelihood practical check—then plans the [inference routing](../reference/inference-routing.md) that downstream stages will use.
 

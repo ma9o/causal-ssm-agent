@@ -1,8 +1,8 @@
 # Stage 1b: Measurement Model and Identifiability
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm+grounding | Yes | Yes | [`CausalSpec`](#causalspec) |
+| Semantic | Yes | Yes | [`CausalSpec`](#causalspec) |
 
 Grounds the [Stage 1a latent model](01a-latent-model.md#latent-model) in observed data by proposing [indicators](../reference/measurement-model/indicators.md) for each construct, then checks whether each treatment-to-outcome effect is [causally identifiable](../reference/causal-spec/identifiability.md).
 
@@ -22,17 +22,17 @@ Stage 1b runs a single LLM conversation that bridges theory and data. The LLM se
 
 **Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../reference/measurement-model/indicators.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), its [measurement dtype](../reference/measurement-model/indicators.md#measurement-dtype), its [aggregation and support window](../reference/measurement-model/indicators.md#observation-windows-and-model-clock), and the shared [`model_clock`](../reference/measurement-model/indicators.md#observation-windows-and-model-clock) that governs extraction and downstream fitting.
 
-**Validation loop.** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks three things simultaneously:
+**Validation loop.** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks two things directly, then the orchestration layer may run additional deterministic analysis:
 
 - *Schema and compiler constraints*: every outcome construct has at least one indicator, no duplicate operationalizations, indicator references point to valid constructs, `measurement_dtype` and `aggregation` are compatible, and computed indicators have well-formed rules.
 - *Causal identifiability*: the tool unrolls the latent graph to two timesteps (justified by [A3a](../reference/causal-spec/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach)), projects to an internal ADMG, and runs [y0's ID algorithm](../reference/causal-spec/identifiability.md#user-facing-dag-vs-internal-admg-projection) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
-- *Marginalization analysis*: once identifiability passes, a deterministic post-processing step identifies which unobserved confounders can be safely ignored because they have no remaining confounding influence.
+- *Deterministic follow-up analysis*: after a valid `CausalSpec` is captured, the orchestration layer may run additional analysis over unobserved constructs. That analysis is internal bookkeeping; the public stage contract remains the `CausalSpec` plus optional runtime provenance.
 
 On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
 
 **Self-review.** A follow-up prompt asks the LLM to review its validated measurement model for coverage (every time-varying construct has at least one indicator), `how_to_measure` clarity, observation-window semantics, the [pure-indicators assumption](../reference/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) (no direct indicator-to-indicator edges), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
-**Hard gate.** This stage gates the pipeline: if any treatment-to-outcome effect remains non-identifiable after the LLM's revision attempts, the pipeline stops. The gate can be overridden by the user, but the non-identifiability is recorded in the output.
+**Gate semantics.** This stage gates the pipeline, but only after filtering. Treatment-to-outcome effects that remain non-identifiable are recorded in `causal_spec.identifiability` and excluded from downstream intervention analysis. The gate fails only if no identifiable treatments remain after that filtering step. The gate can be overridden by the user.
 
 ## Outputs
 
@@ -40,7 +40,7 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 |---|---|---|
 | `causal_spec` | [`CausalSpec`](#causalspec) | Combined latent model, measurement model, and identifiability status |
 
-The public stage payload exposes that artifact directly. It may also include `gate_overridden` if the hard gate was overridden and `llm_trace` as runtime provenance for the UI.
+The public stage payload exposes that artifact directly. It may also include `gate_overridden` if the gate was overridden and `llm_trace` as runtime provenance for the UI. Internal post-processing analyses are not part of the public contract.
 
 ## Definitions
 
@@ -65,6 +65,6 @@ Later stages should treat `CausalSpec` as the authoritative answer to "what caus
 
 ### IdentifiabilityStatus
 
-`IdentifiabilityStatus` records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked. For identifiable treatments it includes the identification method (backdoor, frontdoor, or instrumental variable under linearity) and any confounders that were safely marginalized. For non-identifiable treatments it reports the blocking confounders.
+`IdentifiabilityStatus` records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked. For identifiable treatments it includes the identification method (backdoor, frontdoor, or instrumental variable under linearity) and the checker-reported `marginalized_confounders` field. For non-identifiable treatments it reports the blocking confounders.
 
 Example: for a study of developer workload and code quality where Stage 1a posited an unobserved confounder `Organizational Pressure`, Stage 1b might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), map `Review Thoroughness` to "average review comment count per PR" (computed, mean), and add a proxy indicator "manager-reported deadline pressure" (semantic, ordinal) to restore identifiability of the `Organizational Pressure` confounder path.
