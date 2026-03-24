@@ -25,7 +25,7 @@ This is the shortest path for understanding how the downstream modeling stack ha
 
 ## Reading Guide
 
-- Functional specification details: [functional-specification.md](functional-specification.md)
+- Functional specification details: [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md)
 - Pure compilation path: [compilation.md](compilation.md)
 - Estimation and counterfactual computation: [estimation.md](estimation.md)
 - Inference-method routing: [inference-routing.md](inference-routing.md)

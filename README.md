@@ -22,8 +22,6 @@ flowchart LR
   S1a --> S1b_llm --> S1b_gate --> S4_llm --> S4b --> S5 --> S6_post --> S6
 ```
 
-Nothing the LLM says becomes a numeric estimate without passing through an identifiability check and a Bayesian estimator. If y0 cannot identify a causal effect from the proposed graph, the pipeline stops — the LLM does not get to override that.
-
 
 ## Key Feature: Natural Language Causal Queries
 

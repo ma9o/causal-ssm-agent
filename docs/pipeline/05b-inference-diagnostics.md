@@ -1,15 +1,10 @@
 # Stage 5b: Inference and Diagnostics
 
+| Type | Interactive | Gate | Produces |
+|---|---|---|---|
+| estimation | No | No | fitted artifact plus PPC and sensitivity diagnostics |
+
 Fits the model with the configured backend and runs post-fit diagnostics. This page is the authoritative definition of `FittedArtifact`. Backend selection follows [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and the fitted artifact produced here is the handoff into Stage 6 described in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
-
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Computed |
-| Interactive | No |
-| Gate | No |
-| Produces | fitted artifact plus PPC and sensitivity diagnostics |
 
 ## Inputs
 

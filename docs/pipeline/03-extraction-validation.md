@@ -1,15 +1,10 @@
 # Stage 3: Extraction Validation
 
+| Type | Interactive | Gate | Produces |
+|---|---|---|---|
+| grounding | No | No | Indicator audits and dataset-level issues |
+
 Audits extracted observations and computes empirical profiles per indicator. This page is the authoritative definition of `IndicatorAudit`. It is the extraction-quality assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md), applied to the Stage 2 observation artifacts.
-
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Computed |
-| Interactive | No |
-| Gate | No |
-| Produces | Indicator audits and dataset-level issues |
 
 ## Inputs
 

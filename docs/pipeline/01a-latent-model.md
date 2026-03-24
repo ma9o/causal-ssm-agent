@@ -14,7 +14,7 @@ Maps a natural-language research question to a theoretical causal topological st
 
 ## Process
 
-The proposal must satisfy the [construct ontology and temporal-status rules](../concepts/scope-and-timescales.md) and the [graph assumptions](../concepts/assumptions.md) that govern valid causal topological structure at this stage.
+The proposal must satisfy the [construct ontology and edge rules](../primitives/latent-model/constructs-and-edges.md), the [temporal semantics](../primitives/latent-model/temporal-semantics.md), and the [latent-model assumptions](../primitives/latent-model/assumptions.md) that govern valid causal topological structure at this stage.
 
 1. Run one LLM conversation with `validate_latent_model(structure_json)`.
 2. Ask the model to propose a candidate latent model: a construct-level causal topological structure with directed edges and exactly one designated outcome.
