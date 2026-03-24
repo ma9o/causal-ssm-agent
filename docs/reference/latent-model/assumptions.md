@@ -46,7 +46,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 **Assumption:** Directed effects between endogenous time-varying constructs are represented through continuous-time drift rather than contemporaneous within-slice arrows.
 
-**Definition:** For endogenous time-varying constructs `X` and `Y`, the user-facing `LatentModel` does not permit a same-slice directed edge `X_t -> Y_t`. Such a relation must be represented as a lagged edge `X_t-1 -> Y_t` in the graph and compiles downstream to an off-diagonal effect in the [continuous-time drift matrix](../../model-runtime/estimation.md#1-ct-sde-formulation). Same-time dependence at `t` belongs to explicit confounding structure or shared innovations, not a directed within-slice arrow.
+**Definition:** For endogenous time-varying constructs `X` and `Y`, the user-facing `LatentModel` does not permit a same-slice directed edge `X_t -> Y_t`. Such a relation must be represented as a lagged edge `X_t-1 -> Y_t` in the graph and compiles downstream to an off-diagonal effect in the [continuous-time drift matrix](../estimation.md#1-ct-sde-formulation). Same-time dependence at `t` belongs to explicit confounding structure or shared innovations, not a directed within-slice arrow.
 
 **Implications:**
 

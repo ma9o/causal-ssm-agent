@@ -19,7 +19,7 @@ Stage 4 provided the [ModelSpec](04-model-specification-priors.md#modelspec) and
 
 Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget forced. The runtime preparation, variational optimization, and summary extraction run as a single deterministic pipeline with no LLM involvement.
 
-**Model compilation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../model-runtime/estimation.md) (likelihood backend, Rao-Blackwellization split). The result is a `PreparedModelRuntime` carrying the JAX observation array `(T, n_manifest)`, the time array `(T,)`, and the built model.
+**Model compilation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization split). The result is a `PreparedModelRuntime` carrying the JAX observation array `(T, n_manifest)`, the time array `(T,)`, and the built model.
 
 **SVI optimization.** The stage calls `fit` with a fixed configuration: `method="svi"`, `num_steps=5000`, `num_samples=500`. Internally, `_fit_svi` constructs an `AutoMultivariateNormal` guide over all latent sample sites, pairs it with a `ClippedAdam` optimizer (learning rate 0.01) and a `Trace_ELBO` loss, and runs 5 000 gradient steps. Non-finite losses or guide parameters raise a `FloatingPointError`, which the outer try/except catches and maps to `outcome="fail"`.
 
@@ -33,7 +33,7 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 
 **Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `outcome="fail"` with `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless.
 
-**Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes. This follows the recompute rules in [execution-and-replay](../runtime/execution-and-replay.md).
+**Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes. This follows the recompute rules in [execution-and-replay](../reference/execution-and-replay.md).
 
 ## Outputs
 

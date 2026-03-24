@@ -74,13 +74,13 @@ The detailed time semantics live with the primitives that own them. Identifiabil
 
 | Question | Primary owner | Detail page |
 |---|---|---|
-| What is a construct, and which edges are legal between constructs? | LatentModel | [constructs-and-edges.md](../primitives/latent-model/constructs-and-edges.md) |
-| How do lag rules work at the construct level? | LatentModel | [temporal-semantics.md](../primitives/latent-model/temporal-semantics.md) |
-| How do indicators define support windows, aggregation, and `model_clock`? | MeasurementModel | [windows-and-aggregation.md](../primitives/measurement-model/windows-and-aggregation.md) |
-| How does temporal unrolling affect causal identification? | CausalSpec | [identifiability.md](../primitives/causal-spec/identifiability.md) |
-| How is elapsed `dt` used in continuous-to-discrete runtime transitions? | Runtime estimation | [estimation.md](../model-runtime/estimation.md) |
+| What is a construct, and which edges are legal between constructs? | LatentModel | [constructs-and-edges.md](latent-model/constructs-and-edges.md) |
+| How do lag rules work at the construct level? | LatentModel | [temporal-semantics.md](latent-model/temporal-semantics.md) |
+| How do indicators define support windows, aggregation, and `model_clock`? | MeasurementModel | [windows-and-aggregation.md](measurement-model/windows-and-aggregation.md) |
+| How does temporal unrolling affect causal identification? | CausalSpec | [identifiability.md](causal-spec/identifiability.md) |
+| How is elapsed `dt` used in continuous-to-discrete runtime transitions? | Runtime estimation | [estimation.md](estimation.md) |
 
-See [../model-runtime/estimation.md](../model-runtime/estimation.md) for CT-to-DT discretization.
+See [estimation.md](estimation.md) for CT-to-DT discretization.
 
 ## 4. Execution Modality
 
@@ -122,16 +122,16 @@ These are all "validation" in a loose sense, but each validates a different obje
 
 | Assumption | Primary owner primitive | Main consumers | Detail page |
 |---|---|---|---|
-| A1. Reflective measurement model | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](../primitives/measurement-model/assumptions.md) |
-| A3. Markov property for temporal dynamics | LatentModel | Stages 1a, 4, runtime | [latent-model/assumptions.md](../primitives/latent-model/assumptions.md) |
-| A3a. Latent confounders have bounded temporal reach | CausalSpec | Stage 1b | [causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md) |
-| A4. Acyclicity within time slice | LatentModel | Stages 1a, 1b | [latent-model/assumptions.md](../primitives/latent-model/assumptions.md) |
-| A4b. Endogenous time-varying directed effects are drift-mediated | LatentModel | Stages 1a, 4, runtime | [latent-model/assumptions.md](../primitives/latent-model/assumptions.md) |
-| A5. Time-invariant latents as subject-level static states | LatentModel | Stage 1a, runtime | [latent-model/assumptions.md](../primitives/latent-model/assumptions.md) |
-| A6. Measurement error handling depends on indicator count | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](../primitives/measurement-model/assumptions.md) |
-| A7. Measurement model identification enables causal identification | CausalSpec | Stage 1b | [causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md) |
-| A8. Indicator residuals are temporally independent | MeasurementModel | Stages 1b, 4, runtime | [measurement-model/assumptions.md](../primitives/measurement-model/assumptions.md) |
-| A9. Single-indicator constructs absorb measurement error | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](../primitives/measurement-model/assumptions.md) |
+| A1. Reflective measurement model | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
+| A3. Markov property for temporal dynamics | LatentModel | Stages 1a, 4, runtime | [latent-model/assumptions.md](latent-model/assumptions.md) |
+| A3a. Latent confounders have bounded temporal reach | CausalSpec | Stage 1b | [causal-spec/identifiability.md](causal-spec/identifiability.md) |
+| A4. Acyclicity within time slice | LatentModel | Stages 1a, 1b | [latent-model/assumptions.md](latent-model/assumptions.md) |
+| A4b. Endogenous time-varying directed effects are drift-mediated | LatentModel | Stages 1a, 4, runtime | [latent-model/assumptions.md](latent-model/assumptions.md) |
+| A5. Time-invariant latents as subject-level static states | LatentModel | Stage 1a, runtime | [latent-model/assumptions.md](latent-model/assumptions.md) |
+| A6. Measurement error handling depends on indicator count | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
+| A7. Measurement model identification enables causal identification | CausalSpec | Stage 1b | [causal-spec/identifiability.md](causal-spec/identifiability.md) |
+| A8. Indicator residuals are temporally independent | MeasurementModel | Stages 1b, 4, runtime | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
+| A9. Single-indicator constructs absorb measurement error | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
 
 <!-- A2 is intentionally absent. It was removed during an early revision; numbering is kept stable to avoid breaking cross-references in code and other docs. -->
 

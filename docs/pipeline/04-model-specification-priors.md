@@ -4,7 +4,7 @@
 |---|---|---|---|
 | llm+grounding | Yes | No | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
 
-Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against [prior predictive checks](#prior-predictive-validation). The resulting [`ModelSpec`](#modelspec) plus priors are then consumed by the [SSM compilation pipeline](../model-runtime/compilation.md) to build an executable NumPyro model.
+Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against [prior predictive checks](#prior-predictive-validation). The resulting [`ModelSpec`](#modelspec) plus priors are then consumed by the [SSM compilation pipeline](../reference/compilation.md) to build an executable NumPyro model.
 
 ## Inputs
 
@@ -29,14 +29,14 @@ Stage 4 runs a single multi-turn LLM conversation that bridges causal structure 
 - *Ambiguous indicators*: where the dtype admits multiple valid distributions or links (e.g. `continuous` can be `gaussian`, `student_t`, `gamma`, or `beta`), a decision card is generated for the LLM.
 - *Prompt context*: the engine assembles model-topology cards, distribution decision cards, construct scale cards (with empirical profiles from Stage 3), and per-parameter prior cards. These give the LLM the fixed structural context and the exact decision surface.
 
-The deterministic rules for parameter roles, constraints, and likelihood mappings are defined in [parameters-likelihoods-and-priors.md](../primitives/model-spec/parameters-likelihoods-and-priors.md).
+The deterministic rules for parameter roles, constraints, and likelihood mappings are defined in [parameters-likelihoods-and-priors.md](../reference/model-spec/parameters-likelihoods-and-priors.md).
 
 **Phase 1: Model specification decisions.** The LLM reviews the decision cards and submits two sets of choices via a `validate_model` tool call:
 
 - *Distribution + link* for each ambiguous indicator, selected from the valid options shown on the decision card and informed by the indicator's empirical profile and domain semantics.
 - *Loading constraint* for each loading parameter: `positive` for sign identification (the default when the reference indicator and the non-reference indicator should co-vary positively) or `none` if negative loadings are theoretically plausible.
 
-The tool merges these decisions with the pre-computed skeleton to produce a complete `ModelSpec`, then runs schema validation and a trial compilation against the [SSM compiler](../model-runtime/compilation.md). On failure the tool returns specific errors; the LLM revises and resubmits within the same conversation until the model spec is accepted.
+The tool merges these decisions with the pre-computed skeleton to produce a complete `ModelSpec`, then runs schema validation and a trial compilation against the [SSM compiler](../reference/compilation.md). On failure the tool returns specific errors; the LLM revises and resubmits within the same conversation until the model spec is accepted.
 
 **Phase 2: Prior elicitation.** With the model spec locked, the LLM proposes priors for every parameter in small batches (at most 8 per `validate_model` call). Each prior specifies a [distribution family](#priorproposal), its parameters, reasoning, literature sources, and optionally a `reference_interval_days` when the evidence comes from a study with a different observation interval than the model clock. On each submission the tool validates prior schemas, performs a real compilation with the proposed priors, and runs [prior predictive checks](#prior-predictive-validation). If prior predictive simulation reveals implausible implied data, the tool returns per-parameter feedback with suggested adjustments; the LLM revises the flagged priors and resubmits.
 
@@ -44,7 +44,7 @@ The `validate_model` tool is **stateful**: it retains accepted model decisions a
 
 **Literature search.** When `enable_literature` is true, the LLM has access to a `search_literature` tool that queries [Exa](https://exa.ai/) for empirical studies on effect sizes. The tool is used selectively for key causal effect parameters where domain knowledge is uncertain. Each search is captured as provenance on the stage output. Literature evidence anchors priors on meta-analyses or large longitudinal studies; heterogeneous evidence widens priors.
 
-**Paraphrased elicitation (optional).** When configured, the LLM can call `elicit_prior_gmm` for a single parameter, which runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model following [Capstick et al. (2024)](../primitives/model-spec/prior-elicitation.md). This reduces brittle overconfidence from any one prompt wording. Default behavior keeps this disabled for cost reasons.
+**Paraphrased elicitation (optional).** When configured, the LLM can call `elicit_prior_gmm` for a single parameter, which runs *N* paraphrased LLM calls and aggregates them via a Gaussian mixture model following [Capstick et al. (2024)](../reference/model-spec/prior-elicitation.md). This reduces brittle overconfidence from any one prompt wording. Default behavior keeps this disabled for cost reasons.
 
 ### Prior Predictive Validation
 
@@ -75,7 +75,7 @@ The public stage payload also includes `search_queries` (literature provenance),
 - the [likelihood specifications](#likelihoodspec)—one per observed indicator, each binding a distribution family, link function, and reasoning
 - the [parameter specifications](#parameterspec)—one per free parameter, each carrying a name, role, constraint, and description
 
-Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../model-runtime/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [compilation pipeline](../model-runtime/compilation.md) describes how each field maps to compilation inputs.
+Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../reference/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [compilation pipeline](../reference/compilation.md) describes how each field maps to compilation inputs.
 
 ### LikelihoodSpec
 
@@ -109,14 +109,14 @@ Constraints are determined by role: AR coefficients are `unit_interval`, residua
 | Field | Type | Description |
 |---|---|---|
 | `parameter` | `str` | Name of the parameter this prior is for |
-| `distribution` | `PriorDistributionFamily` | Prior family from [Supported Prior Distribution Families](../primitives/model-spec/prior-distribution-families.md) |
+| `distribution` | `PriorDistributionFamily` | Prior family from [Supported Prior Distribution Families](../reference/model-spec/prior-distribution-families.md) |
 | `params` | `dict[str, float]` | Distribution parameters (e.g. `{"mu": 0.3, "sigma": 0.15}`) |
 | `sources` | `list[PriorSource]` | Literature evidence supporting this prior |
 | `reasoning` | `str` | Justification for the prior |
 | `reference_interval_days` | `float?` | Observation interval (in days) the prior is expressed in, when it differs from the model clock. Used for DT→CT conversion of dynamic parameters |
 | `density_points` | `list[{x, y}]?` | Pre-computed density curve for frontend visualization |
 
-`PriorDistributionFamily` is a separate vocabulary from [`DistributionFamily`](#likelihoodspec): likelihood families describe observation noise, while prior families describe parameter uncertainty. The supported prior set is defined in [Supported Prior Distribution Families](../primitives/model-spec/prior-distribution-families.md).
+`PriorDistributionFamily` is a separate vocabulary from [`DistributionFamily`](#likelihoodspec): likelihood families describe observation noise, while prior families describe parameter uncertainty. The supported prior set is defined in [Supported Prior Distribution Families](../reference/model-spec/prior-distribution-families.md).
 
 Both fixed-effect and AR priors are specified on the **discrete-time scale** at the model clock interval. The pipeline automatically converts them to continuous-time rates during compilation.
 

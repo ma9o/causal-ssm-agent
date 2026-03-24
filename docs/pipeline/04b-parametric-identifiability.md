@@ -4,7 +4,7 @@
 |---|---|---|---|
 | grounding | No | Warning-only | [`ParametricIdResult`](#parametricidresult), [`InferenceStructureResult`](#inferencestructureresult) |
 
-Checks whether the [Stage 4 functional specification](04-model-specification-priors.md) is recoverable from the observed data before committing to expensive inference. The stage runs three progressively finer diagnostics—a counting screen, a Jacobian-based structural check, and a profile-likelihood practical check—then plans the [inference routing](../model-runtime/inference-routing.md) that downstream stages will use.
+Checks whether the [Stage 4 functional specification](04-model-specification-priors.md) is recoverable from the observed data before committing to expensive inference. The stage runs three progressively finer diagnostics—a counting screen, a Jacobian-based structural check, and a profile-likelihood practical check—then plans the [inference routing](../reference/inference-routing.md) that downstream stages will use.
 
 ## Inputs
 
@@ -31,7 +31,7 @@ Stage 4b is a fully deterministic grounding stage (no LLM). It builds the SSM ru
 - *practically unidentifiable*: profile does not cross the threshold on one or both sides
 - *structurally unidentifiable*: profile is flat (total range < 0.5 log-likelihood units)
 
-When [first-pass Rao-Blackwellization](../model-runtime/inference-routing.md) is active with a composed likelihood path, only Kalman-block parameters are profiled—particle-block parameters have stochastic likelihoods that make profile curves unreliable.
+When [first-pass Rao-Blackwellization](../reference/inference-routing.md) is active with a composed likelihood path, only Kalman-block parameters are profiled—particle-block parameters have stochastic likelihoods that make profile curves unreliable.
 
 **Warning gate.** The stage never hard-gates the pipeline. It emits outcome `"warn"` if the T-rule fails, or if any structural issues, boundary issues, or weakly-identified parameters are detected; otherwise outcome is `"success"`. Warnings are logged and surfaced to the UI but do not block downstream stages.
 

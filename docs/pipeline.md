@@ -1,6 +1,6 @@
 # Pipeline Overview
 
-The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. Stage order is only one view of the system — for cross-cutting lenses see [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md).
+The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. Stage order is only one view of the system — for cross-cutting lenses see [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md).
 
 ## Stage Map
 
@@ -19,7 +19,7 @@ The authoritative definition of each pipeline artifact lives in the stage doc th
 
 ## Cross-Stage Notes
 
-- Execution order is derived from a dependency DAG, not a hard-coded index. See [runtime/execution-and-replay.md](runtime/execution-and-replay.md).
-- Artifact lineage is the main domain spine. See [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md).
-- Stage 4 begins the downstream model-runtime path. See [model-runtime/compilation.md](model-runtime/compilation.md).
-- Stage 6 is interactive but terminal: follow-up edits persist in place and do not replay downstream stages. See [runtime/execution-and-replay.md](runtime/execution-and-replay.md).
+- Execution order is derived from a dependency DAG, not a hard-coded index. See [reference/execution-and-replay.md](reference/execution-and-replay.md).
+- Artifact lineage is the main domain spine. See [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md).
+- Stage 4 begins the downstream model-runtime path. See [reference/compilation.md](reference/compilation.md).
+- Stage 6 is interactive but terminal: follow-up edits persist in place and do not replay downstream stages. See [reference/execution-and-replay.md](reference/execution-and-replay.md).

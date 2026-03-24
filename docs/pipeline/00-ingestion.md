@@ -33,7 +33,7 @@ Additionally the stage payload includes:
 - `column_descriptions` is the persisted JSON projection of per-column descriptions, stored as `{name, description}` entries.
 - `llm_trace` is optional runtime provenance for the UI.
 
-For how the persisted payload, restored runtime state, and web-facing projection differ, see [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md).
+For how the persisted payload, restored runtime state, and web-facing projection differ, see [../reference/persistence-and-exposure.md](../reference/persistence-and-exposure.md).
 
 ## Definitions
 
