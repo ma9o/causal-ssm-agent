@@ -1,6 +1,6 @@
 # MeasurementModel: Indicators
 
-This page explains the indicator layer introduced in [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+`MeasurementModel` is the domain primitive that explains how constructs are observed in data. The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
 
 ## Constructs vs Indicators
 

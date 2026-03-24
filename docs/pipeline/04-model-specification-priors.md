@@ -75,7 +75,7 @@ The public stage payload also includes `search_queries` (literature provenance),
 - the [likelihood specifications](#likelihoodspec)—one per observed indicator, each binding a distribution family, link function, and reasoning
 - the [parameter specifications](#parameterspec)—one per free parameter, each carrying a name, role, constraint, and description
 
-Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../model-runtime/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [handoff map](../model-runtime/handoff-map.md) describes how each field maps to compilation inputs.
+Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../model-runtime/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [compilation pipeline](../model-runtime/compilation.md) describes how each field maps to compilation inputs.
 
 ### LikelihoodSpec
 

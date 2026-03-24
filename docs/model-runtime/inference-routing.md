@@ -2,7 +2,7 @@
 
 The inference methods available for continuous-time state-space models, the design axes that distinguish them, and the structural routing logic that selects a method based on model properties. For likelihood backend details and the CT-SDE formulation, see [estimation.md](estimation.md).
 
-Within the pipeline artifact lineage, this document explains how the fitted runtime chooses or exposes inference behavior after functional specification and compilation. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md). If you need to locate an artifact owner quickly, see [../concepts/artifact-index.md](../concepts/artifact-index.md).
+Within the pipeline artifact lineage, this document explains how the fitted runtime chooses or exposes inference behavior after functional specification and compilation. For the cross-cutting pipeline map, see [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md).
 
 ## The Marginalization Challenge
 

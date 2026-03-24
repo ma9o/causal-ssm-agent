@@ -4,7 +4,7 @@
 |---|---|---|---|
 | llm+grounding | Yes | Yes | [`CausalSpec`](#causalspec) |
 
-Grounds the [Stage 1a latent model](01a-latent-model.md#latent-model) in observed data by proposing [indicators](../primitives/measurement-model/index.md) for each construct, then checks whether each treatment-to-outcome effect is [causally identifiable](../primitives/causal-spec/identifiability.md).
+Grounds the [Stage 1a latent model](01a-latent-model.md#latent-model) in observed data by proposing [indicators](../primitives/measurement-model/indicators.md) for each construct, then checks whether each treatment-to-outcome effect is [causally identifiable](../primitives/causal-spec/identifiability.md).
 
 ## Inputs
 
@@ -20,7 +20,7 @@ Stage 1a provided theoretical structure without seeing any data. Stage 1b is the
 
 Stage 1b runs a single LLM conversation that bridges theory and data. The LLM sees the latent model, the research question, and a schema summary of the ingested dataset. The conversation has three phases: indicator proposal grounded by a combined validation tool, identifiability repair if needed, and a self-review pass.
 
-**Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../primitives/measurement-model/index.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), and what [measurement dtype, aggregation function, and observation window](../primitives/measurement-model/windows-and-aggregation.md) apply. The LLM also selects a `model_clock`—the discretization unit that governs extraction and downstream fitting.
+**Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../primitives/measurement-model/indicators.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), and what [measurement dtype, aggregation function, and observation window](../primitives/measurement-model/windows-and-aggregation.md) apply. The LLM also selects a `model_clock`—the discretization unit that governs extraction and downstream fitting.
 
 **Validation loop.** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks three things simultaneously:
 

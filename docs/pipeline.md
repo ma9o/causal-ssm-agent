@@ -1,6 +1,6 @@
 # Pipeline Overview
 
-Stage order is only one view of the system. The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. If you know an artifact name but not its owner stage, use [concepts/artifact-index.md](concepts/artifact-index.md). If you want the domain semantics of one of the four main primitives, use [primitives/latent-model/index.md](primitives/latent-model/index.md), [primitives/measurement-model/index.md](primitives/measurement-model/index.md), [primitives/causal-spec/index.md](primitives/causal-spec/index.md), or [primitives/model-spec/index.md](primitives/model-spec/index.md). For cross-cutting domain maps, see [concepts/causal-modeling-terminology.md](concepts/causal-modeling-terminology.md), [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md), [concepts/assumptions.md](concepts/assumptions.md), and [concepts/scope-and-timescales.md](concepts/scope-and-timescales.md). For replay, persistence, and web/internal boundaries, see [runtime/execution-and-replay.md](runtime/execution-and-replay.md) and [runtime/persistence-and-exposure.md](runtime/persistence-and-exposure.md).
+The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. Stage order is only one view of the system — for cross-cutting lenses see [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md).
 
 ## Stage Map
 
@@ -21,5 +21,5 @@ Stage order is only one view of the system. The authoritative definition of each
 
 - Execution order is derived from a dependency DAG, not a hard-coded index. See [runtime/execution-and-replay.md](runtime/execution-and-replay.md).
 - Artifact lineage is the main domain spine. See [concepts/pipeline-dimensions.md](concepts/pipeline-dimensions.md).
-- Stage 4 begins the downstream model-runtime path. See [model-runtime/handoff-map.md](model-runtime/handoff-map.md).
+- Stage 4 begins the downstream model-runtime path. See [model-runtime/compilation.md](model-runtime/compilation.md).
 - Stage 6 is interactive but terminal: follow-up edits persist in place and do not replay downstream stages. See [runtime/execution-and-replay.md](runtime/execution-and-replay.md).
