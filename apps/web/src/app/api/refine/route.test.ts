@@ -32,8 +32,11 @@ vi.mock("@/lib/workspace-access", () => ({
   })),
 }));
 
-vi.mock("@/lib/api/resolve-api-key", () => ({
-  resolveApiKey: vi.fn(() => ({ key: "test-key" })),
+vi.mock("@/lib/server/openrouter-access", () => ({
+  resolveOpenRouterAccess: vi.fn().mockResolvedValue({
+    mode: "user",
+    apiKey: "test-key",
+  }),
 }));
 
 vi.mock("@/lib/runtime-urls", () => ({
