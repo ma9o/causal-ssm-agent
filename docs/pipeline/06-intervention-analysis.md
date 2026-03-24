@@ -1,8 +1,8 @@
 # Stage 6: Intervention Analysis
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm+intervention | Yes | No | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
+| Hybrid | Yes | No | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
 
 Applies the [steady-state and trajectory intervention semantics](#intervention-semantics) to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
 
@@ -22,7 +22,7 @@ Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifia
 
 Stage 6 runs in two phases: a deterministic intervention computation that produces the baseline ranking, followed by a single LLM generation that produces opening commentary. After completion the stage exposes three interactive tools for follow-up exploration.
 
-**Baseline intervention ranking.** For each treatment that passed the [Stage 1b identifiability gate](01b-measurement-identifiability.md), the stage computes the steady-state causal effect of a unit intervention `do(treatment = baseline + 1)`. For each posterior draw of the drift matrix **A** and continuous intercept **c**, the baseline latent state is η\* = −**A**⁻¹**c**; the intervened state solves the modified linear system where the treatment row is clamped to η\*treatment + 1. The per-draw effect on the outcome is the difference between the intervened and baseline outcome values. The stage vmaps this computation over all posterior draws, producing a full posterior distribution of the treatment effect.
+**Baseline intervention ranking.** For each treatment that passed the [Stage 1b identifiability gate](01b-measurement-identifiability.md), the stage applies the [steady-state do-operator](#steady-state-do-operator) for a unit intervention `do(treatment = baseline + 1)`, vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
 
 **Temporal forward simulation.** When temporal information is available (either from the [`model_clock`](01b-measurement-identifiability.md#measurement-model) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment. This discretizes the continuous-time system, starts from the baseline steady state, clamps the treatment at each step, and records the outcome trajectory. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
 

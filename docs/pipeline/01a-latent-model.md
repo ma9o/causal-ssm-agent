@@ -1,8 +1,8 @@
 # Stage 1a: Latent Model Proposal
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm | Yes | No | [`LatentModel`](#latent-model) |
+| Semantic | Yes | No | [`LatentModel`](#latent-model) |
 
 Builds a [`LatentModel`](#latent-model) from the natural language research question.
 

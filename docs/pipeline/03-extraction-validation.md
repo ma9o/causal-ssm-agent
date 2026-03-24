@@ -1,8 +1,8 @@
 # Stage 3: Extraction Validation
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| grounding | No | No | [`IndicatorAudit`](#indicatoraudit) per indicator, dataset-level issues |
+| Computed | No | No | [`IndicatorAudit`](#indicatoraudit) per indicator, dataset-level issues |
 
 Audits the observations extracted by [Stage 2](02-indicator-extraction.md) against the indicator metadata declared in the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec), then computes an [empirical profile](#empiricalprofile) for each indicator. The audit result is the primary data-quality surface consumed by [Stage 4](04-model-specification-priors.md) when building decision cards for prior elicitation.
 
@@ -10,16 +10,16 @@ Audits the observations extracted by [Stage 2](02-indicator-extraction.md) again
 
 | Input | Source | Description |
 |---|---|---|
-| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with indicator metadata (`measurement_dtype`, `construct_name`, `observation_window`), construct temporal status, and `model_clock` |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Raw extraction dataframe (long-format [observation rows](02-indicator-extraction.md#observation-row)) and model-ready numeric data |
+| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec)—[indicator](01b-measurement-identifiability.md#measurement-model) and construct metadata, `model_clock` |
+| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Model-ready long-format observation table persisted from Stage 2 |
 
 Stage 2 executed the extraction instructions; Stage 3 asks whether the resulting data are internally consistent, statistically usable, and plausible. No LLM is involved—every check is deterministic.
 
 ## Process
 
-Stage 3 runs a fixed set of composable [validation rules](#validation-rules) over the extracted data, reduces the findings into per-indicator statuses, computes empirical profiles from the model-ready data, and packages everything into an [`IndicatorAudit`](#indicatoraudit) per indicator.
+Stage 3 runs a fixed set of composable [validation rules](#validation-rules) over the persisted Stage 2 model-ready table, reduces the findings into per-indicator statuses, computes empirical profiles from that same table, and packages everything into an [`IndicatorAudit`](#indicatoraudit) per indicator.
 
-**Context assembly.** The stage parses the `model_clock` from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) into hours, builds lookup tables for indicator metadata and construct metadata, and concatenates the raw extraction dataframes into a single long-format table indexed by `(indicator, value, anchor_time)`. For each indicator, it pre-computes an `IndicatorContext`: the numeric `Float64` series (after coercion and null removal), observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series (attempted against nine format patterns with optional timezone stripping).
+**Context assembly.** The stage parses the [`model_clock`](../reference/measurement-model/indicators.md#observation-windows-and-model-clock) from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) into hours, builds lookup tables for indicator metadata and construct metadata, and validates the single long-format table loaded from Stage 2. For each indicator, it pre-computes an `IndicatorContext`: the numeric `Float64` series (after coercion and null removal), observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series (attempted against nine format patterns with optional timezone stripping).
 
 **Per-indicator rules.** Nine indicator-level rules run in sequence for each indicator. Each rule receives the indicator's data and context and returns zero or more [`ValidationIssue`](#validationissue)s with an attached `cell_key` linking each issue to the metric it concerns:
 
@@ -49,7 +49,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 
 **Reduction.** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each metric key (`n_obs`, `variance`, `n_unparseable_timestamps`, `time_coverage_ratio`, `max_gap_ratio`, `dtype_violations`, `duplicate_pct`, `arithmetic_sequence_detected`), the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Rules own threshold logic; the reducer only aggregates.
 
-**Empirical profiles.** After validation, the stage computes an [`EmpiricalProfile`](#empiricalprofile) for each indicator from the *model-ready* data (the cleaned, numerically cast output of [Stage 2](02-indicator-extraction.md)), falling back to the raw extraction data if model-ready data is unavailable. The profile captures central tendency, spread, quantiles, distributional shape indicators (zero fraction, non-negativity, unit-interval membership, integer-valuedness, variance-to-mean ratio), and the health metrics computed during validation (coverage ratio, gap ratio, dtype violations, duplicate percentage, arithmetic-sequence flag, unparseable timestamps).
+**Empirical profiles.** After validation, the stage computes an [`EmpiricalProfile`](#empiricalprofile) for each indicator from the same model-ready table it validated. The profile captures central tendency, spread, quantiles, distributional shape indicators (zero fraction, non-negativity, unit-interval membership, integer-valuedness, variance-to-mean ratio), and the health metrics computed during validation (coverage ratio, gap ratio, dtype violations, duplicate percentage, arithmetic-sequence flag, unparseable timestamps).
 
 **Audit assembly.** Each indicator's profile and validation findings are packaged into an [`IndicatorAudit`](#indicatoraudit). The audit map is keyed by indicator name.
 

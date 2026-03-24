@@ -1,8 +1,8 @@
 # Stage 5b: Inference and Diagnostics
 
-| Type | Interactive | Gate | Produces |
+| Modality | Interactive | Gate | Produces |
 |---|---|---|---|
-| estimation | No | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
+| Computed | No | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
 
 Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree: NUTS for Kalman-eligible models (all Gaussian emissions with identity links), Laplace-EM for non-Gaussian emissions. The user can override to any of the nine [available methods](../reference/inference-routing.md#method-taxonomy).
 
@@ -22,12 +22,7 @@ Stage 5b runs three sequential tasks with no LLM involvement: model fitting, pow
 
 **Runtime preparation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format `(T, n_manifest)`, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization partition). The result is a `PreparedModelRuntime` carrying the JAX observation array, the time array, and the built model.
 
-**Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding backend:
-
-- *NUTS*: NumPyro's No-U-Turn Sampler with `init_to_median` initialization and dense mass matrix adaptation. Uses the Kalman filter for exact marginal likelihood gradients.
-- *Laplace-EM*: Iterated Extended Kalman Smoother (IEKS) finds the MAP latent trajectory via Newton iterations on the block-tridiagonal state-space Hessian, then a Laplace approximation provides the marginal likelihood. An outer tempered SMC loop explores the parameter posterior. O(T D³) per IEKS iteration, typically 3–8 iterations.
-- *SVI*: `AutoMultivariateNormal` guide with `ClippedAdam` optimizer (learning rate 0.01) and `Trace_ELBO` loss, drawing posterior samples via NumPyro's `Predictive`.
-- *Other backends*: tempered SMC, Hess-MC², structured VI, DPF, NUTS-DA, and PGAS are available as user overrides. See [inference-routing.md](../reference/inference-routing.md#method-reference) for details.
+**Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference). The two structural defaults are NUTS (Kalman-eligible models) and Laplace-EM (non-Gaussian emissions); all nine methods are available as user overrides.
 
 The fit produces an `InferenceResult` containing the posterior samples dict `{name: (n_draws, *shape)}`, the method identifier, and backend-specific diagnostics. From this the stage extracts backend-specific diagnostic payloads (MCMC convergence, SVI ELBO curve, SMC tempering schedule), LOO-CV diagnostics, posterior marginals, and posterior pairs.
 
