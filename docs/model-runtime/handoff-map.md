@@ -1,7 +1,5 @@
 # Model Runtime Handoff Map
 
-This is the shortest path for understanding how the downstream modeling stack hands artifacts from Stage 4 through Stage 6.
-
 ## Main Chain
 
 ```text
@@ -23,10 +21,3 @@ This is the shortest path for understanding how the downstream modeling stack ha
 | `SSMModelBuilder` | [`FittedArtifact`](../pipeline/05b-inference-diagnostics.md#fittedartifact) | Stage 5b fits the model and persists the builder, posterior outputs, and diagnostics needed downstream |
 | [`FittedArtifact`](../pipeline/05b-inference-diagnostics.md#fittedartifact) | Stage 6 | Intervention analysis uses posterior draws and runtime metadata to answer rung-2 and rung-3 questions |
 
-## Reading Guide
-
-- Functional specification details: [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md)
-- Pure compilation path: [compilation.md](compilation.md)
-- Estimation and counterfactual computation: [estimation.md](estimation.md)
-- Inference-method routing: [inference-routing.md](inference-routing.md)
-- Stage-facing handoff points: [../pipeline/04-model-specification-priors.md](../pipeline/04-model-specification-priors.md), [../pipeline/05b-inference-diagnostics.md](../pipeline/05b-inference-diagnostics.md), [../pipeline/06-intervention-analysis.md](../pipeline/06-intervention-analysis.md)

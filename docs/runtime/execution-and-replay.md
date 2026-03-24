@@ -1,7 +1,5 @@
 # Execution and Replay
 
-This document explains how the pipeline executes, resumes, replays, and handles interactive edits.
-
 For the stage-ordered reference, see [../pipeline.md](../pipeline.md). For persistence surfaces and web/internal boundaries, see [persistence-and-exposure.md](persistence-and-exposure.md).
 
 ## Execution Model
@@ -64,10 +62,3 @@ Stage 6 is interactive but terminal. It never triggers downstream execution beca
 The natural-language research question is materialized to `data/{workspace_id}/query.txt`.
 
 This lets fresh runs start from web-submitted text while resume runs can reload the same question without resubmission.
-
-## Reading Guide
-
-- "Why did this stage rerun?" -> this document
-- "Why can Stage 6 be interactive without replay?" -> this document
-- "Which stages are restored vs recomputed?" -> this document
-- "What does a stage persist?" -> [persistence-and-exposure.md](persistence-and-exposure.md), then [../pipeline.md](../pipeline.md)

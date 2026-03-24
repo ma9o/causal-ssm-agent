@@ -37,9 +37,9 @@ Raw data may be finer-grained than the indicator's target granularity. The measu
 
 These choices are substantive, not just technical. A daily mean mood score and a daily max mood spike encode different theories of what matters.
 
-## Relationship to Cross-Timescale Causation
+## Relationship to Temporal Causation
 
-Cross-timescale edge legality is owned by the [LatentModel](../latent-model/temporal-semantics.md). The `MeasurementModel` makes those causal commitments operational by specifying the aggregation and observation windows needed to align indicators to the modeled timescale.
+Edge lag rules are owned by the [LatentModel](../latent-model/temporal-semantics.md). The `MeasurementModel` makes those causal commitments operational by specifying the aggregation and observation windows needed to align indicators to the shared `model_clock`.
 
 Examples:
 

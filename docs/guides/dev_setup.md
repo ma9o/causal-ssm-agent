@@ -1,7 +1,5 @@
 # Local Development Setup
 
-Bootstrap the project from a fresh clone.
-
 ## Prerequisites
 
 | Tool | Version | Check |

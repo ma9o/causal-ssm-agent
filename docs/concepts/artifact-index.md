@@ -1,19 +1,11 @@
 # Artifact Index
 
-This file is a routing aid, not the source of truth.
-
-The authoritative definition of each pipeline artifact lives in the stage doc that introduces it. Use this index only when you know an artifact name but do not remember which stage owns it.
-
-For domain semantics organized by primitive, use [LatentModel](../primitives/latent-model/index.md), [MeasurementModel](../primitives/measurement-model/index.md), [CausalSpec](../primitives/causal-spec/index.md), or [ModelSpec](../primitives/model-spec/index.md) as appropriate.
-
-For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md). For the ordered stage map, see [../pipeline.md](../pipeline.md).
-
 ## Core Artifacts
 
 | Artifact | Authoritative definition | Introduced in | One-line role | Used downstream |
 |---|---|---|---|---|
 | Raw dataframe | [Stage 0: Raw Dataframe](../pipeline/00-ingestion.md#raw-dataframe) | Stage 0 | Normalized source dataframe with typed columns and column descriptions | 1b, 2 |
-| `LatentModel` | [Stage 1a: `LatentModel`](../pipeline/01a-latent-model.md#latentmodel) | Stage 1a | Theoretical causal DAG over constructs | 1b, 6 |
+| `LatentModel` | [Stage 1a: `LatentModel`](../pipeline/01a-latent-model.md#latent-model) | Stage 1a | Theoretical causal DAG over constructs | 1b, 6 |
 | Measurement model | [Stage 1b: Measurement Model](../pipeline/01b-measurement-identifiability.md#measurement-model) | Stage 1b | Mapping from constructs to observed indicators | 2, 4, 6 |
 | `CausalSpec` | [Stage 1b: `CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | Stage 1b | Combined latent, measurement, and identifiability payload | 2, 3, 4, 6 |
 | `IdentifiabilityStatus` | [Stage 1b: `IdentifiabilityStatus`](../pipeline/01b-measurement-identifiability.md#identifiabilitystatus) | Stage 1b | Treatment-level causal-identifiability result | 1b gate, 6 |
@@ -27,10 +19,3 @@ For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimens
 | `FittedArtifact` | [Stage 5b: `FittedArtifact`](../pipeline/05b-inference-diagnostics.md#fittedartifact) | Stage 5b | Persisted fitted runtime object used downstream | 6, resume |
 | `TreatmentEffect` | [Stage 6: `TreatmentEffect`](../pipeline/06-intervention-analysis.md#treatmenteffect) | Stage 6 | Ranked causal-effect summary for one treatment | web app, final intervention analysis |
 | `LLMTrace` | Stage doc that emits it | Several semantic stages | Conversation and tool-call history for an interactive or agentic stage | web app, refinement history |
-
-## Reading Guide
-
-- "Where is this artifact actually defined?" -> follow the `Authoritative definition` link in the table.
-- "Which stage owns this artifact?" -> use the `Introduced in` column.
-- "What does this artifact mean semantically?" -> open the matching page under `primitives/` when the artifact is one of the four domain primitives.
-- "How do these artifacts connect?" -> [pipeline-dimensions.md](pipeline-dimensions.md) and [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).

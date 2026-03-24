@@ -1,7 +1,5 @@
 # Persistence and Exposure
 
-This document explains what each stage persists, what gets restored, and how the public web payload differs from the internal runtime state.
-
 For execution and replay behavior, see [execution-and-replay.md](execution-and-replay.md). For stage-facing descriptions, see [../pipeline.md](../pipeline.md).
 
 ## Stage State Surfaces
@@ -44,9 +42,3 @@ See [apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py](../../ap
 - internal helper fields such as parquet paths, compiled runtime objects, and private scratch values can exist without leaking into the web layer
 - snapshots preserve full state for resume
 - sidecar artifacts preserve heavyweight numerical state that JSON should not carry
-
-## Reading Guide
-
-- "Why does the web payload not contain the full fitted runtime?" -> this document
-- "What gets persisted, restored, or exposed to the web?" -> this document
-- "Which stages rely on parquet or pickle sidecars?" -> this document, then [../pipeline.md](../pipeline.md)
