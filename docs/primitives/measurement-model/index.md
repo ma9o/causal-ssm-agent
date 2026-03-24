@@ -19,9 +19,3 @@ The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-iden
 - construct-to-construct causal edges
 - treatment-level identifiability status
 - fitted likelihood parameters or priors
-
-## Reading Guide
-
-- For indicator semantics and dtype meaning, see [indicators.md](indicators.md).
-- For windows, aggregation, and `model_clock`, see [windows-and-aggregation.md](windows-and-aggregation.md).
-- For measurement assumptions, see [assumptions.md](assumptions.md).

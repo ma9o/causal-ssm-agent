@@ -1,7 +1,5 @@
 # CausalSpec: Identifiability
 
-This page owns the identification semantics attached to `CausalSpec`.
-
 ## What Stage 1b Checks
 
 Stage 1b checks whether each treatment-to-outcome effect is causally identifiable under the latent graph and the measurement assumptions.

@@ -5,7 +5,7 @@ The term `structural` is historically shared by the SEM and SCM traditions, but 
 - In SEM, the `structural model` is the part of the model that specifies directional relations among endogenous variables, in contrast to the `measurement model`.
 - In SCM, `structural equations` are the assignment mechanisms `X_i = f_i(Pa_i, U_i)` for endogenous variables.
 
-These are closely related ideas, but for clarity in this project we separate:
+This project separates them:
 
 | Description | Domain primitive | Owner stage |
 |---|---|---|

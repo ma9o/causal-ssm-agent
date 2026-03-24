@@ -1,7 +1,5 @@
 # TypeScript Codegen from Python Contracts
 
-Python Pydantic models are the single source of truth for the shape of stage payloads. TypeScript types are generated from them automatically.
-
 ## Architecture
 
 ```

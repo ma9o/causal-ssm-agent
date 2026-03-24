@@ -17,9 +17,3 @@ The authoritative schema lives in [Stage 1a](../../pipeline/01a-latent-model.md)
 - observation windows or aggregation
 - identifiability findings
 - likelihoods, parameters, or priors
-
-## Reading Guide
-
-- For construct ontology and edge legality, see [constructs-and-edges.md](constructs-and-edges.md).
-- For lag semantics and cross-timescale rules, see [temporal-semantics.md](temporal-semantics.md).
-- For the assumptions that constrain valid latent structure, see [assumptions.md](assumptions.md).

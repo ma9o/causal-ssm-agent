@@ -1,7 +1,5 @@
 # Pipeline Dimensions
 
-This document is the cross-cutting map of the pipeline. [pipeline.md](../pipeline.md) is the stage-ordered reference, but stage order is only one way to understand the system. The authoritative definition of each pipeline artifact lives in the stage doc that introduces it; use [artifact-index.md](artifact-index.md) only to locate that owner quickly.
-
 The more useful view for design, implementation, and documentation is a small set of orthogonal dimensions that recur across stages.
 
 ## 1. Artifact Lineage
@@ -116,14 +114,3 @@ Examples:
 This boundary matters because the web payload is not the same thing as the full runtime result. Internal fields prefixed with `_` are stripped from the public payload, while snapshots preserve the full state for resume.
 
 See [../pipeline.md](../pipeline.md) for the public summary and [apps/data-pipeline/src/causal_ssm_agent/flows/run_store.py](../../apps/data-pipeline/src/causal_ssm_agent/flows/run_store.py) for the concrete persistence mechanics.
-
-## Reading Guide
-
-Use the docs in this order depending on the question:
-
-- "What objects flow through the pipeline?" -> this document, then [../pipeline.md](../pipeline.md)
-- "How does time work?" -> this document, then [scope-and-timescales.md](scope-and-timescales.md) and [../model-runtime/estimation.md](../model-runtime/estimation.md)
-- "What gets checked where?" -> this document, then [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) and [../pipeline.md](../pipeline.md)
-- "How does fitting choose an inference method?" -> [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md)
-- "What gets saved, restored, or exposed to the web?" -> [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md), then [../pipeline.md](../pipeline.md)
-- "How do replay, overrides, gates, and terminal Stage 6 persistence work?" -> [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md)

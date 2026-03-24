@@ -17,9 +17,3 @@ The authoritative schema lives in [Stage 4](../../pipeline/04-model-specificatio
 - indicator extraction windows
 - compilation into executable runtime artifacts
 - posterior outputs
-
-## Reading Guide
-
-- For the high-level translation from `CausalSpec` to `ModelSpec`, see [functional-specification.md](functional-specification.md).
-- For detailed parameter, likelihood, and prior-object semantics, see [parameters-likelihoods-and-priors.md](parameters-likelihoods-and-priors.md).
-- For the LLM-assisted elicitation workflow, see [prior-elicitation.md](prior-elicitation.md).
