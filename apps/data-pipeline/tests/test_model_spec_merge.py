@@ -1,8 +1,4 @@
-"""Tests for model spec merging, dict validation, and DistributionFamily.
-
-Covers: validate_model_spec_dict, merge_decisions_to_spec,
-        validate_model_spec_decisions_dict, DistributionFamily normalization.
-"""
+"""Tests for model spec merging, dict validation, and DistributionFamily."""
 
 import pytest
 
@@ -406,25 +402,15 @@ class TestValidateModelSpecDecisionsDict:
 
 
 # =============================================================================
-# DistributionFamily case-insensitive construction
+# DistributionFamily exact construction
 # =============================================================================
 
 
-class TestDistributionFamilyCaseInsensitive:
+class TestDistributionFamilyConstruction:
     def test_all_canonical_members_from_value(self):
         """Every member's .value should round-trip through construction."""
         for member in DistributionFamily:
             assert DistributionFamily(member.value) == member
-
-    def test_case_and_format_normalization(self):
-        """Case, PascalCase, spaces, and underscores all resolve correctly."""
-        assert DistributionFamily("gaussian") == DistributionFamily.GAUSSIAN
-        assert DistributionFamily("GAUSSIAN") == DistributionFamily.GAUSSIAN
-        assert DistributionFamily("Normal") == DistributionFamily.GAUSSIAN
-        assert DistributionFamily("Poisson") == DistributionFamily.POISSON
-        assert DistributionFamily("NegativeBinomial") == DistributionFamily.NEGATIVE_BINOMIAL
-        assert DistributionFamily("negative binomial") == DistributionFamily.NEGATIVE_BINOMIAL
-        assert DistributionFamily("Student_T") == DistributionFamily.STUDENT_T
 
     def test_invalid_inputs_raise(self):
         with pytest.raises(ValueError):
@@ -433,3 +419,9 @@ class TestDistributionFamilyCaseInsensitive:
             DistributionFamily("")
         with pytest.raises(ValueError):
             DistributionFamily("not_a_distribution")
+        with pytest.raises(ValueError):
+            DistributionFamily("GAUSSIAN")
+        with pytest.raises(ValueError):
+            DistributionFamily("Normal")
+        with pytest.raises(ValueError):
+            DistributionFamily("negative binomial")

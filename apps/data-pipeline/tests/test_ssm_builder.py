@@ -37,7 +37,13 @@ class TestNormalizePriorParams:
             "TruncatedNormal",
             {"mu": 3.0, "sigma": 0.5, "lower": 0.0, "upper": 5.0},
         )
-        assert result == {"mu": 3.0, "sigma": 0.5, "lower": 0.0, "upper": 5.0}
+        assert result == {
+            "family": 1,
+            "mu": 3.0,
+            "sigma": 0.5,
+            "lower": 0.0,
+            "upper": 5.0,
+        }
 
     def test_halfnormal(self):
         """HalfNormal should only return sigma."""
@@ -68,16 +74,18 @@ class TestNormalizePriorParams:
         assert abs(result["mu"] - 0.5) < 1e-10
 
     def test_uniform_conversion(self):
-        """Uniform(0, 1) should give mu=0.5, sigma=0.25, and bounds."""
+        """Uniform(0, 1) should preserve uniform family metadata and bounds."""
         result = normalize_prior_params("Uniform", {"lower": 0.0, "upper": 1.0})
+        assert result["family"] == 2
         assert result["mu"] == 0.5
         assert result["sigma"] == 0.25
         assert result["lower"] == 0.0
         assert result["upper"] == 1.0
 
     def test_uniform_symmetric(self):
-        """Uniform(-2, 2) should give mu=0, sigma=1."""
+        """Uniform(-2, 2) should preserve its midpoint/width summary and bounds."""
         result = normalize_prior_params("Uniform", {"lower": -2.0, "upper": 2.0})
+        assert result["family"] == 2
         assert result["mu"] == 0.0
         assert result["sigma"] == 1.0
         assert result["lower"] == -2.0
@@ -86,16 +94,20 @@ class TestNormalizePriorParams:
     def test_uniform_defaults(self):
         """Uniform with no bounds should default to -1, 1."""
         result = normalize_prior_params("Uniform", {})
+        assert result["family"] == 2
         assert result["mu"] == 0.0
         assert result["sigma"] == 0.5
         assert result["lower"] == -1.0
         assert result["upper"] == 1.0
 
-    def test_case_insensitive(self):
-        """Distribution name matching should be case-insensitive."""
-        r1 = normalize_prior_params("normal", {"mu": 1.0, "sigma": 2.0})
-        r2 = normalize_prior_params("NORMAL", {"mu": 1.0, "sigma": 2.0})
-        assert r1 == r2
+    def test_non_canonical_name_raises(self):
+        """Only canonical prior distribution spellings should be accepted."""
+        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
+            normalize_prior_params("normal", {"mu": 1.0, "sigma": 2.0})
+        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
+            normalize_prior_params("NORMAL", {"mu": 1.0, "sigma": 2.0})
+        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
+            normalize_prior_params("half_normal", {"sigma": 1.0})
 
     def test_gamma(self):
         """Gamma should preserve positive-support family metadata."""
@@ -108,9 +120,9 @@ class TestNormalizePriorParams:
         assert result == {"family": 2, "loc": 0.2, "sigma": 0.7}
 
     def test_exponential(self):
-        """Exponential should lower to Gamma runtime semantics with concentration 1."""
+        """Exponential should preserve its own positive-support family metadata."""
         result = normalize_prior_params("Exponential", {"rate": 2.5})
-        assert result == {"family": 1, "concentration": 1.0, "rate": 2.5}
+        assert result == {"family": 3, "rate": 2.5}
 
     def test_unknown_distribution_raises(self):
         """Unknown prior distributions should fail early."""

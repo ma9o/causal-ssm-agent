@@ -508,7 +508,7 @@ class TestPriorPredictiveValidation:
         compiled_ssm = {
             "spec": {"latent_names": ["stress", "sleep"]},
             "compiled_prior_semantics": {
-                "schema_version": 3,
+                "schema_version": 4,
                 "site_registry": [
                     {
                         "name": "t0_means_pop",
@@ -624,7 +624,7 @@ class TestPriorPredictiveValidation:
 
         compiled_ssm = {
             "compiled_prior_semantics": {
-                "schema_version": 3,
+                "schema_version": 4,
                 "site_registry": [
                     {
                         "name": "diffusion_diag_pop",
@@ -662,7 +662,7 @@ class TestPriorPredictiveValidation:
                         "rate": [1.0],
                     },
                     "drift_offdiag_pop": {
-                        "family": 1,
+                        "family": 2,
                         "loc": [0.0],
                         "scale": [0.3],
                         "low": [-1.0],
@@ -682,9 +682,7 @@ class TestPriorPredictiveValidation:
         assert resolved["sigma_mood"]["distribution"] == "LogNormal"
         assert resolved["sigma_mood"]["params"]["mu"] == pytest.approx(0.2)
         assert resolved["sigma_mood"]["params"]["sigma"] == pytest.approx(0.7)
-        assert resolved["cor_stress_sleep"]["distribution"] == "TruncatedNormal"
-        assert resolved["cor_stress_sleep"]["params"]["mu"] == pytest.approx(0.0)
-        assert resolved["cor_stress_sleep"]["params"]["sigma"] == pytest.approx(0.3)
+        assert resolved["cor_stress_sleep"]["distribution"] == "Uniform"
         assert resolved["cor_stress_sleep"]["params"]["lower"] == pytest.approx(-1.0)
         assert resolved["cor_stress_sleep"]["params"]["upper"] == pytest.approx(1.0)
 
@@ -770,10 +768,11 @@ class TestSSMPriorConversion:
         assert ssm_priors.diffusion_diag["sigma"] == 0.5
 
     def test_uniform_prior_converts(self):
-        """Uniform(-1, 1) converts to Normal(0, 0.5)."""
+        """Uniform(-1, 1) preserves uniform family metadata."""
         from causal_ssm_agent.models.ssm_compilation import normalize_prior_params
 
         result = normalize_prior_params("Uniform", {"lower": -1.0, "upper": 1.0})
+        assert result["family"] == 2
         assert result["mu"] == 0.0
         assert result["sigma"] == 0.5
 

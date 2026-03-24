@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
-from causal_ssm_agent.distributions import PriorRuntimeKind, get_positive_runtime_kind_from_index
+from causal_ssm_agent.distributions import (
+    PriorRuntimeKind,
+    get_positive_runtime_kind_from_index,
+    get_real_runtime_kind_from_index,
+)
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
@@ -239,21 +243,40 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
 
     Supports array-valued mu/sigma for per-element priors.
     """
-    if "lower" in prior and "upper" in prior:
-        return dist.TruncatedNormal(
-            loc=jnp.asarray(prior["mu"]),
-            scale=jnp.asarray(prior["sigma"]),
-            low=jnp.asarray(prior["lower"]),
-            high=jnp.asarray(prior["upper"]),
-        )
     family = prior.get("family", 0)
     if isinstance(family, list):
         unique_families = {int(value) for value in family}
         if len(unique_families) != 1:
             raise ValueError(
-                "Mixed positive prior families within a single SSM field are unsupported"
+                "Mixed prior families within a single SSM field are unsupported"
             )
         family = unique_families.pop()
+    if "mu" in prior or "lower" in prior or "upper" in prior:
+        if "family" in prior:
+            runtime_kind = get_real_runtime_kind_from_index(int(family))
+            if runtime_kind == PriorRuntimeKind.NORMAL:
+                return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
+            if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
+                return dist.TruncatedNormal(
+                    loc=jnp.asarray(prior["mu"]),
+                    scale=jnp.asarray(prior["sigma"]),
+                    low=jnp.asarray(prior["lower"]),
+                    high=jnp.asarray(prior["upper"]),
+                )
+            if runtime_kind == PriorRuntimeKind.UNIFORM:
+                return dist.Uniform(
+                    low=jnp.asarray(prior["lower"]),
+                    high=jnp.asarray(prior["upper"]),
+                )
+            raise ValueError(f"Unsupported serialized real prior runtime kind {runtime_kind!r}")
+        if "lower" in prior and "upper" in prior:
+            return dist.TruncatedNormal(
+                loc=jnp.asarray(prior["mu"]),
+                scale=jnp.asarray(prior["sigma"]),
+                low=jnp.asarray(prior["lower"]),
+                high=jnp.asarray(prior["upper"]),
+            )
+        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
     if "family" in prior:
         runtime_kind = get_positive_runtime_kind_from_index(int(family))
         if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
@@ -268,14 +291,14 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
                 loc=jnp.asarray(prior.get("loc", 0.0)),
                 scale=jnp.asarray(prior.get("sigma", 1.0)),
             )
+        if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+            return dist.Exponential(rate=jnp.asarray(prior.get("rate", 1.0)))
         raise ValueError(f"Unsupported serialized positive prior runtime kind {runtime_kind!r}")
     if {"concentration", "rate"} <= set(prior):
         return dist.Gamma(
             concentration=jnp.asarray(prior.get("concentration", 2.0)),
             rate=jnp.asarray(prior.get("rate", 1.0)),
         )
-    if "mu" in prior:
-        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
     return dist.HalfNormal(jnp.asarray(prior["sigma"]))
 
 

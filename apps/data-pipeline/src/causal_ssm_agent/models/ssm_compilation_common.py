@@ -11,6 +11,7 @@ from causal_ssm_agent.distributions import (
     PriorRuntimeKind,
     get_positive_runtime_family_index,
     get_prior_family_spec,
+    get_real_runtime_family_index,
 )
 from causal_ssm_agent.orchestrator.schemas_model import ParameterRole
 
@@ -88,6 +89,7 @@ def normalize_prior_params(
 
     if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
         return {
+            "family": get_real_runtime_family_index(runtime_kind),
             "mu": params.get("mu", 0.0),
             "sigma": params.get("sigma", 1.0),
             "lower": params.get("lower", -1.0),
@@ -109,7 +111,13 @@ def normalize_prior_params(
         upper = params.get("upper", 1.0)
         mu = (lower + upper) / 2
         sigma = (upper - lower) / 4
-        return {"mu": mu, "sigma": sigma, "lower": lower, "upper": upper}
+        return {
+            "family": get_real_runtime_family_index(runtime_kind),
+            "mu": mu,
+            "sigma": sigma,
+            "lower": lower,
+            "upper": upper,
+        }
 
     if runtime_kind == PriorRuntimeKind.GAMMA:
         return {
@@ -128,7 +136,6 @@ def normalize_prior_params(
     if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
         return {
             "family": get_positive_runtime_family_index(runtime_kind),
-            "concentration": 1.0,
             "rate": params.get("rate", 1.0),
         }
 

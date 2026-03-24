@@ -31,14 +31,8 @@ describe("evaluatePdf", () => {
       }
     });
 
-    it("accepts 'gaussian' alias", () => {
-      const points = evaluatePdf("gaussian", { mu: 0, sigma: 1 });
-      const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
-      expect(peak.x).toBeCloseTo(0, 0);
-    });
-
-    it("accepts loc/scale params", () => {
-      const points = evaluatePdf("Normal", { loc: 3, scale: 0.5 });
+    it("uses canonical mu/sigma params", () => {
+      const points = evaluatePdf("Normal", { mu: 3, sigma: 0.5 });
       const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
       expect(peak.x).toBeCloseTo(3, 0);
     });
@@ -58,10 +52,6 @@ describe("evaluatePdf", () => {
       expect(points[0].x).toBe(0);
     });
 
-    it("accepts half_normal alias", () => {
-      const points = evaluatePdf("half_normal", { sigma: 1 });
-      expect(points[0].x).toBe(0);
-    });
   });
 
   describe("Beta distribution", () => {
@@ -83,12 +73,12 @@ describe("evaluatePdf", () => {
 
   describe("Gamma distribution", () => {
     it("has non-negative x values", () => {
-      const points = evaluatePdf("Gamma", { alpha: 2, beta: 1 });
+      const points = evaluatePdf("Gamma", { concentration: 2, rate: 1 });
       expect(points[0].x).toBeGreaterThanOrEqual(0);
     });
 
     it("has non-negative y values", () => {
-      const points = evaluatePdf("Gamma", { alpha: 3, beta: 2 });
+      const points = evaluatePdf("Gamma", { concentration: 3, rate: 2 });
       for (const p of points) {
         expect(p.y).toBeGreaterThanOrEqual(0);
       }
@@ -101,11 +91,6 @@ describe("evaluatePdf", () => {
       expect(points[0].x).toBeGreaterThanOrEqual(0);
     });
 
-    it("accepts log_normal alias", () => {
-      const points = evaluatePdf("log_normal", { loc: 0, scale: 0.5 });
-      expect(points[0].x).toBeGreaterThanOrEqual(0);
-      expect(points.some((p) => p.y > 0)).toBe(true);
-    });
   });
 
   describe("Exponential distribution", () => {
@@ -127,7 +112,7 @@ describe("evaluatePdf", () => {
 
   describe("Uniform distribution", () => {
     it("is flat between low and high", () => {
-      const points = evaluatePdf("Uniform", { low: 2, high: 5 }, 300);
+      const points = evaluatePdf("Uniform", { lower: 2, upper: 5 }, 300);
       const interiorPoints = points.filter((p) => p.x > 2.1 && p.x < 4.9);
       const expectedY = 1 / (5 - 2);
       for (const p of interiorPoints) {
@@ -136,7 +121,7 @@ describe("evaluatePdf", () => {
     });
 
     it("is zero outside bounds", () => {
-      const points = evaluatePdf("Uniform", { low: 2, high: 5 }, 300);
+      const points = evaluatePdf("Uniform", { lower: 2, upper: 5 }, 300);
       const outsidePoints = points.filter((p) => p.x < 2 || p.x > 5);
       for (const p of outsidePoints) {
         expect(p.y).toBe(0);
@@ -144,18 +129,10 @@ describe("evaluatePdf", () => {
     });
 
     it("handles degenerate case where low equals high without Infinity", () => {
-      const points = evaluatePdf("Uniform", { low: 3, high: 3 });
+      const points = evaluatePdf("Uniform", { lower: 3, upper: 3 });
       for (const p of points) {
         expect(Number.isFinite(p.y)).toBe(true);
         expect(p.y).toBe(0);
-      }
-    });
-
-    it("accepts lower/upper aliases", () => {
-      const points = evaluatePdf("Uniform", { lower: 1, upper: 3 }, 60);
-      const interiorPoints = points.filter((p) => p.x > 1.1 && p.x < 2.9);
-      for (const p of interiorPoints) {
-        expect(p.y).toBeCloseTo(0.5, 3);
       }
     });
   });
@@ -167,6 +144,13 @@ describe("evaluatePdf", () => {
 
   it("handles unknown distribution gracefully", () => {
     const points = evaluatePdf("StudentT", { mu: 0, sigma: 1 });
+    for (const p of points) {
+      expect(p.y).toBe(0);
+    }
+  });
+
+  it("rejects non-canonical distribution spellings by treating them as unknown", () => {
+    const points = evaluatePdf("gaussian", { mu: 0, sigma: 1 });
     for (const p of points) {
       expect(p.y).toBe(0);
     }

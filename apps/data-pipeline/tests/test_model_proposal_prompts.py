@@ -1,6 +1,7 @@
 """Tests for Stage 4 model proposal prompt formatting."""
 
 from causal_ssm_agent.orchestrator.prompts.model_proposal import (
+    AGENTIC_SYSTEM,
     format_construct_scale_cards,
     format_distribution_cards,
     format_loading_params,
@@ -248,3 +249,14 @@ class TestFormatPriorCards:
         assert "beta_stress_sleep" in result
         assert "| beta_stress_sleep | stress | sleep | lagged | none |" in result
         assert "| rho_sleep | sleep | unit_interval |" in result
+
+
+class TestAgenticSystemPrompt:
+    def test_embeds_catalog_derived_likelihood_guidance(self):
+        assert "- `gaussian`: Continuous unbounded data, approximately symmetric." in AGENTIC_SYSTEM
+        assert "- `ordered_logistic`: Ordered categorical outcomes with ranked levels." in (
+            AGENTIC_SYSTEM
+        )
+        assert "- `categorical`: Unordered multi-class outcomes." in AGENTIC_SYSTEM
+        assert "- **gamma**: `log` (default) or `inverse`" in AGENTIC_SYSTEM
+        assert "- **bernoulli**: `logit` (default) or `probit`" in AGENTIC_SYSTEM

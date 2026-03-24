@@ -4,7 +4,7 @@ Provides:
 - SiteDescriptor: metadata for each sample site, derived deterministically from SSMSpec
 - build_site_registry: enumerate all sample sites without model tracing
 - build_prior_runtime_state: create fixed-structure JAX pytree from SSMPriors
-- log_prior_unconstrained: pure-JAX prior log-density with switch pattern
+- log_prior_unconstrained: pure-JAX prior log-density with vectorized family dispatch
 - sample_prior_unconstrained: pure-JAX prior sampling
 
 The site registry is the single authority for "what sample sites exist."
@@ -26,7 +26,11 @@ import jax.random as random
 import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.distributions import get_positive_runtime_kind_from_index
+from causal_ssm_agent.distributions import (
+    PriorRuntimeKind,
+    get_positive_runtime_kind_from_index,
+    get_real_runtime_kind_from_index,
+)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.assembler import SSMAssembler
@@ -720,37 +724,63 @@ def assemble_extra_params_from_registry(
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
 
 
+def _normal_log_prob_terms(x, loc, scale):
+    """Element-wise Normal(loc, scale) log-density."""
+    return -0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((x - loc) / scale) ** 2
+
+
 def _normal_log_prob(x, loc, scale):
-    """Sum of element-wise Normal(loc, scale) log-density."""
-    return jnp.sum(-0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((x - loc) / scale) ** 2)
+    """Total Normal(loc, scale) log-density."""
+    return jnp.sum(_normal_log_prob_terms(x, loc, scale))
 
 
-def _truncated_normal_log_prob(x, loc, scale, low, high):
-    """Sum of element-wise TruncatedNormal(loc, scale, low, high) log-density."""
-    return jnp.sum(dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high).log_prob(x))
+def _truncated_normal_log_prob_terms(x, loc, scale, low, high):
+    """Element-wise TruncatedNormal(loc, scale, low, high) log-density."""
+    return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high).log_prob(x)
+
+
+def _uniform_log_prob_terms(x, low, high):
+    """Element-wise Uniform(low, high) log-density."""
+    width = high - low
+    in_support = (x >= low) & (x <= high) & (width > 0)
+    log_density = -jnp.log(jnp.maximum(width, 1e-30))
+    return jnp.where(in_support, log_density, -jnp.inf)
+
+
+def _half_normal_log_prob_terms(x, scale):
+    """Element-wise HalfNormal(scale) log-density for x > 0."""
+    return jnp.log(2.0) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * (x / scale) ** 2
 
 
 def _half_normal_log_prob(x, scale):
-    """Sum of element-wise HalfNormal(scale) log-density for x > 0."""
-    return jnp.sum(jnp.log(2.0) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * (x / scale) ** 2)
+    """Total HalfNormal(scale) log-density."""
+    return jnp.sum(_half_normal_log_prob_terms(x, scale))
 
 
-def _log_normal_log_prob(x, loc, scale):
-    """Sum of element-wise LogNormal(loc, scale) log-density."""
+def _log_normal_log_prob_terms(x, loc, scale):
+    """Element-wise LogNormal(loc, scale) log-density."""
     log_x = jnp.log(x)
-    return jnp.sum(
-        -jnp.log(x) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((log_x - loc) / scale) ** 2
-    )
+    return -jnp.log(x) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((log_x - loc) / scale) ** 2
 
 
-def _gamma_log_prob(x, concentration, rate):
-    """Sum of element-wise Gamma(concentration, rate) log-density."""
-    return jnp.sum(
+def _gamma_log_prob_terms(x, concentration, rate):
+    """Element-wise Gamma(concentration, rate) log-density."""
+    return (
         concentration * jnp.log(rate)
         - jax.lax.lgamma(concentration)
         + (concentration - 1.0) * jnp.log(x)
         - rate * x
     )
+
+
+def _gamma_log_prob(x, concentration, rate):
+    """Total Gamma(concentration, rate) log-density."""
+    return jnp.sum(_gamma_log_prob_terms(x, concentration, rate))
+
+
+def _exponential_log_prob_terms(x, rate):
+    """Element-wise Exponential(rate) log-density."""
+    return jnp.log(rate) - rate * x
 
 
 def _real_log_prob(x, family_idx, loc, scale, low, high):
@@ -759,12 +789,17 @@ def _real_log_prob(x, family_idx, loc, scale, low, high):
     Families:
         0 — Normal(loc, scale)
         1 — TruncatedNormal(loc, scale, low, high)
+        2 — Uniform(low, high)
     """
-    branches = [
-        lambda loc, scale, _low, _high: _normal_log_prob(x, loc, scale),
-        lambda loc, scale, low, high: _truncated_normal_log_prob(x, loc, scale, low, high),
-    ]
-    return jax.lax.switch(family_idx, branches, loc, scale, low, high)
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
+    normal_terms = _normal_log_prob_terms(x, loc, scale)
+    truncated_terms = _truncated_normal_log_prob_terms(x, loc, scale, low, high)
+    uniform_terms = _uniform_log_prob_terms(x, low, high)
+    return jnp.sum(
+        jnp.where(families == 0, normal_terms, 0.0)
+        + jnp.where(families == 1, truncated_terms, 0.0)
+        + jnp.where(families == 2, uniform_terms, 0.0)
+    )
 
 
 def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
@@ -774,13 +809,19 @@ def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
         0 — HalfNormal(scale)
         1 — Gamma(concentration, rate)
         2 — LogNormal(loc, scale)
+        3 — Exponential(rate)
     """
-    branches = [
-        lambda _loc, s, _c, _r: _half_normal_log_prob(x, s),
-        lambda _loc, _s, c, r: _gamma_log_prob(x, c, r),
-        lambda loc, s, _c, _r: _log_normal_log_prob(x, loc, s),
-    ]
-    return jax.lax.switch(family_idx, branches, loc, scale, concentration, rate)
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
+    half_normal_terms = _half_normal_log_prob_terms(x, scale)
+    gamma_terms = _gamma_log_prob_terms(x, concentration, rate)
+    log_normal_terms = _log_normal_log_prob_terms(x, loc, scale)
+    exponential_terms = _exponential_log_prob_terms(x, rate)
+    return jnp.sum(
+        jnp.where(families == 0, half_normal_terms, 0.0)
+        + jnp.where(families == 1, gamma_terms, 0.0)
+        + jnp.where(families == 2, log_normal_terms, 0.0)
+        + jnp.where(families == 3, exponential_terms, 0.0)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -877,38 +918,66 @@ def sample_prior_unconstrained(
         for site in registry:
             rng_key, sk = random.split(rng_key)
             params = prior_state[site.name]
-            family_values = jnp.asarray(params["family"]).reshape(-1)
-            family = int(family_values[0]) if family_values.size else 0
-            if not jnp.all(family_values == family):
-                raise ValueError(
-                    f"Mixed prior families within a single site are unsupported: {site.name}"
-                )
 
             if site.support == SupportClass.REAL:
                 shape = site.shape if site.shape else ()
-                if family == 0:
-                    x = params["loc"] + params["scale"] * random.normal(sk, shape=shape)
-                elif family == 1:
-                    x = dist.TruncatedNormal(
-                        loc=params["loc"],
-                        scale=params["scale"],
-                        low=params.get("low", jnp.full_like(params["loc"], -1e6)),
-                        high=params.get("high", jnp.full_like(params["loc"], 1e6)),
-                    ).sample(sk)
-                else:
-                    raise ValueError(f"Unknown REAL family index {family}")
+                family = jnp.broadcast_to(
+                    jnp.asarray(params["family"], dtype=jnp.int32),
+                    shape if shape else (),
+                )
+                if not jnp.all((family == 0) | (family == 1) | (family == 2)):
+                    raise ValueError(f"Unknown REAL family index in site {site.name}")
+
+                sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
+                normal_sample = params["loc"] + params["scale"] * random.normal(
+                    sk_normal, shape=shape
+                )
+                truncated_sample = dist.TruncatedNormal(
+                    loc=params["loc"],
+                    scale=params["scale"],
+                    low=params.get("low", jnp.full_like(params["loc"], -1e6)),
+                    high=params.get("high", jnp.full_like(params["loc"], 1e6)),
+                ).sample(sk_trunc)
+                uniform_sample = random.uniform(
+                    sk_uniform,
+                    shape=shape,
+                    minval=params.get("low", jnp.full_like(params["loc"], 0.0)),
+                    maxval=params.get("high", jnp.full_like(params["loc"], 1.0)),
+                )
+                x = jnp.where(
+                    family == 0,
+                    normal_sample,
+                    jnp.where(family == 1, truncated_sample, uniform_sample),
+                )
                 parts.append(x.reshape(-1))
 
             elif site.support == SupportClass.POSITIVE:
                 shape = site.shape if site.shape else ()
-                if family == 0:  # HalfNormal
-                    x = jnp.abs(params["scale"] * random.normal(sk, shape=shape))
-                elif family == 1:  # Gamma
-                    x = random.gamma(sk, params["concentration"], shape=shape) / params["rate"]
-                elif family == 2:  # LogNormal
-                    x = jnp.exp(params["loc"] + params["scale"] * random.normal(sk, shape=shape))
-                else:
-                    raise ValueError(f"Unknown POSITIVE family index {family}")
+                family = jnp.broadcast_to(
+                    jnp.asarray(params["family"], dtype=jnp.int32),
+                    shape if shape else (),
+                )
+                if not jnp.all((family == 0) | (family == 1) | (family == 2) | (family == 3)):
+                    raise ValueError(f"Unknown POSITIVE family index in site {site.name}")
+
+                sk_half, sk_gamma, sk_log_normal, sk_exp = random.split(sk, 4)
+                half_normal_sample = jnp.abs(params["scale"] * random.normal(sk_half, shape=shape))
+                gamma_sample = random.gamma(sk_gamma, params["concentration"], shape=shape) / params[
+                    "rate"
+                ]
+                log_normal_sample = jnp.exp(
+                    params["loc"] + params["scale"] * random.normal(sk_log_normal, shape=shape)
+                )
+                exponential_sample = random.exponential(sk_exp, shape=shape) / params["rate"]
+                x = jnp.where(
+                    family == 0,
+                    half_normal_sample,
+                    jnp.where(
+                        family == 1,
+                        gamma_sample,
+                        jnp.where(family == 2, log_normal_sample, exponential_sample),
+                    ),
+                )
                 # Unconstrained = log(x)
                 parts.append(jnp.log(jnp.maximum(x, 1e-30)).reshape(-1))
 
@@ -943,7 +1012,7 @@ _LIKELIHOOD_EXTRA_DEFAULTS: dict[str, dict] = {
 def _make_positive_params(
     shape: tuple[int, ...],
     *,
-    family: int = 0,
+    family: int | list[int] = 0,
     loc: float = 0.0,
     scale: float = 1.0,
     concentration: float = 1.0,
@@ -963,7 +1032,7 @@ def _make_positive_params(
 def _make_real_params(
     shape: tuple[int, ...],
     *,
-    family: int = 0,
+    family: int | list[int] = 0,
     loc: float = 0.0,
     scale: float = 1.0,
     low: float | list[float] | None = None,
@@ -1044,17 +1113,16 @@ def _params_from_prior_dict(
         has_bounds = "lower" in prior_dict and "upper" in prior_dict
         return _make_real_params(
             site.shape,
-            family=1 if has_bounds else 0,
+            family=prior_dict.get("family", 1 if has_bounds else 0),
             loc=prior_dict.get("mu", 0.0),
             scale=prior_dict.get("sigma", 1.0),
             low=prior_dict.get("lower"),
             high=prior_dict.get("upper"),
         )
     elif site.support == SupportClass.POSITIVE:
-        family = int(prior_dict.get("family", 0))
         return _make_positive_params(
             site.shape,
-            family=family,
+            family=prior_dict.get("family", 0),
             loc=prior_dict.get("loc", 0.0),
             scale=prior_dict.get("sigma", 1.0),
             concentration=prior_dict.get("concentration", 1.0),
@@ -1195,7 +1263,7 @@ def compile_prior_semantics(
     """
     bundle = build_prior_runtime_bundle(spec, priors)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "site_registry": serialize_site_registry(bundle.registry),
         "prior_state": serialize_prior_runtime_state(bundle.prior_state),
     }
@@ -1219,9 +1287,9 @@ def load_prior_runtime_bundle(
 ) -> PriorRuntimeBundle:
     """Restore reusable runtime components from ``compiled_prior_semantics``."""
     schema_version = compiled_prior_semantics.get("schema_version")
-    if schema_version != 3:
+    if schema_version != 4:
         raise ValueError(
-            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 3."
+            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 4."
         )
 
     registry = deserialize_site_registry(compiled_prior_semantics["site_registry"])
@@ -1283,6 +1351,9 @@ def reconstruct_ssm_priors(
         params = prior_state[site.name]
 
         if site.support == SupportClass.REAL:
+            family_values = np.asarray(params["family"], dtype=int).ravel()
+            family = int(family_values[0]) if family_values.size else 0
+            runtime_kind = get_real_runtime_kind_from_index(family)
             prior_kwargs = {
                 "mu": _to_prior_value(params["loc"]),
                 "sigma": _to_prior_value(params["scale"]),
@@ -1290,25 +1361,32 @@ def reconstruct_ssm_priors(
             if "low" in params and "high" in params:
                 prior_kwargs["lower"] = _to_prior_value(params["low"])
                 prior_kwargs["upper"] = _to_prior_value(params["high"])
+            if runtime_kind != PriorRuntimeKind.NORMAL:
+                prior_kwargs["family"] = family
             kwargs[priors_field] = prior_kwargs
 
         elif site.support == SupportClass.POSITIVE:
             family_values = np.asarray(params["family"], dtype=int).ravel()
             family = int(family_values[0]) if family_values.size else 0
             runtime_kind = get_positive_runtime_kind_from_index(family)
-            if runtime_kind.value == "half_normal":
+            if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
                 kwargs[priors_field] = {"sigma": _to_prior_value(params["scale"])}
-            elif runtime_kind.value == "gamma":
+            elif runtime_kind == PriorRuntimeKind.GAMMA:
                 kwargs[priors_field] = {
                     "family": family,
                     "concentration": _to_prior_value(params["concentration"]),
                     "rate": _to_prior_value(params["rate"]),
                 }
-            elif runtime_kind.value == "log_normal":
+            elif runtime_kind == PriorRuntimeKind.LOG_NORMAL:
                 kwargs[priors_field] = {
                     "family": family,
                     "loc": _to_prior_value(params["loc"]),
                     "sigma": _to_prior_value(params["scale"]),
+                }
+            elif runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+                kwargs[priors_field] = {
+                    "family": family,
+                    "rate": _to_prior_value(params["rate"]),
                 }
             else:
                 raise ValueError(f"Unknown POSITIVE family index {family}")

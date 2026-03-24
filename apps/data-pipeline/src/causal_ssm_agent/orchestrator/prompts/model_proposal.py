@@ -10,11 +10,17 @@ in causal_ssm_agent.distributions.PriorDistributionFamily
 
 from causal_ssm_agent.distributions import (
     format_prior_distribution_choice_list,
+    render_observation_distribution_guidance_bullets,
+    render_observation_link_guidance_bullets,
     render_prior_distribution_guidance_bullets,
+    render_prior_parameter_guidance_markdown_table,
 )
 
+OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS = render_observation_distribution_guidance_bullets()
+OBSERVATION_LINK_GUIDANCE_BULLETS = render_observation_link_guidance_bullets()
 PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
 PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
+PRIOR_PARAMETER_GUIDANCE_TABLE = render_prior_parameter_guidance_markdown_table()
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -441,21 +447,13 @@ identification) or `none` (if negative loadings are theoretically plausible).
 
 ### Distribution Guidelines
 
-- `gaussian`: Continuous unbounded data, approximately symmetric
-- `student_t`: Continuous data with heavy tails or outliers
-- `gamma`: Positive continuous data (reaction times, durations)
-- `beta`: Proportions/rates in (0, 1)
-- `poisson`: Count data (low counts, rare events, variance ≈ mean)
-- `negative_binomial`: Overdispersed count data (variance > mean)
-- `bernoulli`: Binary outcomes (logit or probit link)
+__OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS__
 
 ### Link Function Rules
 
 Most distributions have exactly one valid link (auto-determined). You only choose \
 when multiple are valid:
-- **bernoulli**: `logit` (default) or `probit`
-- **gamma**: `log` (default) or `inverse`
-- **beta**: `logit` (default) or `probit`
+__OBSERVATION_LINK_GUIDANCE_BULLETS__
 
 ## Part 2 — Prior Elicitation
 
@@ -465,15 +463,7 @@ For EVERY parameter, propose a prior distribution.
 __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 
 ### Parameter Guidelines by Type
-
-| Type | Typical Distribution | Typical Range | Scale |
-|------|---------------------|---------------|-------|
-| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Discrete-time |
-| rho (AR coefficient) | Beta(2, 2) | [0, 1] | Discrete-time persistence |
-| sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
-| lambda (loading) | HalfNormal(1) | [0, 3] | Data scale |
-| cor (correlation) | TruncatedNormal(0, 0.3, -1, 1) | [-1, 1] | Innovation correlation |
-| tau (random SD) | HalfNormal(0.5) | [0, 2] | Data scale |
+__PRIOR_PARAMETER_GUIDANCE_TABLE__
 
 Both beta and rho priors should be on the **discrete-time scale**. They are \
 automatically converted to continuous-time rates internally.
@@ -601,6 +591,18 @@ AGENTIC_USER = AGENTIC_USER.replace(
     PRIOR_DISTRIBUTION_CHOICE_LIST,
 )
 AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS__",
+    OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__OBSERVATION_LINK_GUIDANCE_BULLETS__",
+    OBSERVATION_LINK_GUIDANCE_BULLETS,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
     "__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__",
     PRIOR_DISTRIBUTION_GUIDANCE_BULLETS,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__PRIOR_PARAMETER_GUIDANCE_TABLE__",
+    PRIOR_PARAMETER_GUIDANCE_TABLE,
 )
