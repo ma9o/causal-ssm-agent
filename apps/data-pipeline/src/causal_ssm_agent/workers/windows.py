@@ -4,8 +4,6 @@ Converts bucketed DataFrames into LLM-ready text and groups support windows
 into chunks for parallel worker calls.
 """
 
-import random
-
 import polars as pl
 
 
@@ -112,13 +110,24 @@ def _truncate_events(
     tail = lines[-n_boundary:]
     middle_pool = lines[n_boundary : -n_boundary or None]
 
-    if n_middle > 0 and middle_pool:
-        sampled = sorted(
-            random.sample(middle_pool, min(n_middle, len(middle_pool))),
-            key=lambda x: middle_pool.index(x),
-        )
-    else:
-        sampled = []
+    sampled = _sample_middle_events(middle_pool, n_middle)
 
     note = f"(showing {max_events} of {n_total} events, sampled)"
     return [note, *head, *sampled, *tail]
+
+
+def _sample_middle_events(middle_pool: list[str], n_middle: int) -> list[str]:
+    """Select a deterministic, evenly spaced sample from the middle of a window."""
+    if n_middle <= 0 or not middle_pool:
+        return []
+    if n_middle >= len(middle_pool):
+        return list(middle_pool)
+
+    segment_size = len(middle_pool) / n_middle
+    sampled: list[str] = []
+    for i in range(n_middle):
+        start = int(i * segment_size)
+        end = int((i + 1) * segment_size)
+        idx = start if end <= start else (start + end - 1) // 2
+        sampled.append(middle_pool[idx])
+    return sampled
