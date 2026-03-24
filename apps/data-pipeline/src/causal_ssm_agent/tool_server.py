@@ -71,8 +71,8 @@ def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
     return storage.read_json(path)
 
 
-def _load_raw_data(workspace_id: str) -> Any:
-    """Load raw_data parquet for prior predictive checks."""
+def _load_data_for_model(workspace_id: str) -> Any:
+    """Load data_for_model parquet for prior predictive checks."""
     import polars as pl
 
     path = storage.join(runs_dir(workspace_id), "stage-4-data.parquet")
@@ -253,7 +253,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     stage5b_runtime = _load_runtime_stage_result(workspace_id, "stage-5b")
     fitted_artifact = load_pickle(stage5b_runtime["_fitted_result_path"])
     data_for_model = load_parquet(stage2_runtime["_data_for_model_path"])
-    runtime = prepare_model_runtime(raw_data=data_for_model, builder=fitted_artifact.builder)
+    runtime = prepare_model_runtime(data_for_model=data_for_model, builder=fitted_artifact.builder)
 
     causal_spec = stage1b.get("causal_spec", {})
     non_identifiable = (causal_spec.get("identifiability") or {}).get(
@@ -323,11 +323,13 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(workspace_id)
-    raw_data = _load_raw_data(workspace_id)
+    data_for_model = _load_data_for_model(workspace_id)
     return _run_compute(
         args,
         "model_json",
-        lambda data: stage4_grounding(data, causal_spec, current=current, raw_data=raw_data),
+        lambda data: stage4_grounding(
+            data, causal_spec, current=current, data_for_model=data_for_model
+        ),
     )
 
 

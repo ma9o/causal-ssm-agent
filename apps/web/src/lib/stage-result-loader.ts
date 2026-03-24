@@ -75,7 +75,7 @@ const STAGE_RESULT_LOADERS: Partial<Record<StageId, StageResultLoader>> = {
     return deriveStage0Data(payload as Stage0PersistedData, parquet);
   },
   "stage-2": async (payload, workspaceId) => {
-    const parquet = await readBinary(`${workspaceId}/run/stage2-raw-data.parquet`);
+    const parquet = await readBinary(`${workspaceId}/run/stage2-model-data.parquet`);
     return deriveStage2Data(payload as Stage2PersistedData, parquet);
   },
 };

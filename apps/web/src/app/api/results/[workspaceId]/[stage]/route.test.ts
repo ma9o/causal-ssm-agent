@@ -131,7 +131,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
       ),
       readFile(
         new URL(
-          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage2-raw-data.parquet",
+          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage2-model-data.parquet",
           import.meta.url,
         ),
       ),

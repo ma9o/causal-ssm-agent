@@ -3,23 +3,21 @@
 This fixture exists to lock down Stage 2 observation semantics for a mixed
 computed/semantic measurement model.
 
-The checked-in expected full Stage 2 tables live in:
+The checked-in expected Stage 2 table lives in:
 
-- [`expected-stage2-raw-data.csv`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/expected-stage2-raw-data.csv)
 - [`expected-stage2-model-data.csv`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/expected-stage2-model-data.csv)
 
-Use those artifacts for exact row/value regression checks; this README explains
+Use that artifact for exact row/value regression checks; this README explains
 the meaning of the contract.
 
 ## Stage 2 Contract
 
-Stage 2 should leave two parquet artifacts in [`run/`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/run):
+Stage 2 should leave one parquet artifact in [`run/`](/Users/ma9o/Desktop/causal-ssm-agent/trees/main/data/MEDICAL_SEMANTICS/run):
 
-- `stage2-raw-data.parquet`: canonical long-format observation rows.
-- `stage2-model-data.parquet`: the same observation rows after numeric encoding
+- `stage2-model-data.parquet`: numerically encoded long-format observation rows
   for inference.
 
-For this fixture, both artifacts should cover the same 320 observations:
+For this fixture, the artifact should cover 320 observations:
 
 - 16 indicators
 - 20 non-empty daily support windows
@@ -58,9 +56,9 @@ All indicators in this fixture use `observation_window=1d`, so:
 That last rule is intentional: every indicator here uses `anchor_policy =
 support_end`.
 
-## Raw Artifact
+## Model Artifact
 
-`stage2-raw-data.parquet` should have these columns:
+`stage2-model-data.parquet` should have these columns:
 
 - `indicator`
 - `value`
@@ -74,25 +72,15 @@ support_end`.
 
 Expected types:
 
-- `value` is a string or null
-- ordinal values should be numeric codes serialized as strings (`0..K-1` in
-  `ordinal_levels` order), not label text
-- time/support fields are populated for every row
-- semantics columns are populated for every row
-
-## Model Artifact
-
-`stage2-model-data.parquet` should preserve the same row coverage and support
-metadata, but with inference-ready types:
-
 - `value` is `Float64` or null
 - `anchor_time`, `support_start`, and `support_end` are datetime columns
+- time/support fields are populated for every row
+- semantics columns are populated for every row
 
 Encoding expectations:
 
 - binary indicators become `0.0` / `1.0`
-- ordinal indicators are already integer-coded in the raw artifact using the
-  declared `ordinal_levels` order
+- ordinal indicators are integer-coded using the declared `ordinal_levels` order
 - categorical indicators are label-encoded when present
 - `patient_baseline` is expected to remain null in this fixture because no
   daily window contains an extractable baseline summary
@@ -139,5 +127,5 @@ The fixture should be treated as broken if any of the following happen:
 - missing `anchor_time`, `support_start`, or `support_end`
 - duplicate `(indicator, support_start)` pairs
 - disagreement between Stage 1b semantics and Stage 2 semantics columns
-- raw/model coverage mismatch
+- coverage mismatch against expected fixture
 - any `observation_window` other than `1d`

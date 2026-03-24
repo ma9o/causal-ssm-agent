@@ -24,8 +24,7 @@ EXPECTED_STAGE2_COLUMNS = [
     "support_start",
     "support_end",
 ]
-RAW_SCHEMA_OVERRIDES = dict.fromkeys(EXPECTED_STAGE2_COLUMNS, pl.String)
-MODEL_SCHEMA_OVERRIDES = {
+EXPECTED_SCHEMA_OVERRIDES = {
     "indicator": pl.String,
     "value": pl.Float64,
     "anchor_time": pl.String,
@@ -47,7 +46,6 @@ class MedicalSemanticsFixture:
     question: str
     stage0: pl.DataFrame
     column_descriptions: dict[str, str]
-    expected_raw: pl.DataFrame
     expected_model: pl.DataFrame
 
 
@@ -87,8 +85,7 @@ class MedicalSemanticsComparison:
     def format_report(self, *, max_issues_per_level: int = 8) -> str:
         lines = [
             "MEDICAL_SEMANTICS comparison summary",
-            f"- raw rows: {self.summary['actual_raw_rows']} actual vs {self.summary['expected_raw_rows']} expected",
-            f"- model rows: {self.summary['actual_model_rows']} actual vs {self.summary['expected_model_rows']} expected",
+            f"- rows: {self.summary['actual_rows']} actual vs {self.summary['expected_rows']} expected",
             f"- stage1b indicators: {self.summary['actual_indicator_count']} actual vs {self.summary['expected_indicator_count']} expected",
             f"- rank key: {self.rank_key()} (lower is better)",
             "",
@@ -116,18 +113,12 @@ def _find_fixture_dir() -> Path:
     return Path.cwd() / "data" / FIXTURE_USER_ID
 
 
-def _load_expected_tables(fixture_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame]:
-    expected_raw = pl.read_csv(
-        fixture_dir / "expected-stage2-raw-data.csv",
-        null_values="",
-        schema_overrides=RAW_SCHEMA_OVERRIDES,
-    )
-    expected_model = pl.read_csv(
+def _load_expected_table(fixture_dir: Path) -> pl.DataFrame:
+    return pl.read_csv(
         fixture_dir / "expected-stage2-model-data.csv",
         null_values="",
-        schema_overrides=MODEL_SCHEMA_OVERRIDES,
+        schema_overrides=EXPECTED_SCHEMA_OVERRIDES,
     )
-    return expected_raw, expected_model
 
 
 def _column_descriptions_from_stage0_payload(stage0_payload: dict[str, Any]) -> dict[str, str]:
@@ -147,14 +138,13 @@ def load_medical_semantics_fixture() -> MedicalSemanticsFixture:
     fixture_dir = _find_fixture_dir()
     run_dir = fixture_dir / "run"
     stage0_payload = json.loads((run_dir / "stage-0.json").read_text())
-    expected_raw, expected_model = _load_expected_tables(fixture_dir)
+    expected_model = _load_expected_table(fixture_dir)
     return MedicalSemanticsFixture(
         fixture_dir=fixture_dir,
         run_dir=run_dir,
         question=(fixture_dir / "query.txt").read_text().strip(),
         stage0=pl.read_parquet(run_dir / "stage0-raw-input.parquet"),
         column_descriptions=_column_descriptions_from_stage0_payload(stage0_payload),
-        expected_raw=expected_raw,
         expected_model=expected_model,
     )
 
@@ -194,12 +184,9 @@ def _diff_rows(actual: pl.DataFrame, expected: pl.DataFrame) -> str | None:
     )
 
 
-def _expected_support_starts(expected_raw: pl.DataFrame) -> list[str]:
+def _expected_support_starts(expected: pl.DataFrame) -> list[str]:
     return (
-        expected_raw.select("support_start")
-        .unique()
-        .sort("support_start")["support_start"]
-        .to_list()
+        expected.select("support_start").unique().sort("support_start")["support_start"].to_list()
     )
 
 
@@ -217,7 +204,7 @@ def _expected_support_ends(expected_support_starts: list[str], window: str) -> l
     )
 
 
-def _expected_semantics(expected_raw: pl.DataFrame) -> dict[str, tuple[str, str, str]]:
+def _expected_semantics(expected: pl.DataFrame) -> dict[str, tuple[str, str, str]]:
     return {
         indicator: (
             subset["support_kind"][0],
@@ -225,8 +212,8 @@ def _expected_semantics(expected_raw: pl.DataFrame) -> dict[str, tuple[str, str,
             subset["anchor_policy"][0],
         )
         for indicator, subset in {
-            indicator: expected_raw.filter(pl.col("indicator") == indicator)
-            for indicator in expected_raw["indicator"].unique().sort()
+            indicator: expected.filter(pl.col("indicator") == indicator)
+            for indicator in expected["indicator"].unique().sort()
         }.items()
     }
 
@@ -235,9 +222,7 @@ def compare_medical_semantics_outputs(
     *,
     causal_spec: dict,
     stage0: pl.DataFrame,
-    raw: pl.DataFrame,
-    model: pl.DataFrame,
-    expected_raw: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     expected_model: pl.DataFrame,
 ) -> MedicalSemanticsComparison:
     """Compare candidate Stage 2 outputs against the tracked fixture."""
@@ -246,13 +231,13 @@ def compare_medical_semantics_outputs(
     stage2_structure_issues: list[str] = []
     stage2_value_issues: list[str] = []
 
-    expected_support_starts = _expected_support_starts(expected_raw)
-    expected_semantics = _expected_semantics(expected_raw)
+    expected_support_starts = _expected_support_starts(expected_model)
+    expected_semantics = _expected_semantics(expected_model)
     expected_support_ends = _expected_support_ends(
         expected_support_starts,
         causal_spec["measurement"]["model_clock"],
     )
-    model_as_strings = _model_as_strings(model)
+    model_as_strings = _model_as_strings(data_for_model)
 
     indicators = get_indicators(causal_spec)
     stage1b_lookup = {ind["name"]: ind for ind in indicators}
@@ -297,33 +282,18 @@ def compare_medical_semantics_outputs(
 
     _add_issue(
         stage2_structure_issues,
-        raw.columns == EXPECTED_STAGE2_COLUMNS,
-        f"raw columns mismatch: {raw.columns}",
+        data_for_model.columns == EXPECTED_STAGE2_COLUMNS,
+        f"columns mismatch: {data_for_model.columns}",
     )
     _add_issue(
         stage2_structure_issues,
-        model.columns == EXPECTED_STAGE2_COLUMNS,
-        f"model columns mismatch: {model.columns}",
+        data_for_model.schema["value"] == pl.Float64,
+        f"value dtype mismatch: {data_for_model.schema['value']}",
     )
     _add_issue(
         stage2_structure_issues,
-        raw.schema["value"] == pl.String,
-        f"raw value dtype mismatch: {raw.schema['value']}",
-    )
-    _add_issue(
-        stage2_structure_issues,
-        model.schema["value"] == pl.Float64,
-        f"model value dtype mismatch: {model.schema['value']}",
-    )
-    _add_issue(
-        stage2_structure_issues,
-        str(raw.schema["anchor_time"]) == "String",
-        f"raw anchor_time dtype mismatch: {raw.schema['anchor_time']}",
-    )
-    _add_issue(
-        stage2_structure_issues,
-        str(model.schema["anchor_time"]).startswith("Datetime("),
-        f"model anchor_time dtype mismatch: {model.schema['anchor_time']}",
+        str(data_for_model.schema["anchor_time"]).startswith("Datetime("),
+        f"anchor_time dtype mismatch: {data_for_model.schema['anchor_time']}",
     )
 
     time_col = detect_time_column(stage0)
@@ -337,86 +307,62 @@ def compare_medical_semantics_outputs(
     )
     _add_issue(
         stage2_structure_issues,
-        raw.height == expected_raw.height,
-        f"raw row count mismatch: actual={raw.height} expected={expected_raw.height}",
+        data_for_model.height == expected_model.height,
+        f"row count mismatch: actual={data_for_model.height} expected={expected_model.height}",
     )
     _add_issue(
         stage2_structure_issues,
-        model.height == expected_model.height,
-        f"model row count mismatch: actual={model.height} expected={expected_model.height}",
-    )
-    _add_issue(
-        stage2_structure_issues,
-        dict(raw.group_by("indicator").len().iter_rows())
+        dict(data_for_model.group_by("indicator").len().iter_rows())
         == {
-            indicator: expected_raw.filter(pl.col("indicator") == indicator).height
+            indicator: expected_model.filter(pl.col("indicator") == indicator).height
             for indicator in expected_semantics
         },
-        "stage-2 per_indicator_counts mismatch against raw parquet",
+        "stage-2 per_indicator_counts mismatch",
     )
 
-    raw_pairs = raw.select("indicator", "support_start").sort("indicator", "support_start")
     model_pairs = model_as_strings.select("indicator", "support_start").sort(
         "indicator", "support_start"
     )
     _add_issue(
         stage2_structure_issues,
-        raw_pairs.equals(model_pairs),
-        "raw/model indicator-support coverage mismatch",
-    )
-    _add_issue(
-        stage2_structure_issues,
-        raw_pairs.height == raw_pairs.unique().height,
-        "duplicate (indicator, support_start) pairs in raw Stage 2 output",
+        model_pairs.height == model_pairs.unique().height,
+        "duplicate (indicator, support_start) pairs in Stage 2 output",
     )
 
-    raw_diff = _diff_rows(raw, expected_raw)
-    if raw_diff:
-        stage2_value_issues.append(f"raw rows differ from expected fixture: {raw_diff}")
     model_diff = _diff_rows(model_as_strings, expected_model)
     if model_diff:
-        stage2_value_issues.append(f"model rows differ from expected fixture: {model_diff}")
+        stage2_value_issues.append(f"rows differ from expected fixture: {model_diff}")
 
     for indicator in expected_semantics:
-        raw_subset = raw.filter(pl.col("indicator") == indicator).sort("support_start")
         model_subset = model_as_strings.filter(pl.col("indicator") == indicator).sort(
             "support_start"
         )
-        expected_raw_subset = expected_raw.filter(pl.col("indicator") == indicator)
         expected_model_subset = expected_model.filter(pl.col("indicator") == indicator)
 
         _add_issue(
             stage2_structure_issues,
-            raw_subset.height == len(expected_support_starts),
-            f"{indicator} raw row count mismatch: actual={raw_subset.height} expected={len(expected_support_starts)}",
-        )
-        _add_issue(
-            stage2_structure_issues,
             model_subset.height == len(expected_support_starts),
-            f"{indicator} model row count mismatch: actual={model_subset.height} expected={len(expected_support_starts)}",
+            f"{indicator} row count mismatch: actual={model_subset.height} expected={len(expected_support_starts)}",
         )
         _add_issue(
             stage2_structure_issues,
-            raw_subset["support_start"].to_list() == expected_support_starts,
+            model_subset["support_start"].to_list() == expected_support_starts,
             f"{indicator} support_start coverage mismatch",
         )
         _add_issue(
             stage2_structure_issues,
-            raw_subset["support_end"].to_list() == expected_support_ends,
+            model_subset["support_end"].to_list() == expected_support_ends,
             f"{indicator} support_end coverage mismatch",
         )
         _add_issue(
             stage2_structure_issues,
-            raw_subset["anchor_time"].to_list() == expected_support_ends,
+            model_subset["anchor_time"].to_list() == expected_support_ends,
             f"{indicator} anchor_time coverage mismatch",
         )
 
-        raw_subset_diff = _diff_rows(raw_subset, expected_raw_subset)
-        if raw_subset_diff:
-            stage2_value_issues.append(f"{indicator} raw subset differs: {raw_subset_diff}")
         model_subset_diff = _diff_rows(model_subset, expected_model_subset)
         if model_subset_diff:
-            stage2_value_issues.append(f"{indicator} model subset differs: {model_subset_diff}")
+            stage2_value_issues.append(f"{indicator} subset differs: {model_subset_diff}")
 
     return MedicalSemanticsComparison(
         levels=(
@@ -432,15 +378,13 @@ def compare_medical_semantics_outputs(
             ),
             ComparisonLevel(
                 name="stage2_values",
-                description="Row-for-row raw/model value agreement after structure is aligned.",
+                description="Row-for-row value agreement after structure is aligned.",
                 issues=tuple(stage2_value_issues),
             ),
         ),
         summary={
-            "actual_raw_rows": raw.height,
-            "expected_raw_rows": expected_raw.height,
-            "actual_model_rows": model.height,
-            "expected_model_rows": expected_model.height,
+            "actual_rows": data_for_model.height,
+            "expected_rows": expected_model.height,
             "actual_indicator_count": len(indicators),
             "expected_indicator_count": len(expected_semantics),
         },

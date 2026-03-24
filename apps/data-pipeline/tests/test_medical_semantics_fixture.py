@@ -25,7 +25,6 @@ def test_medical_semantics_stage2_fixture_contract() -> None:
 
     required_paths = [
         fixture.run_dir / "stage-1b.json",
-        fixture.run_dir / "stage2-raw-data.parquet",
         fixture.run_dir / "stage2-model-data.parquet",
     ]
     missing_paths = [path for path in required_paths if not path.exists()]
@@ -38,15 +37,12 @@ def test_medical_semantics_stage2_fixture_contract() -> None:
         return
 
     causal_spec = json.loads((fixture.run_dir / "stage-1b.json").read_text())["causal_spec"]
-    raw = pl.read_parquet(fixture.run_dir / "stage2-raw-data.parquet")
-    model = pl.read_parquet(fixture.run_dir / "stage2-model-data.parquet")
+    data_for_model = pl.read_parquet(fixture.run_dir / "stage2-model-data.parquet")
 
     comparison = compare_medical_semantics_outputs(
         causal_spec=causal_spec,
         stage0=fixture.stage0,
-        raw=raw,
-        model=model,
-        expected_raw=fixture.expected_raw,
+        data_for_model=data_for_model,
         expected_model=fixture.expected_model,
     )
 

@@ -111,7 +111,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
         calls.append(("stage2", question, stage0, stage1b))
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score"],
                 "value": ["1.0"],
@@ -120,7 +120,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
                 "support_end": ["2024-01-01"],
             }
         )
-        return {"_data_for_model": raw_data, "_raw_data": raw_data}
+        return {"_data_for_model": data_for_model}
 
     def stage3(stage1b: dict, stage2: dict) -> dict:
         calls.append(("stage3", stage1b, stage2))
@@ -405,17 +405,15 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
 
 
 def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
-    raw_path = tmp_path / "stage2-raw-data.parquet"
     model_path = tmp_path / "stage2-model-data.parquet"
-    raw_data = pl.DataFrame(
+    data_for_model = pl.DataFrame(
         {
             "indicator": ["stress_score"],
             "value": ["1.0"],
             "anchor_time": ["2024-01-01"],
         }
     )
-    raw_data.write_parquet(raw_path)
-    raw_data.write_parquet(model_path)
+    data_for_model.write_parquet(model_path)
 
     captured: dict[str, object] = {"awaited": False}
 
@@ -454,7 +452,6 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
                 }
             },
             {
-                "_raw_data_path": str(raw_path),
                 "_data_for_model_path": str(model_path),
             },
         )
@@ -537,7 +534,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         captured["question"] = question
         captured["stage0_df_path"] = stage0["_df_path"]
         captured["stage1b_result"] = stage1b
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score"],
                 "value": ["1.0"],
@@ -547,8 +544,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
             }
         )
         return {
-            "_data_for_model": raw_data,
-            "_raw_data": raw_data,
+            "_data_for_model": data_for_model,
             "_worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
             "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
         }
@@ -584,11 +580,7 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
     run_dir = tmp_path / "data" / workspace_id / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_path = run_dir / "stage2-raw-data.parquet"
     model_path = run_dir / "stage2-model-data.parquet"
-    pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
-    ).write_parquet(raw_path)
     pl.DataFrame(
         {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
     ).write_parquet(model_path)
@@ -602,7 +594,6 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
         "stage-2",
         {
             "result": {
-                "_raw_data_path": "/dead/run/stage2-raw-data.parquet",
                 "_data_for_model_path": "/dead/run/stage2-model-data.parquet",
                 "workers": [{"worker_id": 999, "status": "stale", "n_extractions": 0}],
                 "preserved_field": "kept-from-snapshot",
@@ -614,7 +605,6 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
 
     state = stage_registry.load_stage_state(workspace_id, "stage-2")
 
-    assert state["result"]["_raw_data_path"] == str(raw_path)
     assert state["result"]["_data_for_model_path"] == str(model_path)
     assert state["result"]["workers"] == web_payload["workers"]
     assert state["result"]["_worker_statuses"] == web_payload["workers"]
@@ -914,7 +904,7 @@ class _SyncSubflowStub:
 def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
     stub = _AsyncSubflowStub(
         {
-            "raw_data": [
+            "observation_rows": [
                 {
                     "indicator": "stress_score",
                     "value": "1.0",
@@ -961,13 +951,13 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
     assert stub.with_options_calls[0]["task_runner"]._max_workers == 6
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
-    assert result["_raw_data"].height == 1
-    assert result["_raw_data"]["support_kind"][0] == "interval"
-    assert result["_raw_data"]["summary_operator"][0] == "mean"
-    assert result["_raw_data"]["anchor_policy"][0] == "support_end"
-    assert result["_raw_data"]["anchor_time"][0] == "2024-01-02T00:00:00"
-    assert result["_raw_data"]["support_start"][0] == "2024-01-01T00:00:00"
-    assert result["_raw_data"]["support_end"][0] == "2024-01-02T00:00:00"
+    assert result["_data_for_model"].height == 1
+    assert result["_data_for_model"]["support_kind"][0] == "interval"
+    assert result["_data_for_model"]["summary_operator"][0] == "mean"
+    assert result["_data_for_model"]["anchor_policy"][0] == "support_end"
+    assert str(result["_data_for_model"]["anchor_time"][0]) == "2024-01-02 00:00:00"
+    assert str(result["_data_for_model"]["support_start"][0]) == "2024-01-01 00:00:00"
+    assert str(result["_data_for_model"]["support_end"][0]) == "2024-01-02 00:00:00"
     assert result["workers"] == [{"worker_id": 0, "status": "completed", "n_extractions": 1}]
 
 
@@ -977,7 +967,7 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
 
     stub = _AsyncSubflowStub(
         {
-            "raw_data": [
+            "observation_rows": [
                 {
                     "indicator": "daytime_screen_events",
                     "value": "5",
@@ -1047,7 +1037,7 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
 def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
     stub = _AsyncSubflowStub(
         {
-            "raw_data": [
+            "observation_rows": [
                 {
                     "indicator": "stress_score",
                     "value": "4.0",

@@ -94,7 +94,7 @@ class TestValidateJsonAndFormat:
         result = _validate_json_and_format("not json", validate)
         assert "JSON parse error" in result
 
-    def test_capture_stores_raw_data(self):
+    def test_capture_stores_observation_rows(self):
         def validate(data):
             return "validated_result", []
 

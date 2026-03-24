@@ -582,7 +582,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     """
     stage4 = _load_doctolib_fixture("stage-4.json")
     stage1b = _load_doctolib_fixture("stage-1b.json")["causal_spec"]
-    raw_data = pl.read_parquet(DOCTOLIB_FIXTURE_DIR / "stage2-raw-data.parquet")
+    data_for_model = pl.read_parquet(DOCTOLIB_FIXTURE_DIR / "stage2-raw-data.parquet")
 
     name_map = {
         "beta_lipid_cv": "beta_lipid_burden_cardiovascular_risk",
@@ -617,7 +617,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     }
     if beta_variables:
         eps = 1e-3
-        raw_data = raw_data.with_columns(
+        data_for_model = data_for_model.with_columns(
             pl.when(pl.col("indicator").is_in(sorted(beta_variables)))
             .then(
                 pl.col("value")
@@ -726,7 +726,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
         },
         "measurement": measurement,
     }
-    return causal_spec, model_spec, priors, raw_data
+    return causal_spec, model_spec, priors, data_for_model
 
 
 class TestLaplaceEMDoctolib:
@@ -746,9 +746,9 @@ class TestLaplaceEMDoctolib:
 
         t0 = time.perf_counter()
 
-        causal_spec, model_spec, priors, raw_data = _build_executable_doctolib_fixture_v2()
+        causal_spec, model_spec, priors, data_for_model = _build_executable_doctolib_fixture_v2()
 
-        assert raw_data.schema["anchor_time"] == pl.String
+        assert data_for_model.schema["anchor_time"] == pl.String
 
         compiled = compile_ssm_artifact(
             model_spec,
@@ -756,7 +756,7 @@ class TestLaplaceEMDoctolib:
             causal_spec=causal_spec,
         )
         builder = build_ssm_builder(
-            wide_data=pivot_to_wide(raw_data),
+            wide_data=pivot_to_wide(data_for_model),
             compiled_ssm=compiled,
             sampler_config={
                 "method": "laplace_em",
@@ -776,7 +776,7 @@ class TestLaplaceEMDoctolib:
         assert DistributionFamily.BETA in builder._spec.manifest_dists
         assert select_default_method(builder._spec) == "laplace_em"
 
-        wide = pivot_to_wide(raw_data)
+        wide = pivot_to_wide(data_for_model)
         assert wide.schema["time"] == pl.Float64
 
         result = builder.fit(wide)

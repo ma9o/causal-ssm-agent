@@ -325,9 +325,9 @@ class TestPriorPredictiveValidation:
 
     def test_valid_priors_pass(self, simple_model_spec, simple_priors):
         """Simple spec + priors + polars data -> is_valid=True."""
-        raw_data = _make_polars_data()
+        data_for_model = _make_polars_data()
         is_valid, results, _samples = validate_prior_predictive(
-            simple_model_spec, simple_priors, raw_data, n_samples=10
+            simple_model_spec, simple_priors, data_for_model, n_samples=10
         )
         assert is_valid is True
         assert len(results) > 0
@@ -366,7 +366,7 @@ class TestPriorPredictiveValidation:
             assert any("deliberate test failure" in (r.issue or "") for r in results)
 
     def test_no_data_still_validates(self, simple_model_spec, simple_priors):
-        """raw_data=None -> NaN/constraint/extreme checks run, scale skipped."""
+        """data_for_model=None -> NaN/constraint/extreme checks run, scale check skipped."""
         is_valid, results, _samples = validate_prior_predictive(
             simple_model_spec, simple_priors, None, n_samples=10
         )
@@ -422,8 +422,8 @@ class TestPriorPredictiveValidation:
             validate_assembly,
         )
 
-        raw_data = _make_polars_data()
-        validation = validate_assembly(simple_model_spec, simple_priors, raw_data, None, None)
+        data_for_model = _make_polars_data()
+        validation = validate_assembly(simple_model_spec, simple_priors, data_for_model, None, None)
         result = build_validation_payload(validation, simple_model_spec)
         assert isinstance(result, dict)
         assert "is_valid" in result
@@ -1173,7 +1173,9 @@ class TestStage4CompileOwnership:
         )
         from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
 
-        def stub_validate_assembly(model_spec, priors, raw_data, indicator_audits, causal_spec):
+        def stub_validate_assembly(
+            model_spec, priors, data_for_model, indicator_audits, causal_spec
+        ):
             return AssemblyValidation(
                 normalized_model_spec=model_spec,
                 compile_ok=False,
@@ -1200,7 +1202,7 @@ class TestStage4CompileOwnership:
             data,
             causal_spec={},
             current={"model_spec": {"likelihoods": [], "parameters": []}},
-            raw_data=None,
+            data_for_model=None,
         )
 
         assert output is not None
@@ -1244,7 +1246,9 @@ class TestStage4CompileOwnership:
             },
         }
 
-        output, feedback = stage4_grounding(data, causal_spec={}, current=current, raw_data=None)
+        output, feedback = stage4_grounding(
+            data, causal_spec={}, current=current, data_for_model=None
+        )
 
         assert output is not None
         assert sorted(output["authored_priors"]) == ["rho_mood"]
@@ -1270,7 +1274,7 @@ class TestStage4CompileOwnership:
             {"model_spec": simple_model_spec},
             causal_spec={},
             current=None,
-            raw_data=None,
+            data_for_model=None,
         )
 
         assert output is not None
@@ -1298,7 +1302,7 @@ class TestStage4CompileOwnership:
             },
             causal_spec={},
             current=None,
-            raw_data=None,
+            data_for_model=None,
         )
 
         assert output is None
@@ -1333,7 +1337,7 @@ class TestStage4CompileOwnership:
             {"priors": priors},
             causal_spec={},
             current=current,
-            raw_data=None,
+            data_for_model=None,
         )
 
         assert output is None
@@ -1366,7 +1370,7 @@ class TestStage4CompileOwnership:
             {"priors": dict(current["authored_priors"])},
             causal_spec={},
             current=current,
-            raw_data=None,
+            data_for_model=None,
         )
 
         assert output is None
@@ -1490,7 +1494,7 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         run_stage4(
             causal_spec={},
             question="How can I be more productive?",
-            raw_data=pl.DataFrame(),
+            data_for_model=pl.DataFrame(),
             indicator_audits={},
             generate=fake_generate,
             enable_literature=False,
@@ -1505,8 +1509,8 @@ def test_agentic_stage4_grounding_merges_distribution_choice_delta(monkeypatch):
 
     forwarded: dict[str, dict] = {}
 
-    def fake_stage4_grounding(data, causal_spec, current, raw_data, indicator_audits):
-        del causal_spec, current, raw_data, indicator_audits
+    def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+        del causal_spec, current, data_for_model, indicator_audits
         forwarded.update(data)
         return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
 
@@ -1559,7 +1563,7 @@ def test_agentic_stage4_grounding_merges_distribution_choice_delta(monkeypatch):
                 ],
             }
         },
-        raw_data=None,
+        data_for_model=None,
         indicator_audits=None,
         resolved_likelihoods=[
             {
@@ -1616,7 +1620,7 @@ def test_agentic_stage4_grounding_rejects_mixed_updates():
         },
         causal_spec={},
         current={},
-        raw_data=None,
+        data_for_model=None,
         indicator_audits=None,
         resolved_likelihoods=[],
         ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
@@ -1655,7 +1659,7 @@ def test_agentic_stage4_grounding_rejects_redundant_decision_update():
                 "parameters": [],
             }
         },
-        raw_data=None,
+        data_for_model=None,
         indicator_audits=None,
         resolved_likelihoods=[],
         ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
@@ -1671,8 +1675,8 @@ def test_agentic_stage4_grounding_accepts_loading_constraint_delta(monkeypatch):
 
     forwarded: dict[str, dict] = {}
 
-    def fake_stage4_grounding(data, causal_spec, current, raw_data, indicator_audits):
-        del causal_spec, current, raw_data, indicator_audits
+    def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+        del causal_spec, current, data_for_model, indicator_audits
         forwarded.update(data)
         return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
 
@@ -1712,7 +1716,7 @@ def test_agentic_stage4_grounding_accepts_loading_constraint_delta(monkeypatch):
                 ],
             }
         },
-        raw_data=None,
+        data_for_model=None,
         indicator_audits=None,
         resolved_likelihoods=[],
         ambiguous_indicators=[{"variable": "ide_focus_gaps"}],

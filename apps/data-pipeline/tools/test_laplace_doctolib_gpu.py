@@ -47,7 +47,7 @@ def run_laplace_doctolib():
 
     stage4 = load("stage-4.json")
     stage1b = load("stage-1b.json")["causal_spec"]
-    raw_data = pl.read_parquet(fixture_dir / "stage2-raw-data.parquet")
+    data_for_model = pl.read_parquet(fixture_dir / "stage2-raw-data.parquet")
 
     name_map = {
         "beta_lipid_cv": "beta_lipid_burden_cardiovascular_risk",
@@ -185,7 +185,7 @@ def run_laplace_doctolib():
 
     compiled = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
     builder = build_ssm_builder(
-        raw_data=raw_data,
+        data_for_model=data_for_model,
         compiled_ssm=compiled,
         sampler_config={
             "method": "laplace_em",
@@ -200,7 +200,7 @@ def run_laplace_doctolib():
         },
     )
 
-    wide = pivot_to_wide(raw_data)
+    wide = pivot_to_wide(data_for_model)
     print(f"Data shape: {wide.shape}, manifest_dist: {builder._spec.manifest_dist}")
     print(f"manifest_dists: {builder._spec.manifest_dists}")
 

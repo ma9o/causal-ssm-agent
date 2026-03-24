@@ -482,17 +482,16 @@ def prepare_wide_model_runtime(
 
 
 def prepare_model_runtime(
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     compiled_ssm: dict | None = None,
     sampler_config: dict | None = None,
     builder: Any = None,
 ) -> PreparedModelRuntime:
-    """Canonical entry point for preparing raw stage data for model work."""
-    observation_data = raw_data
+    """Canonical entry point for preparing stage data for model work."""
     return prepare_wide_model_runtime(
-        pivot_to_wide(observation_data),
+        pivot_to_wide(data_for_model),
         compiled_ssm=compiled_ssm,
         sampler_config=sampler_config,
         builder=builder,
-        observation_data=observation_data,
+        observation_data=data_for_model,
     )

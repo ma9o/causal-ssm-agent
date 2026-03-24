@@ -94,15 +94,15 @@ class TestNormalizePriorParams:
         r2 = normalize_prior_params("NORMAL", {"mu": 1.0, "sigma": 2.0})
         assert r1 == r2
 
-    def test_unknown_distribution_fallback(self):
-        """Unknown distribution should fall back to mu/sigma extraction."""
-        result = normalize_prior_params("Cauchy", {"mu": 1.0, "sigma": 2.0})
-        assert result == {"mu": 1.0, "sigma": 2.0}
+    def test_gamma(self):
+        """Gamma should preserve positive-support family metadata."""
+        result = normalize_prior_params("Gamma", {"concentration": 3.0, "rate": 2.0})
+        assert result == {"family": 1, "concentration": 3.0, "rate": 2.0}
 
-    def test_unknown_distribution_defaults(self):
-        """Unknown distribution with no params should use defaults."""
-        result = normalize_prior_params("SomeDistribution", {})
-        assert result == {"mu": 0.0, "sigma": 1.0}
+    def test_unknown_distribution_raises(self):
+        """Unknown prior distributions should fail early."""
+        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
+            normalize_prior_params("Cauchy", {"mu": 1.0, "sigma": 2.0})
 
 
 # =============================================================================
@@ -268,7 +268,7 @@ class TestPrepareFitInputs:
 
 class TestPrepareModelRuntime:
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score"],
                 "value": [1.0],
@@ -309,10 +309,10 @@ class TestPrepareModelRuntime:
                 )
 
         with caplog.at_level("INFO"):
-            runtime = prepare_model_runtime(raw_data, builder=StubBuilder())
+            runtime = prepare_model_runtime(data_for_model, builder=StubBuilder())
 
         assert runtime.observation_data is not None
-        assert runtime.observation_data.columns == raw_data.columns
+        assert runtime.observation_data.columns == data_for_model.columns
         assert runtime.observation_data["observation_window"][0] == "1mo"
         assert runtime.observation_data["support_end"][0] == "2024-02-01T00:00:00"
         assert runtime.observation_data["anchor_time"][0] == "2024-02-01T00:00:00"
@@ -346,7 +346,7 @@ class TestPrepareModelRuntime:
         assert "support-aware observation semantics" in caplog.text
 
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score", "stress_score"],
                 "value": [3.0, 5.0],
@@ -386,7 +386,7 @@ class TestPrepareModelRuntime:
                     ["stress_score"],
                 )
 
-        runtime = prepare_model_runtime(raw_data, builder=StubBuilder())
+        runtime = prepare_model_runtime(data_for_model, builder=StubBuilder())
 
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
         assert runtime.observation_support is not None
@@ -403,7 +403,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
 
     def test_builder_prior_predictive_reuses_prepared_support_schedule(self):
-        raw_data = pl.DataFrame(
+        data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score"],
                 "value": [1.0],
@@ -426,7 +426,7 @@ class TestPrepareModelRuntime:
             ),
             ssm_priors=SSMPriors(),
         )
-        runtime = prepare_model_runtime(raw_data, builder=builder)
+        runtime = prepare_model_runtime(data_for_model, builder=builder)
 
         samples = runtime.builder.sample_prior_predictive(samples=3)
 

@@ -7,7 +7,7 @@ import { requireWorkspaceAccess } from "@/lib/workspace-access";
  */
 const PARQUET_MAP: Record<string, string[]> = {
   "stage-0": ["stage0-raw-input.parquet"],
-  "stage-2": ["stage2-raw-data.parquet"],
+  "stage-2": ["stage2-model-data.parquet"],
 };
 
 export async function GET(
