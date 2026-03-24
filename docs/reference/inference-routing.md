@@ -8,7 +8,7 @@ Within the pipeline artifact lineage, this document explains how the fitted runt
 
 Given a state-space model with latent states **x**\_1:T and observations **y**\_1:T, parameter inference requires the marginal likelihood:
 
-```
+```text
 p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 ```
 
@@ -99,7 +99,7 @@ The structural routing operates within A = Marginalize. (Augment and Gibbs force
 
 ### Decision Tree
 
-```
+```text
 SSMSpec + RBPartition
 |
 | A = Marginalize (structural default)
