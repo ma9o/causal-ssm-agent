@@ -147,7 +147,9 @@ def _emit_stage_progress_event(
     )
 
 
-def _partial_pipeline_result(workspace_id: str, stage_id: str, state: dict[str, Any]) -> dict[str, Any]:
+def _partial_pipeline_result(
+    workspace_id: str, stage_id: str, state: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "workspace_id": workspace_id,
         "final_stage": stage_id,

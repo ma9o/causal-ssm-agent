@@ -785,7 +785,8 @@ def make_likelihood_backend(
         manifest_dist=spec.manifest_dist,
         diffusion_dist=per_var,
         block_rb=False
-        if observation_support is not None and observation_support.requires_interval_summary_handling
+        if observation_support is not None
+        and observation_support.requires_interval_summary_handling
         else spec.second_pass_rb,
         manifest_link=spec.manifest_link,
         observation_support=observation_support,
