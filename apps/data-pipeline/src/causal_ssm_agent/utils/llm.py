@@ -641,7 +641,7 @@ class LLMStageContext:
         async with LLMStageContext("stage-1a") as ctx:
             generate = ctx.make_generate(model_name)
             # ... run stage logic ...
-            return ctx.finalize({"latent_model": ..., "treatments": ...})
+            return ctx.finalize({"latent_model": ...})
             # output now has llm_trace attached; lifecycle logged automatically
 
     Can also be used without ``async with`` — lifecycle logging still works

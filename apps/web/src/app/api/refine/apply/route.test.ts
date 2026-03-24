@@ -136,8 +136,6 @@ describe("POST /api/refine/apply", () => {
     vi.mocked(readData).mockResolvedValueOnce(
       JSON.stringify({
         latent_model: { constructs: [{ name: "Old" }], edges: [] },
-        outcome_name: "OldPerf",
-        treatments: ["OldStress"],
         outcome: "success",
         llm_trace: {
           model: "openrouter/anthropic/claude-sonnet-4",
@@ -171,10 +169,7 @@ describe("POST /api/refine/apply", () => {
           workspaceId: "user-123",
           stageId: "stage-1a",
           rootFlowRunId: "root-123",
-          stagePatch: {
-            outcome_name: "Perf",
-            treatments: ["Stress"],
-          },
+          stagePatch: {},
           messages: [
             {
               id: "user-1",
@@ -205,7 +200,7 @@ describe("POST /api/refine/apply", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      updatedFields: ["latent_model", "outcome_name", "treatments", "llm_trace"],
+      updatedFields: ["latent_model", "llm_trace"],
       resumeFrom: "stage-1b",
       rootFlowRunId: "replay-1",
       sessionPersisted: true,
@@ -226,8 +221,6 @@ describe("POST /api/refine/apply", () => {
       rootFlowRunId: "root-123",
       stageData: {
         latent_model: { constructs: [], edges: [] },
-        outcome_name: "Perf",
-        treatments: ["Stress"],
         llm_trace: {
           model: "openrouter/anthropic/claude-sonnet-4",
           total_time_seconds: 8.25,

@@ -139,8 +139,6 @@ export interface Stage1AContract {
   outcome: "success" | "warn" | "fail";
   llm_trace?: LLMTrace | null;
   latent_model: LatentModel;
-  outcome_name: string;
-  treatments: string[];
 }
 /**
  * Theoretical causal structure over constructs (the latent model).

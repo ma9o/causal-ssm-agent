@@ -11,7 +11,7 @@ The most important dimension is the sequence of domain objects the pipeline prod
 | Layer | Primary artifact | Produced in | Purpose |
 |---|---|---|---|
 | Research intent | Natural-language question | Pipeline request | Declares the causal query |
-| Theoretical causal structure | [`LatentModel`](../pipeline/01a-latent-model.md#latentmodel) | Stage 1a | Defines constructs, edges, outcome, and candidate treatments |
+| Theoretical causal structure | [`LatentModel`](../pipeline/01a-latent-model.md#latentmodel) | Stage 1a | Defines constructs, edges, and the designated outcome; candidate treatments are derived from the graph |
 | Measurement + identification | [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | Stage 1b | Binds constructs to indicators and records identifiability |
 | Observational evidence | Raw and model-ready observation rows | Stage 2 | Converts source data into time-indexed indicator values |
 | Data quality surface | Indicator audits and dataset issues | Stage 3 | Describes whether extracted observations are usable |

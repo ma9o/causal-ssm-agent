@@ -11,6 +11,7 @@ import pytest
 from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
+from causal_ssm_agent.utils.causal_spec import get_all_treatments
 
 
 def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace") -> None:
@@ -36,6 +37,35 @@ def _stub_config() -> SimpleNamespace:
 
 def _noop_artifact(**_kwargs) -> None:
     return None
+
+
+def _stage1a_latent_model(treatment: str = "treatment", outcome: str = "outcome") -> dict:
+    return {
+        "constructs": [
+            {
+                "name": treatment,
+                "description": f"{treatment} construct",
+                "role": "endogenous",
+                "is_outcome": False,
+                "temporal_status": "time_varying",
+            },
+            {
+                "name": outcome,
+                "description": f"{outcome} construct",
+                "role": "endogenous",
+                "is_outcome": True,
+                "temporal_status": "time_varying",
+            },
+        ],
+        "edges": [
+            {
+                "cause": treatment,
+                "effect": outcome,
+                "description": f"{treatment} affects {outcome}",
+                "lagged": True,
+            }
+        ],
+    }
 
 
 def _write_public_result(tmp_path, workspace_id: str, stage_id: str, payload: dict) -> None:
@@ -72,7 +102,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
         calls.append(("stage1b_gate", stage1a, stage1b, override_gates))
         return {
-            "treatments": stage1a["treatments"],
+            "treatments": get_all_treatments(stage1a["latent_model"]),
             "gate_failed": False,
             "gate_overridden": False,
             "web_outcome": "success",
@@ -204,11 +234,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
 
     async def stage1a(question: str) -> dict:
         calls.append(("stage1a", question))
-        return {
-            "latent_model": {"constructs": []},
-            "outcome_name": "generated-outcome",
-            "treatments": ["generated-treatment"],
-        }
+        return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
 
     async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
         calls.append(("stage1b", question, stage0, stage1a))
@@ -239,9 +265,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     _reset_stage_registry(monkeypatch)
 
     override_payload = {
-        "latent_model": {"constructs": [{"name": "Overridden"}]},
-        "outcome_name": "override-outcome",
-        "treatments": ["override-treatment"],
+        "latent_model": _stage1a_latent_model("override-treatment", "override-outcome"),
     }
 
     result = asyncio.run(
@@ -276,11 +300,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
 
     async def stage1a(question: str) -> dict:
         calls.append(("stage1a", question))
-        return {
-            "latent_model": {"constructs": []},
-            "outcome_name": "outcome",
-            "treatments": ["treatment"],
-        }
+        return {"latent_model": _stage1a_latent_model()}
 
     causal_spec = {
         "latent": {"constructs": [{"name": "L"}], "edges": []},
@@ -369,7 +389,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     result = asyncio.run(
         dag.stage6(
             stage5b_result,
-            {"outcome_name": "sleep_quality"},
+            {"latent_model": _stage1a_latent_model("screen_time", "sleep_quality")},
             {"causal_spec": {}},
             {"treatments": ["screen_time"]},
         )
@@ -488,11 +508,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         tmp_path,
         workspace_id,
         "stage-1a",
-        {
-            "latent_model": {"constructs": []},
-            "outcome_name": "outcome",
-            "treatments": ["treatment"],
-        },
+        {"latent_model": _stage1a_latent_model()},
     )
     _write_public_result(
         tmp_path,
@@ -632,11 +648,7 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
 
     async def stage1a(question: str) -> dict:
         calls.append(("stage1a", question))
-        return {
-            "latent_model": {"constructs": []},
-            "outcome_name": "generated-outcome",
-            "treatments": ["generated-treatment"],
-        }
+        return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
 

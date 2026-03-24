@@ -59,8 +59,6 @@ def valid_stage_payloads() -> dict[str, dict]:
                     }
                 ],
             },
-            "outcome_name": "Perf",
-            "treatments": ["Stress"],
         },
         "stage-1b": {
             "causal_spec": {

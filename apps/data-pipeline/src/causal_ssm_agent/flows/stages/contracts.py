@@ -450,15 +450,11 @@ class Stage0Contract(LLMStageContract):
 
 class Stage1aContract(LLMStageContract):
     latent_model: LatentModel
-    outcome_name: str
-    treatments: list[str]
 
     def summary_message(self) -> str:
         return (
             f"Stage 1a summary: constructs={len(self.latent_model.constructs)} "
-            f"edges={len(self.latent_model.edges)} "
-            f"treatments={len(self.treatments)} "
-            f"outcome={self.outcome_name or 'unknown'}"
+            f"edges={len(self.latent_model.edges)}"
         )
 
 

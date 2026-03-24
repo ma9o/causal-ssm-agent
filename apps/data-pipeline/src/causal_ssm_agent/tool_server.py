@@ -43,6 +43,7 @@ from causal_ssm_agent.models.ssm.counterfactual import (
 from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.utils import storage
+from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 from causal_ssm_agent.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
@@ -185,9 +186,7 @@ def _manifest_effects(
     if lambda_draws is None:
         return None
     lambda_mean = (
-        jnp.mean(lambda_draws, axis=0)
-        if getattr(lambda_draws, "ndim", 0) == 3
-        else lambda_draws
+        jnp.mean(lambda_draws, axis=0) if getattr(lambda_draws, "ndim", 0) == 3 else lambda_draws
     )
     if getattr(lambda_mean, "ndim", 0) != 2:
         return None
@@ -217,7 +216,9 @@ def _select_evidence_window(
     evidence: dict[str, Any],
 ) -> tuple[int, int, dict[str, Any]]:
     if not timestamps:
-        raise HTTPException(400, "No observed history is available for counterfactual conditioning.")
+        raise HTTPException(
+            400, "No observed history is available for counterfactual conditioning."
+        )
 
     start = _parse_iso_datetime(evidence.get("start_time")) or timestamps[0]
     end = _parse_iso_datetime(evidence.get("end_time")) or timestamps[-1]
@@ -228,12 +229,16 @@ def _select_evidence_window(
     if not matching:
         raise HTTPException(400, "Evidence window does not overlap the observed history.")
 
-    return matching[0], matching[-1], {
-        "start_time": timestamps[matching[0]].isoformat(),
-        "end_time": timestamps[matching[-1]].isoformat(),
-        "n_timepoints": len(matching),
-        "variables": list(evidence.get("variables", []) or []),
-    }
+    return (
+        matching[0],
+        matching[-1],
+        {
+            "start_time": timestamps[matching[0]].isoformat(),
+            "end_time": timestamps[matching[-1]].isoformat(),
+            "n_timepoints": len(matching),
+            "variables": list(evidence.get("variables", []) or []),
+        },
+    )
 
 
 def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
@@ -251,10 +256,12 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     runtime = prepare_model_runtime(raw_data=data_for_model, builder=fitted_artifact.builder)
 
     causal_spec = stage1b.get("causal_spec", {})
-    non_identifiable = (
-        (causal_spec.get("identifiability") or {}).get("non_identifiable_treatments") or {}
-    )
-    treatments = list(stage1a.get("treatments", []) or [])
+    non_identifiable = (causal_spec.get("identifiability") or {}).get(
+        "non_identifiable_treatments"
+    ) or {}
+    latent_model = stage1a.get("latent_model", {})
+    outcome_name = get_outcome_name(latent_model)
+    treatments = get_all_treatments(latent_model)
 
     return {
         "_workspace_id": workspace_id,
@@ -269,6 +276,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "_fitted_artifact": fitted_artifact,
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
+        "_outcome_name": outcome_name,
         "_identifiable_treatments": [t for t in treatments if t not in non_identifiable],
     }
 
@@ -347,7 +355,6 @@ def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> 
 def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     sections = list(args.get("sections") or ["overview", "variables", "capabilities"])
     focused = {str(name) for name in (args.get("names") or [])}
-    stage1a = ctx["stage-1a"]
     stage1b = ctx["stage-1b"]
     stage4b = ctx.get("stage-4b", {})
     stage5b = ctx.get("stage-5b", {})
@@ -355,8 +362,8 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     runtime = ctx["_prepared_runtime"]
     fitted_artifact = ctx["_fitted_artifact"]
     causal_spec = stage1b.get("causal_spec", {})
-    latent = (causal_spec.get("latent") or {})
-    measurement = (causal_spec.get("measurement") or {})
+    latent = causal_spec.get("latent") or {}
+    measurement = causal_spec.get("measurement") or {}
     constructs = list(latent.get("constructs", []) or [])
     indicators = list(measurement.get("indicators", []) or [])
 
@@ -371,7 +378,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     payload: dict[str, Any] = {}
     if "overview" in sections:
         payload["overview"] = {
-            "outcome": stage1a.get("outcome_name"),
+            "outcome": ctx.get("_outcome_name"),
             "treatments": ctx["_identifiable_treatments"],
             "n_latent": len(getattr(fitted_artifact.builder._spec, "latent_names", []) or []),
             "n_manifest": len(runtime.manifest_names),
@@ -487,9 +494,8 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
             }
         }
 
-    stage1a = ctx["stage-1a"]
     causal_spec = ctx["stage-1b"].get("causal_spec", {})
-    outcome = str(args.get("outcome") or stage1a.get("outcome_name") or "")
+    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
     spec = fitted_artifact.builder._spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
@@ -617,9 +623,8 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             }
         }
 
-    stage1a = ctx["stage-1a"]
     causal_spec = ctx["stage-1b"].get("causal_spec", {})
-    outcome = str(args.get("outcome") or stage1a.get("outcome_name") or "")
+    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
     spec = fitted_artifact.builder._spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
@@ -822,7 +827,9 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
         raise HTTPException(404, f"No implementation for tool {tool_name!r} in stage {stage_id!r}")
 
     try:
-        validated_input = contract.input_schema.model_validate(request.input).model_dump(mode="json")
+        validated_input = contract.input_schema.model_validate(request.input).model_dump(
+            mode="json"
+        )
     except ValidationError as exc:
         raise HTTPException(422, detail=exc.errors()) from exc
 
