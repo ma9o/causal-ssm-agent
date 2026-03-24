@@ -4,7 +4,7 @@
 |---|---|---|---|
 | grounding | No | Warning-only | [`ParametricIdResult`](#parametricidresult) plus inference-structure summary |
 
-Checks whether the chosen functional specification looks recoverable before full inference. This page is the authoritative definition of `ParametricIdResult` and `InferenceStructureResult`. It sits between Stage 4 and the inference backends described in [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md), and corresponds to the pre-fit assurance surface described in [../concepts/pipeline-dimensions.md](../concepts/pipeline-dimensions.md).
+Checks whether the chosen functional specification looks recoverable before full inference. Sits between Stage 4 and the inference backends described in [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md).
 
 ## Inputs
 

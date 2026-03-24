@@ -2,9 +2,9 @@
 
 | Type | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm | Yes | No | [`Latent Model`](#latent-model) |
+| llm | Yes | No | [`LatentModel`](#latent-model) |
 
-Maps a natural-language research question to a theoretical causal topological structure over latent constructs. See [../concepts/causal-modeling-terminology.md](../concepts/causal-modeling-terminology.md) for the distinction.
+Builds a [`LatentModel`](#latent-model) from the natural language research question.
 
 ## Inputs
 
@@ -12,16 +12,21 @@ Maps a natural-language research question to a theoretical causal topological st
 |---|---|---|
 | `question` | User | User's research question in natural language |
 
+Notably, there is no observed data input at this stage.
+
 ## Process
 
-The proposal must satisfy the [construct ontology and edge rules](../primitives/latent-model/constructs-and-edges.md), the [temporal semantics](../primitives/latent-model/temporal-semantics.md), and the [latent-model assumptions](../primitives/latent-model/assumptions.md) that govern valid causal topological structure at this stage.
+Stage 1a runs a single LLM conversation with no data input—the model reasons purely from domain knowledge and the research question. The conversation has two phases: an initial proposal grounded by a structural validation tool, followed by a self-review pass.
 
-1. Run one LLM conversation with `validate_latent_model(structure_json)`.
-2. Ask the model to propose a candidate latent model: a construct-level causal topological structure with directed edges and exactly one designated outcome.
-3. Validate the candidate for schema correctness and causal-graph constraints; if validation fails, let the model revise it in the same conversation until a valid latent model is obtained.
-4. Persist the validated latent model as the authoritative Stage 1a artifact. Downstream stages may derive the designated outcome and candidate intervention variables from that graph when needed.
+**Backward reasoning from the outcome.** The LLM works backward from the outcome implied by the question: what directly causes it, what causes those causes, and so on until reaching [exogenous constructs](../primitives/latent-model/constructs-and-edges.md#construct-dimensions)—factors taken as given. The goal is completeness over parsimony: all theoretically plausible confounders, mediating mechanisms, and moderating factors should be included. Downstream stages prune; this stage must not omit anything causally important.
 
-Stage 1a is purely theoretical and does not inspect the dataset. It defines the construct-level causal topological structure, not indicators, observed columns, support-window semantics, identifiability findings, or functional specification.
+Each proposed construct is classified by [role and temporal status](../primitives/latent-model/constructs-and-edges.md#construct-dimensions), and each directed edge carries a [lag designation](../primitives/latent-model/temporal-semantics.md#edge-lag-rules)—lagged (cause at *t−1* → effect at *t*) or contemporaneous (within the same time index).
+
+**Validation loop.** The LLM submits its proposal via a `validate_latent_model` tool call. The tool enforces the `LatentModel` contract: construct-role invariants from [constructs-and-edges.md](../primitives/latent-model/constructs-and-edges.md), temporal rules from [temporal-semantics.md](../primitives/latent-model/temporal-semantics.md), and assumption-derived restrictions from [A4](../primitives/latent-model/assumptions.md#a4-acyclicity-within-time-slice), [A4b](../primitives/latent-model/assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), and [A5](../primitives/latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states). It also requires the designated outcome to have at least one incoming edge so the stage does not terminate on an effect-free target.
+
+On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
+
+**Self-review.** A follow-up prompt then asks the LLM to review its validated model for theoretical coherence—outcome clarity, causal completeness, edge justification, temporal consistency, and whether exogenous designations are appropriate. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
 ## Outputs
 
@@ -40,9 +45,10 @@ The `LatentModel` is the theoretical causal topological structure over latent co
 - the construct set
 - the directed causal edges between constructs
 - the outcome designation encoded on the outcome construct
+- explicit latent confounder nodes when theory posits an unobserved common cause
 
 Each construct carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each causal edge carries `cause`, `effect`, `description`, and `lagged`, where `lagged=true` means the effect at time `t` depends on the cause at `t-1`.
 
 The designated outcome is encoded on the outcome construct via `is_outcome=true`. Candidate intervention variables are derived from the validated graph rather than stored as separate Stage 1a state.
 
-Example: for a question about whether staffing pressure affects patient deterioration through care delays, Stage 1a may posit constructs such as `Staffing Pressure`, `Care Delay`, `Patient Severity`, and `Patient Deterioration`, plus directed edges between them and an explicit latent confounder node if an unobserved common cause is believed to exist.
+Example: for a question about whether developer workload affects code quality through review thoroughness, Stage 1a may posit constructs such as `Developer Workload`, `Review Thoroughness`, `Codebase Complexity`, and `Defect Rate`, plus directed edges between them and an explicit latent confounder node if an unobserved common cause (such as organizational pressure) is believed to exist.
