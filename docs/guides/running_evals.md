@@ -1,7 +1,5 @@
 # Running Evaluations
 
-Evaluate LLM performance on pipeline tasks using Inspect AI.
-
 ## Cost and Workflow Warning
 
 These evals consume paid model calls. In normal repo work, do **not** run them casually. If you are validating code changes rather than evaluating model quality, use `uv run pytest tests/` instead.
@@ -85,6 +83,13 @@ uv run inspect eval evals/multi_model/eval_medical_semantics_orchestrator.py \
 # View detailed results
 uv run inspect view
 ```
+
+## Tracked Fixture Workspaces
+
+Evals and manual prompt-sampling tools read the same persisted workspace artifacts
+that the pipeline uses. By default they load `data/GOLDEN/`, but you can point
+them at any workspace with compatible `query.txt` and `run/stage-*.json` outputs.
+For the full workspace directory layout, see [Agentic Integration Testing](agentic_integration_testing.md#workspace-layout).
 
 ## Log directories
 
