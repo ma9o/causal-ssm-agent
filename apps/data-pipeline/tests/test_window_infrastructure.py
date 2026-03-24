@@ -260,6 +260,21 @@ class TestFormatWindowChunk:
         text = format_window_chunk(chunk, "timestamp", ["action"], max_events_per_window=20)
         assert "showing 20 of 50 events" in text
 
+    def test_truncation_is_deterministic(self):
+        n = 50
+        events = pl.DataFrame(
+            {
+                "timestamp": [datetime(2024, 1, 1, h % 24, m) for h, m in zip(range(n), range(n))],
+                "action": [f"event_{i}" for i in range(n)],
+            }
+        )
+        chunk = [("2024-01-01", events)]
+
+        text_a = format_window_chunk(chunk, "timestamp", ["action"], max_events_per_window=20)
+        text_b = format_window_chunk(chunk, "timestamp", ["action"], max_events_per_window=20)
+
+        assert text_a == text_b
+
     def test_no_truncation_under_limit(self):
         events = pl.DataFrame(
             {
