@@ -9,7 +9,7 @@ a different model configuration.
 Usage:
     inspect eval evals/single_model/eval2_worker_extraction.py --model google/vertex/gemini-3-flash-preview
     inspect eval evals/single_model/eval2_worker_extraction.py --model openrouter/anthropic/claude-haiku-4.5
-    inspect eval evals/single_model/eval2_worker_extraction.py -T question=4
+    inspect eval evals/single_model/eval2_worker_extraction.py -T workspace_id=SMALLGOLDEN
 """
 
 import sys
@@ -21,11 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import json
 
 from evals.common import (
-    get_questions_with_causal_spec,
-    get_sample_chunks_worker,
+    get_stage2_eval_chunks,
     load_eval_config,
     make_generate_fn,
-    select_question,
 )
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
@@ -48,35 +46,25 @@ def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
 
 
 def create_eval_dataset(
-    question: str | None = None,
     n_chunks: int = 10,
     seed: int = 42,
-    input_file: str | None = None,
+    workspace_id: str | None = None,
 ) -> MemoryDataset:
     """Create evaluation dataset with chunks and the CausalSpec schema.
 
     Args:
-        question: Question selector (prefix ID or full slug). Defaults to first available.
         n_chunks: Number of chunks to include (each becomes a sample)
         seed: Random seed for reproducible chunk sampling
-        input_file: Specific input file name, or None for latest
+        workspace_id: Workspace to load persisted Stage 2 inputs from.
 
     Returns:
         MemoryDataset with one sample per chunk
     """
-    available = get_questions_with_causal_spec()
-    if question:
-        q = select_question(available, question)
-    else:
-        q = available[0]
-
-    # Load the CausalSpec schema
-    causal_spec = q.load_causal_spec()
+    stage2_inputs = get_stage2_eval_chunks(n_chunks, seed, workspace_id)
+    causal_spec = stage2_inputs["causal_spec"]
     indicator_dtypes = _get_indicator_dtypes(causal_spec)
     n_indicators = len(indicator_dtypes)
-
-    # Get chunks (using worker chunk size from config)
-    chunks = get_sample_chunks_worker(n_chunks, seed, input_file)
+    chunks = stage2_inputs["sampled_chunk_texts"]
 
     samples = []
     for i, chunk in enumerate(chunks):
@@ -87,8 +75,9 @@ def create_eval_dataset(
                 metadata={
                     "chunk_index": i,
                     "chunk": chunk,
-                    "question_slug": q.slug,
-                    "question": q.question,
+                    "workspace_id": stage2_inputs["workspace_id"],
+                    "question": stage2_inputs["question"],
+                    "causal_spec": causal_spec,
                     "n_indicators": n_indicators,
                     "indicator_dtypes": indicator_dtypes,
                 },
@@ -209,7 +198,7 @@ def worker_extraction_scorer():
     return score
 
 
-def worker_extraction_solver(question: str | None = None):
+def worker_extraction_solver():
     """Solver that runs the full worker extraction flow using core logic."""
 
     @solver
@@ -221,11 +210,7 @@ def worker_extraction_solver(question: str | None = None):
             # Get metadata
             question_text = state.metadata.get("question", "")
             chunk = state.metadata.get("chunk", "")
-            question_slug = state.metadata.get("question_slug", question or "")
-
-            available = get_questions_with_causal_spec()
-            q = select_question(available, question_slug)
-            causal_spec = q.load_causal_spec()
+            causal_spec = state.metadata.get("causal_spec", {})
 
             # Run the SAME core logic as production
             try:
@@ -254,29 +239,26 @@ def worker_extraction_solver(question: str | None = None):
 
 @task
 def worker_eval(
-    question: str | None = None,
     n_chunks: int = 10,
     seed: int = 42,
-    input_file: str | None = None,
+    workspace_id: str | None = None,
 ):
     """Evaluate LLM ability to extract indicator values from chunks.
 
     Args:
-        question: Question selector (prefix ID or full slug). Defaults to first with causal_spec.
         n_chunks: Number of chunks to include in evaluation
         seed: Random seed for chunk sampling (reproducibility)
-        input_file: Specific preprocessed file name, or None for latest
+        workspace_id: Workspace to load persisted Stage 2 inputs from.
     """
     return Task(
         dataset=create_eval_dataset(
-            question=question,
             n_chunks=n_chunks,
             seed=seed,
-            input_file=input_file,
+            workspace_id=workspace_id,
         ),
         solver=[
             system_message(SYSTEM),
-            worker_extraction_solver(question=question),
+            worker_extraction_solver(),
         ],
         scorer=worker_extraction_scorer(),
     )

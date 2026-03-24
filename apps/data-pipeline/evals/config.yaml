@@ -5,6 +5,9 @@
 #   evals/questions/<id>_<slug>/question.yaml
 # See evals/common.py discover_questions() for details.
 
+# Default workspace fixture for persisted Stage 0-2 eval inputs
+default_workspace_id: GOLDEN
+
 # Models for orchestrator structure eval (top-tier with max reasoning)
 orchestrator_models:
   - id: openrouter/anthropic/claude-opus-4.6
