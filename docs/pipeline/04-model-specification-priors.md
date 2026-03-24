@@ -109,14 +109,14 @@ Constraints are determined by role: AR coefficients are `unit_interval`, residua
 | Field | Type | Description |
 |---|---|---|
 | `parameter` | `str` | Name of the parameter this prior is for |
-| `distribution` | `PriorDistributionFamily` | Prior family (`Normal`, `HalfNormal`, `Beta`, `Uniform`, `TruncatedNormal`, `Gamma`) |
+| `distribution` | `PriorDistributionFamily` | Prior family from [Supported Prior Distribution Families](../primitives/model-spec/prior-distribution-families.md) |
 | `params` | `dict[str, float]` | Distribution parameters (e.g. `{"mu": 0.3, "sigma": 0.15}`) |
 | `sources` | `list[PriorSource]` | Literature evidence supporting this prior |
 | `reasoning` | `str` | Justification for the prior |
 | `reference_interval_days` | `float?` | Observation interval (in days) the prior is expressed in, when it differs from the model clock. Used for DT→CT conversion of dynamic parameters |
 | `density_points` | `list[{x, y}]?` | Pre-computed density curve for frontend visualization |
 
-`PriorDistributionFamily` is a separate vocabulary from [`DistributionFamily`](#likelihoodspec): likelihood families describe observation noise, while prior families describe parameter uncertainty.
+`PriorDistributionFamily` is a separate vocabulary from [`DistributionFamily`](#likelihoodspec): likelihood families describe observation noise, while prior families describe parameter uncertainty. The supported prior set is defined in [Supported Prior Distribution Families](../primitives/model-spec/prior-distribution-families.md).
 
 Both fixed-effect and AR priors are specified on the **discrete-time scale** at the model clock interval. The pipeline automatically converts them to continuous-time rates during compilation.
 

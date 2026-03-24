@@ -26,6 +26,8 @@ import jax.random as random
 import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree
 
+from causal_ssm_agent.distributions import get_positive_runtime_kind_from_index
+
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.assembler import SSMAssembler
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
@@ -723,9 +725,22 @@ def _normal_log_prob(x, loc, scale):
     return jnp.sum(-0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((x - loc) / scale) ** 2)
 
 
+def _truncated_normal_log_prob(x, loc, scale, low, high):
+    """Sum of element-wise TruncatedNormal(loc, scale, low, high) log-density."""
+    return jnp.sum(dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high).log_prob(x))
+
+
 def _half_normal_log_prob(x, scale):
     """Sum of element-wise HalfNormal(scale) log-density for x > 0."""
     return jnp.sum(jnp.log(2.0) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * (x / scale) ** 2)
+
+
+def _log_normal_log_prob(x, loc, scale):
+    """Sum of element-wise LogNormal(loc, scale) log-density."""
+    log_x = jnp.log(x)
+    return jnp.sum(
+        -jnp.log(x) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((log_x - loc) / scale) ** 2
+    )
 
 
 def _gamma_log_prob(x, concentration, rate):
@@ -738,30 +753,34 @@ def _gamma_log_prob(x, concentration, rate):
     )
 
 
-def _real_log_prob(x, family_idx, loc, scale):
+def _real_log_prob(x, family_idx, loc, scale, low, high):
     """Log density for a REAL-support site with family dispatch.
 
     Families:
         0 — Normal(loc, scale)
+        1 — TruncatedNormal(loc, scale, low, high)
     """
     branches = [
-        lambda loc, scale: _normal_log_prob(x, loc, scale),
+        lambda loc, scale, _low, _high: _normal_log_prob(x, loc, scale),
+        lambda loc, scale, low, high: _truncated_normal_log_prob(x, loc, scale, low, high),
     ]
-    return jax.lax.switch(family_idx, branches, loc, scale)
+    return jax.lax.switch(family_idx, branches, loc, scale, low, high)
 
 
-def _positive_log_prob(x, family_idx, scale, concentration, rate):
+def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
     """Log density for a POSITIVE-support site with family dispatch.
 
     Families:
         0 — HalfNormal(scale)
         1 — Gamma(concentration, rate)
+        2 — LogNormal(loc, scale)
     """
     branches = [
-        lambda s, _c, _r: _half_normal_log_prob(x, s),
-        lambda _s, c, r: _gamma_log_prob(x, c, r),
+        lambda _loc, s, _c, _r: _half_normal_log_prob(x, s),
+        lambda _loc, _s, c, r: _gamma_log_prob(x, c, r),
+        lambda loc, s, _c, _r: _log_normal_log_prob(x, loc, s),
     ]
-    return jax.lax.switch(family_idx, branches, scale, concentration, rate)
+    return jax.lax.switch(family_idx, branches, loc, scale, concentration, rate)
 
 
 # ---------------------------------------------------------------------------
@@ -802,7 +821,16 @@ def log_prior_unconstrained(
 
         if site.support == SupportClass.REAL:
             # Constrained == unconstrained for REAL support
-            lp = lp + _real_log_prob(z_site, params["family"], params["loc"], params["scale"])
+            low = params.get("low", jnp.full_like(params["loc"], -1e6))
+            high = params.get("high", jnp.full_like(params["loc"], 1e6))
+            lp = lp + _real_log_prob(
+                z_site,
+                params["family"],
+                params["loc"],
+                params["scale"],
+                low,
+                high,
+            )
             # log|det J| = 0 for identity transform
 
         elif site.support == SupportClass.POSITIVE:
@@ -810,6 +838,7 @@ def log_prior_unconstrained(
             lp = lp + _positive_log_prob(
                 x_site,
                 params["family"],
+                params["loc"],
                 params["scale"],
                 params["concentration"],
                 params["rate"],
@@ -848,11 +877,26 @@ def sample_prior_unconstrained(
         for site in registry:
             rng_key, sk = random.split(rng_key)
             params = prior_state[site.name]
-            family = int(params["family"])
+            family_values = jnp.asarray(params["family"]).reshape(-1)
+            family = int(family_values[0]) if family_values.size else 0
+            if not jnp.all(family_values == family):
+                raise ValueError(
+                    f"Mixed prior families within a single site are unsupported: {site.name}"
+                )
 
             if site.support == SupportClass.REAL:
                 shape = site.shape if site.shape else ()
-                x = params["loc"] + params["scale"] * random.normal(sk, shape=shape)
+                if family == 0:
+                    x = params["loc"] + params["scale"] * random.normal(sk, shape=shape)
+                elif family == 1:
+                    x = dist.TruncatedNormal(
+                        loc=params["loc"],
+                        scale=params["scale"],
+                        low=params.get("low", jnp.full_like(params["loc"], -1e6)),
+                        high=params.get("high", jnp.full_like(params["loc"], 1e6)),
+                    ).sample(sk)
+                else:
+                    raise ValueError(f"Unknown REAL family index {family}")
                 parts.append(x.reshape(-1))
 
             elif site.support == SupportClass.POSITIVE:
@@ -861,6 +905,8 @@ def sample_prior_unconstrained(
                     x = jnp.abs(params["scale"] * random.normal(sk, shape=shape))
                 elif family == 1:  # Gamma
                     x = random.gamma(sk, params["concentration"], shape=shape) / params["rate"]
+                elif family == 2:  # LogNormal
+                    x = jnp.exp(params["loc"] + params["scale"] * random.normal(sk, shape=shape))
                 else:
                     raise ValueError(f"Unknown POSITIVE family index {family}")
                 # Unconstrained = log(x)
@@ -898,6 +944,7 @@ def _make_positive_params(
     shape: tuple[int, ...],
     *,
     family: int = 0,
+    loc: float = 0.0,
     scale: float = 1.0,
     concentration: float = 1.0,
     rate: float = 1.0,
@@ -906,6 +953,7 @@ def _make_positive_params(
     s = shape if shape else ()
     return {
         "family": jnp.array(family, dtype=jnp.int32),
+        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
         "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float32), s),
         "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float32), s),
@@ -918,14 +966,20 @@ def _make_real_params(
     family: int = 0,
     loc: float = 0.0,
     scale: float = 1.0,
+    low: float | list[float] | None = None,
+    high: float | list[float] | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Build canonical param dict for a REAL-support site."""
     s = shape if shape else ()
-    return {
+    params = {
         "family": jnp.array(family, dtype=jnp.int32),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
     }
+    if low is not None and high is not None:
+        params["low"] = jnp.broadcast_to(jnp.asarray(low, dtype=jnp.float32), s)
+        params["high"] = jnp.broadcast_to(jnp.asarray(high, dtype=jnp.float32), s)
+    return params
 
 
 def build_prior_runtime_state(
@@ -987,16 +1041,21 @@ def _params_from_prior_dict(
 ) -> dict[str, jnp.ndarray]:
     """Convert an SSMPriors prior dict to canonical params for a site."""
     if site.support == SupportClass.REAL:
+        has_bounds = "lower" in prior_dict and "upper" in prior_dict
         return _make_real_params(
             site.shape,
+            family=1 if has_bounds else 0,
             loc=prior_dict.get("mu", 0.0),
             scale=prior_dict.get("sigma", 1.0),
+            low=prior_dict.get("lower"),
+            high=prior_dict.get("upper"),
         )
     elif site.support == SupportClass.POSITIVE:
         family = int(prior_dict.get("family", 0))
         return _make_positive_params(
             site.shape,
             family=family,
+            loc=prior_dict.get("loc", 0.0),
             scale=prior_dict.get("sigma", 1.0),
             concentration=prior_dict.get("concentration", 1.0),
             rate=prior_dict.get("rate", 1.0),
@@ -1136,7 +1195,7 @@ def compile_prior_semantics(
     """
     bundle = build_prior_runtime_bundle(spec, priors)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "site_registry": serialize_site_registry(bundle.registry),
         "prior_state": serialize_prior_runtime_state(bundle.prior_state),
     }
@@ -1160,9 +1219,9 @@ def load_prior_runtime_bundle(
 ) -> PriorRuntimeBundle:
     """Restore reusable runtime components from ``compiled_prior_semantics``."""
     schema_version = compiled_prior_semantics.get("schema_version")
-    if schema_version != 2:
+    if schema_version != 3:
         raise ValueError(
-            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 2."
+            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 3."
         )
 
     registry = deserialize_site_registry(compiled_prior_semantics["site_registry"])
@@ -1210,6 +1269,8 @@ def reconstruct_ssm_priors(
     Likelihood extra sites (obs_df, proc_df, etc.) have no SSMPriors field
     and are silently skipped.
     """
+    import numpy as np
+
     from causal_ssm_agent.models.ssm.model import SSMPriors as SSMPriorsClass
 
     kwargs: dict[str, dict] = {}
@@ -1222,12 +1283,34 @@ def reconstruct_ssm_priors(
         params = prior_state[site.name]
 
         if site.support == SupportClass.REAL:
-            kwargs[priors_field] = {
+            prior_kwargs = {
                 "mu": _to_prior_value(params["loc"]),
                 "sigma": _to_prior_value(params["scale"]),
             }
+            if "low" in params and "high" in params:
+                prior_kwargs["lower"] = _to_prior_value(params["low"])
+                prior_kwargs["upper"] = _to_prior_value(params["high"])
+            kwargs[priors_field] = prior_kwargs
 
         elif site.support == SupportClass.POSITIVE:
-            kwargs[priors_field] = {"sigma": _to_prior_value(params["scale"])}
+            family_values = np.asarray(params["family"], dtype=int).ravel()
+            family = int(family_values[0]) if family_values.size else 0
+            runtime_kind = get_positive_runtime_kind_from_index(family)
+            if runtime_kind.value == "half_normal":
+                kwargs[priors_field] = {"sigma": _to_prior_value(params["scale"])}
+            elif runtime_kind.value == "gamma":
+                kwargs[priors_field] = {
+                    "family": family,
+                    "concentration": _to_prior_value(params["concentration"]),
+                    "rate": _to_prior_value(params["rate"]),
+                }
+            elif runtime_kind.value == "log_normal":
+                kwargs[priors_field] = {
+                    "family": family,
+                    "loc": _to_prior_value(params["loc"]),
+                    "sigma": _to_prior_value(params["scale"]),
+                }
+            else:
+                raise ValueError(f"Unknown POSITIVE family index {family}")
 
     return SSMPriorsClass(**kwargs)

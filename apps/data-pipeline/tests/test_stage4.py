@@ -508,7 +508,7 @@ class TestPriorPredictiveValidation:
         compiled_ssm = {
             "spec": {"latent_names": ["stress", "sleep"]},
             "compiled_prior_semantics": {
-                "schema_version": 2,
+                "schema_version": 3,
                 "site_registry": [
                     {
                         "name": "t0_means_pop",
@@ -617,6 +617,76 @@ class TestPriorPredictiveValidation:
         assert resolved["rho_mood"]["reasoning"] == "Weakly informative for AR coefficient"
         assert resolved["intercept_mood_score"]["distribution"] == "Normal"
         assert resolved["intercept_mood_score"]["params"] == {"mu": 5.0, "sigma": 1.0}
+
+    def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
+        """Compiled semantics should surface LogNormal and bounded real priors."""
+        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
+        compiled_ssm = {
+            "compiled_prior_semantics": {
+                "schema_version": 3,
+                "site_registry": [
+                    {
+                        "name": "diffusion_diag_pop",
+                        "shape": [1],
+                        "support": "positive",
+                        "assembly_group": "diffusion",
+                        "site_kind": "diffusion_diag",
+                        "transform_kind": "exp",
+                        "deterministic_name": "diffusion",
+                        "fixed_spec_field": "diffusion",
+                        "priors_field": "diffusion_diag",
+                        "runtime_prior_key": "diffusion_diag_pop",
+                        "is_runtime_prior_controlled": True,
+                    },
+                    {
+                        "name": "drift_offdiag_pop",
+                        "shape": [1],
+                        "support": "real",
+                        "assembly_group": "drift",
+                        "site_kind": "drift_offdiag",
+                        "transform_kind": "identity",
+                        "deterministic_name": "drift",
+                        "fixed_spec_field": "drift",
+                        "priors_field": "drift_offdiag",
+                        "runtime_prior_key": "drift_offdiag_pop",
+                        "is_runtime_prior_controlled": True,
+                    },
+                ],
+                "prior_state": {
+                    "diffusion_diag_pop": {
+                        "family": [2],
+                        "loc": [0.2],
+                        "scale": [0.7],
+                        "concentration": [1.0],
+                        "rate": [1.0],
+                    },
+                    "drift_offdiag_pop": {
+                        "family": 1,
+                        "loc": [0.0],
+                        "scale": [0.3],
+                        "low": [-1.0],
+                        "high": [1.0],
+                    },
+                },
+            },
+            "parameter_bindings": [
+                {"parameter": "sigma_mood", "site_name": "diffusion_diag_pop", "flat_index": 0},
+                {"parameter": "cor_stress_sleep", "site_name": "drift_offdiag_pop", "flat_index": 0},
+            ],
+        }
+
+        resolved = {
+            prior["parameter"]: prior for prior in resolve_prior_proposals(compiled_ssm, authored_priors={})
+        }
+        assert resolved["sigma_mood"]["distribution"] == "LogNormal"
+        assert resolved["sigma_mood"]["params"]["mu"] == pytest.approx(0.2)
+        assert resolved["sigma_mood"]["params"]["sigma"] == pytest.approx(0.7)
+        assert resolved["cor_stress_sleep"]["distribution"] == "TruncatedNormal"
+        assert resolved["cor_stress_sleep"]["params"]["mu"] == pytest.approx(0.0)
+        assert resolved["cor_stress_sleep"]["params"]["sigma"] == pytest.approx(0.3)
+        assert resolved["cor_stress_sleep"]["params"]["lower"] == pytest.approx(-1.0)
+        assert resolved["cor_stress_sleep"]["params"]["upper"] == pytest.approx(1.0)
 
 
 class TestFailedParameters:

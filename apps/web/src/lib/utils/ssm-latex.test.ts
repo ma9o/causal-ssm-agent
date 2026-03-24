@@ -162,6 +162,18 @@ describe("priorLine", () => {
     const result = priorLine(prior);
     expect(result).toContain("\\text{HalfNormal}");
   });
+
+  it("renders log-normal prior", () => {
+    const prior = {
+      parameter: "sigma_mood",
+      distribution: "LogNormal",
+      params: { mu: 0, sigma: 0.5 },
+      sources: [],
+      reasoning: "",
+    } as PriorProposal;
+    const result = priorLine(prior);
+    expect(result).toContain("\\text{LogNormal}");
+  });
 });
 
 describe("priorLatex", () => {

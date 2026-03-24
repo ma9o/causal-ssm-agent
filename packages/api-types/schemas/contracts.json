@@ -1964,7 +1964,9 @@
         "Beta",
         "Uniform",
         "TruncatedNormal",
-        "Gamma"
+        "Gamma",
+        "LogNormal",
+        "Exponential"
       ],
       "title": "PriorDistributionFamily",
       "type": "string"
@@ -1979,7 +1981,7 @@
         },
         "distribution": {
           "$ref": "#/$defs/PriorDistributionFamily",
-          "description": "Distribution family ('Normal', 'HalfNormal', 'Beta', 'Uniform', 'TruncatedNormal', 'Gamma')"
+          "description": "Distribution family ('Normal', 'HalfNormal', 'Beta', 'Uniform', 'TruncatedNormal', 'Gamma', 'LogNormal', 'Exponential')"
         },
         "params": {
           "additionalProperties": {

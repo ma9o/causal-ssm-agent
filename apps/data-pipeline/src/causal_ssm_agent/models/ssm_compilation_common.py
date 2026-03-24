@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from causal_ssm_agent.distributions import PriorDistributionFamily
+from causal_ssm_agent.distributions import (
+    PriorDistributionFamily,
+    PriorRuntimeKind,
+    get_positive_runtime_family_index,
+    get_prior_family_spec,
+)
 from causal_ssm_agent.orchestrator.schemas_model import ParameterRole
 
 if TYPE_CHECKING:
@@ -71,17 +76,25 @@ def normalize_prior_params(
 ) -> dict[str, float | int]:
     """Convert a typed prior distribution into the SSMPriors parameter shape."""
     try:
-        family = PriorDistributionFamily(distribution)
+        spec = get_prior_family_spec(distribution)
     except ValueError as exc:
         raise ValueError(f"Unsupported prior distribution family: {distribution!r}") from exc
 
-    if family in {
-        PriorDistributionFamily.NORMAL,
-        PriorDistributionFamily.TRUNCATED_NORMAL,
-    }:
+    family = spec.family
+    runtime_kind = spec.runtime_kind
+
+    if runtime_kind == PriorRuntimeKind.NORMAL:
         return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
 
-    if family == PriorDistributionFamily.HALF_NORMAL:
+    if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
+        return {
+            "mu": params.get("mu", 0.0),
+            "sigma": params.get("sigma", 1.0),
+            "lower": params.get("lower", -1.0),
+            "upper": params.get("upper", 1.0),
+        }
+
+    if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
         return {"sigma": params.get("sigma", 1.0)}
 
     if family == PriorDistributionFamily.BETA:
@@ -98,10 +111,24 @@ def normalize_prior_params(
         sigma = (upper - lower) / 4
         return {"mu": mu, "sigma": sigma, "lower": lower, "upper": upper}
 
-    if family == PriorDistributionFamily.GAMMA:
+    if runtime_kind == PriorRuntimeKind.GAMMA:
         return {
-            "family": 1,
+            "family": get_positive_runtime_family_index(runtime_kind),
             "concentration": params.get("concentration", 2.0),
+            "rate": params.get("rate", 1.0),
+        }
+
+    if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+        return {
+            "family": get_positive_runtime_family_index(runtime_kind),
+            "loc": params.get("mu", 0.0),
+            "sigma": params.get("sigma", 1.0),
+        }
+
+    if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+        return {
+            "family": get_positive_runtime_family_index(runtime_kind),
+            "concentration": 1.0,
             "rate": params.get("rate", 1.0),
         }
 
@@ -176,6 +203,7 @@ def build_array_prior_payload(
 
     include_mu = "mu" in current or any("mu" in normalized for _, normalized in entries)
     include_sigma = "sigma" in current or any("sigma" in normalized for _, normalized in entries)
+    include_loc = "loc" in current or any("loc" in normalized for _, normalized in entries)
     include_family = "family" in current or any("family" in normalized for _, normalized in entries)
     include_concentration = "concentration" in current or any(
         "concentration" in normalized for _, normalized in entries
@@ -184,6 +212,7 @@ def build_array_prior_payload(
 
     mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
     sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
+    loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
     family_arr = [int(current.get("family", 0))] * n_total if include_family else None
     concentration_arr = (
         [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
@@ -195,6 +224,8 @@ def build_array_prior_payload(
             mu_arr[idx] = float(normalized["mu"])
         if "sigma" in normalized and sigma_arr is not None:
             sigma_arr[idx] = float(normalized["sigma"])
+        if "loc" in normalized and loc_arr is not None:
+            loc_arr[idx] = float(normalized["loc"])
         if "family" in normalized and family_arr is not None:
             family_arr[idx] = int(normalized["family"])
         if "concentration" in normalized and concentration_arr is not None:
@@ -207,6 +238,8 @@ def build_array_prior_payload(
         result["mu"] = mu_arr
     if sigma_arr is not None:
         result["sigma"] = sigma_arr
+    if loc_arr is not None:
+        result["loc"] = loc_arr
     if family_arr is not None:
         result["family"] = family_arr
     if concentration_arr is not None:

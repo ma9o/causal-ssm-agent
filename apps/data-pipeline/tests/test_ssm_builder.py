@@ -32,9 +32,12 @@ class TestNormalizePriorParams:
         assert result == {"mu": 0.0, "sigma": 1.0}
 
     def test_truncatednormal(self):
-        """TruncatedNormal should behave like Normal."""
-        result = normalize_prior_params("TruncatedNormal", {"mu": 3.0, "sigma": 0.5})
-        assert result == {"mu": 3.0, "sigma": 0.5}
+        """TruncatedNormal should preserve bounds."""
+        result = normalize_prior_params(
+            "TruncatedNormal",
+            {"mu": 3.0, "sigma": 0.5, "lower": 0.0, "upper": 5.0},
+        )
+        assert result == {"mu": 3.0, "sigma": 0.5, "lower": 0.0, "upper": 5.0}
 
     def test_halfnormal(self):
         """HalfNormal should only return sigma."""
@@ -98,6 +101,16 @@ class TestNormalizePriorParams:
         """Gamma should preserve positive-support family metadata."""
         result = normalize_prior_params("Gamma", {"concentration": 3.0, "rate": 2.0})
         assert result == {"family": 1, "concentration": 3.0, "rate": 2.0}
+
+    def test_lognormal(self):
+        """LogNormal should serialize to log-scale loc/sigma runtime params."""
+        result = normalize_prior_params("LogNormal", {"mu": 0.2, "sigma": 0.7})
+        assert result == {"family": 2, "loc": 0.2, "sigma": 0.7}
+
+    def test_exponential(self):
+        """Exponential should lower to Gamma runtime semantics with concentration 1."""
+        result = normalize_prior_params("Exponential", {"rate": 2.5})
+        assert result == {"family": 1, "concentration": 1.0, "rate": 2.5}
 
     def test_unknown_distribution_raises(self):
         """Unknown prior distributions should fail early."""

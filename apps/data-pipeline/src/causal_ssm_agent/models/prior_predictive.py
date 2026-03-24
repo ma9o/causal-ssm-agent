@@ -90,13 +90,12 @@ def _check_constraint_violations(
 ) -> list[PriorValidationResult]:
     """Check for constraint violations in sampled parameters.
 
-    Positive-constrained sites (HalfNormal-sampled): diffusion_diag_pop, manifest_var_diag
-    should not have negative values.
+    Positive-constrained sites should not have negative values.
 
     Args:
         samples: Dict of sample site name to array of samples.
         threshold: Fraction of violations above which to flag a failure.
-            Default 5% to tolerate minor numerical rounding in HalfNormal.
+            Default 5% to tolerate minor numerical rounding near the boundary.
     """
     results = []
     positive_sites = ["diffusion_diag_pop", "manifest_var_diag", "t0_var_diag"]
@@ -119,7 +118,7 @@ def _check_constraint_violations(
                         f"Constraint violation: {violation_rate:.1%} of {site_name} samples "
                         f"are negative (should be positive)"
                     ),
-                    suggested_adjustment="Use HalfNormal or other positive-constrained prior",
+                    suggested_adjustment="Use a positive-constrained prior family",
                 )
             )
 
