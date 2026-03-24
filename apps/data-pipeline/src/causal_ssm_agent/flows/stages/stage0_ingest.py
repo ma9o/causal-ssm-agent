@@ -35,7 +35,6 @@ class IngestionResult:
     """Output of the agentic ingestion stage."""
 
     dataframe: pl.DataFrame
-    source_label: str
     column_descriptions: dict[str, str] = field(default_factory=dict)
     llm_trace: dict | None = None
 
@@ -56,7 +55,7 @@ single Polars DataFrame.
 - **list_files(path)** — List directory contents (sizes, types)
 - **read_file_sample(path, n_lines)** — Peek at the first N lines of a file
 - **execute_python(code)** — Run Python code; assign your result to `result_df`
-- **submit_table(source_label, column_descriptions_json)** — Finalize the result
+- **submit_table(column_descriptions_json)** — Finalize the result
 
 ## Workflow
 
@@ -64,7 +63,7 @@ single Polars DataFrame.
 2. Use `read_file_sample()` to understand file formats
 3. Write Python code with `execute_python()` to parse the data
 4. Iterate until `result_df` looks correct
-5. Call `submit_table()` with a source label and column descriptions
+5. Call `submit_table()` with column descriptions
 
 ## Code Environment
 
@@ -110,7 +109,6 @@ The dataframe has already been created successfully and is stored in memory.
 
 Do not call `execute_python` again unless the dataframe itself is wrong.
 Call `submit_table()` exactly once with:
-- a concise human-readable `source_label`
 - a JSON object with descriptions for EVERY column in the dataframe
 
 Current schema:
@@ -131,13 +129,8 @@ def _has_submission_metadata(capture: dict) -> bool:
     if df is None or df.is_empty():
         return False
 
-    source_label = capture.get("source_label")
     column_descriptions = capture.get("column_descriptions")
-    return (
-        bool(source_label)
-        and isinstance(column_descriptions, dict)
-        and set(column_descriptions) == set(df.columns)
-    )
+    return isinstance(column_descriptions, dict) and set(column_descriptions) == set(df.columns)
 
 
 def _format_finalize_prompt(df: pl.DataFrame) -> str:
@@ -195,12 +188,10 @@ async def run_agentic_ingestion(
     if not _has_submission_metadata(capture):
         raise ValueError("Ingestion agent produced a DataFrame but did not finalize it")
 
-    source_label = capture["source_label"]
     column_descriptions = capture["column_descriptions"]
 
     return IngestionResult(
         dataframe=df,
-        source_label=source_label,
         column_descriptions=column_descriptions,
     )
 

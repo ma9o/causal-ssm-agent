@@ -104,7 +104,6 @@ class ExecutePythonInput(BaseModel):
 class SubmitTableInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_label: str = Field(description="A short human-readable label for the data source.")
     column_descriptions_json: str = Field(
         description="JSON object mapping column names to descriptions."
     )
@@ -424,28 +423,18 @@ class DateRangeContract(BaseModel):
     end: str
 
 
-class ColumnDescriptionContract(BaseModel):
+class Stage0ColumnDescriptionContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    dtype: str
     description: str
 
 
 class Stage0Contract(LLMStageContract):
-    source_label: str
-    n_records: int
-    n_columns: int
-    date_range: DateRangeContract
-    sample: list[dict[str, str | None]]
-    column_descriptions: list[ColumnDescriptionContract]
+    column_descriptions: list[Stage0ColumnDescriptionContract]
 
     def summary_message(self) -> str:
-        return (
-            f"Stage 0 summary: source={self.source_label} "
-            f"records={self.n_records} columns={self.n_columns} "
-            f"date_range={self.date_range.start}..{self.date_range.end}"
-        )
+        return f"Stage 0 summary: described_columns={len(self.column_descriptions)}"
 
 
 class Stage1aContract(LLMStageContract):

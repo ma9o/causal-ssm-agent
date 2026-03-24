@@ -24,7 +24,6 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_label: "test_data.csv",
         n_records: 100,
         n_columns: 2,
         date_range: { start: "2024-01-01", end: "2024-12-31" },
@@ -41,7 +40,6 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_label: "test_data.csv",
         n_records: 100,
         n_columns: 5,
         date_range: { start: "2024-01-01", end: "2024-12-31" },
@@ -97,7 +95,6 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_label: "data.csv",
         n_records: 50,
         n_columns: 1,
         date_range: { start: "2024-01-01", end: "2024-06-30" },
@@ -853,7 +850,6 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-0": {
         outcome: "success",
-        source_label: "data.csv",
         n_records: 1000,
         n_columns: 10,
         date_range: { start: "2024-01-01", end: "2024-12-31" },

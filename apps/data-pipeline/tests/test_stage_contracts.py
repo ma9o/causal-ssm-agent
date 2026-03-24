@@ -21,15 +21,10 @@ def valid_stage_payloads() -> dict[str, dict]:
     """Minimal valid payload for each persisted stage id."""
     return {
         "stage-0": {
-            "source_label": "Test data export",
-            "n_records": 10,
-            "n_columns": 3,
-            "date_range": {"start": "2024-01-01", "end": "2024-01-10"},
-            "sample": [{"date": "2024-01-01", "value": "1.5", "category": "A"}],
             "column_descriptions": [
-                {"name": "date", "dtype": "Utf8", "description": "Date of observation"},
-                {"name": "value", "dtype": "Float64", "description": "Numeric value"},
-                {"name": "category", "dtype": "Utf8", "description": "Category label"},
+                {"name": "date", "description": "Date of observation"},
+                {"name": "value", "description": "Numeric value"},
+                {"name": "category", "description": "Category label"},
             ],
         },
         "stage-1a": {

@@ -191,7 +191,6 @@ class TestIngestionTools:
 
         result = _run(
             submit_tool(
-                source_label="Test data",
                 column_descriptions_json=json.dumps(
                     {
                         "date": "Date of observation",
@@ -202,7 +201,6 @@ class TestIngestionTools:
             )
         )
         assert result == "VALID"
-        assert capture["source_label"] == "Test data"
         assert "date" in capture["column_descriptions"]
 
     def test_submit_table_missing_descriptions(self, sample_archive):
@@ -214,7 +212,6 @@ class TestIngestionTools:
 
         result = _run(
             submit_tool(
-                source_label="Test",
                 column_descriptions_json=json.dumps({"date": "Date"}),
             )
         )
@@ -225,7 +222,6 @@ class TestIngestionTools:
         submit_tool = tools[3]
         result = _run(
             submit_tool(
-                source_label="Test",
                 column_descriptions_json="{}",
             )
         )
@@ -325,7 +321,6 @@ class TestRunAgenticIngestion:
                 return ""
 
             await tool_map["submit_table"](
-                source_label="CSV upload",
                 column_descriptions_json=json.dumps(
                     {
                         "date": "Date of observation",
@@ -342,7 +337,6 @@ class TestRunAgenticIngestion:
             ["list_files", "read_file_sample", "execute_python", "submit_table"],
             ["submit_table"],
         ]
-        assert result.source_label == "CSV upload"
         assert result.column_descriptions == {
             "date": "Date of observation",
             "value": "Observed numeric value",

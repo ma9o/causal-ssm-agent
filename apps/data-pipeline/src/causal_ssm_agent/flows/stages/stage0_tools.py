@@ -423,15 +423,13 @@ def make_ingestion_tools(
     def submit_table():
         """Validate and finalize the ingested DataFrame with column descriptions."""
 
-        async def execute(source_label: str, column_descriptions_json: str) -> str:
+        async def execute(column_descriptions_json: str) -> str:
             """
             Finalize the ingested DataFrame and provide column metadata.
 
             Call this after you have a good DataFrame from execute_python.
 
             Args:
-                source_label: A short human-readable label for the data source
-                    (e.g., "Medical records from Doctolib", "Fitness tracker export").
                 column_descriptions_json: JSON object mapping column names to
                     descriptions, e.g. {"date": "Appointment date", "ldl": "LDL cholesterol mg/dL"}.
 
@@ -467,7 +465,6 @@ def make_ingestion_tools(
                 return f"Descriptions for non-existent columns: {extra}"
 
             # Store final result
-            capture["source_label"] = source_label
             capture["column_descriptions"] = col_descs
             return "VALID"
 

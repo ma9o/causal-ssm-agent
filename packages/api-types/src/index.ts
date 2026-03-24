@@ -72,7 +72,7 @@ export type {
   SensitivityAnalysisResult,
   SensitivityEntry,
   SMCDiagnostics,
-  Stage0Contract as Stage0Data,
+  Stage0Contract as Stage0PersistedData,
   Stage1AContract as Stage1aData,
   Stage1BContract as Stage1bData,
   Stage2Contract as Stage2Data,
@@ -122,6 +122,30 @@ export type PowerScalingDiagnosis = "prior_dominated" | "well_identified" | "pri
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 export type StageOutcome = "success" | "warn" | "fail";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
+
+export interface Stage0DateRange {
+  start: string;
+  end: string;
+}
+
+export interface Stage0ColumnDescription {
+  name: string;
+  dtype: string;
+  description: string;
+}
+
+export interface Stage0Data {
+  outcome: StageOutcome;
+  llm_trace?: import("./generated/models").LLMTrace | null;
+  n_records: number;
+  n_columns: number;
+  date_range: Stage0DateRange;
+  sample: {
+    [k: string]: (string | null) | undefined;
+  }[];
+  column_descriptions: Stage0ColumnDescription[];
+}
+
 export type AggregationFunction =
   | "mean"
   | "sum"
