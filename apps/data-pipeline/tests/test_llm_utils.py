@@ -4,6 +4,7 @@ Covers: parse_json_response, _validate_json_and_format, attach_trace,
         dict_messages_to_chat, calculate, parse_date.
 """
 
+import json
 import logging
 
 import litellm
@@ -152,11 +153,26 @@ def _worker_schema():
                     "name": "sleep_hours",
                     "construct_name": "sleep",
                     "measurement_dtype": "continuous",
+                    "aggregation": "last",
                     "how_to_measure": "Read sleep hours directly from the rows",
                 }
             ],
         },
     }
+
+
+def _valid_worker_output_json() -> str:
+    return json.dumps(
+        {
+            "extractions": [
+                {
+                    "indicator": "sleep_hours",
+                    "value": 7.5,
+                    "window_start": "2024-01-01T00:00:00Z",
+                }
+            ]
+        }
+    )
 
 
 def _make_worker_tool(schema=None):
@@ -194,7 +210,9 @@ class TestWorkerValidationTools:
                         {
                             "id": "call_1",
                             "name": "validate_extractions",
-                            "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                            "arguments": json.dumps(
+                                {"output_json": _valid_worker_output_json()}
+                            ),
                         }
                     ],
                 },
@@ -242,7 +260,9 @@ class TestWorkerValidationTools:
                         {
                             "id": "call_1",
                             "name": "validate_extractions",
-                            "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                            "arguments": json.dumps(
+                                {"output_json": _valid_worker_output_json()}
+                            ),
                         }
                     ],
                 },
@@ -290,7 +310,9 @@ class TestWorkerValidationTools:
                             {
                                 "id": "call_1",
                                 "name": "validate_extractions",
-                                "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                                "arguments": json.dumps(
+                                    {"output_json": _valid_worker_output_json()}
+                                ),
                             }
                         ],
                     },
@@ -353,7 +375,9 @@ class TestWorkerValidationTools:
                             {
                                 "id": "call_1",
                                 "name": "validate_extractions",
-                                "arguments": '{"output_json":"{\\"extractions\\":[{\\"indicator\\":\\"sleep_hours\\",\\"value\\":7.5,\\"timestamp\\":\\"2024-01-01T00:00:00Z\\"}]}"}',
+                                "arguments": json.dumps(
+                                    {"output_json": _valid_worker_output_json()}
+                                ),
                             }
                         ],
                     },
