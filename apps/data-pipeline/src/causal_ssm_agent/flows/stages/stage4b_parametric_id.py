@@ -20,6 +20,41 @@ from .. import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 
+def _build_parametric_id_summary(
+    profile_summary: dict[str, str] | None,
+    sensitivity_payload: dict[str, Any] | None,
+) -> dict[str, list[str]]:
+    """Aggregate detailed diagnostics into the public Stage 4b summary shape."""
+    structural_issues = sorted(
+        name
+        for name, classification in (profile_summary or {}).items()
+        if classification == "structurally_unidentifiable"
+    )
+    weak_params = sorted(
+        name
+        for name, classification in (profile_summary or {}).items()
+        if classification == "practically_unidentifiable"
+    )
+
+    # Sensitivity analysis exposes additional local identifiability warnings
+    # even when profile likelihood does not classify a parameter as structural.
+    for entry in (sensitivity_payload or {}).get("per_parameter", []):
+        name = entry.get("parameter")
+        if not name or name in structural_issues or name in weak_params:
+            continue
+        if entry.get("sv_status") in {"warn", "fail"} or entry.get("normalized_sv_status") in {
+            "warn",
+            "fail",
+        }:
+            weak_params.append(name)
+
+    return {
+        "structural_issues": structural_issues,
+        "boundary_issues": [],
+        "weak_params": sorted(weak_params),
+    }
+
+
 @task(task_run_name="parametric-id-check")
 def parametric_id_task(
     _model_spec: dict,
@@ -87,7 +122,11 @@ def parametric_id_task(
                 "parametric_id": {
                     "checked": True,
                     "t_rule": t_rule.model_dump(),
-                    "summary": {},
+                    "summary": {
+                        "structural_issues": [],
+                        "boundary_issues": [],
+                        "weak_params": [],
+                    },
                     "error": (
                         f"T-rule warning: {t_rule.n_free_params} free params "
                         f"> conservative lower-bound {t_rule.n_moments} moment conditions. "
@@ -158,13 +197,14 @@ def parametric_id_task(
         )
 
         result.print_report()
-        summary = result.summary()
+        profile_summary = result.summary()
+        summary = _build_parametric_id_summary(profile_summary, sensitivity_payload)
 
         # Build per-parameter classifications with profile curve data
         per_param = []
         for name in result.parameter_names:
             profile = result.parameter_profiles[name]
-            classification = summary[name]
+            classification = profile_summary[name]
             peak_ll = float(jnp.max(profile["profile_ll"]))
             per_param.append(
                 {
@@ -183,8 +223,6 @@ def parametric_id_task(
                 "summary": summary,
                 "per_param_classification": per_param,
                 "threshold": float(result.threshold),
-                "n_parameters": len(result.parameter_names),
-                "parameter_names": result.parameter_names,
             },
             "inference_structure": inference_structure_payload,
         }

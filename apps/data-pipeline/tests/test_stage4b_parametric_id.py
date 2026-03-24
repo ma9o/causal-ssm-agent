@@ -188,6 +188,126 @@ class TestStage4bInferenceStructurePayload:
         assert result["parametric_id"]["t_rule"]["satisfies"] is False
         assert result["inference_structure"]["likelihood_path"] == "composed"
 
+    def test_profile_diagnostics_aggregate_into_contract_summary(self, monkeypatch):
+        spec = _make_separable_spec()
+        model = _make_model(spec)
+        runtime = SimpleNamespace(
+            builder=SimpleNamespace(_model=model),
+            observations=jnp.zeros((4, spec.n_manifest)),
+            times=jnp.arange(4.0),
+            inference_structure=plan_inference_structure(spec),
+        )
+
+        class StubTRule:
+            satisfies = True
+            n_free_params = 4
+            n_moments = 8
+
+            def print_report(self):
+                return None
+
+            def model_dump(self):
+                return {
+                    "satisfies": self.satisfies,
+                    "n_free_params": self.n_free_params,
+                    "n_moments": self.n_moments,
+                }
+
+        class StubSensitivityResult:
+            def __init__(self):
+                self.singular_values = [1.0, 0.1]
+                self.condition_number = 10.0
+                self.per_parameter = [
+                    {
+                        "parameter": "beta_x",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    },
+                    {
+                        "parameter": "beta_y",
+                        "sensitivity_norm": 0.1,
+                        "effective_sv": 1e-5,
+                        "sv_status": "warn",
+                        "normalized_effective_sv": 1e-5,
+                        "normalized_sv_status": "warn",
+                        "identifiable": True,
+                    },
+                ]
+                self.n_draws = 8
+                self.n_observations = 12
+                self.n_parameters = 2
+
+            def print_report(self):
+                return None
+
+        class StubProfileLikelihoodResult:
+            def __init__(self):
+                self.parameter_names = ["beta_x", "beta_y"]
+                self.parameter_profiles = {
+                    "beta_x": {
+                        "grid_con": [-1.0, 0.0, 1.0],
+                        "profile_ll": jnp.array([-0.1, 0.0, -0.1]),
+                    },
+                    "beta_y": {
+                        "grid_con": [-1.0, 0.0, 1.0],
+                        "profile_ll": jnp.array([-3.0, 0.0, -0.2]),
+                    },
+                }
+                self.threshold = 1.92
+
+            def print_report(self):
+                return None
+
+            def summary(self):
+                return {
+                    "beta_x": "structurally_unidentifiable",
+                    "beta_y": "practically_unidentifiable",
+                }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            lambda **_: runtime,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            lambda *_args, **_kwargs: StubTRule(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: object(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: StubSensitivityResult(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            lambda *_args, **_kwargs: StubProfileLikelihoodResult(),
+        )
+
+        result = parametric_id_task.fn(
+            _model_spec={},
+            _priors={},
+            data_for_model=pl.DataFrame(),
+        )
+
+        pid = result["parametric_id"]
+        assert pid["summary"] == {
+            "structural_issues": ["beta_x"],
+            "boundary_issues": [],
+            "weak_params": ["beta_y"],
+        }
+        assert [entry["classification"] for entry in pid["per_param_classification"]] == [
+            "structurally_unidentifiable",
+            "practically_unidentifiable",
+        ]
+        assert "n_parameters" not in pid
+        assert "parameter_names" not in pid
+
     def test_stage4b_gate_demotes_t_rule_failure_to_warning(self):
         gate = stage4b_gate(
             {
