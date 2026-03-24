@@ -12,4 +12,4 @@ This project separates them:
 | The latent-to-latent DAG proposed from theory | [`LatentModel`](latent-model/constructs-and-edges.md) | [Stage 1a](../pipeline/01a-latent-model.md) |
 | The construct-to-observed mapping | [`MeasurementModel`](measurement-model/indicators.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
 | The combined latent, measurement, and identifiability handoff | [`CausalSpec`](causal-spec/identifiability.md) | [Stage 1b](../pipeline/01b-measurement-identifiability.md) |
-| The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](model-spec/functional-specification.md) | [Stage 4](../pipeline/04-model-specification-priors.md) |
+| The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](model-spec/parameters-likelihoods-and-priors.md) | [Stage 4](../pipeline/04-model-specification-priors.md) |
