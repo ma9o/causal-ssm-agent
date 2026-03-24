@@ -13,7 +13,7 @@
 - [`LatentModel`](reference/latent-model/constructs-and-edges.md): construct ontology, edge legality, and lag semantics
 - [`MeasurementModel`](reference/measurement-model/indicators.md): indicators, extraction semantics, windows, aggregation, and `model_clock`
 - [`CausalSpec`](reference/causal-spec/identifiability.md): identifiability and the Stage 1b handoff contract
-- [`ModelSpec`](reference/model-spec/functional-specification.md): functional specification, parameter roles, likelihoods, and prior elicitation
+- [`ModelSpec`](reference/model-spec/parameters-likelihoods-and-priors.md): parameter roles, likelihoods, and prior elicitation
 
 ## Cross-Cutting References
 
