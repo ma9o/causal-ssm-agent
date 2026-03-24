@@ -21,7 +21,6 @@ ALWAYS THINK VERY HARD
 
 - Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one.
 
-- Every time you make a change to the file structure make sure to report it under Structure in the README
 
 - NEVER run evals (`inspect eval`, `uv run inspect eval`, etc.) unless explicitly asked. Evals cost money. Only run `uv run pytest tests/` for testing.
 
