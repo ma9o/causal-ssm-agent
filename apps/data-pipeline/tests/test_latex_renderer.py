@@ -108,7 +108,7 @@ class TestRenderPriors:
         assert "ar_coefficient" in grouped
         assert "residual_sd" in grouped
         assert "loading" in grouped
-        assert "random_intercept_sd" in grouped
+        assert "static_state_sd" in grouped
 
     def test_fixed_effect_count(self, model_spec1):
         grouped = render_priors(model_spec1)

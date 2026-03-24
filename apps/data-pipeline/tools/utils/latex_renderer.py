@@ -1,7 +1,7 @@
 """Render a ModelSpec + CausalSpec as LaTeX equations.
 
 Pure utility — no UI dependencies. Returns dicts of LaTeX strings
-organised by model section (measurement, structural, priors, random effects).
+organised by model section (measurement, structural, priors).
 """
 
 from __future__ import annotations
@@ -58,9 +58,8 @@ _PRIOR_TEMPLATES: dict[str, str] = {
     "fixed_effect": r"{symbol} \sim \mathcal{{N}}(0,\,1)",
     "ar_coefficient": r"{symbol} \sim \text{{Beta}}(2,\,2)",
     "residual_sd": r"{symbol} \sim \text{{HalfNormal}}(1)",
+    "static_state_sd": r"{symbol} \sim \text{{HalfNormal}}(0.5)",
     "loading": r"{symbol} \sim \text{{HalfNormal}}(1)",
-    "random_intercept_sd": r"{symbol} \sim \text{{HalfNormal}}(0.5)",
-    "random_slope_sd": r"{symbol} \sim \text{{HalfNormal}}(0.25)",
     "correlation": r"{symbol} \sim \text{{LKJ}}(2)",
 }
 
@@ -68,9 +67,8 @@ _ROLE_GREEK: dict[str, str] = {
     "fixed_effect": r"\beta",
     "ar_coefficient": r"\rho",
     "residual_sd": r"\sigma",
+    "static_state_sd": r"\tau",
     "loading": r"\lambda",
-    "random_intercept_sd": r"\tau",
-    "random_slope_sd": r"\tau^s",
     "correlation": r"r",
 }
 
@@ -144,9 +142,8 @@ def _param_symbol(name: str, role: str) -> str:
         "fixed_effect": "beta_",
         "ar_coefficient": "ar_",
         "residual_sd": "residual_sd_",
+        "static_state_sd": "static_state_sd_",
         "loading": "loading_",
-        "random_intercept_sd": "random_intercept_sd_",
-        "random_slope_sd": "random_slope_sd_",
         "correlation": "correlation_",
     }
     prefix = prefix_map.get(role, "")

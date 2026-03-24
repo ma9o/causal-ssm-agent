@@ -56,9 +56,9 @@ class TestGetDefaultPrior:
         assert result.distribution == "HalfNormal"
         assert result.params == {"sigma": 1.0}
 
-    def test_random_intercept_sd_role_overrides_constraint(self):
+    def test_static_state_sd_role_overrides_constraint(self):
         p = _make_param(
-            role=ParameterRole.RANDOM_INTERCEPT_SD,
+            role=ParameterRole.STATIC_STATE_SD,
             constraint=ParameterConstraint.NONE,
         )
         result = get_default_prior(p)
