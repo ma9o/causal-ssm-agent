@@ -2,68 +2,69 @@
 
 | Type | Interactive | Gate | Produces |
 |---|---|---|---|
-| llm+grounding | Yes | Hard gate | [`CausalSpec`](#causalspec) plus identifiability status |
+| llm+grounding | Yes | Yes | [`CausalSpec`](#causalspec) |
 
-Maps constructs to observable indicators and checks whether each treatment-outcome effect is causally identifiable. This page is the authoritative definition of the measurement model, `CausalSpec`, and `IdentifiabilityStatus`. For indicator semantics, windows, and aggregation, see [../primitives/measurement-model/index.md](../primitives/measurement-model/index.md). For the Stage 1b identification contract, see [../primitives/causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md).
+Grounds the [Stage 1a latent model](01a-latent-model.md#latent-model) in observed data by proposing [indicators](../primitives/measurement-model/index.md) for each construct, then checks whether each treatment-to-outcome effect is [causally identifiable](../primitives/causal-spec/identifiability.md).
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | Pipeline request | Grounds measurement choices |
-| `stage0.result` | Stage 0 | Ingested dataframe plus column descriptions |
-| `stage1a.result` | Stage 1a | Latent model with constructs and edges |
+| `question` | User | Original research question—grounds measurement choices |
+| `stage0.result` | [Stage 0](00-ingestion.md) | Ingested dataframe plus column descriptions |
+| `stage1a.result` | [Stage 1a](01a-latent-model.md) | Latent model with constructs and edges |
+
+Stage 1a provided theoretical structure without seeing any data. Stage 1b is the first point where the model meets the dataset.
 
 ## Process
 
-1. Format the dataset schema as LLM context.
-2. Run a single LLM conversation with `validate_measurement_model(measurement_json)`.
-3. Validate three things together:
-   - schema consistency between indicators and the latent model
-   - compiler constraints such as dtype, support, and aggregation validity
-   - causal identifiability via y0's ID algorithm under the assumptions summarized in [../primitives/causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md)
-4. If identifiability fails, let the model revise indicators or proxies and try again.
-5. Assemble the final `CausalSpec`.
+Stage 1b runs a single LLM conversation that bridges theory and data. The LLM sees the latent model, the research question, and a schema summary of the ingested dataset. The conversation has three phases: indicator proposal grounded by a combined validation tool, identifiability repair if needed, and a self-review pass.
+
+**Forward reasoning from constructs to columns.** For each construct in the latent model, the LLM proposes one or more [indicators](../primitives/measurement-model/index.md)—observable proxies that operationalize it. Each indicator specifies which source columns it draws from, how to extract it (`extraction_mode`: `"computed"` for deterministic aggregation, `"semantic"` for LLM-based extraction), and what [measurement dtype, aggregation function, and observation window](../primitives/measurement-model/windows-and-aggregation.md) apply. The LLM also selects a `model_clock`—the discretization unit that governs extraction and downstream fitting.
+
+**Validation loop.** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks three things simultaneously:
+
+- *Schema and compiler constraints*: every outcome construct has at least one indicator, no duplicate operationalizations, indicator references point to valid constructs, `measurement_dtype` and `aggregation` are compatible, and computed indicators have well-formed rules.
+- *Causal identifiability*: the tool unrolls the latent graph to two timesteps (justified by [A3a](../primitives/causal-spec/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach)), projects to an internal ADMG, and runs [y0's ID algorithm](../primitives/causal-spec/identifiability.md#user-facing-dag-vs-internal-admg-projection) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
+- *Marginalization analysis*: once identifiability passes, a deterministic post-processing step identifies which unobserved confounders can be safely ignored because they have no remaining confounding influence.
+
+On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
+
+**Self-review.** A follow-up prompt asks the LLM to review its validated measurement model for coverage (every time-varying construct has at least one indicator), `how_to_measure` clarity, observation-window semantics, the [pure-indicators assumption](../primitives/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) (no direct indicator-to-indicator edges), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
+
+**Hard gate.** This stage gates the pipeline: if any treatment-to-outcome effect remains non-identifiable after the LLM's revision attempts, the pipeline stops. The gate can be overridden by the user, but the non-identifiability is recorded in the output.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `causal_spec` | `CausalSpec` | Combined latent, measurement, and identifiability payload |
-| `gate_overridden` | `GateOverrideContract?` | Present if the hard gate was overridden |
-| `llm_trace` | `LLMTrace?` | Conversation trace |
+| `causal_spec` | [`CausalSpec`](#causalspec) | Combined latent model, measurement model, and identifiability status |
 
-## Artifacts Introduced
+The public stage payload exposes that artifact directly. It may also include `gate_overridden` if the hard gate was overridden and `llm_trace` as runtime provenance for the UI.
+
+## Definitions
 
 ### Measurement Model
 
-The measurement model defines how theoretical constructs are observed in data. It owns:
+The `MeasurementModel` defines how theoretical constructs are observed in data. It owns:
 
-- the indicator list
-- the construct-to-indicator mapping
-- extraction mode
-- aggregation semantics
-- observation-window semantics
-- the `model_clock` used by later extraction and discretization steps
+- the indicator list—each indicator carries `name`, `construct_name`, `how_to_measure`, `measurement_dtype`, `aggregation`, `observation_window`, `source_columns`, and `extraction_mode`
+- the `model_clock`—the observation-window width used for extraction and discretization (see [windows and aggregation](../primitives/measurement-model/windows-and-aggregation.md))
+
+Indicators are reflective: the construct causes the indicator value, not the reverse. Each indicator's `extraction_mode` is either `"computed"` (a deterministic aggregation that [Stage 2](02-indicator-extraction.md) can evaluate mechanically) or `"semantic"` (requiring an LLM worker to interpret unstructured text).
 
 ### CausalSpec
 
-`CausalSpec` is the combined causal-and-measurement payload. It packages:
+`CausalSpec` is the combined causal-and-measurement handoff object. It packages:
 
-- the Stage 1a `LatentModel`
-- the measurement model introduced here
-- the treatment-level identifiability result
+- the [Stage 1a `LatentModel`](01a-latent-model.md#latent-model)
+- the `MeasurementModel` introduced here
+- the treatment-level [`IdentifiabilityStatus`](#identifiabilitystatus)
 
-Later stages should treat `CausalSpec` as the authoritative handoff object for "what causal question are we fitting?" and "how is it measured?"
+Later stages should treat `CausalSpec` as the authoritative answer to "what causal question are we fitting?" and "how is each construct measured?"
 
 ### IdentifiabilityStatus
 
-`IdentifiabilityStatus` is the causal-identification result attached to the `CausalSpec`. It records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked.
+`IdentifiabilityStatus` records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked. For identifiable treatments it includes the identification method (backdoor, frontdoor, or instrumental variable under linearity) and any confounders that were safely marginalized. For non-identifiable treatments it reports the blocking confounders.
 
-## Key Structures
-
-| Structure | Shape | Notes |
-|---|---|---|
-| `Indicator` | `{name, construct_name, how_to_measure, measurement_dtype, aggregation, observation_window, ordinal_levels, source_columns, extraction_mode}` | `extraction_mode` is `"computed"` or `"semantic"` |
-| `MeasurementModel` | `{indicators, model_clock}` | `model_clock` is the observation-window width used for extraction and discretization; see [../primitives/measurement-model/windows-and-aggregation.md](../primitives/measurement-model/windows-and-aggregation.md) |
-| `IdentifiabilityStatus` | `{status, non_identifiable_treatments, marginalization_analysis}` | Per-treatment identifiability summary |
+Example: for a study of developer workload and code quality where Stage 1a posited an unobserved confounder `Organizational Pressure`, Stage 1b might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), map `Review Thoroughness` to "average review comment count per PR" (computed, mean), and add a proxy indicator "manager-reported deadline pressure" (semantic, ordinal) to restore identifiability of the `Organizational Pressure` confounder path.

@@ -4,7 +4,7 @@
 |---|---|---|---|
 | llm+grounding | Yes | No | [`ModelSpec`](#modelspec), priors, prior predictive samples |
 
-Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. This page is the authoritative definition of `ModelSpec` and `PriorProposal`. It is the point where the pipeline enters the downstream model-runtime path: see [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) for the Stage 4 semantics and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
+Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. Stage 4 enters the downstream model-runtime path: see [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) for the semantics and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
 
 ## Inputs
 
