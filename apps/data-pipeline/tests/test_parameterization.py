@@ -611,7 +611,7 @@ class TestSerialization:
         """compile_prior_semantics → deserialize produces valid state."""
         priors = SSMPriors(drift_diag={"mu": -1.0, "sigma": 0.8})
         semantics = compile_prior_semantics(simple_spec, priors)
-        assert semantics["schema_version"] == 3
+        assert semantics["schema_version"] == 4
         registry = deserialize_site_registry(semantics["site_registry"])
         state = deserialize_prior_runtime_state(semantics["prior_state"], registry)
         assert "drift_diag_pop" in state
@@ -679,14 +679,25 @@ class TestSSMPriorsReconstruction:
 
     def test_reconstruct_preserves_bounded_real_metadata(self, simple_spec):
         """Bounded executable priors should retain their bounds after reconstruction."""
-        priors = SSMPriors(drift_offdiag={"mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0})
+        priors = SSMPriors(
+            drift_offdiag={"family": 2, "mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0}
+        )
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
         reconstructed = reconstruct_ssm_priors(registry, state)
+        assert reconstructed.drift_offdiag["family"] == 2
         assert reconstructed.drift_offdiag["mu"] == pytest.approx(0.0)
         assert reconstructed.drift_offdiag["sigma"] == pytest.approx(0.3)
         assert reconstructed.drift_offdiag["lower"] == pytest.approx(-1.0)
         assert reconstructed.drift_offdiag["upper"] == pytest.approx(1.0)
+
+    def test_reconstruct_preserves_exponential_metadata(self, simple_spec):
+        """Exponential priors should roundtrip distinctly from Gamma."""
+        priors = SSMPriors(diffusion_diag={"family": 3, "rate": 2.5})
+        registry = build_site_registry(simple_spec)
+        state = build_prior_runtime_state(registry, priors)
+        reconstructed = reconstruct_ssm_priors(registry, state)
+        assert reconstructed.diffusion_diag == {"family": 3, "rate": pytest.approx(2.5)}
 
 
 # ---------------------------------------------------------------------------
@@ -751,7 +762,7 @@ class TestCompiledArtifactIntegration:
         assert "priors" not in artifact
         assert "compiled_prior_semantics" in artifact
         sem = artifact["compiled_prior_semantics"]
-        assert sem["schema_version"] == 3
+        assert sem["schema_version"] == 4
         assert "site_registry" in sem
         assert "prior_state" in sem
 

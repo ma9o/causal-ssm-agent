@@ -4,39 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar, Final, Literal
+from typing import Final, Literal
 
 
-def _normalize_distribution_token(value: str) -> str:
-    return value.lower().replace("-", "_").replace(" ", "_")
-
-
-class _CatalogBackedStrEnum(StrEnum):
-    """StrEnum with case-insensitive alias lookup from a catalog."""
-
-    _ALIASES: ClassVar[dict[str, str]]
-
-    @classmethod
-    def _missing_(cls, value: object):
-        if not isinstance(value, str):
-            return None
-
-        normalized = _normalize_distribution_token(value)
-        canonical = _normalize_distribution_token(cls._ALIASES.get(normalized, normalized))
-        for member in cls:
-            if _normalize_distribution_token(member.value) == canonical:
-                return member
-        return None
-
-
-OBSERVATION_DISTRIBUTION_ALIASES: Final[dict[str, str]] = {
-    "normal": "gaussian",
-    "negativebinomial": "negative_binomial",
-    "orderedlogistic": "ordered_logistic",
-}
-
-
-class DistributionFamily(_CatalogBackedStrEnum):
+class DistributionFamily(StrEnum):
     """Distribution families for observation and process noise."""
 
     GAUSSIAN = "gaussian"
@@ -70,23 +41,16 @@ class DistributionFamily(_CatalogBackedStrEnum):
         return 0.0
 
 
-PRIOR_DISTRIBUTION_ALIASES: Final[dict[str, str]] = {
-    "normal": "Normal",
-    "halfnormal": "HalfNormal",
-    "half_normal": "HalfNormal",
-    "beta": "Beta",
-    "uniform": "Uniform",
-    "truncatednormal": "TruncatedNormal",
-    "truncated_normal": "TruncatedNormal",
-    "gamma": "Gamma",
-    "lognormal": "LogNormal",
-    "log_normal": "LogNormal",
-    "exponential": "Exponential",
-    "exp": "Exponential",
-}
+@dataclass(frozen=True)
+class ObservationFamilySpec:
+    """Central observation-family metadata shared across prompts and validation."""
+
+    family: DistributionFamily
+    summary: str
+    links: tuple[str, ...]
 
 
-class PriorDistributionFamily(_CatalogBackedStrEnum):
+class PriorDistributionFamily(StrEnum):
     """Distribution families allowed in Stage 4 prior proposals."""
 
     NORMAL = "Normal"
@@ -122,6 +86,73 @@ class PriorFamilySpec:
     support: Literal["real", "positive", "unit_interval", "bounded"]
     runtime_kind: PriorRuntimeKind
 
+
+@dataclass(frozen=True)
+class PriorConstraintGuidance:
+    """Constraint-level prior guidance derived from the prior catalog."""
+
+    constraint: str
+    domain: str
+    typical_families: str
+
+
+@dataclass(frozen=True)
+class PriorParameterGuidanceRow:
+    """Parameter-level prior heuristics reused across Stage 4 prompts."""
+
+    parameter_type: str
+    typical_distribution: str
+    typical_range: str
+    scale: str
+
+
+OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilySpec, ...]] = (
+    ObservationFamilySpec(
+        family=DistributionFamily.GAUSSIAN,
+        summary="Continuous unbounded data, approximately symmetric.",
+        links=("identity",),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.STUDENT_T,
+        summary="Continuous data with heavy tails or outliers.",
+        links=("identity",),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.POISSON,
+        summary="Count data with variance roughly tracking the mean.",
+        links=("log",),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.GAMMA,
+        summary="Positive continuous data such as durations or reaction times.",
+        links=("log", "inverse"),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.BERNOULLI,
+        summary="Binary outcomes with two possible states.",
+        links=("logit", "probit"),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.NEGATIVE_BINOMIAL,
+        summary="Overdispersed count data where variance exceeds the mean.",
+        links=("log",),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.BETA,
+        summary="Proportions or rates strictly inside the unit interval.",
+        links=("logit", "probit"),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.ORDERED_LOGISTIC,
+        summary="Ordered categorical outcomes with ranked levels.",
+        links=("cumulative_logit",),
+    ),
+    ObservationFamilySpec(
+        family=DistributionFamily.CATEGORICAL,
+        summary="Unordered multi-class outcomes.",
+        links=("softmax",),
+    ),
+)
 
 PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
     PriorFamilySpec(
@@ -187,24 +218,85 @@ PRIOR_FAMILY_REGISTRY: Final[dict[PriorDistributionFamily, PriorFamilySpec]] = {
     spec.family: spec for spec in PRIOR_FAMILY_SPECS
 }
 
+OBSERVATION_LINK_VALUES_BY_DISTRIBUTION: Final[dict[DistributionFamily, tuple[str, ...]]] = {
+    spec.family: spec.links for spec in OBSERVATION_FAMILY_SPECS
+}
+
+PRIOR_CONSTRAINT_GUIDANCE: Final[tuple[PriorConstraintGuidance, ...]] = (
+    PriorConstraintGuidance("none", "(-inf, +inf)", "Normal"),
+    PriorConstraintGuidance("positive", "(0, +inf)", "HalfNormal, Gamma, LogNormal, Exponential"),
+    PriorConstraintGuidance("unit_interval", "[0, 1]", "Beta, Uniform(0, 1)"),
+    PriorConstraintGuidance(
+        "correlation",
+        "[-1, 1]",
+        "Uniform(-1, 1), TruncatedNormal(0, sigma, -1, 1)",
+    ),
+)
+
+PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
+    PriorParameterGuidanceRow("beta (causal effect)", "Normal(0, 0.5)", "[-2, 2]", "Discrete-time"),
+    PriorParameterGuidanceRow(
+        "rho (AR coefficient)",
+        "Beta(2, 2) or Uniform(0, 1)",
+        "[0, 1]",
+        "Discrete-time persistence",
+    ),
+    PriorParameterGuidanceRow("sigma (residual SD)", "HalfNormal(1)", "[0, 5]", "Data scale"),
+    PriorParameterGuidanceRow("lambda (loading)", "HalfNormal(1)", "[0, 3]", "Data scale"),
+    PriorParameterGuidanceRow(
+        "cor (correlation)",
+        "Uniform(-1, 1) or TruncatedNormal(0, 0.3, -1, 1)",
+        "[-1, 1]",
+        "Innovation correlation",
+    ),
+    PriorParameterGuidanceRow("tau (random SD)", "HalfNormal(0.5)", "[0, 2]", "Data scale"),
+)
+
+# Pure-JAX real-support runtime family indices used by parameterization.py.
+REAL_RUNTIME_FAMILY_INDEX: Final[dict[PriorRuntimeKind, int]] = {
+    PriorRuntimeKind.NORMAL: 0,
+    PriorRuntimeKind.TRUNCATED_NORMAL: 1,
+    PriorRuntimeKind.UNIFORM: 2,
+}
+
+PRIMARY_REAL_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorRuntimeKind]] = {
+    index: kind for kind, index in REAL_RUNTIME_FAMILY_INDEX.items()
+}
+
 # Pure-JAX positive-support runtime family indices used by parameterization.py.
 POSITIVE_RUNTIME_FAMILY_INDEX: Final[dict[PriorRuntimeKind, int]] = {
     PriorRuntimeKind.HALF_NORMAL: 0,
     PriorRuntimeKind.GAMMA: 1,
     PriorRuntimeKind.LOG_NORMAL: 2,
-    PriorRuntimeKind.EXPONENTIAL: 1,
+    PriorRuntimeKind.EXPONENTIAL: 3,
 }
 
 PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorRuntimeKind]] = {
-    index: kind
-    for kind, index in POSITIVE_RUNTIME_FAMILY_INDEX.items()
-    if kind != PriorRuntimeKind.EXPONENTIAL
+    index: kind for kind, index in POSITIVE_RUNTIME_FAMILY_INDEX.items()
 }
 
 
 def get_prior_family_spec(family: PriorDistributionFamily | str) -> PriorFamilySpec:
     """Return the catalog entry for a prior family."""
     return PRIOR_FAMILY_REGISTRY[PriorDistributionFamily(family)]
+
+
+def get_real_runtime_family_index(runtime_kind: PriorRuntimeKind) -> int:
+    """Return the executable real-support family index for a runtime kind."""
+    try:
+        return REAL_RUNTIME_FAMILY_INDEX[runtime_kind]
+    except KeyError as exc:
+        raise ValueError(
+            f"Runtime kind {runtime_kind!r} is not a real-support executable family."
+        ) from exc
+
+
+def get_real_runtime_kind_from_index(index: int) -> PriorRuntimeKind:
+    """Return the runtime kind for a serialized real-support family index."""
+    try:
+        return PRIMARY_REAL_RUNTIME_KIND_BY_INDEX[index]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported serialized real prior family index {index}") from exc
 
 
 def get_positive_runtime_family_index(runtime_kind: PriorRuntimeKind) -> int:
@@ -244,6 +336,28 @@ def render_prior_distribution_guidance_bullets() -> str:
     return "\n".join(f"- **{spec.signature}**: {spec.summary}" for spec in PRIOR_FAMILY_SPECS)
 
 
+def render_observation_distribution_guidance_bullets() -> str:
+    """Render the authoritative prompt bullet list for observation-family guidance."""
+    return "\n".join(
+        f"- `{spec.family.value}`: {spec.summary}" for spec in OBSERVATION_FAMILY_SPECS
+    )
+
+
+def render_observation_link_guidance_bullets() -> str:
+    """Render prompt bullets for observation families with multiple valid links."""
+    lines: list[str] = []
+    for spec in OBSERVATION_FAMILY_SPECS:
+        if len(spec.links) <= 1:
+            continue
+        default_link, *other_links = spec.links
+        other_links_str = " or ".join(f"`{link}`" for link in other_links)
+        lines.append(
+            f"- **{spec.family.value}**: `{default_link}` (default)"
+            + (f" or {other_links_str}" if other_links_str else "")
+        )
+    return "\n".join(lines)
+
+
 def render_prior_distribution_markdown_table() -> str:
     """Render a markdown table describing supported prior families."""
     lines = [
@@ -257,5 +371,25 @@ def render_prior_distribution_markdown_table() -> str:
     return "\n".join(lines)
 
 
-DistributionFamily._ALIASES = OBSERVATION_DISTRIBUTION_ALIASES
-PriorDistributionFamily._ALIASES = PRIOR_DISTRIBUTION_ALIASES
+def render_prior_constraint_guidance_markdown_table() -> str:
+    """Render a markdown table for constraint-level prior guidance."""
+    lines = [
+        "| Constraint | Domain | Typical prior families |",
+        "|---|---|---|",
+    ]
+    for row in PRIOR_CONSTRAINT_GUIDANCE:
+        lines.append(f"| `{row.constraint}` | `{row.domain}` | {row.typical_families} |")
+    return "\n".join(lines)
+
+
+def render_prior_parameter_guidance_markdown_table() -> str:
+    """Render a markdown table for common parameter-level prior defaults."""
+    lines = [
+        "| Type | Typical Distribution | Typical Range | Scale |",
+        "|---|---|---|---|",
+    ]
+    for row in PRIOR_PARAMETER_GUIDANCE_ROWS:
+        lines.append(
+            f"| {row.parameter_type} | {row.typical_distribution} | {row.typical_range} | {row.scale} |"
+        )
+    return "\n".join(lines)

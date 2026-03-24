@@ -7,10 +7,12 @@ to propose an informed prior distribution.
 from causal_ssm_agent.distributions import (
     format_prior_distribution_choice_list,
     render_prior_distribution_guidance_bullets,
+    render_prior_parameter_guidance_markdown_table,
 )
 
 PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
 PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
+PRIOR_PARAMETER_GUIDANCE_TABLE = render_prior_parameter_guidance_markdown_table()
 
 SYSTEM = """\
 You are a Bayesian statistician eliciting a prior distribution for a single model parameter.
@@ -63,14 +65,7 @@ Return a JSON object:
 ```
 
 ### Parameter Guidelines by Type
-
-| Parameter Type | Typical Distribution | Typical Range | Scale |
-|---------------|---------------------|---------------|-------|
-| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Discrete-time (per observation interval) |
-| rho (AR coefficient) | Beta(2, 2) or Uniform(0, 1) | [0, 1] | Discrete-time persistence |
-| sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
-| lambda (loading) | HalfNormal(1) | [0, 3] | Data scale |
-| tau (random SD) | HalfNormal(0.5) | [0, 2] | Data scale |
+__PRIOR_PARAMETER_GUIDANCE_TABLE__
 
 **Important**: Both beta and rho priors should be on the **discrete-time scale** (e.g. standardized regression coefficients from the literature). They are automatically converted to continuous-time rates internally.
 """
@@ -82,6 +77,10 @@ SYSTEM = SYSTEM.replace(
 SYSTEM = SYSTEM.replace(
     "__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__",
     PRIOR_DISTRIBUTION_GUIDANCE_BULLETS,
+)
+SYSTEM = SYSTEM.replace(
+    "__PRIOR_PARAMETER_GUIDANCE_TABLE__",
+    PRIOR_PARAMETER_GUIDANCE_TABLE,
 )
 
 USER = """\

@@ -10,7 +10,10 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.distributions import DistributionFamily
+from causal_ssm_agent.distributions import (
+    OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
+    DistributionFamily,
+)
 
 
 class LinkFunction(StrEnum):
@@ -59,15 +62,8 @@ VALID_LIKELIHOODS_FOR_DTYPE: dict[str, set[DistributionFamily]] = {
 }
 
 VALID_LINKS_FOR_DISTRIBUTION: dict[DistributionFamily, set[LinkFunction]] = {
-    DistributionFamily.BERNOULLI: {LinkFunction.LOGIT, LinkFunction.PROBIT},
-    DistributionFamily.POISSON: {LinkFunction.LOG},
-    DistributionFamily.NEGATIVE_BINOMIAL: {LinkFunction.LOG},
-    DistributionFamily.GAUSSIAN: {LinkFunction.IDENTITY},
-    DistributionFamily.STUDENT_T: {LinkFunction.IDENTITY},
-    DistributionFamily.GAMMA: {LinkFunction.LOG, LinkFunction.INVERSE},
-    DistributionFamily.BETA: {LinkFunction.LOGIT, LinkFunction.PROBIT},
-    DistributionFamily.ORDERED_LOGISTIC: {LinkFunction.CUMULATIVE_LOGIT},
-    DistributionFamily.CATEGORICAL: {LinkFunction.SOFTMAX},
+    family: {LinkFunction(link) for link in links}
+    for family, links in OBSERVATION_LINK_VALUES_BY_DISTRIBUTION.items()
 }
 
 EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {

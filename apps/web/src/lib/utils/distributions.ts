@@ -34,46 +34,41 @@ function truncatedNormalPdf(
   return jStat.normal.pdf(x, mu, sigma) / normalizer;
 }
 
-function normalizeDistributionName(distribution: string): string {
-  return distribution.toLowerCase().replace(/[\s-]/g, "_");
-}
-
 export function evaluatePdf(
   distribution: string,
   params: DistParams,
   nPoints = 200,
 ): Array<{ x: number; y: number }> {
-  const dist = normalizeDistributionName(distribution);
   let xMin = -4;
   let xMax = 4;
 
   // Set range based on distribution
-  if (dist === "normal" || dist === "gaussian") {
-    const mu = params.mu ?? params.loc ?? 0;
-    const sigma = params.sigma ?? params.scale ?? 1;
+  if (distribution === "Normal") {
+    const mu = params.mu ?? 0;
+    const sigma = params.sigma ?? 1;
     xMin = mu - 4 * sigma;
     xMax = mu + 4 * sigma;
-  } else if (dist === "halfnormal" || dist === "half_normal") {
+  } else if (distribution === "HalfNormal") {
     xMin = 0;
-    xMax = (params.sigma ?? params.scale ?? 1) * 4;
-  } else if (dist === "truncatednormal" || dist === "truncated_normal") {
-    xMin = params.lower ?? params.low ?? -1;
-    xMax = params.upper ?? params.high ?? 1;
-  } else if (dist === "gamma") {
+    xMax = (params.sigma ?? 1) * 4;
+  } else if (distribution === "TruncatedNormal") {
+    xMin = params.lower ?? -1;
+    xMax = params.upper ?? 1;
+  } else if (distribution === "Gamma") {
     xMin = 0;
-    xMax = ((params.alpha ?? params.concentration ?? 2) / (params.beta ?? params.rate ?? 1)) * 3;
-  } else if (dist === "lognormal" || dist === "log_normal") {
+    xMax = ((params.concentration ?? 2) / (params.rate ?? 1)) * 3;
+  } else if (distribution === "LogNormal") {
     xMin = 0;
-    xMax = Math.exp((params.mu ?? params.loc ?? 0) + 4 * (params.sigma ?? params.scale ?? 1));
-  } else if (dist === "exponential") {
+    xMax = Math.exp((params.mu ?? 0) + 4 * (params.sigma ?? 1));
+  } else if (distribution === "Exponential") {
     xMin = 0;
     xMax = 5 / (params.rate ?? 1);
-  } else if (dist === "beta") {
+  } else if (distribution === "Beta") {
     xMin = 0.001;
     xMax = 0.999;
-  } else if (dist === "uniform") {
-    xMin = params.lower ?? params.low ?? 0;
-    xMax = params.upper ?? params.high ?? 1;
+  } else if (distribution === "Uniform") {
+    xMin = params.lower ?? 0;
+    xMax = params.upper ?? 1;
   }
 
   const step = (xMax - xMin) / nPoints;
@@ -83,35 +78,33 @@ export function evaluatePdf(
     const x = xMin + i * step;
     let y = 0;
 
-    if (dist === "normal" || dist === "gaussian") {
+    if (distribution === "Normal") {
       y = jStat.normal.pdf(
         x,
-        params.mu ?? params.loc ?? 0,
-        params.sigma ?? params.scale ?? 1,
+        params.mu ?? 0,
+        params.sigma ?? 1,
       );
-    } else if (dist === "halfnormal" || dist === "half_normal") {
-      y = halfNormalPdf(x, params.sigma ?? params.scale ?? 1);
-    } else if (dist === "truncatednormal" || dist === "truncated_normal") {
+    } else if (distribution === "HalfNormal") {
+      y = halfNormalPdf(x, params.sigma ?? 1);
+    } else if (distribution === "TruncatedNormal") {
       y = truncatedNormalPdf(
         x,
-        params.mu ?? params.loc ?? 0,
-        params.sigma ?? params.scale ?? 1,
-        params.lower ?? params.low ?? -1,
-        params.upper ?? params.high ?? 1,
+        params.mu ?? 0,
+        params.sigma ?? 1,
+        params.lower ?? -1,
+        params.upper ?? 1,
       );
-    } else if (dist === "gamma") {
-      const alpha = params.alpha ?? params.concentration ?? 2;
-      const rate = params.beta ?? params.rate ?? 1;
-      y = jStat.gamma.pdf(x, alpha, 1 / rate);
-    } else if (dist === "lognormal" || dist === "log_normal") {
-      y = logNormalPdf(x, params.mu ?? params.loc ?? 0, params.sigma ?? params.scale ?? 1);
-    } else if (dist === "exponential") {
+    } else if (distribution === "Gamma") {
+      y = jStat.gamma.pdf(x, params.concentration ?? 2, 1 / (params.rate ?? 1));
+    } else if (distribution === "LogNormal") {
+      y = logNormalPdf(x, params.mu ?? 0, params.sigma ?? 1);
+    } else if (distribution === "Exponential") {
       y = exponentialPdf(x, params.rate ?? 1);
-    } else if (dist === "beta") {
-      y = jStat.beta.pdf(x, params.alpha ?? params.a ?? 2, params.beta ?? params.b ?? 2);
-    } else if (dist === "uniform") {
-      const uLow = params.lower ?? params.low ?? 0;
-      const uHigh = params.upper ?? params.high ?? 1;
+    } else if (distribution === "Beta") {
+      y = jStat.beta.pdf(x, params.alpha ?? 2, params.beta ?? 2);
+    } else if (distribution === "Uniform") {
+      const uLow = params.lower ?? 0;
+      const uHigh = params.upper ?? 1;
       const uRange = uHigh - uLow;
       y = uRange > 0 && x >= uLow && x <= uHigh ? 1 / uRange : 0;
     }
