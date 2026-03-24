@@ -4,9 +4,13 @@ Each worker researches a single parameter, using literature evidence
 to propose an informed prior distribution.
 """
 
-from causal_ssm_agent.distributions import PriorDistributionFamily
+from causal_ssm_agent.distributions import (
+    format_prior_distribution_choice_list,
+    render_prior_distribution_guidance_bullets,
+)
 
-PRIOR_DISTRIBUTION_CHOICE_LIST = "|".join(family.value for family in PriorDistributionFamily)
+PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
+PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
 
 SYSTEM = """\
 You are a Bayesian statistician eliciting a prior distribution for a single model parameter.
@@ -25,12 +29,7 @@ Your task is to propose an **informative prior** based on:
 - If no relevant literature exists, fall back to domain reasoning
 
 ### Choose Appropriate Distributions
-- **Normal(mu, sigma)**: Unconstrained effects (can be positive or negative)
-- **HalfNormal(sigma)**: Positive-only parameters (variances, SDs)
-- **Beta(alpha, beta)**: Parameters in [0, 1] (probabilities)
-- **Uniform(lower, upper)**: When you want to bound the parameter
-- **TruncatedNormal(mu, sigma, lower, upper)**: Bounded with a center
-- **Gamma(concentration, rate)**: Positive-only parameters when a right-skewed prior is more plausible
+__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 
 ### Express Uncertainty Via Prior Width
 - Good literature: Use smaller sigma (tighter prior)
@@ -79,6 +78,10 @@ Return a JSON object:
 SYSTEM = SYSTEM.replace(
     "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
     PRIOR_DISTRIBUTION_CHOICE_LIST,
+)
+SYSTEM = SYSTEM.replace(
+    "__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__",
+    PRIOR_DISTRIBUTION_GUIDANCE_BULLETS,
 )
 
 USER = """\

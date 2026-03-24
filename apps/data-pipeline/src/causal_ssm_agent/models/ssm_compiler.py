@@ -365,23 +365,37 @@ def _compiled_distribution_for_site(
     flat_index: int,
 ) -> tuple[str, dict[str, float]]:
     """Convert one compiled site element back to a user-facing distribution row."""
+    from causal_ssm_agent.distributions import get_positive_runtime_kind_from_index
     from causal_ssm_agent.models.ssm.parameterization import SupportClass
 
     if site.support == SupportClass.REAL:
+        if "low" in params and "high" in params:
+            return "TruncatedNormal", {
+                "mu": _extract_serialized_prior_value(params, "loc", flat_index),
+                "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
+                "lower": _extract_serialized_prior_value(params, "low", flat_index),
+                "upper": _extract_serialized_prior_value(params, "high", flat_index),
+            }
         return "Normal", {
             "mu": _extract_serialized_prior_value(params, "loc", flat_index),
             "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
 
-    family = int(np.asarray(params.get("family", 0)).item())
-    if family == 0:
+    family = int(_extract_serialized_prior_value(params, "family", flat_index))
+    runtime_kind = get_positive_runtime_kind_from_index(family)
+    if runtime_kind.value == "half_normal":
         return "HalfNormal", {
             "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
-    if family == 1:
+    if runtime_kind.value == "gamma":
         return "Gamma", {
             "concentration": _extract_serialized_prior_value(params, "concentration", flat_index),
             "rate": _extract_serialized_prior_value(params, "rate", flat_index),
+        }
+    if runtime_kind.value == "log_normal":
+        return "LogNormal", {
+            "mu": _extract_serialized_prior_value(params, "loc", flat_index),
+            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
 
     raise ValueError(f"Unsupported compiled positive-support prior family index {family}")

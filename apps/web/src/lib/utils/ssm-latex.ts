@@ -111,14 +111,11 @@ export function priorLine(prior: PriorProposal): string {
   const dMap: Record<string, string> = {
     Normal: "\\mathcal{N}",
     HalfNormal: "\\text{HalfNormal}",
-    HalfCauchy: "\\text{HalfCauchy}",
     Beta: "\\text{Beta}",
     Gamma: "\\text{Gamma}",
-    InverseGamma: "\\text{InvGamma}",
     Uniform: "\\text{Uniform}",
+    TruncatedNormal: "\\text{TruncNormal}",
     Exponential: "\\text{Exp}",
-    LKJCholesky: "\\text{LKJ}",
-    Cauchy: "\\text{Cauchy}",
     LogNormal: "\\text{LogNormal}",
   };
 

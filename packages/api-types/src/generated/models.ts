@@ -63,7 +63,15 @@ export type ParameterConstraint = "none" | "positive" | "unit_interval" | "corre
 /**
  * Distribution families allowed in Stage 4 prior proposals.
  */
-export type PriorDistributionFamily = "Normal" | "HalfNormal" | "Beta" | "Uniform" | "TruncatedNormal" | "Gamma";
+export type PriorDistributionFamily =
+  | "Normal"
+  | "HalfNormal"
+  | "Beta"
+  | "Uniform"
+  | "TruncatedNormal"
+  | "Gamma"
+  | "LogNormal"
+  | "Exponential";
 
 /**
  * Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.

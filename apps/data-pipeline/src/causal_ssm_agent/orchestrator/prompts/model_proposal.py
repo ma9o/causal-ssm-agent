@@ -8,9 +8,13 @@ and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py, and prior families
 in causal_ssm_agent.distributions.PriorDistributionFamily
 """
 
-from causal_ssm_agent.distributions import PriorDistributionFamily
+from causal_ssm_agent.distributions import (
+    format_prior_distribution_choice_list,
+    render_prior_distribution_guidance_bullets,
+)
 
-PRIOR_DISTRIBUTION_CHOICE_LIST = "|".join(family.value for family in PriorDistributionFamily)
+PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
+PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -458,12 +462,7 @@ when multiple are valid:
 For EVERY parameter, propose a prior distribution.
 
 ### Prior Distribution Types
-- **Normal(mu, sigma)**: Unconstrained effects (can be positive or negative)
-- **HalfNormal(sigma)**: Positive-only parameters (variances, SDs)
-- **Beta(alpha, beta)**: Parameters in [0, 1] (probabilities)
-- **Uniform(lower, upper)**: When you want to bound the parameter
-- **TruncatedNormal(mu, sigma, lower, upper)**: Bounded with a center
-- **Gamma(concentration, rate)**: Positive-only parameters when a right-skewed prior is more plausible
+__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 
 ### Parameter Guidelines by Type
 
@@ -600,4 +599,8 @@ Topology. Include a prior for EVERY parameter listed above.
 AGENTIC_USER = AGENTIC_USER.replace(
     "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
     PRIOR_DISTRIBUTION_CHOICE_LIST,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__",
+    PRIOR_DISTRIBUTION_GUIDANCE_BULLETS,
 )

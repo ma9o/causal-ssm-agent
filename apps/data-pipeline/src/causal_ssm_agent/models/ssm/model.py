@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
+from causal_ssm_agent.distributions import PriorRuntimeKind, get_positive_runtime_kind_from_index
 from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
 from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
@@ -232,7 +233,8 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
     """Build the appropriate numpyro distribution from a prior dict.
 
     If `lower`/`upper` bounds are present, uses TruncatedNormal to respect
-    hard parameter bounds. Otherwise uses Normal, Gamma, or HalfNormal
+    hard parameter bounds. Otherwise dispatches via serialized executable
+    prior metadata or falls back to Normal.
     depending on the serialized prior semantics.
 
     Supports array-valued mu/sigma for per-element priors.
@@ -244,8 +246,6 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
             low=jnp.asarray(prior["lower"]),
             high=jnp.asarray(prior["upper"]),
         )
-    if "mu" in prior:
-        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
     family = prior.get("family", 0)
     if isinstance(family, list):
         unique_families = {int(value) for value in family}
@@ -254,11 +254,28 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
                 "Mixed positive prior families within a single SSM field are unsupported"
             )
         family = unique_families.pop()
-    if int(family) == 1 or {"concentration", "rate"} <= set(prior):
+    if "family" in prior:
+        runtime_kind = get_positive_runtime_kind_from_index(int(family))
+        if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
+            return dist.HalfNormal(jnp.asarray(prior["sigma"]))
+        if runtime_kind == PriorRuntimeKind.GAMMA:
+            return dist.Gamma(
+                concentration=jnp.asarray(prior.get("concentration", 2.0)),
+                rate=jnp.asarray(prior.get("rate", 1.0)),
+            )
+        if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+            return dist.LogNormal(
+                loc=jnp.asarray(prior.get("loc", 0.0)),
+                scale=jnp.asarray(prior.get("sigma", 1.0)),
+            )
+        raise ValueError(f"Unsupported serialized positive prior runtime kind {runtime_kind!r}")
+    if {"concentration", "rate"} <= set(prior):
         return dist.Gamma(
             concentration=jnp.asarray(prior.get("concentration", 2.0)),
             rate=jnp.asarray(prior.get("rate", 1.0)),
         )
+    if "mu" in prior:
+        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
     return dist.HalfNormal(jnp.asarray(prior["sigma"]))
 
 

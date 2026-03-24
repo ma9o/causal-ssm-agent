@@ -52,9 +52,9 @@ Each parameter in the SSM has a **role** meaning its function in the model and a
 | Constraint | Domain | Typical prior families |
 |---|---|---|
 | `none` | `(-inf, +inf)` | Normal |
-| `positive` | `(0, +inf)` | HalfNormal, HalfCauchy, Exponential, LogNormal |
+| `positive` | `(0, +inf)` | HalfNormal, Gamma, LogNormal, Exponential |
 | `unit_interval` | `[0, 1]` | Beta, Uniform(0, 1) |
-| `correlation` | `[-1, 1]` | LKJCholesky, Uniform(-1, 1) |
+| `correlation` | `[-1, 1]` | Uniform(-1, 1), TruncatedNormal(0, sigma, -1, 1) |
 
 **Role -> Constraint mapping**
 
@@ -77,6 +77,6 @@ It owns:
 - provenance and reasoning
 - interval metadata needed for downstream time-scale translation
 
-Its `distribution` field uses a prior-specific family vocabulary (`Normal`, `HalfNormal`, `Beta`, `Uniform`, `TruncatedNormal`, `Gamma`), not the observation-side `DistributionFamily` enum used by likelihoods.
+Its `distribution` field uses the prior-specific vocabulary documented in [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods.
 
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.

@@ -95,6 +95,36 @@ describe("evaluatePdf", () => {
     });
   });
 
+  describe("LogNormal distribution", () => {
+    it("has non-negative x values", () => {
+      const points = evaluatePdf("LogNormal", { mu: 0, sigma: 0.5 });
+      expect(points[0].x).toBeGreaterThanOrEqual(0);
+    });
+
+    it("accepts log_normal alias", () => {
+      const points = evaluatePdf("log_normal", { loc: 0, scale: 0.5 });
+      expect(points[0].x).toBeGreaterThanOrEqual(0);
+      expect(points.some((p) => p.y > 0)).toBe(true);
+    });
+  });
+
+  describe("Exponential distribution", () => {
+    it("has non-negative density on non-negative support", () => {
+      const points = evaluatePdf("Exponential", { rate: 2 });
+      for (const p of points) {
+        expect(p.y).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+
+  describe("TruncatedNormal distribution", () => {
+    it("respects the provided lower and upper bounds", () => {
+      const points = evaluatePdf("TruncatedNormal", { mu: 0, sigma: 1, lower: -1, upper: 1 });
+      expect(points[0].x).toBe(-1);
+      expect(points[points.length - 1].x).toBe(1);
+    });
+  });
+
   describe("Uniform distribution", () => {
     it("is flat between low and high", () => {
       const points = evaluatePdf("Uniform", { low: 2, high: 5 }, 300);
@@ -118,6 +148,14 @@ describe("evaluatePdf", () => {
       for (const p of points) {
         expect(Number.isFinite(p.y)).toBe(true);
         expect(p.y).toBe(0);
+      }
+    });
+
+    it("accepts lower/upper aliases", () => {
+      const points = evaluatePdf("Uniform", { lower: 1, upper: 3 }, 60);
+      const interiorPoints = points.filter((p) => p.x > 1.1 && p.x < 2.9);
+      for (const p of interiorPoints) {
+        expect(p.y).toBeCloseTo(0.5, 3);
       }
     });
   });
