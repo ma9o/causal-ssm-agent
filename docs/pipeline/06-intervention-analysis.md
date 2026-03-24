@@ -1,15 +1,10 @@
 # Stage 6: Intervention Analysis
 
+| Type | Interactive | Gate | Terminal behavior |
+|---|---|---|---|
+| llm | Yes | No | Interactive edits persist in place; no downstream replay |
+
 Applies do-operator interventions to the fitted model, ranks treatments, and exposes a narrow terminal interactive surface. This page is the authoritative definition of `TreatmentEffect`. The counterfactual math lives in [../model-runtime/estimation.md](../model-runtime/estimation.md), the upstream artifact handoff is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md), and the terminal no-replay behavior is defined in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
-
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Hybrid |
-| Interactive | Yes |
-| Gate | No |
-| Terminal behavior | Interactive edits persist in place; no downstream replay |
 
 ## Inputs
 

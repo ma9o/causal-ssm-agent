@@ -1,13 +1,10 @@
 # Data Workflow
 
-The repo currently has two distinct data lanes:
-
-1. **Workspace runs** for the web app and Prefect pipeline.
-2. **Preprocessed chunk files** for evals and manual prompt testing.
+This page covers workspace layout and file placement. For the practitioner-facing dataset contract, including timestamps, missingness, indicator modes, and minimum viable dataset shape, see [data_contract.md](data_contract.md).
 
 ## Directory Structure
 
-```
+```text
 data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Raw uploaded files for stage 0
@@ -16,9 +13,9 @@ data/
 │   └── run/               # Persisted stage JSON + artifacts
 ├── DEFAULT/               # Tracked mock fixture workspace
 ├── DOCTOLIB/              # Tracked mock fixture workspace
+├── GOLDEN/                # Default tracked workspace for evals and manual sampling
 ├── MEDICAL_SEMANTICS/     # Tracked medical archive fixture for stage 0-2 golden tests
-├── GOLDEN/                # Golden input dataset submodule
-└── processed/             # Preprocessed text chunks for eval/manual tools (gitignored)
+└── SMALLGOLDEN/           # Smaller tracked workspace for quicker eval iteration
 ```
 
 ## Workspace Runs
@@ -35,22 +32,27 @@ Stage 0 scans `data/{workspace_id}/input/` and ingests the most recent non-hidde
 The question is stored in `data/{workspace_id}/query.txt`, run lineage is stored in
 `data/{workspace_id}/session.json`, and stage outputs land in `data/{workspace_id}/run/`.
 
-## Preprocessed Chunk Workflow
+## Tracked Fixture Workspaces
 
-Some eval and manual utilities still consume newline-delimited text chunk files
-from `data/processed/`. If you already have a preprocessed text file there, you
-can sample representative chunks for prompt testing with:
+Evals and manual prompt-sampling tools read the same persisted workspace artifacts
+that the pipeline uses. By default they load `data/GOLDEN/`, but you can point
+them at any workspace with compatible `query.txt` and `run/stage-*.json` outputs.
+
+This keeps evaluation inputs aligned with the main app and pipeline contracts
+instead of maintaining a separate preprocessed-text lane.
+
+## Manual Worker Prompt Sampling
+
+To inspect representative Stage 2 semantic worker chunks from a workspace:
 
 ```bash
 cd apps/data-pipeline
 
 uv run python evals/scripts/sample_data_chunks.py -n 20
+uv run python evals/scripts/sample_data_chunks.py --workspace-id SMALLGOLDEN -n 5
 
-# Sample from a specific preprocessed file
-uv run python evals/scripts/sample_data_chunks.py -i google_activity_20251208.txt -n 5
-
-# Include the orchestrator system prompt for copy/paste experiments
+# Include the exact worker system + user prompts for copy/paste experiments
 uv run python evals/scripts/sample_data_chunks.py --prompt
 ```
 
-Output goes to `data/processed/orchestrator-samples-manual.txt`. The `data/processed/` directory is created at runtime (gitignored).
+Output goes to `scratchpad/worker-chunks-manual.txt`.

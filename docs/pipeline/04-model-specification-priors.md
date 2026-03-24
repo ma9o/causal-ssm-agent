@@ -1,15 +1,10 @@
 # Stage 4: Model Specification and Prior Elicitation
 
-Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. This page is the authoritative definition of `ModelSpec` and `PriorProposal`. It is the point where the pipeline enters the downstream model-runtime path: see [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md) for the rules and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
+| Type | Interactive | Gate | Produces |
+|---|---|---|---|
+| llm+grounding | Yes | No | [`ModelSpec`](#modelspec), priors, prior predictive samples |
 
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Semantic |
-| Interactive | Yes |
-| Gate | No |
-| Produces | [`ModelSpec`](#modelspec), priors, prior predictive samples |
+Runs a multi-turn agentic conversation to choose the statistical model and elicit priors grounded in data profiles and optional literature. This page is the authoritative definition of `ModelSpec` and `PriorProposal`. It is the point where the pipeline enters the downstream model-runtime path: see [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) for the Stage 4 semantics and [../model-runtime/compilation.md](../model-runtime/compilation.md) for how the result becomes executable.
 
 ## Inputs
 
@@ -30,7 +25,7 @@ Runs a multi-turn agentic conversation to choose the statistical model and elici
    - `elicit_prior_gmm(...)` when paraphrased elicitation is enabled
 3. Validate schema shape, trial compilation, and prior predictive behavior before finalizing.
 
-The full functional-specification deep dive lives in [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md). The handoff from Stage 4 into compilation is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
+The full functional-specification deep dive lives in [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md). Parameter and likelihood semantics live in [../primitives/model-spec/parameters-likelihoods-and-priors.md](../primitives/model-spec/parameters-likelihoods-and-priors.md). The handoff from Stage 4 into compilation is summarized in [../model-runtime/handoff-map.md](../model-runtime/handoff-map.md).
 
 ## Outputs
 

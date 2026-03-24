@@ -18,24 +18,9 @@ THINK VERY HARD
 
 - when coming up with examples, avoid using the same domain repeatedly. Rotate through different contexts such as healthcare, software engineering, education, etc. Make sure the examples are conformant to the project goal and scope.
 
-## Terminology: Causal Modeling
-
-We avoid "structural" due to SEM/SCM terminology collision:
-- In SEM: "structural" loosely means "latent-to-latent relationships" (vs measurement)
-- In SCM/Pearl: "structural" means the functional equations X_i = f_i(Pa_i, U_i)
-
-**Use these terms instead:**
-
-| Concept | Term | Domain |
-|---------|------|--------|
-| Latent-to-latent DAG (what LLM proposes) | **Latent model** | SEM distinction |
-| Latent-to-observed mapping | **Measurement model** | SEM distinction |
-| DAG encoding parent-child relationships | **Topological structure** | SCM distinction (y0) |
-| Mathematical form of causal mechanisms | **Functional specification** | SCM distinction (NumPyro) |
-
 # Web app
 
-- NEVER put domain logic (statistical computations, field derivations, pass/fail decisions) into the frontend code. If the frontend needs a field, compute it at the source (the pipeline domain code that owns that data). Serialization boundaries should only assemble and pass through — never transform or derive.
+- NEVER put domain logic like statistical computations into the frontend code. 
 
 - A dev server is likely already running on port 3000. Do not start a new one if so. If you need to restart the server, ask me first.
 - To check for errors, use the next-devtools MCP 

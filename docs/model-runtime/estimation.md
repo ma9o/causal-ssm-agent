@@ -131,11 +131,10 @@ Effects are estimated as relationships between constructs as measured through th
 
 - **AR coefficients** as inertia in the construct
 - **Cross-lag coefficients** as causal relationships between constructs
-- **Time-invariant latents** as stable subject-level intercepts (see [../concepts/assumptions.md](../concepts/assumptions.md) A5)
+- **Time-invariant latents** as stable subject-level intercepts (see [../primitives/latent-model/assumptions.md](../primitives/latent-model/assumptions.md))
 
 Causal interpretation requires that the DAG correctly captures the true causal structure and that all relevant confounders are included.
 
 ## References
 
-- Driver, C. C., & Voelkle, M. C. (2018). Hierarchical Bayesian Continuous Time Dynamic Modeling. Psychological Methods.
 - Sarkka, S. (2013). Bayesian Filtering and Smoothing. Cambridge University Press.

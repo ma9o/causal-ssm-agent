@@ -28,6 +28,10 @@ end-to-end eval around `causal_ssm_agent.orchestrator.stage4.run_stage4()`.
 orchestrator eval and the Stage 2 worker eval. The `MEDICAL_SEMANTICS`
 fixture eval is run directly with `inspect eval`.
 
+Worker-facing evals load persisted workspace artifacts, not ad hoc preprocessed
+text files. The default workspace is `GOLDEN` from `evals/config.yaml`, and you
+can override it with `workspace_id`.
+
 ## Run all models in parallel
 
 Only run these when you explicitly intend to spend tokens on evals.
@@ -36,16 +40,18 @@ Only run these when you explicitly intend to spend tokens on evals.
 # Stage 1a orchestrator eval (default) — runs configured models concurrently
 uv run python evals/scripts/run_parallel_evals.py
 
-# Stage 2 worker eval
+# Stage 2 worker eval against the default GOLDEN workspace
 uv run python evals/scripts/run_parallel_evals.py --eval worker
+uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id SMALLGOLDEN
 
 # Run specific models using aliases
 uv run python evals/scripts/run_parallel_evals.py --models claude gemini gpt
+uv run python evals/scripts/run_parallel_evals.py --eval worker --models gemini haiku
 
-# Customize parameters
-uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
+# Customize worker sampling
+uv run python evals/scripts/run_parallel_evals.py --eval worker -n 10 --seed 123
 
-# Filter to specific questions
+# Filter to specific Stage 1a questions
 uv run python evals/scripts/run_parallel_evals.py -q 1,3
 
 # Stage 1a aliases: claude, gemini, gpt, deepseek, kimi
@@ -59,6 +65,17 @@ Again: these are opt-in costful commands, not the default verification path for 
 ```bash
 uv run inspect eval evals/single_model/eval1a_latent_model.py \
     --model openrouter/anthropic/claude-opus-4.6
+
+uv run inspect eval evals/single_model/eval1b_measurement_model.py \
+    --model openrouter/anthropic/claude-opus-4.6 \
+    -T workspace_id=GOLDEN
+
+uv run inspect eval evals/single_model/eval2_worker_extraction.py \
+    --model openrouter/anthropic/claude-haiku-4.5 \
+    -T workspace_id=SMALLGOLDEN
+
+uv run inspect eval evals/multi_model/eval3_worker_measurement_adherence.py \
+    -T workspace_id=SMALLGOLDEN
 
 # MEDICAL_SEMANTICS fixture orchestrator eval
 uv run inspect eval evals/multi_model/eval_medical_semantics_orchestrator.py

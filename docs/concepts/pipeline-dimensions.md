@@ -37,7 +37,7 @@ Time appears in several distinct places. They should not be collapsed into a sin
 
 Important consequence: Stage 2 windowing, Stage 4 causal timescale choices, Stage 5 discretization, and Stage 6 intervention forecasts are all temporal, but they are not the same temporal decision.
 
-See [scope-and-timescales.md](scope-and-timescales.md) for construct granularity and cross-timescale rules, and [../model-runtime/estimation.md](../model-runtime/estimation.md) for CT-to-DT discretization.
+See [scope-and-timescales.md](scope-and-timescales.md) for routing to the primitive-owned temporal semantics, and [../model-runtime/estimation.md](../model-runtime/estimation.md) for CT-to-DT discretization.
 
 ## 3. Execution Modality
 
@@ -123,7 +123,7 @@ Use the docs in this order depending on the question:
 
 - "What objects flow through the pipeline?" -> this document, then [../pipeline.md](../pipeline.md)
 - "How does time work?" -> this document, then [scope-and-timescales.md](scope-and-timescales.md) and [../model-runtime/estimation.md](../model-runtime/estimation.md)
-- "What gets checked where?" -> this document, then [../model-runtime/functional-specification.md](../model-runtime/functional-specification.md) and [../pipeline.md](../pipeline.md)
+- "What gets checked where?" -> this document, then [../primitives/model-spec/functional-specification.md](../primitives/model-spec/functional-specification.md) and [../pipeline.md](../pipeline.md)
 - "How does fitting choose an inference method?" -> [../model-runtime/inference-routing.md](../model-runtime/inference-routing.md)
 - "What gets saved, restored, or exposed to the web?" -> [../runtime/persistence-and-exposure.md](../runtime/persistence-and-exposure.md), then [../pipeline.md](../pipeline.md)
 - "How do replay, overrides, gates, and terminal Stage 6 persistence work?" -> [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md)

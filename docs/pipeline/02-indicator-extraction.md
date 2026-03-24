@@ -1,15 +1,10 @@
 # Stage 2: Indicator Extraction
 
-Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers. This page is the authoritative definition of observation rows and model-ready data. The support-window and aggregation semantics used here come from [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md).
+| Type | Interactive | Gate | Produces |
+|---|---|---|---|
+| llm+grounding | No | No | Canonical observation rows and model-ready data |
 
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Hybrid |
-| Interactive | No |
-| Gate | No |
-| Produces | Canonical observation rows and model-ready data |
+Extracts numeric indicator values from raw data using direct Polars aggregation or parallel LLM workers. This page is the authoritative definition of observation rows and model-ready data. The support-window and aggregation semantics used here come from [../primitives/measurement-model/windows-and-aggregation.md](../primitives/measurement-model/windows-and-aggregation.md).
 
 ## Inputs
 

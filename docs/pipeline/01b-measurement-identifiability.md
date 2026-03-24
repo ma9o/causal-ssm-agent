@@ -1,15 +1,10 @@
 # Stage 1b: Measurement Model and Identifiability
 
-Maps constructs to observable indicators and checks whether each treatment-outcome effect is causally identifiable. This page is the authoritative definition of the measurement model, `CausalSpec`, and `IdentifiabilityStatus`. For the construct-versus-indicator split and timescale rules that govern this stage, see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md). For the identification assumptions behind the y0 check, see [../concepts/assumptions.md](../concepts/assumptions.md).
+| Type | Interactive | Gate | Produces |
+|---|---|---|---|
+| llm+grounding | Yes | Hard gate | [`CausalSpec`](#causalspec) plus identifiability status |
 
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Semantic |
-| Interactive | Yes |
-| Gate | Hard gate |
-| Produces | [`CausalSpec`](#causalspec) plus identifiability status |
+Maps constructs to observable indicators and checks whether each treatment-outcome effect is causally identifiable. This page is the authoritative definition of the measurement model, `CausalSpec`, and `IdentifiabilityStatus`. For indicator semantics, windows, and aggregation, see [../primitives/measurement-model/index.md](../primitives/measurement-model/index.md). For the Stage 1b identification contract, see [../primitives/causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md).
 
 ## Inputs
 
@@ -26,7 +21,7 @@ Maps constructs to observable indicators and checks whether each treatment-outco
 3. Validate three things together:
    - schema consistency between indicators and the latent model
    - compiler constraints such as dtype, support, and aggregation validity
-   - causal identifiability via y0's ID algorithm under the assumptions summarized in [../concepts/assumptions.md](../concepts/assumptions.md)
+   - causal identifiability via y0's ID algorithm under the assumptions summarized in [../primitives/causal-spec/identifiability.md](../primitives/causal-spec/identifiability.md)
 4. If identifiability fails, let the model revise indicators or proxies and try again.
 5. Assemble the final `CausalSpec`.
 
@@ -70,5 +65,5 @@ Later stages should treat `CausalSpec` as the authoritative handoff object for "
 | Structure | Shape | Notes |
 |---|---|---|
 | `Indicator` | `{name, construct_name, how_to_measure, measurement_dtype, aggregation, observation_window, ordinal_levels, source_columns, extraction_mode}` | `extraction_mode` is `"computed"` or `"semantic"` |
-| `MeasurementModel` | `{indicators, model_clock}` | `model_clock` is the observation-window width used for extraction and discretization; see [../concepts/scope-and-timescales.md](../concepts/scope-and-timescales.md) |
+| `MeasurementModel` | `{indicators, model_clock}` | `model_clock` is the observation-window width used for extraction and discretization; see [../primitives/measurement-model/windows-and-aggregation.md](../primitives/measurement-model/windows-and-aggregation.md) |
 | `IdentifiabilityStatus` | `{status, non_identifiable_treatments, marginalization_analysis}` | Per-treatment identifiability summary |

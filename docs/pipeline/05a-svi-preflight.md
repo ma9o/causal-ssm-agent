@@ -1,15 +1,10 @@
 # Stage 5a: SVI Preflight
 
+| Type | Interactive | Gate | Resume behavior |
+|---|---|---|---|
+| estimation | No | No | Always recomputed |
+
 Runs a cheap approximate fit as a sanity check before expensive inference. It uses the estimation runtime described in [../model-runtime/estimation.md](../model-runtime/estimation.md), and its recompute-only behavior follows the rules in [../runtime/execution-and-replay.md](../runtime/execution-and-replay.md).
-
-## At a Glance
-
-| Property | Value |
-|---|---|
-| Type | Computed |
-| Interactive | No |
-| Gate | No |
-| Resume behavior | Always recomputed |
 
 ## Inputs
 
