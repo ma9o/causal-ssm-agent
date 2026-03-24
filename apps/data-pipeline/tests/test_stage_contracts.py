@@ -170,7 +170,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                     }
                 ],
             },
-            "priors": {
+            "authored_priors": {
                 "rho_Stress": {
                     "parameter": "rho_Stress",
                     "distribution": "Normal",
@@ -179,6 +179,32 @@ def valid_stage_payloads() -> dict[str, dict]:
                     "reasoning": "weakly informative",
                 }
             },
+            "resolved_priors": [
+                {
+                    "parameter": "rho_Stress",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "sources": [],
+                    "reasoning": "weakly informative",
+                },
+                {
+                    "parameter": "t0_mean_Stress",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 2.0},
+                    "sources": [],
+                    "reasoning": "Default weakly informative prior for the initial state mean of Stress.",
+                },
+                {
+                    "parameter": "t0_sd_Stress",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 2.0},
+                    "sources": [],
+                    "reasoning": (
+                        "Default weakly informative prior for the initial state standard deviation "
+                        "of Stress."
+                    ),
+                },
+            ],
             "prior_predictive_samples": {"stress_score": [0.1, -0.2, 0.3]},
         },
         "stage-4b": {

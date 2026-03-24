@@ -110,7 +110,7 @@
       }
     ]
   },
-  "priors": {
+  "authored_priors": {
     "beta_stress_procrastination": {
       "distribution": "Normal",
       "params": {
@@ -309,6 +309,243 @@
       "parameter": "cor_procrastination_stress"
     }
   },
+  "resolved_priors": [
+    {
+      "distribution": "Normal",
+      "params": {
+        "mu": 0.3,
+        "sigma": 0.15
+      },
+      "sources": [
+        {
+          "title": "Steel (2007) - Meta-analysis of procrastination",
+          "url": "https://doi.org/10.1037/0033-2909.133.1.65",
+          "snippet": "Stress-procrastination correlation r=0.35 across 216 studies",
+          "effect_size": "r=0.35"
+        },
+        {
+          "title": "Sirois & Pychyl (2013) - Procrastination and the priority of short-term mood regulation",
+          "url": "https://doi.org/10.1111/spc3.12011",
+          "snippet": "Stress is a proximal cause of procrastination through negative mood states, \u03b2=0.28",
+          "effect_size": "\u03b2=0.28"
+        }
+      ],
+      "reasoning": "Moderate positive effect expected based on meta-analytic evidence",
+      "density_points": [
+        {
+          "x": -0.3,
+          "y": 0.001
+        },
+        {
+          "x": -0.2,
+          "y": 0.01
+        },
+        {
+          "x": -0.1,
+          "y": 0.076
+        },
+        {
+          "x": -0.05,
+          "y": 0.175
+        },
+        {
+          "x": 0.0,
+          "y": 0.36
+        },
+        {
+          "x": 0.05,
+          "y": 0.662
+        },
+        {
+          "x": 0.1,
+          "y": 1.093
+        },
+        {
+          "x": 0.15,
+          "y": 1.613
+        },
+        {
+          "x": 0.2,
+          "y": 2.131
+        },
+        {
+          "x": 0.25,
+          "y": 2.516
+        },
+        {
+          "x": 0.3,
+          "y": 2.659
+        },
+        {
+          "x": 0.35,
+          "y": 2.516
+        },
+        {
+          "x": 0.4,
+          "y": 2.131
+        },
+        {
+          "x": 0.45,
+          "y": 1.613
+        },
+        {
+          "x": 0.5,
+          "y": 1.093
+        },
+        {
+          "x": 0.55,
+          "y": 0.662
+        },
+        {
+          "x": 0.6,
+          "y": 0.36
+        },
+        {
+          "x": 0.7,
+          "y": 0.076
+        },
+        {
+          "x": 0.8,
+          "y": 0.01
+        },
+        {
+          "x": 0.9,
+          "y": 0.001
+        }
+      ],
+      "parameter": "beta_stress_procrastination"
+    },
+    {
+      "distribution": "Normal",
+      "params": {
+        "mu": 0.25,
+        "sigma": 0.1
+      },
+      "sources": [],
+      "reasoning": "Expected positive but weaker effect than stress",
+      "parameter": "beta_distraction_procrastination"
+    },
+    {
+      "distribution": "Normal",
+      "params": {
+        "mu": -0.2,
+        "sigma": 0.1
+      },
+      "sources": [
+        {
+          "title": "\u00c5kerstedt et al. (2012) - Sleep and stress longitudinal study",
+          "url": "https://doi.org/10.1111/j.1365-2869.2012.01033.x",
+          "snippet": "Poor sleep quality predicted next-day stress increase, standardized \u03b2 = \u22120.22",
+          "effect_size": "\u03b2=\u22120.22"
+        }
+      ],
+      "reasoning": "Better sleep reduces next-day stress; negative lagged effect supported by longitudinal evidence",
+      "parameter": "beta_sleep_stress"
+    },
+    {
+      "distribution": "Normal",
+      "params": {
+        "mu": 0.35,
+        "sigma": 0.15
+      },
+      "sources": [
+        {
+          "title": "Bowling et al. (2015) - Workload-strain meta-analysis",
+          "url": "https://doi.org/10.1177/0149206314559804",
+          "snippet": "Workload-stress association r=0.38 across 169 samples",
+          "effect_size": "r=0.38"
+        }
+      ],
+      "reasoning": "Strong positive contemporaneous effect of workload on stress, well-supported by occupational health literature",
+      "parameter": "beta_workload_stress"
+    },
+    {
+      "distribution": "Beta",
+      "params": {
+        "alpha": 5,
+        "beta": 2
+      },
+      "sources": [],
+      "reasoning": "Procrastination is moderately persistent day-to-day",
+      "parameter": "rho_procrastination"
+    },
+    {
+      "distribution": "Beta",
+      "params": {
+        "alpha": 4,
+        "beta": 3
+      },
+      "sources": [],
+      "reasoning": "Stress shows moderate autocorrelation",
+      "parameter": "rho_stress"
+    },
+    {
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [],
+      "reasoning": "Weakly informative prior on residual SD",
+      "parameter": "sigma_procrastination"
+    },
+    {
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 0.5
+      },
+      "sources": [],
+      "reasoning": "Weakly informative prior on residual SD",
+      "parameter": "sigma_stress"
+    },
+    {
+      "distribution": "Uniform",
+      "params": {
+        "lower": -1,
+        "upper": 1
+      },
+      "sources": [],
+      "reasoning": "Default uniform prior on residual correlation from marginalized confounder (mood)",
+      "parameter": "cor_procrastination_stress"
+    },
+    {
+      "parameter": "t0_mean_procrastination",
+      "distribution": "Normal",
+      "params": {
+        "mu": 0.0,
+        "sigma": 2.0
+      },
+      "sources": [],
+      "reasoning": "Default weakly informative prior for the initial state mean of procrastination."
+    },
+    {
+      "parameter": "t0_mean_stress",
+      "distribution": "Normal",
+      "params": {
+        "mu": 0.0,
+        "sigma": 2.0
+      },
+      "sources": [],
+      "reasoning": "Default weakly informative prior for the initial state mean of stress."
+    },
+    {
+      "parameter": "t0_sd_procrastination",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 2.0
+      },
+      "sources": [],
+      "reasoning": "Default weakly informative prior for the initial state standard deviation of procrastination."
+    },
+    {
+      "parameter": "t0_sd_stress",
+      "distribution": "HalfNormal",
+      "params": {
+        "sigma": 2.0
+      },
+      "sources": [],
+      "reasoning": "Default weakly informative prior for the initial state standard deviation of stress."
+    }
+  ],
   "validation_retries": [],
   "llm_trace": {
     "messages": [

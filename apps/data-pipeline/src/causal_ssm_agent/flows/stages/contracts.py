@@ -570,7 +570,8 @@ class Stage3Contract(BaseStageContract):
 
 class Stage4Contract(LLMStageContract):
     model_spec: ModelSpec
-    priors: dict[str, PriorProposal]
+    authored_priors: dict[str, PriorProposal]
+    resolved_priors: list[PriorProposal]
     search_queries: dict[str, str] | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
 
@@ -578,7 +579,8 @@ class Stage4Contract(LLMStageContract):
         return (
             f"Stage 4 summary: parameters={len(self.model_spec.parameters)} "
             f"likelihoods={len(self.model_spec.likelihoods)} "
-            f"priors={len(self.priors)} "
+            f"authored_priors={len(self.authored_priors)} "
+            f"resolved_priors={len(self.resolved_priors)} "
             f"prior_predictive_channels={len(self.prior_predictive_samples or {})}"
         )
 

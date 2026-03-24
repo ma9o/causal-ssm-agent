@@ -24,7 +24,7 @@ logger = get_prefect_logger(__name__)
 def parametric_id_task(
     _model_spec: dict,
     _priors: dict[str, dict],
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
     _causal_spec: dict | None = None,
@@ -41,7 +41,7 @@ def parametric_id_task(
     Args:
         model_spec: Model specification dict
         priors: Prior proposals by parameter name
-        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
+        data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
         causal_spec: CausalSpec dict for DAG-constrained masks
@@ -61,7 +61,7 @@ def parametric_id_task(
 
     try:
         runtime = prepare_model_runtime(
-            raw_data=raw_data,
+            data_for_model=data_for_model,
             compiled_ssm=compiled_ssm,
             builder=builder,
         )
@@ -203,7 +203,7 @@ def parametric_id_task(
 @flow(name="stage4b-parametric-id", log_prints=True, persist_result=True, result_serializer="json")
 def stage4b_parametric_id_flow(
     stage4_result: dict,
-    raw_data: pl.DataFrame,
+    data_for_model: pl.DataFrame,
     builder: Any = None,
 ) -> dict:
     """Stage 4b: Parametric identifiability check.
@@ -213,21 +213,21 @@ def stage4b_parametric_id_flow(
 
     Args:
         stage4_result: Output from stage4_agentic_flow
-        raw_data: Canonical observation rows (indicator, value, anchor_time, support metadata)
+        data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:
         stage4_result augmented with 'parametric_id' and 'inference_structure' keys
     """
     model_spec = stage4_result["model_spec"]
-    priors = stage4_result["priors"]
+    authored_priors = stage4_result["authored_priors"]
     causal_spec = stage4_result.get("causal_spec")
     compiled_ssm = stage4_result.get("_compiled_ssm")
 
     diagnostics = parametric_id_task(
         model_spec,
-        priors,
-        raw_data,
+        authored_priors,
+        data_for_model,
         _causal_spec=causal_spec,
         compiled_ssm=compiled_ssm,
         builder=builder,

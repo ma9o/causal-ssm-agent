@@ -605,7 +605,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
         if parameter["role"] == "ar_coefficient":
             parameter["constraint"] = "unit_interval"
 
-    priors = json.loads(json.dumps(stage4["priors"]))
+    priors = json.loads(json.dumps(stage4["authored_priors"]))
     for old_name, new_name in name_map.items():
         if old_name in priors:
             priors[new_name] = priors.pop(old_name)

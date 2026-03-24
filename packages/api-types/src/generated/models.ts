@@ -402,9 +402,10 @@ export interface Stage4Contract {
   outcome: "success" | "warn" | "fail";
   llm_trace?: LLMTrace | null;
   model_spec: ModelSpec;
-  priors: {
+  authored_priors: {
     [k: string]: PriorProposal | undefined;
   };
+  resolved_priors: PriorProposal | undefined[];
   search_queries?: {
     [k: string]: string | undefined;
   } | null;

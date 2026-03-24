@@ -256,6 +256,8 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         return {
             "model_spec": {},
             "priors": {},
+            "authored_priors": {},
+            "resolved_priors": [],
             "causal_spec": stage1b["causal_spec"],
         }
 
@@ -333,7 +335,8 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
 
     override_payload = {
         "model_spec": {"parameters": []},
-        "priors": {},
+        "authored_priors": {},
+        "resolved_priors": [],
     }
 
     result = asyncio.run(
@@ -822,7 +825,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                 },
             ],
         },
-        "priors": {
+        "authored_priors": {
             "rho_stress": {
                 "parameter": "rho_stress",
                 "distribution": "Beta",
@@ -1128,6 +1131,8 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
         {
             "model_spec": {"parameters": []},
             "priors": {},
+            "authored_priors": {},
+            "resolved_priors": [],
             "causal_spec": {
                 "latent": {"constructs": []},
                 "measurement": {"model_clock": "1d", "indicators": []},

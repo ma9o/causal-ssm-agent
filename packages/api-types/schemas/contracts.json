@@ -2593,12 +2593,19 @@
         "model_spec": {
           "$ref": "#/$defs/ModelSpec"
         },
-        "priors": {
+        "authored_priors": {
           "additionalProperties": {
             "$ref": "#/$defs/PriorProposal"
           },
-          "title": "Priors",
+          "title": "Authored Priors",
           "type": "object"
+        },
+        "resolved_priors": {
+          "items": {
+            "$ref": "#/$defs/PriorProposal"
+          },
+          "title": "Resolved Priors",
+          "type": "array"
         },
         "search_queries": {
           "anyOf": [
@@ -2635,9 +2642,10 @@
         }
       },
       "required": [
+        "authored_priors",
         "model_spec",
         "outcome",
-        "priors"
+        "resolved_priors"
       ],
       "title": "Stage4Contract",
       "type": "object"

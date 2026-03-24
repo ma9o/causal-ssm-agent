@@ -147,7 +147,7 @@ def stage4_grounding(
     data: dict,
     causal_spec: dict,
     current: dict | None = None,
-    raw_data: Any = None,
+    data_for_model: Any = None,
     indicator_audits: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict | None, str]:
     """Ground stage 4 proposals: validate, compile, optionally run prior predictive.
@@ -158,13 +158,15 @@ def stage4_grounding(
 
     The function merges proposals with ``current`` (existing stage-4 state),
     then validates schemas, compiles the model, and — when real priors and
-    ``raw_data`` are available — runs prior predictive checks.
+    ``data_for_model`` are available — runs prior predictive checks.
 
     Gates (applied in order):
     1. Schema + domain validation for any submitted fields
     2. Compile (default priors if none available, real priors otherwise)
-    3. Prior predictive (only when real priors + raw_data present)
+    3. Prior predictive (only when real priors + data_for_model present)
     """
+    from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
     from .stage4_assembly import (
         format_prior_proposal_errors,
         format_validation_feedback,
@@ -205,7 +207,7 @@ def stage4_grounding(
         if len(prior_names) > MAX_STAGE4_PRIOR_BATCH_SIZE:
             return None, _format_prior_batch_limit_feedback(prior_names)
 
-        redundant_priors = _find_redundant_prior_updates(new_priors, state.get("priors"))
+        redundant_priors = _find_redundant_prior_updates(new_priors, state.get("authored_priors"))
         if redundant_priors:
             return None, _format_redundant_stage4_update_feedback("priors", redundant_priors)
 
@@ -218,8 +220,8 @@ def stage4_grounding(
     if new_priors is not None:
         validated_priors, prior_errors = partition_prior_proposals(new_priors)
         if validated_priors:
-            state["priors"] = merge_priors(state.get("priors"), validated_priors)
-            output["priors"] = state["priors"]  # full merged set
+            state["authored_priors"] = merge_priors(state.get("authored_priors"), validated_priors)
+            output["authored_priors"] = state["authored_priors"]
         if prior_errors:
             return output or None, format_prior_proposal_errors(prior_errors)
 
@@ -229,15 +231,15 @@ def stage4_grounding(
         message = "COMPILE ERROR:\nNo model_spec available — submit model_spec first"
         return output or None, f"{message}\n\n{guidance}" if output else message
 
-    priors = state.get("priors")
+    authored_priors = state.get("authored_priors")
     required_priors = _required_prior_names(model_spec)
-    missing_priors = [name for name in required_priors if name not in (priors or {})]
+    missing_priors = [name for name in required_priors if name not in (authored_priors or {})]
 
     # First lock in the model spec, then accumulate priors incrementally.
     validation = validate_assembly(
         model_spec,
-        priors if not missing_priors else None,
-        raw_data,
+        authored_priors if not missing_priors else None,
+        data_for_model,
         indicator_audits,
         causal_spec,
     )
@@ -254,13 +256,18 @@ def stage4_grounding(
     if missing_priors:
         return output, _format_missing_priors_feedback(missing_priors)
 
+    output["resolved_priors"] = resolve_prior_proposals(
+        validation.compiled_ssm,
+        authored_priors=authored_priors or {},
+    )
+
     if validation.is_valid:
         return output, "VALID"
 
     feedback = format_validation_feedback(
         validation,
-        priors or {},
-        changed_params=list(new_priors) if new_priors else list(priors or {}),
+        authored_priors or {},
+        changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
     )
     return output, _with_stateful_retry_guidance(feedback)
 
@@ -509,7 +516,7 @@ def _agentic_stage4_grounding(
     data: dict,
     causal_spec: dict,
     current: dict | None,
-    raw_data: Any,
+    data_for_model: Any,
     indicator_audits: dict[str, dict[str, Any]] | None,
     *,
     resolved_likelihoods: list[dict],
@@ -572,7 +579,7 @@ def _agentic_stage4_grounding(
             merged_data,
             causal_spec,
             current=current,
-            raw_data=raw_data,
+            data_for_model=data_for_model,
             indicator_audits=indicator_audits,
         )
 
@@ -581,7 +588,7 @@ def _agentic_stage4_grounding(
         data,
         causal_spec,
         current=current,
-        raw_data=raw_data,
+        data_for_model=data_for_model,
         indicator_audits=indicator_audits,
     )
 

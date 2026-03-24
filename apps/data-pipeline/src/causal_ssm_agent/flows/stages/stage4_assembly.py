@@ -3,7 +3,7 @@
 Shared compile + prior-predictive validation pipeline used by both
 ``stage4_grounding()`` (interactive) and ``stage4_agentic_flow()`` (batch).
 
-The two paths differ only in their failure policy — domain logic is defined
+The two paths differ only in their failure policy - domain logic is defined
 once here.
 """
 
@@ -41,8 +41,8 @@ class AssemblyValidation:
 
 def validate_assembly(
     model_spec: dict,
-    priors: dict | None,
-    raw_data: pl.DataFrame | None,
+    authored_priors: dict | None,
+    data_for_model: pl.DataFrame | None,
     indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
 ) -> AssemblyValidation:
@@ -53,7 +53,7 @@ def validate_assembly(
 
     Steps:
         1. Compile check: trial compile (no priors) or real compile (with priors)
-        2. Prior predictive validation (only when priors + raw_data present)
+        2. Prior predictive validation (only when authored priors + data_for_model present)
 
     Returns:
         AssemblyValidation with structured results.
@@ -61,9 +61,9 @@ def validate_assembly(
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
 
     candidate = _prepare_model_spec(model_spec, causal_spec)
-    if priors:
+    if authored_priors:
         try:
-            compiled_ssm = compile_ssm_artifact(candidate, priors, causal_spec=causal_spec)
+            compiled_ssm = compile_ssm_artifact(candidate, authored_priors, causal_spec=causal_spec)
         except Exception as exc:
             return AssemblyValidation(
                 normalized_model_spec=candidate,
@@ -80,13 +80,13 @@ def validate_assembly(
             )
         compiled_ssm = None
 
-    if priors and raw_data is not None:
+    if authored_priors and data_for_model is not None:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
 
         is_valid, results, raw_samples = validate_prior_predictive(
             candidate,
-            priors,
-            raw_data,
+            authored_priors,
+            data_for_model,
             data_stats=_indicator_audit_scale_stats(indicator_audits),
             causal_spec=causal_spec,
             compiled_ssm=compiled_ssm,
@@ -177,13 +177,13 @@ def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(model_spec, dict):
         raise ValueError("Stage 4 replay requires a 'model_spec' object")
 
-    priors = payload.get("priors")
-    if not isinstance(priors, dict):
-        raise ValueError("Stage 4 replay requires a 'priors' object")
+    authored_priors = payload.get("authored_priors")
+    if not isinstance(authored_priors, dict):
+        raise ValueError("Stage 4 replay requires an 'authored_priors' object")
 
     return {
         "model_spec": model_spec,
-        "priors": validate_prior_proposals(priors),
+        "authored_priors": validate_prior_proposals(authored_priors),
         "llm_trace": payload.get("llm_trace"),
     }
 
@@ -327,8 +327,8 @@ def _format_global_failure_summary(results: list) -> str:
 
 def compile_model_artifact(
     model_spec: dict,
-    priors: dict[str, dict],
-    raw_data: pl.DataFrame,
+    authored_priors: dict[str, dict],
+    data_for_model: pl.DataFrame,
     causal_spec: dict | None = None,
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -339,10 +339,10 @@ def compile_model_artifact(
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
             _prepare_model_spec(model_spec, causal_spec),
-            priors,
+            authored_priors,
             causal_spec=causal_spec,
         )
-        runtime = prepare_model_runtime(raw_data, compiled_ssm=artifact)
+        runtime = prepare_model_runtime(data_for_model, compiled_ssm=artifact)
         builder = runtime.builder
         return {
             "model_built": True,
@@ -365,8 +365,8 @@ def compile_model_artifact(
 def materialize_stage4_result(
     *,
     model_spec: dict[str, Any],
-    priors: dict[str, dict],
-    raw_data: pl.DataFrame,
+    authored_priors: dict[str, dict],
+    data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
     llm_trace: dict[str, Any] | None = None,
@@ -374,10 +374,12 @@ def materialize_stage4_result(
     search_queries: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the full grounded stage-4 result from authored inputs."""
+    from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
     validation = validation or validate_assembly(
         model_spec,
-        priors,
-        raw_data,
+        authored_priors,
+        data_for_model,
         indicator_audits,
         causal_spec,
     )
@@ -385,16 +387,22 @@ def materialize_stage4_result(
     validation_result = build_validation_payload(validation, normalized_model_spec)
     model_result = compile_model_artifact(
         normalized_model_spec,
-        priors,
-        raw_data,
+        authored_priors,
+        data_for_model,
         causal_spec=causal_spec,
         compiled_ssm=validation.compiled_ssm,
     )
     compiled_ssm = model_result.pop("compiled_ssm", None)
+    resolved_priors = (
+        resolve_prior_proposals(compiled_ssm, authored_priors=authored_priors)
+        if compiled_ssm
+        else []
+    )
 
     result = {
         "model_spec": normalized_model_spec,
-        "priors": priors,
+        "authored_priors": authored_priors,
+        "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
         "validation": validation_result,
         "model_info": model_result,
@@ -411,7 +419,7 @@ def materialize_stage4_result(
 
 def format_validation_feedback(
     validation: AssemblyValidation,
-    priors: dict,
+    authored_priors: dict,
     changed_params: list[str] | None = None,
     data_stats: dict | None = None,
 ) -> str:
@@ -438,13 +446,13 @@ def format_validation_feedback(
 
     from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
 
-    params = changed_params or list(priors.keys())
+    params = changed_params or list(authored_priors.keys())
     parts = []
     for param_name in params:
         fb = format_parameter_feedback(
             parameter_name=param_name,
             results=validation.pp_results,
-            prior=priors.get(param_name),
+            prior=authored_priors.get(param_name),
             data_stats=data_stats,
         )
         if fb:

@@ -175,7 +175,7 @@ describe("POST /api/replay", () => {
         body: JSON.stringify({
           workspaceId: "user-123",
           stageId: "stage-4",
-          stageData: { model_spec: {}, priors: {} },
+          stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
         }),
       }),
     );
@@ -222,7 +222,7 @@ describe("POST /api/replay", () => {
         body: JSON.stringify({
           workspaceId: "user-123",
           stageId: "stage-4",
-          stageData: { model_spec: { nodes: [] }, priors: {} },
+          stageData: { model_spec: { nodes: [] }, authored_priors: {}, resolved_priors: [] },
         }),
       }),
     );
@@ -262,7 +262,7 @@ describe("POST /api/replay", () => {
         start_stage: "stage-4",
         stage_overrides: {
           "stage-1a": { latent_model: { constructs: ["existing"] } },
-          "stage-4": { model_spec: { nodes: [] }, priors: {} },
+          "stage-4": { model_spec: { nodes: [] }, authored_priors: {}, resolved_priors: [] },
         },
       },
     });
@@ -296,7 +296,7 @@ describe("POST /api/replay", () => {
         body: JSON.stringify({
           workspaceId: "user-123",
           stageId: "stage-4",
-          stageData: { model_spec: {}, priors: {} },
+          stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
         }),
       }),
     );
@@ -340,7 +340,7 @@ describe("POST /api/replay", () => {
         body: JSON.stringify({
           workspaceId: "user-123",
           stageId: "stage-4",
-          stageData: { model_spec: {}, priors: {} },
+          stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
           rootFlowRunId: "bootstrap-run",
         }),
       }),

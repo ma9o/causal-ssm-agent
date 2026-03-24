@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { PriorProposal, Stage1bData, Stage4Data } from "@causal-ssm/api-types";
+import type { Stage1bData, Stage4Data } from "@causal-ssm/api-types";
+import { collectStage4Priors } from "@/lib/stage4-data";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SSMEquationDisplay } from "./ssm-equation-display";
 import stage4Fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
@@ -10,7 +11,7 @@ const stage1b = stage1bFixture as unknown as Stage1bData;
 
 const likelihoods = stage4.model_spec.likelihoods;
 const parameters = stage4.model_spec.parameters;
-const priors = Object.values(stage4.priors).filter(Boolean) as PriorProposal[];
+const priors = collectStage4Priors(stage4);
 
 const indicatorConstructMap: Record<string, string> = {};
 for (const ind of stage1b.causal_spec.measurement.indicators) {
