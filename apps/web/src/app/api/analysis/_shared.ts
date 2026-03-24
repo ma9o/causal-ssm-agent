@@ -4,13 +4,10 @@ import type {
   AnalysisStageRuns,
   AnalysisStageTaskRun,
 } from "@/lib/api/analysis";
-import { dedupeRootFlowRunIds } from "@/lib/root-flow-runs";
+import { dedupeRootFlowRunIds, getWorkspaceRunTag } from "@/lib/root-flow-runs";
+import { prefectFetch } from "@/lib/server/prefect-runs";
+import { readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
-import {
-  getLatestSessionRootFlowRunId,
-  readQuestion,
-  readSession,
-} from "../sessions/_shared";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
 const PREFECT_API = getPrefectApiUrl();
@@ -95,13 +92,13 @@ function summarizeTaskRun(taskRun: PrefectTaskRun): AnalysisStageTaskRun {
 }
 
 async function prefectGetJson<T>(path: string): Promise<T | null> {
-  const response = await fetch(`${PREFECT_API}${path}`, { cache: "no-store" });
+  const response = await prefectFetch(`${PREFECT_API}${path}`, { cache: "no-store" });
   if (!response.ok) return null;
   return response.json();
 }
 
 async function prefectPostJson<T>(path: string, body: unknown): Promise<T | null> {
-  const response = await fetch(`${PREFECT_API}${path}`, {
+  const response = await prefectFetch(`${PREFECT_API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -109,6 +106,30 @@ async function prefectPostJson<T>(path: string, body: unknown): Promise<T | null
   });
   if (!response.ok) return null;
   return response.json();
+}
+
+async function fetchWorkspaceRootFlowRunIds(workspaceId: string): Promise<string[]> {
+  const flowRuns =
+    (await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
+      flow_runs: {
+        tags: { all_: [getWorkspaceRunTag(workspaceId)] },
+        parent_task_run_id: { is_null_: true },
+      },
+      sort: "START_TIME_DESC",
+      limit: 200,
+    })) ?? [];
+
+  return flowRuns.map((flowRun) => flowRun.id);
+}
+
+async function readWorkspaceQuestion(workspaceId: string): Promise<string | undefined> {
+  try {
+    const text = await readData(`${workspaceId}/query.txt`);
+    const trimmed = text.trim();
+    return trimmed || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchRootFlowRunLineage(
@@ -126,6 +147,35 @@ async function fetchRootFlowRunLineage(
       };
     }),
   );
+}
+
+function getLineageTimestampMs(entry: RootFlowRunLineageEntry): number {
+  if (!entry.createdAt) {
+    return Number.NaN;
+  }
+
+  return Date.parse(entry.createdAt);
+}
+
+function sortLineageEntries(
+  lineage: RootFlowRunLineageEntry[],
+  inputOrder: readonly string[],
+): RootFlowRunLineageEntry[] {
+  const order = new Map(inputOrder.map((rootFlowRunId, index) => [rootFlowRunId, index]));
+
+  return [...lineage].sort((left, right) => {
+    const leftTs = getLineageTimestampMs(left);
+    const rightTs = getLineageTimestampMs(right);
+
+    if (Number.isFinite(leftTs) && Number.isFinite(rightTs) && leftTs !== rightTs) {
+      return leftTs - rightTs;
+    }
+    if (Number.isFinite(leftTs) !== Number.isFinite(rightTs)) {
+      return Number.isFinite(leftTs) ? -1 : 1;
+    }
+
+    return (order.get(left.rootFlowRunId) ?? 0) - (order.get(right.rootFlowRunId) ?? 0);
+  });
 }
 
 async function fetchTaskRunsForRootFlowRun(rootFlowRunId: string): Promise<PrefectTaskRun[]> {
@@ -247,17 +297,19 @@ export async function buildAnalysisManifest(
   workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
 ): Promise<AnalysisManifest | null> {
-  const session = await readSession(workspaceId);
-  const rootFlowRunIds = dedupeRootFlowRunIds([
-    ...(session?.rootFlowRunIds ?? []),
+  const prefectRootFlowRunIds = await fetchWorkspaceRootFlowRunIds(workspaceId);
+  const candidateRootFlowRunIds = dedupeRootFlowRunIds([
+    ...prefectRootFlowRunIds,
     ...bootstrapRootFlowRunIds,
   ]);
-  if (!session && rootFlowRunIds.length === 0) return null;
+  if (candidateRootFlowRunIds.length === 0) return null;
 
-  const [question, lineage] = await Promise.all([
-    readQuestion(workspaceId),
-    fetchRootFlowRunLineage(rootFlowRunIds),
+  const [storedQuestion, rawLineage] = await Promise.all([
+    readWorkspaceQuestion(workspaceId),
+    fetchRootFlowRunLineage(candidateRootFlowRunIds),
   ]);
+  const lineage = sortLineageEntries(rawLineage, candidateRootFlowRunIds);
+  const rootFlowRunIds = lineage.map((entry) => entry.rootFlowRunId);
   const stagesResolved = await buildStageRuns(rootFlowRunIds, lineage);
   const bootstrapQuestion =
     lineage
@@ -266,17 +318,14 @@ export async function buildAnalysisManifest(
       .find((entry) => entry.query)?.query ?? undefined;
 
   const createdAt =
-    session?.createdAt ??
-    lineage.find((entry) => entry.createdAt)?.createdAt ??
-    new Date(0).toISOString();
+    lineage.find((entry) => entry.createdAt)?.createdAt ?? new Date(0).toISOString();
 
   return {
     workspaceId,
     createdAt,
-    question: question ?? bootstrapQuestion,
+    question: bootstrapQuestion ?? storedQuestion,
     rootFlowRunIds,
-    latestRootFlowRunId:
-      rootFlowRunIds.at(-1) ?? getLatestSessionRootFlowRunId(session ?? undefined),
+    latestRootFlowRunId: rootFlowRunIds.at(-1) ?? null,
     stages: stagesResolved,
   };
 }

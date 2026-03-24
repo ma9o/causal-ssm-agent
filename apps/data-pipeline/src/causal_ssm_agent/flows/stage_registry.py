@@ -15,8 +15,9 @@ import graphlib
 import inspect
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from ..utils.litellm_client import use_openrouter_api_key
 from . import get_prefect_logger
 from .run_store import (
     STAGE0_PARQUET_FILENAMES,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 logger = get_prefect_logger(__name__)
+OpenRouterAccessMode = Literal["user", "trial"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -58,7 +60,8 @@ class PipelineContext:
     lit_enabled: bool
     inference_method: str | None
     supported_overrides: dict[str, dict]
-    is_byok: bool
+    openrouter_api_key: str | None
+    openrouter_access_mode: OpenRouterAccessMode | None
 
 
 @dataclass(frozen=True)
@@ -133,9 +136,10 @@ async def run_stage_flow(
         result = dict(override_payload)
     else:
         inputs = defn.bind_inputs(ctx, stage_states)
-        result = defn.runner(**inputs)
-        if inspect.isawaitable(result):
-            result = await result
+        with use_openrouter_api_key(ctx.openrouter_api_key):
+            result = defn.runner(**inputs)
+            if inspect.isawaitable(result):
+                result = await result
 
     # Persist artifacts (save_parquet, save_pickle, etc.)
     result = defn.materializer.persist(result, ctx.workspace_id)
@@ -354,11 +358,15 @@ def _restore_stage5b(workspace_id: str, web: dict, prior_states: dict) -> dict:
 
 
 def _bind_stage0(ctx: PipelineContext, states: dict) -> dict:
-    return {"workspace_id": ctx.workspace_id}
+    return {
+        "workspace_id": ctx.workspace_id,
+    }
 
 
 def _bind_stage1a(ctx: PipelineContext, states: dict) -> dict:
-    return {"question": ctx.question}
+    return {
+        "question": ctx.question,
+    }
 
 
 def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
@@ -377,7 +385,7 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
         "stage0": states["stage-0"]["result"],
         "stage1b": states["stage-1b"]["result"],
         "root_run_id": ctx.prefect_run_id,
-        "max_windows": None if ctx.is_byok else MAX_FREE_WINDOWS,
+        "max_windows": None if ctx.openrouter_access_mode == "user" else MAX_FREE_WINDOWS,
     }
 
 
@@ -600,18 +608,45 @@ def _build_registry() -> dict[str, StageDefinition]:
 
     # In production, offload stages 4 and 5b to Modal
     if os.environ.get("DEPLOYMENT_ENV") == "production":
+        from . import dag
         from .modal_runners import (
             modal_stage4_runner,
             modal_stage5b_runner,
             persist_noop,
         )
 
-        def _bind_stage4_modal(ctx: PipelineContext, states: dict) -> dict:
-            return _bind_stage4(ctx, states)
+        async def _run_stage4_modal_or_local(
+            question: str,
+            stage1b: dict,
+            stage2: dict,
+            stage3: dict,
+            enable_literature: bool,
+            openrouter_access_mode: OpenRouterAccessMode | None,
+        ) -> dict:
+            if openrouter_access_mode == "user":
+                return await dag.stage4(
+                    question,
+                    stage1b,
+                    stage2,
+                    stage3,
+                    enable_literature,
+                )
+            return await modal_stage4_runner(
+                question,
+                stage1b,
+                stage2,
+                stage3,
+                enable_literature,
+            )
 
         def _bind_stage5b_modal(ctx: PipelineContext, states: dict) -> dict:
             base = _bind_stage5b(ctx, states)
             base["workspace_id"] = ctx.workspace_id
+            return base
+
+        def _bind_stage4_modal_or_local(ctx: PipelineContext, states: dict) -> dict:
+            base = _bind_stage4(ctx, states)
+            base["openrouter_access_mode"] = ctx.openrouter_access_mode
             return base
 
         registry["stage-5b"] = replace(
@@ -625,8 +660,8 @@ def _build_registry() -> dict[str, StageDefinition]:
         )
         registry["stage-4"] = replace(
             registry["stage-4"],
-            bind_inputs=_bind_stage4_modal,
-            runner=modal_stage4_runner,
+            bind_inputs=_bind_stage4_modal_or_local,
+            runner=_run_stage4_modal_or_local,
         )
 
     return registry

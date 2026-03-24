@@ -57,6 +57,7 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   │   │   ├── models/            # NumPyro SSM compilation, likelihoods, inference routing
 │   │   │   ├── flows/             # Prefect pipeline stages (0–6) + replay orchestration
 │   │   │   └── utils/             # Shared utilities (config, LLM runtime, identifiability)
+│   │   │       └── byok_secret_store.py  # Single-use encrypted OpenRouter handoff refs for pipeline access handoff
 │   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
 │   │   ├── evals/                 # Inspect AI evals
 │   │   ├── notebooks/             # Showcase notebooks
@@ -65,11 +66,18 @@ causal-ssm-agent/                  # Turborepo monorepo
 │   └── web/                       # Next.js frontend
 │       └── src/
 │           ├── app/               # App router pages + API routes
+│           │   ├── api/auth/      # OpenRouter session exchange/logout/status routes and trial access reporting
+│           │   ├── api/refine/    # Interactive-LLM refinement route
+│           │   └── api/runs/      # Server-mediated pipeline launch endpoint with OpenRouter access resolution
 │           ├── components/        # React components (stages, charts, DAG, pipeline)
 │           └── lib/               # API clients, hooks, types, utilities
+│               ├── root-flow-runs.ts  # Root Prefect run lineage helpers
+│               └── server/        # Server-only OpenRouter, Prefect, and run-lock helpers
 ├── packages/
-│   └── api-types/                 # Generated TypeScript types + exported schema snapshots
-├── data/                          # Workspace data (query, input, session lineage, run artifacts)
+│   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
+│   └── typescript-config/         # Shared TS config
+├── data/                          # Root data workspace shared by web + pipeline
+│   └── <WORKSPACE_ID>/            # Workspace: access.json, input/, query.txt, run/
 ├── docs/                          # Project documentation (see docs/index.md)
 └── scratchpad/                    # Temporary work files (gitignored)
 ```

@@ -322,6 +322,7 @@ async def _run_semantic_chunks_prefect(
     chunk_contexts: list[dict],
     question: str,
     root_run_id: str | None,
+    openrouter_api_key: str | None,
     max_concurrent_workers: int,
     max_rpm: int,
 ) -> tuple[list[dict], list[dict], int, dict | None]:
@@ -351,6 +352,7 @@ async def _run_semantic_chunks_prefect(
             chunk_idx=all_indices,
             question=unmapped(question),
             causal_spec=chunk_contexts,
+            openrouter_api_key=unmapped(openrouter_api_key),
         )
         if root_run_id:
             for idx, n_w in zip(all_indices, all_n_windows, strict=True):
@@ -383,6 +385,7 @@ async def run_stage2_extraction_core(
     stage2_workers: Any,
     root_run_id: str | None = None,
     max_windows: int | None = None,
+    openrouter_api_key: str | None = None,
     semantic_chunk_runner: SemanticChunkRunner | None = None,
 ) -> dict:
     """Shared Stage 2 extraction helper for flows and evals.
@@ -455,6 +458,7 @@ async def run_stage2_extraction_core(
                 chunk_contexts=chunk_contexts,
                 question=question,
                 root_run_id=root_run_id,
+                openrouter_api_key=openrouter_api_key,
                 max_concurrent_workers=stage2_workers.max_concurrent_workers,
                 max_rpm=stage2_workers.max_rpm,
             )
@@ -545,6 +549,7 @@ async def extract_window_chunk_task(
     chunk_idx: int,
     question: str,
     causal_spec: dict,
+    openrouter_api_key: str | None = None,
 ) -> dict:
     """Extract indicator values from a chunk of support windows.
 
@@ -561,7 +566,7 @@ async def extract_window_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.litellm_client import GenerateConfig
+    from causal_ssm_agent.utils.litellm_client import GenerateConfig, use_openrouter_api_key
     from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
     from causal_ssm_agent.workers.core import run_worker_extraction
 
@@ -593,43 +598,44 @@ async def extract_window_chunk_task(
         generate_config.reasoning_effort,
     )
 
-    async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
-        generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
+    with use_openrouter_api_key(openrouter_api_key):
+        async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
+            generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
 
-        started_at = perf_counter()
-        try:
-            result = await run_worker_extraction(
-                window_text=window_text,
-                window_starts=window_starts,
-                question=question,
-                causal_spec=causal_spec,
-                generate=generate,
-                logger=run_logger,
-                call_label=chunk_label,
-            )
-        except Exception:
-            run_logger.exception(
-                "[%s] Failed after %.1fs",
+            started_at = perf_counter()
+            try:
+                result = await run_worker_extraction(
+                    window_text=window_text,
+                    window_starts=window_starts,
+                    question=question,
+                    causal_spec=causal_spec,
+                    generate=generate,
+                    logger=run_logger,
+                    call_label=chunk_label,
+                )
+            except Exception:
+                run_logger.exception(
+                    "[%s] Failed after %.1fs",
+                    chunk_label,
+                    perf_counter() - started_at,
+                )
+                raise
+
+            elapsed = perf_counter() - started_at
+            run_logger.info(
+                "[%s] Finished in %.1fs with %d extractions and %d output rows",
                 chunk_label,
-                perf_counter() - started_at,
+                elapsed,
+                len(result.output.extractions),
+                result.dataframe.height,
             )
-            raise
 
-        elapsed = perf_counter() - started_at
-        run_logger.info(
-            "[%s] Finished in %.1fs with %d extractions and %d output rows",
-            chunk_label,
-            elapsed,
-            len(result.output.extractions),
-            result.dataframe.height,
-        )
-
-        result_dict: dict = {
-            "dataframe": result.dataframe.to_dicts(),
-            "n_extractions": len(result.output.extractions),
-            "status": "completed",
-        }
-        return ctx.finalize(result_dict)
+            result_dict: dict = {
+                "dataframe": result.dataframe.to_dicts(),
+                "n_extractions": len(result.output.extractions),
+                "status": "completed",
+            }
+            return ctx.finalize(result_dict)
 
 
 @flow(
@@ -644,6 +650,7 @@ async def stage2_extraction_flow(
     causal_spec: dict,
     root_run_id: str | None = None,
     max_windows: int | None = None,
+    openrouter_api_key: str | None = None,
 ) -> dict:
     """Stage 2: Extract indicator values via hybrid computed/semantic paths.
 
@@ -672,5 +679,6 @@ async def stage2_extraction_flow(
         stage2_workers=config.stage2_workers,
         root_run_id=root_run_id,
         max_windows=max_windows,
+        openrouter_api_key=openrouter_api_key,
         semantic_chunk_runner=_run_semantic_chunks_prefect,
     )

@@ -68,7 +68,11 @@ async def stage1a(question: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
+async def stage1b(
+    question: str,
+    stage0: dict,
+    stage1a: dict,
+) -> dict:
     """Propose measurement model and check identifiability.
 
     Returns: {causal_spec, measurement_model, identifiability_status, llm_trace?}
@@ -301,6 +305,7 @@ async def stage4(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    openrouter_api_key: str | None = None,
 ) -> dict:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
     from .stages import stage4_agentic_flow
@@ -314,6 +319,7 @@ async def stage4(
         data_for_model=data_for_model,
         indicator_audits=stage3["indicators"],
         enable_literature=enable_literature,
+        openrouter_api_key=openrouter_api_key,
     )
 
 

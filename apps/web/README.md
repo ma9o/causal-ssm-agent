@@ -24,6 +24,14 @@ Live Prefect log streaming also requires the server-side Prefect settings:
 
 The web app bootstraps logs once via REST and then expects live log delivery to come from Prefect's `logs/out` WebSocket. There is no polling fallback.
 
-If `OPENROUTER_API_KEY` is not present in the web runtime env, the app falls back to the monorepo root `.env`.
+OpenRouter web access uses these server-side env vars:
+- `OPENROUTER_SESSION_SECRET` for the encrypted OpenRouter session cookie (minimum 32 characters)
+- `OPENROUTER_TRIAL_API_KEY` for anonymous trial execution
+- `OPENROUTER_CREDITS_API_KEY` for optional trial credit inspection
+- `BYOK_SECRET_STORE_ENCRYPTION_KEY` for the encrypted single-use OpenRouter handoff refs (minimum 32 characters)
+- `BYOK_SECRET_STORE_URL` for the OpenRouter ref store; defaults to `file:.local/byok-secret-store.db` locally and can point at `libsql://...` in deployed environments
+- `BYOK_SECRET_STORE_AUTH_TOKEN` for remote libSQL/Turso deployments
+
+The web app reads those keys from the runtime environment first, then falls back to the monorepo root `.env` for local development. In local dev and CI, the web app and pipeline share the same file-backed libSQL database for single-use OpenRouter handoff refs. In deployed environments, both services can point that same store at Turso with the same URL and token.
 
 See the root README for full project context and [`docs/guides/`](../../docs/guides/) for usage guides.

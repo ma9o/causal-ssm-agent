@@ -116,22 +116,13 @@ DEPLOY_ID=$(curl -s -X POST http://localhost:4200/api/deployments/filter \
 # Create flow run
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true}}" \
   | jq -r '.id')
 
 echo "Flow Run ID: $FLOW_RUN_ID"
 ```
 
-### 3. Register run metadata
-
-```bash
-curl -s -X POST http://localhost:3000/api/sessions \
-  -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
-# → {"ok":true}
-```
-
-### 4. Verify workspace lookup
+### 3. Verify workspace lookup
 
 ```bash
 COOKIE_JAR=$(mktemp)
@@ -140,11 +131,11 @@ curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/workspaces/unlock \
   -H 'Content-Type: application/json' \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\"}"
 
-curl -s -b "$COOKIE_JAR" http://localhost:3000/api/sessions/$WORKSPACE_ID
-# → {"rootFlowRunIds":["..."],"question":"...","createdAt":"..."}
+curl -s -b "$COOKIE_JAR" http://localhost:3000/api/analysis/$WORKSPACE_ID
+# → {"workspaceId":"...","question":"...","rootFlowRunIds":["..."],"latestRootFlowRunId":"...","stages":{...}}
 ```
 
-### 5. Resume via browser automation
+### 4. Resume via browser automation
 
 Using browser automation:
 
@@ -153,11 +144,10 @@ Using browser automation:
 2. Type the resume key (`{WORKSPACE_ID}.{ACCESS_CODE}`) into the resume input
 3. Click "Resume" button
 4. Verify redirect to /analysis/{WORKSPACE_ID}
-   If the session write failed but the run launched successfully, the URL may include ?rootFlowRunId=...
 5. Screenshot the progress bar (should show the workspace ID badge)
 ```
 
-### 6. Screenshot stages as they complete
+### 5. Screenshot stages as they complete
 
 Poll and screenshot as the pipeline progresses:
 
@@ -202,7 +192,7 @@ parameter; it was materialized to `data/{workspace_id}/query.txt` during the ori
 # Example: stage-3 failed, rerun from stage-3 onward
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
   | jq -r '.id')
 ```
 
@@ -213,20 +203,13 @@ You can also scope the rerun to a single stage by combining `start_stage` and
 # Rerun only stage-4, then stop
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
   | jq -r '.id')
 ```
 
-### Re-register the new flow run
-
-After triggering a resume run, update the session so the web UI tracks the new
-flow run ID:
-
-```bash
-curl -s -X POST http://localhost:3000/api/sessions \
-  -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\",\"rootFlowRunId\":\"$FLOW_RUN_ID\",\"question\":\"How does screen time affect sleep?\"}"
-```
+No extra web-side registration step is required after reruns. The analysis UI
+discovers workspace history directly from Prefect root runs tagged with
+`workspace:{workspace_id}`.
 
 ### Valid stage IDs
 

@@ -1,54 +1,82 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../sessions/_shared", () => ({
-  getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
-  readQuestion: vi.fn(),
-  readSession: vi.fn(),
+vi.mock("@/lib/storage", () => ({
+  readData: vi.fn(),
 }));
 
-import { readQuestion, readSession } from "../sessions/_shared";
+import { readData } from "@/lib/storage";
 import { buildAnalysisManifest } from "./_shared";
 
 const originalFetch = globalThis.fetch;
 
-function jsonResponse(data: unknown, status = 200): Response {
+vi.mocked(readData).mockRejectedValue(new Error("missing"));
+
+function jsonResponse(
+  data: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(headers),
     json: async () => data,
   } as Response;
+}
+
+function parseBody(init?: RequestInit): Record<string, unknown> {
+  return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  vi.mocked(readData).mockReset();
+  vi.mocked(readData).mockRejectedValue(new Error("missing"));
   globalThis.fetch = originalFetch;
 });
 
 describe("buildAnalysisManifest", () => {
   it("assigns each stage to the root run that owns it after a resume", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T18:33:26.268Z",
-      rootFlowRunIds: ["full-run", "resume-run"],
-    });
-    vi.mocked(readQuestion).mockResolvedValue("Why does this happen?");
-
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);
 
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        const parentTaskRunId = (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
+
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "resume-run" }, { id: "full-run" }]);
+        }
+        if (parentTaskRunId === "stage-4-task") {
+          return jsonResponse([{ id: "stage-4-subflow" }]);
+        }
+        if (parentTaskRunId === "stage-4b-task") {
+          return jsonResponse([{ id: "stage-4b-subflow" }]);
+        }
+      }
+
       if (url === "http://localhost:4200/api/flow_runs/full-run") {
-        return jsonResponse({ id: "full-run", parameters: {} });
+        return jsonResponse({
+          id: "full-run",
+          created: "2026-03-13T18:15:00.000Z",
+          parameters: { query: "Why does this happen?" },
+        });
       }
 
       if (url === "http://localhost:4200/api/flow_runs/resume-run") {
-        return jsonResponse({ id: "resume-run", parameters: { start_stage: "stage-4b" } });
+        return jsonResponse({
+          id: "resume-run",
+          created: "2026-03-13T18:33:00.000Z",
+          parameters: { start_stage: "stage-4b" },
+        });
       }
 
       if (url === "http://localhost:4200/api/task_runs/filter") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as {
-          flow_runs?: { id?: { any_?: string[] } };
-        };
-        const rootFlowRunId = body.flow_runs?.id?.any_?.[0];
+        const body = parseBody(init);
+        const rootFlowRunId = ((body.flow_runs as { id?: { any_?: string[] } } | undefined)?.id?.any_ ?? [])[0];
 
         if (rootFlowRunId === "full-run") {
           return jsonResponse([
@@ -75,21 +103,6 @@ describe("buildAnalysisManifest", () => {
         }
       }
 
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as {
-          flow_runs?: { parent_task_run_id?: { any_?: string[] } };
-        };
-        const parentTaskRunId = body.flow_runs?.parent_task_run_id?.any_?.[0];
-
-        if (parentTaskRunId === "stage-4-task") {
-          return jsonResponse([{ id: "stage-4-subflow" }]);
-        }
-
-        if (parentTaskRunId === "stage-4b-task") {
-          return jsonResponse([{ id: "stage-4b-subflow" }]);
-        }
-      }
-
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
 
@@ -97,7 +110,7 @@ describe("buildAnalysisManifest", () => {
 
     expect(manifest).toMatchObject({
       workspaceId: "user-123",
-      createdAt: "2026-03-13T18:33:26.268Z",
+      createdAt: "2026-03-13T18:15:00.000Z",
       question: "Why does this happen?",
       rootFlowRunIds: ["full-run", "resume-run"],
       latestRootFlowRunId: "resume-run",
@@ -138,17 +151,32 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("matches Prefect's suffixed wrapper task names when resolving a stage subflow", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T18:33:26.268Z",
-      rootFlowRunIds: ["run-abc"],
-    });
-    vi.mocked(readQuestion).mockResolvedValue(undefined);
-
     const fetchMock = vi.fn(async (input, init) => {
       const url = String(input);
 
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+
+        if ((flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "run-abc" }]);
+        }
+
+        expect(body).toEqual({
+          flows: { name: { any_: ["stage-4b-flow"] } },
+          flow_runs: { parent_task_run_id: { any_: ["task-1"] } },
+          sort: "START_TIME_DESC",
+          limit: 1,
+        });
+        return jsonResponse([{ id: "flow-123" }]);
+      }
+
       if (url === "http://localhost:4200/api/flow_runs/run-abc") {
-        return jsonResponse({ id: "run-abc", parameters: {} });
+        return jsonResponse({
+          id: "run-abc",
+          created: "2026-03-13T18:33:00.000Z",
+          parameters: {},
+        });
       }
 
       if (url === "http://localhost:4200/api/task_runs/filter") {
@@ -161,17 +189,6 @@ describe("buildAnalysisManifest", () => {
             end_time: "2026-03-13T18:35:00.000Z",
           },
         ]);
-      }
-
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body ?? "{}"))).toEqual({
-          flows: { name: { any_: ["stage-4b-flow"] } },
-          flow_runs: { parent_task_run_id: { any_: ["task-1"] } },
-          sort: "START_TIME_DESC",
-          limit: 1,
-        });
-        return jsonResponse([{ id: "flow-123" }]);
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -193,17 +210,33 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("resolves stage-2 log flow sources server-side, including nested worker flows", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T18:33:26.268Z",
-      rootFlowRunIds: ["run-abc"],
-    });
-    vi.mocked(readQuestion).mockResolvedValue(undefined);
-
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);
 
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        const parentTaskRunId = (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
+        const parentFlowRunId = (flowRuns?.parent_flow_run_id as { any_?: string[] } | undefined)?.any_?.[0];
+
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "run-abc" }]);
+        }
+        if (parentTaskRunId === "stage-2-task") {
+          return jsonResponse([{ id: "stage-2-subflow" }]);
+        }
+        if (parentFlowRunId === "stage-2-subflow") {
+          return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
+        }
+      }
+
       if (url === "http://localhost:4200/api/flow_runs/run-abc") {
-        return jsonResponse({ id: "run-abc", parameters: {} });
+        return jsonResponse({
+          id: "run-abc",
+          created: "2026-03-13T18:33:00.000Z",
+          parameters: {},
+        });
       }
 
       if (url === "http://localhost:4200/api/task_runs/filter") {
@@ -216,23 +249,6 @@ describe("buildAnalysisManifest", () => {
             end_time: null,
           },
         ]);
-      }
-
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as {
-          flow_runs?: {
-            parent_task_run_id?: { any_?: string[] };
-            parent_flow_run_id?: { any_?: string[] };
-          };
-        };
-
-        if (body.flow_runs?.parent_task_run_id?.any_?.[0] === "stage-2-task") {
-          return jsonResponse([{ id: "stage-2-subflow" }]);
-        }
-
-        if (body.flow_runs?.parent_flow_run_id?.any_?.[0] === "stage-2-subflow") {
-          return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
-        }
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -252,31 +268,49 @@ describe("buildAnalysisManifest", () => {
   });
 
   it("keeps downstream stage ownership on the original run for single-stage reruns", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T18:33:26.268Z",
-      rootFlowRunIds: ["full-run", "rerun-run"],
-    });
-    vi.mocked(readQuestion).mockResolvedValue("Why does this happen?");
-
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);
 
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        const parentTaskRunId = (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
+
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "rerun-run" }, { id: "full-run" }]);
+        }
+        if (parentTaskRunId === "stage-4-task") {
+          return jsonResponse([{ id: "stage-4-subflow" }]);
+        }
+        if (parentTaskRunId === "stage-6-task") {
+          return jsonResponse([{ id: "stage-6-subflow" }]);
+        }
+      }
+
       if (url === "http://localhost:4200/api/flow_runs/full-run") {
-        return jsonResponse({ id: "full-run", parameters: {} });
+        return jsonResponse({
+          id: "full-run",
+          created: "2026-03-13T18:40:00.000Z",
+          parameters: { query: "Why does this happen?" },
+        });
       }
 
       if (url === "http://localhost:4200/api/flow_runs/rerun-run") {
         return jsonResponse({
           id: "rerun-run",
-          parameters: { start_stage: "stage-4", end_stage: "stage-4" },
+          created: "2026-03-13T18:55:00.000Z",
+          parameters: {
+            query: "Why does this happen?",
+            start_stage: "stage-4",
+            end_stage: "stage-4",
+          },
         });
       }
 
       if (url === "http://localhost:4200/api/task_runs/filter") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as {
-          flow_runs?: { id?: { any_?: string[] } };
-        };
-        const rootFlowRunId = body.flow_runs?.id?.any_?.[0];
+        const body = parseBody(init);
+        const rootFlowRunId = ((body.flow_runs as { id?: { any_?: string[] } } | undefined)?.id?.any_ ?? [])[0];
 
         if (rootFlowRunId === "full-run") {
           return jsonResponse([
@@ -300,21 +334,6 @@ describe("buildAnalysisManifest", () => {
               end_time: "2026-03-13T19:00:00.000Z",
             },
           ]);
-        }
-      }
-
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as {
-          flow_runs?: { parent_task_run_id?: { any_?: string[] } };
-        };
-        const parentTaskRunId = body.flow_runs?.parent_task_run_id?.any_?.[0];
-
-        if (parentTaskRunId === "stage-4-task") {
-          return jsonResponse([{ id: "stage-4-subflow" }]);
-        }
-
-        if (parentTaskRunId === "stage-6-task") {
-          return jsonResponse([{ id: "stage-6-subflow" }]);
         }
       }
 
@@ -344,12 +363,19 @@ describe("buildAnalysisManifest", () => {
     });
   });
 
-  it("can bootstrap a manifest directly from a root flow run when session registration fails", async () => {
-    vi.mocked(readSession).mockResolvedValue(null);
-    vi.mocked(readQuestion).mockResolvedValue(undefined);
-
+  it("can bootstrap a manifest directly from an explicit root flow run when Prefect tags are unavailable", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([]);
+        }
+        return jsonResponse([{ id: "stage-0-subflow" }]);
+      }
 
       if (url === "http://localhost:4200/api/flow_runs/live-run") {
         return jsonResponse({
@@ -360,7 +386,7 @@ describe("buildAnalysisManifest", () => {
       }
 
       if (url === "http://localhost:4200/api/task_runs/filter") {
-        expect(JSON.parse(String(init?.body ?? "{}"))).toEqual({
+        expect(parseBody(init)).toEqual({
           flow_runs: { id: { any_: ["live-run"] } },
           sort: "EXPECTED_START_TIME_DESC",
         });
@@ -373,10 +399,6 @@ describe("buildAnalysisManifest", () => {
             end_time: null,
           },
         ]);
-      }
-
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        return jsonResponse([{ id: "stage-0-subflow" }]);
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -400,5 +422,80 @@ describe("buildAnalysisManifest", () => {
         stateType: "RUNNING",
       },
     });
+  });
+
+  it("falls back to query.txt when Prefect flow runs omit the question", async () => {
+    vi.mocked(readData).mockResolvedValue("Stored workspace question\n");
+
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "resume-run" }]);
+        }
+        return jsonResponse([]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/resume-run") {
+        return jsonResponse({
+          id: "resume-run",
+          created: "2026-03-13T18:33:00.000Z",
+          parameters: { start_stage: "stage-4b" },
+        });
+      }
+
+      if (url === "http://localhost:4200/api/task_runs/filter") {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest?.question).toBe("Stored workspace question");
+  });
+
+  it("retries retryable Prefect responses while loading the manifest", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "rate limited" }, 429, { "Retry-After": "0" }),
+      )
+      .mockResolvedValueOnce(jsonResponse([{ id: "run-abc" }]))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "run-abc",
+          created: "2026-03-13T18:33:00.000Z",
+          parameters: { query: "Why does this happen?" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse([]));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest).toMatchObject({
+      workspaceId: "user-123",
+      question: "Why does this happen?",
+      rootFlowRunIds: ["run-abc"],
+      latestRootFlowRunId: "run-abc",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:4200/api/flow_runs/filter",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:4200/api/flow_runs/filter",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

@@ -18,6 +18,7 @@ dependencies = [
     "fsspec>=2024.2.0",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
+    "libsql>=0.1.5",
     "litellm>=1.82.1",
     "networkx>=3.6",
     "numpy>=2.3.3",

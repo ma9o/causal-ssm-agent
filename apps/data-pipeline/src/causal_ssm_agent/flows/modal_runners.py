@@ -60,11 +60,19 @@ async def _run_stage4(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    openrouter_api_key: str | None,
 ) -> dict:
     """Run stage 4 on Modal."""
     from causal_ssm_agent.flows.dag import stage4
 
-    return await stage4(question, stage1b, stage2, stage3, enable_literature)
+    return await stage4(
+        question,
+        stage1b,
+        stage2,
+        stage3,
+        enable_literature,
+        openrouter_api_key=openrouter_api_key,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +98,16 @@ async def modal_stage4_runner(
     enable_literature: bool,
 ) -> dict:
     """Invoke stage 4 on Modal."""
-    return await _run_stage4.remote.aio(question, stage1b, stage2, stage3, enable_literature)
+    from causal_ssm_agent.utils.litellm_client import get_openrouter_api_key
+
+    return await _run_stage4.remote.aio(
+        question,
+        stage1b,
+        stage2,
+        stage3,
+        enable_literature,
+        get_openrouter_api_key(),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
