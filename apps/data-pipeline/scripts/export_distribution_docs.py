@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from causal_ssm_agent.distributions import render_prior_distribution_markdown_table
+from causal_ssm_agent.distributions import (
+    render_prior_constraint_guidance_markdown_table,
+    render_prior_distribution_markdown_table,
+    render_prior_parameter_guidance_markdown_table,
+)
 
 OUTPUT_PATH = (
     Path(__file__).resolve().parents[3]
     / "docs"
-    / "primitives"
+    / "reference"
     / "model-spec"
     / "prior-distribution-families.md"
 )
@@ -31,9 +35,20 @@ def export_prior_distribution_docs() -> None:
                 "This page is generated from `causal_ssm_agent.distributions.PRIOR_FAMILY_SPECS`.",
                 "Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing this file manually.",
                 "",
+                "## Supported Families",
+                "",
                 render_prior_distribution_markdown_table(),
                 "",
+                "## Constraint Guidance",
+                "",
+                render_prior_constraint_guidance_markdown_table(),
+                "",
+                "## Common Parameter Defaults",
+                "",
+                render_prior_parameter_guidance_markdown_table(),
+                "",
                 "The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.",
+                "The `Family` column values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.",
                 "",
             ]
         )

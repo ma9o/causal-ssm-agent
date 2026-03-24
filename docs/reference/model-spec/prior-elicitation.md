@@ -8,11 +8,13 @@ For parameters not fully determined by rules, Stage 4 uses LLM elicitation infor
 
 ### 2.1 What the LLM Specifies
 
-| Parameter | LLM provides | Rule constraint |
+| Parameter type | LLM provides | Rule constraint |
 |---|---|---|
-| Cross-lag `beta` | Mean, SD | None (domain knowledge) |
-| AR `rho` | Mean, SD | Bounded to `(-1, 1)` for stationarity |
-| Residual `sigma^2` | Scale | Must be positive |
+| Cross-lag `beta` | `PriorProposal` with exact prior family name, params, reasoning, sources | `none` |
+| AR `rho` | `PriorProposal` with exact prior family name, params, reasoning, optional `reference_interval_days` | `unit_interval` |
+| Residual `sigma` | `PriorProposal` with exact prior family name, params, reasoning | `positive` |
+
+The `distribution` field uses the exact canonical `PriorDistributionFamily` names documented in [Supported Prior Distribution Families](./prior-distribution-families.md). Aliases are not accepted.
 
 ### 2.2 Elicitation Protocol (AutoElicit-style, optional)
 
@@ -28,28 +30,34 @@ Default behavior keeps paraphrased prompting disabled for cost reasons, so the c
 
 ### 2.3 Prompt Structure
 
-```text
-You are an expert in {domain} providing prior beliefs for a Bayesian model.
-
-Context: We are estimating the causal effect of {cause} on {effect}.
-- {cause}: {description of cause construct}
-- {effect}: {description of effect construct}
-- Temporal relationship: {lagged/contemporaneous}
-- Data context: {brief description of study/data}
-
-Question: What is your prior belief about the regression coefficient beta_{effect}_{cause}?
-
-Provide:
-1. Your best guess (mean)
-2. Your uncertainty (standard deviation)
-3. Brief reasoning (1-2 sentences)
-
-Output as JSON: {"mean": X, "std": Y, "reasoning": "..."}
+```json
+{
+  "parameter": "beta_stress_sleep",
+  "distribution": "Normal",
+  "params": {"mu": 0.2, "sigma": 0.15},
+  "sources": [
+    {
+      "title": "Meta-analysis title",
+      "url": "https://...",
+      "snippet": "Relevant excerpt",
+      "effect_size": "r=0.2"
+    }
+  ],
+  "reasoning": "Justification for the chosen prior distribution and parameters",
+  "reference_interval_days": 30
+}
 ```
+
+The worker prompt provides:
+
+1. Parameter name, role, and constraint
+2. Structural/domain context from Stage 4
+3. Literature evidence, if available
+4. The exact allowed prior-family names and parameter-guidance table
 
 ### 2.4 Aggregation Strategy
 
-When paraphrasing is enabled, Stage 4 aggregates elicited priors `{(mu_k, sigma_k)}` in one of two ways:
+When paraphrasing is enabled, Stage 4 aggregates elicited prior summaries `{(mu_k, sigma_k)}` in one of two ways:
 
 1. **Simple aggregation:** Use the mean of means and a pooled SD, where the final uncertainty reflects both within-prompt uncertainty and between-prompt disagreement
    - `mu_pooled = mean(mu_k)`
@@ -64,12 +72,3 @@ When paraphrasing is enabled, Stage 4 aggregates elicited priors `{(mu_k, sigma_
 - Riegler et al. (2025). *Using large language models to suggest informative prior distributions in Bayesian regression analysis.* *Scientific Reports*. DOI: [10.1038/s41598-025-18425-9](https://www.nature.com/articles/s41598-025-18425-9).
 - Selby et al. (2024). *Had Enough of Experts? Elicitation and Evaluation of Bayesian Priors from Large Language Models.* NeurIPS BDU Workshop.
 
-## Why Not Fully LLM-Based?
-
-LLMs can produce invalid statistical objects such as negative variances, incoherent scale choices, or unsupported bounds. The elicitation step therefore sits behind rule-based guardrails rather than replacing them.
-
-## Why Not Fully Rule-Based?
-
-Rules can constrain valid forms, but they cannot know whether an effect size is substantively plausible in a given domain. That domain judgment is why Stage 4 still needs elicitation.
-
-The broader motivation aligns with the references above.

@@ -10,13 +10,14 @@ Deterministic rules enforce modeling assumptions and constrain the space of vali
 
 | `measurement_dtype` | Default distribution | Link | Alternatives |
 |---|---|---|---|
-| `continuous` | Gaussian | identity | Student-t, Gamma (log), Beta (logit) |
-| `binary` | Bernoulli | logit | None |
-| `count` | Poisson | log | Negative Binomial (log) |
-| `ordinal` | OrderedLogistic | cumulative logit | None |
-| `categorical` | Categorical | softmax | None |
+| `continuous` | `gaussian` | `identity` | `student_t`, `gamma` (`log` or `inverse`), `beta` (`logit` or `probit`) |
+| `binary` | `bernoulli` | `logit` | `bernoulli` with `probit` |
+| `count` | `poisson` | `log` | `negative_binomial` (`log`) |
+| `ordinal` | `ordered_logistic` | `cumulative_logit` | None |
+| `categorical` | `categorical` | `softmax` | `ordered_logistic` (`cumulative_logit`) when categories are substantively ordered |
 
 The default distribution is selected automatically from `measurement_dtype`. Alternative distributions for the same dtype can be specified explicitly via per-indicator entries in the `likelihoods` field of `ModelSpec`.
+Likelihood-family and link names use the exact canonical enum strings shown above; Stage 4 validation does not accept aliases.
 
 ### 1.2 Temporal Structure
 
@@ -62,7 +63,7 @@ Typical prior-family guidance by constraint lives in [Supported Prior Distributi
 
 | Role | Default constraint | Rationale |
 |---|---|---|
-| `ar_coefficient` | `correlation` | Orchestrator elicits `rho ∈ (-1, 1)` in discrete-time terms; the runtime then transforms that to the continuous-time drift diagonal via `-log(|rho|) / dt` and enforces stability by keeping the realized drift negative. Note: `|rho|` means negative discrete-time persistence and positive persistence with the same magnitude map to the same continuous-time drift magnitude, so oscillatory discrete-time persistence is not represented distinctly in a real-valued OU process. |
+| `ar_coefficient` | `unit_interval` | Orchestrator elicits `rho ∈ [0, 1]` in discrete-time terms for persistence magnitude, then transforms that to the continuous-time drift diagonal via `-log(rho) / dt`. |
 | `fixed_effect` | `none` | Effect sizes can be positive or negative |
 | `residual_sd` | `positive` | Standard deviations are non-negative by definition |
 | `loading` | `positive` or `none` | Stage 4 may enforce a positive reference loading for sign identification, while allowing unconstrained signs where negative loadings are substantively plausible |
@@ -79,6 +80,6 @@ It owns:
 - provenance and reasoning
 - interval metadata needed for downstream time-scale translation
 
-Its `distribution` field uses the prior-specific vocabulary documented in [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods.
+Its `distribution` field uses the prior-specific vocabulary documented in [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods. Those prior-family names are also exact canonical strings; aliases are not accepted.
 
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.

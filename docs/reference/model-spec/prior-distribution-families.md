@@ -37,3 +37,4 @@ Edit the Python catalog and re-run `uv run python scripts/export_distribution_do
 | tau (random SD) | HalfNormal(0.5) | [0, 2] | Data scale |
 
 The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.
+The `Family` column values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.
