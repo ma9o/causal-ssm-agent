@@ -556,7 +556,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
 
     class _FakeLLMStageContext:
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.trace_capture = {"trace": None}
 
         async def __aenter__(self):
             return self
@@ -568,6 +568,9 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
             async def _generate(messages: list[dict], label: str | None = None):
                 captured["commentary_messages"] = messages
                 captured["commentary_label"] = label
+                self.trace_capture["trace"] = SimpleNamespace(
+                    messages=[SimpleNamespace(role="assistant", content="stubbed summary")]
+                )
                 return {"content": "stubbed"}
 
             return _generate
