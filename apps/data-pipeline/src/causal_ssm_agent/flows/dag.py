@@ -56,7 +56,7 @@ async def stage0(workspace_id: str) -> dict:
 async def stage1a(question: str) -> dict:
     """Propose theoretical constructs and causal edges (latent model).
 
-    Returns: {latent_model, outcome_name, treatments, llm_trace?}
+    Returns: {latent_model, llm_trace?}
     """
     from .stages import propose_latent_model
 
@@ -94,8 +94,11 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
 
     Returns: {treatments, gate_failed, gate_overridden, web_outcome}
     """
-    treatments = list(stage1a.get("treatments", []))
-    outcome = stage1a.get("outcome_name", "")
+    from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
+
+    latent_model = stage1a.get("latent_model", {})
+    treatments = list(get_all_treatments(latent_model))
+    outcome = get_outcome_name(latent_model) or ""
     causal_spec = stage1b.get("causal_spec", {})
     identifiability = causal_spec.get("identifiability", {}) or {}
     non_identifiable = identifiability.get("non_identifiable_treatments", {})
@@ -592,9 +595,11 @@ async def stage6(
                 return content
         return None
 
+    from causal_ssm_agent.utils.causal_spec import get_outcome_name
+
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b_gate["treatments"]
-    outcome_name = stage1a.get("outcome_name", "")
+    outcome_name = get_outcome_name(stage1a.get("latent_model", {})) or ""
     causal_spec = stage1b["causal_spec"]
 
     logger.info("=== Stage 6: Treatment Effects ===")
@@ -695,7 +700,9 @@ async def stage6(
         "question": question,
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
-        "excluded_non_identifiable_treatments": sorted(stage1b_gate.get("non_identifiable", {}).keys()),
+        "excluded_non_identifiable_treatments": sorted(
+            stage1b_gate.get("non_identifiable", {}).keys()
+        ),
         "top_ranked_effects": top_results,
         "power_scaling_issues": power_scaling_issues,
         "ppc_warnings": ppc_warnings,

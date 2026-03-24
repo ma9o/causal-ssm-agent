@@ -2611,24 +2611,11 @@
         },
         "latent_model": {
           "$ref": "#/$defs/LatentModel"
-        },
-        "outcome_name": {
-          "title": "Outcome Name",
-          "type": "string"
-        },
-        "treatments": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Treatments",
-          "type": "array"
         }
       },
       "required": [
         "latent_model",
-        "outcome",
-        "outcome_name",
-        "treatments"
+        "outcome"
       ],
       "title": "Stage1aContract",
       "type": "object"

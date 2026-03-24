@@ -32,27 +32,19 @@ MAX_STAGE4_PRIOR_BATCH_SIZE = 8
 
 
 def stage1a_grounding(data: dict) -> tuple[dict | None, str]:
-    """Validate latent model and derive outcome_name + treatments.
+    """Validate latent model.
 
     Returns:
         (stage_output, feedback)
-        stage_output = {"latent_model": data, "outcome_name": str, "treatments": [...]}
+        stage_output = {"latent_model": data}
     """
     from causal_ssm_agent.orchestrator.schemas import validate_latent_model
-    from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 
     _result, errors = validate_latent_model(data)
     if errors:
         return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
 
-    outcome = get_outcome_name(data) or ""
-    treatments = get_all_treatments(data)
-
-    return {
-        "latent_model": data,
-        "outcome_name": outcome,
-        "treatments": treatments,
-    }, "VALID"
+    return {"latent_model": data}, "VALID"
 
 
 # ---------------------------------------------------------------------------

@@ -183,9 +183,6 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     lines.push(section(2, `Stage 1a: ${STAGES[1].label}`));
     lines.push(`> ${STAGES[1].description}`);
     lines.push("");
-    lines.push(`- **Outcome**: ${s1a.outcome_name}`);
-    lines.push(`- **Treatments**: ${s1a.treatments.join(", ")}`);
-    lines.push("");
 
     lines.push(section(3, "Constructs"));
     lines.push("");

@@ -156,8 +156,6 @@ describe("POST /api/refine", () => {
           result: "VALID",
           stage_output: {
             latent_model: { constructs: [], edges: [] },
-            outcome_name: "Perf",
-            treatments: ["Stress"],
           },
         }),
         {
@@ -226,8 +224,6 @@ describe("POST /api/refine", () => {
         stagePatch: {
           reviewer_note: "carry forward",
           latent_model: { constructs: [], edges: [] },
-          outcome_name: "Perf",
-          treatments: ["Stress"],
         },
         usage: {
           inputTokens: 5,

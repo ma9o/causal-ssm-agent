@@ -8,11 +8,7 @@ propose_latent_model = make_llm_stage_task(
     stage_id="stage-1a",
     orchestrator_fn=run_stage1a,
     model_name_getter=lambda: get_config().stage1_structure_proposal.model,
-    payload_builder=lambda result: {
-        "latent_model": result.latent_model,
-        "outcome_name": result.outcome_name,
-        "treatments": result.treatments,
-    },
+    payload_builder=lambda result: {"latent_model": result.latent_model},
     task_options={
         "retries": 2,
         "retry_delay_seconds": 30,

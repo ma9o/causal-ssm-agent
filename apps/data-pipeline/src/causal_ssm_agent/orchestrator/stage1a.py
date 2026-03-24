@@ -16,8 +16,6 @@ class Stage1aResult:
     """Result of Stage 1a: latent model proposal."""
 
     latent_model: dict
-    outcome_name: str
-    treatments: list[str]
 
     @property
     def n_constructs(self) -> int:
@@ -59,7 +57,7 @@ async def run_stage1a(
         generate: Async function (messages, tools, follow_ups) -> completion
 
     Returns:
-        Stage1aResult with latent model, outcome_name, and treatments
+        Stage1aResult with the validated latent model
     """
     from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool, stage1a_grounding
 
@@ -67,7 +65,7 @@ async def run_stage1a(
 
     tool, capture = make_stage_tool(
         name="validate_latent_model",
-        description="Validate latent model JSON. Returns outcome and treatments on success.",
+        description="Validate latent model JSON.",
         param_name="structure_json",
         param_description="The JSON string containing the latent model.",
         compute_fn=stage1a_grounding,
@@ -78,8 +76,4 @@ async def run_stage1a(
     if not capture.get("latent_model"):
         raise ValueError("No valid latent model produced")
 
-    return Stage1aResult(
-        latent_model=capture["latent_model"],
-        outcome_name=capture["outcome_name"],
-        treatments=capture["treatments"],
-    )
+    return Stage1aResult(latent_model=capture["latent_model"])

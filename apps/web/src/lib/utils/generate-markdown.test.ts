@@ -158,8 +158,6 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-1a": {
         outcome: "success",
-        outcome_name: "blood_pressure",
-        treatments: ["exercise", "diet"],
         latent_model: {
           constructs: [
             {
@@ -864,8 +862,6 @@ describe("generateMarkdown", () => {
       },
       "stage-1a": {
         outcome: "success",
-        outcome_name: "bp",
-        treatments: ["exercise"],
         latent_model: {
           constructs: [
             { name: "exercise", description: "Ex", role: "exogenous", is_outcome: false, temporal_status: "time_varying" },
