@@ -33,7 +33,7 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 
 **Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `outcome="fail"` with `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless.
 
-**Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes. This follows the recompute rules in [pipeline-dimensions.md](../reference/pipeline-dimensions.md#resume-semantics).
+**Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes. This follows the recompute rules in [execution-semantics.md](../reference/execution-semantics.md#resume-semantics).
 
 ## Outputs
 

@@ -19,7 +19,7 @@ The authoritative definition of each pipeline artifact lives in the stage doc th
 
 ## Cross-Stage Notes
 
-- Execution order is derived from a dependency DAG, not a hard-coded index. See [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#7-control-flow-semantics).
+- Execution order is derived from a dependency DAG, not a hard-coded index. See [reference/execution-semantics.md](reference/execution-semantics.md#1-control-flow-semantics).
 - Artifact lineage is the main domain spine. See [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md).
 - Stage 4 begins the downstream model-runtime path. See [reference/compilation.md](reference/compilation.md).
-- Stage 6 is interactive but terminal: follow-up edits persist in place and do not replay downstream stages. See [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#7-control-flow-semantics).
+- Stage 6 is interactive but terminal: follow-up edits persist in place and do not replay downstream stages. See [reference/execution-semantics.md](reference/execution-semantics.md#1-control-flow-semantics).
