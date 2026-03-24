@@ -117,6 +117,6 @@ inference.fit()  -->  InferenceResult (posterior samples + diagnostics)
 
 ## References
 
-Post-estimation causal effect computation (do-operator, counterfactual inference, and interpretation guidance) lives in [counterfactual-inference.md](counterfactual-inference.md).
+Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
 
 - Sarkka, S. (2013). Bayesian Filtering and Smoothing. Cambridge University Press.

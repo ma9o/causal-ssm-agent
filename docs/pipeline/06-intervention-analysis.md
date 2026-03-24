@@ -4,7 +4,7 @@
 |---|---|---|---|
 | llm+intervention | Yes | No | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
 
-Applies [do-operator](../reference/counterfactual-inference.md) interventions to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
+Applies the [steady-state and trajectory intervention semantics](#intervention-semantics) to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
 
 ## Inputs
 
@@ -39,6 +39,28 @@ Stage 6 runs in two phases: a deterministic intervention computation that produc
 
 **Outcome classification.** The stage sets `outcome` to `"warn"` if any treatment carries PPC warnings or a prior-sensitivity warning. Otherwise `outcome` is `"success"`.
 
+## Intervention Semantics
+
+Stage 6 owns the post-estimation causal semantics used by both the baseline ranking and the follow-up simulation tools.
+
+### Steady-State Do-Operator
+
+The default `steady_state` estimand uses the continuous-time equilibrium implied by each posterior draw. For a draw with drift matrix **A** and continuous intercept **c**, the baseline steady state is η\* = −**A**⁻¹**c**. An intervention clamps the treatment equation, solves the modified linear system, and compares the intervened and baseline outcome values. The stage vmaps this computation over posterior draws to obtain the posterior treatment-effect distribution.
+
+### Trajectory Interventions
+
+The `trajectory` estimand forward-simulates the discretized system under an intervention schedule instead of comparing only equilibria. This is the same semantic used for the 30-day summaries in the baseline ranking and for interactive follow-up simulations that ask about transient dynamics.
+
+## Interpretation Guidance
+
+Stage 6 reports effects between latent constructs as measured through their indicators. Indicator-level measurement error is absorbed into residual variance, so interpretation remains at the construct layer:
+
+- AR coefficients describe inertia or persistence in a construct
+- Cross-lag coefficients describe directed causal influence between constructs
+- Time-invariant latents describe stable subject-level intercepts; see [A5](../reference/latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states)
+
+Causal interpretation still depends on the validated DAG being substantively adequate and on the important confounding structure being represented in that graph.
+
 ## Interactive Tools
 
 After the baseline ranking completes, Stage 6 exposes three read-only tools for follow-up exploration within the same conversation.
@@ -61,7 +83,7 @@ An optional `names` filter restricts the response to specific constructs or indi
 
 ### `simulate_intervention`
 
-Runs a [Pearl rung-2](../reference/counterfactual-inference.md) interventional simulation on the fitted generative model. The caller specifies:
+Runs a Pearl rung-2 interventional simulation on the fitted generative model using the [Stage 6 intervention semantics](#intervention-semantics). The caller specifies:
 
 - **Action**: an [`InterventionAction`](#interventionaction) naming the treatment, the mode (`"set"` to clamp to an absolute value, `"shift"` to add a delta to baseline), and the corresponding value or amount.
 - **Query**: the estimand (`"steady_state"` for the long-run equilibrium effect, `"trajectory"` for a forward simulation over `horizon_days`), and the projection level (`"latent"`, `"manifest"`, or `"both"`).
@@ -70,7 +92,7 @@ For steady-state queries, the tool computes the intervened steady state per post
 
 ### `simulate_counterfactual`
 
-Runs a [Pearl rung-3](../reference/counterfactual-inference.md) counterfactual forecast. This conditions on actually observed data before asking "what would have happened if we had intervened?" The caller specifies:
+Runs a Pearl rung-3 counterfactual forecast. This conditions on actually observed data before asking "what would have happened if we had intervened?" The caller specifies:
 
 - **Evidence**: an observed history window defined by optional ISO-8601 `start_time` and `end_time` bounds over the fitted observation period. Defaults to the full observed range.
 - **Action**: same [`InterventionAction`](#interventionaction) as rung-2 simulations.
