@@ -1,7 +1,5 @@
 # Agentic Integration Testing
 
-How to run full end-to-end integration checks of the pipeline and web UI using an AI agent with Next.js devtools MCP plus browser automation.
-
 ## Design Principles
 
 The methodology splits responsibilities between two modes:
@@ -68,6 +66,22 @@ curl -sf -o /dev/null http://localhost:3000 && echo "next.js ok"
 ```
 
 All three must succeed before proceeding. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
+
+## Workspace Layout
+
+```text
+data/
+├── <WORKSPACE_ID>/        # User-facing workspace
+│   ├── input/             # Raw uploaded files for stage 0
+│   ├── query.txt          # Materialized research question
+│   ├── session.json       # Per-workspace run lineage metadata
+│   └── run/               # Persisted stage JSON + artifacts
+├── DEFAULT/               # Tracked mock fixture workspace
+├── DOCTOLIB/              # Tracked mock fixture workspace
+├── GOLDEN/                # Default tracked workspace for evals and manual sampling
+├── MEDICAL_SEMANTICS/     # Tracked medical archive fixture for stage 0-2 golden tests
+└── SMALLGOLDEN/           # Smaller tracked workspace for quicker eval iteration
+```
 
 ## Step-by-Step Flow
 
