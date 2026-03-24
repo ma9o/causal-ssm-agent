@@ -58,7 +58,7 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the structural templ
 
 **What it does:**
 - Extracts latent construct layout from the DAG (names, order, time-invariant mask)
-- Builds the **drift mask** (`n_latent x n_latent`): which AR and cross-lag entries are free
+- Builds the **drift mask** (`n_latent x n_latent`): which AR and cross-lag entries are free (maps to the [CT-SDE drift matrix](estimation.md#1-ct-sde-formulation))
 - Builds the **lambda matrix** (`n_manifest x n_latent`): indicator-to-construct mapping
 - Computes **edge_lag_days**: for each cross-lag edge, the lag in days (used by prior compilation to scale DT→CT)
 - Determines diffusion mode (`"diag"` or `"free"` if correlations are specified)
