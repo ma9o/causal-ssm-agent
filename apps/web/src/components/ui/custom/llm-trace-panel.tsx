@@ -1,7 +1,6 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { getUserApiKey } from "@/lib/auth";
 import {
   refinementNeedsActivation,
   useRefinement,
@@ -93,11 +92,9 @@ export function LLMTracePanel({
   // The server prepends the trace as CoreMessages for LLM context.
   const transport = useMemo(() => {
     if (!canRefine) return undefined;
-    const apiKey = getUserApiKey();
     return new DefaultChatTransport<RefinementUIMessage>({
       api: "/api/refine",
       body: { workspaceId, stageId, pendingStagePatch },
-      ...(apiKey ? { headers: { "x-openrouter-key": apiKey } } : {}),
     });
   }, [workspaceId, stageId, canRefine, pendingStagePatch]);
 

@@ -12,6 +12,7 @@ from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
+from causal_ssm_agent.utils import litellm_client
 
 
 def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace") -> None:
@@ -92,7 +93,7 @@ def _reset_stage_registry(monkeypatch):
 def _patch_common_stage_stubs(monkeypatch, calls: list):
     # Parameter names must match the bare computation function signatures in dag.py
 
-    async def stage0(workspace_id: str) -> dict:
+    async def stage0(workspace_id: str, openrouter_api_key: str | None = None) -> dict:
         calls.append(("stage0", workspace_id))
         return {
             "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
@@ -170,6 +171,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         stage1b: dict,
         stage1b_gate: dict,
         question: str | None = None,
+        openrouter_api_key: str | None = None,
     ) -> dict:
         calls.append(("stage6", stage5b, stage1a, stage1b, stage1b_gate, question))
         return {"intervention_results": [], "outcome": "success"}
@@ -201,23 +203,183 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
     _reset_stage_registry(monkeypatch)
     monkeypatch.setenv("DEPLOYMENT_ENV", "production")
 
-    async def fake_stage4_runner(**kwargs):
-        return kwargs
+    async def fake_stage4_runner(
+        question: str,
+        stage1b: dict,
+        stage2: dict,
+        stage3: dict,
+        enable_literature: bool,
+        openrouter_access_mode: str | None,
+    ) -> dict:
+        return {"runner": "modal", "openrouter_api_key": litellm_client.get_openrouter_api_key()}
+
+    async def fake_local_stage4(
+        question: str,
+        stage1b: dict,
+        stage2: dict,
+        stage3: dict,
+        enable_literature: bool,
+    ) -> dict:
+        return {"runner": "local", "openrouter_api_key": litellm_client.get_openrouter_api_key()}
 
     monkeypatch.setattr(modal_runners, "modal_stage4_runner", fake_stage4_runner)
+    monkeypatch.setattr(dag, "stage4", fake_local_stage4)
 
     registry = stage_registry.get_stage_registry()
 
-    assert registry["stage-4"].runner is fake_stage4_runner
+    with litellm_client.use_openrouter_api_key("user-key"):
+        local_result = asyncio.run(
+            registry["stage-4"].runner(
+                question="why",
+                stage1b={},
+                stage2={},
+                stage3={},
+                enable_literature=True,
+                openrouter_access_mode="user",
+            )
+        )
+    modal_result = asyncio.run(
+        registry["stage-4"].runner(
+            question="why",
+            stage1b={},
+            stage2={},
+            stage3={},
+            enable_literature=True,
+            openrouter_access_mode=None,
+        )
+    )
+
+    assert local_result == {"runner": "local", "openrouter_api_key": "user-key"}
+    assert modal_result == {"runner": "modal", "openrouter_api_key": None}
 
 
-def test_build_main_deployment_enforces_schema_and_serial_concurrency():
+def test_build_main_deployment_enforces_schema_without_global_serial_concurrency():
     deployment = pipeline.build_main_deployment()
 
     assert deployment.name == "causal-inference"
     assert deployment.enforce_parameter_schema is True
-    assert deployment.concurrency_limit == 1
-    assert deployment.concurrency_options.collision_strategy.value == "ENQUEUE"
+    assert deployment.concurrency_limit is None
+
+
+def test_stage2_binding_uses_access_mode_for_free_window_limit():
+    from causal_ssm_agent.flows.stages.stage2_extract import MAX_FREE_WINDOWS
+
+    stage2 = stage_registry.get_stage_registry()["stage-2"]
+    states = {
+        "stage-0": {"result": {}},
+        "stage-1b": {"result": {}},
+    }
+    user_ctx = stage_registry.PipelineContext(
+        workspace_id="workspace-user",
+        prefect_run_id="run-user",
+        question="why",
+        gates_overridden=False,
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={},
+        openrouter_api_key="user-key",
+        openrouter_access_mode="user",
+    )
+    trial_ctx = stage_registry.PipelineContext(
+        workspace_id="workspace-trial",
+        prefect_run_id="run-trial",
+        question="why",
+        gates_overridden=False,
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={},
+        openrouter_api_key="trial-key",
+        openrouter_access_mode="trial",
+    )
+
+    user_inputs = stage2.bind_inputs(user_ctx, states)
+    trial_inputs = stage2.bind_inputs(trial_ctx, states)
+
+    assert user_inputs["max_windows"] is None
+    assert trial_inputs["max_windows"] == MAX_FREE_WINDOWS
+
+
+def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        _stub_config,
+    )
+    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    seen: list[tuple[str, str | None]] = []
+
+    async def stage0(workspace_id: str) -> dict:
+        seen.append(("stage0", litellm_client.get_openrouter_api_key()))
+        return {
+            "outcome": "success",
+            "source_label": "stub",
+            "n_records": 1,
+            "n_columns": 2,
+            "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
+            "sample": [],
+            "column_descriptions": [
+                {"name": "timestamp", "dtype": "String", "description": "ts"},
+                {"name": "value", "dtype": "String", "description": "val"},
+            ],
+            "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
+            "_column_descriptions": {},
+        }
+
+    async def stage1a(question: str) -> dict:
+        seen.append(("stage1a", litellm_client.get_openrouter_api_key()))
+        return {
+            "latent_model": {
+                "constructs": [
+                    {
+                        "name": "travel",
+                        "description": "Travel exposure",
+                        "role": "exogenous",
+                        "is_outcome": False,
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "sleep_quality",
+                        "description": "Observed sleep quality",
+                        "role": "endogenous",
+                        "is_outcome": True,
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [
+                    {
+                        "cause": "travel",
+                        "effect": "sleep_quality",
+                        "description": "Travel affects sleep quality",
+                        "lagged": True,
+                    }
+                ],
+            },
+            "outcome_name": "sleep_quality",
+            "treatments": ["travel"],
+        }
+
+    monkeypatch.setattr(dag, "stage0", stage0)
+    monkeypatch.setattr(dag, "stage1a", stage1a)
+    monkeypatch.setattr(
+        pipeline,
+        "consume_byok_secret_ref",
+        lambda ref: "user-key" if ref == "ref-123" else None,
+    )
+    _reset_stage_registry(monkeypatch)
+
+    result = asyncio.run(
+        pipeline.causal_inference_pipeline(
+            query="why is this happening?",
+            end_stage="stage-1a",
+            openrouter_access_mode="user",
+            openrouter_secret_ref="ref-123",
+        )
+    )
+
+    assert result["final_stage"] == "stage-1a"
+    assert seen == [("stage0", "user-key"), ("stage1a", "user-key")]
 
 
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):
@@ -232,11 +394,16 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str) -> dict:
+    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
         calls.append(("stage1a", question))
         return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
 
-    async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
+    async def stage1b(
+        question: str,
+        stage0: dict,
+        stage1a: dict,
+        openrouter_api_key: str | None = None,
+    ) -> dict:
         calls.append(("stage1b", question, stage0, stage1a))
         return {
             "causal_spec": {
@@ -251,6 +418,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        openrouter_api_key: str | None = None,
     ) -> dict:
         calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature))
         return {
@@ -300,7 +468,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str) -> dict:
+    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
         calls.append(("stage1a", question))
         return {"latent_model": _stage1a_latent_model()}
 
@@ -309,7 +477,12 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         "measurement": {"model_clock": "1d", "indicators": [{"name": "m"}]},
     }
 
-    async def stage1b(question: str, stage0: dict, stage1a: dict) -> dict:
+    async def stage1b(
+        question: str,
+        stage0: dict,
+        stage1a: dict,
+        openrouter_api_key: str | None = None,
+    ) -> dict:
         calls.append(("stage1b", question, stage0, stage1a))
         return {"causal_spec": causal_spec}
 
@@ -319,6 +492,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        openrouter_api_key: str | None = None,
     ) -> dict:
         raise AssertionError("stage4 should be skipped when an override is provided")
 
@@ -380,6 +554,29 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     monkeypatch.setattr(dag, "load_pickle", lambda _path: fitted_artifact)
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
 
+    class _FakeLLMStageContext:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def make_generate(self, _model: str):
+            async def _generate(messages: list[dict], label: str | None = None):
+                captured["commentary_messages"] = messages
+                captured["commentary_label"] = label
+                return {"content": "stubbed"}
+
+            return _generate
+
+        def finalize(self, result: dict) -> dict:
+            return result
+
+    monkeypatch.setattr("causal_ssm_agent.utils.llm.LLMStageContext", _FakeLLMStageContext)
+
     def fake_compute_interventions(**kwargs):
         captured.update(kwargs)
         return [{"treatment": "screen_time", "effect_size": 1.0, "identifiable": True}]
@@ -402,6 +599,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     assert captured["treatments"] == ["screen_time"]
     assert captured["outcome"] == "sleep_quality"
     assert captured["latent_names"] == ["screen_time", "sleep_quality"]
+    assert captured["commentary_label"] == "comment-results"
 
 
 def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
@@ -518,13 +716,18 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         },
     )
 
-    async def stage0(_workspace_id: str) -> dict:
+    async def stage0(_workspace_id: str, openrouter_api_key: str | None = None) -> dict:
         raise AssertionError("stage0 should be restored, not rerun")
 
-    async def stage1a(_question: str) -> dict:
+    async def stage1a(_question: str, openrouter_api_key: str | None = None) -> dict:
         raise AssertionError("stage1a should be restored, not rerun")
 
-    async def stage1b(_question: str, _stage0: dict, _stage1a: dict) -> dict:
+    async def stage1b(
+        _question: str,
+        _stage0: dict,
+        _stage1a: dict,
+        openrouter_api_key: str | None = None,
+    ) -> dict:
         raise AssertionError("stage1b should be restored, not rerun")
 
     captured: dict = {}
@@ -630,7 +833,7 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str) -> dict:
+    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
         calls.append(("stage1a", question))
         return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
 
@@ -675,7 +878,7 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str) -> dict:
+    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -1028,7 +1231,8 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
         lit_enabled=True,
         inference_method=None,
         supported_overrides={"stage-4": override_payload},
-        is_byok=False,
+        openrouter_api_key=None,
+        openrouter_access_mode=None,
     )
     stage_state = asyncio.run(
         stage_registry.run_stage_flow(
@@ -1333,6 +1537,45 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
     assert result["model_spec"] == {"parameters": []}
+
+
+def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
+    data_path = tmp_path / "stage2-model-data.parquet"
+    pl.DataFrame(
+        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
+    ).write_parquet(data_path)
+
+    stub = _AsyncSubflowStub(
+        {
+            "model_spec": {"parameters": []},
+            "priors": {},
+            "causal_spec": {
+                "latent": {"constructs": []},
+                "measurement": {"model_clock": "1d", "indicators": []},
+            },
+        }
+    )
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_agentic_flow", stub)
+
+    with litellm_client.use_openrouter_api_key("context-key"):
+        asyncio.run(
+            dag.stage4(
+                "why is this happening?",
+                {
+                    "causal_spec": {
+                        "latent": {"constructs": []},
+                        "measurement": {"model_clock": "1d", "indicators": []},
+                    }
+                },
+                {"_data_for_model_path": str(data_path)},
+                {"indicators": {}, "dataset_issues": [], "is_valid": True},
+                enable_literature=True,
+                openrouter_api_key="explicit-key",
+            )
+        )
+
+    assert len(stub.calls) == 1
+    assert stub.calls[0][1]["openrouter_api_key"] == "explicit-key"
 
 
 def test_stage4b_calls_subflow_directly(monkeypatch, tmp_path):

@@ -1,7 +1,6 @@
-// PKCE utilities + localStorage helpers for OpenRouter OAuth
+// PKCE utilities + sessionStorage helpers for OpenRouter OAuth
 
-const OPENROUTER_KEY = "openrouter_user_key";
-const CODE_VERIFIER_KEY = "openrouter_code_verifier";
+const CODE_VERIFIER_KEY_PREFIX = "openrouter_code_verifier:";
 
 // ---------------------------------------------------------------------------
 // PKCE
@@ -24,30 +23,44 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
-// ---------------------------------------------------------------------------
-// localStorage helpers
-// ---------------------------------------------------------------------------
+function getCodeVerifierStorageKey(flowId: string): string {
+  return `${CODE_VERIFIER_KEY_PREFIX}${flowId}`;
+}
 
-export function getUserApiKey(): string | null {
+function isCodeVerifierStorageKey(key: string): boolean {
+  return key.startsWith(CODE_VERIFIER_KEY_PREFIX);
+}
+
+function pruneCodeVerifiers(exceptFlowId?: string): void {
+  if (typeof window === "undefined") return;
+
+  const keepKey = exceptFlowId ? getCodeVerifierStorageKey(exceptFlowId) : null;
+  const keysToDelete: string[] = [];
+
+  for (let index = 0; index < sessionStorage.length; index += 1) {
+    const key = sessionStorage.key(index);
+    if (!key || !isCodeVerifierStorageKey(key) || key === keepKey) {
+      continue;
+    }
+    keysToDelete.push(key);
+  }
+
+  for (const key of keysToDelete) {
+    sessionStorage.removeItem(key);
+  }
+}
+
+export function getCodeVerifier(flowId: string): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(OPENROUTER_KEY);
+  return sessionStorage.getItem(getCodeVerifierStorageKey(flowId));
 }
 
-export function setUserApiKey(key: string): void {
-  localStorage.setItem(OPENROUTER_KEY, key);
+export function clearCodeVerifier(flowId: string): void {
+  sessionStorage.removeItem(getCodeVerifierStorageKey(flowId));
 }
 
-export function clearUserApiKey(): void {
-  localStorage.removeItem(OPENROUTER_KEY);
-}
-
-export function getCodeVerifier(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(CODE_VERIFIER_KEY);
-}
-
-export function clearCodeVerifier(): void {
-  localStorage.removeItem(CODE_VERIFIER_KEY);
+function generateFlowId(): string {
+  return crypto.randomUUID();
 }
 
 // ---------------------------------------------------------------------------
@@ -55,12 +68,16 @@ export function clearCodeVerifier(): void {
 // ---------------------------------------------------------------------------
 
 export async function initiateOpenRouterAuth(callbackUrl: string): Promise<void> {
+  const flowId = generateFlowId();
+  pruneCodeVerifiers(flowId);
   const verifier = generateCodeVerifier();
-  localStorage.setItem(CODE_VERIFIER_KEY, verifier);
+  sessionStorage.setItem(getCodeVerifierStorageKey(flowId), verifier);
   const challenge = await generateCodeChallenge(verifier);
+  const callback = new URL(callbackUrl);
+  callback.searchParams.set("flow_id", flowId);
 
   const url = new URL("https://openrouter.ai/auth");
-  url.searchParams.set("callback_url", callbackUrl);
+  url.searchParams.set("callback_url", callback.toString());
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
 

@@ -4,8 +4,8 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { convertToModelMessages, jsonSchema, streamText, tool } from "ai";
 import { NextResponse } from "next/server";
 
-import { resolveApiKey } from "@/lib/api/resolve-api-key";
 import { getToolServerUrl } from "@/lib/runtime-urls";
+import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readData } from "@/lib/storage";
 import {
   type RefinementMessageMetadata,
@@ -55,9 +55,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Body: { messages, workspaceId, stageId }
  */
 export async function POST(req: Request) {
-  const resolved = resolveApiKey(req);
-  if (resolved.error) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  const access = await resolveOpenRouterAccess();
+  if (access.mode === "none") {
+    const error =
+      access.reason === "trial_exhausted"
+        ? "Trial credits exhausted. Sign in with OpenRouter to continue."
+        : "No OpenRouter access is configured.";
+    return NextResponse.json({ error }, { status: 402 });
   }
 
   const { messages, workspaceId, stageId, pendingStagePatch } = await req.json();
@@ -83,8 +87,6 @@ export async function POST(req: Request) {
     normalizedWorkspaceId && safeStageId
       ? await loadTraceContext(normalizedWorkspaceId, safeStageId)
       : { traceContext: [] };
-
-  const openrouter = createOpenRouter({ apiKey: resolved.key });
 
   // Build tools if this is an interactive stage
   const toolDefs =
@@ -133,6 +135,7 @@ export async function POST(req: Request) {
   const modelMessages = await convertToModelMessages(uiMessages);
   const startedAt = Date.now();
   let nextStagePatch = { ...safePendingStagePatch };
+  const openrouter = createOpenRouter({ apiKey: access.apiKey });
 
   const result = streamText({
     model: openrouter(REFINE_MODEL),

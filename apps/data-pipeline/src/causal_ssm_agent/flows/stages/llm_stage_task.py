@@ -8,6 +8,7 @@ from typing import Any
 from prefect import task
 from prefect.cache_policies import INPUTS
 
+from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import LLMStageContext
 
 LLMOrchestrator = Callable[..., Awaitable[Any]]
@@ -41,9 +42,11 @@ def make_llm_stage_task(
 
     @task(**options)
     async def _run(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        async with LLMStageContext(stage_id) as ctx:
-            generate = ctx.make_generate(model_name_getter())
-            result = await orchestrator_fn(*args, generate=generate, **kwargs)
-            return ctx.finalize(payload_builder(result))
+        openrouter_api_key = kwargs.pop("openrouter_api_key", None)
+        with use_openrouter_api_key(openrouter_api_key):
+            async with LLMStageContext(stage_id) as ctx:
+                generate = ctx.make_generate(model_name_getter())
+                result = await orchestrator_fn(*args, generate=generate, **kwargs)
+                return ctx.finalize(payload_builder(result))
 
     return _run

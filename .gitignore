@@ -39,6 +39,7 @@ scratchpad/**
 
 # Claude Code local state
 .claude/
+.local/
 
 repomix-output.xml
 

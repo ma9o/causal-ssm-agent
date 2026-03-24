@@ -11,27 +11,10 @@ export function dedupeRootFlowRunIds(rootFlowRunIds: readonly string[]): string[
   return deduped;
 }
 
-export function mergeRootFlowRunIds(
-  ...inputs: Array<readonly string[] | string | null | undefined>
-): string[] {
-  const merged: string[] = [];
-
-  for (const input of inputs) {
-    if (!input) {
-      continue;
-    }
-
-    if (typeof input === "string") {
-      merged.push(input);
-      continue;
-    }
-
-    merged.push(...input);
-  }
-
-  return dedupeRootFlowRunIds(merged);
-}
-
 export function getLatestRootFlowRunId(rootFlowRunIds: readonly string[]): string | null {
   return rootFlowRunIds[rootFlowRunIds.length - 1] ?? null;
+}
+
+export function getWorkspaceRunTag(workspaceId: string): string {
+  return `workspace:${workspaceId}`;
 }

@@ -7,18 +7,24 @@ vi.mock("@/lib/workspace-access", () => ({
   })),
 }));
 
-vi.mock("../sessions/_shared", () => ({
-  readSession: vi.fn(),
-  getLatestSessionRootFlowRunId: vi.fn((session) => session?.rootFlowRunIds?.at(-1) ?? null),
-  appendSessionRootFlowRunId: vi.fn((session, rootFlowRunId) => ({
-    createdAt: session?.createdAt ?? "2026-03-14T00:00:00.000Z",
-    rootFlowRunIds: [...(session?.rootFlowRunIds ?? []), rootFlowRunId],
-  })),
-  writeSession: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/server/openrouter-access", () => ({
+  resolveOpenRouterAccess: vi.fn(),
+}));
+
+vi.mock("@/lib/server/byok-secret-store", () => ({
+  createByokSecretRef: vi.fn(),
+  deleteByokSecretRef: vi.fn(),
+}));
+
+vi.mock("@/lib/server/workspace-run-lock", () => ({
+  claimWorkspaceRunSlot: vi.fn(),
+  releaseWorkspaceRunSlot: vi.fn(),
 }));
 
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
-import { readSession, writeSession } from "../sessions/_shared";
+import { createByokSecretRef, deleteByokSecretRef } from "@/lib/server/byok-secret-store";
+import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
+import { claimWorkspaceRunSlot, releaseWorkspaceRunSlot } from "@/lib/server/workspace-run-lock";
 import { POST } from "./route";
 
 const originalFetch = globalThis.fetch;
@@ -43,10 +49,63 @@ describe("POST /api/replay", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("cancels the current flow run before starting the replay and appends the new run to the session lineage", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T10:00:00.000Z",
-      rootFlowRunIds: ["older-run", "old-run"],
+  it("returns 409 when another run is already active for the workspace", async () => {
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-busy",
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "done-run",
+          parameters: { workspace_id: "user-123" },
+          state: { type: "COMPLETED", name: "Completed" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([{ id: "active-run" }]));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const response = await POST(
+      new Request("http://localhost/api/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-4",
+          stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
+          rootFlowRunId: "done-run",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "A run is already active for this workspace.",
+      rootFlowRunId: "active-run",
+    });
+    expect(releaseWorkspaceRunSlot).toHaveBeenCalledWith("user-123", "slot-busy");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("cancels the current flow run before starting the replay", async () => {
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-1");
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-1",
     });
 
     const fetchMock = vi
@@ -58,6 +117,7 @@ describe("POST /api/replay", () => {
           state: { type: "RUNNING", name: "Running" },
         }),
       )
+      .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
       .mockResolvedValueOnce(jsonResponse({ status: "ACCEPT" }))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -66,7 +126,7 @@ describe("POST /api/replay", () => {
           state: { type: "CANCELLED", name: "Cancelled" },
         }),
       )
-      .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
 
     globalThis.fetch = fetchMock as typeof fetch;
@@ -79,6 +139,7 @@ describe("POST /api/replay", () => {
           workspaceId: "user-123",
           stageId: "stage-1a",
           stageData: { latent_model: { constructs: [] } },
+          rootFlowRunId: "old-run",
         }),
       }),
     );
@@ -88,7 +149,6 @@ describe("POST /api/replay", () => {
       ok: true,
       resumeFrom: "stage-1b",
       rootFlowRunId: "new-run",
-      sessionPersisted: true,
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -98,6 +158,11 @@ describe("POST /api/replay", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      "http://localhost:4200/api/deployments/filter",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       "http://localhost:4200/api/flow_runs/old-run/set_state",
       expect.objectContaining({
         method: "POST",
@@ -109,17 +174,22 @@ describe("POST /api/replay", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
+      "http://localhost:4200/api/flow_runs/filter",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
       "http://localhost:4200/api/deployments/dep-1/create_flow_run",
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const createCall = fetchMock.mock.calls[4]?.[1] as { body?: string };
+    const createCall = fetchMock.mock.calls[5]?.[1] as { body?: string };
     const createBody = JSON.parse(createCall.body ?? "{}");
     expect(createBody).toMatchObject({
       name: expect.stringMatching(/^replay-user-123-stage-1a-\d+$/),
-      tags: ["replay", "interactive", "stage-1a"],
+      tags: ["replay", "interactive", "stage-1a", "workspace:user-123"],
       context: {
         replay_kind: "stage_override",
         edited_stage_id: "stage-1a",
@@ -138,20 +208,25 @@ describe("POST /api/replay", () => {
         stage_overrides: {
           "stage-1a": { latent_model: { constructs: [] } },
         },
+        openrouter_access_mode: "trial",
+        openrouter_secret_ref: "trial-ref-1",
       },
     });
     expect(createBody.idempotency_key).toMatch(/^replay:user-123:stage-1a:[0-9a-f]{64}$/);
-    expect(writeSession).toHaveBeenCalledWith("user-123", {
-      createdAt: "2026-03-13T10:00:00.000Z",
-      rootFlowRunIds: ["older-run", "old-run", "new-run"],
-    });
+    expect(releaseWorkspaceRunSlot).toHaveBeenCalledWith("user-123", "slot-1");
     expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123");
   });
 
   it("skips cancellation when the tracked flow run is already terminal", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T10:00:00.000Z",
-      rootFlowRunIds: ["done-run"],
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-2");
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-2",
     });
 
     const fetchMock = vi
@@ -164,6 +239,7 @@ describe("POST /api/replay", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
 
     globalThis.fetch = fetchMock as typeof fetch;
@@ -176,12 +252,20 @@ describe("POST /api/replay", () => {
           workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
+          rootFlowRunId: "done-run",
         }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const createCall = fetchMock.mock.calls[3]?.[1] as { body?: string };
+    expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
+      parameters: {
+        openrouter_access_mode: "trial",
+        openrouter_secret_ref: "trial-ref-2",
+      },
+    });
     expect(fetchMock).not.toHaveBeenCalledWith(
       "http://localhost:4200/api/flow_runs/done-run/set_state",
       expect.anything(),
@@ -189,9 +273,15 @@ describe("POST /api/replay", () => {
   });
 
   it("drops stale resume bounds from the previous run before creating the replay", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T10:00:00.000Z",
-      rootFlowRunIds: ["resume-run"],
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-3");
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-3",
     });
 
     const fetchMock = vi
@@ -211,6 +301,7 @@ describe("POST /api/replay", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
 
     globalThis.fetch = fetchMock as typeof fetch;
@@ -223,6 +314,7 @@ describe("POST /api/replay", () => {
           workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: { nodes: [] }, authored_priors: {}, resolved_priors: [] },
+          rootFlowRunId: "resume-run",
         }),
       }),
     );
@@ -232,20 +324,19 @@ describe("POST /api/replay", () => {
       ok: true,
       resumeFrom: "stage-4b",
       rootFlowRunId: "new-run",
-      sessionPersisted: true,
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       "http://localhost:4200/api/deployments/dep-1/create_flow_run",
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const createCall = fetchMock.mock.calls[2]?.[1] as { body?: string };
+    const createCall = fetchMock.mock.calls[3]?.[1] as { body?: string };
     expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
       name: expect.stringMatching(/^replay-user-123-stage-4-\d+$/),
-      tags: ["replay", "interactive", "stage-4"],
+      tags: ["replay", "interactive", "stage-4", "workspace:user-123"],
       context: {
         replay_kind: "stage_override",
         edited_stage_id: "stage-4",
@@ -264,14 +355,85 @@ describe("POST /api/replay", () => {
           "stage-1a": { latent_model: { constructs: ["existing"] } },
           "stage-4": { model_spec: { nodes: [] }, authored_priors: {}, resolved_priors: [] },
         },
+        openrouter_access_mode: "trial",
+        openrouter_secret_ref: "trial-ref-3",
+      },
+    });
+  });
+
+  it("mints a fresh OpenRouter secret ref for replay instead of reusing the stale one", async () => {
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "user",
+      apiKey: "user-key",
+    });
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-4",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("fresh-byok-ref");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "resume-run",
+          parameters: {
+            workspace_id: "user-123",
+            query: "Why?",
+            openrouter_access_mode: "trial",
+            openrouter_secret_ref: "stale-openrouter-ref",
+          },
+          state: { type: "COMPLETED", name: "Completed" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const response = await POST(
+      new Request("http://localhost/api/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-4",
+          stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
+          rootFlowRunId: "resume-run",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createByokSecretRef).toHaveBeenCalledWith("user-key");
+    expect(deleteByokSecretRef).not.toHaveBeenCalled();
+    const createCall = fetchMock.mock.calls[3]?.[1] as { body?: string };
+    expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
+      tags: ["replay", "interactive", "stage-4", "workspace:user-123"],
+      parameters: {
+        workspace_id: "user-123",
+        query: "Why?",
+        start_stage: "stage-4",
+        stage_overrides: {
+          "stage-4": { model_spec: {}, authored_priors: {}, resolved_priors: [] },
+        },
+        openrouter_access_mode: "user",
+        openrouter_secret_ref: "fresh-byok-ref",
       },
     });
   });
 
   it("retries retryable Prefect API responses during replay creation", async () => {
-    vi.mocked(readSession).mockResolvedValue({
-      createdAt: "2026-03-13T10:00:00.000Z",
-      rootFlowRunIds: ["done-run"],
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-5");
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-5",
     });
 
     const fetchMock = vi
@@ -284,6 +446,7 @@ describe("POST /api/replay", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ error: "rate limited" }, 429, { "Retry-After": "0" }))
       .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
 
@@ -297,30 +460,47 @@ describe("POST /api/replay", () => {
           workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
+          rootFlowRunId: "done-run",
         }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      "http://localhost:4200/api/deployments/dep-1/create_flow_run",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
       "http://localhost:4200/api/deployments/dep-1/create_flow_run",
       expect.objectContaining({ method: "POST" }),
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "http://localhost:4200/api/deployments/dep-1/create_flow_run",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const createCall = fetchMock.mock.calls[4]?.[1] as { body?: string };
+    expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
+      parameters: {
+        openrouter_access_mode: "trial",
+        openrouter_secret_ref: "trial-ref-5",
+      },
+    });
   });
 
-  it("still returns the new root flow run when session persistence fails and falls back to the explicit source run id", async () => {
-    vi.mocked(readSession).mockResolvedValue(null);
-    vi.mocked(writeSession).mockRejectedValueOnce(new Error("disk full"));
+  it("falls back to the latest tagged workspace run when no rootFlowRunId is provided", async () => {
+    vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
+      mode: "trial",
+      apiKey: "trial-key",
+      creditStatus: "available",
+    });
+    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-6");
+    vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
+      status: "claimed",
+      reservationId: "slot-6",
+    });
 
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: "bootstrap-run" }]))
       .mockResolvedValueOnce(
         jsonResponse({
           id: "bootstrap-run",
@@ -329,6 +509,7 @@ describe("POST /api/replay", () => {
         }),
       )
       .mockResolvedValueOnce(jsonResponse([{ id: "dep-1" }]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ id: "new-run" }));
 
     globalThis.fetch = fetchMock as typeof fetch;
@@ -341,7 +522,6 @@ describe("POST /api/replay", () => {
           workspaceId: "user-123",
           stageId: "stage-4",
           stageData: { model_spec: {}, authored_priors: {}, resolved_priors: [] },
-          rootFlowRunId: "bootstrap-run",
         }),
       }),
     );
@@ -351,12 +531,33 @@ describe("POST /api/replay", () => {
       ok: true,
       resumeFrom: "stage-4b",
       rootFlowRunId: "new-run",
-      sessionPersisted: false,
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
+      "http://localhost:4200/api/flow_runs/filter",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          flow_runs: {
+            tags: { all_: ["workspace:user-123"] },
+            parent_task_run_id: { is_null_: true },
+          },
+          sort: "START_TIME_DESC",
+          limit: 1,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
       "http://localhost:4200/api/flow_runs/bootstrap-run",
       undefined,
     );
+    const createCall = fetchMock.mock.calls[4]?.[1] as { body?: string };
+    expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
+      parameters: {
+        openrouter_access_mode: "trial",
+        openrouter_secret_ref: "trial-ref-6",
+      },
+    });
   });
 });

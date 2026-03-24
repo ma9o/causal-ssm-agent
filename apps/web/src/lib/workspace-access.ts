@@ -169,7 +169,10 @@ export async function requireWorkspaceAccess(
     allowCreate,
   });
   if (!authorization.ok) {
-    return authorization;
+    return {
+      ok: false,
+      response: authorization.response,
+    };
   }
 
   return {

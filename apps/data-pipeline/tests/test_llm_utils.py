@@ -549,6 +549,47 @@ class TestVerboseResponseLogging:
 
         assert "call_model completion:\nunlabeled completion" in caplog.text
 
+    def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
+        from causal_ssm_agent.utils import litellm_client
+
+        seen: dict[str, object] = {}
+
+        async def fake_acompletion(**kwargs):
+            seen["kwargs"] = kwargs
+            return {
+                "model": "test-model",
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "ok",
+                        },
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+
+        with litellm_client.use_openrouter_api_key("user-key"):
+            _run(
+                litellm_client.call_model(
+                    "test-model",
+                    [{"role": "user", "content": "hello"}],
+                    config=litellm_client.GenerateConfig(),
+                )
+            )
+
+        assert seen["kwargs"]["api_key"] == "user-key"
+
+    def test_use_openrouter_api_key_none_preserves_current_request_local_key(self):
+        from causal_ssm_agent.utils import litellm_client
+
+        with litellm_client.use_openrouter_api_key(
+            "user-key"
+        ), litellm_client.use_openrouter_api_key(None):
+            assert litellm_client.get_openrouter_api_key() == "user-key"
+
 
 # =============================================================================
 # dict_messages_to_chat
@@ -567,3 +608,49 @@ class TestDictMessagesToChat:
 
         msgs = dict_messages_to_chat([])
         assert len(msgs) == 0
+
+
+class TestOpenRouterKeyContext:
+    def test_llm_stage_task_uses_request_local_key_without_explicit_override(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
+        from causal_ssm_agent.utils import litellm_client
+
+        class _FakeLLMStageContext:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def make_generate(self, _model_name):
+                async def _generate(_messages):
+                    return {"content": "ok"}
+
+                return _generate
+
+            def finalize(self, result):
+                return result
+
+        async def orchestrator_fn(*, generate):
+            _ = await generate([{"role": "user", "content": "hello"}])
+            return {"api_key": litellm_client.get_openrouter_api_key()}
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.llm_stage_task.LLMStageContext",
+            _FakeLLMStageContext,
+        )
+
+        task = make_llm_stage_task(
+            stage_id="test-stage",
+            orchestrator_fn=orchestrator_fn,
+            payload_builder=lambda result: result,
+            model_name_getter=lambda: "test-model",
+        )
+
+        with litellm_client.use_openrouter_api_key("user-key"):
+            result = _run(task())
+
+        assert result == {"api_key": "user-key"}

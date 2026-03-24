@@ -1,28 +1,38 @@
 "use client";
 
-import { clearCodeVerifier, getCodeVerifier, setUserApiKey } from "@/lib/auth";
+import { clearCodeVerifier, getCodeVerifier } from "@/lib/auth";
 import { getIdentity, setIdentity } from "@/lib/identity";
 import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
 import { generateWorkspaceAccessCode } from "@/lib/resume-key";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 
 export default function AuthCallbackPage({
   searchParams,
 }: {
-  searchParams: Promise<{ code?: string }>;
+  searchParams: Promise<{ code?: string; flow_id?: string }>;
 }) {
-  const { code } = use(searchParams);
+  const { code, flow_id: flowId } = use(searchParams);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!code) return;
+    if (!code || startedRef.current) return;
+    startedRef.current = true;
 
-    const codeVerifier = getCodeVerifier();
-    clearCodeVerifier();
+    if (!flowId) {
+      setError("Authentication session is missing a flow id. Please try again.");
+      return;
+    }
+
+    const codeVerifier = getCodeVerifier(flowId);
+    if (!codeVerifier) {
+      setError("Authentication session expired. Please start the sign-in flow again.");
+      return;
+    }
 
     fetch("/api/auth/exchange", {
       method: "POST",
@@ -31,10 +41,7 @@ export default function AuthCallbackPage({
     })
       .then((res) => {
         if (!res.ok) throw new Error("Exchange failed");
-        return res.json();
-      })
-      .then(({ key, workspace_id: _workspaceId }) => {
-        setUserApiKey(key);
+        clearCodeVerifier(flowId);
         const existingIdentity = getIdentity();
         setIdentity({
           workspaceId: existingIdentity?.workspaceId ?? generateAnonymousWorkspaceId(),
@@ -44,9 +51,10 @@ export default function AuthCallbackPage({
         router.push("/");
       })
       .catch(() => {
-        setError("Failed to complete authentication. Please try again.");
+        clearCodeVerifier(flowId);
+        setError("Failed to complete authentication. Please start the sign-in flow again.");
       });
-  }, [code, router]);
+  }, [code, flowId, router]);
 
   if (!code) {
     return (

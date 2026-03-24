@@ -10,6 +10,7 @@ import polars as pl
 from prefect import flow
 
 from causal_ssm_agent.utils.config import get_config
+from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import LLMStageContext
 
 from .. import get_prefect_logger
@@ -24,6 +25,7 @@ async def stage4_agentic_flow(
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
+    openrouter_api_key: str | None = None,
 ) -> dict:
     """Stage 4 agentic flow: single multi-turn LLM conversation.
 
@@ -47,28 +49,29 @@ async def stage4_agentic_flow(
     config = get_config()
     s4 = config.stage4_prior_elicitation
 
-    async with LLMStageContext("stage-4") as ctx:
-        generate = ctx.make_generate(s4.model)
+    with use_openrouter_api_key(openrouter_api_key):
+        async with LLMStageContext("stage-4") as ctx:
+            generate = ctx.make_generate(s4.model)
 
-        result = await run_stage4(
-            causal_spec=causal_spec,
-            question=question,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-            generate=generate,
-            enable_literature=enable_literature and s4.literature_search.enabled,
-            enable_paraphrasing=s4.paraphrasing.enabled,
-            n_paraphrases=s4.paraphrasing.n_paraphrases,
-            gmm_model=s4.paraphrasing.gmm_model or s4.model,
-        )
+            result = await run_stage4(
+                causal_spec=causal_spec,
+                question=question,
+                data_for_model=data_for_model,
+                indicator_audits=indicator_audits,
+                generate=generate,
+                enable_literature=enable_literature and s4.literature_search.enabled,
+                enable_paraphrasing=s4.paraphrasing.enabled,
+                n_paraphrases=s4.paraphrasing.n_paraphrases,
+                gmm_model=s4.paraphrasing.gmm_model or s4.model,
+            )
 
-        materialized = materialize_stage4_result(
-            model_spec=result.model_spec,
-            authored_priors=result.authored_priors,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-            causal_spec=causal_spec,
-            validation=result.validation,
-            search_queries=result.search_queries,
-        )
-        return ctx.finalize(materialized)
+            materialized = materialize_stage4_result(
+                model_spec=result.model_spec,
+                authored_priors=result.authored_priors,
+                data_for_model=data_for_model,
+                indicator_audits=indicator_audits,
+                causal_spec=causal_spec,
+                validation=result.validation,
+                search_queries=result.search_queries,
+            )
+            return ctx.finalize(materialized)

@@ -19,6 +19,7 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import input_dir
+from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import GenerateFn, LLMStageContext
 
 from .stage0_tools import ModalCodeSandbox, make_ingestion_tools
@@ -236,32 +237,35 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
 
 
 @task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
-async def agentic_ingest(workspace_id: str = "test_workspace") -> IngestionResult:
+async def agentic_ingest(
+    workspace_id: str = "test_workspace", openrouter_api_key: str | None = None
+) -> IngestionResult:
     """Run Stage 0 end to end for the latest uploaded file."""
     raw_storage_path = _find_raw_input(workspace_id)
     raw_name = raw_storage_path.rsplit("/", 1)[-1]
     logger.info("Ingesting %s for workspace %s", raw_name, workspace_id)
 
     config = get_config()
-    async with LLMStageContext("stage-0") as ctx:
-        generate = ctx.make_generate(config.stage0_ingestion.model)
+    with use_openrouter_api_key(openrouter_api_key):
+        async with LLMStageContext("stage-0") as ctx:
+            generate = ctx.make_generate(config.stage0_ingestion.model)
 
-        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-            if storage.is_remote():
-                local_raw = Path(tmpdir) / "download" / raw_name
-                local_raw.parent.mkdir(parents=True, exist_ok=True)
-                storage.get_fs().get(raw_storage_path, str(local_raw))
-            else:
-                local_raw = Path(raw_storage_path)
+            with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+                if storage.is_remote():
+                    local_raw = Path(tmpdir) / "download" / raw_name
+                    local_raw.parent.mkdir(parents=True, exist_ok=True)
+                    storage.get_fs().get(raw_storage_path, str(local_raw))
+                else:
+                    local_raw = Path(raw_storage_path)
 
-            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
-            result = await run_agentic_ingestion(extract_dir, generate)
+                extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
+                result = await run_agentic_ingestion(extract_dir, generate)
 
-        trace_out = ctx.finalize({})
-        if "llm_trace" in trace_out:
-            result.llm_trace = trace_out["llm_trace"]
+            trace_out = ctx.finalize({})
+            if "llm_trace" in trace_out:
+                result.llm_trace = trace_out["llm_trace"]
 
-        logger.info(
-            "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
-        )
-        return result
+            logger.info(
+                "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
+            )
+            return result

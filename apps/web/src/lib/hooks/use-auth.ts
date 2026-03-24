@@ -1,52 +1,55 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { clearUserApiKey, getUserApiKey } from "@/lib/auth";
+import type { AccessStatus } from "@/lib/auth-status";
 import { getIdentity, setIdentity, type WorkspaceIdentity } from "@/lib/identity";
 import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
 import { generateWorkspaceAccessCode } from "@/lib/resume-key";
 
 export type AuthState = {
-  /** User's OpenRouter API key (null if anonymous / signed out) */
-  userKey: string | null;
-  /** Persistent identity (null until first submit or OAuth) */
-  identity: WorkspaceIdentity | null;
-  /** Server trial credits available */
-  hasCredits: boolean | null;
+  /** Server-derived OpenRouter access status */
+  access: AccessStatus | null;
   /** True when user has no access at all (no key + no trial credits) */
   noAccess: boolean;
-  /** Sign out — clears API key but preserves identity */
-  signOut: () => void;
+  /** Sign out — clears the server session but preserves identity */
+  signOut: () => Promise<void>;
   /** Ensure identity exists; creates anonymous one if needed. Returns workspace identity. */
   ensureIdentity: () => WorkspaceIdentity;
 };
 
 export function useAuth(): AuthState {
-  const [userKey, setUserKey] = useState<string | null>(() =>
-    typeof window !== "undefined" ? getUserApiKey() : null
-  );
-  const [identity, setIdentityState] = useState<WorkspaceIdentity | null>(() =>
-    typeof window !== "undefined" ? getIdentity() : null
-  );
-  const [hasCredits, setHasCredits] = useState<boolean | null>(null);
+  const [access, setAccess] = useState<AccessStatus | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/status", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Failed to load auth status");
+      }
+      setAccess((await response.json()) as AccessStatus);
+    } catch {
+      setAccess(null);
+    }
+  }, []);
 
   useEffect(() => {
-    fetch("/api/auth/credits")
-      .then((r) => r.json())
-      .then((d) => setHasCredits(d.hasCredits))
-      .catch(() => setHasCredits(false));
-  }, []);
+    void refresh();
+  }, [refresh]);
 
-  const signOut = useCallback(() => {
-    clearUserApiKey();
-    setUserKey(null);
-    // Identity is NOT cleared — user can sign back in and recover it
-  }, []);
+  const signOut = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+    } finally {
+      await refresh();
+    }
+  }, [refresh]);
 
   const ensureIdentity = useCallback((): WorkspaceIdentity => {
     const existing = getIdentity();
     if (existing) {
-      setIdentityState(existing);
       return existing;
     }
     const id: WorkspaceIdentity = {
@@ -55,15 +58,12 @@ export function useAuth(): AuthState {
       kind: "anonymous",
     };
     setIdentity(id);
-    setIdentityState(id);
     return id;
   }, []);
 
   return {
-    userKey,
-    identity,
-    hasCredits,
-    noAccess: !userKey && hasCredits === false,
+    access,
+    noAccess: access?.canRun === false,
     signOut,
     ensureIdentity,
   };

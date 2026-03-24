@@ -1,12 +1,19 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import type { AccessStatus } from "@/lib/auth-status";
+import { apiFetch } from "@/lib/api/client";
 import { Switch } from "@/components/ui/switch";
 import { unlockWorkspace } from "@/lib/api/analysis";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
-import { getDeploymentId, triggerRun } from "@/lib/api/prefect";
 import { initiateOpenRouterAuth } from "@/lib/auth";
 import { getIdentity, setIdentity } from "@/lib/identity";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -48,6 +55,67 @@ const fadeInUp = (delay = 0) => ({
   transition: { duration: 0.4, ease: "easeOut" as const, delay },
 });
 
+function renderAccessIndicator(access: AccessStatus | null) {
+  if (!access) {
+    return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+  }
+  if (access.mode === "user" || access.mode === "trial") {
+    return <div className="h-2 w-2 rounded-full bg-success" />;
+  }
+  return <div className="h-2 w-2 rounded-full bg-destructive" />;
+}
+
+function renderAccessMessage(access: AccessStatus | null) {
+  if (!access) {
+    return <p className="text-sm text-muted-foreground">Checking access...</p>;
+  }
+  if (access.mode === "user") {
+    return <p className="text-sm font-medium">Using your OpenRouter session</p>;
+  }
+  if (access.mode === "trial" && access.creditStatus === "available") {
+    return (
+      <>
+        <p className="text-sm font-medium">Free credits available</p>
+        <p className="text-xs text-muted-foreground">
+          Or sign in with OpenRouter to use your own key
+        </p>
+      </>
+    );
+  }
+  if (access.mode === "trial" && access.creditStatus === "unknown") {
+    return (
+      <>
+        <p className="text-sm font-medium">Trial access available</p>
+        <p className="text-xs text-muted-foreground">
+          Credit status is unavailable, but the server can still run requests
+        </p>
+      </>
+    );
+  }
+  if (access.mode === "none" && access.reason === "trial_exhausted") {
+    return (
+      <>
+        <p className="text-sm font-medium text-destructive">
+          Free credits exhausted
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Sign in with OpenRouter to continue with your own key
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <p className="text-sm font-medium text-destructive">
+        Trial access unavailable
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Sign in with OpenRouter to continue
+      </p>
+    </>
+  );
+}
+
 export default function LandingPage() {
   const router = useRouter();
   const [question, setQuestion] = useState("");
@@ -55,9 +123,10 @@ export default function LandingPage() {
   const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMac] = useState(() =>
-    typeof navigator !== "undefined" ? /Mac/.test(navigator.userAgent) : false
+    typeof navigator !== "undefined" ? /Mac/.test(navigator.userAgent) : false,
   );
   const auth = useAuth();
+  const launchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
@@ -68,15 +137,23 @@ export default function LandingPage() {
         router.push(`/analysis/${workspaceId}`);
         return;
       }
-      setIdentity({ workspaceId, accessCode: sharedAccessCode, kind: "anonymous" });
-      void unlockWorkspace(workspaceId, sharedAccessCode).catch(() => {
-        // The analysis page retries with the stored identity if the cookie was not set here.
-      }).finally(() => {
-        setIdentity({ workspaceId, accessCode: sharedAccessCode, kind: "anonymous" });
-        router.push(`/analysis/${workspaceId}`);
-      });
+      void unlockWorkspace(workspaceId, sharedAccessCode)
+        .catch(() => {
+          // The analysis page retries with the stored identity if the cookie was not set here.
+        })
+        .finally(() => {
+          setIdentity({
+            workspaceId,
+            accessCode: sharedAccessCode,
+            kind: "anonymous",
+          });
+          router.push(`/analysis/${workspaceId}`);
+        });
     }
   }, [router]);
+  useEffect(() => {
+    launchIdRef.current = null;
+  }, [question, file, overrideGates]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -135,29 +212,22 @@ export default function LandingPage() {
 
       const identity = auth.ensureIdentity();
       await uploadFile(file, identity.workspaceId, identity.accessCode);
+      const launchId = launchIdRef.current ?? crypto.randomUUID();
+      launchIdRef.current = launchId;
 
-      const deploymentId = await getDeploymentId();
-      const rootFlowRunId = await triggerRun(deploymentId, {
-        query: question,
-        workspace_id: identity.workspaceId,
-        override_gates: overrideGates || undefined,
-        openrouter_api_key: auth.userKey || undefined,
-      });
-
-      try {
-        await fetch("/api/sessions", {
+      const { rootFlowRunId } = await apiFetch<{ rootFlowRunId: string }>(
+        "/api/runs",
+        {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workspaceId: identity.workspaceId,
             accessCode: identity.accessCode,
-            question,
-            rootFlowRunId,
+            launchId,
+            query: question,
+            overrideGates: overrideGates || undefined,
           }),
-        });
-      } catch {
-        // The analysis page can bootstrap directly from the root flow run ID.
-      }
+        },
+      );
 
       router.push(
         `/analysis/${identity.workspaceId}?${new URLSearchParams({ rootFlowRunId }).toString()}`,
@@ -177,14 +247,17 @@ export default function LandingPage() {
 
     const rawWorkspaceId = parsedResume.workspaceId.trim();
     const workspaceId =
-      rawWorkspaceId.length === ANONYMOUS_WORKSPACE_ID_LENGTH && /^[A-Za-z0-9]+$/.test(rawWorkspaceId)
+      rawWorkspaceId.length === ANONYMOUS_WORKSPACE_ID_LENGTH &&
+      /^[A-Za-z0-9]+$/.test(rawWorkspaceId)
         ? rawWorkspaceId.toUpperCase()
         : rawWorkspaceId;
     const storedIdentity = getIdentity();
     const accessCode =
       parsedResume.accessCode ??
       getSharedWorkspaceAccessCode(workspaceId) ??
-      (storedIdentity?.workspaceId === workspaceId ? storedIdentity.accessCode : null);
+      (storedIdentity?.workspaceId === workspaceId
+        ? storedIdentity.accessCode
+        : null);
 
     setIsResuming(true);
     setResumeError(null);
@@ -197,10 +270,16 @@ export default function LandingPage() {
       }
 
       await unlockWorkspace(workspaceId, accessCode);
-      setIdentity({ workspaceId, accessCode, kind: storedIdentity?.kind ?? "anonymous" });
+      setIdentity({
+        workspaceId,
+        accessCode,
+        kind: storedIdentity?.kind ?? "anonymous",
+      });
       router.push(`/analysis/${workspaceId}`);
     } catch (err) {
-      setResumeError(err instanceof Error ? err.message : "Failed to unlock workspace.");
+      setResumeError(
+        err instanceof Error ? err.message : "Failed to unlock workspace.",
+      );
       setIsResuming(false);
     }
   };
@@ -210,7 +289,13 @@ export default function LandingPage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && question.trim() && file && !isSubmitting) {
+    if (
+      e.key === "Enter" &&
+      (e.metaKey || e.ctrlKey) &&
+      question.trim() &&
+      file &&
+      !isSubmitting
+    ) {
       handleSubmit();
     }
   };
@@ -223,8 +308,8 @@ export default function LandingPage() {
             Causal Inference Pipeline
           </h1>
           <p className="text-base sm:text-lg text-muted-foreground max-w-lg mx-auto">
-            From research question to quantified treatment effects — powered by LLMs, state-space
-            models, and Bayesian inference
+            From research question to quantified treatment effects — powered by
+            LLMs, state-space models, and Bayesian inference
           </p>
         </motion.div>
 
@@ -232,41 +317,15 @@ export default function LandingPage() {
           <Card className={auth.noAccess ? "border-destructive/50" : ""}>
             <CardContent className="flex items-center justify-between py-4">
               <div className="flex items-center gap-3">
-                {auth.hasCredits === null ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : auth.userKey ? (
-                  <div className="h-2 w-2 rounded-full bg-success" />
-                ) : auth.hasCredits ? (
-                  <div className="h-2 w-2 rounded-full bg-success" />
-                ) : (
-                  <div className="h-2 w-2 rounded-full bg-destructive" />
-                )}
-                <div>
-                  {auth.hasCredits === null ? (
-                    <p className="text-sm text-muted-foreground">Checking credits...</p>
-                  ) : auth.userKey ? (
-                    <p className="text-sm font-medium">Using your OpenRouter API key</p>
-                  ) : auth.hasCredits ? (
-                    <>
-                      <p className="text-sm font-medium">Free credits available</p>
-                      <p className="text-xs text-muted-foreground">
-                        Or bring your own key for unlimited usage
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-medium text-destructive">
-                        Free credits exhausted
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Sign in with OpenRouter to use your own API key
-                      </p>
-                    </>
-                  )}
-                </div>
+                {renderAccessIndicator(auth.access)}
+                <div>{renderAccessMessage(auth.access)}</div>
               </div>
-              {auth.userKey ? (
-                <Button variant="ghost" size="sm" onClick={auth.signOut}>
+              {auth.access?.mode === "user" ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void auth.signOut()}
+                >
                   Sign out
                 </Button>
               ) : (
@@ -352,7 +411,9 @@ export default function LandingPage() {
                     <FileText className="h-6 w-6 text-primary" />
                     <div>
                       <p className="text-sm font-medium">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">{prettyBytes(file.size)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {prettyBytes(file.size)}
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -403,17 +464,24 @@ export default function LandingPage() {
                 <div>
                   <p className="text-sm font-medium">Override stage gates</p>
                   <p className="text-xs text-muted-foreground">
-                    Continue past stage failures instead of halting. Results may be unreliable.
+                    Continue past stage failures instead of halting. Results may
+                    be unreliable.
                   </p>
                 </div>
               </div>
-              <Switch checked={overrideGates} onCheckedChange={setOverrideGates} />
+              <Switch
+                checked={overrideGates}
+                onCheckedChange={setOverrideGates}
+              />
             </CardContent>
           </Card>
         </motion.div>
 
         {error && (
-          <motion.p className="text-sm text-destructive text-center" {...fadeIn}>
+          <motion.p
+            className="text-sm text-destructive text-center"
+            {...fadeIn}
+          >
             {error}
           </motion.p>
         )}
@@ -423,7 +491,9 @@ export default function LandingPage() {
             className="w-full"
             size="lg"
             onClick={handleSubmit}
-            disabled={isSubmitting || !question.trim() || !file || auth.noAccess}
+            disabled={
+              isSubmitting || !question.trim() || !file || auth.noAccess
+            }
           >
             {isSubmitting ? (
               <>
@@ -457,14 +527,16 @@ export default function LandingPage() {
         </div>
 
         <motion.div className="space-y-3" {...fadeInUp(0.3)}>
-          <p className="text-center text-sm text-muted-foreground">Resume a previous analysis</p>
+          <p className="text-center text-sm text-muted-foreground">
+            Resume a previous analysis
+          </p>
           <div className="flex items-center gap-2 max-w-xs mx-auto">
             <input
               type="text"
               aria-label="Resume key or fixture ID"
-                placeholder="Resume key or fixture ID"
-                value={resumeKeyInput}
-                onChange={(e) => {
+              placeholder="Resume key or fixture ID"
+              value={resumeKeyInput}
+              onChange={(e) => {
                 setResumeKeyInput(e.target.value);
                 if (resumeError) setResumeError(null);
               }}
@@ -487,9 +559,14 @@ export default function LandingPage() {
             </Button>
           </div>
           <p className="text-center text-xs text-muted-foreground/70">
-            Paste your resume key, or enter a shared fixture ID like <span className="font-mono">DEFAULT</span>.
+            Paste your resume key, or enter a shared fixture ID like{" "}
+            <span className="font-mono">DEFAULT</span>.
           </p>
-          {resumeError && <p className="text-center text-sm text-destructive">{resumeError}</p>}
+          {resumeError && (
+            <p className="text-center text-sm text-destructive">
+              {resumeError}
+            </p>
+          )}
         </motion.div>
       </div>
     </div>

@@ -12,6 +12,8 @@ import inspect
 import json
 import threading
 from collections import deque
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic, perf_counter
 from typing import Any, Literal, cast
@@ -69,6 +71,7 @@ class RpmLimiter:
 
 
 _limiters: dict[str, RpmLimiter] = {}
+_openrouter_api_key: ContextVar[str | None] = ContextVar("openrouter_api_key", default=None)
 
 
 def set_limiter(name: str, limiter: RpmLimiter | None) -> None:
@@ -91,6 +94,23 @@ async def acquire_limiter(name: str) -> None:
     limiter = _limiters.get(name)
     if limiter is not None:
         await limiter.acquire()
+
+
+def get_openrouter_api_key() -> str | None:
+    return _openrouter_api_key.get()
+
+
+def resolve_openrouter_api_key(api_key: str | None = None) -> str | None:
+    return api_key if api_key is not None else get_openrouter_api_key()
+
+
+@contextmanager
+def use_openrouter_api_key(api_key: str | None):
+    token = _openrouter_api_key.set(resolve_openrouter_api_key(api_key))
+    try:
+        yield
+    finally:
+        _openrouter_api_key.reset(token)
 
 
 # LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
@@ -415,6 +435,9 @@ async def call_model(
         "messages": [normalize_message(message) for message in messages],
         "drop_params": True,
     }
+    api_key = get_openrouter_api_key()
+    if api_key:
+        kwargs["api_key"] = api_key
     if request.max_tokens is not None:
         kwargs["max_tokens"] = request.max_tokens
     if request.timeout is not None:

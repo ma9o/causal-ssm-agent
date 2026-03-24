@@ -1,20 +1,19 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getPrefectApiUrl } from "@/lib/runtime-urls";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import {
-  appendSessionRootFlowRunId,
-  getLatestSessionRootFlowRunId,
-  readSession,
-  writeSession,
-} from "../sessions/_shared";
+  findCausalInferenceDeploymentId,
+  findLatestWorkspaceRootFlowRunId,
+  getPrefectApiBaseUrl,
+  launchWorkspaceRootFlowRun,
+  PrefectRunError,
+  prefectFetch,
+} from "@/lib/server/prefect-runs";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
-const PREFECT_API = getPrefectApiUrl();
+const PREFECT_API = getPrefectApiBaseUrl();
 const TERMINAL_FLOW_STATES = new Set(["COMPLETED", "FAILED", "CANCELLED", "CRASHED"]);
 const CANCELLATION_POLL_MS = 1000;
 const CANCELLATION_TIMEOUT_MS = 60000;
-const PREFECT_RETRY_BASE_MS = 500;
-const PREFECT_RETRY_MAX_ATTEMPTS = 4;
 
 const STAGE_ORDER = [
   "stage-0",
@@ -45,72 +44,12 @@ interface PrefectSetStateResponse {
   } | null;
 }
 
-interface PrefectDeployment {
-  id: string;
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
 function isTerminalFlowState(stateType: unknown): boolean {
   return typeof stateType === "string" && TERMINAL_FLOW_STATES.has(stateType);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isRetryablePrefectStatus(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
-function parseRetryAfterMs(value: string | null): number | null {
-  if (!value) return null;
-
-  const seconds = Number(value);
-  if (Number.isFinite(seconds)) {
-    return Math.max(0, seconds * 1000);
-  }
-
-  const retryAt = Date.parse(value);
-  if (Number.isNaN(retryAt)) {
-    return null;
-  }
-
-  return Math.max(0, retryAt - Date.now());
-}
-
-function getPrefectRetryDelayMs(attempt: number, response?: Response): number {
-  const hintedDelay = parseRetryAfterMs(response?.headers.get("Retry-After") ?? null);
-  if (hintedDelay != null) {
-    return hintedDelay;
-  }
-  return PREFECT_RETRY_BASE_MS * 2 ** (attempt - 1);
-}
-
-async function prefectFetch(
-  input: string,
-  init?: RequestInit,
-  attempt = 1,
-): Promise<Response> {
-  try {
-    const response = await fetch(input, init);
-    if (
-      attempt < PREFECT_RETRY_MAX_ATTEMPTS &&
-      isRetryablePrefectStatus(response.status)
-    ) {
-      await sleep(getPrefectRetryDelayMs(attempt, response));
-      return prefectFetch(input, init, attempt + 1);
-    }
-    return response;
-  } catch (error) {
-    if (attempt >= PREFECT_RETRY_MAX_ATTEMPTS) {
-      throw error;
-    }
-    await sleep(getPrefectRetryDelayMs(attempt));
-    return prefectFetch(input, init, attempt + 1);
-  }
 }
 
 function slugifyForPrefect(value: string, fallback: string): string {
@@ -227,38 +166,34 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Use the current page's explicit root flow run when available so replay still
-    // works even if session registration failed after the source run launched.
-    const session = await readSession(safeWorkspaceId) ?? undefined;
-    const latestRootFlowRunId = safeRootFlowRunId ?? getLatestSessionRootFlowRunId(session);
+    const latestRootFlowRunId = safeRootFlowRunId ?? await findLatestWorkspaceRootFlowRunId(safeWorkspaceId);
 
     // Build parameters: if we have a prior flow run, reuse its params
+    let sourceFlowRun: PrefectFlowRun | null = null;
     let originalParams: Record<string, unknown> = {};
     if (latestRootFlowRunId) {
-      const flowRun = await fetchFlowRun(latestRootFlowRunId);
-      if (flowRun) {
-        originalParams = flowRun.parameters ?? {};
-        if (!isTerminalFlowState(flowRun.state?.type)) {
-          await cancelFlowRun(latestRootFlowRunId);
-          await waitForFlowRunToStop(latestRootFlowRunId);
-        }
-      }
+      sourceFlowRun = await fetchFlowRun(latestRootFlowRunId);
+      originalParams = sourceFlowRun?.parameters ?? {};
     }
 
-    // Ensure the replay resumes from the edited stage boundary and does not
-    // inherit stale replay-window bounds from the previous run.
+    // Find the causal-inference deployment
+    const deploymentId = await findCausalInferenceDeploymentId();
+    if (!deploymentId) {
+      return NextResponse.json(
+        { error: "causal-inference deployment not found" },
+        { status: 404 },
+      );
+    }
     const existingOverrides =
       (originalParams.stage_overrides as Record<string, unknown>) ?? {};
-    const { start_stage: _startStage, end_stage: _endStage, ...baseParams } = originalParams;
-    const newParams = {
-      ...baseParams,
-      workspace_id: safeWorkspaceId,
-      start_stage: safeStageId,
-      stage_overrides: {
-        ...existingOverrides,
-        [safeStageId]: stageData,
-      },
-    };
+    const {
+      end_stage: _endStage,
+      openrouter_access_mode: _oldOpenRouterAccessMode,
+      openrouter_secret_ref: _oldOpenRouterSecretRef,
+      openrouter_api_key: _oldOpenRouterApiKey,
+      start_stage: _startStage,
+      ...baseParams
+    } = originalParams;
     const replayRunName = buildReplayRunName(safeWorkspaceId, safeStageId);
     const replayIdempotencyKey = buildReplayIdempotencyKey(
       latestRootFlowRunId,
@@ -266,77 +201,61 @@ export async function POST(request: Request) {
       safeStageId,
       stageData,
     );
-
-    // Find the causal-inference deployment
-    const deploymentsRes = await prefectFetch(`${PREFECT_API}/deployments/filter`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        deployments: { name: { any_: ["causal-inference"] } },
-      }),
-    });
-
-    if (!deploymentsRes.ok) {
-      return NextResponse.json(
-        { error: "Failed to find causal-inference deployment" },
-        { status: 502 },
-      );
-    }
-
-    const deployments = (await deploymentsRes.json()) as PrefectDeployment[];
-    if (!deployments.length) {
-      return NextResponse.json(
-        { error: "causal-inference deployment not found" },
-        { status: 404 },
-      );
-    }
-
-    const deploymentId = deployments[0].id;
-
-    // Trigger new flow run with original params + stage override
-    const createRes = await prefectFetch(
-      `${PREFECT_API}/deployments/${deploymentId}/create_flow_run`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: replayRunName,
-          tags: ["replay", "interactive", safeStageId],
-          idempotency_key: replayIdempotencyKey,
-          context: {
-            replay_kind: "stage_override",
-            edited_stage_id: safeStageId,
-            source_root_flow_run_id: latestRootFlowRunId,
-          },
-          labels: {
-            replay: true,
-            workspace_id: safeWorkspaceId,
-            edited_stage: safeStageId,
-            source_root_flow_run_id: latestRootFlowRunId ?? "none",
-          },
-          parameters: newParams,
-        }),
+    const launch = await launchWorkspaceRootFlowRun({
+      beforeActiveRunCheck: async () => {
+        if (
+          sourceFlowRun &&
+          latestRootFlowRunId &&
+          !isTerminalFlowState(sourceFlowRun.state?.type)
+        ) {
+          await cancelFlowRun(latestRootFlowRunId);
+          await waitForFlowRunToStop(latestRootFlowRunId);
+        }
       },
-    );
-
-    if (!createRes.ok) {
-      return NextResponse.json({ error: "Failed to trigger pipeline" }, { status: 502 });
+      context: {
+        replay_kind: "stage_override",
+        edited_stage_id: safeStageId,
+        source_root_flow_run_id: latestRootFlowRunId,
+      },
+      deploymentId,
+      idempotencyKey: replayIdempotencyKey,
+      labels: {
+        replay: true,
+        workspace_id: safeWorkspaceId,
+        edited_stage: safeStageId,
+        source_root_flow_run_id: latestRootFlowRunId ?? "none",
+      },
+      name: replayRunName,
+      parameters: {
+        ...baseParams,
+        workspace_id: safeWorkspaceId,
+        start_stage: safeStageId,
+        stage_overrides: {
+          ...existingOverrides,
+          [safeStageId]: stageData,
+        },
+      },
+      tags: ["replay", "interactive", safeStageId],
+      workspaceId: safeWorkspaceId,
+    });
+    if (launch.status === "busy") {
+      return NextResponse.json(
+        {
+          error: launch.message,
+          ...(launch.rootFlowRunId
+            ? { rootFlowRunId: launch.rootFlowRunId }
+            : {}),
+        },
+        { status: 409 },
+      );
     }
 
-    const newFlowRun = await createRes.json();
-    let sessionPersisted = true;
-    try {
-      await writeSession(safeWorkspaceId, appendSessionRootFlowRunId(session, newFlowRun.id));
-    } catch {
-      sessionPersisted = false;
-    }
     const downstreamStart = stageIdx + 1;
 
     return NextResponse.json({
       ok: true,
       resumeFrom: downstreamStart < STAGE_ORDER.length ? STAGE_ORDER[downstreamStart] : null,
-      rootFlowRunId: newFlowRun.id,
-      sessionPersisted,
+      rootFlowRunId: launch.rootFlowRunId,
     });
   } catch (err) {
     return NextResponse.json(
