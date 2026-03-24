@@ -55,6 +55,8 @@ The Lyapunov equation is solved via Bartels-Stewart (Sylvester solver), which is
 
 For a time series with T observations and potentially irregular intervals, the discretization is vmapped over the `dt` dimension to produce batched `(T, n, n)` discrete drift and noise matrices. The O(n^3) matrix exponential and Lyapunov solve are identical across particles and only need to be computed once per timestep, not once per particle.
 
+**Note on `edge_lag_days`:** The per-edge lag in days, computed during spec translation in [compilation.md](compilation.md#stage-1-spec-translation-ssm_spec_translationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
+
 ## 3. Likelihood Computation
 
 Both likelihood backends compute log p(y | theta) and inject it into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density.
@@ -113,28 +115,8 @@ SSMModel.model()                     [NumPyro model function]
 inference.fit()  -->  InferenceResult (posterior samples + diagnostics)
 ```
 
-## 5. Counterfactual Inference (Do-Operator)
-
-After estimation, causal effects are computed via the do-operator on the continuous-time steady state:
-
-1. **Baseline steady state:** Given posterior draws of drift A and continuous intercept c, compute eta\* = -A^{-1}c (the CT steady state).
-2. **Intervention:** Apply do(X = x) by replacing the treatment variable's row in A with an identity constraint and solving the modified linear system.
-3. **Treatment effect:** Compare do(treat = baseline + 1) vs baseline for the outcome variable.
-
-This is vmapped over posterior draws to produce posterior distributions of causal effects, ranked by effect size.
-
-4. **Forward simulation (optional):** For time-varying interventions or transient dynamics, `forward_simulate_intervention()` propagates the discrete-time system forward under a specified intervention schedule, producing full trajectories rather than just steady-state comparisons.
-
-## 6. Interpretation Guidance
-
-Effects are estimated as relationships between constructs as measured through their indicators. Measurement error in indicators is absorbed into residual variance. Interpret:
-
-- **AR coefficients** as inertia in the construct
-- **Cross-lag coefficients** as causal relationships between constructs
-- **Time-invariant latents** as stable subject-level intercepts (see [latent-model/assumptions.md](latent-model/assumptions.md))
-
-Causal interpretation requires that the DAG correctly captures the true causal structure and that all relevant confounders are included.
-
 ## References
+
+Post-estimation causal effect computation (do-operator, counterfactual inference, and interpretation guidance) lives in [counterfactual-inference.md](counterfactual-inference.md).
 
 - Sarkka, S. (2013). Bayesian Filtering and Smoothing. Cambridge University Press.

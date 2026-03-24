@@ -20,7 +20,8 @@
 - [Pipeline dimensions](reference/pipeline-dimensions.md): artifacts, assumptions, temporal semantics, scope, and assurance surfaces
 - [Terminology](reference/terminology.md): SEM vs SCM naming conventions
 - [Compilation](reference/compilation.md): how Stage 4 outputs become an executable SSM
-- [Estimation](reference/estimation.md): CT-SDE formulation, discretization, likelihood, do-operator
+- [Estimation](reference/estimation.md): CT-SDE formulation, discretization, likelihood
+- [Counterfactual inference](reference/counterfactual-inference.md): do-operator, forward simulation, interpretation guidance
 - [Inference routing](reference/inference-routing.md): method selection and structural routing
 - [Execution and replay](reference/execution-and-replay.md): dependency DAG, resume, gating
 - [Persistence and exposure](reference/persistence-and-exposure.md): internal, web, and snapshot surfaces
