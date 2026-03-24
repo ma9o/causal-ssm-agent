@@ -14,6 +14,7 @@ vi.mock("@/lib/storage", () => ({
   LOCAL_DATA_DIR: "/tmp/data",
 }));
 
+import { deriveStage2Data } from "@/lib/stage2-data";
 import { readBinary, readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
@@ -150,30 +151,41 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
       per_indicator_counts: Record<string, number>;
       combined_extractions_sample: Array<Record<string, unknown>>;
     };
+    const parquet = new Uint8Array(
+      parquetBytes.buffer,
+      parquetBytes.byteOffset,
+      parquetBytes.byteLength,
+    );
+    const expected = await deriveStage2Data(
+      {
+        outcome: persisted.outcome,
+        llm_trace: persisted.llm_trace,
+        workers: persisted.workers,
+      },
+      parquet,
+    );
 
     vi.mocked(readData).mockResolvedValue(
       JSON.stringify({
         outcome: persisted.outcome,
         llm_trace: persisted.llm_trace,
         workers: persisted.workers,
+        per_indicator_counts: { poisoned: 999 },
+        combined_extractions_sample: [{ indicator: "poisoned", value: "persisted-only" }],
       }),
     );
-    vi.mocked(readBinary).mockResolvedValue(
-      new Uint8Array(parquetBytes.buffer, parquetBytes.byteOffset, parquetBytes.byteLength),
-    );
+    vi.mocked(readBinary).mockResolvedValue(parquet);
 
     const response = await GET(new Request("http://localhost/api/results/user/stage-2"), {
       params: Promise.resolve({ workspaceId: "user", stage: "stage-2" }),
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(
-      expect.objectContaining({
-        outcome: "success",
-        workers: persisted.workers,
-        per_indicator_counts: persisted.per_indicator_counts,
-        combined_extractions_sample: persisted.combined_extractions_sample,
-      }),
-    );
+    const payload = await response.json();
+    expect(payload).toEqual(expected);
+    expect(payload.per_indicator_counts).not.toEqual({ poisoned: 999 });
+    expect(payload.combined_extractions_sample).not.toEqual([
+      { indicator: "poisoned", value: "persisted-only" },
+    ]);
   });
 });
