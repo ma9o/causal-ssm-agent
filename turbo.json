@@ -12,6 +12,9 @@
       "env": ["NEXT_PUBLIC_*"]
     },
     "lint": {},
+    "lint:fix": {
+      "cache": false
+    },
     "format": {
       "cache": false
     },
