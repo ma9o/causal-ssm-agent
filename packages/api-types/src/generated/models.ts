@@ -57,7 +57,7 @@ export type ParameterRole =
   | "fixed_effect"
   | "ar_coefficient"
   | "residual_sd"
-  | "random_intercept_sd"
+  | "static_state_sd"
   | "correlation"
   | "loading";
 /**

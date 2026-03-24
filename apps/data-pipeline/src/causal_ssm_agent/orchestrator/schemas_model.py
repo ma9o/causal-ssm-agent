@@ -95,7 +95,7 @@ class ParameterRole(StrEnum):
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
     AR_COEFFICIENT = "ar_coefficient"  # DT persistence rho for autoregressive terms
     RESIDUAL_SD = "residual_sd"  # Sigma for residual variance
-    RANDOM_INTERCEPT_SD = "random_intercept_sd"  # Between-person SD for random intercepts
+    STATIC_STATE_SD = "static_state_sd"  # Scale for quasi-constant latent states
     CORRELATION = "correlation"  # Correlation between constructs
     LOADING = "loading"  # Factor loading for multi-indicator constructs
 
@@ -139,7 +139,7 @@ EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
     ParameterRole.RESIDUAL_SD: ParameterConstraint.POSITIVE,
     ParameterRole.FIXED_EFFECT: ParameterConstraint.NONE,
     ParameterRole.CORRELATION: ParameterConstraint.CORRELATION,
-    ParameterRole.RANDOM_INTERCEPT_SD: ParameterConstraint.POSITIVE,
+    ParameterRole.STATIC_STATE_SD: ParameterConstraint.POSITIVE,
 }
 
 

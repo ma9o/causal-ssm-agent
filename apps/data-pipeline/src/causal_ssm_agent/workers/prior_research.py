@@ -357,7 +357,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
         params = {"mu": 0.0, "sigma": 0.5}
 
     # Adjust based on role
-    if parameter.role in (ParameterRole.RESIDUAL_SD, ParameterRole.RANDOM_INTERCEPT_SD):
+    if parameter.role in (ParameterRole.RESIDUAL_SD, ParameterRole.STATIC_STATE_SD):
         distribution = "HalfNormal"
         params = {"sigma": 1.0}
 

@@ -176,7 +176,7 @@
         "Systematic Debugging Behavior",
         "Error Resolution Speed"
       ],
-      "reasoning": "Individual developers differ systematically in baseline levels of all measured constructs due to stable personal characteristics, work environments, team contexts, and habits. Random intercepts capture between-person heterogeneity. The 7 time-invariant exogenous constructs without indicators have their between-person effects partially absorbed into these random intercepts."
+      "reasoning": "Stable baseline offsets across measured constructs are represented with quasi-constant latent-state terms that capture persistent personal characteristics, work environments, team contexts, and habits over the modeled window. The 7 time-invariant exogenous constructs without indicators can share variance with these baseline-state terms."
     }
   ],
   "parameters": [
@@ -184,73 +184,73 @@
       "name": "beta_developer_experience_level_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of developer experience on error resolution speed (lagged)"
+      "description": "Time-invariant effect of developer experience on error resolution speed (lagged)"
     },
     {
       "name": "beta_developer_experience_level_debugging_confidence",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of developer experience on debugging self-efficacy (lagged)"
+      "description": "Time-invariant effect of developer experience on debugging self-efficacy (lagged)"
     },
     {
       "name": "beta_developer_experience_level_systematic_debugging_behavior",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of developer experience on use of systematic debugging strategies (lagged)"
+      "description": "Time-invariant effect of developer experience on use of systematic debugging strategies (lagged)"
     },
     {
       "name": "beta_codebase_complexity_error_complexity",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of codebase complexity on error complexity (lagged)"
+      "description": "Time-invariant effect of codebase complexity on error complexity (lagged)"
     },
     {
       "name": "beta_codebase_complexity_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of codebase complexity on error resolution speed (lagged)"
+      "description": "Time-invariant effect of codebase complexity on error resolution speed (lagged)"
     },
     {
       "name": "beta_team_size_team_support_availability",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of team size on team support availability (lagged)"
+      "description": "Time-invariant effect of team size on team support availability (lagged)"
     },
     {
       "name": "beta_documentation_quality_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of documentation quality on error resolution speed (lagged)"
+      "description": "Time-invariant effect of documentation quality on error resolution speed (lagged)"
     },
     {
       "name": "beta_documentation_quality_code_familiarity",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of documentation quality on code familiarity acquisition (lagged)"
+      "description": "Time-invariant effect of documentation quality on code familiarity acquisition (lagged)"
     },
     {
       "name": "beta_tooling_quality_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of debugging tool quality on error resolution speed (lagged)"
+      "description": "Time-invariant effect of debugging tool quality on error resolution speed (lagged)"
     },
     {
       "name": "beta_tooling_quality_systematic_debugging_behavior",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of tool quality on systematic debugging approach (lagged)"
+      "description": "Time-invariant effect of tool quality on systematic debugging approach (lagged)"
     },
     {
       "name": "beta_error_information_quality_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of error message quality on resolution speed (lagged)"
+      "description": "Time-invariant effect of error message quality on resolution speed (lagged)"
     },
     {
       "name": "beta_testing_infrastructure_quality_error_resolution_speed",
       "role": "fixed_effect",
       "constraint": "none",
-      "description": "Between-person effect of testing infrastructure on error resolution speed (lagged)"
+      "description": "Time-invariant effect of testing infrastructure on error resolution speed (lagged)"
     },
     {
       "name": "beta_sleep_quality_cognitive_fatigue",
@@ -649,84 +649,84 @@
       "description": "Factor loading of stuck on error on Error Resolution Speed (reference: debug_entry_count fixed to 1)"
     },
     {
-      "name": "random_intercept_sd_sleep_quality",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_sleep_quality",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Sleep Quality baseline"
+      "description": "Static-state SD for Sleep Quality baseline"
     },
     {
-      "name": "random_intercept_sd_workload_volume",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_workload_volume",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Workload Volume baseline"
+      "description": "Static-state SD for Workload Volume baseline"
     },
     {
-      "name": "random_intercept_sd_interruption_frequency",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_interruption_frequency",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Interruption Frequency baseline"
+      "description": "Static-state SD for Interruption Frequency baseline"
     },
     {
-      "name": "random_intercept_sd_deadline_pressure",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_deadline_pressure",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Deadline Pressure baseline"
+      "description": "Static-state SD for Deadline Pressure baseline"
     },
     {
-      "name": "random_intercept_sd_error_complexity",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_error_complexity",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Error Complexity baseline"
+      "description": "Static-state SD for Error Complexity baseline"
     },
     {
-      "name": "random_intercept_sd_cognitive_fatigue",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_cognitive_fatigue",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Cognitive Fatigue baseline"
+      "description": "Static-state SD for Cognitive Fatigue baseline"
     },
     {
-      "name": "random_intercept_sd_stress_level",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_stress_level",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Stress Level baseline"
+      "description": "Static-state SD for Stress Level baseline"
     },
     {
-      "name": "random_intercept_sd_focus_quality",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_focus_quality",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Focus Quality baseline"
+      "description": "Static-state SD for Focus Quality baseline"
     },
     {
-      "name": "random_intercept_sd_code_familiarity",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_code_familiarity",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Code Familiarity baseline"
+      "description": "Static-state SD for Code Familiarity baseline"
     },
     {
-      "name": "random_intercept_sd_team_support_availability",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_team_support_availability",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Team Support Availability baseline"
+      "description": "Static-state SD for Team Support Availability baseline"
     },
     {
-      "name": "random_intercept_sd_debugging_confidence",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_debugging_confidence",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Debugging Confidence baseline"
+      "description": "Static-state SD for Debugging Confidence baseline"
     },
     {
-      "name": "random_intercept_sd_systematic_debugging_behavior",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_systematic_debugging_behavior",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Systematic Debugging Behavior baseline"
+      "description": "Static-state SD for Systematic Debugging Behavior baseline"
     },
     {
-      "name": "random_intercept_sd_error_resolution_speed",
-      "role": "random_intercept_sd",
+      "name": "static_state_sd_error_resolution_speed",
+      "role": "static_state_sd",
       "constraint": "positive",
-      "description": "Between-person SD for Error Resolution Speed baseline"
+      "description": "Static-state SD for Error Resolution Speed baseline"
     }
   ],
   "model_clock": "daily",
-  "reasoning": "This is a dynamic structural equation model (DSEM) for daily software debugging performance. The model has three layers: (1) A measurement model linking 26 observed browser-based indicators to 13 latent constructs via factor models with 2 indicators each, where one loading is fixed to 1 for identification. (2) A within-person temporal structural model with AR(1) dynamics for the 9 endogenous time-varying constructs, capturing day-to-day persistence. (3) A between-person structural model where 7 unobserved time-invariant exogenous constructs (developer experience, codebase complexity, etc.) influence endogenous constructs through fixed effects absorbed into person-level variation. Distribution choices reflect data types: NegativeBinomial for overdispersed browsing counts, Poisson for rare event counts, Bernoulli for binary indicators, OrderedLogistic for ordinal ratings, and Normal for continuous timestamps. Random intercepts for subjects on all 13 measured constructs capture stable between-person differences. The model is intentionally kept with intercept-only random effects (no random slopes) to maintain identifiability given the complexity of the structural model (40 causal paths, 9 AR parameters). Code Familiarity is modeled at daily resolution despite weekly granularity, with the expectation that its AR coefficient will be near 1 reflecting slow knowledge accumulation."
+  "reasoning": "This is a dynamic structural equation model (DSEM) for daily software debugging performance. The model has three layers: (1) A measurement model linking 26 observed browser-based indicators to 13 latent constructs via factor models with 2 indicators each, where one loading is fixed to 1 for identification. (2) A within-person temporal structural model with AR(1) dynamics for the 9 endogenous time-varying constructs, capturing day-to-day persistence. (3) A time-invariant latent structure where 7 unobserved time-invariant exogenous constructs (developer experience, codebase complexity, etc.) influence endogenous constructs through fixed effects carried across the modeled window. Distribution choices reflect data types: NegativeBinomial for overdispersed browsing counts, Poisson for rare event counts, Bernoulli for binary indicators, OrderedLogistic for ordinal ratings, and Normal for continuous timestamps. Static baseline-state terms on all 13 measured constructs capture persistent baseline differences over the modeled window. The model keeps these baseline-state terms simple to maintain identifiability given the complexity of the structural model (40 causal paths, 9 AR parameters). Code Familiarity is modeled at daily resolution despite weekly granularity, with the expectation that its AR coefficient will be near 1 reflecting slow knowledge accumulation."
 }
