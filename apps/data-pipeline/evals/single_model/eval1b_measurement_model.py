@@ -10,7 +10,9 @@ a different model configuration.
 
 Usage:
     inspect eval evals/single_model/eval1b_measurement_model.py --model openrouter/anthropic/claude-sonnet-4
-    inspect eval evals/single_model/eval1b_measurement_model.py --model openrouter/google/gemini-2.5-pro-preview-06-05
+    inspect eval evals/single_model/eval1b_measurement_model.py \
+        --model openrouter/google/gemini-2.5-pro-preview-06-05 \
+        -T workspace_id=SMALLGOLDEN
 """
 
 import sys
@@ -22,11 +24,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import json
 
 from evals.common import (
-    get_questions_with_latent_model,
-    get_sample_chunks_orchestrator,
     load_eval_config,
+    load_workspace_stage1b_inputs,
     make_generate_fn,
-    select_questions,
 )
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
@@ -45,48 +45,35 @@ MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
 def create_eval_dataset(
-    n_chunks: int = 5,
-    seed: int = 42,
-    input_file: str | None = None,
-    questions: str | None = None,
+    workspace_id: str | None = None,
 ) -> MemoryDataset:
     """Create evaluation dataset.
 
     Args:
-        n_chunks: Number of data chunks to include.
-        seed: Random seed for sampling.
-        input_file: Specific input file name, or None for latest.
-        questions: Optional comma-separated selectors to filter questions.
+        workspace_id: Workspace to load persisted Stage 0 and Stage 1a inputs from.
     """
-    all_questions = get_questions_with_latent_model()
-    if questions:
-        all_questions = select_questions(all_questions, questions)
+    inputs = load_workspace_stage1b_inputs(workspace_id)
+    latent_model = inputs["latent_model"]
+    outcome = get_outcome_name(latent_model)
+    treatments = get_all_treatments(latent_model)
 
-    chunks = get_sample_chunks_orchestrator(n_chunks, seed, input_file)
-
-    samples = []
-    for q in all_questions:
-        latent_model = q.load_latent_model()
-        outcome = get_outcome_name(latent_model)
-        treatments = get_all_treatments(latent_model)
-
-        samples.append(
+    return MemoryDataset(
+        [
             Sample(
-                input=q.question,  # Just the question, stage1b builds the full prompt
-                id=f"q_{q.slug}",
+                input=inputs["question"],
+                id=f"workspace_{inputs['workspace_id']}",
                 metadata={
-                    "question": q.question,
+                    "workspace_id": inputs["workspace_id"],
+                    "question": inputs["question"],
                     "latent_model": latent_model,
                     "outcome": outcome,
                     "treatments": treatments,
-                    "chunks": chunks,
-                    "n_chunks": n_chunks,
-                    "seed": seed,
+                    "chunks": inputs["chunks"],
+                    "dataset_summary": inputs["dataset_summary"],
                 },
             )
-        )
-
-    return MemoryDataset(samples)
+        ]
+    )
 
 
 def _score_stage1b_result(
@@ -244,6 +231,7 @@ def measurement_model_solver():
             latent_model = state.metadata.get("latent_model", {})
             question = state.metadata.get("question", "")
             chunks = state.metadata.get("chunks", [])
+            dataset_summary = state.metadata.get("dataset_summary", "")
 
             # Run the SAME core logic as production
             result = await run_stage1b(
@@ -251,6 +239,7 @@ def measurement_model_solver():
                 latent_model=latent_model,
                 chunks=chunks,
                 generate=generate_fn,
+                dataset_summary=dataset_summary,
             )
 
             # Store result in metadata for scorer
@@ -266,10 +255,7 @@ def measurement_model_solver():
 
 @task
 def measurement_model_eval(
-    n_chunks: int = 5,
-    seed: int = 42,
-    input_file: str | None = None,
-    questions: str | None = None,
+    workspace_id: str | None = None,
 ):
     """Evaluate Stage 1b using the production logic.
 
@@ -283,15 +269,10 @@ def measurement_model_eval(
     - +5: Partial improvement from proxies
 
     Args:
-        n_chunks: Number of data chunks to include.
-        seed: Random seed for sampling.
-        input_file: Specific preprocessed file name, or None for latest.
-        questions: Optional comma-separated question selectors (e.g. "1,3")
+        workspace_id: Workspace to load persisted Stage 0 and Stage 1a inputs from.
     """
     return Task(
-        dataset=create_eval_dataset(
-            n_chunks=n_chunks, seed=seed, input_file=input_file, questions=questions
-        ),
+        dataset=create_eval_dataset(workspace_id=workspace_id),
         solver=[
             system_message(measurement_model.SYSTEM),
             measurement_model_solver(),

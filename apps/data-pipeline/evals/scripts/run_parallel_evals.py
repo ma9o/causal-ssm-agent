@@ -6,16 +6,16 @@ Usage:
     uv run python evals/scripts/run_parallel_evals.py
     uv run python evals/scripts/run_parallel_evals.py --models claude gemini
 
-    # Worker eval
+    # Worker eval (defaults to workspace_id=GOLDEN)
     uv run python evals/scripts/run_parallel_evals.py --eval worker
     uv run python evals/scripts/run_parallel_evals.py --eval worker --models gemini haiku
+    uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id SMALLGOLDEN
 
-    # Common options
-    uv run python evals/scripts/run_parallel_evals.py -n 10 --seed 123
+    # Worker options
+    uv run python evals/scripts/run_parallel_evals.py --eval worker -n 10 --seed 123
     uv run python evals/scripts/run_parallel_evals.py --max-tasks 8
 
-    # Filter to specific questions
-    uv run python evals/scripts/run_parallel_evals.py --eval worker -q 1
+    # Filter to specific Stage 1a questions
     uv run python evals/scripts/run_parallel_evals.py -q 1,4
 """
 
@@ -39,12 +39,10 @@ EVAL_CONFIGS = {
     "orchestrator": {
         "file": "evals/single_model/eval1a_latent_model.py",
         "models": {m["id"]: m["alias"] for m in CONFIG["orchestrator_models"]},
-        "task_params": ["n_chunks", "seed", "input_file", "questions"],
     },
     "worker": {
         "file": "evals/single_model/eval2_worker_extraction.py",
         "models": {m["id"]: m["alias"] for m in CONFIG["worker_models"]},
-        "task_params": ["n_chunks", "seed", "input_file", "question"],
     },
 }
 
@@ -124,12 +122,14 @@ def main():
     )
     parser.add_argument("-n", "--n-chunks", type=int, default=5, help="Chunks per sample")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("-i", "--input-file", help="Specific input file name")
+    parser.add_argument(
+        "--workspace-id",
+        help="Workspace for worker eval inputs (default: GOLDEN via eval config)",
+    )
     parser.add_argument(
         "-q",
         "--question",
-        help="Question selector (prefix ID or slug). For worker eval: single question. "
-        "For orchestrator eval: comma-separated list.",
+        help="Question selector (prefix ID or slug). For orchestrator eval: comma-separated list.",
     )
     parser.add_argument(
         "--max-tasks", type=int, help="Max parallel tasks (default: max(4, num_models))"
@@ -156,17 +156,21 @@ def main():
     else:
         models = list(models_dict.keys())
 
-    # Build task params string for -T flags
-    task_params = {}
-    task_params["n_chunks"] = args.n_chunks
-    task_params["seed"] = args.seed
-    if args.input_file:
-        task_params["input_file"] = args.input_file
+    # Build task params for the selected eval only.
+    task_params: dict[str, int | str] = {}
+    if args.eval == "worker":
+        task_params["n_chunks"] = args.n_chunks
+        task_params["seed"] = args.seed
+        if args.workspace_id:
+            task_params["workspace_id"] = args.workspace_id
+    elif args.workspace_id:
+        parser.error("--workspace-id is only supported for the worker eval")
+
     if args.question:
-        if args.eval == "worker":
-            task_params["question"] = args.question
-        else:
+        if args.eval == "orchestrator":
             task_params["questions"] = args.question
+        else:
+            parser.error("--question is only supported for the orchestrator eval")
 
     # Set log directory
     if args.log_dir:
@@ -176,7 +180,12 @@ def main():
         log_dir = f"logs/{args.eval}-{timestamp}"
 
     print(f"Running {args.eval} eval for {len(models)} models...", file=sys.stderr)
-    print(f"Config: n_chunks={args.n_chunks}, seed={args.seed}", file=sys.stderr)
+    if args.eval == "worker":
+        print(f"Config: n_chunks={args.n_chunks}, seed={args.seed}", file=sys.stderr)
+        workspace_label = args.workspace_id or CONFIG.get("default_workspace_id", "GOLDEN")
+        print(f"Workspace: {workspace_label}", file=sys.stderr)
+    elif args.question:
+        print(f"Questions: {args.question}", file=sys.stderr)
     print(f"Models: {', '.join(short_model_name(m, models_dict) for m in models)}", file=sys.stderr)
     print(f"Log dir: {log_dir}", file=sys.stderr)
     print(file=sys.stderr)

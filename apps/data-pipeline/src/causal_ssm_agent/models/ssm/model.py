@@ -4,7 +4,7 @@ Bayesian State-Space Model definition using NumPyro.
 This module defines the probabilistic model only — inference is in inference.py.
 
 Supports:
-- Single-subject time series
+- Time-series trajectories
 - Any noise family (Gaussian, Poisson, Student-t, Gamma)
 """
 

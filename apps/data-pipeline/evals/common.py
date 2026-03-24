@@ -22,14 +22,6 @@ from inspect_ai.scorer import Score
 from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
-from causal_ssm_agent.utils.data import (
-    PROCESSED_DIR,
-    get_latest_preprocessed_file,
-    get_orchestrator_chunk_size,
-    get_worker_chunk_size,
-    sample_chunks,
-)
-
 # ══════════════════════════════════════════════════════════════════════════════
 # Eval config (non-question settings)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -40,6 +32,10 @@ def load_eval_config() -> dict:
     config_path = Path(__file__).parent / "config.yaml"
     with config_path.open() as f:
         return yaml.safe_load(f)
+
+
+EVAL_CONFIG = load_eval_config()
+DEFAULT_EVAL_WORKSPACE_ID = str(EVAL_CONFIG.get("default_workspace_id", "GOLDEN"))
 
 
 @dataclass(frozen=True)
@@ -447,43 +443,131 @@ def tool_assisted_generate(
     return _solver()
 
 
-# Files to exclude when finding the latest data file (script outputs)
-EXCLUDE_FILES = {"orchestrator-samples-manual.txt"}
+def resolve_eval_workspace_id(workspace_id: str | None = None) -> str:
+    """Resolve the workspace used for eval inputs."""
+    return workspace_id or DEFAULT_EVAL_WORKSPACE_ID
 
 
-def format_chunks(chunks: list[str]) -> str:
-    """Format chunks for prompts."""
-    parts = []
-    for i, chunk in enumerate(chunks):
-        parts.append(f"--- CHUNK {i + 1} ---\n{chunk}")
-    return "\n\n".join(parts)
+def sample_evenly[T](items: list[T], n: int, seed: int | None = None) -> list[T]:
+    """Sample up to ``n`` items, spread across the full list with jitter."""
+    if n <= 0 or not items:
+        return []
+
+    n = min(n, len(items))
+    if n >= len(items):
+        return list(items)
+
+    rng = random.Random(seed)
+    segment_size = len(items) / n
+    sampled: list[T] = []
+    for i in range(n):
+        segment_start = int(i * segment_size)
+        segment_end = int((i + 1) * segment_size)
+        idx = rng.randint(segment_start, max(segment_start, segment_end - 1))
+        sampled.append(items[idx])
+    return sampled
 
 
-def get_data_file(input_file: str | None = None):
-    """Resolve data file path."""
-    if input_file:
-        data_file = PROCESSED_DIR / input_file
-        if not data_file.exists():
-            raise FileNotFoundError(f"File not found: {data_file}")
-        return data_file
+def load_workspace_question(workspace_id: str | None = None) -> str:
+    """Load the materialized query for an eval workspace."""
+    from causal_ssm_agent.utils import storage
+    from causal_ssm_agent.utils.data import DATA_URI
 
-    data_file = get_latest_preprocessed_file(exclude=EXCLUDE_FILES)
-    if not data_file:
-        raise FileNotFoundError(f"No data files found in {PROCESSED_DIR}")
-    return data_file
+    resolved = resolve_eval_workspace_id(workspace_id)
+    query_path = storage.join(DATA_URI, resolved, "query.txt")
+    if not storage.exists(query_path):
+        raise FileNotFoundError(f"No query.txt found for workspace '{resolved}'")
+    return storage.read_text(query_path).strip()
 
 
-def get_sample_chunks_orchestrator(
-    n_chunks: int, seed: int, input_file: str | None = None
-) -> list[str]:
-    """Get sampled chunks using orchestrator chunk size from config."""
-    data_file = get_data_file(input_file)
-    chunk_size = get_orchestrator_chunk_size()
-    return sample_chunks(data_file, n_chunks, seed, chunk_size=chunk_size)
+def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -> dict[str, Any]:
+    """Restore a persisted stage state for an eval workspace."""
+    from causal_ssm_agent.flows.stage_registry import load_stage_state
+
+    resolved = resolve_eval_workspace_id(workspace_id)
+    return load_stage_state(resolved, stage_id)
 
 
-def get_sample_chunks_worker(n_chunks: int, seed: int, input_file: str | None = None) -> list[str]:
-    """Get sampled chunks using worker chunk size from config."""
-    data_file = get_data_file(input_file)
-    chunk_size = get_worker_chunk_size()
-    return sample_chunks(data_file, n_chunks, seed, chunk_size=chunk_size)
+def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, Any]:
+    """Load the exact Stage 1b inputs from a persisted workspace run."""
+    from causal_ssm_agent.flows.pipeline_helpers import format_schema_for_llm
+    from causal_ssm_agent.flows.run_store import load_parquet
+
+    resolved = resolve_eval_workspace_id(workspace_id)
+    question = load_workspace_question(resolved)
+    stage0 = load_workspace_stage_state("stage-0", resolved)
+    stage1a = load_workspace_stage_state("stage-1a", resolved)
+
+    raw_df = load_parquet(stage0["result"]["_df_path"])
+    column_descriptions = stage0["result"].get("_column_descriptions", {})
+    dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
+
+    return {
+        "workspace_id": resolved,
+        "question": question,
+        "latent_model": stage1a["result"]["latent_model"],
+        "chunks": [dataset_schema],
+        "dataset_summary": f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
+    }
+
+
+def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, Any]:
+    """Load the exact Stage 2 semantic-worker inputs from a persisted workspace run."""
+    from causal_ssm_agent.flows.run_store import load_parquet
+    from causal_ssm_agent.flows.stages.stage2_extract import _prepare_semantic_chunks
+    from causal_ssm_agent.utils.config import get_config
+    from causal_ssm_agent.utils.data import detect_time_column
+
+    resolved = resolve_eval_workspace_id(workspace_id)
+    question = load_workspace_question(resolved)
+    stage0 = load_workspace_stage_state("stage-0", resolved)
+    stage1b = load_workspace_stage_state("stage-1b", resolved)
+
+    raw_df = load_parquet(stage0["result"]["_df_path"])
+    causal_spec = stage1b["result"]["causal_spec"]
+    semantic_inds = [
+        indicator
+        for indicator in causal_spec.get("measurement", {}).get("indicators", [])
+        if indicator.get("extraction_mode", "semantic") == "semantic"
+    ]
+    if not semantic_inds:
+        raise ValueError(f"Workspace '{resolved}' has no semantic indicators for Stage 2 evals")
+
+    time_col = detect_time_column(raw_df)
+    stage2_workers = get_config().stage2_workers
+    model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
+    chunk_texts, chunk_window_starts, chunk_contexts = _prepare_semantic_chunks(
+        raw_df=raw_df,
+        semantic_inds=semantic_inds,
+        causal_spec=causal_spec,
+        model_clock=model_clock,
+        time_col=time_col,
+        windows_per_chunk=stage2_workers.windows_per_chunk,
+        max_events_per_window=stage2_workers.max_events_per_window,
+        max_windows=None,
+    )
+    if not chunk_texts:
+        raise ValueError(f"Workspace '{resolved}' produced no Stage 2 semantic chunks")
+
+    return {
+        "workspace_id": resolved,
+        "question": question,
+        "causal_spec": causal_spec,
+        "chunk_texts": chunk_texts,
+        "chunk_window_starts": chunk_window_starts,
+        "chunk_contexts": chunk_contexts,
+    }
+
+
+def get_stage2_eval_chunks(
+    n_chunks: int,
+    seed: int,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """Sample Stage 2 semantic-worker chunks from a persisted workspace."""
+    stage2_inputs = load_workspace_stage2_inputs(workspace_id)
+    chunk_texts = sample_evenly(stage2_inputs["chunk_texts"], n_chunks, seed)
+    return {
+        **stage2_inputs,
+        "sampled_chunk_texts": chunk_texts,
+    }
