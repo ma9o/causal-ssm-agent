@@ -540,6 +540,39 @@ class TestOpenRouterClient:
         assert seen["kwargs"]["messages"] == [{"role": "user", "content": "hello"}]
         assert "call_model completion:\nunlabeled completion" in caplog.text
 
+    def test_call_model_strips_repo_openrouter_prefix(self, monkeypatch):
+        from causal_ssm_agent.utils import openrouter_client
+
+        seen: dict[str, object] = {}
+        response = {
+            "model": "anthropic/claude-sonnet-4",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "ok",
+                    },
+                }
+            ],
+        }
+
+        monkeypatch.setattr(
+            openrouter_client,
+            "_get_openrouter_client",
+            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+        )
+
+        _run(
+            openrouter_client.call_model(
+                "openrouter/anthropic/claude-sonnet-4",
+                [{"role": "user", "content": "hello"}],
+                config=openrouter_client.GenerateConfig(),
+            )
+        )
+
+        assert seen["kwargs"]["model"] == "anthropic/claude-sonnet-4"
+
     def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
         from causal_ssm_agent.utils import openrouter_client
 
