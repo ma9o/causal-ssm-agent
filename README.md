@@ -1,18 +1,18 @@
 # causal-ssm-agent
 
-causal-ssm-agent is for single-individual or already-aggregated longitudinal questions where the data are messy, irregularly sampled, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors, but quantitative answers only proceed through explicit identifiability checks and Bayesian continuous-time state-space estimation. The goal is not just to estimate effects, but to know when numeric causal claims are justified and when the system should stop at structural reasoning.
+causal-ssm-agent is for single-individual or already-aggregated longitudinal questions where the data are messy, irregularly sampled, and semantically heterogeneous. The LLM proposes latent constructs, a measurement model, causal structure, and priors, but quantitative answers only proceed through explicit identifiability checks and Bayesian continuous-time state-space estimation. The goal is not just to estimate effects, but to know when numeric causal claims are justified and when the system should stop at structural reasoning.
 
 ```mermaid
 flowchart LR
   subgraph LLM["LLM (proposals)"]
     S1a["Stage 1a\nLatent constructs + causal DAG"]
-    S1b_llm["Stage 1b\nMeasurement mapping"]
-    S4_llm["Stage 4\nFunctional form + priors\n(optional literature support)"]
+    S1b_llm["Stage 1b\nMeasurement model specification"]
+    S4_llm["Stage 4\nObservation model + priors\n(optional literature support)"]
     S6["Stage 6\nIntervention interpretation"]
   end
 
   subgraph Stats["Statistics (verification + estimation)"]
-    S1b_filter["Stage 1b\neligibility filter + stop rule"]
+    S1b_filter["Stage 1b\nidentifiability screening + stop rule"]
     S4b["Stage 4b\nParametric ID diagnostics"]
     S5["Stage 5\nNumPyro estimation + diagnostics"]
     S6_post["Posterior causal effects\nfrom fitted model"]
