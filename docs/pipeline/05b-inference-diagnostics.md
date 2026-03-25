@@ -20,7 +20,7 @@ Stage 4 provided the functional specification and priors; Stage 2 provided the e
 
 Stage 5b runs three sequential tasks with no LLM involvement: model fitting, power-scaling sensitivity analysis, and posterior predictive checks. The output is a deterministic function of the compiled model, the data, and the inference configuration.
 
-**Runtime preparation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format `(T, n_manifest)`, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization partition). The result is a `PreparedModelRuntime` carrying the JAX observation array, the time array, and the built model.
+**Runtime preparation.** The stage runs the same [`prepare_model_runtime`](05a-svi-preflight.md#process) path as Stage 5a—pivoting observation rows to wide format and compiling the executable SSM—but with the full inference method and budget rather than the fixed SVI configuration.
 
 **Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference). The two structural defaults are NUTS (Kalman-eligible models) and Laplace-EM (non-Gaussian emissions); all nine methods are available as user overrides.
 
@@ -105,13 +105,7 @@ Aggregate posterior predictive check result.
 
 ### InferenceMetadata
 
-Summary metadata for the web frontend.
-
-| Field | Type | Description |
-|---|---|---|
-| `method` | `str` | Inference method used (e.g., `"nuts"`, `"laplace_em"`, `"svi"`) |
-| `n_samples` | `int` | Number of posterior draws |
-| `duration_seconds` | `float` | Wall-clock time for the fit |
+Same schema as [Stage 5a `InferenceMetadata`](05a-svi-preflight.md#inferencemetadata), with `method` reflecting the actual backend used (e.g. `"nuts"`, `"laplace_em"`).
 
 ### Backend-Specific Diagnostics
 
@@ -137,11 +131,7 @@ Produced by NUTS, NUTS-DA, and PGAS backends.
 
 #### SVIDiagnostics
 
-Produced by the SVI backend.
-
-| Field | Type | Description |
-|---|---|---|
-| `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
+Produced by the SVI backend. Same schema as [Stage 5a `SVIDiagnostics`](05a-svi-preflight.md#svidiagnostics).
 
 #### SMCDiagnostics
 

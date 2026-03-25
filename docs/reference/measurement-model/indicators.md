@@ -44,7 +44,7 @@ Stage 2 executes those modes, but the choice belongs here in the measurement def
 | `ordinal` | Ordered categories | Ordered logistic default |
 | `categorical` | Unordered categories | Categorical-family default |
 
-Stage 4 consumes these dtype semantics when constructing the `ModelSpec`.
+Stage 4 consumes these dtype semantics when constructing the `ModelSpec`. For the full distribution and link-function mapping, see [Link Functions from Indicator dtype](../model-spec/parameters-likelihoods-and-priors.md#11-link-functions-from-indicator-dtype).
 
 ## Observation Windows and Model Clock
 

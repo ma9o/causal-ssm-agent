@@ -32,9 +32,7 @@ Example:
 - If multiple datetime-like columns exist, the pipeline prefers common names such as `timestamp`, `time`, `date`, `datetime`, `created_at`, `ts`, `dt`, and `updated_at`.
 - Avoid mixed timezones or mixed string formats inside the same column.
 
-The measurement model later chooses a `model_clock` and per-indicator `observation_window`. The pipeline then buckets raw events into support windows and attaches each extracted value to an `anchor_time`.
-
-In current semantics, `first` anchors at `support_start`. All other supported operators anchor at `support_end`.
+The measurement model later chooses a `model_clock` and per-indicator `observation_window`. The pipeline then buckets raw events into support windows and attaches each extracted value to an `anchor_time`. See [Derived Observation Semantics](../reference/measurement-model/indicators.md#derived-observation-semantics) for anchor-time rules.
 
 ## How Multiple Sources Are Aligned
 
@@ -59,23 +57,11 @@ This distinction is intentional. The pipeline treats "no evidence" differently f
 
 ## `computed` Versus `semantic` Indicators
 
-These are pipeline terms, not just informal descriptions. Stage 1b defines `Indicator.extraction_mode` as `computed` or `semantic`; see [../pipeline/01b-measurement-identifiability.md](../pipeline/01b-measurement-identifiability.md). Stage 2 then defines the corresponding extraction paths; see [../pipeline/02-indicator-extraction.md](../pipeline/02-indicator-extraction.md).
+These are pipeline terms, not just informal descriptions. `computed` indicators are derived deterministically from raw columns; `semantic` indicators require LLM interpretation over a support window. Both produce the same downstream observation-row contract.
 
-| Mode | Use when | How it works |
-| --- | --- | --- |
-| `computed` | The raw columns already contain the needed value, or it can be derived deterministically from known raw fields | Direct aggregation or another deterministic formula; no LLM interpretation |
-| `semantic` | The value must be inferred from text, mixed event context, or other non-direct evidence inside a support window | An LLM worker reads the window and returns one scalar per indicator |
+For the full semantics, see [Extraction Modes](../reference/measurement-model/indicators.md#extraction-modes). [Stage 1b](../pipeline/01b-measurement-identifiability.md) defines `Indicator.extraction_mode`; [Stage 2](../pipeline/02-indicator-extraction.md) executes the corresponding extraction paths.
 
-Both modes produce the same downstream observation-row contract.
-
-Supported aggregation operators are currently `first`, `last`, `sum`, `count`, `mean`, and `std`.
-
-- `first` and `last` create point-style measurements.
-- `sum`, `count`, `mean`, and `std` create interval summaries.
-- `ordinal` indicators currently support only `first` or `last`.
-- `mean` and `std` require `continuous` measurements.
-- `count` requires `measurement_dtype="count"`.
-- `sum` requires `continuous` or `count` measurements.
+Supported aggregation operators are `first`, `last`, `sum`, `count`, `mean`, and `std`. For operator semantics and dtype compatibility rules, see [Aggregation at Indicator Level](../reference/measurement-model/indicators.md#aggregation-at-indicator-level).
 
 ## Minimum Viable Dataset
 
