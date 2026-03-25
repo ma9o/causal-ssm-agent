@@ -117,7 +117,7 @@ def load_json(path: str) -> Any:
 
 
 def save_stage_snapshot(stage_id: str, state: dict[str, Any], workspace_id: str) -> None:
-    """Persist full stage state (result + web + gate) for resume."""
+    """Persist full stage state (result + web) for resume."""
     path = storage.join(ensure_run_dir(workspace_id), f"{stage_id}-state.pkl")
     with storage.open_file(path, "wb") as f:
         cloudpickle.dump(state, f)
@@ -188,16 +188,9 @@ def find_run_artifact(workspace_id: str, filenames: tuple[str, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def stage_state(
-    result: dict[str, Any],
-    web: dict[str, Any],
-    gate: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+def stage_state(result: dict[str, Any], web: dict[str, Any]) -> dict[str, Any]:
     """Build the canonical stage state dict."""
-    state: dict[str, Any] = {"result": result, "web": web}
-    if gate is not None:
-        state["gate"] = gate
-    return state
+    return {"result": result, "web": web}
 
 
 def finalize_stage(
@@ -206,7 +199,6 @@ def finalize_stage(
     workspace_id: str,
     *,
     extras: dict[str, Any] | None = None,
-    gate: dict[str, Any] | None = None,
     contract: type[BaseModel] | None = None,
 ) -> dict[str, Any]:
     """Build web payload, persist it, save snapshot, return stage state.
@@ -224,7 +216,7 @@ def finalize_stage(
         web.update(extras)
     web = persist_web_result(stage_id, web, workspace_id)
 
-    state = stage_state(result, web, gate=gate)
+    state = stage_state(result, web)
     save_stage_snapshot(stage_id, state, workspace_id)
     return state
 

@@ -165,7 +165,6 @@ class PipelineBehaviorConfig:
     """Pipeline-level behavioral settings."""
 
     max_prior_retries: int = 3
-    override_gates: bool = False
 
 
 @dataclass(frozen=True)

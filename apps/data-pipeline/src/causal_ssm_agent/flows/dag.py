@@ -85,29 +85,20 @@ async def stage1b(
     latent_model = stage1a["latent_model"]
 
     dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
-    return await propose_measurement_with_identifiability_fix(
+    result = await propose_measurement_with_identifiability_fix(
         question,
         latent_model,
         [dataset_schema],
         dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
     )
-
-
-def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
-    """Filter treatments by identifiability and check gate.
-
-    Returns: {treatments, gate_failed, gate_overridden, web_outcome}
-    """
     from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
 
-    latent_model = stage1a.get("latent_model", {})
     treatments = list(get_all_treatments(latent_model))
-    outcome = get_outcome_name(latent_model) or ""
-    causal_spec = stage1b.get("causal_spec", {})
+    outcome_name = get_outcome_name(latent_model) or ""
+    causal_spec = result.get("causal_spec", {})
     identifiability = causal_spec.get("identifiability", {}) or {}
     non_identifiable = identifiability.get("non_identifiable_treatments", {})
 
-    gate_failed = False
     if non_identifiable:
         logger.warning("NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
         for treatment in sorted(non_identifiable.keys()):
@@ -116,30 +107,33 @@ def stage1b_gate(stage1a: dict, stage1b: dict, override_gates: bool) -> dict:
             notes = details.get("notes") if isinstance(details, dict) else None
             if blockers:
                 logger.warning(
-                    "  - %s → %s (blocked by: %s)", treatment, outcome, ", ".join(blockers)
+                    "  - %s → %s (blocked by: %s)",
+                    treatment,
+                    outcome_name,
+                    ", ".join(blockers),
                 )
             elif notes:
-                logger.warning("  - %s → %s (%s)", treatment, outcome, notes)
+                logger.warning("  - %s → %s (%s)", treatment, outcome_name, notes)
             else:
-                logger.warning("  - %s → %s", treatment, outcome)
+                logger.warning("  - %s → %s", treatment, outcome_name)
         treatments = [t for t in treatments if t not in non_identifiable]
         logger.info("Continuing with %d identifiable treatments", len(treatments))
-        if not treatments:
-            gate_failed = True
 
-    gate_overridden = override_gates and gate_failed
-    if gate_overridden:
-        logger.warning("GATE 1b OVERRIDDEN: No identifiable treatments, continuing with empty list")
+    if not non_identifiable:
+        outcome = "success"
+        fail_reason = None
+    elif not treatments:
+        outcome = "fail"
+        fail_reason = "no_identifiable_treatments"
+    else:
+        outcome = "warn"
+        fail_reason = None
 
-    web_outcome = "fail" if non_identifiable else "success"
-
-    return {
-        "treatments": treatments,
-        "gate_failed": gate_failed,
-        "gate_overridden": gate_overridden,
-        "web_outcome": web_outcome,
-        "non_identifiable": non_identifiable,
-    }
+    result["_identified_treatments"] = treatments
+    result["outcome"] = outcome
+    if fail_reason is not None:
+        result["fail_reason"] = fail_reason
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -280,8 +274,10 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
         "indicators": {},
         "dataset_issues": [],
     }
+    fail_reason: str | None = None
     if not report.get("is_valid", True):
         outcome = "fail"
+        fail_reason = "data_validation_failed"
     elif any(
         issue.get("severity") in ("warning", "error")
         for audit in report.get("indicators", {}).values()
@@ -291,7 +287,7 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
     else:
         outcome = "success"
 
-    return {**report, "outcome": outcome}
+    return {**report, "outcome": outcome, "fail_reason": fail_reason}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -335,18 +331,12 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     """
     from .stages import stage4b_parametric_id_flow
 
-    return stage4b_parametric_id_flow(
+    result = stage4b_parametric_id_flow(
         stage4,
         data_for_model=load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
     )
-
-
-def stage4b_gate(stage4b: dict, _override_gates: bool) -> dict:
-    """Summarize Stage 4b diagnostics without hard-gating the pipeline."""
-    param_id = stage4b.get("parametric_id") or {}
-    gate_failed = False
-    gate_overridden = False
+    param_id = result.get("parametric_id") or {}
     t_rule: dict = {}
 
     if param_id.get("checked", False):
@@ -385,12 +375,8 @@ def stage4b_gate(stage4b: dict, _override_gates: bool) -> dict:
     else:
         outcome = "success"
 
-    return {
-        "gate_failed": gate_failed,
-        "gate_overridden": gate_overridden,
-        "outcome": outcome,
-        "t_rule": t_rule,
-    }
+    result["outcome"] = outcome
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -427,7 +413,7 @@ def stage5a(
             "svi_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,
-            "outcome": "fail",
+            "outcome": "warn",
         }
 
     return {
@@ -495,6 +481,7 @@ def stage5b(
             "posterior_marginals": fitted_result.get("posterior_marginals"),
             "posterior_pairs": fitted_result.get("posterior_pairs"),
             "outcome": "fail",
+            "fail_reason": "model_fit_failed",
         }
 
     power_scaling = run_power_scaling(fitted_result)
@@ -600,7 +587,6 @@ async def stage6(
     stage5b: dict,
     stage1a: dict,
     stage1b: dict,
-    stage1b_gate: dict,
     question: str | None = None,
 ) -> dict:
     """Run do-operator interventions and rank treatments.
@@ -627,7 +613,7 @@ async def stage6(
     from causal_ssm_agent.utils.causal_spec import get_outcome_name
 
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
-    treatments = stage1b_gate["treatments"]
+    treatments = stage1b["_identified_treatments"]
     outcome_name = get_outcome_name(stage1a.get("latent_model", {})) or ""
     causal_spec = stage1b["causal_spec"]
 
@@ -730,7 +716,10 @@ async def stage6(
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
         "excluded_non_identifiable_treatments": sorted(
-            stage1b_gate.get("non_identifiable", {}).keys()
+            stage1b.get("causal_spec", {})
+            .get("identifiability", {})
+            .get("non_identifiable_treatments", {})
+            .keys()
         ),
         "top_ranked_effects": top_results,
         "power_scaling_issues": power_scaling_issues,

@@ -160,7 +160,7 @@ def stage4_grounding(
     then validates schemas, compiles the model, and — when real priors and
     ``data_for_model`` are available — runs prior predictive checks.
 
-    Gates (applied in order):
+    Checks (applied in order):
     1. Schema + domain validation for any submitted fields
     2. Compile (default priors if none available, real priors otherwise)
     3. Prior predictive (only when real priors + data_for_model present)

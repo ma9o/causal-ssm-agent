@@ -1,7 +1,7 @@
 """Benchmark problem registry.
 
 All RecoveryProblem instances must be registered in ALL_PROBLEMS so they are
-automatically covered by the identifiability gate in
+automatically covered by the identifiability screen in
 tests/test_benchmark_identifiability.py.
 """
 
