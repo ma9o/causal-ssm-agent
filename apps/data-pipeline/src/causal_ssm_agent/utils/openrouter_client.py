@@ -26,6 +26,7 @@ from causal_ssm_agent.utils.config import get_secret
 logger = get_prefect_logger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL_PREFIX = "openrouter/"
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +143,15 @@ def _get_openrouter_client(api_key: str | None = None) -> AsyncOpenAI:
             client = _build_openrouter_client(resolved_api_key)
             _openrouter_clients[cache_key] = client
     return client
+
+
+def normalize_openrouter_model_name(model_name: str) -> str:
+    """Translate repo-local model IDs to the upstream OpenRouter format."""
+
+    normalized = model_name.strip()
+    if normalized.startswith(OPENROUTER_MODEL_PREFIX):
+        return normalized[len(OPENROUTER_MODEL_PREFIX) :]
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -416,11 +426,12 @@ async def call_model(
     """Call OpenRouter and normalize the first choice into a plain dict."""
 
     request = config or GenerateConfig()
+    normalized_model_name = normalize_openrouter_model_name(model_name)
 
     await acquire_limiter("llm")
 
     kwargs: dict[str, Any] = {
-        "model": model_name,
+        "model": normalized_model_name,
         "messages": [normalize_message(message) for message in messages],
     }
     if request.max_tokens is not None:
@@ -440,7 +451,7 @@ async def call_model(
         logger.info(
             "[%s] call_model request: model=%s messages=%d tools=%d timeout=%s max_tokens=%s",
             log_label,
-            model_name,
+            normalized_model_name,
             len(messages),
             len(tools or []),
             request.timeout,
@@ -465,7 +476,7 @@ async def call_model(
         logger.info(
             "[%s] call_model response: model=%s stop=%s time=%.1fs tool_calls=%d completion_chars=%d",
             log_label,
-            str(_get_attr(response, "model", model_name)),
+            str(_get_attr(response, "model", normalized_model_name)),
             stop_reason or "end_turn",
             elapsed,
             tool_call_count,
@@ -481,7 +492,7 @@ async def call_model(
         "message": message,
         "completion": completion_text,
         "usage": _usage_from_response(response),
-        "model": str(_get_attr(response, "model", model_name)),
+        "model": str(_get_attr(response, "model", normalized_model_name)),
         "time": elapsed,
         "stop_reason": stop_reason,
     }
