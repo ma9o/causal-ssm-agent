@@ -23,9 +23,7 @@ In a formative model, indicators cause the construct, as in examples like socioe
 - The construct exists independently of its specific operationalization
 - No causal edges run from indicators to their parent construct
 
-**Justification:** Reflective models are standard in psychological and behavioral SEM. They align with classical test theory where observed scores reflect true scores plus error. Formative models require different identification constraints and are conceptually suited to composite indices rather than theoretical constructs, as discussed by Diamantopoulos and Siguaw (2006).
-
-**Reference:** Diamantopoulos, A., & Siguaw, J. A. (2006). Formative versus reflective indicators in organizational measure development. *British Journal of Management*.
+**Justification:** Reflective models are standard in psychological and behavioral SEM. They align with classical test theory where observed scores reflect true scores plus error. Formative models require different identification constraints and are conceptually suited to composite indices rather than theoretical constructs[^diamantopoulos2006].
 
 ## A6. Measurement Error Handling Depends on Indicator Count
 
@@ -61,11 +59,9 @@ epsilon_t ~ N(0, sigma^2), independent across t
 - Residual autocorrelation in indicators suggests model misspecification
 - Possible causes include construct granularity that is too coarse, missing cross-loadings, or systematic measurement dynamics
 
-**Justification:** Separating construct dynamics from indicator dynamics requires strong identification constraints. By attributing all temporal structure to the construct, the framework keeps a clean separation between "what is happening" and "how we see it." This is the default in dynamic SSM implementations. As Asparouhov, Hamaker, and Muthen (2018) note, measurement errors are usually assumed uncorrelated across time, and serially correlated residuals indicate that the latent variable does not fully account for the observed dynamics.
+**Justification:** Separating construct dynamics from indicator dynamics requires strong identification constraints. By attributing all temporal structure to the construct, the framework keeps a clean separation between "what is happening" and "how we see it." This is the default in dynamic SSM implementations. As Asparouhov, Hamaker, and Muthén (2018)[^asparouhov2018] note, measurement errors are usually assumed uncorrelated across time, and serially correlated residuals indicate that the latent variable does not fully account for the observed dynamics.
 
 **Relaxation (not currently supported):** AR in indicator residuals is possible but introduces identification challenges. Mplus allows this via the `RESIDUAL` option. Future versions may support this with appropriate constraints.
-
-**Reference:** Asparouhov, T., Hamaker, E. L., & Muthen, B. (2018). Dynamic structural equation models. *Structural Equation Modeling: A Multidisciplinary Journal*, 25(3), 359-388.
 
 ## A9. Single-Indicator Constructs Absorb Measurement Error
 
@@ -98,11 +94,9 @@ where `lambda` is fixed to `1` and measurement error merges with structural erro
 - No separation of true construct variance from measurement noise is available
 - This is a pragmatic choice, not an assertion that measurement is perfect
 
-**Justification:** Single-indicator identification of separate measurement and structural variance is impossible without external information such as known reliability coefficients. Bollen (1989) describes the standard fallback: fix the loading to unity and the error variance to zero, thereby equating the indicator with the latent variable for modeling purposes.
+**Justification:** Single-indicator identification of separate measurement and structural variance is impossible without external information such as known reliability coefficients. Bollen (1989)[^bollen1989] describes the standard fallback: fix the loading to unity and the error variance to zero, thereby equating the indicator with the latent variable for modeling purposes.
 
 **Recommendation:** When substantively important, prefer multiple indicators per construct to enable measurement-error separation. Single-indicator constructs are appropriate for well-validated scales with known high reliability or for exploratory analysis where attenuation bias is acceptable.
-
-**Reference:** Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. Chapter 7: The Measurement Model.
 
 ## Future Considerations (MeasurementModel-Related)
 
@@ -114,3 +108,7 @@ The following are explicitly not assumed and may be added in future versions:
 ## Boundary
 
 These assumptions shape the `MeasurementModel` itself. The follow-on assumption that an identified measurement model permits causal identification lives with the [CausalSpec](../causal-spec/identifiability.md).
+
+[^diamantopoulos2006]: Diamantopoulos, A., & Siguaw, J. A. (2006). Formative Versus Reflective Indicators in Organizational Measure Development. *British Journal of Management*, 17(4), 263–282. [Bibliography entry](../bibliography.md)
+[^asparouhov2018]: Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic Structural Equation Models. *Structural Equation Modeling*, 25(3), 359–388. [Bibliography entry](../bibliography.md)
+[^bollen1989]: Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. [Bibliography entry](../bibliography.md)

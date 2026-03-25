@@ -6,7 +6,7 @@ Within the pipeline artifact lineage, this document starts after Stage 4 has pro
 
 ## 1. CT-SDE Formulation
 
-The latent process is a multivariate Ornstein-Uhlenbeck SDE, the standard continuous-time linear-Gaussian state evolution used throughout continuous-discrete filtering and smoothing in [Särkkä (2013)](https://www.cambridge.org/core/books/bayesian-filtering-and-smoothing/C372FB31C5D9A100F8476C1B23721A67):
+The latent process is a multivariate Ornstein-Uhlenbeck SDE[^sarkka2019], the standard continuous-time linear-Gaussian state evolution used throughout continuous-discrete filtering and smoothing[^sarkka2013]:
 
 ```text
 d eta(t) = (A * eta(t) + c) dt + G dW(t)
@@ -63,7 +63,7 @@ Both likelihood backends compute log p(y | theta) and inject it into the NumPyro
 
 ### Kalman backend
 
-For linear-Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition, following the standard Kalman-filter treatment in [Särkkä (2013)](https://www.cambridge.org/core/books/bayesian-filtering-and-smoothing/C372FB31C5D9A100F8476C1B23721A67). Uses cuthbert's non-associative moments filter for numerically stable gradients.
+For linear-Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition[^durbin2012], following the standard Kalman-filter treatment[^sarkka2013]. Uses cuthbert's non-associative moments filter for numerically stable gradients.
 
 **Applicable when:** Linear dynamics, Gaussian process noise, Gaussian observation noise.
 
@@ -77,7 +77,7 @@ Universal sequential Monte Carlo backend for arbitrary noise families and nonlin
 
 **Complexity:** O(T n P) where P is the particle count.
 
-**Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving the usual Rao-Blackwellized variance reduction described in [Doucet et al. (2000)](https://research.google/pubs/rao-blackwellised-particle-filtering-for-dynamic-bayesian-networks/).
+**Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving the usual Rao-Blackwellized variance reduction[^doucet2000].
 
 ### Missing data handling
 
@@ -107,3 +107,8 @@ flowchart LR
 [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) enters from the orchestrator. `SSMModelBuilder.compile_inputs()` produces the spec and priors. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT, runs the Kalman or particle likelihood, and injects it via `numpyro.factor("log_likelihood", ll)`. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
+
+[^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)
+[^sarkka2013]: Särkkä, S. (2013). *Bayesian Filtering and Smoothing*. Cambridge University Press. [Bibliography entry](bibliography.md)
+[^durbin2012]: Durbin, J., & Koopman, S. J. (2012). *Time Series Analysis by State Space Methods* (2nd ed.). Oxford University Press. [Bibliography entry](bibliography.md)
+[^doucet2000]: Doucet, A., de Freitas, N., Murphy, K., & Russell, S. (2000). Rao-Blackwellised Particle Filtering for Dynamic Bayesian Networks. *UAI*, 176–183. [Bibliography entry](bibliography.md)

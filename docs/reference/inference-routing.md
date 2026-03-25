@@ -60,7 +60,7 @@ Given the state handling from Axes A+B, how to explore the parameter posterior p
 
 | Family | Exact (in limit)? | Tolerates noisy grad log p(y\|theta)? | Handles multimodality? | Methods |
 |--------|-------------------|--------------------------------------|----------------------|---------|
-| **MCMC** (NUTS/HMC) | Yes | No -- HMC/NUTS leapfrog needs smooth gradients. (Pseudo-marginal MH with PF is valid but slow; see Andrieu et al. 2010.) | No | nuts, nuts\_da, pgas |
+| **MCMC** (NUTS/HMC) | Yes | No -- HMC/NUTS leapfrog needs smooth gradients. (Pseudo-marginal MH with PF is valid but slow[^andrieu2010].) | No | nuts, nuts\_da, pgas |
 | **VI** (SVI) | No (variational bound) | Yes -- SGD is designed for noise | No | svi |
 | **SMC** (tempered, HessMC2) | Yes | Yes -- population-based | Yes | tempered\_smc, hessmc2, laplace\_em, structured\_vi, dpf |
 
@@ -136,7 +136,7 @@ The [Stage 4b](../pipeline/04b-parametric-identifiability.md) diagnostics emit t
 
 ### NUTS
 
-NumPyro's No-U-Turn Sampler (Hoffman & Gelman 2014). Uses `init_to_median` initialization, supports dense mass matrix adaptation.
+NumPyro's No-U-Turn Sampler[^hoffman2014] [^betancourt2017]. Uses `init_to_median` initialization, supports dense mass matrix adaptation.
 
 **Axis position:** Marginalize + Closed-form (Kalman) + MCMC.
 
@@ -146,7 +146,7 @@ NumPyro's No-U-Turn Sampler (Hoffman & Gelman 2014). Uses `init_to_median` initi
 
 ### SVI
 
-Stochastic Variational Inference via ELBO optimization. Fits an auto-guide (multivariate normal, diagonal normal, or delta) to approximate the posterior. SGD naturally tolerates gradient noise from particle filter likelihoods.
+Stochastic Variational Inference[^blei2017] via ELBO optimization. Fits an auto-guide (multivariate normal, diagonal normal, or delta) to approximate the posterior. SGD naturally tolerates gradient noise from particle filter likelihoods.
 
 **Axis position:** Marginalize + any likelihood computation + VI.
 
@@ -156,7 +156,7 @@ Stochastic Variational Inference via ELBO optimization. Fits an auto-guide (mult
 
 ### Tempered SMC
 
-Adaptive tempering with preconditioned HMC/MALA mutations (Dau & Chopin 2022). Bridges the prior-posterior gap via a tempering ladder beta\_0=0 --> beta\_K=1. Supports ESS-based adaptive tempering, waste-free recycling, and multi-step leapfrog.
+Adaptive tempering with preconditioned HMC/MALA mutations[^dau2022] [^chopin2020]. Bridges the prior-posterior gap via a tempering ladder beta\_0=0 --> beta\_K=1. Supports ESS-based adaptive tempering, waste-free recycling, and multi-step leapfrog.
 
 **Axis position:** Marginalize + any likelihood computation + SMC.
 
@@ -164,7 +164,7 @@ Adaptive tempering with preconditioned HMC/MALA mutations (Dau & Chopin 2022). B
 
 ### Hess-MC^2
 
-SMC sampler with gradient-based change-of-variables L-kernels (Murphy et al. 2025). Proposals are always accepted; quality is controlled through importance weight correction, not MH accept/reject. Supports random walk, MALA, and full Hessian proposals. No tempering by design -- gradient- and Hessian-informed proposals provide sufficient exploration.
+SMC sampler with gradient-based change-of-variables L-kernels[^murphy2025]. Proposals are always accepted; quality is controlled through importance weight correction, not MH accept/reject. Supports random walk, MALA, and full Hessian proposals. No tempering by design -- gradient- and Hessian-informed proposals provide sufficient exploration.
 
 **Axis position:** Marginalize + any likelihood computation + SMC (Hessian).
 
@@ -172,7 +172,7 @@ SMC sampler with gradient-based change-of-variables L-kernels (Murphy et al. 202
 
 ### Laplace-EM
 
-Iterated Extended Kalman Smoother (IEKS) finds the MAP latent trajectory, then a Laplace approximation provides the marginal likelihood. The outer loop uses tempered SMC for parameter inference.
+Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides the marginal likelihood. The outer loop uses tempered SMC for parameter inference.
 
 **Axis position:** Marginalize + Deterministic approx (IEKS) + SMC.
 
@@ -182,7 +182,7 @@ Iterated Extended Kalman Smoother (IEKS) finds the MAP latent trajectory, then a
 
 ### Structured VI
 
-Variational inference with a backward-factored Gaussian family: q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}). Captures temporal correlations that standard mean-field guides cannot. Can be initialized from Laplace-EM output.
+Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. Can be initialized from Laplace-EM output.
 
 **Axis position:** Marginalize + Learned estimate (backward variational family) + SMC. Unlike DPF which learns a PF proposal and uses the normalizing constant as the likelihood estimate, structured\_vi learns an approximation to the full state posterior and uses the ELBO as a surrogate for the marginal likelihood.
 
@@ -190,7 +190,7 @@ Variational inference with a backward-factored Gaussian family: q(z\_{1:T} | phi
 
 ### Differentiable Particle Filter (DPF)
 
-Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) by optimizing the VSMC bound on prior-predictive data. At inference time, the learned proposal replaces the bootstrap prior proposal.
+Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) in the spirit of differentiable particle filters[^jonschkowski2018], trained with a variational SMC objective[^naesseth2018]. At inference time, the learned proposal replaces the bootstrap prior proposal.
 
 **Axis position:** Marginalize + Learned estimate (neural PF) + SMC.
 
@@ -198,7 +198,7 @@ Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) by optimizing the
 
 ### NUTS Data Augmentation (NUTS-DA)
 
-Data augmentation MCMC (Tanner & Wong 1987): augments the parameter space with all latent states eta\_{0:T} and samples the joint posterior p(theta, eta\_{0:T} | y\_{1:T}) using NUTS. Supports centered and non-centered parameterizations with optional SVI + Kalman smoother warmstart.
+Data augmentation MCMC[^tanner1987]: augments the parameter space with all latent states eta\_{0:T} and samples the joint posterior p(theta, eta\_{0:T} | y\_{1:T}) using NUTS. Supports centered and non-centered parameterizations with optional SVI + Kalman smoother warmstart.
 
 **Axis position:** Augment + N/A + MCMC.
 
@@ -208,7 +208,7 @@ Data augmentation MCMC (Tanner & Wong 1987): augments the parameter space with a
 
 ### PGAS
 
-Particle Gibbs with Ancestor Sampling (Lindsten, Jordan & Schon, 2014). Gibbs-alternates between trajectory sampling (CSMC with gradient-informed proposals) and parameter updates (block HMC/MALA with preconditioned mass matrix).
+Particle Gibbs with Ancestor Sampling[^lindsten2014]. Gibbs-alternates between trajectory sampling (CSMC with gradient-informed proposals) and parameter updates (block HMC/MALA with preconditioned mass matrix).
 
 **Axis position:** Gibbs + N/A (CSMC samples states, not likelihood) + MCMC.
 
@@ -232,13 +232,17 @@ PSIS k-hat does appear in two places, neither of which is method routing:
 - **Within Pathfinder** (future): validates the Gaussian approximation before deciding whether to warm-start NUTS.
 - **Post-hoc LOO-CV** (`InferenceResult.get_loo_diagnostics`): validates the model, not the inference method. -->
 
-## References
-
-- Andrieu, C., Doucet, A., & Holenstein, R. (2010). Particle Markov Chain Monte Carlo Methods. JRSS-B.
-- Dau, H.-D., & Chopin, N. (2022). Waste-Free Sequential Monte Carlo. JRSS-B.
-- Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler. JMLR.
-- Lindsten, F., Jordan, M. I., & Schon, T. B. (2014). Particle Gibbs with Ancestor Sampling. JMLR.
-- Murphy, J. et al. (2025). Hess-MC^2: Sequential Monte Carlo Squared using Hessian Information and Second Order Proposals.
-- Sarkka, S. (2013). Bayesian Filtering and Smoothing. Cambridge University Press.
-- Tanner, M. A., & Wong, W. H. (1987). The Calculation of Posterior Distributions by Data Augmentation. JASA.
-- Zhang, L., Carpenter, B., Gelman, A., & Vehtari, A. (2022). Pathfinder: Parallel Quasi-Newton Variational Inference. JMLR.
+[^andrieu2010]: Andrieu, C., Doucet, A., & Holenstein, R. (2010). Particle Markov Chain Monte Carlo Methods. *JRSS-B*, 72(3), 269–342. [Bibliography entry](bibliography.md)
+[^hoffman2014]: Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler. *JMLR*, 15, 1593–1623. [Bibliography entry](bibliography.md)
+[^betancourt2017]: Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo. arXiv:1701.02434. [Bibliography entry](bibliography.md)
+[^blei2017]: Blei, D. M., Kucukelbir, A., & McAuliffe, J. D. (2017). Variational Inference: A Review for Statisticians. *JASA*, 112(518), 859–877. [Bibliography entry](bibliography.md)
+[^bell1994]: Bell, B. M. (1994). The Iterated Kalman Smoother as a Gauss-Newton Method. *SIAM Journal on Optimization*, 4(3), 626–636. [Bibliography entry](bibliography.md)
+[^archer2015]: Archer, E., Park, I. M., Buesing, L., Cunningham, J. P., & Paninski, L. (2015). Black Box Variational Inference for State Space Models. arXiv:1511.07367. [Bibliography entry](bibliography.md)
+[^krishnan2017]: Krishnan, R. G., Shalit, U., & Sontag, D. (2017). Structured Inference Networks for Nonlinear State Space Models. *AAAI Conference on Artificial Intelligence*. [Bibliography entry](bibliography.md)
+[^dau2022]: Dau, H.-D., & Chopin, N. (2022). Waste-Free Sequential Monte Carlo. *JRSS-B*, 84(1), 114–148. [Bibliography entry](bibliography.md)
+[^chopin2020]: Chopin, N., & Papaspiliopoulos, O. (2020). *An Introduction to Sequential Monte Carlo*. Springer. [Bibliography entry](bibliography.md)
+[^naesseth2018]: Naesseth, C., Linderman, S., Ranganath, R., & Blei, D. M. (2018). Variational Sequential Monte Carlo. *AISTATS*, 968–977. [Bibliography entry](bibliography.md)
+[^jonschkowski2018]: Jonschkowski, R., Rastogi, D., & Brock, O. (2018). Differentiable Particle Filters: End-to-End Learning with Algorithmic Priors. *Robotics: Science and Systems XIV*. [Bibliography entry](bibliography.md)
+[^murphy2025]: Murphy, J., et al. (2025). Hess-MC²: Sequential Monte Carlo Squared Using Hessian Information and Second Order Proposals. [Bibliography entry](bibliography.md)
+[^lindsten2014]: Lindsten, F., Jordan, M. I., & Schön, T. B. (2014). Particle Gibbs with Ancestor Sampling. *JMLR*, 15, 2145–2184. [Bibliography entry](bibliography.md)
+[^tanner1987]: Tanner, M. A., & Wong, W. H. (1987). The Calculation of Posterior Distributions by Data Augmentation. *JASA*, 82(398), 528–540. [Bibliography entry](bibliography.md)

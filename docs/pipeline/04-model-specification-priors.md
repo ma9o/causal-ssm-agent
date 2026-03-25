@@ -58,9 +58,9 @@ These decisions are merged with the skeleton to produce a complete `ModelSpec`.
 
 All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
-*Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies that inform prior calibration. Evidence synthesis such as meta-analyses or closely matched longitudinal studies can justify narrower priors only when the estimand, population, and timescale align; otherwise the safer default is a weaker prior checked by [prior predictive simulation](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf), following the standard Bayesian workflow of [Gelman et al. (2020)](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf).
+*Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies that inform prior calibration. Evidence synthesis such as meta-analyses or closely matched longitudinal studies can justify narrower priors only when the estimand, population, and timescale align; otherwise the safer default is a weaker prior checked by prior predictive simulation[^gelman2020], following the standard Bayesian workflow[^gelman2013].
 
-*Paraphrased elicitation (optional):* To reduce overconfidence from any single prompt wording, the pipeline can run multiple paraphrased LLM calls for a parameter and aggregate via simple pooling or a [Gaussian mixture model](https://arxiv.org/abs/2508.03766) (Huang, 2025), following the [AutoElicit](https://arxiv.org/abs/2411.17284) strategy (Capstick et al., 2024). Disabled by default for cost reasons.
+*Paraphrased elicitation (optional):* To reduce overconfidence from any single prompt wording, the pipeline can run multiple paraphrased LLM calls for a parameter and aggregate via simple pooling or a Gaussian mixture model[^huang2025], following the AutoElicit strategy[^capstick2024]. Disabled by default for cost reasons.
 
 **Validation:** Both phases are gated by the validation loop shown in the diagram. Two tiers of checks run on each submission.
 
@@ -76,7 +76,7 @@ All priors are specified on the discrete-time scale at the model clock interval;
 - *Numerical health*: no NaN/Inf values in simulated sites; no extreme values (|value| > 10⁶)
 - *Constraint satisfaction*: positive-constrained parameters (diffusion, observation variance, initial-state variance) must not violate their support
 - *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws, ensuring stationary dynamics
-- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of [Gelman et al. (2020)](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf), aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to this kind of scale miscalibration in [Riegler et al. (2025)](https://www.nature.com/articles/s41598-025-18425-9).
+- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of Gelman et al. (2020)[^gelman2020], aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to this kind of scale miscalibration[^riegler2025].
 
 ### Example
 
@@ -105,3 +105,9 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 | `role` | [`ParameterRole`](../reference/model-spec/parameters.md#parameter-roles) | Role in the model |
 | `constraint` | [`ParameterConstraint`](../reference/model-spec/parameters.md#parameter-roles) | Domain constraint |
 | `description` | `str` | Human-readable description |
+
+[^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
+[^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)
+[^huang2025]: Huang, Y. (2025). Gaussian Mixture Aggregation for Paraphrased Elicitation. arXiv:2508.03766. [Bibliography entry](../reference/bibliography.md)
+[^capstick2024]: Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation. arXiv:2411.17284. [Bibliography entry](../reference/bibliography.md)
+[^riegler2025]: Riegler, L., et al. (2025). Prior Calibration Vulnerability in LLM-Elicited Priors. *Scientific Reports*, 15, 18425. [Bibliography entry](../reference/bibliography.md)

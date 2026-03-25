@@ -27,7 +27,7 @@ flowchart LR
 
 **Runtime preparation:** Loads the observation data, pivots to wide format, builds an executable model from the [`CompiledSSMArtifact`](../reference/compilation.md), and resolves the [inference structure](../reference/inference-routing.md) (likelihood backend, Rao-Blackwellization split). The inference structure is re-derived at fit time rather than reused from [Stage 4b](04b-parametric-identifiability.md).
 
-**SVI fit:** Fits a full-rank multivariate normal guide over all latent parameters using 5 000 gradient steps, then draws 500 posterior samples. The multivariate normal family captures posterior correlations but cannot represent multimodality or heavy tails — sufficient for detecting gross misspecification, not for characterizing the full posterior.
+**SVI fit:** Fits a full-rank multivariate normal guide[^blei2017] [^kucukelbir2017] over all latent parameters using 5 000 gradient steps, then draws 500 posterior samples. The multivariate normal family captures posterior correlations but cannot represent multimodality or heavy tails — sufficient for detecting gross misspecification, not for characterizing the full posterior.
 
 **Diagnostic extraction:** From the posterior draws the stage computes:
 
@@ -79,3 +79,6 @@ Pairwise posterior scatter data for joint visualization.
 | `param_y` | `str` | Name of the y-axis parameter |
 | `x_values` | `list[float]` | Posterior draws for x |
 | `y_values` | `list[float]` | Posterior draws for y |
+
+[^blei2017]: Blei, D. M., Kucukelbir, A., & McAuliffe, J. D. (2017). Variational Inference: A Review for Statisticians. *JASA*, 112(518), 859–877. [Bibliography entry](../reference/bibliography.md)
+[^kucukelbir2017]: Kucukelbir, A., Tran, D., Ranganath, R., Gelman, A., & Blei, D. M. (2017). Automatic Differentiation Variational Inference. *JMLR*, 18(14), 1–45. [Bibliography entry](../reference/bibliography.md)

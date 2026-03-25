@@ -4,7 +4,7 @@
 |---|---|---|
 | Semantic | Yes | [`CausalSpec`](#causalspec) |
 
-Operationalizes the [`LatentModel`](01a-latent-model.md#latent-model) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable.
+Operationalizes the [`LatentModel`](01a-latent-model.md#latent-model) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
 
 ## Inputs
 
@@ -59,7 +59,7 @@ For a study of developer workload and code quality where Stage 1a posited an uno
 | `indicators` | `list[Indicator]` | Observed indicators attached to constructs |
 | `model_clock` | `str` | Shared observation-window width used for extraction, discretization, and the default lag unit for construct-level temporal semantics |
 
-Indicators are reflective: the construct causes the indicator value, not the reverse. The assumptions behind that commitment live in [measurement-model/assumptions.md](../reference/measurement-model/assumptions.md).
+Indicators are reflective[^bollen1989]: the construct causes the indicator value, not the reverse. The assumptions behind that commitment live in [measurement-model/assumptions.md](../reference/measurement-model/assumptions.md).
 
 ### `Indicator`
 
@@ -120,3 +120,6 @@ The `MeasurementModel` does not store row timestamps itself, but it fully determ
 | `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-spec/identifiability.md](../reference/causal-spec/identifiability.md).
+
+[^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)
+[^bollen1989]: Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. [Bibliography entry](../reference/bibliography.md)
