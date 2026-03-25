@@ -2,9 +2,9 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | No | [`Raw Dataframe`](#raw-dataframe) |
+| Semantic | No | `raw_dataframe` |
 
-Normalizes the latest uploaded raw export into one typed Polars dataframe with human-readable descriptions for every column.
+Normalizes the latest uploaded raw export into one typed Polars dataframe.
 
 ## Inputs
 
@@ -17,22 +17,16 @@ The ingestion agent can normalize most tabular or semi-structured formats as lon
 
 ## Process
 
-A sandboxed agentic ingestion loop with `list_files`, `read_file_sample`, `execute_python`, and `submit_table`, requiring the agent to end with exactly one non-empty Polars dataframe plus a human-readable description for every dataframe column.
+A sandboxed agentic ingestion loop with `list_files`, `read_file_sample`, `execute_python`, and `submit_table`.
 
 ### Example
 
 A ZIP containing `tickets.csv` and `deploys.csv` may be normalized into one dataframe with columns such as `timestamp`, `event_type`, `ticket_count`, `service_name`, `deploy_status`, and `incident_note`, where each row is one raw event on the shared timeline.
 
-
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `raw_dataframe` | `polars.DataFrame` | Normalized typed observed-data table persisted indexed by `timestamp` |
-| `column_descriptions` | `list[dict{name, description}]` | Human-readable descriptions for each column in the dataframe, derived from the agent's reasoning about the raw data |
+| `raw_dataframe` | `polars.DataFrame` | Normalized typed observed-data table indexed by `timestamp`. May be wide (multiple columns) or long (event log format), depending on the raw data structure. |
+| `column_descriptions` | `list[dict{name, description}]` | Human-readable description for each column, derived from the agent's reasoning about the raw data |
 | `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
-
-### Raw Dataframe
-
-Dynamic artifact containing all extracted data in a single Polars dataframe, indexed by a `timestamp` column that the ingestion agent identifies and normalizes. The dataframe may be wide (multiple columns) or long (event log format), depending on the raw data structure and what the ingestion agent determines is most appropriate for downstream processing. Each column has an associated human-readable description to provide semantic context for later stages.
-

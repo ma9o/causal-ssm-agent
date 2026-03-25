@@ -2,79 +2,80 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Hybrid | No | [Observation rows](#observation-row) and [model-ready data](#model-ready-data) |
+| Hybrid | No | [`ObservationRecord`](#observationrecord) table |
 
-Extracts numeric indicator values from raw data by routing each indicator through either a deterministic Polars aggregation or a parallel LLM worker, then annotates the merged output into canonical [observation rows](#observation-row) with explicit [support-window semantics](../reference/measurement-model/indicators.md#derived-observation-semantics).
+Materializes numeric indicator values from raw data by routing each indicator through a deterministic or LLM-mediated extraction path, then annotating the results with support-window metadata.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
 | `question` | User | Original research question—provides temporal and semantic context for LLM workers |
-| `stage0.result` | [Stage 0](00-ingestion.md) | Ingested dataframe (wide-format parquet) plus column descriptions |
-| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with indicators and extraction modes |
+| `raw_dataframe` | [Stage 0](00-ingestion.md) | Ingested dataframe (wide-format parquet) plus column descriptions |
+| `causal_spec` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with indicators and extraction modes |
 
 Stage 1b specified *what* to measure and *how*; Stage 2 carries out those instructions against the raw data. This is the first point where indicator definitions are evaluated over actual values.
 
 ## Process
 
-Stage 2 splits indicators into two extraction paths based on each indicator's `extraction_mode`, runs them concurrently, then merges and annotates the results into a canonical observation-row table.
+Indicators are split by [`extraction_mode`](01b-measurement-identifiability.md#indicator) and processed concurrently.
 
-**Indicator routing.** Each indicator in the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) carries an [`extraction_mode`](01b-measurement-identifiability.md#measurement-model)—`"computed"` or `"semantic"`. The indicator list is split by mode and both paths run in parallel:
+```mermaid
+flowchart LR
+    S[Split by mode] --> C[Computed path] & P[Prepare chunks]
+    P --> W1[Worker 1] & W2[Worker 2] & Wn[Worker N]
+    C --> M[Merge & Annotate]
+    W1 & W2 & Wn --> M
+    M --> O([ObservationRecord])
+    subgraph Semantic path
+        P
+        W1
+        W2
+        Wn
+    end
+```
 
-- **Computed path.** Indicators with `extraction_mode="computed"` are aggregated directly via Polars expressions. For each computed indicator, Polars truncates the raw time column by the indicator's [effective observation window](../reference/measurement-model/indicators.md#observation-windows-and-model-clock), groups by the resulting tick boundary, and applies the indicator's aggregation function. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same window groups. This path produces long-format rows of `(indicator, value, timestamp)` in ~50 ms.
+Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-identifiability.md#observation_window-and-model_clock), grouping rows into support-window buckets. They diverge in how values are extracted from each bucket.
 
-- **Semantic path.** Indicators with `extraction_mode="semantic"` require LLM interpretation. Extraction chunks are prepared deterministically: semantic indicators are grouped by their effective observation window, the raw DataFrame is projected to only the `source_columns` referenced by those indicators, [bucketed](../reference/measurement-model/indicators.md#observation-windows-and-model-clock) into support windows via clock truncation, chunked into batches, and formatted as LLM-readable markdown showing timestamped events within each window. Events are truncated per window when they exceed a configurable cap (preserving the first and last events with uniform sampling in between).
-Each chunk is dispatched to a parallel LLM worker. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It reads the events, interprets them against each indicator's `how_to_measure` instructions, and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
-    - *Indicator names* exist in the `CausalSpec`
-    - *Support-window starts* match the expected boundaries for this chunk
-    - *Dtype conformance*: extracted values match the indicator's `measurement_dtype` (continuous, binary, count, ordinal, categorical)
-    - *No duplicate `(window_start, indicator)` pairs* within the chunk
-    - *Ordinal bounds*: ordinal codes fall within `0..len(ordinal_levels) − 1`
+**Computed path:** Indicators with `extraction_mode="computed"` are aggregated directly via Polars expressions. The indicator's aggregation function is applied within each window group. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups.
 
-**Annotation.** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to derive the canonical [observation-row](#observation-row) fields—`support_kind`, `summary_operator`, `anchor_policy`, `observation_window`, `support_start`, `support_end`, and `anchor_time`—per the [derived observation semantics](../reference/measurement-model/indicators.md#derived-observation-semantics). These fields are not free parameters—the measurement model fully determines them.
+**Semantic path:** Indicators with `extraction_mode="semantic"` require LLM interpretation and follow a prepare-then-fan-out pattern.
 
-**Materialization.** The annotated observation rows are encoded in place: non-continuous types are cast to Float64, ISO strings are parsed to native datetimes, rows with null `anchor_time` are dropped, and the result is sorted by `(indicator, anchor_time)`. The single [model-ready table](#model-ready-data) is persisted as `stage2-model-data.parquet`.
+*Prepare chunks:* Semantic indicators are grouped by observation window, the raw DataFrame is projected to only the `source_columns` referenced by those indicators, chunked into batches, and formatted as LLM-readable markdown showing timestamped events within each window. Events are truncated per window when they exceed a configurable cap, preserving the first and last events with uniform sampling in between.
+
+*Fan-out:* Each chunk is dispatched to a parallel LLM worker via Prefect's `.map()`, respecting configurable concurrency and rate limits. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It reads the events, interprets them against each indicator's `how_to_measure` instructions, and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
+
+- *Indicator names* exist in the `CausalSpec`
+- *Support-window starts* match the expected boundaries for this chunk
+- *Dtype conformance:* extracted values match the indicator's `measurement_dtype` (continuous, binary, count, ordinal, categorical)
+- *No duplicate `(window_start, indicator)` pairs* within the chunk
+- *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
+
+**Annotation:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to derive the canonical [`ObservationRecord`](#observationrecord) fields per the [derived observation semantics](01b-measurement-identifiability.md#derived-observation-semantics).
+
+### Example
+
+For a study of classroom interventions and student learning where Stage 1b defined computed indicators like "mean daily attendance rate" (`computed`, continuous, `mean`, `1w`) and semantic indicators like "teacher-reported engagement level" (`semantic`, ordinal, `last`, `1w`), Stage 2 would aggregate attendance records via Polars into weekly means while dispatching weekly narrative logs to LLM workers that extract ordinal engagement codes. Both paths produce `ObservationRecord`s anchored at week boundaries with explicit support windows.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `data_for_model` | [Model-ready data](#model-ready-data) | Numerically encoded observation table for downstream fitting |
+| `data_for_model` | [`ObservationRecord`](#observationrecord) | Numerically encoded `ObservationRecord`s persisted for downstream fitting |
+| `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
 
-The public stage payload exposes per-worker execution summaries (`workers`: status, extraction count, window count, and error if any) and may include `llm_trace` as runtime provenance for the UI. The data table is persisted as a parquet sidecar file rather than serialized into the web payload. The stage outcome is `"success"` if at least one observation row was extracted; otherwise it is `"fail"` with `fail_reason = "no_observations_extracted"`, and the pipeline stops because no model-ready dataset exists for downstream fitting.
-
-## Definitions
-
-### Observation Row
-
-An observation row is the canonical extracted indicator datum. It includes:
+### `ObservationRecord`
 
 | Field | Type | Description |
 |---|---|---|
-| `indicator` | string | Indicator name, referencing the [measurement model](01b-measurement-identifiability.md#measurement-model) |
-| `value` | Float64 | Extracted value (numerically encoded; non-continuous types label-encoded) |
-| `anchor_time` | ISO datetime | Latent-grid attachment time—the timestamp downstream models use for this observation |
+| `indicator` | `str` | Indicator name, referencing the [measurement model](01b-measurement-identifiability.md#measurementmodel) |
+| `value` | `Float64` | Extracted value (numerically encoded; non-continuous types label-encoded) |
+| `anchor_time` | `datetime` | Latent-grid attachment time—the timestamp downstream models use for this observation |
 | `support_kind` | `"point"` \| `"interval"` | Whether the measurement is point-local (`first`/`last`) or an interval summary (`sum`/`count`/`mean`/`std`) |
-| `summary_operator` | string | The aggregation applied within the support window |
+| `summary_operator` | `str` | The aggregation applied within the support window |
 | `anchor_policy` | `"support_start"` \| `"support_end"` | Which support boundary `anchor_time` corresponds to |
-| `observation_window` | duration string | The window width (e.g. `"1d"`, `"1w"`) over which the value was measured or aggregated |
-| `support_start` | ISO datetime | Start of the realized support window |
-| `support_end` | ISO datetime | End of the realized support window (`support_start` + `observation_window`) |
+| `observation_window` | `str` | The window width (e.g. `"1d"`, `"1w"`) over which the value was measured or aggregated |
+| `support_start` | `datetime` | Start of the realized support window |
+| `support_end` | `datetime` | End of the realized support window (`support_start` + `observation_window`) |
 
-`support_kind`, `summary_operator`, and `anchor_policy` are [derived deterministically](../reference/measurement-model/indicators.md#derived-observation-semantics) from the measurement model—they are not free parameters.
-
-### Model-Ready Data
-
-Model-ready data is the numerically encoded table derived from observation rows for downstream fitting backends. It shares the observation-row schema but with `value` cast to Float64 and non-continuous dtypes encoded:
-
-- **binary**: `true`/`yes`/`1` → 1.0, `false`/`no`/`0` → 0.0
-- **ordinal**: label-encoded by the indicator's `ordinal_levels` order
-- **categorical**: integer label-encoded (sorted categories)
-- **continuous** / **count**: no-op (already numeric)
-
-Timestamps are parsed to native datetime objects. Rows with null `anchor_time` are dropped. The table is sorted by `(indicator, anchor_time)`.
-
-This is the fitting contract used by [Stage 4](04-model-specification-priors.md) onward—it is not just the same rows in another file.
-
-Example: for a study of classroom interventions and student learning where Stage 1b defined computed indicators like "mean daily attendance rate" (`computed`, continuous, `mean`, `1w`) and semantic indicators like "teacher-reported engagement level" (`semantic`, ordinal, `last`, `1w`), Stage 2 would aggregate attendance records via Polars into weekly means while dispatching weekly narrative logs to LLM workers that extract ordinal engagement codes. Both paths produce observation rows anchored at week boundaries with explicit support windows.
+`support_kind`, `summary_operator`, and `anchor_policy` are [derived deterministically](01b-measurement-identifiability.md#derived-observation-semantics) from the measurement model; they are not free parameters.

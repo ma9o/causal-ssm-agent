@@ -29,14 +29,21 @@ flowchart LR
 
 **Propose:** For each construct in the latent model, the LLM proposes one or more indicators: observed proxies that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined.
 
-**Validator:** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks schema and compiler constraints—every outcome construct has at least one indicator, no duplicate operationalizations, indicator references point to valid constructs, `measurement_dtype` and `aggregation` are compatible, and computed indicators have well-formed rules. It then checks [causal identifiability](../reference/causal-spec/identifiability.md) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
+**Validator:** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks schema and compiler constraints:
+
+- *Outcome coverage:* every outcome construct has at least one indicator
+- *No duplicate operationalizations* across indicators
+- *Valid construct references:* indicator references point to constructs in the latent model
+- *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
+- *Computed-rule well-formedness:* computed indicators have valid rule expressions
+
+It then checks [causal identifiability](../reference/causal-spec/identifiability.md) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
 
 **Review:** A follow-up prompt asks the LLM to review its validated measurement model for coverage, `how_to_measure` clarity, observation-window semantics, the [reflective-measurement assumption](../reference/measurement-model/assumptions.md#a1-reflective-measurement-model), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
 ### Example
 
 For a study of developer workload and code quality where Stage 1a posited an unobserved confounder `Organizational Pressure`, Stage 1b might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), map `Review Thoroughness` to "average review comment count per PR" (computed, mean), and add a proxy indicator "manager-reported deadline pressure" (semantic, ordinal) to restore identifiability of the `Organizational Pressure` confounder path.
-
 
 ## Outputs
 
@@ -70,15 +77,13 @@ Indicators are reflective: the construct causes the indicator value, not the rev
 
 ### `observation_window` and `model_clock`
 
-An indicator value is always defined over an explicit support window. `observation_window` says how wide that window is for the indicator, while `model_clock` says what shared time grid the latent model and downstream fitting operate on.
-
-Examples:
+Examples of indicator-level observation windows:
 
 - "Average heart rate over the previous day"
 - "Number of production incidents during the previous week"
 - "Teacher feedback sentiment in the current grading period"
 
-All time-varying constructs currently share the same `model_clock`, even if raw source data arrive at finer or coarser cadences. Different indicators may still use different `observation_window` values as long as they are aligned back onto that shared clock.
+Different indicators may use different `observation_window` values as long as they are aligned back onto the shared `model_clock`.
 
 ### Indicator Level `aggregation`
 
@@ -95,18 +100,7 @@ These are substantive commitments, not mere implementation details. A daily mean
 
 ### Derived Observation Semantics
 
-The `MeasurementModel` does not store row timestamps itself, but it fully determines the row-level support semantics that [Stage 2](02-indicator-extraction.md) materializes:
-
-| Derived field | Meaning |
-|---|---|
-| `support_kind` | Whether the extracted datum is point-like or an interval summary |
-| `summary_operator` | The normalized aggregation operator copied from the indicator definition |
-| `anchor_policy` | Which support boundary the downstream timestamp represents |
-| `support_start` | Start of the realized support window |
-| `support_end` | End of the realized support window |
-| `anchor_time` | Timestamp downstream models attach the observation to |
-
-With the current operator set, `first` anchors at `support_start`. All other supported operators anchor at `support_end`.
+The `MeasurementModel` does not store row timestamps itself, but it fully determines the row-level support semantics that [Stage 2](02-indicator-extraction.md) materializes into [`ObservationRecord`](02-indicator-extraction.md#observationrecord) fields. The derivation is deterministic: the indicator's `aggregation` operator selects the `support_kind` (point vs. interval) and the `anchor_policy` per the "Typical anchor" column above.
 
 ### `CausalSpec`
 
@@ -128,4 +122,3 @@ Downstream stages use `CausalSpec` as the combined causal-and-measurement input 
 | `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-spec/identifiability.md](../reference/causal-spec/identifiability.md).
-

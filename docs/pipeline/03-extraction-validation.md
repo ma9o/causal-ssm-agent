@@ -10,16 +10,16 @@ Audits the observations extracted by [Stage 2](02-indicator-extraction.md) again
 
 | Input | Source | Description |
 |---|---|---|
-| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec)—[indicator](01b-measurement-identifiability.md#measurement-model) and construct metadata, `model_clock` |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Model-ready long-format observation table persisted from Stage 2 |
+| `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec)—[indicator](01b-measurement-identifiability.md#measurementmodel) and construct metadata, `model_clock` |
+| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Encoded long-format `ObservationRecord` table persisted from Stage 2 |
 
 Stage 2 executed the extraction instructions; Stage 3 asks whether the resulting data are internally consistent, statistically usable, and plausible. No LLM is involved—every check is deterministic.
 
 ## Process
 
-Stage 3 runs a fixed set of composable [validation rules](#validation-rules) over the persisted Stage 2 model-ready table, reduces the findings into per-indicator statuses, computes empirical profiles from that same table, and packages everything into an [`IndicatorAudit`](#indicatoraudit) per indicator.
+Stage 3 runs a fixed set of composable [validation rules](#validation-rules) over the persisted Stage 2 `ObservationRecord` table, reduces the findings into per-indicator statuses, computes empirical profiles from that same table, and packages everything into an [`IndicatorAudit`](#indicatoraudit) per indicator.
 
-**Context assembly.** The stage parses the [`model_clock`](../reference/measurement-model/indicators.md#observation-windows-and-model-clock) from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) into hours, builds lookup tables for indicator metadata and construct metadata, and validates the single long-format table loaded from Stage 2. For each indicator, it pre-computes an `IndicatorContext`: the numeric `Float64` series (after coercion and null removal), observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series (attempted against nine format patterns with optional timezone stripping).
+**Context assembly.** The stage parses the [`model_clock`](01b-measurement-identifiability.md#observation-windows-and-model-clock) from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) into hours, builds lookup tables for indicator metadata and construct metadata, and validates the single long-format table loaded from Stage 2. For each indicator, it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series attempted against nine format patterns with optional timezone stripping.
 
 **Per-indicator rules.** Nine indicator-level rules run in sequence for each indicator. Each rule receives the indicator's data and context and returns zero or more [`ValidationIssue`](#validationissue)s with an attached `cell_key` linking each issue to the metric it concerns:
 
@@ -30,7 +30,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 | `timestamps` | Observation-time parseability | error if 100% unparseable; warning if >50% | fraction of `anchor_time` values that fail all nine timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
-| `dtype_range` | Values conform to declared [`measurement_dtype`](../reference/measurement-model/indicators.md) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
+| `dtype_range` | Values conform to declared [`measurement_dtype`](01b-measurement-identifiability.md#measurement-dtype) | error for binary (values outside {0, 1}) and count (negative or fractional values); warning for continuous (outliers beyond 3× IQR) | see per-dtype logic below |
 | `time_coverage` | Data span relative to model clock | warning | time span < 10 × `model_clock` hours; skipped for time-invariant constructs |
 | `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `model_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |
@@ -45,11 +45,11 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 
 | Rule | Checks | Severity |
 |---|---|---|
-| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) | warning (when r < 0, with ≥10 aligned days) |
+| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/measurement-model/assumptions.md#a1-reflective-measurement-model) | warning (when r < 0, with ≥10 aligned days) |
 
 **Reduction.** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each metric key (`n_obs`, `variance`, `n_unparseable_timestamps`, `time_coverage_ratio`, `max_gap_ratio`, `dtype_violations`, `duplicate_pct`, `arithmetic_sequence_detected`), the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Rules own threshold logic; the reducer only aggregates.
 
-**Empirical profiles.** After validation, the stage computes an [`EmpiricalProfile`](#empiricalprofile) for each indicator from the same model-ready table it validated. The profile captures central tendency, spread, quantiles, distributional shape indicators (zero fraction, non-negativity, unit-interval membership, integer-valuedness, variance-to-mean ratio), and the health metrics computed during validation (coverage ratio, gap ratio, dtype violations, duplicate percentage, arithmetic-sequence flag, unparseable timestamps).
+**Empirical profiles.** After validation, the stage computes an [`EmpiricalProfile`](#empiricalprofile) for each indicator from the same encoded `ObservationRecord` table it validated. The profile captures central tendency, spread, quantiles, distributional shape indicators (zero fraction, non-negativity, unit-interval membership, integer-valuedness, variance-to-mean ratio), and the health metrics computed during validation (coverage ratio, gap ratio, dtype violations, duplicate percentage, arithmetic-sequence flag, unparseable timestamps).
 
 **Audit assembly.** Each indicator's profile and validation findings are packaged into an [`IndicatorAudit`](#indicatoraudit). The audit map is keyed by indicator name.
 
@@ -59,7 +59,7 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 - `"warn"` — no errors, but at least one issue has `severity: "warning"`.
 - `"success"` — no issues at warning level or above.
 
-When Stage 3 emits `"fail"`, the pipeline stops before Stage 4 because there is no validated model-ready dataset on which to base quantitative fitting. `"warn"` and `"success"` continue downstream, and [Stage 4](04-model-specification-priors.md) still uses the audit to inform the LLM about data-quality constraints during prior elicitation.
+When Stage 3 emits `"fail"`, the pipeline stops before Stage 4 because there is no validated Stage 2 `ObservationRecord` table on which to base quantitative fitting. `"warn"` and `"success"` continue downstream, and [Stage 4](04-model-specification-priors.md) still uses the audit to inform the LLM about data-quality constraints during prior elicitation.
 
 ## Outputs
 
@@ -79,12 +79,12 @@ The per-indicator validation object emitted by Stage 3. It bundles two things: t
 
 | Field | Type | Description |
 |---|---|---|
-| `profile` | [`EmpiricalProfile`](#empiricalprofile) ∣ `null` | Descriptive statistics from model-ready data; `null` if no numeric values survived coercion |
+| `profile` | [`EmpiricalProfile`](#empiricalprofile) ∣ `null` | Descriptive statistics from the encoded Stage 2 `ObservationRecord` collection; `null` if no numeric values survived coercion |
 | `validation` | [`IndicatorValidation`](#indicatorvalidation) | Issues and per-check statuses |
 
 ### EmpiricalProfile
 
-Descriptive statistics computed from the model-ready numeric series for one indicator. [Stage 4](04-model-specification-priors.md) reads these profiles to build distribution cards and construct-scale cards that ground the LLM's prior proposals.
+Descriptive statistics computed from one indicator's numeric `ObservationRecord` series. [Stage 4](04-model-specification-priors.md) reads these profiles to build distribution cards and construct-scale cards that ground the LLM's prior proposals.
 
 | Field | Type | Description |
 |---|---|---|

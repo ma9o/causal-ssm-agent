@@ -11,7 +11,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 | Input | Source | Description |
 |---|---|---|
 | `stage4.result` | [Stage 4](04-model-specification-priors.md) | Compiled SSM (`_compiled_ssm`) and [model spec](04-model-specification-priors.md#modelspec) with priors |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Model-ready observation data (Parquet path via `_data_for_model_path`) |
+| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Encoded `ObservationRecord` parquet (path via `_data_for_model_path`) |
 | `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the functional specification and priors; Stage 2 provided the extracted indicator time series. Stage 5b is where the compiled model is fitted to data and the posterior is characterized.
@@ -20,7 +20,7 @@ Stage 4 provided the functional specification and priors; Stage 2 provided the e
 
 Stage 5b runs three sequential tasks with no LLM involvement: model fitting, power-scaling sensitivity analysis, and posterior predictive checks. The output is a deterministic function of the compiled model, the data, and the inference configuration.
 
-**Runtime preparation.** The stage runs the same [`prepare_model_runtime`](05a-svi-preflight.md#process) path as Stage 5a—pivoting observation rows to wide format and compiling the executable SSM—but with the full inference method and budget rather than the fixed SVI configuration.
+**Runtime preparation.** The stage runs the same [`prepare_model_runtime`](05a-svi-preflight.md#process) path as Stage 5a—pivoting the `ObservationRecord` table to wide format and compiling the executable SSM—but with the full inference method and budget rather than the fixed SVI configuration.
 
 **Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference). The two structural defaults are NUTS (Kalman-eligible models) and Laplace-EM (non-Gaussian emissions); all nine methods are available as user overrides.
 
@@ -48,13 +48,13 @@ The fit produces an `InferenceResult` containing the posterior samples dict `{na
 |---|---|---|
 | `power_scaling` | list\[[`PowerScalingResult`](#powerscalingresult)\] | Per-parameter sensitivity diagnosis with PSIS reliability |
 | `ppc` | [`PPCResult`](#ppcresult) | Per-variable calibration, autocorrelation, and variance checks plus overlay data |
-| `inference_metadata` | [`InferenceMetadata`](05a-svi-preflight.md#inferencemetadata) | Method, sample count, and timing |
+| `inference_metadata` | [`InferenceMetadata`](#inferencemetadata) | Method, sample count, and timing |
 | `mcmc_diagnostics` | [`MCMCDiagnostics`](#mcmcdiagnostics) \| null | NUTS convergence diagnostics (null for non-MCMC backends) |
-| `svi_diagnostics` | [`SVIDiagnostics`](05a-svi-preflight.md#svidiagnostics) \| null | ELBO loss curve (null for non-SVI backends) |
+| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) \| null | ELBO loss curve (null for non-SVI backends) |
 | `smc_diagnostics` | [`SMCDiagnostics`](#smcdiagnostics) \| null | Tempering schedule and ESS history (null for non-SMC backends) |
 | `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| null | PSIS-LOO cross-validation with per-timestep Pareto-k values |
-| `posterior_marginals` | list\[[`PosteriorMarginal`](05a-svi-preflight.md#posteriormarginal)\] \| null | Per-parameter density summaries |
-| `posterior_pairs` | list\[[`PosteriorPair`](05a-svi-preflight.md#posteriorpair)\] \| null | Pairwise scatter data (includes `divergent` flags for MCMC backends) |
+| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| null | Per-parameter density summaries |
+| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| null | Pairwise scatter data (includes `divergent` flags for MCMC backends) |
 
 The contract also exposes `outcome` (`"success"`, `"warn"`, or `"fail"`) inherited from the base stage contract, plus `fail_reason` when the fit itself failed.
 
@@ -103,9 +103,53 @@ Aggregate posterior predictive check result.
 
 `PPCTestStat` provides `stat_name` (`"mean"`, `"sd"`, `"min"`, `"max"`), the `observed_value`, and the distribution of `rep_values` across posterior predictive draws.
 
+### InferenceMetadata
+
+Summary metadata for the web frontend.
+
+| Field | Type | Description |
+|---|---|---|
+| `method` | `str` | Inference method that actually ran |
+| `n_samples` | `int` | Number of posterior draws returned by the backend |
+| `duration_seconds` | `float` | Wall-clock time for the fit |
+
+### SVIDiagnostics
+
+Convergence diagnostics for the variational optimization.
+
+| Field | Type | Description |
+|---|---|---|
+| `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
+
+### PosteriorMarginal
+
+Marginal posterior density for a single scalar parameter, computed via histogram binning with 5% tail padding.
+
+| Field | Type | Description |
+|---|---|---|
+| `parameter` | `str` | Parameter name, with array elements indexed as `name[i]` |
+| `x_values` | `list[float]` | Bin centers for the density curve |
+| `density` | `list[float]` | Normalized density at each bin center |
+| `mean` | `float` | Posterior mean |
+| `sd` | `float` | Posterior standard deviation |
+| `hdi_3` | `float` | Lower bound of the 94% HDI |
+| `hdi_97` | `float` | Upper bound of the 94% HDI |
+
+### PosteriorPair
+
+Pairwise posterior scatter data for joint visualization.
+
+| Field | Type | Description |
+|---|---|---|
+| `param_x` | `str` | Name of the x-axis parameter |
+| `param_y` | `str` | Name of the y-axis parameter |
+| `x_values` | `list[float]` | Thinned posterior draws for x, at most 200 points |
+| `y_values` | `list[float]` | Thinned posterior draws for y |
+| `divergent` | `list[bool]` \| `null` | Divergence flags for MCMC backends; `null` for SVI and SMC-style outputs |
+
 ### Backend-Specific Diagnostics
 
-Exactly one of the three backend-specific diagnostic payloads is non-null, determined by which inference method ran. The shared `inference_metadata`, `svi_diagnostics`, `posterior_marginals`, and `posterior_pairs` schemas are defined in [Stage 5a](05a-svi-preflight.md#definitions).
+Exactly one of the three backend-specific diagnostic payloads is non-null, determined by which inference method ran.
 
 #### MCMCDiagnostics
 
