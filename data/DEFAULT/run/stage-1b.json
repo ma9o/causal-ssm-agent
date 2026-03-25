@@ -261,8 +261,5 @@
       "output_tokens": 2890,
       "reasoning_tokens": 520
     }
-  },
-  "gate_overridden": {
-    "reason": "Nonparametric identification check failed: P(procrastination | do(stress)) is not identifiable via the ID algorithm. User chose to continue."
   }
 }
