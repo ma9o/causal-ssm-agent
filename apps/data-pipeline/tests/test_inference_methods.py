@@ -24,47 +24,178 @@ def _load_doctolib_fixture(name: str) -> dict:
     return json.loads((DOCTOLIB_FIXTURE_DIR / name).read_text())
 
 
+def _assert_core_smoke_result(
+    result: InferenceResult,
+    *,
+    method: str,
+    n_draws: int,
+    extra_diag_keys: tuple[str, ...] = (),
+) -> dict[str, jnp.ndarray]:
+    assert isinstance(result, InferenceResult)
+    assert result.method == method
+    samples = result.get_samples()
+
+    for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
+        assert site in samples, f"Missing sample site: {site}"
+
+    assert samples["drift_diag_pop"].shape == (n_draws, 1)
+    assert samples["diffusion_diag_pop"].shape == (n_draws, 1)
+    assert samples["manifest_var_diag"].shape == (n_draws, 1)
+
+    for key in extra_diag_keys:
+        assert key in result.diagnostics
+
+    return samples
+
+
+def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], lgss_data) -> None:
+    assert_recovery_ci(
+        samples["drift_diag_pop"][:, 0],
+        lgss_data["true_drift_diag"],
+        "Drift",
+        transform=lambda s: -jnp.abs(s),
+    )
+    assert_recovery_ci(
+        samples["diffusion_diag_pop"][:, 0],
+        lgss_data["true_diff_diag"],
+        "Diffusion",
+    )
+    assert_recovery_ci(
+        samples["manifest_var_diag"][:, 0],
+        lgss_data["true_obs_sd"],
+        "Obs SD",
+    )
+
+
+# =============================================================================
+# Smoke Tests
+# =============================================================================
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize(
+    (
+        "method",
+        "model_factory",
+        "fit_kwargs",
+        "n_draws",
+        "extra_diag_keys",
+        "expected_accept_rate_len",
+    ),
+    [
+        pytest.param(
+            "nuts_da",
+            lambda spec: SSMModel(spec),
+            {
+                "num_warmup": 50,
+                "num_samples": 50,
+                "num_chains": 1,
+                "seed": 0,
+            },
+            50,
+            (),
+            None,
+            id="nuts_da",
+        ),
+        pytest.param(
+            "laplace_em",
+            lambda spec: SSMModel(spec, n_particles=50),
+            {
+                "n_outer": 6,
+                "n_csmc_particles": 8,
+                "n_mh_steps": 3,
+                "param_step_size": 0.1,
+                "n_warmup": 3,
+                "n_ieks_iters": 3,
+                "adaptive_tempering": False,
+                "seed": 0,
+            },
+            8,
+            ("accept_rates", "n_ieks_iters"),
+            6,
+            id="laplace_em",
+        ),
+        pytest.param(
+            "structured_vi",
+            lambda spec: SSMModel(spec, n_particles=50),
+            {
+                "n_outer": 6,
+                "n_csmc_particles": 8,
+                "n_mh_steps": 3,
+                "param_step_size": 0.1,
+                "n_warmup": 3,
+                "adaptive_tempering": False,
+                "seed": 0,
+            },
+            8,
+            ("accept_rates",),
+            6,
+            id="structured_vi",
+        ),
+        pytest.param(
+            "dpf",
+            lambda spec: SSMModel(spec, n_particles=50),
+            {
+                "n_outer": 6,
+                "n_csmc_particles": 8,
+                "n_mh_steps": 3,
+                "param_step_size": 0.1,
+                "n_warmup": 3,
+                "adaptive_tempering": False,
+                "n_train_seqs": 5,
+                "n_train_steps": 20,
+                "n_particles_train": 8,
+                "n_pf_particles": 20,
+                "seed": 0,
+            },
+            8,
+            ("accept_rates", "proposal_net"),
+            6,
+            id="dpf",
+        ),
+    ],
+)
+def test_core_inference_smoke_matrix(
+    lgss_data,
+    method,
+    model_factory,
+    fit_kwargs,
+    n_draws,
+    extra_diag_keys,
+    expected_accept_rate_len,
+):
+    """Backend smoke tests share one fixture and one output-shape contract."""
+    model = model_factory(lgss_data["spec"])
+
+    result = fit(
+        model,
+        observations=lgss_data["observations"],
+        times=lgss_data["times"],
+        method=method,
+        **fit_kwargs,
+    )
+
+    samples = _assert_core_smoke_result(
+        result,
+        method=method,
+        n_draws=n_draws,
+        extra_diag_keys=extra_diag_keys,
+    )
+
+    if method == "nuts_da":
+        assert "innovations" not in samples
+    if expected_accept_rate_len is not None:
+        assert len(result.diagnostics["accept_rates"]) == expected_accept_rate_len
+
+
 # =============================================================================
 # NUTS Data Augmentation
 # =============================================================================
 
 
 class TestNutsDARecovery:
-    """NUTS-DA smoke and recovery tests on 1D LGSS."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_nuts_da_smoke(self, lgss_data):
-        """NUTS-DA pipeline check on 1D LGSS (D=3).
-
-        Verifies: instantiation, inference completes, correct output structure.
-        """
-        model = SSMModel(lgss_data["spec"])
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="nuts_da",
-            num_warmup=50,
-            num_samples=50,
-            num_chains=1,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "nuts_da"
-        samples = result.get_samples()
-
-        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
-            assert site in samples, f"Missing sample site: {site}"
-
-        # innovations should be excluded from returned samples
-        assert "innovations" not in samples
-
-        # Should have 50 posterior samples
-        assert samples["drift_diag_pop"].shape == (50, 1)
-        assert samples["diffusion_diag_pop"].shape == (50, 1)
+    """NUTS-DA recovery tests on 1D LGSS."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
@@ -85,22 +216,7 @@ class TestNutsDARecovery:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -142,22 +258,7 @@ class TestHessMC2Recovery:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -192,22 +293,7 @@ class TestPGASRecovery:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -242,22 +328,7 @@ class TestTemperedSMCRecovery:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -266,55 +337,7 @@ class TestTemperedSMCRecovery:
 
 
 class TestLaplaceEM:
-    """Laplace-EM smoke and recovery tests on 1D LGSS."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_laplace_em_smoke(self, lgss_data):
-        """Laplace-EM pipeline check on 1D LGSS (D=3).
-
-        Verifies: instantiation, inference completes, correct output structure.
-        """
-        import time
-
-        t0 = time.perf_counter()
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="laplace_em",
-            n_outer=6,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=3,
-            n_ieks_iters=3,
-            adaptive_tempering=False,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "laplace_em"
-        samples = result.get_samples()
-
-        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
-            assert site in samples, f"Missing sample site: {site}"
-
-        # All N particles at beta=1.0 are returned
-        assert samples["drift_diag_pop"].shape == (8, 1)
-        assert samples["diffusion_diag_pop"].shape == (8, 1)
-        assert samples["manifest_var_diag"].shape == (8, 1)
-
-        # Diagnostics present
-        assert "accept_rates" in result.diagnostics
-        assert "n_ieks_iters" in result.diagnostics
-        assert len(result.diagnostics["accept_rates"]) == 6
-
-        elapsed = time.perf_counter() - t0
-        assert elapsed < 120.0, f"Laplace-EM smoke took {elapsed:.1f}s, must be under 120s"
+    """Laplace-EM recovery tests on 1D LGSS."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
@@ -345,22 +368,7 @@ class TestLaplaceEM:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -369,53 +377,7 @@ class TestLaplaceEM:
 
 
 class TestStructuredVI:
-    """Structured VI smoke and recovery tests on 1D LGSS."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(120)
-    def test_structured_vi_smoke(self, lgss_data):
-        """Structured VI pipeline check on 1D LGSS (D=3).
-
-        Verifies: instantiation, inference completes, correct output structure.
-        """
-        import time
-
-        t0 = time.perf_counter()
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="structured_vi",
-            n_outer=6,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=3,
-            adaptive_tempering=False,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "structured_vi"
-        samples = result.get_samples()
-
-        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
-            assert site in samples, f"Missing sample site: {site}"
-
-        # All N particles at beta=1.0 are returned
-        assert samples["drift_diag_pop"].shape == (8, 1)
-        assert samples["diffusion_diag_pop"].shape == (8, 1)
-        assert samples["manifest_var_diag"].shape == (8, 1)
-
-        # Diagnostics present
-        assert "accept_rates" in result.diagnostics
-        assert len(result.diagnostics["accept_rates"]) == 6
-
-        elapsed = time.perf_counter() - t0
-        assert elapsed < 120.0, f"Structured VI smoke took {elapsed:.1f}s, must be under 120s"
+    """Structured VI recovery tests on 1D LGSS."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
@@ -439,22 +401,7 @@ class TestStructuredVI:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -463,60 +410,7 @@ class TestStructuredVI:
 
 
 class TestDPF:
-    """DPF smoke and recovery tests on 1D LGSS."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(180)
-    def test_dpf_smoke(self, lgss_data):
-        """DPF pipeline check on 1D LGSS (D=3).
-
-        Verifies: proposal training, inference pipeline, correct output structure.
-        Longer timeout due to proposal training phase.
-        """
-        import time
-
-        t0 = time.perf_counter()
-
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="dpf",
-            n_outer=6,
-            n_csmc_particles=8,
-            n_mh_steps=3,
-            param_step_size=0.1,
-            n_warmup=3,
-            adaptive_tempering=False,
-            # DPF-specific: small training for smoke test
-            n_train_seqs=5,
-            n_train_steps=20,
-            n_particles_train=8,
-            n_pf_particles=20,
-            seed=0,
-        )
-
-        assert isinstance(result, InferenceResult)
-        assert result.method == "dpf"
-        samples = result.get_samples()
-
-        for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
-            assert site in samples, f"Missing sample site: {site}"
-
-        # All N particles at beta=1.0 are returned
-        assert samples["drift_diag_pop"].shape == (8, 1)
-        assert samples["diffusion_diag_pop"].shape == (8, 1)
-        assert samples["manifest_var_diag"].shape == (8, 1)
-
-        # Diagnostics present
-        assert "accept_rates" in result.diagnostics
-        assert "proposal_net" in result.diagnostics
-        assert len(result.diagnostics["accept_rates"]) == 6
-
-        elapsed = time.perf_counter() - t0
-        assert elapsed < 180.0, f"DPF smoke took {elapsed:.1f}s, must be under 180s"
+    """DPF recovery tests on 1D LGSS."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(600)
@@ -548,22 +442,7 @@ class TestDPF:
 
         samples = result.get_samples()
 
-        assert_recovery_ci(
-            samples["drift_diag_pop"][:, 0],
-            lgss_data["true_drift_diag"],
-            "Drift",
-            transform=lambda s: -jnp.abs(s),
-        )
-        assert_recovery_ci(
-            samples["diffusion_diag_pop"][:, 0],
-            lgss_data["true_diff_diag"],
-            "Diffusion",
-        )
-        assert_recovery_ci(
-            samples["manifest_var_diag"][:, 0],
-            lgss_data["true_obs_sd"],
-            "Obs SD",
-        )
+        _assert_lgss_recovery(samples, lgss_data)
 
 
 # =============================================================================
@@ -736,15 +615,11 @@ class TestLaplaceEMDoctolib:
     @pytest.mark.timeout(180)
     def test_laplace_em_doctolib_fixture_smoke(self):
         """Laplace-EM fits the executable Doctolib fixture end-to-end."""
-        import time
-
         from causal_ssm_agent.models.ssm.inference import select_default_method
         from causal_ssm_agent.models.ssm_builder import build_ssm_builder
         from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
         from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
         from causal_ssm_agent.utils.data import pivot_to_wide
-
-        t0 = time.perf_counter()
 
         causal_spec, model_spec, priors, data_for_model = _build_executable_doctolib_fixture_v2()
 
@@ -799,6 +674,3 @@ class TestLaplaceEMDoctolib:
         assert "n_ieks_iters" in result.diagnostics
         assert result.diagnostics["n_ieks_iters"] == 3
         assert len(result.diagnostics["accept_rates"]) == 6
-
-        elapsed = time.perf_counter() - t0
-        assert elapsed < 180.0, f"Doctolib Laplace-EM smoke took {elapsed:.1f}s, must be under 180s"

@@ -7,6 +7,7 @@ chunk_windows, format_window_chunk (workers/windows.py).
 from datetime import datetime
 
 import polars as pl
+import pytest
 
 from causal_ssm_agent.utils.data import bucket_by_clock
 from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
@@ -125,24 +126,18 @@ def _make_windows(n: int) -> list[tuple[str, pl.DataFrame]]:
 
 
 class TestChunkWindows:
-    def test_exact_division(self):
-        windows = _make_windows(6)
-        chunks = chunk_windows(windows, 3)
-        assert len(chunks) == 2
-        assert len(chunks[0]) == 3
-        assert len(chunks[1]) == 3
-
-    def test_remainder(self):
-        windows = _make_windows(7)
-        chunks = chunk_windows(windows, 3)
-        assert len(chunks) == 3
-        assert len(chunks[2]) == 1  # remainder
-
-    def test_single_window(self):
-        windows = _make_windows(1)
-        chunks = chunk_windows(windows, 7)
-        assert len(chunks) == 1
-        assert len(chunks[0]) == 1
+    @pytest.mark.parametrize(
+        ("n_windows", "windows_per_chunk", "chunk_sizes"),
+        [
+            (6, 3, [3, 3]),
+            (7, 3, [3, 3, 1]),
+            (1, 7, [1]),
+        ],
+    )
+    def test_chunk_sizes(self, n_windows, windows_per_chunk, chunk_sizes):
+        windows = _make_windows(n_windows)
+        chunks = chunk_windows(windows, windows_per_chunk)
+        assert [len(chunk) for chunk in chunks] == chunk_sizes
 
     def test_empty_input(self):
         assert chunk_windows([], 7) == []
