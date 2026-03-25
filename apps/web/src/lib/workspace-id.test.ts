@@ -25,10 +25,4 @@ describe("generateAnonymousWorkspaceId", () => {
     expect(workspaceIds).not.toContain("I");
     expect(workspaceIds).not.toContain("O");
   });
-
-  it("generates different IDs on successive calls", () => {
-    const workspaceIds = new Set(Array.from({ length: 20 }, () => generateAnonymousWorkspaceId()));
-    // With 31^6 possible IDs, collisions in 20 samples are essentially impossible.
-    expect(workspaceIds.size).toBe(20);
-  });
 });

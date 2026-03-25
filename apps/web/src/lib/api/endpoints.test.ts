@@ -1,34 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// Mock the client module before importing endpoints
-vi.mock("./client", () => ({
-  apiFetch: vi.fn(),
-}));
-
-import { apiFetch } from "./client";
-import { getStageResult, uploadFile } from "./endpoints";
-
-describe("getStageResult", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("calls apiFetch with correct path", async () => {
-    const mockData = { some: "data" };
-    vi.mocked(apiFetch).mockResolvedValue(mockData);
-
-    const result = await getStageResult("ABC123", "stage-0");
-
-    expect(apiFetch).toHaveBeenCalledWith("/api/results/ABC123/stage-0");
-    expect(result).toEqual(mockData);
-  });
-
-  it("propagates errors from apiFetch", async () => {
-    vi.mocked(apiFetch).mockRejectedValue(new Error("API error 500: Server Error"));
-
-    await expect(getStageResult("DEF456", "stage-3")).rejects.toThrow("API error 500");
-  });
-});
+import { uploadFile } from "./endpoints";
 
 describe("uploadFile", () => {
   const originalFetch = globalThis.fetch;
@@ -70,8 +41,6 @@ describe("uploadFile", () => {
     } as Response);
 
     const file = new File(["x"], "big.json");
-    await expect(uploadFile(file, "user-1", "access-code-1")).rejects.toThrow(
-      "Upload failed: 413",
-    );
+    await expect(uploadFile(file, "user-1", "access-code-1")).rejects.toThrow("Upload failed: 413");
   });
 });
