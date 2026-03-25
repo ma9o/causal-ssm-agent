@@ -14,24 +14,10 @@ The main domain spine is the sequence of artifacts the pipeline produces and ref
 | Observational evidence | `ObservationRecord`s and the encoded observation table (`data_for_model`) | Stage 2 | [../pipeline/02-indicator-extraction.md](../pipeline/02-indicator-extraction.md) | Converts source data into time-indexed indicator values |
 | Data-quality surface | `IndicatorAudit` | Stage 3 | [../pipeline/03-extraction-validation.md](../pipeline/03-extraction-validation.md) | Describes whether extracted observations are usable |
 | Functional specification | `ModelSpec` plus priors | Stage 4 | [../pipeline/04-model-specification-priors.md](../pipeline/04-model-specification-priors.md) | Chooses likelihoods, parameters, and prior beliefs |
-| Parametric recoverability | `ParametricIdResult` plus inference structure | Stage 4b | [../pipeline/04b-parametric-identifiability.md](../pipeline/04b-parametric-identifiability.md) | Checks whether the functional specification is plausibly estimable |
-| Approximate fit preflight | SVI diagnostics | Stage 5a | [../pipeline/05a-svi-preflight.md](../pipeline/05a-svi-preflight.md) | Cheap sanity check before expensive fitting |
+| Parametric identification diagnostics | `ParametricIdResult` plus inference structure | Stage 4b | [../pipeline/04b-parametric-identifiability.md](../pipeline/04b-parametric-identifiability.md) | Runs conservative degrees-of-freedom, local-identification, and practical-identifiability checks |
+| Variational pre-fit diagnostic | SVI diagnostics | Stage 5a | [../pipeline/05a-svi-preflight.md](../pipeline/05a-svi-preflight.md) | Lightweight approximate fit before expensive inference |
 | Fitted runtime artifact | `FittedArtifact` plus diagnostics | Stage 5b | [../pipeline/05b-inference-diagnostics.md](../pipeline/05b-inference-diagnostics.md) | Holds posterior inference outputs used downstream |
-| Causal decision surface | `TreatmentEffect` plus follow-up simulations | Stage 6 | [../pipeline/06-intervention-analysis.md](../pipeline/06-intervention-analysis.md) | Answers rung-2 and rung-3 causal questions |
-
-## Scope Boundary
-
-In scope:
-
-- time-varying constructs with optional time-invariant covariates
-- explicit measurement definitions for every construct
-- causal reasoning that can stop at structure when numeric identification is not justified
-
-Out of scope:
-
-- user-facing bidirected-edge representations instead of explicit latent confounder nodes
-- pipelines that estimate effects without explicit identifiability checks
-- trajectory products for unmeasured constructs; every construct must have at least one indicator
+| Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | Stage 6 | [../pipeline/06-intervention-analysis.md](../pipeline/06-intervention-analysis.md) | Answers interventional (`do`) and counterfactual queries |
 
 ## Temporal Semantics
 
@@ -44,8 +30,6 @@ Time appears in several different places. They should not be collapsed into a si
 | Anchor time | [Stage 2](../pipeline/02-indicator-extraction.md#observationrecord) | The timestamp attached to the extracted indicator datum |
 | Inter-observation interval `dt` | [estimation.md](estimation.md) | Elapsed time used to discretize the continuous-time model |
 | Intervention horizon | [Stage 6](../pipeline/06-intervention-analysis.md) | How far forward a trajectory intervention is projected |
-
-Important consequence: Stage 2 windowing, Stage 4 model specification, Stage 5 discretization, and Stage 6 intervention forecasts are all temporal, but they are not the same temporal decision.
 
 ## Execution Modality
 
@@ -70,8 +54,8 @@ The pipeline has several kinds of checks. They target different failure modes an
 |---|---|---|
 | Causal identifiability | 1b | Is the treatment-to-outcome effect identified from the latent and measurement assumptions? |
 | Extraction and data quality | 3 | Are the observed indicator series usable and coherent? |
-| Parametric identifiability | 4b | Can the chosen functional specification plausibly recover its parameters from the available data? |
-| Cheap pre-fit sanity | 5a | Does a fast approximate fit immediately reveal gross pathologies? |
+| Parametric identifiability | 4b | Does the chosen parameterization pass conservative degrees-of-freedom, local-identification, and practical-identifiability checks? |
+| Variational pre-fit diagnostic | 5a | Does a lightweight approximate fit immediately reveal gross pathologies? |
 | Post-fit diagnostics | 5b | Does the fitted model behave well under posterior diagnostics and predictive checks? |
 
 ## Assumption Map
@@ -88,5 +72,3 @@ The pipeline has several kinds of checks. They target different failure modes an
 | A7. Measurement model identification enables causal identification | CausalSpec identifiability | Stage 1b | [causal-spec/identifiability.md](causal-spec/identifiability.md) |
 | A8. Indicator residuals are temporally independent | MeasurementModel | Stages 1b, 4, runtime | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
 | A9. Single-indicator constructs absorb measurement error | MeasurementModel | Stages 1b, 4 | [measurement-model/assumptions.md](measurement-model/assumptions.md) |
-
-<!-- A2 is intentionally absent. It was removed during an early revision; numbering is kept stable to avoid breaking cross-references in code and other docs. -->

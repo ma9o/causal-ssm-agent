@@ -6,7 +6,7 @@ Within the pipeline artifact lineage, this document starts after Stage 4 has pro
 
 ## 1. CT-SDE Formulation
 
-The latent process is a multivariate Ornstein-Uhlenbeck SDE:
+The latent process is a multivariate Ornstein-Uhlenbeck SDE, the standard continuous-time linear-Gaussian state evolution used throughout continuous-discrete filtering and smoothing in [Särkkä (2013)](https://www.cambridge.org/core/books/bayesian-filtering-and-smoothing/C372FB31C5D9A100F8476C1B23721A67):
 
 ```text
 d eta(t) = (A * eta(t) + c) dt + G dW(t)
@@ -63,7 +63,7 @@ Both likelihood backends compute log p(y | theta) and inject it into the NumPyro
 
 ### Kalman backend
 
-For linear-Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition. Uses cuthbert's non-associative moments filter for numerically stable gradients.
+For linear-Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition, following the standard Kalman-filter treatment in [Särkkä (2013)](https://www.cambridge.org/core/books/bayesian-filtering-and-smoothing/C372FB31C5D9A100F8476C1B23721A67). Uses cuthbert's non-associative moments filter for numerically stable gradients.
 
 **Applicable when:** Linear dynamics, Gaussian process noise, Gaussian observation noise.
 
@@ -71,13 +71,13 @@ For linear-Gaussian models. Computes the exact marginal likelihood via the predi
 
 ### Particle filter backend
 
-Universal backend for arbitrary noise families and nonlinear dynamics. With a fixed RNG key the PF likelihood is a deterministic function of theta, making it compatible with gradient-based inference.
+Universal sequential Monte Carlo backend for arbitrary noise families and nonlinear dynamics. With a fixed RNG key the PF likelihood is a deterministic function of theta, making it compatible with gradient-based inference.
 
 **Applicable when:** Any model. Fallback when Kalman assumptions fail.
 
 **Complexity:** O(T n P) where P is the particle count.
 
-**Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving strictly lower variance than the bootstrap PF.
+**Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving the usual Rao-Blackwellized variance reduction described in [Doucet et al. (2000)](https://research.google/pubs/rao-blackwellised-particle-filtering-for-dynamic-bayesian-networks/).
 
 ### Missing data handling
 
@@ -95,28 +95,15 @@ The estimation pipeline composes three main libraries:
 
 ### Data flow
 
-```text
-[ModelSpec](../pipeline/04-model-specification-priors.md#modelspec) (orchestrator)
-    |
-    v
-SSMModelBuilder.compile_inputs()
-    |
-    v
-SSMSpec + SSMPriors
-    |
-    v
-SSMModel.model()                     [NumPyro model function]
-    |-- sample from priors
-    |-- discretize CT -> DT
-    |-- Kalman or Particle likelihood
-    |-- numpyro.factor("log_likelihood", ll)
-    |
-    v
-inference.fit()  -->  InferenceResult (posterior samples + diagnostics)
+```mermaid
+flowchart LR
+    A["ModelSpec"] --> B["compile_inputs()"]
+    B --> C["SSMSpec + SSMPriors"]
+    C --> D["SSMModel.model()"]
+    D --> E["inference.fit()"]
+    E --> F["InferenceResult"]
 ```
 
-## References
+[`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) enters from the orchestrator. `SSMModelBuilder.compile_inputs()` produces the spec and priors. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT, runs the Kalman or particle likelihood, and injects it via `numpyro.factor("log_likelihood", ll)`. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
-
-- Sarkka, S. (2013). Bayesian Filtering and Smoothing. Cambridge University Press.

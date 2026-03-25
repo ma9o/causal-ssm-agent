@@ -4,7 +4,7 @@
 |---|---|---|
 | Computed | No | [`SVIDiagnostics`](#svidiagnostics), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
-Runs a cheap variational fit as a sanity check before [Stage 5b](05b-inference-diagnostics.md) commits to expensive inference, producing an ELBO convergence curve and approximate posterior summaries.
+Runs a lightweight variational fit as a pre-fit diagnostic before [Stage 5b](05b-inference-diagnostics.md) commits to expensive inference, producing an ELBO convergence curve and approximate posterior summaries.
 
 ## Inputs
 
@@ -32,7 +32,7 @@ flowchart LR
 **Diagnostic extraction:** From the posterior draws the stage computes:
 
 - *ELBO curve*: the full loss trace over the optimization steps
-- *Posterior marginals*: per-parameter density curve with mean, standard deviation, and 94% [highest density interval](https://en.wikipedia.org/wiki/Credible_interval#Highest_density_interval) (HDI)
+- *Posterior marginals*: per-parameter density curve with mean, standard deviation, and 94% highest density interval (HDI)
 - *Posterior pairs*: pairwise scatter plots for up to 6 parameters, revealing posterior correlations
 
 ### Example

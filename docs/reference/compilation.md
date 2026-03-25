@@ -2,8 +2,6 @@
 
 The compilation pipeline translates a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) (the Stage 4 output) into a NumPyro-ready `SSMModel`. The resulting `CompiledSSMArtifact` is consumed by [Stage 4b](../pipeline/04b-parametric-identifiability.md) for parametric identifiability diagnostics and by [Stage 5](../pipeline/05a-svi-preflight.md) for fitting.
 
-## Data Flow
-
 ```mermaid
 graph TD
     ModelSpec(["ModelSpec"])

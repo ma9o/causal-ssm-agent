@@ -97,57 +97,6 @@ The nine methods mapped to all three axes:
 
 The structural routing operates within A = Marginalize. (Augment and Gibbs force C = MCMC and are user overrides; see below.) The routing follows directly from the axis dependencies: determine B from model structure, then select C via the B → C constraint.
 
-### Decision Tree
-
-```text
-SSMSpec + RBPartition + ObservationSupport
-|
-+-- Interval-summary observations present?
-|   observation_support.requires_interval_summary_handling == True
-|   |
-|   +-> "svi"  [Stochastic (PF), VI]
-|       Interval-summary measurement equations require integrating the
-|       latent trajectory over the observation window, which is only
-|       supported by the PF backend. SVI is chosen because SGD
-|       tolerates the noisy PF gradients. First-pass RB is disabled.
-|
-| A = Marginalize (structural default)
-|
-| Step 1: Determine B from model structure
-|
-+-- B = Closed-form (Kalman)?
-|   partition.has_particle_block == False
-|   All emissions Gaussian + identity link + Gaussian diffusion
-|   |
-|   | Step 2: Select C given B
-|   | Exact, smooth gradients → all C options viable → pick MCMC
-|   |
-|   +-> "nuts"  [Closed-form, MCMC]
-|       NUTS is the gold standard for smooth, differentiable targets.
-|       Convergence diagnostics (R-hat, ESS, divergences) are
-|       well-understood and trustworthy.
-|
-+-- B = Deterministic (IEKS/Laplace)?
-    Non-Gaussian emissions (Poisson, Student-t, Gamma, Bernoulli, NegBin, Beta)
-    |
-    | Always available because:
-    | - CT-LTI dynamics are always linear (IEKS requires this)
-    | - All 7 emission families have C^2 log-densities (IEKS requires this)
-    |
-    | Step 2: Select C given B
-    | Smooth, approximate gradients → MCMC and SMC both viable
-    | → pick SMC (multimodality protection; non-Gaussian emissions
-    |   frequently produce multimodal parameter posteriors)
-    |
-    +-> "laplace_em"  [Deterministic, SMC]
-        IEKS finds the MAP state trajectory via Newton iterations.
-        The Laplace approximation provides an analytical (noise-free)
-        marginal likelihood without running a particle filter.
-        Tempered SMC handles multimodality in the parameter posterior.
-        O(T * D^3) per IEKS iteration, typically 3-8 iterations.
-        No particle count to tune. No resampling noise.
-```
-
 ### User Overrides
 
 The structural routing picks the best default within A = Marginalize. Users can override to a different coupling strategy (A) or a different parameter method (C):
@@ -176,7 +125,7 @@ The resulting `RBPartition` assigns each latent variable and each observation ch
 First-pass RB is disabled when:
 
 - The spec opts out (`first_pass_rb = False`)
-- Interval-summary observations are present (requires full PF trajectory integration)
+- Interval-summary observations are present (the current planner does not form first-pass RB splits for support-aware windowed measurements)
 - No executable partition exists (all variables couple to non-Gaussian components)
 
 A "second pass" operates within each particle at runtime, marginalizing conditionally Gaussian blocks that couple to non-Gaussian variables. Both passes compose: first-pass removes unconditionally independent Gaussian blocks, second-pass handles the conditionally Gaussian remainder.
