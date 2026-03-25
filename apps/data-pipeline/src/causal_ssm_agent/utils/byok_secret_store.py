@@ -12,6 +12,7 @@ import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from contextlib import closing
 from hashlib import sha256
+from hmac import new as hmac_new
 from pathlib import Path
 
 import libsql
@@ -46,12 +47,24 @@ def _resolve_database() -> str:
 
 
 def _get_cipher_key() -> bytes:
-    secret = os.getenv("BYOK_SECRET_STORE_ENCRYPTION_KEY")
-    if not secret or len(secret) < 32:
-        raise RuntimeError(
-            "BYOK_SECRET_STORE_ENCRYPTION_KEY must be set and at least 32 characters"
-        )
-    return sha256(secret.encode("utf-8")).digest()
+    return sha256(_derive_app_secret("byok-secret-store").encode("utf-8")).digest()
+
+
+def _get_app_secret() -> str:
+    secret = os.getenv("APP_SECRET", "").strip()
+    if secret:
+        if len(secret) < 32:
+            raise RuntimeError("APP_SECRET must be set and at least 32 characters")
+        return secret
+    raise RuntimeError("APP_SECRET is not configured")
+
+
+def _derive_app_secret(scope: str) -> str:
+    return hmac_new(
+        _get_app_secret().encode("utf-8"),
+        scope.encode("utf-8"),
+        sha256,
+    ).hexdigest()
 
 
 def _encode_base64url(raw: bytes) -> str:
