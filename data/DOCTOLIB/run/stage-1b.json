@@ -348,8 +348,5 @@
       "output_tokens": 3600,
       "reasoning_tokens": 840
     }
-  },
-  "gate_overridden": {
-    "reason": "Glycemic control effect is non-identifiable due to psychosocial stress confounding. User chose to continue \u2014 the identified lipid_burden pathway (via frontdoor) and arterial_pressure pathway provide sufficient causal targets for intervention analysis."
   }
 }
