@@ -1,16 +1,57 @@
 "use client";
 
 import { CausalDag } from "@/components/dag/causal-dag";
+import type { ConstructStatus } from "@/components/dag/construct-node";
 import { IndicatorTable } from "@/components/stages/measurement/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import type { Stage1bData } from "@causal-ssm/api-types";
 import { AlertTriangle } from "lucide-react";
+import { useMemo } from "react";
+
+function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
+  const spec = data.causal_spec;
+  return useMemo(() => {
+    const statuses: Record<string, ConstructStatus> = {};
+    const observedConstructs = new Set(
+      spec.measurement.indicators.map((i) => i.construct_name),
+    );
+
+    // Collect marginalized confounders across all identified treatments
+    const marginalized = new Set<string>();
+    for (const status of Object.values(spec.identifiability?.identifiable_treatments ?? {})) {
+      for (const c of status?.marginalized_confounders ?? []) {
+        marginalized.add(c);
+      }
+    }
+
+    // Collect blocking confounders across all non-identifiable treatments
+    const blocking = new Set<string>();
+    for (const status of Object.values(spec.identifiability?.non_identifiable_treatments ?? {})) {
+      for (const c of status?.confounders ?? []) {
+        blocking.add(c);
+      }
+    }
+
+    for (const c of spec.latent.constructs) {
+      if (blocking.has(c.name)) {
+        statuses[c.name] = "blocking";
+      } else if (marginalized.has(c.name)) {
+        statuses[c.name] = "marginalized";
+      } else {
+        statuses[c.name] = "observed";
+      }
+    }
+
+    return statuses;
+  }, [spec]);
+}
 
 export default function Stage1bContent({ data }: { data: Stage1bData }) {
   const spec = data.causal_spec;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
+  const nodeStatuses = useNodeStatuses(data);
 
   return (
     <div className="space-y-4">
@@ -78,6 +119,7 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
         constructs={spec.latent.constructs}
         edges={spec.latent.edges}
         indicators={spec.measurement.indicators}
+        nodeStatuses={nodeStatuses}
         height="min(600px, 70vh)"
       />
       <IndicatorTable indicators={spec.measurement.indicators} />
