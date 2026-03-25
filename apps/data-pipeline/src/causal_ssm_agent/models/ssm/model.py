@@ -247,9 +247,7 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
     if isinstance(family, list):
         unique_families = {int(value) for value in family}
         if len(unique_families) != 1:
-            raise ValueError(
-                "Mixed prior families within a single SSM field are unsupported"
-            )
+            raise ValueError("Mixed prior families within a single SSM field are unsupported")
         family = unique_families.pop()
     if "mu" in prior or "lower" in prior or "upper" in prior:
         if "family" in prior:

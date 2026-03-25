@@ -962,9 +962,9 @@ def sample_prior_unconstrained(
 
                 sk_half, sk_gamma, sk_log_normal, sk_exp = random.split(sk, 4)
                 half_normal_sample = jnp.abs(params["scale"] * random.normal(sk_half, shape=shape))
-                gamma_sample = random.gamma(sk_gamma, params["concentration"], shape=shape) / params[
-                    "rate"
-                ]
+                gamma_sample = (
+                    random.gamma(sk_gamma, params["concentration"], shape=shape) / params["rate"]
+                )
                 log_normal_sample = jnp.exp(
                     params["loc"] + params["scale"] * random.normal(sk_log_normal, shape=shape)
                 )
