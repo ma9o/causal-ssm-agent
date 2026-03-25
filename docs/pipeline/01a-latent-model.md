@@ -1,10 +1,10 @@
 # Stage 1a: Latent Model Proposal
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Semantic | Yes | No | [`LatentModel`](#latent-model) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Semantic | Yes | [`LatentModel`](#latentmodel) |
 
-Builds a causal DAG ([`LatentModel`](#latent-model)) from the natural language research question.
+Builds a causal DAG ([`LatentModel`](#latentmodel)) from the natural language research question.
 
 ## Inputs
 
@@ -37,6 +37,10 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 
 **Review:** A follow-up prompt then asks the LLM to review its validated model for theoretical coherence—outcome clarity, causal completeness, edge justification, temporal consistency, and whether exogenous designations are appropriate. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
+### Example
+
+For a question about whether tutoring intensity improves exam performance through study confidence, Stage 1a may posit constructs such as `Tutoring Intensity`, `Study Confidence`, `Prior Mastery`, and `Exam Performance`. Causal edges would connect `Tutoring Intensity` → `Study Confidence` → `Exam Performance`, with a lagged edge from `Prior Mastery` → `Exam Performance`.
+
 ## Outputs
 
 | Output | Type | Description |
@@ -52,5 +56,3 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 | `edges` | `list[CausalEdge]` | Directed causal edges between constructs. `lagged=true` means the effect at time `t` depends on the cause at `t-1`. |
 
 Each `Construct` carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each `CausalEdge` carries `cause`, `effect`, `description`, and `lagged`. There is no notion of latent confounding yet.
-
-Example: for a question about whether tutoring intensity improves exam performance through study confidence, Stage 1a may posit constructs such as `Tutoring Intensity`, `Study Confidence`, `Prior Mastery`, and `Exam Performance`. Causal edges would connect `Tutoring Intensity` → `Study Confidence` → `Exam Performance`, with a lagged edge from `Prior Mastery` → `Exam Performance`.
