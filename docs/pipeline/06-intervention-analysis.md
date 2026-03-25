@@ -4,7 +4,7 @@
 |---|---|---|
 | Hybrid | Yes | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
 
-Applies steady-state interventional-effect and trajectory-simulation semantics to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up interventional (rung 2) and counterfactual (rung 3) queries in Pearl's ladder of causation [Pearl (2019)](https://ucla.in/2HI2yyx). This is the terminal stage—interactive edits persist in place with no downstream replay.
+Applies steady-state interventional-effect and trajectory-simulation semantics to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up interventional (rung 2) and counterfactual (rung 3) queries in Pearl's ladder of causation[^pearl2019] [^pearl2009]. This is the terminal stage—interactive edits persist in place with no downstream replay.
 
 ## Inputs
 
@@ -36,8 +36,8 @@ flowchart LR
 **Interactive tools:** After the baseline ranking completes, Stage 6 exposes three read-only tools for follow-up exploration within the same conversation.
 
 - *`get_model_info`:* Returns a structured read-only summary of the fitted model and its diagnostics. An optional `names` filter restricts the response to specific constructs or indicators.
-- *`simulate_intervention`:* Runs an interventional query on rung 2 of Pearl's ladder [Pearl (2019)](https://ucla.in/2HI2yyx), generalizing the baseline ranking to arbitrary intervention values, trajectory horizons, and manifest projections. Returns a posterior summary (mean, median, 95% CI, `prob_positive`) with any relevant [PPC](05b-inference-diagnostics.md#ppcresult) or [power-scaling](05b-inference-diagnostics.md#powerscalingresult) warnings.
-- *`simulate_counterfactual`:* Runs a counterfactual query on rung 3 of Pearl's ladder [Pearl (2019)](https://ucla.in/2HI2yyx), conditioning on observed data before asking "what would have happened if we had intervened?" The caller specifies an evidence window (optional ISO-8601 `start_time`/`end_time` bounds, defaulting to the full observed range), the treatment and intervention mode, and the estimand (`"end_state"` or `"trajectory"` with `horizon_days` and projection level). Computation follows the standard abduction-action-prediction procedure in [Pearl, Glymour, and Jewell (2016)](https://web.cs.ucla.edu/~kaoru/BIB5/pearl-etal-2016-primer-text.pdf).
+- *`simulate_intervention`:* Runs an interventional query on rung 2 of Pearl's ladder[^pearl2019], generalizing the baseline ranking to arbitrary intervention values, trajectory horizons, and manifest projections. Returns a posterior summary (mean, median, 95% CI, `prob_positive`) with any relevant [PPC](05b-inference-diagnostics.md#ppcresult) or [power-scaling](05b-inference-diagnostics.md#powerscalingresult) warnings.
+- *`simulate_counterfactual`:* Runs a counterfactual query on rung 3 of Pearl's ladder[^pearl2019], conditioning on observed data before asking "what would have happened if we had intervened?" The caller specifies an evidence window (optional ISO-8601 `start_time`/`end_time` bounds, defaulting to the full observed range), the treatment and intervention mode, and the estimand (`"end_state"` or `"trajectory"` with `horizon_days` and projection level). Computation follows the standard abduction-action-prediction procedure in Pearl, Glymour, and Jewell (2016)[^pearl2016].
   - *Abduction:* recovers the latent state at the evidence boundary
   - *Forward simulation:* from the abducted state, simulates both a baseline path and a counterfactual path (treatment clamped)
   - *Output:* reports the difference as the causal effect with posterior summary, effect trajectory, and abduction warnings
@@ -73,3 +73,7 @@ Identifiability status, [PPC warnings](05b-inference-diagnostics.md#ppcresult), 
 | `effect_30d` | `float` | Effect magnitude at 30 days (or at the horizon boundary if shorter) |
 | `peak_effect` | `float` | Maximum absolute effect reached during the trajectory |
 | `time_to_peak_days` | `float` | Days from intervention onset to peak effect |
+
+[^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)
+[^pearl2019]: Pearl, J. (2019). The Seven Tools of Causal Inference, with Reflections on Machine Learning. *Communications of the ACM*, 62(3), 54–60. [Bibliography entry](../reference/bibliography.md)
+[^pearl2016]: Pearl, J., Glymour, M., & Jewell, N. P. (2016). *Causal Inference in Statistics: A Primer*. Wiley. [Bibliography entry](../reference/bibliography.md)

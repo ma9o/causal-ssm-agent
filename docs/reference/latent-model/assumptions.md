@@ -33,14 +33,9 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 - Contemporaneous relationships represent instantaneous causation or common response to unmodeled causes
 - Standard DAG-based identification algorithms apply within each time slice
 
-**Justification:** Cyclic contemporaneous relationships are not identified without additional constraints such as instrumental variables or non-Gaussianity. Requiring acyclicity simplifies identification while allowing feedback dynamics through the temporal structure, as in dynamic SEM treatments such as Asparouhov, Hamaker, and Muthen (2018).
+**Justification:** Cyclic contemporaneous relationships are not identified without additional constraints such as instrumental variables or non-Gaussianity. Requiring acyclicity simplifies identification while allowing feedback dynamics through the temporal structure, as in dynamic SEM treatments[^asparouhov2018].
 
-**Identification implication:** A4 interacts with identifiability checking. See [A3a](../causal-spec/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach) for how Stage 1b unrolls the temporal graph to two timesteps and [the ADMG projection](../causal-spec/identifiability.md#user-facing-dag-vs-internal-admg-projection) for the internal ID algorithm.
-
-**References:**
-
-- Asparouhov, T., Hamaker, E. L., & Muthen, B. (2018). Dynamic structural equation models. *Structural Equation Modeling*, 25(3), 359-388. https://doi.org/10.1080/10705511.2017.1406803
-- Shpitser, I., & Pearl, J. (2006). *Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models.* AAAI.
+**Identification implication:** A4 interacts with identifiability checking[^shpitser2006]. See [A3a](../causal-spec/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach) for how Stage 1b unrolls the temporal graph to two timesteps and [the ADMG projection](../causal-spec/identifiability.md#user-facing-dag-vs-internal-admg-projection) for the internal ID algorithm.
 
 ## A4b. Endogenous Time-Varying Directed Effects Are Drift-Mediated
 
@@ -72,8 +67,12 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 **Note on hierarchical modeling:** The current implementation fits each subject independently. There is no cross-subject shrinkage or hierarchical prior on these intercepts. True random effects in the multilevel sense would require a hierarchical model where subject-level parameters are drawn from a population distribution. This is not currently supported.
 
-**Justification:** In intensive longitudinal data, ignoring stable individual differences biases within-person effect estimates. Static subject-level states are the minimal adjustment for this confound. Allowing time-invariant constructs to depend on other time-invariant constructs still preserves that interpretation while ruling out incoherent within-person arrows into fixed variables.
+**Justification:** In intensive longitudinal data, failing to separate stable between-subject differences from within-person dynamics can bias lagged effect estimates[^hamaker2015]. Static subject-level states are the minimal adjustment for this confound. Allowing time-invariant constructs to depend on other time-invariant constructs still preserves that interpretation while ruling out incoherent within-person arrows into fixed variables.
 
 ## Boundary
 
 A3, A4, A4b, and A5 constrain what the construct-level graph is allowed to say. Identification-specific assumptions that use that graph live with the [CausalSpec](../causal-spec/identifiability.md).
+
+[^asparouhov2018]: Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic Structural Equation Models. *Structural Equation Modeling*, 25(3), 359–388. [Bibliography entry](../bibliography.md)
+[^shpitser2006]: Shpitser, I., & Pearl, J. (2006). Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models. *AAAI*, 1955–1960. [Bibliography entry](../bibliography.md)
+[^hamaker2015]: Hamaker, E. L., Kuiper, R. M., & Grasman, R. P. P. P. (2015). A Critique of the Cross-Lagged Panel Model. *Psychological Methods*, 20(1), 102–116. [Bibliography entry](../bibliography.md)

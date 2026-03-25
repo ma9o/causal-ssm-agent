@@ -13,7 +13,7 @@ Checks whether the [Stage 4 functional specification](04-model-specification-pri
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 
-Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates three distinct questions: a conservative `t`-rule screen, local structural identifiability via a Jacobian rank diagnostic, and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in [Hunter et al. (2025)](https://www.cambridge.org/core/journals/psychometrika/article/show-me-some-id-a-universal-identification-program-for-structural-equation-models/0007C2A71DD9A7A1FC7BE93CF016F91A) and [Raue et al. (2009)](https://jeti.uni-freiburg.de/papers/Raue_Bioinformatics_printed_1923.pdf). This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
+Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates three distinct questions: a conservative `t`-rule screen, local structural identifiability via a Jacobian rank diagnostic, and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in Hunter et al. (2025)[^hunter2025] and Raue et al. (2009)[^raue2009]. This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
 
 ## Process
 
@@ -27,7 +27,7 @@ flowchart LR
 
 **Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, auto-selected inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
 
-**T-rule:** A fast necessary-condition check that compares the number of free parameters against a conservative lower bound on the number of independent moment conditions available from the data. In SEM terms this is a `t`-rule or positive-degrees-of-freedom screen, which is necessary but not sufficient for identification in [Hunter et al. (2025)](https://www.cambridge.org/core/journals/psychometrika/article/show-me-some-id-a-universal-identification-program-for-structural-equation-models/0007C2A71DD9A7A1FC7BE93CF016F91A). For a model with `p` manifest variables observed at `T` time points, the available moments are:
+**T-rule:** A fast necessary-condition check that compares the number of free parameters against a conservative lower bound on the number of independent moment conditions available from the data. In SEM terms this is a `t`-rule or positive-degrees-of-freedom screen, which is necessary but not sufficient for identification[^hunter2025]. For a model with `p` manifest variables observed at `T` time points, the available moments are:
 
 - `p` means
 - `p(p+1)/2` contemporaneous covariance entries
@@ -35,7 +35,7 @@ flowchart LR
 
 If the free-parameter count exceeds this lower bound, the model is at high risk of non-identifiability. This screen is warning-only: passing does not guarantee identification, and failing does not halt inference. When the T-rule fails, the stage short-circuits and skips the more expensive sensitivity and profile-likelihood analyses.
 
-**Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is the vector of predicted observation means and variances from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) (no data update) and `θ` is the unconstrained parameter vector. This follows the same logic as the Jacobian mapping from free parameters to model-implied moments in [Hunter et al. (2025)](https://www.cambridge.org/core/journals/psychometrika/article/show-me-some-id-a-universal-identification-program-for-structural-equation-models/0007C2A71DD9A7A1FC7BE93CF016F91A): near-zero singular values reveal locally non-identifiable parameter directions.
+**Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is the vector of predicted observation means and variances from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) (no data update) and `θ` is the unconstrained parameter vector. This follows the same logic as the Jacobian mapping from free parameters to model-implied moments in Hunter et al. (2025)[^hunter2025]: near-zero singular values reveal locally non-identifiable parameter directions.
 
 *Raw and normalized variants.* The analysis runs both raw and normalized Jacobians. The normalized variant scales columns by prior standard deviation and rows by observation-noise scale, giving thresholds in interpretable units.
 
@@ -47,7 +47,7 @@ If the free-parameter count exceeds this lower bound, the model is at high risk 
 
 Results are aggregated across prior draws via the median for robustness.
 
-**Profile likelihood:** A per-parameter practical-identifiability diagnostic following [Raue et al. (2009)](https://jeti.uni-freiburg.de/papers/Raue_Bioinformatics_printed_1923.pdf). The stage first finds the MAP (maximum a posteriori) estimate by BFGS optimization of the log-posterior. For each scalar parameter element, it fixes the parameter at `n_grid` (default 20) evenly spaced points around the MAP, re-optimizes all other parameters at each grid point via BFGS, and records the resulting profile log-likelihood curve. Each parameter is then classified by comparing the profile shape against a χ²(1) threshold (default 95% confidence, threshold = 1.92):
+**Profile likelihood:** A per-parameter practical-identifiability diagnostic following Raue et al. (2009)[^raue2009]. The stage first finds the MAP (maximum a posteriori) estimate by BFGS optimization of the log-posterior. For each scalar parameter element, it fixes the parameter at `n_grid` (default 20) evenly spaced points around the MAP, re-optimizes all other parameters at each grid point via BFGS, and records the resulting profile log-likelihood curve. Each parameter is then classified by comparing the profile shape against a χ²(1) threshold (default 95% confidence, threshold = 1.92):
 
 - *identified*: profile drops below threshold on both sides of the peak
 - *practically unidentifiable*: profile does not cross the threshold on one or both sides
@@ -102,3 +102,6 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 | `likelihood_path` | `str` | Likelihood evaluation strategy per [Axis B](../reference/inference-routing.md#axis-b-marginal-likelihood-computation): `"kalman"`, `"composed"`, or `"particle"` |
 | `auto_method` | `str` | Current auto-selected inference method per the [structural routing](../reference/inference-routing.md#structural-routing) decision tree: `"nuts"` or `"laplace_em"` |
 | `first_pass_rb` | `FirstPassRBResult` | [First-pass Rao-Blackwellization](../reference/inference-routing.md#first-pass-rao-blackwellization) plan with per-variable Kalman/particle assignments |
+
+[^hunter2025]: Hunter, M. D., Garrison, S. M., Burt, S. A., & Rodgers, J. L. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*. [Bibliography entry](../reference/bibliography.md)
+[^raue2009]: Raue, A., et al. (2009). Structural and Practical Identifiability Analysis of Partially Observed Dynamical Models. *Bioinformatics*, 25(15), 1923–1929. [Bibliography entry](../reference/bibliography.md)

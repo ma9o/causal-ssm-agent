@@ -28,11 +28,11 @@ flowchart LR
 
 **Model fitting:** The stage resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#structural-routing)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference).
 
-**LOO cross-validation:** For MCMC and SMC backends, the stage computes PSIS-LOO via ArviZ using the innovation decomposition: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ.
+**LOO cross-validation:** For MCMC and SMC backends, the stage computes PSIS-LOO via ArviZ using the innovation decomposition[^vehtari2017]: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ. For dependent time series, this should be read as a one-step-ahead predictive diagnostic rather than a substitute for leave-future-out validation[^burkner2020].
 
-**Power-scaling:** Detects whether each parameter's posterior is dominated by the prior, well-identified by the data, or in prior–data conflict, following [Kallioinen et al. (2024)](https://link.springer.com/article/10.1007/s11222-023-10366-5). The method perturbs the prior and likelihood contributions by a small power-scaling factor (α ± 0.01), reweights the posterior draws via PSIS, and measures the resulting shift in posterior means. The PSIS k-hat diagnostic for each perturbation direction indicates whether the importance-weighted estimate is reliable (k < 0.7).
+**Power-scaling:** Detects whether each parameter's posterior is dominated by the prior, well-identified by the data, or in prior–data conflict, following Kallioinen et al. (2024)[^kallioinen2024]. The method perturbs the prior and likelihood contributions by a small power-scaling factor (α ± 0.01), reweights the posterior draws via PSIS, and measures the resulting shift in posterior means. The PSIS k-hat diagnostic for each perturbation direction indicates whether the importance-weighted estimate is reliable (k < 0.7).
 
-**Posterior predictive checks:** The stage forward-simulates observations from posterior parameter draws through the full generative model (latent dynamics → discretization → emission sampling) and compares the simulated data to the real observations, producing posterior predictive interval-coverage, autocorrelation, and variance diagnostics for each manifest variable.
+**Posterior predictive checks:** The stage forward-simulates observations from posterior parameter draws through the full generative model[^gabry2019] (latent dynamics → discretization → emission sampling) and compares the simulated data to the real observations, producing posterior predictive interval-coverage, autocorrelation, and variance diagnostics for each manifest variable.
 
 ### Example
 
@@ -54,7 +54,7 @@ Bundles posterior samples, runtime builder, and diagnostic results for [Stage 6]
 
 ### `PowerScalingResult`
 
-Per-parameter power-scaling sensitivity diagnosis as in [Kallioinen et al. (2024)](https://link.springer.com/article/10.1007/s11222-023-10366-5).
+Per-parameter power-scaling sensitivity diagnosis as in Kallioinen et al. (2024)[^kallioinen2024].
 
 | Field | Type | Description |
 |---|---|---|
@@ -80,7 +80,7 @@ Per-variable posterior predictive diagnostics.
 
 ### `LOODiagnostics`
 
-PSIS-LOO cross-validation as in [Vehtari, Gelman, and Gabry (2017)](https://arxiv.org/abs/1507.04544).
+PSIS-LOO cross-validation as in Vehtari, Gelman, and Gabry (2017)[^vehtari2017].
 
 | Field | Type | Description |
 |---|---|---|
@@ -91,3 +91,8 @@ PSIS-LOO cross-validation as in [Vehtari, Gelman, and Gabry (2017)](https://arxi
 | `pareto_k` | `list[float]` \| `null` | Per-timestep Pareto-k shape parameters |
 | `n_bad_k` | `int` \| `null` | Count of timesteps with k > 0.7 |
 | `loo_pit` | `list[float]` \| `null` | LOO-PIT values for calibration assessment |
+
+[^kallioinen2024]: Kallioinen, N., Paananen, T., Bürkner, P.-C., & Vehtari, A. (2024). Detecting and Diagnosing Prior and Likelihood Sensitivity with Power-Scaling. *Statistics and Computing*, 34, 57. [Bibliography entry](../reference/bibliography.md)
+[^vehtari2017]: Vehtari, A., Gelman, A., & Gabry, J. (2017). Practical Bayesian Model Evaluation Using Leave-One-Out Cross-Validation and WAIC. *Statistics and Computing*, 27(5), 1413–1432. [Bibliography entry](../reference/bibliography.md)
+[^burkner2020]: Bürkner, P.-C., Gabry, J., & Vehtari, A. (2020). Approximate Leave-Future-Out Cross-Validation for Bayesian Time Series Models. *Journal of Statistical Computation and Simulation*, 90(14), 2499–2523. [Bibliography entry](../reference/bibliography.md)
+[^gabry2019]: Gabry, J., Simpson, D., Vehtari, A., Betancourt, M., & Gelman, A. (2019). Visualization in Bayesian Workflow. *JRSS-A*, 182(2), 389–402. [Bibliography entry](../reference/bibliography.md)

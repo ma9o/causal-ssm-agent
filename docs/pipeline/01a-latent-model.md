@@ -4,7 +4,7 @@
 |---|---|---|
 | Semantic | Yes | [`LatentModel`](#latentmodel) |
 
-Builds a causal DAG ([`LatentModel`](#latentmodel)) from the natural language research question.
+Builds a causal DAG[^pearl2009] ([`LatentModel`](#latentmodel)) from the natural language research question.
 
 ## Inputs
 
@@ -60,3 +60,5 @@ For a question about whether tutoring intensity improves exam performance throug
 | `edges` | `list[CausalEdge]` | Directed causal edges between constructs. `lagged=true` means the effect at time `t` depends on the cause at `t-1`. |
 
 Each `Construct` carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each `CausalEdge` carries `cause`, `effect`, `description`, and `lagged`. There is no notion of latent confounding yet.
+
+[^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)

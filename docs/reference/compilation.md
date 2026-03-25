@@ -104,7 +104,7 @@ Translates user-facing prior specifications into `SSMPriors` arrays with the cor
 
 **Critical transformations:**
 
-- **AR coefficients (DT→CT):** User specifies ρ ∈ (−1, 1) in discrete time. The compiler transforms to continuous-time drift diagonal via `μ_ct = −log(|ρ|)/dt`, `σ_ct = σ_ar / (μ_ar · dt)`.
+- **AR coefficients (DT→CT):** User specifies ρ ∈ (−1, 1) in discrete time. The compiler transforms to continuous-time drift diagonal[^sarkka2019] via `μ_ct = −log(|ρ|)/dt`, `σ_ct = σ_ar / (μ_ar · dt)`.
 - **Cross-lag effects:** Scaled by the reference interval (lag in days) for consistent CT interpretation.
 - **Array assembly:** `build_array_prior_payload()` fills SSM-sized arrays from the sparse index maps, using defaults for unmapped slots.
 
@@ -188,3 +188,5 @@ graph LR
 ```
 
 Leaf modules (`ssm_spec_translation`, `ssm_prior_indexing`, `ssm_observation_metadata`, `ssm_compilation_common`) have no intra-pipeline dependencies and can be understood in isolation. The compilation orchestrator (`ssm_compilation.py`) is the only file that calls all stages.
+
+[^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)
