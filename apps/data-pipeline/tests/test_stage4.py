@@ -672,12 +672,17 @@ class TestPriorPredictiveValidation:
             },
             "parameter_bindings": [
                 {"parameter": "sigma_mood", "site_name": "diffusion_diag_pop", "flat_index": 0},
-                {"parameter": "cor_stress_sleep", "site_name": "drift_offdiag_pop", "flat_index": 0},
+                {
+                    "parameter": "cor_stress_sleep",
+                    "site_name": "drift_offdiag_pop",
+                    "flat_index": 0,
+                },
             ],
         }
 
         resolved = {
-            prior["parameter"]: prior for prior in resolve_prior_proposals(compiled_ssm, authored_priors={})
+            prior["parameter"]: prior
+            for prior in resolve_prior_proposals(compiled_ssm, authored_priors={})
         }
         assert resolved["sigma_mood"]["distribution"] == "LogNormal"
         assert resolved["sigma_mood"]["params"]["mu"] == pytest.approx(0.2)

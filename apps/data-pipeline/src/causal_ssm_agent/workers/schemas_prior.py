@@ -13,8 +13,7 @@ from causal_ssm_agent.distributions import (
 
 _QUOTE = "'"
 PRIOR_DISTRIBUTION_DESCRIPTION = (
-    "Distribution family "
-    f"({format_prior_distribution_name_list(quote=_QUOTE)})"
+    f"Distribution family ({format_prior_distribution_name_list(quote=_QUOTE)})"
 )
 
 
