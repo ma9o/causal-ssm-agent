@@ -143,7 +143,7 @@ export interface Stage0Data {
   column_descriptions: Stage0ColumnDescription[];
 }
 
-export interface Extraction {
+export interface ObservationRecord {
   indicator: string;
   value: number | boolean | string | null;
   anchor_time: string | null;
@@ -163,7 +163,7 @@ export interface Stage2Data {
   per_indicator_counts: {
     [k: string]: number | undefined;
   };
-  combined_extractions_sample: Extraction[];
+  combined_extractions_sample: ObservationRecord[];
 }
 
 export type AggregationFunction =

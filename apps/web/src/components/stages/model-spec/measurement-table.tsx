@@ -6,7 +6,7 @@ import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram } from "@/lib/utils/histogram";
-import type { Extraction, LikelihoodSpec } from "@causal-ssm/api-types";
+import type { LikelihoodSpec, ObservationRecord } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
 import { ExternalLink } from "lucide-react";
@@ -26,7 +26,7 @@ import {
 
 interface MeasurementRow {
   likelihood: LikelihoodSpec;
-  extractions: Extraction[];
+  extractions: ObservationRecord[];
   priorSamples?: number[];
 }
 
@@ -307,7 +307,7 @@ export function MeasurementTable({
   priorPredictiveSamples,
 }: {
   likelihoods: LikelihoodSpec[];
-  extractions: Extraction[];
+  extractions: ObservationRecord[];
   priorPredictiveSamples?: Record<string, number[]>;
 }) {
   const rows: MeasurementRow[] = useMemo(

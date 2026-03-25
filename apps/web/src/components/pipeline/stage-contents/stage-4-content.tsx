@@ -3,7 +3,7 @@ import { MeasurementTable } from "@/components/stages/model-spec/measurement-tab
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
 import { collectStage4Priors } from "@/lib/stage4-data";
-import type { Extraction, Indicator, Stage4Data } from "@causal-ssm/api-types";
+import type { Indicator, ObservationRecord, Stage4Data } from "@causal-ssm/api-types";
 
 export default function Stage4Content({
   data,
@@ -11,7 +11,7 @@ export default function Stage4Content({
   indicators,
 }: {
   data: Stage4Data;
-  extractions?: Extraction[];
+  extractions?: ObservationRecord[];
   indicators?: Indicator[];
 }) {
   const allPriors = collectStage4Priors(data);

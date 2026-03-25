@@ -479,7 +479,7 @@ class WorkerStatusContract(BaseModel):
     error: str | None = None
 
 
-class ExtractionContract(BaseModel):
+class ObservationRecordContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     indicator: str

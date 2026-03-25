@@ -1,4 +1,4 @@
-import type { Extraction, Stage2Data, Stage2PersistedData } from "@causal-ssm/api-types";
+import type { ObservationRecord, Stage2Data, Stage2PersistedData } from "@causal-ssm/api-types";
 
 type ParquetSchemaColumn = {
   name: string;
@@ -58,7 +58,7 @@ function normalizeOptionalString(value: unknown): string | null | undefined {
   return undefined;
 }
 
-function normalizeExtraction(row: Record<string, unknown>): Extraction {
+function normalizeObservationRecord(row: Record<string, unknown>): ObservationRecord {
   return {
     indicator: String(row.indicator ?? ""),
     value: normalizeScalar(row.value),
@@ -94,12 +94,12 @@ async function derivePerIndicatorCounts(
 async function deriveExtractionSample(
   file: ArrayBuffer,
   metadata: ParquetMetadata,
-): Promise<Extraction[]> {
+): Promise<ObservationRecord[]> {
   const sampleSize = Math.min(Number(metadata.num_rows), 20);
   if (sampleSize === 0) return [];
 
   const rows = await readRows(file, metadata, 0, sampleSize);
-  return rows.map(normalizeExtraction);
+  return rows.map(normalizeObservationRecord);
 }
 
 export async function deriveStage2Data(
