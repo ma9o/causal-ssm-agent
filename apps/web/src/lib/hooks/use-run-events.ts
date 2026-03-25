@@ -3,7 +3,7 @@
 import {
   getAnalysisManifestQueryKey,
   type AnalysisStageRuns,
-  type AnalysisStageTaskRun,
+  type AnalysisStageExecution,
 } from "@/lib/api/analysis";
 import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
 import { getPrefectEventsUrl } from "@/lib/runtime-urls";
@@ -12,7 +12,6 @@ import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
-import { getStageForPrefectRunName } from "../constants/stages";
 import {
   applyStageUpdate,
   hasStoppedStage,
@@ -187,36 +186,34 @@ function invalidateStageData(
   queryClient.invalidateQueries({ queryKey: getStageQueryKey(workspaceId, stageId) });
 }
 
-function applyHydratedTaskRunToProgress(
+function applyHydratedExecutionToProgress(
   progress: PipelineProgress,
-  taskRun: AnalysisStageTaskRun,
+  stageId: StageId,
+  execution: AnalysisStageExecution,
 ): PipelineProgress {
-  const stage = getStageForPrefectRunName(taskRun.name);
-  if (!stage) return progress;
-
-  const status = mapPrefectTaskState(taskRun.stateType);
+  const status = mapPrefectTaskState(execution.stateType);
   if (!status) return progress;
 
-  const startTime = taskRun.startTime ? new Date(taskRun.startTime).getTime() : undefined;
-  const endTime = taskRun.endTime ? new Date(taskRun.endTime).getTime() : undefined;
+  const startTime = execution.startTime ? new Date(execution.startTime).getTime() : undefined;
+  const endTime = execution.endTime ? new Date(execution.endTime).getTime() : undefined;
 
   if (status === "completed") {
     let next = progress;
     if (startTime) {
-      next = applyStageUpdate(next, stage.id, "running", startTime);
+      next = applyStageUpdate(next, stageId, "running", startTime);
     }
-    return applyStageUpdate(next, stage.id, "completed", endTime ?? startTime);
+    return applyStageUpdate(next, stageId, "completed", endTime ?? startTime);
   }
 
   if (status === "running") {
-    return applyStageUpdate(progress, stage.id, "running", startTime);
+    return applyStageUpdate(progress, stageId, "running", startTime);
   }
 
   let next = progress;
   if (startTime) {
-    next = applyStageUpdate(next, stage.id, "running", startTime);
+    next = applyStageUpdate(next, stageId, "running", startTime);
   }
-  return applyStageUpdate(next, stage.id, "failed", endTime ?? startTime);
+  return applyStageUpdate(next, stageId, "failed", endTime ?? startTime);
 }
 
 function isPipelineTerminal(
@@ -235,12 +232,12 @@ function hydrateFromManifest(
   let progress = initialProgress();
 
   for (const stage of STAGES) {
-    const taskRun = stageRuns[stage.id]?.wrapperTaskRun;
-    if (!taskRun) {
+    const execution = stageRuns[stage.id]?.execution;
+    if (!execution) {
       continue;
     }
 
-    progress = applyHydratedTaskRunToProgress(progress, taskRun);
+    progress = applyHydratedExecutionToProgress(progress, stage.id, execution);
     if (progress.stages[stage.id] === "completed") {
       invalidateStageData(queryClient, workspaceId, stage.id);
     }

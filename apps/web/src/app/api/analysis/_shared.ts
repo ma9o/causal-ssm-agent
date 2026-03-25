@@ -1,8 +1,8 @@
 import type {
   AnalysisManifest,
+  AnalysisStageExecution,
   AnalysisStageRun,
   AnalysisStageRuns,
-  AnalysisStageTaskRun,
 } from "@/lib/api/analysis";
 import { dedupeRootFlowRunIds, getWorkspaceRunTag } from "@/lib/root-flow-runs";
 import { prefectFetch } from "@/lib/server/prefect-runs";
@@ -23,9 +23,20 @@ interface PrefectFlowRun {
 interface PrefectTaskRun {
   id: string;
   name: string;
+  task_key?: string | null;
   state_type: string;
   start_time: string | null;
   end_time: string | null;
+}
+
+interface PrefectEventPage {
+  events?: PrefectEvent[];
+  next_page?: string | null;
+}
+
+interface PrefectEvent {
+  occurred?: string | null;
+  payload?: Record<string, unknown>;
 }
 
 interface RootFlowRunLineageEntry {
@@ -41,7 +52,7 @@ function emptyStageRun(): AnalysisStageRun {
     ownerRootFlowRunId: null,
     stageSubflowRunId: null,
     logFlowRunIds: [],
-    wrapperTaskRun: null,
+    execution: null,
   };
 }
 
@@ -63,6 +74,7 @@ function getStageIndex(stageId: StageId): number {
 
 function getStageOwningRootFlowRunId(
   lineage: RootFlowRunLineageEntry[],
+  stageExecutionsByRootFlowRunId: Map<string, Partial<Record<StageId, AnalysisStageExecution>>>,
   stageId: StageId,
 ): string | null {
   const stageIndex = getStageIndex(stageId);
@@ -73,7 +85,11 @@ function getStageOwningRootFlowRunId(
   for (const entry of lineage) {
     const startIndex = getStageIndex(entry.startStage);
     const endIndex = getStageIndex(entry.endStage);
-    if (startIndex <= stageIndex && stageIndex <= endIndex) {
+    if (
+      startIndex <= stageIndex &&
+      stageIndex <= endIndex &&
+      stageExecutionsByRootFlowRunId.get(entry.rootFlowRunId)?.[stageId]
+    ) {
       ownerRootFlowRunId = entry.rootFlowRunId;
     }
   }
@@ -81,14 +97,67 @@ function getStageOwningRootFlowRunId(
   return ownerRootFlowRunId;
 }
 
-function summarizeTaskRun(taskRun: PrefectTaskRun): AnalysisStageTaskRun {
+function isStageProgressStatus(
+  value: unknown,
+): value is "running" | "completed" | "failed" {
+  return value === "running" || value === "completed" || value === "failed";
+}
+
+function compareOccurredAt(left: PrefectEvent, right: PrefectEvent): number {
+  return Date.parse(left.occurred ?? "") - Date.parse(right.occurred ?? "");
+}
+
+function summarizeStageExecution(events: PrefectEvent[]): AnalysisStageExecution | null {
+  if (events.length === 0) {
+    return null;
+  }
+
+  const orderedEvents = [...events].sort(compareOccurredAt);
+  const runningEvent = orderedEvents.find((event) => event.payload?.status === "running");
+  const terminalEvent = [...orderedEvents]
+    .reverse()
+    .find((event) => event.payload?.status === "completed" || event.payload?.status === "failed");
+  const latestEvent = terminalEvent ?? orderedEvents[orderedEvents.length - 1];
+  const latestStatus = latestEvent.payload?.status;
+
+  if (!isStageProgressStatus(latestStatus)) {
+    return null;
+  }
+
+  const startTime =
+    runningEvent?.occurred ?? terminalEvent?.occurred ?? latestEvent.occurred ?? null;
+
   return {
-    id: taskRun.id,
-    name: taskRun.name,
-    stateType: taskRun.state_type,
-    startTime: taskRun.start_time,
-    endTime: taskRun.end_time,
+    stateType:
+      latestStatus === "running"
+        ? "RUNNING"
+        : latestStatus === "completed"
+          ? "COMPLETED"
+          : "FAILED",
+    startTime,
+    endTime: latestStatus === "running" ? null : (terminalEvent?.occurred ?? startTime),
   };
+}
+
+function summarizeStageExecutions(events: PrefectEvent[]): Partial<Record<StageId, AnalysisStageExecution>> {
+  const byStageId = new Map<StageId, PrefectEvent[]>();
+
+  for (const event of events) {
+    const stageId = event.payload?.stage_id;
+    const status = event.payload?.status;
+    if (!isStageId(stageId) || !isStageProgressStatus(status)) {
+      continue;
+    }
+    const stageEvents = byStageId.get(stageId) ?? [];
+    stageEvents.push(event);
+    byStageId.set(stageId, stageEvents);
+  }
+
+  return Object.fromEntries(
+    [...byStageId.entries()]
+      .map(([stageId, stageEvents]) => [stageId, summarizeStageExecution(stageEvents)] as const)
+      .filter((entry): entry is readonly [StageId, AnalysisStageExecution] => entry[1] !== null),
+  ) as Partial<Record<StageId, AnalysisStageExecution>>;
 }
 
 async function prefectGetJson<T>(path: string): Promise<T | null> {
@@ -187,27 +256,46 @@ async function fetchTaskRunsForRootFlowRun(rootFlowRunId: string): Promise<Prefe
   );
 }
 
-function findStageWrapperTaskRun(
+async function fetchStageProgressEventsForRootFlowRun(rootFlowRunId: string): Promise<PrefectEvent[]> {
+  const page = await prefectPostJson<PrefectEventPage>("/events/filter", {
+    filter: {
+      event: { prefix: ["causal-ssm.pipeline-stage."] },
+      resource: { id: [`prefect.flow-run.${rootFlowRunId}`] },
+      order: "ASC",
+    },
+    limit: 50,
+  });
+
+  return page?.events ?? [];
+}
+
+const STAGE_SUBFLOW_PARENT_TASK_KEY_PREFIX: Partial<Record<StageId, string>> = {
+  "stage-2": "stage2_extraction_flow",
+  "stage-4": "stage4_agentic_flow",
+  "stage-4b": "stage4b_parametric_id_flow",
+};
+
+function findStageSubflowParentTaskRun(
   taskRuns: PrefectTaskRun[],
   stageId: StageId,
 ): PrefectTaskRun | null {
-  const stage = STAGES.find((candidate) => candidate.id === stageId);
-  if (!stage) return null;
+  const taskKeyPrefix = STAGE_SUBFLOW_PARENT_TASK_KEY_PREFIX[stageId];
+  if (!taskKeyPrefix) return null;
 
   return (
     taskRuns.find((candidate) =>
-      candidate.name === stage.prefectFlowName ||
-      candidate.name.startsWith(`${stage.prefectFlowName}-`),
+      candidate.task_key === taskKeyPrefix ||
+      candidate.task_key?.startsWith(`${taskKeyPrefix}-`),
     ) ?? null
   );
 }
 
 async function fetchStageSubflowRunId(stageId: StageId, parentTaskRunId: string): Promise<string | null> {
   const stage = STAGES.find((candidate) => candidate.id === stageId);
-  if (!stage) return null;
+  if (!stage?.prefectSubflowName) return null;
 
   const flowRuns = await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
-    flows: { name: { any_: [stage.prefectFlowName] } },
+    flows: { name: { any_: [stage.prefectSubflowName] } },
     flow_runs: { parent_task_run_id: { any_: [parentTaskRunId] } },
     sort: "START_TIME_DESC",
     limit: 1,
@@ -243,40 +331,42 @@ async function buildStageRuns(
   lineage?: RootFlowRunLineageEntry[],
 ): Promise<AnalysisStageRuns> {
   const effectiveLineage = lineage ?? (await fetchRootFlowRunLineage(rootFlowRunIds));
-  const taskRunsByRootFlowRunId = new Map(
-    await Promise.all(
+  const [taskRunsEntries, stageExecutionEntries] = await Promise.all([
+    Promise.all(
       effectiveLineage.map(async ({ rootFlowRunId }) => [
         rootFlowRunId,
         await fetchTaskRunsForRootFlowRun(rootFlowRunId),
       ] as const),
     ),
-  );
+    Promise.all(
+      effectiveLineage.map(async ({ rootFlowRunId }) => [
+        rootFlowRunId,
+        summarizeStageExecutions(await fetchStageProgressEventsForRootFlowRun(rootFlowRunId)),
+      ] as const),
+    ),
+  ]);
+  const taskRunsByRootFlowRunId = new Map(taskRunsEntries);
+  const stageExecutionsByRootFlowRunId = new Map(stageExecutionEntries);
 
   const stageRuns = await Promise.all(
     STAGES.map(async (stage) => {
-      const ownerRootFlowRunId = getStageOwningRootFlowRunId(effectiveLineage, stage.id);
+      const ownerRootFlowRunId = getStageOwningRootFlowRunId(
+        effectiveLineage,
+        stageExecutionsByRootFlowRunId,
+        stage.id,
+      );
       if (!ownerRootFlowRunId) {
         return [stage.id, emptyStageRun()] as const;
       }
 
-      const wrapperTaskRun = findStageWrapperTaskRun(
+      const execution = stageExecutionsByRootFlowRunId.get(ownerRootFlowRunId)?.[stage.id] ?? null;
+      const subflowParentTaskRun = findStageSubflowParentTaskRun(
         taskRunsByRootFlowRunId.get(ownerRootFlowRunId) ?? [],
         stage.id,
       );
-
-      if (!wrapperTaskRun) {
-        return [
-          stage.id,
-          {
-            ownerRootFlowRunId,
-            stageSubflowRunId: null,
-            logFlowRunIds: [],
-            wrapperTaskRun: null,
-          },
-        ] as const;
-      }
-
-      const stageSubflowRunId = await fetchStageSubflowRunId(stage.id, wrapperTaskRun.id);
+      const stageSubflowRunId = subflowParentTaskRun
+        ? await fetchStageSubflowRunId(stage.id, subflowParentTaskRun.id)
+        : null;
 
       return [
         stage.id,
@@ -284,7 +374,7 @@ async function buildStageRuns(
           ownerRootFlowRunId,
           stageSubflowRunId,
           logFlowRunIds: await fetchStageLogFlowRunIds(stage.id, stageSubflowRunId),
-          wrapperTaskRun: summarizeTaskRun(wrapperTaskRun),
+          execution,
         },
       ] as const;
     }),

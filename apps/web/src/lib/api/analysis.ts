@@ -19,9 +19,7 @@ export interface WorkspaceUnlockResponse {
   ok: true;
 }
 
-export interface AnalysisStageTaskRun {
-  id: string;
-  name: string;
+export interface AnalysisStageExecution {
   stateType: string;
   startTime: string | null;
   endTime: string | null;
@@ -31,7 +29,7 @@ export interface AnalysisStageRun {
   ownerRootFlowRunId: string | null;
   stageSubflowRunId: string | null;
   logFlowRunIds: string[];
-  wrapperTaskRun: AnalysisStageTaskRun | null;
+  execution: AnalysisStageExecution | null;
 }
 
 export type AnalysisStageRuns = Record<StageId, AnalysisStageRun>;
