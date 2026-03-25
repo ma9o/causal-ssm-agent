@@ -162,7 +162,7 @@ The screenshots serve as visual regression artifacts. If the UI behaves unexpect
 
 ## Resuming After a Stage Failure
 
-Resume behavior follows [execution-semantics.md#resume-semantics](../reference/execution-semantics.md#resume-semantics): earlier stages restore from persisted artifacts, then only the requested rerun window executes again.
+Earlier stages restore from persisted artifacts, then only the requested rerun window executes again.
 
 ### Identify the failed stage
 

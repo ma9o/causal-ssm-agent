@@ -40,7 +40,7 @@ The fit produces an `InferenceResult` containing the posterior samples dict `{na
 
 **Artifact assembly and persistence.** The stage assembles a [`FittedArtifact`](#fittedartifact) packaging the `InferenceResult`, the runtime builder (needed by Stage 6 for intervention simulations), timing metadata, observation-support metadata, and the PPC and power-scaling results. This artifact is pickled to `stage5b-fitted-result.pkl` and is the sole runtime object consumed by [Stage 6](06-intervention-analysis.md). The web-facing diagnostic payloads (power-scaling list, PPC result, backend diagnostics, marginals, pairs) are persisted separately as the public JSON contract.
 
-**Outcome classification.** The stage first checks whether model fitting succeeded at all. If fitting fails, the stage emits `outcome="fail"` with `fail_reason = "model_fit_failed"` and the pipeline stops before Stage 6 because no fitted posterior exists for intervention analysis. Conditional on a successful fit, the stage emits `"warn"` if any power-scaling diagnosis is `prior_dominated` or `prior_data_conflict`, or if any PPC variable has warnings; otherwise it emits `"success"`. Diagnostic warnings do not block Stage 6.
+**Failure and warning behavior.** If model fitting fails, the pipeline stops before Stage 6 because no fitted posterior exists for intervention analysis. Conditional on a successful fit, power-scaling and PPC findings remain advisory diagnostics and do not block Stage 6.
 
 ## Outputs
 
@@ -55,8 +55,6 @@ The fit produces an `InferenceResult` containing the posterior samples dict `{na
 | `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| null | PSIS-LOO cross-validation with per-timestep Pareto-k values |
 | `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| null | Per-parameter density summaries |
 | `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| null | Pairwise scatter data (includes `divergent` flags for MCMC backends) |
-
-The contract also exposes `outcome` (`"success"`, `"warn"`, or `"fail"`) inherited from the base stage contract, plus `fail_reason` when the fit itself failed.
 
 ## Definitions
 

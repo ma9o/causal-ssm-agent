@@ -1,6 +1,6 @@
 # CausalSpec: Identifiability
 
-This reference covers the identifiability layer of `CausalSpec`: why Stage 1b checks treatment-outcome identifiability, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+This reference covers the identifiability assumptions used by [Stage 1b](../../pipeline/01b-measurement-identifiability.md): why treatment-outcome identifiability is checked there, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders.
 
 ## What Stage 1b Checks
 

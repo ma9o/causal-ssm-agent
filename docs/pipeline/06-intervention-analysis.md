@@ -23,7 +23,7 @@ Stage 6 runs in two phases: a deterministic intervention computation that produc
 
 **Baseline intervention ranking.** For each treatment that remains after the [Stage 1b identifiability filter](01b-measurement-identifiability.md), the stage applies the [steady-state do-operator](#steady-state-do-operator) for a unit intervention `do(treatment = baseline + 1)`, vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
 
-**Temporal forward simulation.** When temporal information is available (either from the [`model_clock`](01b-measurement-identifiability.md#measurement-model) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment. This discretizes the continuous-time system, starts from the baseline steady state, clamps the treatment at each step, and records the outcome trajectory. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
+**Temporal forward simulation.** When temporal information is available (either from the [`model_clock`](01b-measurement-identifiability.md#observation-windows-and-model-clock) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment. This discretizes the continuous-time system, starts from the baseline steady state, clamps the treatment at each step, and records the outcome trajectory. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
 
 **Manifest-level decomposition.** When posterior draws of the loading matrix λ are available, the stage projects each treatment's outcome-level effect through the loadings to produce per-manifest effects: `manifest_effect[i] = λ[i, outcome_idx] × effect_mean`. Only point-like manifests (those with `support_kind` of `null` or `"point"`) are included; interval-summary manifests are excluded from this simple projection.
 
@@ -35,8 +35,6 @@ Stage 6 runs in two phases: a deterministic intervention computation that produc
 **Ranking and artifact assembly.** Treatments are sorted by |`effect_size`| descending. The ranked list is persisted as a Prefect table artifact and as the `intervention_results` field of the stage payload.
 
 **LLM commentary.** A single LLM generation receives the top-5 ranked effects, any diagnostic warnings, excluded non-identifiable treatments, and a summary of the follow-up capabilities. The LLM produces plain Markdown commentary for the user, persisted as `final_summary`.
-
-**Outcome classification.** The stage sets `outcome` to `"warn"` if any treatment carries PPC warnings or a prior-sensitivity warning. Otherwise `outcome` is `"success"`.
 
 ## Intervention Semantics
 
@@ -106,8 +104,6 @@ The tool first performs abduction—recovering the latent state at the evidence 
 | `intervention_results` | list\[[`TreatmentEffect`](#treatmenteffect)\] | Treatments ranked by \|`effect_size`\| descending |
 | `saved_scenarios` | list\[[`SavedScenario`](#savedscenario)\] \| null | Follow-up simulations saved during the interactive session |
 | `final_summary` | `str` \| null | LLM-generated opening commentary |
-
-The contract also exposes `outcome` (`"success"` or `"warn"`) and `llm_trace` inherited from the base LLM stage contract.
 
 ## Definitions
 

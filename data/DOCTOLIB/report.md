@@ -78,7 +78,7 @@
 ## Stage 1b: Measurement & Nonparametric Identification
 > Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.
 
-> **GATE BLOCKED**: Non-identifiable treatment effects detected.
+> **PIPELINE STOPPED**: No identifiable treatment effects remain after Stage 1b.
 
 ### Non-Identifiable Treatments
 
@@ -164,7 +164,7 @@
 ## Stage 3: Validation
 > Validates extraction quality, checking for missing data, outliers, and consistency across indicators.
 
-> **GATE BLOCKED**: Data validation failed.
+> **PIPELINE STOPPED**: Data validation failed.
 
 ---
 

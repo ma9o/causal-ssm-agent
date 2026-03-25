@@ -37,13 +37,15 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 ## Documentation
 
-See [`docs/index.md`](docs/index.md) for the full documentation structure.
+See [`docs/index.md`](docs/index.md) for the documentation entrypoint.
 
 References are colocated with the docs that use them rather than collected in a standalone bibliography page.
 
-- **[Pipeline](docs/pipeline.md)** - Ordered stage map plus per-stage reference files
-- **[Reference](docs/reference/)** - Domain objects, cross-cutting concepts, estimation, inference routing, and execution semantics
+- **[Pipeline](docs/pipeline.md)** - Ordered stage map plus the stage docs that own emitted artifacts
+- **[Reference](docs/reference/)** - Assumptions, cross-cutting concepts, compilation, estimation, inference routing, and execution semantics
 - **[Guides](docs/guides/)** - Practical usage: data contract, data workflow, running evals, codegen
+- **[Stage 1b](docs/pipeline/01b-measurement-identifiability.md)** - Measurement model, indicator semantics, and causal identifiability
+- **[Stage 4](docs/pipeline/04-model-specification-priors.md)** - Model specification, likelihood rules, parameter roles, and prior elicitation
 
 ## Structure
 

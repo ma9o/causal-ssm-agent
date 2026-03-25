@@ -31,7 +31,7 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 - *Posterior marginals*: for each scalar parameter (and the first 20 elements of array parameters), a histogram-based density curve with 50 bins, the posterior mean and standard deviation, and the 94% [highest density interval](https://en.wikipedia.org/wiki/Credible_interval#Highest_density_interval) (HDI) bounds.
 - *Posterior pairs*: pairwise scatter plots for up to 6 scalar parameters, thinned to at most 200 points. Because SVI produces no chain-level divergence information, the `divergent` field is always `null` for this stage.
 
-**Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `outcome="warn"` with `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless because Stage 5a is best-effort preflight only.
+**Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless because Stage 5a is best-effort preflight only.
 
 **Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes.
 
@@ -43,8 +43,6 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 | `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) &#124; null | ELBO loss curve (null on failure) |
 | `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] &#124; null | Per-parameter density summaries (null on failure) |
 | `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] &#124; null | Pairwise scatter data (null on failure) |
-
-The contract also exposes `outcome` (`"success"` or `"warn"`) inherited from the base stage contract.
 
 ## Definitions
 
