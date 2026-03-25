@@ -58,7 +58,7 @@ These decisions are merged with the skeleton to produce a complete `ModelSpec`.
 
 All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
-*Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies on effect sizes to anchor priors. Meta-analyses and large longitudinal studies tighten priors; heterogeneous evidence widens them.
+*Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies that inform prior calibration. Evidence synthesis such as meta-analyses or closely matched longitudinal studies can justify narrower priors only when the estimand, population, and timescale align; otherwise the safer default is a weaker prior checked by [prior predictive simulation](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf), following the standard Bayesian workflow of [Gelman et al. (2020)](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf).
 
 *Paraphrased elicitation (optional):* To reduce overconfidence from any single prompt wording, the pipeline can run multiple paraphrased LLM calls for a parameter and aggregate via simple pooling or a [Gaussian mixture model](https://arxiv.org/abs/2508.03766) (Huang, 2025), following the [AutoElicit](https://arxiv.org/abs/2411.17284) strategy (Capstick et al., 2024). Disabled by default for cost reasons.
 
@@ -76,7 +76,7 @@ All priors are specified on the discrete-time scale at the model clock interval;
 - *Numerical health*: no NaN/Inf values in simulated sites; no extreme values (|value| > 10⁶)
 - *Constraint satisfaction*: positive-constrained parameters (diffusion, observation variance, initial-state variance) must not violate their support
 - *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws, ensuring stationary dynamics
-- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles; this guards against [width miscalibration](https://www.nature.com/articles/s41598-025-18425-9), the primary failure mode of LLM-elicited priors (Riegler et al., 2025)
+- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of [Gelman et al. (2020)](https://sites.stat.columbia.edu/gelman/research/unpublished/Bayesian_Workflow_article.pdf), aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to this kind of scale miscalibration in [Riegler et al. (2025)](https://www.nature.com/articles/s41598-025-18425-9).
 
 ### Example
 

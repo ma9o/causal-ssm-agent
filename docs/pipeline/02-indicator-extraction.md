@@ -51,7 +51,7 @@ Both paths begin by [truncating the raw time column to each indicator's observat
 - *No duplicate `(window_start, indicator)` pairs* within the chunk
 - *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
 
-**Annotation:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to produce the canonical [`ObservationRecord`](#observationrecord).
+**Merge & Annotate:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to produce the canonical [`ObservationRecord`](#observationrecord).
 
 ### Example
 

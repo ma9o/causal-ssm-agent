@@ -16,9 +16,9 @@ Notably, there is no observed data input at this stage.
 
 ## Process
 
-Stage 1a runs a single LLM conversation in which the LLM reasons purely from domain knowledge and the research question to come up with a purely theoretical causal DAG.
+Stage 1a runs a single LLM conversation in which the LLM reasons purely from domain knowledge and the research question to specify a theoretical causal DAG.
 
-The conversation has two phases: an initial proposal grounded by a structural validation tool, followed by a self-review pass (also grounded).
+The conversation has two phases: an initial proposal checked by a structural validation tool, followed by a self-review pass using the same validator.
 
 ```mermaid
 flowchart LR

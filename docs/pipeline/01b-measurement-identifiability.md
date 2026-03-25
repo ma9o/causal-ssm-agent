@@ -4,7 +4,7 @@
 |---|---|---|
 | Semantic | Yes | [`CausalSpec`](#causalspec) |
 
-Grounds the [`LatentModel`](01a-latent-model.md#latent-model) in observed data by proposing indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable.
+Operationalizes the [`LatentModel`](01a-latent-model.md#latent-model) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable.
 
 ## Inputs
 
@@ -18,7 +18,7 @@ Stage 1a provided theoretical structure without seeing any data. Stage 1b is the
 
 ## Process
 
-Stage 1b runs one LLM conversation that bridges theory and data. The LLM sees the latent model, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial proposal grounded by a validation tool that checks both measurement and identifiability, followed by a self-review pass (also grounded).
+Stage 1b runs one LLM conversation that bridges theory and data. The LLM sees the latent model, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial measurement-model proposal checked by a validation tool that enforces both measurement and identifiability constraints, followed by a self-review pass using the same validator.
 
 ```mermaid
 flowchart LR
@@ -27,19 +27,19 @@ flowchart LR
     V2 -- VALID --> F([CausalSpec])
 ```
 
-**Propose:** For each construct in the latent model, the LLM proposes one or more indicators: observed proxies that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined.
+**Propose:** For each construct in the latent model, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined.
 
 **Validator:** The LLM submits its proposal via a `validate_measurement_model` tool call. The tool checks schema and compiler constraints:
 
 - *Outcome coverage:* every outcome construct has at least one indicator
-- *No duplicate operationalizations* across indicators
+- *No duplicate indicator definitions* across indicators
 - *Valid construct references:* indicator references point to constructs in the latent model
 - *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
 - *Computed-rule well-formedness:* computed indicators have valid rule expressions
 
 It then checks [causal identifiability](../reference/causal-spec/identifiability.md) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
 
-**Review:** A follow-up prompt asks the LLM to review its validated measurement model for coverage, `how_to_measure` clarity, observation-window semantics, the [reflective-measurement assumption](../reference/measurement-model/assumptions.md#a1-reflective-measurement-model), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
+**Review:** A follow-up prompt asks the LLM to review its validated measurement model for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-model/assumptions.md#a1-reflective-measurement-model), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
 ### Example
 
