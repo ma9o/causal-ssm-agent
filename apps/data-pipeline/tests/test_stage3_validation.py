@@ -5,6 +5,8 @@ This module tests:
 2. Validation checks - timestamps, dtype, coverage, gaps, hallucination, correlations
 """
 
+from datetime import datetime
+
 import polars as pl
 import pytest
 
@@ -306,6 +308,20 @@ class TestCheckTimestamps:
             for i in range(20)
         ]
         result = validate_extraction.fn(spec, _create_worker_dfs(records))
+        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        assert len(ts_issues) == 0
+
+    def test_native_datetime_timestamps_are_parseable(self):
+        """Already-normalized datetime timestamps should remain parseable."""
+        spec = _make_spec()
+        df = pl.DataFrame(
+            {
+                "indicator": ["stress_score"] * 20,
+                "value": [float(i) for i in range(20)],
+                "anchor_time": [datetime(2024, 1, i + 1, 10, 0, 0) for i in range(20)],
+            }
+        )
+        result = validate_extraction.fn(spec, [df])
         ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
