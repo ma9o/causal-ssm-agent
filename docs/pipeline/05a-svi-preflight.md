@@ -1,8 +1,8 @@
 # Stage 5a: SVI Preflight
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Computed | No | No | approximate posterior and [ELBO diagnostics](#svidiagnostics) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Computed | No | approximate posterior and [ELBO diagnostics](#svidiagnostics) |
 
 Runs a cheap variational fit as a sanity check before [Stage 5b](05b-inference-diagnostics.md) commits to expensive inference. The stage forces SVI with a lightweight fixed configuration, produces an ELBO convergence curve and approximate posterior summaries, and treats failure as best-effort—the pipeline never halts here.
 

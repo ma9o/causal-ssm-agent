@@ -1,8 +1,8 @@
 # Stage 1b: Measurement Model and Identifiability
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Semantic | Yes | Yes | [`CausalSpec`](#causalspec) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Semantic | Yes | [`CausalSpec`](#causalspec) |
 
 Grounds the [Stage 1a latent model](01a-latent-model.md#latent-model) in observed data by proposing [indicators](../reference/measurement-model/indicators.md) for each construct, then checks whether each treatment-to-outcome effect is [causally identifiable](../reference/causal-spec/identifiability.md).
 
@@ -38,15 +38,13 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 - `"warn"`: some treatment effects were filtered out, but at least one identifiable treatment remains
 - `"fail"` with `fail_reason = "no_identifiable_treatments"`: no identifiable treatments remain, so the pipeline stops after Stage 1b
 
-The Stage 1b stop can be overridden by the user; when overridden, the stage persists `gate_overridden` and downgrades the public outcome back to `"warn"`.
-
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
 | `causal_spec` | [`CausalSpec`](#causalspec) | Combined latent model, measurement model, and identifiability status |
 
-The public stage payload exposes that artifact directly. It may also include `fail_reason` when the stage stops, `gate_overridden` when the Stage 1b stop was overridden, and `llm_trace` as runtime provenance for the UI. Internal post-processing analyses are not part of the public contract.
+The public stage payload exposes that artifact directly. It may also include `fail_reason` when the stage stops and `llm_trace` as runtime provenance for the UI. Internal runtime-only fields, such as the filtered identifiable-treatment list used by Stage 6, are not part of the public contract.
 
 ## Definitions
 

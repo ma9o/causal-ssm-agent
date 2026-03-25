@@ -1,8 +1,8 @@
 # Stage 6: Intervention Analysis
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Hybrid | Yes | No | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Hybrid | Yes | [`TreatmentEffect`](#treatmenteffect) list, interactive simulation tools |
 
 Applies the [steady-state and trajectory intervention semantics](#intervention-semantics) to the [Stage 5b fitted model](05b-inference-diagnostics.md#fittedartifact), ranks treatments by causal effect size, generates LLM commentary, and exposes three interactive tools for follow-up rung-2 and rung-3 simulations. This is the terminal stage—interactive edits persist in place with no downstream replay.
 
@@ -13,10 +13,9 @@ Applies the [steady-state and trajectory intervention semantics](#intervention-s
 | `stage5b.result` | [Stage 5b](05b-inference-diagnostics.md) | Pickled [`FittedArtifact`](05b-inference-diagnostics.md#fittedartifact) containing posterior samples, runtime builder, observation times, PPC result, and power-scaling result |
 | `stage1a.result` | [Stage 1a](01a-latent-model.md) | [`LatentModel`](01a-latent-model.md#latent-model) from which the outcome construct name is derived |
 | `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) including identifiability status and measurement model |
-| `stage1b_gate.result` | [Stage 1b](01b-measurement-identifiability.md) outcome filter | Filtered treatment list with non-identifiable treatments removed |
 | `question` | Pipeline request | Original research question for grounding the opening commentary |
 
-Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifiability verdicts. Stage 6 is the first point where posterior samples are translated into causal decision quantities.
+Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifiability verdicts. At runtime, the pipeline also carries forward the identifiable-treatment subset derived from `causal_spec.identifiability`. Stage 6 is the first point where posterior samples are translated into causal decision quantities.
 
 ## Process
 

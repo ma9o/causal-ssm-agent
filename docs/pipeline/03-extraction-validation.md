@@ -1,8 +1,8 @@
 # Stage 3: Extraction Validation
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Computed | No | No | [`IndicatorAudit`](#indicatoraudit) per indicator, dataset-level issues |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Computed | No | [`IndicatorAudit`](#indicatoraudit) per indicator, dataset-level issues |
 
 Audits the observations extracted by [Stage 2](02-indicator-extraction.md) against the indicator metadata declared in the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec), then computes an [empirical profile](#empiricalprofile) for each indicator. The audit result is the primary data-quality surface consumed by [Stage 4](04-model-specification-priors.md) when building decision cards for prior elicitation.
 
