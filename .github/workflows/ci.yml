@@ -54,21 +54,21 @@ jobs:
           node-version-file: .node-version
 
       - name: Cache bun install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-install-${{ runner.os }}-
 
       - name: Cache turbo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .turbo
           key: turbo-web-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-web-${{ runner.os }}-
 
       - name: Cache Next.js build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: apps/web/.next/cache
           key: nextjs-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/web/src/**') }}
@@ -103,7 +103,7 @@ jobs:
           node-version-file: .node-version
 
       - name: Cache bun install
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -131,7 +131,7 @@ jobs:
           enable-cache: true
 
       - name: Cache JAX compilations
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/causal-ssm-agent/jax
           key: jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-${{ hashFiles('apps/data-pipeline/src/**/*.py') }}
