@@ -1,8 +1,8 @@
-"""Focused tests for stage4_grounding in stage_tools.py.
+"""Tests for Stage 4 grounding helpers in ``stage_tools.py``.
 
-The broad Stage 4 grounding contract lives in ``test_stage4.py``. This file
-keeps only the direct call-path branches that are not already covered there:
-missing input, missing state, and merge behavior across incremental updates.
+This file owns the direct grounding call paths:
+- ``stage4_grounding`` validation, merge, and feedback behavior
+- ``_agentic_stage4_grounding`` delta application behavior
 """
 
 import pytest
@@ -34,6 +34,17 @@ def _make_causal_spec() -> dict:
                 },
             ],
             "edges": [{"cause": "stress", "effect": "sleep"}],
+        },
+        "estimation": {
+            "state_order": ["stress", "sleep"],
+            "edges": [
+                {
+                    "cause": "stress",
+                    "effect": "sleep",
+                    "description": "Stress affects sleep",
+                }
+            ],
+            "induced_dependencies": [],
         },
         "measurement": {
             "indicators": [
@@ -265,3 +276,579 @@ class TestStage4GroundingStateMerging:
         # Model spec accepted but priors still needed
         assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
         assert "extra_field" not in output["model_spec"]
+
+
+class TestStage4GroundingCompileOwnership:
+    """Grounding should surface compile and global validation failures clearly."""
+
+    def test_compile_failure_surfaces_in_grounding(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        def stub_validate_assembly(
+            model_spec, priors, data_for_model, indicator_audits, causal_spec
+        ):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=False,
+                compile_error="dimension mismatch in drift matrix",
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        data = {
+            "priors": {
+                "rho_outcome": {
+                    "parameter": "rho_outcome",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "test prior",
+                }
+            },
+        }
+        output, feedback = stage4_grounding(
+            data,
+            causal_spec={},
+            current={"model_spec": {"likelihoods": [], "parameters": []}},
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert output["authored_priors"]["rho_outcome"]["distribution"] == "Beta"
+        assert output["validation"].compile_ok is False
+        assert "COMPILE ERROR" in feedback
+        assert "dimension mismatch" in feedback
+        assert "Resubmit only the fields you changed" in feedback
+
+    def test_schema_error_keeps_valid_priors_and_model_state(self):
+        current = {
+            "model_spec": {
+                "likelihoods": [
+                    {"variable": "mood_score", "distribution": "gaussian", "link": "identity"}
+                ],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"},
+                    {"name": "sigma_mood", "role": "residual_sd", "constraint": "positive"},
+                ],
+            }
+        }
+        data = {
+            "priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "valid prior",
+                },
+                "sigma_mood": {
+                    "parameter": "sigma_mood",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 1.0},
+                    "sources": ["not a structured source"],
+                    "reasoning": "invalid source payload",
+                },
+            },
+        }
+
+        output, feedback = stage4_grounding(
+            data, causal_spec={}, current=current, data_for_model=None
+        )
+
+        assert output is not None
+        assert sorted(output["authored_priors"]) == ["rho_mood"]
+        assert "SCHEMA ERRORS for prior 'sigma_mood'" in feedback
+
+    def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, model_spec):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        output, feedback = stage4_grounding(
+            {"model_spec": model_spec},
+            causal_spec={},
+            current=None,
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert output["model_spec"]["parameters"][0]["name"] == "rho_stress"
+        assert output["validation"].compile_ok is True
+        assert "MODEL STATE SAVED" in feedback
+        assert "missing priors" in feedback
+
+    def test_rejects_mixed_model_and_prior_updates(self):
+        output, feedback = stage4_grounding(
+            {
+                "model_spec": {"likelihoods": [], "parameters": []},
+                "priors": {
+                    "rho_mood": {
+                        "parameter": "rho_mood",
+                        "distribution": "Beta",
+                        "params": {"alpha": 2, "beta": 2},
+                        "sources": [],
+                        "reasoning": "test prior",
+                    }
+                },
+            },
+            causal_spec={},
+            current=None,
+            data_for_model=None,
+        )
+
+        assert output is None
+        assert "UPDATE TOO BROAD" in feedback
+        assert "separate calls" in feedback
+
+    def test_accepts_large_prior_batches(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                compiled_ssm={"compiled": True},
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [{"parameter": "resolved"}],
+        )
+
+        current = {
+            "model_spec": {
+                "likelihoods": [],
+                "parameters": [
+                    {"name": f"rho_{idx}", "role": "ar_coefficient", "constraint": "unit_interval"}
+                    for idx in range(9)
+                ],
+            }
+        }
+        priors = {
+            f"rho_{idx}": {
+                "parameter": f"rho_{idx}",
+                "distribution": "Beta",
+                "params": {"alpha": 2, "beta": 2},
+                "sources": [],
+                "reasoning": "test prior",
+            }
+            for idx in range(9)
+        }
+
+        output, feedback = stage4_grounding(
+            {"priors": priors},
+            causal_spec={},
+            current=current,
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert feedback == "VALID"
+        assert len(output["authored_priors"]) == 9
+        assert output["resolved_priors"] == [{"parameter": "resolved"}]
+
+    def test_rejects_redundant_prior_updates(self):
+        current = {
+            "model_spec": {
+                "likelihoods": [],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
+                ],
+            },
+            "authored_priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "test prior",
+                }
+            },
+        }
+
+        output, feedback = stage4_grounding(
+            {"priors": dict(current["authored_priors"])},
+            causal_spec={},
+            current=current,
+            data_for_model=None,
+        )
+
+        assert output is None
+        assert "REDUNDANT PRIORS UPDATE" in feedback
+        assert "`rho_mood`" in feedback
+
+    def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            AssemblyValidation,
+            build_validation_payload,
+        )
+        from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+
+        global_failure = PriorValidationResult(
+            parameter="model_build",
+            is_valid=False,
+            issue=(
+                "Model build failed:\n"
+                "Observation support check failed:\n"
+                "- 'outcome_score' uses gamma emission but 1/10 observations are outside support"
+            ),
+            suggested_adjustment="Fix model_spec or priors to enable model construction",
+        )
+
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "outcome_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_outcome",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "AR coefficient",
+                }
+            ],
+        }
+
+        validation = AssemblyValidation(
+            normalized_model_spec=model_spec,
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            pp_results=[global_failure],
+        )
+
+        payload = build_validation_payload(validation, model_spec)
+        assert payload["is_valid"] is False
+        assert len(payload["issues"]) == 1
+        assert "global issue" in payload["issues"][0]
+        assert "model_spec issue" in payload["issues"][0]
+
+
+class TestAgenticStage4Grounding:
+    def test_merges_distribution_choice_delta(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+        forwarded: dict[str, dict] = {}
+
+        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+            del causal_spec, current, data_for_model, indicator_audits
+            forwarded.update(data)
+            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            fake_stage4_grounding,
+        )
+
+        output, feedback = _agentic_stage4_grounding(
+            data={
+                "distribution_choices": [
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "student_t",
+                        "link": "identity",
+                        "reasoning": "Updated choice for zero-heavy duration data.",
+                    }
+                ]
+            },
+            causal_spec={},
+            current={
+                "model_spec": {
+                    "likelihoods": [
+                        {
+                            "variable": "dev_platform_activity",
+                            "distribution": "bernoulli",
+                            "link": "logit",
+                            "reasoning": "Deterministic.",
+                        },
+                        {
+                            "variable": "ide_focus_gaps",
+                            "distribution": "gamma",
+                            "link": "log",
+                            "reasoning": "Old choice.",
+                        },
+                        {
+                            "variable": "advanced_tech_searches",
+                            "distribution": "bernoulli",
+                            "link": "logit",
+                            "reasoning": "Retained choice.",
+                        },
+                    ],
+                    "parameters": [
+                        {
+                            "name": "lambda_stackoverflow_visits_productivity",
+                            "role": "loading",
+                            "constraint": "positive",
+                            "description": "loading",
+                        }
+                    ],
+                }
+            },
+            data_for_model=None,
+            indicator_audits=None,
+            resolved_likelihoods=[
+                {
+                    "variable": "dev_platform_activity",
+                    "distribution": "bernoulli",
+                    "link": "logit",
+                }
+            ],
+            ambiguous_indicators=[
+                {"variable": "ide_focus_gaps"},
+                {"variable": "advanced_tech_searches"},
+            ],
+            all_params=[
+                {
+                    "name": "lambda_stackoverflow_visits_productivity",
+                    "role": "loading",
+                    "constraint": "none",
+                    "description": "loading",
+                }
+            ],
+        )
+
+        assert feedback == "MODEL STATE SAVED"
+        assert output is not None
+        merged_likelihoods = {
+            likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
+        }
+        assert merged_likelihoods["ide_focus_gaps"]["distribution"] == "student_t"
+        assert merged_likelihoods["advanced_tech_searches"]["distribution"] == "bernoulli"
+
+    def test_rejects_mixed_updates(self):
+        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+        output, feedback = _agentic_stage4_grounding(
+            data={
+                "distribution_choices": [
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "student_t",
+                        "link": "identity",
+                        "reasoning": "Changed likelihood.",
+                    }
+                ],
+                "priors": {
+                    "rho_mood": {
+                        "parameter": "rho_mood",
+                        "distribution": "Beta",
+                        "params": {"alpha": 2, "beta": 2},
+                        "sources": [],
+                        "reasoning": "test prior",
+                    }
+                },
+            },
+            causal_spec={},
+            current={},
+            data_for_model=None,
+            indicator_audits=None,
+            resolved_likelihoods=[],
+            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+            all_params=[],
+        )
+
+        assert output is None
+        assert "UPDATE TOO BROAD" in feedback
+
+    def test_rejects_redundant_decision_update(self):
+        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+        output, feedback = _agentic_stage4_grounding(
+            data={
+                "distribution_choices": [
+                    {
+                        "variable": "ide_focus_gaps",
+                        "distribution": "student_t",
+                        "link": "identity",
+                        "reasoning": "Same decision, different words.",
+                    }
+                ]
+            },
+            causal_spec={},
+            current={
+                "model_spec": {
+                    "likelihoods": [
+                        {
+                            "variable": "ide_focus_gaps",
+                            "distribution": "student_t",
+                            "link": "identity",
+                            "reasoning": "Accepted choice.",
+                        }
+                    ],
+                    "parameters": [],
+                }
+            },
+            data_for_model=None,
+            indicator_audits=None,
+            resolved_likelihoods=[],
+            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+            all_params=[],
+        )
+
+        assert output is None
+        assert "REDUNDANT MODEL DECISIONS UPDATE" in feedback
+
+    def test_ignores_redundant_decisions_when_cleanup_needed(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+        forwarded: dict[str, dict] = {}
+
+        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+            del causal_spec, current, data_for_model, indicator_audits
+            forwarded.update(data)
+            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            fake_stage4_grounding,
+        )
+
+        output, feedback = _agentic_stage4_grounding(
+            data={
+                "distribution_choices": [
+                    {
+                        "variable": "daily_event_count",
+                        "distribution": "negative_binomial",
+                        "link": "log",
+                        "reasoning": "Already accepted and unchanged.",
+                    },
+                    {
+                        "variable": "sleep_issue_searches",
+                        "distribution": "negative_binomial",
+                        "link": "log",
+                        "reasoning": "Revert to the valid count likelihood.",
+                    },
+                ]
+            },
+            causal_spec={},
+            current={
+                "model_spec": {
+                    "likelihoods": [
+                        {
+                            "variable": "daily_event_count",
+                            "distribution": "negative_binomial",
+                            "link": "log",
+                            "reasoning": "Accepted choice.",
+                        },
+                        {
+                            "variable": "sleep_issue_searches",
+                            "distribution": "poisson",
+                            "link": "log",
+                            "reasoning": "Invalid temporary choice.",
+                        },
+                        {
+                            "variable": "chronotype",
+                            "distribution": "gaussian",
+                            "link": "identity",
+                            "reasoning": "Stale invalid state that should be dropped.",
+                        },
+                    ],
+                    "parameters": [],
+                }
+            },
+            data_for_model=None,
+            indicator_audits=None,
+            resolved_likelihoods=[],
+            ambiguous_indicators=[
+                {"variable": "daily_event_count"},
+                {"variable": "sleep_issue_searches"},
+            ],
+            all_params=[],
+        )
+
+        assert feedback == "MODEL STATE SAVED"
+        assert output is not None
+        merged_likelihoods = {
+            likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
+        }
+        assert merged_likelihoods["daily_event_count"]["distribution"] == "negative_binomial"
+        assert merged_likelihoods["sleep_issue_searches"]["distribution"] == "negative_binomial"
+        assert "chronotype" not in merged_likelihoods
+
+    def test_accepts_loading_constraint_delta(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+        forwarded: dict[str, dict] = {}
+
+        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+            del causal_spec, current, data_for_model, indicator_audits
+            forwarded.update(data)
+            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            fake_stage4_grounding,
+        )
+
+        output, feedback = _agentic_stage4_grounding(
+            data={
+                "loading_constraints": [
+                    {
+                        "parameter": "lambda_stackoverflow_visits_productivity",
+                        "constraint": "positive",
+                        "reasoning": "Updated loading sign.",
+                    }
+                ]
+            },
+            causal_spec={},
+            current={
+                "model_spec": {
+                    "likelihoods": [
+                        {
+                            "variable": "ide_focus_gaps",
+                            "distribution": "student_t",
+                            "link": "identity",
+                            "reasoning": "Accepted choice.",
+                        }
+                    ],
+                    "parameters": [
+                        {
+                            "name": "lambda_stackoverflow_visits_productivity",
+                            "role": "loading",
+                            "constraint": "none",
+                            "description": "loading",
+                        }
+                    ],
+                }
+            },
+            data_for_model=None,
+            indicator_audits=None,
+            resolved_likelihoods=[],
+            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
+            all_params=[
+                {
+                    "name": "lambda_stackoverflow_visits_productivity",
+                    "role": "loading",
+                    "constraint": "none",
+                    "description": "loading",
+                }
+            ],
+        )
+
+        assert feedback == "MODEL STATE SAVED"
+        assert output is not None
+        merged_params = {
+            parameter["name"]: parameter for parameter in forwarded["model_spec"]["parameters"]
+        }
+        assert merged_params["lambda_stackoverflow_visits_productivity"]["constraint"] == "positive"

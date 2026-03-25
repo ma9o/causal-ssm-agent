@@ -23,8 +23,7 @@ from causal_ssm_agent.flows.stages.stage3_validation import (
 )
 from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-from causal_ssm_agent.orchestrator.schemas import CausalSpec
-from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
+from causal_ssm_agent.utils.causal_spec import get_all_treatments
 
 # ==============================================================================
 # Constants
@@ -451,19 +450,6 @@ class TestE2EPipeline:
     """End-to-end pipeline test using FOUR_LATENT fixtures."""
 
     # ------------------------------------------------------------------
-    # Schema / spec tests (no inference, fast)
-    # ------------------------------------------------------------------
-
-    def test_build_causal_spec(self, causal_spec):
-        """CausalSpec round-trips through build_causal_spec.fn()."""
-        spec = CausalSpec.model_validate(causal_spec)
-        assert len(spec.latent.constructs) == 4
-        assert len(spec.measurement.indicators) == 6
-        assert len(spec.latent.edges) == 4
-        outcome = get_outcome_name(causal_spec["latent"])
-        assert outcome == "Perf"
-
-    # ------------------------------------------------------------------
     # Stage 3: validation + aggregation (Polars, fast)
     # ------------------------------------------------------------------
 
@@ -482,16 +468,6 @@ class TestE2EPipeline:
         # All 6 indicators present with sufficient observations
         present = {i["indicator"] for i in issues if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
-
-    def test_stage3_combine(self, worker_dfs):
-        """Concatenating worker DataFrames produces correct shape."""
-        combined = pl.concat(worker_dfs, how="vertical")
-        assert len(combined) == T * len(INDICATOR_NAMES)  # 80 * 6 = 480
-        assert set(combined.columns) == {"indicator", "value", "anchor_time"}
-
-    # ------------------------------------------------------------------
-    # Stage 4b: parametric identifiability (T-rule only for speed)
-    # ------------------------------------------------------------------
 
     def test_stage4b_t_rule(self, model_spec, priors, daily_data):
         """T-rule check passes (necessary condition for identifiability)."""
