@@ -37,6 +37,9 @@
       "cache": false,
       "dependsOn": ["codegen"]
     },
+    "check": {
+      "cache": false
+    },
     "storybook": {
       "persistent": true,
       "cache": false

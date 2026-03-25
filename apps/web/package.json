@@ -10,6 +10,7 @@
     "lint:fix": "eslint --fix",
     "format": "biome format --write .",
     "type-check": "tsc --noEmit",
+    "check": "bun run lint && bun run test && bun run build && bun run type-check",
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",

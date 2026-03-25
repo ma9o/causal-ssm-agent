@@ -13,6 +13,7 @@
     "lint:fix": "biome check --fix .",
     "format": "biome format --write .",
     "codegen": "cd ../../apps/data-pipeline && uv run python scripts/export_distribution_docs.py && uv run python scripts/export_schemas.py && cd ../../packages/api-types && bun run scripts/generate.ts",
+    "check": "bun run codegen:check && bun run type-check",
     "codegen:check": "bun run codegen && git diff --exit-code src/generated/"
   },
   "devDependencies": {
