@@ -100,7 +100,16 @@ The structural routing operates within A = Marginalize. (Augment and Gibbs force
 ### Decision Tree
 
 ```text
-SSMSpec + RBPartition
+SSMSpec + RBPartition + ObservationSupport
+|
++-- Interval-summary observations present?
+|   observation_support.requires_interval_summary_handling == True
+|   |
+|   +-> "svi"  [Stochastic (PF), VI]
+|       Interval-summary measurement equations require integrating the
+|       latent trajectory over the observation window, which is only
+|       supported by the PF backend. SVI is chosen because SGD
+|       tolerates the noisy PF gradients. First-pass RB is disabled.
 |
 | A = Marginalize (structural default)
 |
@@ -151,6 +160,28 @@ The structural routing picks the best default within A = Marginalize. Users can 
 | Highly anisotropic posterior | `hessmc2` | C → SMC (Hessian) | Full Hessian proposals adapt to curvature |
 | PF with severe particle degeneracy | `dpf` | B → Learned | Learned proposals reduce weight variance |
 | Trajectory-aware state uncertainty | `structured_vi` | B → Learned | Backward-factored family captures temporal correlations |
+
+## First-Pass Rao-Blackwellization
+
+Before the structural routing selects an inference method, a graph analysis partitions the model's latent and observed variables into a Kalman sub-block and a particle filter sub-block. This is "first-pass" RB — it operates on the model specification (fixed at construction time), not on per-iteration parameter values.
+
+The analysis (`graph_analysis.analyze_first_pass_rb`) examines the `SSMSpec` drift sparsity, observation dependencies, and noise families to identify fully-decoupled linear-Gaussian sub-blocks that can be marginalized exactly via the Kalman filter before the particle filter runs.
+
+The resulting `RBPartition` assigns each latent variable and each observation channel to either `kalman` or `particle`. This determines the `likelihood_path`:
+
+- **`kalman`**: all variables are Kalman-eligible — the entire model uses the closed-form Kalman filter
+- **`composed`**: some variables are Kalman-eligible and some are not — the Kalman sub-block runs first, then the particle filter handles the remainder
+- **`particle`**: no Kalman sub-block exists, or first-pass RB is disabled
+
+First-pass RB is disabled when:
+
+- The spec opts out (`first_pass_rb = False`)
+- Interval-summary observations are present (requires full PF trajectory integration)
+- No executable partition exists (all variables couple to non-Gaussian components)
+
+A "second pass" operates within each particle at runtime, marginalizing conditionally Gaussian blocks that couple to non-Gaussian variables. Both passes compose: first-pass removes unconditionally independent Gaussian blocks, second-pass handles the conditionally Gaussian remainder.
+
+The [Stage 4b](../pipeline/04b-parametric-identifiability.md) diagnostics emit the resolved partition as an [`InferenceStructureResult`](../pipeline/04b-parametric-identifiability.md#inferencestructureresult) for display in the web frontend.
 
 ## Method Reference
 

@@ -2,186 +2,119 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
+| Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`MCMCDiagnostics`](#mcmcdiagnostics) / [`SMCDiagnostics`](#smcdiagnostics) |
 
-Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree: NUTS for Kalman-eligible models (all Gaussian emissions with identity links), Laplace-EM for non-Gaussian emissions. The user can override to any of the nine [available methods](../reference/inference-routing.md#method-taxonomy).
+Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree; the user can override to any [available method](../reference/inference-routing.md#method-taxonomy).
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `stage4.result` | [Stage 4](04-model-specification-priors.md) | Compiled SSM (`_compiled_ssm`) and [model spec](04-model-specification-priors.md#modelspec) with priors |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Encoded `ObservationRecord` parquet (path via `_data_for_model_path`) |
+| `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
+| `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 | `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
 
-Stage 4 provided the functional specification and priors; Stage 2 provided the extracted indicator time series. Stage 5b is where the compiled model is fitted to data and the posterior is characterized.
+Stage 4 provided the compiled model and priors; Stage 5b is where that model is fitted to data and the posterior is characterized. Inference routing is re-derived at fit time from the compiled SSM (independently of the [Stage 4b snapshot](04b-parametric-identifiability.md#inferencestructureresult) used for the web frontend).
 
 ## Process
 
-Stage 5b runs three sequential tasks with no LLM involvement: model fitting, power-scaling sensitivity analysis, and posterior predictive checks. The output is a deterministic function of the compiled model, the data, and the inference configuration.
+Stage 5b is a fully deterministic stage (no LLM). It runs four sequential tasks: model fitting, LOO cross-validation, power-scaling sensitivity analysis, and posterior predictive checks. If model fitting fails, the pipeline halts before Stage 6; conditional on a successful fit, the remaining diagnostics are advisory and do not block downstream stages.
 
-**Runtime preparation.** The stage runs the same [`prepare_model_runtime`](05a-svi-preflight.md#process) path as Stage 5a—pivoting the `ObservationRecord` table to wide format and compiling the executable SSM—but with the full inference method and budget rather than the fixed SVI configuration.
+```mermaid
+flowchart LR
+    F[Model fitting] --> L[LOO-CV] --> S[Power-scaling] --> P[PPC] --> R([Diagnostics result])
+    F -- failure --> X([Pipeline halts])
+```
 
-**Model fitting.** The `fit_model` task resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#decision-tree)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference). The two structural defaults are NUTS (Kalman-eligible models) and Laplace-EM (non-Gaussian emissions); all nine methods are available as user overrides.
+**Model fitting:** The stage resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#structural-routing)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference).
 
-The fit produces an `InferenceResult` containing the posterior samples dict `{name: (n_draws, *shape)}`, the method identifier, and backend-specific diagnostics. From this the stage extracts backend-specific diagnostic payloads (MCMC convergence, SVI ELBO curve, SMC tempering schedule), LOO-CV diagnostics, posterior marginals, and posterior pairs.
+**LOO cross-validation:** For MCMC and SMC backends, the stage computes PSIS-LOO via ArviZ using the innovation decomposition: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ.
 
-**LOO cross-validation.** For both MCMC and SMC backends, the stage computes PSIS-LOO via ArviZ using the innovation decomposition: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ. The result includes expected log pointwise predictive density (ELPD), the effective number of parameters (p\_loo), per-timestep Pareto-k values (flagging observations with k > 0.7 as poorly approximated), and LOO-PIT values for calibration assessment.
+**Power-scaling sensitivity analysis:** Detects whether each parameter's posterior is dominated by the prior, well-identified by the data, or in prior–data conflict ([Kallioinen et al. 2023](#references)). The method perturbs the prior and likelihood contributions by a small power-scaling factor (α ± 0.01), reweights the posterior draws via PSIS, and measures the resulting shift in posterior means. The PSIS k-hat diagnostic for each perturbation direction indicates whether the importance-weighted estimate is reliable (k < 0.7).
 
-**Power-scaling sensitivity analysis.** The `run_power_scaling` task (Kallioinen et al. 2023) detects whether each parameter's posterior is dominated by the prior, well-identified by the data, or in prior–data conflict. It perturbs the prior and likelihood contributions by a small power-scaling factor (α ± 0.01), reweights the posterior draws via PSIS, and measures the resulting shift in posterior means. Each parameter receives one of three diagnoses: `well_identified` (both sensitivities low), `prior_dominated` (high prior sensitivity, low likelihood sensitivity), or `prior_data_conflict` (both sensitivities high). The PSIS k-hat diagnostic for each perturbation direction indicates whether the importance-weighted estimate is reliable (k < 0.7).
+**Posterior predictive checks:** The stage forward-simulates observations from posterior parameter draws through the full generative model (latent dynamics → discretization → emission sampling) and compares the simulated data to the real observations, producing calibration, autocorrelation, and variance diagnostics for each manifest variable.
 
-**Posterior predictive checks.** The `run_ppc` task forward-simulates observations from posterior parameter draws through the full generative model (latent dynamics → discretization → emission sampling) and compares the simulated data to the real observations. For each manifest variable it produces:
+### Example
 
-- *Calibration check*: fraction of observed values falling within the 95% posterior predictive interval. Flags if coverage is below 0.80 or above 0.99.
-- *Autocorrelation check*: compares lag-1 autocorrelation of the observed series to the distribution of lag-1 autocorrelations across replicated datasets.
-- *Variance check*: compares the observed variance to the distribution of variances across replicated datasets.
-- *Overlay data*: quantile bands (2.5%, 25%, 50%, 75%, 97.5%) of the posterior predictive distribution at each timestep, plus spaghetti draws for density overlay plots.
-- *Test statistics*: distribution of T(y\_rep) for mean, standard deviation, min, and max, with a vertical marker at T(y\_observed).
-
-**Artifact assembly and persistence.** The stage assembles a [`FittedArtifact`](#fittedartifact) packaging the `InferenceResult`, the runtime builder (needed by Stage 6 for intervention simulations), timing metadata, observation-support metadata, and the PPC and power-scaling results. This artifact is pickled to `stage5b-fitted-result.pkl` and is the sole runtime object consumed by [Stage 6](06-intervention-analysis.md). The web-facing diagnostic payloads (power-scaling list, PPC result, backend diagnostics, marginals, pairs) are persisted separately as the public JSON contract.
-
-**Failure and warning behavior.** If model fitting fails, the pipeline stops before Stage 6 because no fitted posterior exists for intervention analysis. Conditional on a successful fit, power-scaling and PPC findings remain advisory diagnostics and do not block Stage 6.
+For a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would auto-route to NUTS (all Gaussian emissions), run 4 chains of 2 500 draws each, then produce: MCMC diagnostics showing R-hat < 1.01 and ESS > 400 for all drift and loading parameters; power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% calibration coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
 | `power_scaling` | list\[[`PowerScalingResult`](#powerscalingresult)\] | Per-parameter sensitivity diagnosis with PSIS reliability |
-| `ppc` | [`PPCResult`](#ppcresult) | Per-variable calibration, autocorrelation, and variance checks plus overlay data |
+| `ppc` | [`PPCResult`](#ppcresult) | Per-variable calibration, autocorrelation, and variance checks |
 | `inference_metadata` | [`InferenceMetadata`](#inferencemetadata) | Method, sample count, and timing |
-| `mcmc_diagnostics` | [`MCMCDiagnostics`](#mcmcdiagnostics) \| null | NUTS convergence diagnostics (null for non-MCMC backends) |
-| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) \| null | ELBO loss curve (null for non-SVI backends) |
-| `smc_diagnostics` | [`SMCDiagnostics`](#smcdiagnostics) \| null | Tempering schedule and ESS history (null for non-SMC backends) |
-| `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| null | PSIS-LOO cross-validation with per-timestep Pareto-k values |
-| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| null | Per-parameter density summaries |
-| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| null | Pairwise scatter data (includes `divergent` flags for MCMC backends) |
+| `mcmc_diagnostics` | [`MCMCDiagnostics`](#mcmcdiagnostics) \| `null` | MCMC convergence diagnostics (null for non-MCMC backends) |
+| `svi_diagnostics` | [`SVIDiagnostics`](05a-svi-preflight.md#svidiagnostics) \| `null` | ELBO loss curve (null for non-SVI backends) |
+| `smc_diagnostics` | [`SMCDiagnostics`](#smcdiagnostics) \| `null` | ESS history across tempering levels (null for non-SMC backends) |
+| `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| `null` | PSIS-LOO cross-validation with per-timestep Pareto-k values |
+| `posterior_marginals` | list\[[`PosteriorMarginal`](05a-svi-preflight.md#posteriormarginal)\] \| `null` | Per-parameter posterior mean, sd, and 94% HDI |
+| `posterior_pairs` | list\[[`PosteriorPair`](05a-svi-preflight.md#posteriorpair)\] \| `null` | Pairwise posterior scatter data with divergence flags (MCMC only) |
+| `_fitted_artifact` | [`FittedArtifact`](#fittedartifact) | Persisted runtime artifact consumed by [Stage 6](06-intervention-analysis.md); bundles posterior samples, runtime builder, and diagnostic results |
 
-## Definitions
+### `FittedArtifact`
 
-### FittedArtifact
+Bundles posterior samples, runtime builder, and diagnostic results for [Stage 6](06-intervention-analysis.md) intervention simulations.
 
-`FittedArtifact` is the persisted runtime object produced by Stage 5b and consumed by [Stage 6](06-intervention-analysis.md). It is the sole handoff object in the [model-runtime chain](../reference/compilation.md).
+### `PowerScalingResult`
 
-| Field | Type | Description |
-|---|---|---|
-| `result` | `InferenceResult` \| null | Posterior samples and backend-specific diagnostics |
-| `builder` | `SSMModelBuilder` \| null | Runtime builder needed for intervention simulations |
-| `times` | `jnp.ndarray` \| null | Observation time points `(T,)` |
-| `observation_support` | `ObservationSupportRuntime` \| null | Interval-summary and support-boundary metadata |
-| `ppc_result` | `dict` \| null | PPC diagnostics attached to the fitted run |
-| `power_scaling_result` | `dict` \| null | Power-scaling diagnostics attached to the fitted run |
-
-### PowerScalingResult
-
-Per-parameter power-scaling sensitivity diagnosis (Kallioinen et al. 2023).
+Per-parameter power-scaling sensitivity diagnosis ([Kallioinen et al. 2023](#references)).
 
 | Field | Type | Description |
 |---|---|---|
 | `parameter` | `str` | Parameter name |
-| `diagnosis` | `"prior_dominated"` \| `"well_identified"` \| `"prior_data_conflict"` | Classification of prior–data relationship |
+| `diagnosis` | `"prior_dominated"` \| `"well_identified"` \| `"prior_data_conflict"` | `well_identified`: both sensitivities low; `prior_dominated`: high prior, low likelihood sensitivity; `prior_data_conflict`: both high |
 | `prior_sensitivity` | `float` | Posterior mean shift under prior power-scaling perturbation |
 | `likelihood_sensitivity` | `float` | Posterior mean shift under likelihood power-scaling perturbation |
-| `psis_k_hat` | `float` \| null | Pareto-k reliability diagnostic for the importance-weighted estimate |
+| `psis_k_hat` | `float` \| `null` | Pareto-k reliability diagnostic for the importance-weighted estimate |
 
-### PPCResult
+### `PPCResult`
 
-Aggregate posterior predictive check result.
+Per-variable posterior predictive diagnostics.
 
 | Field | Type | Description |
 |---|---|---|
 | `per_variable_warnings` | `list[PPCWarning]` | Per-manifest-variable diagnostic warnings |
-| `checked` | `bool` \| null | Whether PPC ran successfully |
-| `n_subsample` | `int` \| null | Number of posterior draws used for PPC |
-| `overlays` | `list[PPCOverlay]` | Per-variable quantile bands for ribbon/density overlay plots |
-| `test_stats` | `list[PPCTestStat]` | Per-variable test statistic distributions vs observed |
 
-`PPCWarning` carries `variable`, `check_type` (`"calibration"`, `"autocorrelation"`, or `"variance"`), `message`, `value`, and `passed`.
+`PPCWarning` fields: `variable` (str), `check_type`, `message` (str), `value` (float), `passed` (bool). Check types:
 
-`PPCOverlay` provides `observed` (with nulls for missing timesteps), quantile bands (`q025`, `q25`, `median`, `q75`, `q975`), and optional `spaghetti_draws` for density overlay plots.
+- `"calibration"`: fraction of observed values within the 95% posterior predictive interval; flags if coverage < 0.80 or > 0.99
+- `"autocorrelation"`: lag-1 autocorrelation of observed series vs. distribution across replicated datasets
+- `"variance"`: observed variance vs. distribution across replicated datasets
 
-`PPCTestStat` provides `stat_name` (`"mean"`, `"sd"`, `"min"`, `"max"`), the `observed_value`, and the distribution of `rep_values` across posterior predictive draws.
+### `InferenceMetadata`
 
-### InferenceMetadata
-
-Summary metadata for the web frontend.
+Summary of the inference run configuration and timing.
 
 | Field | Type | Description |
 |---|---|---|
-| `method` | `str` | Inference method that actually ran |
-| `n_samples` | `int` | Number of posterior draws returned by the backend |
-| `duration_seconds` | `float` | Wall-clock time for the fit |
+| `method` | `str` | Inference method used (e.g. `"nuts"`, `"svi"`, `"laplace_em"`) |
+| `n_samples` | `int` | Number of posterior samples drawn |
+| `duration_seconds` | `float` | Wall-clock time for the fitting step |
 
-### SVIDiagnostics
+### `MCMCDiagnostics`
 
-Convergence diagnostics for the variational optimization.
-
-| Field | Type | Description |
-|---|---|---|
-| `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
-
-### PosteriorMarginal
-
-Marginal posterior density for a single scalar parameter, computed via histogram binning with 5% tail padding.
-
-| Field | Type | Description |
-|---|---|---|
-| `parameter` | `str` | Parameter name, with array elements indexed as `name[i]` |
-| `x_values` | `list[float]` | Bin centers for the density curve |
-| `density` | `list[float]` | Normalized density at each bin center |
-| `mean` | `float` | Posterior mean |
-| `sd` | `float` | Posterior standard deviation |
-| `hdi_3` | `float` | Lower bound of the 94% HDI |
-| `hdi_97` | `float` | Upper bound of the 94% HDI |
-
-### PosteriorPair
-
-Pairwise posterior scatter data for joint visualization.
-
-| Field | Type | Description |
-|---|---|---|
-| `param_x` | `str` | Name of the x-axis parameter |
-| `param_y` | `str` | Name of the y-axis parameter |
-| `x_values` | `list[float]` | Thinned posterior draws for x, at most 200 points |
-| `y_values` | `list[float]` | Thinned posterior draws for y |
-| `divergent` | `list[bool]` \| `null` | Divergence flags for MCMC backends; `null` for SVI and SMC-style outputs |
-
-### Backend-Specific Diagnostics
-
-Exactly one of the three backend-specific diagnostic payloads is non-null, determined by which inference method ran.
-
-#### MCMCDiagnostics
-
-Produced by NUTS, NUTS-DA, and PGAS backends.
+Produced by NUTS, NUTS-DA, and PGAS backends; exactly one of `mcmc_diagnostics`, `svi_diagnostics`, or `smc_diagnostics` is non-null per stage run.
 
 | Field | Type | Description |
 |---|---|---|
 | `per_parameter` | `list[MCMCParamDiagnostic]` | Per-parameter R-hat, ESS (bulk + tail), and MCSE |
 | `num_divergences` | `int` | Total divergent transitions |
 | `divergence_rate` | `float` | Fraction of transitions that diverged |
-| `tree_depth_mean` | `float` | Mean tree depth (NUTS only) |
-| `tree_depth_max` | `int` | Maximum tree depth reached |
-| `accept_prob_mean` | `float` | Mean MH acceptance probability |
-| `num_chains` | `int` \| null | Number of chains |
-| `num_samples` | `int` \| null | Draws per chain |
-| `trace_data` | `list[TraceData]` \| null | Per-parameter thinned trace values across chains (at most 200 points per chain) |
-| `rank_histograms` | `list[RankHistogram]` \| null | Per-parameter rank histograms for chain mixing assessment (20 bins) |
-| `energy` | `EnergyDiagnostics` \| null | NUTS energy diagnostics with BFMI ([Betancourt 2017](https://arxiv.org/abs/1701.02434)) |
 
-#### SMCDiagnostics
+### `SMCDiagnostics`
 
 Produced by Laplace-EM, tempered SMC, Hess-MC², structured VI, and DPF backends.
 
 | Field | Type | Description |
 |---|---|---|
-| `beta_schedule` | `list[float]` | Tempering ladder β₀=0 → β\_K=1 |
 | `ess_history` | `list[float]` | Effective sample size at each tempering level |
-| `accept_rates` | `list[float]` | Mutation acceptance rate at each level |
 | `n_levels` | `int` | Number of tempering levels |
-| `n_particles` | `int` | Number of SMC particles |
 
-### LOODiagnostics
+### `LOODiagnostics`
 
-Leave-one-out cross-validation via PSIS-LOO (Vehtari, Gelman & Gabry 2017). Uses the innovation decomposition so each LOO "observation" is one complete timestep, not individual cells.
+PSIS-LOO cross-validation ([Vehtari, Gelman & Gabry 2017](#references)).
 
 | Field | Type | Description |
 |---|---|---|
@@ -189,9 +122,11 @@ Leave-one-out cross-validation via PSIS-LOO (Vehtari, Gelman & Gabry 2017). Uses
 | `p_loo` | `float` | Effective number of parameters |
 | `se` | `float` | Standard error of the ELPD estimate |
 | `n_data_points` | `int` | Number of timesteps used |
-| `observation_unit` | `str` | Always `"timestep"` for the SSM path |
-| `pareto_k` | `list[float]` \| null | Per-timestep Pareto-k shape parameters |
-| `n_bad_k` | `int` \| null | Count of timesteps with k > 0.7 |
-| `loo_pit` | `list[float]` \| null | LOO-PIT values for calibration assessment |
+| `pareto_k` | `list[float]` \| `null` | Per-timestep Pareto-k shape parameters |
+| `n_bad_k` | `int` \| `null` | Count of timesteps with k > 0.7 |
+| `loo_pit` | `list[float]` \| `null` | LOO-PIT values for calibration assessment |
 
-Example: for a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would auto-route to NUTS (all Gaussian emissions), run 4 chains of 2 500 draws each, then produce: MCMC diagnostics showing R-hat < 1.01 and ESS > 400 for all drift and loading parameters; power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% calibration coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
+## References
+
+- Kallioinen, N., Paananen, T., Bürkner, P.-C., & Vehtari, A. (2023). Detecting and Diagnosing Prior and Likelihood Sensitivity With Power-Scaling. *Statistics and Computing*.
+- Vehtari, A., Gelman, A., & Gabry, J. (2017). Practical Bayesian Model Evaluation Using Leave-One-Out Cross-Validation and WAIC. *Statistics and Computing*.
