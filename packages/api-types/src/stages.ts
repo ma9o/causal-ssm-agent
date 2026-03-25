@@ -17,7 +17,8 @@ export interface StageMeta {
   id: StageId;
   label: string;
   number: string;
-  prefectFlowName: string;
+  /** Prefect child flow name when the stage executes as a nested flow. */
+  prefectSubflowName: string | null;
   /** Human-readable hint shown while this stage is running. */
   loadingHint: string;
   /** Static subtitle describing what this stage does (dataset-agnostic). */
@@ -31,7 +32,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-0",
     label: "Preprocess",
     number: "0",
-    prefectFlowName: "stage-0-flow",
+    prefectSubflowName: null,
     loadingHint: "Parsing and preprocessing your data...",
     description: "Parses raw data files and prepares them for downstream analysis.",
     interactive: true,
@@ -40,7 +41,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-1a",
     label: "Latent Model",
     number: "1a",
-    prefectFlowName: "stage-1a-flow",
+    prefectSubflowName: null,
     loadingHint: "LLM is proposing a causal DAG...",
     description:
       "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
@@ -50,7 +51,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-1b",
     label: "Measurement & Nonparametric Identification",
     number: "1b",
-    prefectFlowName: "stage-1b-flow",
+    prefectSubflowName: null,
     loadingHint: "Mapping indicators and checking identifiability...",
     description:
       "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
@@ -60,7 +61,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-2",
     label: "Data Extraction",
     number: "2",
-    prefectFlowName: "stage-2-flow",
+    prefectSubflowName: "stage2-worker-extraction",
     loadingHint: "Extracting indicator values from your data...",
     description:
       "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
@@ -70,7 +71,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-3",
     label: "Validation",
     number: "3",
-    prefectFlowName: "stage-3-flow",
+    prefectSubflowName: null,
     loadingHint: "Validating extraction quality...",
     description:
       "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
@@ -80,7 +81,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-4",
     label: "Model Specification",
     number: "4",
-    prefectFlowName: "stage-4-flow",
+    prefectSubflowName: "stage4-agentic",
     loadingHint: "LLM is specifying priors and model parameters...",
     description:
       "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
@@ -90,7 +91,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-4b",
     label: "Parametric Identifiability",
     number: "4b",
-    prefectFlowName: "stage-4b-flow",
+    prefectSubflowName: "stage4b-parametric-id",
     loadingHint: "Checking parametric identifiability...",
     description:
       "Checks whether the specified model parameters are identifiable from the available data.",
@@ -100,7 +101,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-5a",
     label: "SVI Preflight",
     number: "5a",
-    prefectFlowName: "stage-5a-flow",
+    prefectSubflowName: null,
     loadingHint: "Running fast SVI approximation...",
     description:
       "Fast variational fit as a diagnostic before expensive inference. Shows ELBO convergence and approximate posterior.",
@@ -110,7 +111,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-5b",
     label: "Inference & Diagnostics",
     number: "5b",
-    prefectFlowName: "stage-5b-flow",
+    prefectSubflowName: null,
     loadingHint: "Running Bayesian inference...",
     description:
       "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
@@ -120,7 +121,7 @@ export const STAGES: StageMeta[] = [
     id: "stage-6",
     label: "Treatment Effects",
     number: "6",
-    prefectFlowName: "stage-6-flow",
+    prefectSubflowName: null,
     loadingHint: "Computing interventional effects...",
     description:
       "Computes interventional treatment effects and ranks them by magnitude and certainty.",
