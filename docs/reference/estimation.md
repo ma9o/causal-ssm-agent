@@ -55,7 +55,7 @@ The Lyapunov equation is solved via Bartels-Stewart (Sylvester solver), which is
 
 For a time series with T observations and potentially irregular intervals, the discretization is vmapped over the `dt` dimension to produce batched `(T, n, n)` discrete drift and noise matrices. The O(n^3) matrix exponential and Lyapunov solve are identical across particles and only need to be computed once per timestep, not once per particle.
 
-**Note on `edge_lag_days`:** The per-edge lag in days, computed during spec translation in [compilation.md](compilation.md#stage-1-spec-translation-ssm_spec_translationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
+**Note on `edge_lag_days`:** The per-edge lag in days, computed during [spec translation in the compilation pipeline](compilation.md#stage-1-spec-translation-ssmspectranslationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
 
 ## 3. Likelihood Computation
 

@@ -31,7 +31,11 @@ flowchart LR
 
 Each proposed construct is classified by [role and temporal status](../reference/latent-model/constructs-and-edges.md#construct-dimensions), and each directed edge carries a [lag designation](../reference/latent-model/constructs-and-edges.md#edge-lag-rules)—lagged (cause at *t−1* → effect at *t*) or contemporaneous (within the same time index).
 
-**Validator:** The LLM submits its proposal via a `validate_latent_model` tool call. The tool enforces the `LatentModel` contract: construct-role invariants and temporal rules from [constructs-and-edges.md](../reference/latent-model/constructs-and-edges.md), plus assumption-derived restrictions from [A4](../reference/latent-model/assumptions.md#a4-acyclicity-within-time-slice), [A4b](../reference/latent-model/assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), and [A5](../reference/latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states). It also requires the designated outcome to have at least one incoming edge so the stage does not terminate on an effect-free target.
+**Validator:** The LLM submits its proposal via a `validate_latent_model` tool call. The tool enforces the `LatentModel` contract:
+
+- *Construct-role invariants and temporal rules* from [constructs-and-edges.md](../reference/latent-model/constructs-and-edges.md)
+- *Assumption-derived restrictions* from [A4](../reference/latent-model/assumptions.md#a4-acyclicity-within-time-slice), [A4b](../reference/latent-model/assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), and [A5](../reference/latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states)
+- *Outcome reachability:* the designated outcome must have at least one incoming edge
 
 On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
 

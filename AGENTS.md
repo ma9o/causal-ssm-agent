@@ -15,9 +15,7 @@ THINK VERY HARD
 
 - in `docs/pipeline`, each stage doc is the authoritative definition of its outputs and artifacts. Downstream stages should link back to these definitions rather than re-describing them.
 
-- in `docs/pipeline`, the Outputs sections should always be a table for the domain relevant fields. Internal plumbing can be described in natural language just beneath it, but still exhaustively.
-
-- when coming up with examples, avoid using the same domain repeatedly. Rotate through different contexts such as healthcare, software engineering, education, etc. Make sure the examples are conformant to the project goal and scope.
+- in `docs/pipeline`, the Outputs sections should always be a table for the relevant fields. When describing the dataclasses that make up those outputs, just include the table of fields and descriptions without the extra prose. Do not describe fields and dataclasses used for internal plumbing like `outcome` or `llm_trace` or higher level constructs like `IndicatorAudit` that bundle multiple pieces together. Focus on the core artifacts that are inputs and outputs of pipeline stages, and link to the stage where they are defined for details.
 
 # Web app
 

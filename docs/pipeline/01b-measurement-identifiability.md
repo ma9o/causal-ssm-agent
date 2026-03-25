@@ -112,8 +112,6 @@ The `MeasurementModel` does not store row timestamps itself, but it fully determ
 | `measurement` | [`MeasurementModel`](#measurementmodel) | The indicator mapping and model clock introduced here |
 | `identifiability` | [`IdentifiabilityStatus`](#identifiabilitystatus) \| `null` | Treatment-level identifiability results from the Stage 1b checker |
 
-Downstream stages use `CausalSpec` as the combined causal-and-measurement input to extraction, model specification, and intervention analysis.
-
 ### `IdentifiabilityStatus`
 
 | Field | Type | Description |

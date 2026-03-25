@@ -147,7 +147,7 @@
 ## Stage 3: Validation
 > Validates extraction quality, checking for missing data, outliers, and consistency across indicators.
 
-> **GATE BLOCKED**: Data validation failed.
+> **PIPELINE STOPPED**: Data validation failed.
 
 ---
 

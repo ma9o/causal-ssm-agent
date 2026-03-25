@@ -1,42 +1,55 @@
 # SSM Compilation Pipeline
 
-The compilation pipeline translates a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) (the Stage 4 output) into a NumPyro-ready `SSMModel`. The pipeline is a pure, deterministic transformation -- no LLM calls, no data access. It lives in `apps/data-pipeline/src/causal_ssm_agent/models/`.
-
-Within the pipeline artifact lineage, this document sits between the [Stage 4 functional specification](../pipeline/04-model-specification-priors.md) and the estimation runtime. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md).
+The compilation pipeline translates a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) (the Stage 4 output) into a NumPyro-ready `SSMModel`.
 
 ## Data Flow
 
-```text
-[ModelSpec](../pipeline/04-model-specification-priors.md#modelspec) + [PriorProposal](../pipeline/04-model-specification-priors.md#priorproposal) + [CausalSpec](../pipeline/01b-measurement-identifiability.md#causalspec)
-    │
-    ▼
-compile_ssm_artifact()                    [ssm_compiler.py]
-    ├── validate_model_spec_for_compilation()
-    │
-    └── compile_ssm_inputs()              [ssm_compilation.py]
-        ├── translate_spec()              [ssm_spec_translation.py]
-        │   └── → SSMSpec + edge_lag_days
-        │
-        ├── compile_priors()              [ssm_prior_compilation.py]
-        │   ├── build_prior_index_maps()  [ssm_prior_indexing.py]
-        │   └── → SSMPriors + PriorIndexMaps
-        │
-        └── bind_parameters()             [ssm_prior_compilation.py]
-            └── → parameter_bindings
-    │
-    ▼
-CompiledSSMArtifact (serializable dict)
-    │
-    ▼
-build_compiled_ssm_builder()              [ssm_builder.py]
-    ├── deserialize_ssm_spec()
-    ├── hydrate_discrete_manifest_metadata()  [ssm_observation_metadata.py]
-    ├── validate_observation_support()
-    └── → SSMModelBuilder
-            │
-            ▼
-        builder.build_model(data) → SSMModel
-        builder.fit(data) → InferenceResult
+```mermaid
+graph TD
+    ModelSpec(["ModelSpec"])
+    PriorProposal(["PriorProposal"])
+    CausalSpec(["CausalSpec"])
+
+    ModelSpec & PriorProposal & CausalSpec --> validate
+
+    subgraph compile_ssm_artifact ["compile_ssm_artifact() — ssm_compiler.py"]
+        validate["validate_model_spec_for_compilation()"]
+        validate --> translate
+
+        subgraph compile_ssm_inputs ["compile_ssm_inputs() — ssm_compilation.py"]
+            translate["translate_spec() — ssm_spec_translation.py"]
+            translate --> translate_out(["SSMSpec + edge_lag_days"])
+            translate_out --> priors
+
+            priors["compile_priors() — ssm_prior_compilation.py"]
+            priors --> prior_idx["build_prior_index_maps() — ssm_prior_indexing.py"]
+            priors --> priors_out(["SSMPriors + PriorIndexMaps"])
+            priors_out --> bind
+
+            bind["bind_parameters() — ssm_prior_compilation.py"]
+            bind --> bind_out(["parameter_bindings"])
+        end
+    end
+
+    bind_out --> artifact["CompiledSSMArtifact (serializable dict)"]
+    artifact --> deser
+
+    subgraph build_compiled_ssm_builder ["build_compiled_ssm_builder() — ssm_compiler.py"]
+        deser["deserialize_ssm_spec()"]
+        deser --> hydrate
+
+        subgraph build_model ["builder.build_model() — ssm_builder.py"]
+            hydrate["hydrate_discrete_manifest_metadata() — ssm_observation_metadata.py"]
+            validate_obs["validate_observation_support()"]
+            hydrate & validate_obs --> ssm_model(["SSMModel"])
+        end
+    end
+
+    ssm_model --> fit["builder.fit(data) → InferenceResult"]
+
+    click ModelSpec "../pipeline/04-model-specification-priors.md#modelspec"
+    click PriorProposal "../pipeline/04-model-specification-priors.md#priorproposal"
+    click CausalSpec "../pipeline/01b-measurement-identifiability.md#causalspec"
 ```
 
 ## Key Data Types
@@ -132,9 +145,9 @@ Also provides validation entry points used by earlier pipeline stages:
 - `validate_model_spec_for_compilation()` — catches structural errors before committing to compilation
 - `trial_compile_model_spec()` / `trial_compile_measurement_model()` — dry-run compilation that returns an error string or None
 
-## Stage 6: Builder & Runtime (`ssm_builder.py`, `ssm_observation_metadata.py`)
+## Stage 6: Builder & Runtime (`ssm_compiler.py`, `ssm_builder.py`, `ssm_observation_metadata.py`)
 
-Reconstructs the compiled artifact into a live `SSMModelBuilder` that can build and fit models.
+`build_compiled_ssm_builder()` in `ssm_compiler.py` reconstructs the compiled artifact into a live `SSMModelBuilder` that can build and fit models.
 
 **`ssm_observation_metadata.py`** handles data-dependent hydration:
 
@@ -147,18 +160,33 @@ Reconstructs the compiled artifact into a live `SSMModelBuilder` that can build 
 - `fit(data)` → `InferenceResult` — runs inference end-to-end
 - `sample_prior_predictive()` — generates prior predictive samples for validation
 
+**Why `fit()` lives on the builder, not on `SSMModel`:** the runtime separates three concerns:
+
+- **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from priors, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
+- **`inference.fit()`** handles [algorithm selection](inference-routing.md) (NUTS, SVI, SMC) and execution. It takes an `SSMModel` and raw arrays.
+- **`SSMModelBuilder`** bridges the gap: it converts Polars DataFrames to JAX arrays (`prepare_fit_inputs`), routes sampler configuration from `config.yaml` to `inference.fit()`, and caches the `SSMModel` and `InferenceResult` for downstream access (diagnostics, summaries, prior predictive checks).
+
+Moving `fit()` onto `SSMModel` would couple it to DataFrame handling and sampler config routing — concerns that belong to the orchestrator layer, not the probabilistic model.
+
+**Two entry points to the builder:**
+
+- `build_compiled_ssm_builder(compiled_ssm, wide_data)` in `ssm_compiler.py` — deserializes a persisted `CompiledSSMArtifact` and eagerly calls `build_model()`, returning a ready-to-fit builder. This is the pipeline path (Stage 5 consumes the artifact that Stage 4 persisted).
+- `build_ssm_builder(model_spec, priors, wide_data)` in `ssm_builder.py` — compiles on-the-fly from raw specs, also returning a ready-to-fit builder. This is the direct path for tests and notebooks.
+
+Both return an `SSMModelBuilder` with the `SSMModel` already constructed. Callers that instantiate `SSMModelBuilder()` directly get a deferred builder — `build_model()` runs lazily on the first `fit()` call.
+
 ## File Dependency Graph
 
-```text
-ssm_spec_translation.py ──┐
-                           ├── ssm_compilation.py ──┬── ssm_compiler.py (public API)
-ssm_prior_indexing.py ─────┤                        │
-                           │                        └── ssm_builder.py (runtime API)
-ssm_prior_compilation.py ──┘                             │
-                                                         │
-ssm_compilation_common.py ──── (shared by all above)     │
-                                                         │
-ssm_observation_metadata.py ─────────────────────────────┘
+```mermaid
+graph LR
+    spec["ssm_spec_translation.py"] --> compilation["ssm_compilation.py"]
+    indexing["ssm_prior_indexing.py"] --> compilation
+    prior["ssm_prior_compilation.py"] --> compilation
+    compilation --> compiler["ssm_compiler.py (public API)"]
+    compilation --> builder["ssm_builder.py (runtime API)"]
+    compiler --> builder
+    obs["ssm_observation_metadata.py"] --> builder
+    common["ssm_compilation_common.py"] -.-> spec & indexing & prior & compilation & compiler & builder
 ```
 
 Leaf modules (`ssm_spec_translation`, `ssm_prior_indexing`, `ssm_observation_metadata`, `ssm_compilation_common`) have no intra-pipeline dependencies and can be understood in isolation. The compilation orchestrator (`ssm_compilation.py`) is the only file that calls all stages.

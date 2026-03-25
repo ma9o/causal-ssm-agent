@@ -32,14 +32,12 @@ cd packages/api-types && bun run codegen
 
 Edit `.env` and fill in at minimum:
 
-- `OPENROUTER_API_KEY` — required for LLM-backed pipeline stages
-- `OPENROUTER_SESSION_SECRET` — required for encrypted OpenRouter user sessions in the web app; use at least 32 characters
-- `BYOK_SECRET_STORE_ENCRYPTION_KEY` — required for encrypted single-use OpenRouter handoff refs; use at least 32 characters
+- `OPENROUTER_API_KEY` — required for LLM-backed pipeline stages and anonymous local web execution
+- `APP_SECRET` — required for the web session secret and BYOK store secret derivation; use at least 32 characters
 
 Optional keys:
 
 - `EXA_API_KEY` — literature search
-- `OPENROUTER_TRIAL_API_KEY` — enables anonymous trial execution in the web app
 - `OPENROUTER_CREDITS_API_KEY` — optional credit inspection for the web trial pool
 - `BYOK_SECRET_STORE_URL` — libSQL URL for OpenRouter handoff refs; use `file:.local/byok-secret-store.db` locally or `libsql://...` in deployed environments
 - `BYOK_SECRET_STORE_AUTH_TOKEN` — optional auth token for remote libSQL/Turso deployments
@@ -47,7 +45,7 @@ Optional keys:
 - `TOOL_SERVER_URL` — override the refinement tool server URL (default `http://localhost:8100`)
 - `NEXT_PUBLIC_PREFECT_EVENTS_URL` — override the browser-side Prefect event WebSocket URL
 
-The Next.js app reads `OPENROUTER_SESSION_SECRET`, `OPENROUTER_TRIAL_API_KEY`, `OPENROUTER_CREDITS_API_KEY`, `BYOK_SECRET_STORE_ENCRYPTION_KEY`, `BYOK_SECRET_STORE_URL`, and `BYOK_SECRET_STORE_AUTH_TOKEN` from the runtime environment first, then falls back to the monorepo root `.env` for local development. Web-launched runs hand off the effective OpenRouter key, plus an explicit access mode, through a single-use encrypted ref in the shared libSQL store. The pipeline still uses `OPENROUTER_API_KEY` for direct/default runtime execution outside the web launch path. Local dev and CI can use the default file URL directly; deployed environments can point the same code at Turso with one URL plus an auth token.
+The Next.js app reads `OPENROUTER_API_KEY`, `APP_SECRET`, `OPENROUTER_CREDITS_API_KEY`, `BYOK_SECRET_STORE_URL`, and `BYOK_SECRET_STORE_AUTH_TOKEN` from the runtime environment first, then falls back to the monorepo root `.env` for local development. `APP_SECRET` is required for session-cookie encryption and BYOK store encryption. Web-launched runs hand off the effective OpenRouter key, plus an explicit access mode, through a single-use encrypted ref in the shared libSQL store. Local dev and CI can use the default file URL directly; deployed environments can point the same code at Turso with one URL plus an auth token.
 
 ### 4. Generate TypeScript types
 

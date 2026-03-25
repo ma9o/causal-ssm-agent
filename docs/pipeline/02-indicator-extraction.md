@@ -37,13 +37,13 @@ flowchart LR
 
 Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-identifiability.md#observation_window-and-model_clock), grouping rows into support-window buckets. They diverge in how values are extracted from each bucket.
 
-**Computed path:** Indicators with `extraction_mode="computed"` are aggregated directly via Polars expressions. The indicator's aggregation function is applied within each window group. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups.
+**Computed path:** The indicator's aggregation function is applied within each window group via Polars. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups.
 
 **Semantic path:** Indicators with `extraction_mode="semantic"` require LLM interpretation and follow a prepare-then-fan-out pattern.
 
 *Prepare chunks:* Semantic indicators are grouped by observation window, the raw DataFrame is projected to only the `source_columns` referenced by those indicators, chunked into batches, and formatted as LLM-readable markdown showing timestamped events within each window. Events are truncated per window when they exceed a configurable cap, preserving the first and last events with uniform sampling in between.
 
-*Fan-out:* Each chunk is dispatched to a parallel LLM worker via Prefect's `.map()`, respecting configurable concurrency and rate limits. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It reads the events, interprets them against each indicator's `how_to_measure` instructions, and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
+*Fan-out:* Each chunk is dispatched to a parallel LLM worker via Prefect's `.map()`, respecting configurable concurrency and rate limits. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It interprets events against those instructions and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
 
 - *Indicator names* exist in the `CausalSpec`
 - *Support-window starts* match the expected boundaries for this chunk
@@ -51,11 +51,11 @@ Both paths begin by [truncating the raw time column to each indicator's observat
 - *No duplicate `(window_start, indicator)` pairs* within the chunk
 - *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
 
-**Annotation:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to derive the canonical [`ObservationRecord`](#observationrecord) fields per the [derived observation semantics](01b-measurement-identifiability.md#derived-observation-semantics).
+**Annotation:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to produce the canonical [`ObservationRecord`](#observationrecord).
 
 ### Example
 
-For a study of classroom interventions and student learning where Stage 1b defined computed indicators like "mean daily attendance rate" (`computed`, continuous, `mean`, `1w`) and semantic indicators like "teacher-reported engagement level" (`semantic`, ordinal, `last`, `1w`), Stage 2 would aggregate attendance records via Polars into weekly means while dispatching weekly narrative logs to LLM workers that extract ordinal engagement codes. Both paths produce `ObservationRecord`s anchored at week boundaries with explicit support windows.
+For a study of classroom interventions and student learning where Stage 1b defined computed indicators like "mean daily attendance rate" (`computed`, continuous, `mean`, `1w`) and semantic indicators like "teacher-reported engagement level" (`semantic`, ordinal, `last`, `1w`), Stage 2 would aggregate attendance records via Polars into weekly means while dispatching weekly narrative logs to LLM workers that extract ordinal engagement codes.
 
 ## Outputs
 

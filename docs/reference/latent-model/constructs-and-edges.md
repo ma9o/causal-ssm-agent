@@ -1,12 +1,12 @@
 # LatentModel: Constructs and Edges
 
-This reference defines how to read a `LatentModel`: what a construct is, which edges are legal, and how lag semantics work before measurement choices are made. For the emitted Stage 1a contract, see [Stage 1a](../../pipeline/01a-latent-model.md).
+This reference deepens the construct and edge semantics used by [Stage 1a](../../pipeline/01a-latent-model.md). Stage 1a owns the emitted `LatentModel` contract; this page focuses on ontology, edge legality, and lag semantics.
 
 ## Ontology
 
 **Constructs** are theoretical entities in the causal model such as stress, mood, cognitive load, staffing pressure, or student engagement. They live in the `LatentModel`.
 
-**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [MeasurementModel](../measurement-model/indicators.md) and reflect their parent construct via factor loadings.
+**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [Stage 1b measurement model](../../pipeline/01b-measurement-identifiability.md#measurementmodel) and reflect their parent construct via factor loadings.
 
 The `LatentModel` therefore lives at the construct layer, not the observed-variable layer.
 
@@ -34,7 +34,7 @@ Edge restriction: time-invariant constructs may only have time-invariant parents
 
 ### Shared Construct Timescale
 
-All time-varying constructs currently share a single timescale set by the [`MeasurementModel` `model_clock`](../measurement-model/indicators.md#observation-windows-and-model-clock). Time-invariant constructs have no temporal granularity of their own.
+All time-varying constructs currently share a single timescale set by the [Stage 1b `model_clock`](../../pipeline/01b-measurement-identifiability.md#observation-windows-and-model-clock). Time-invariant constructs have no temporal granularity of their own.
 
 ### Autoregressive Structure
 
