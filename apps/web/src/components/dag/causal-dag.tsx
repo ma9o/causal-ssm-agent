@@ -12,12 +12,14 @@ import {
   applyNodeChanges,
 } from "@xyflow/react";
 import { useCallback, useMemo, useState } from "react";
+import type { ConstructStatus } from "./construct-node";
 import { ConstructNode } from "./construct-node";
 
 interface CausalDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
+  nodeStatuses?: Record<string, ConstructStatus>;
   onNodeClick?: (constructName: string) => void;
   height?: string;
 }
@@ -71,10 +73,40 @@ function EdgeLegend({
   );
 }
 
+function NodeLegend({
+  hasMarginalized,
+  hasBlocking,
+}: { hasMarginalized: boolean; hasBlocking: boolean }) {
+  if (!hasMarginalized && !hasBlocking) return null;
+  return (
+    <div className="rounded-md border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm shadow-sm">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-3 w-3 rounded-sm border-2 border-foreground/50 bg-card" />
+          <span className="text-muted-foreground">observed</span>
+        </div>
+        {hasMarginalized && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-sm border-2 border-success bg-card" />
+            <span className="text-muted-foreground">marginalized</span>
+          </div>
+        )}
+        {hasBlocking && (
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-3 w-3 rounded-sm border-2 border-destructive bg-card" />
+            <span className="text-muted-foreground">blocking</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function CausalDag({
   constructs,
   edges,
   indicators,
+  nodeStatuses,
   onNodeClick,
   height = "500px",
 }: CausalDagProps) {
@@ -106,8 +138,17 @@ export function CausalDag({
   const hasLagged = edges.some((e) => e.lagged);
   const hasContemporaneous = edges.some((e) => !e.lagged);
 
+  // Merge node statuses into node data
+  const nodesWithStatus = useMemo(() => {
+    if (!nodeStatuses) return localNodes;
+    return localNodes.map((n) => ({
+      ...n,
+      data: { ...n.data, status: nodeStatuses[n.id] },
+    }));
+  }, [localNodes, nodeStatuses]);
+
   const styledNodes = useMemo(() => {
-    if (!selectedNode) return localNodes;
+    if (!selectedNode) return nodesWithStatus;
     const connectedIds = new Set<string>([selectedNode]);
     for (const e of flowEdges) {
       if (e.source === selectedNode || e.target === selectedNode) {
@@ -115,11 +156,11 @@ export function CausalDag({
         connectedIds.add(e.target);
       }
     }
-    return localNodes.map((n) => ({
+    return nodesWithStatus.map((n) => ({
       ...n,
       style: connectedIds.has(n.id) ? {} : { opacity: 0.3 },
     }));
-  }, [localNodes, flowEdges, selectedNode]);
+  }, [nodesWithStatus, flowEdges, selectedNode]);
 
   const styledEdges = useMemo(() => {
     if (!selectedNode) return flowEdges;
@@ -173,7 +214,13 @@ export function CausalDag({
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         <Panel position="top-right">
-          <EdgeLegend hasLagged={hasLagged} hasContemporaneous={hasContemporaneous} />
+          <div className="flex flex-col gap-2 items-end">
+            <EdgeLegend hasLagged={hasLagged} hasContemporaneous={hasContemporaneous} />
+            <NodeLegend
+              hasMarginalized={!!nodeStatuses && Object.values(nodeStatuses).includes("marginalized")}
+              hasBlocking={!!nodeStatuses && Object.values(nodeStatuses).includes("blocking")}
+            />
+          </div>
         </Panel>
       </ReactFlow>
     </div>

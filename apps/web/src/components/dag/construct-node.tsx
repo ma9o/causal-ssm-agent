@@ -7,8 +7,31 @@ import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Star } from "lucide-react";
 import { memo } from "react";
 
+export type ConstructStatus = "observed" | "marginalized" | "blocking";
+
 interface ConstructNodeData extends Construct {
   indicators?: Indicator[];
+  status?: ConstructStatus;
+}
+
+function borderClass(construct: ConstructNodeData): string {
+  switch (construct.status) {
+    case "blocking":
+      return "border-destructive";
+    case "marginalized":
+      return "border-success";
+    default:
+      return construct.role === "endogenous" ? "border-foreground/65" : "border-foreground/35";
+  }
+}
+
+function bgClass(status?: ConstructStatus): string {
+  switch (status) {
+    case "blocking":
+    case "marginalized":
+    default:
+      return "bg-card";
+  }
 }
 
 function ConstructNodeInner({ data, selected }: NodeProps) {
@@ -20,8 +43,8 @@ function ConstructNodeInner({ data, selected }: NodeProps) {
       className={cn(
         "rounded-lg border-2 shadow-sm transition-all duration-200 cursor-pointer",
         "hover:shadow-md hover:-translate-y-0.5",
-        "bg-card",
-        construct.role === "endogenous" ? "border-foreground/65" : "border-foreground/35",
+        bgClass(construct.status),
+        borderClass(construct),
         construct.is_outcome && "ring-2 ring-foreground/75 ring-offset-1",
         selected && "shadow-lg ring-2 ring-primary ring-offset-2",
       )}
