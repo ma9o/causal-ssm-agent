@@ -86,7 +86,8 @@ df = pl.DataFrame(data)
 ## Guidelines
 
 - Produce a SINGLE wide-format DataFrame (one row per observation/timepoint)
-- Include a date/timestamp column if temporal data exists
+- The primary temporal axis MUST be a Datetime-typed column named exactly \
+`timestamp`. Rename the source time column if necessary.
 - Use clean column names (lowercase, underscores, no spaces)
 - Cast numeric columns to appropriate types (Float64, Int64)
 - Handle encoding issues gracefully (try utf-8, then latin-1)

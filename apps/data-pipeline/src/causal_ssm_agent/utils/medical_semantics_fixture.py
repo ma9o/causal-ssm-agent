@@ -10,7 +10,7 @@ from typing import Any
 import polars as pl
 
 from causal_ssm_agent.utils.causal_spec import get_indicators
-from causal_ssm_agent.utils.data import bucket_by_clock, detect_time_column
+from causal_ssm_agent.utils.data import bucket_by_clock
 
 FIXTURE_USER_ID = "MEDICAL_SEMANTICS"
 EXPECTED_STAGE2_COLUMNS = [
@@ -296,9 +296,8 @@ def compare_medical_semantics_outputs(
         f"anchor_time dtype mismatch: {data_for_model.schema['anchor_time']}",
     )
 
-    time_col = detect_time_column(stage0)
     observed_support_starts = [
-        start.replace("+00:00", "") for start, _ in bucket_by_clock(stage0, "1d", time_col)
+        start.replace("+00:00", "") for start, _ in bucket_by_clock(stage0, "1d", "timestamp")
     ]
     _add_issue(
         stage2_structure_issues,
