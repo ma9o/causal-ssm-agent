@@ -135,7 +135,15 @@ def build_causal_spec(
     Returns:
         CausalSpec as a dictionary (includes identifiability key)
     """
+    from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
+
     from .schemas import IdentifiabilityStatus
+
+    estimation = build_estimation_projection(
+        latent_model,
+        measurement_model,
+        identifiability_status,
+    )
 
     causal_spec = CausalSpec(
         latent=LatentModel.model_validate(latent_model),
@@ -145,5 +153,6 @@ def build_causal_spec(
             if identifiability_status
             else None
         ),
+        estimation=estimation,
     )
     return causal_spec.model_dump()

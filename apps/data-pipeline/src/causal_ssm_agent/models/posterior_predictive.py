@@ -21,7 +21,6 @@ import jax.random as random
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.likelihoods.emissions import build_predictive_observation_sampler
 from causal_ssm_agent.models.likelihoods.kernels import (
     build_composite_observation_kernel,
@@ -37,6 +36,10 @@ from causal_ssm_agent.models.likelihoods.trajectory_observations import (
     compile_observation_operator,
 )
 from causal_ssm_agent.models.ssm.constants import MIN_DT
+from causal_ssm_agent.models.ssm.covariance_utils import (
+    INITIAL_STATE_COV_MIN_EIGENVALUE,
+    stable_cholesky,
+)
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 
 # ---------------------------------------------------------------------------
@@ -115,16 +118,6 @@ def _broadcast_draw_param(
         return value[indices]
     return jnp.broadcast_to(value, (n_use, *value.shape))
 
-
-def _stable_cholesky(cov: jnp.ndarray) -> jnp.ndarray:
-    """Return a Cholesky factor after symmetrizing and repairing tiny PSD violations."""
-    cov_sym = 0.5 * (cov + cov.T)
-    min_eig = jnp.min(jnp.linalg.eigvalsh(cov_sym))
-    jitter = jnp.maximum(CHOL_JITTER, -min_eig + CHOL_JITTER)
-    eye = jnp.eye(cov.shape[0], dtype=cov.dtype)
-    return jnp.linalg.cholesky(cov_sym + jitter * eye)
-
-
 def _linear_predictors_from_latent_trajectory(
     latent_trajectory: jnp.ndarray,
     lambda_mat: jnp.ndarray,
@@ -165,7 +158,7 @@ def _simulate_latent_trajectory(
 
     def scan_fn(eta_prev, inputs):
         Ad_t, Qd_t, cd_t, pkey = inputs
-        Qd_chol = _stable_cholesky(Qd_t)
+        Qd_chol = stable_cholesky(Qd_t)
         noise = transition_kernel.sample_noise_fn(pkey, Qd_chol)
         eta_t = Ad_t @ eta_prev + cd_t + noise
         return eta_t, eta_t
@@ -434,7 +427,9 @@ def simulate_posterior_predictive(
             )
 
     # Cholesky decomposition of t0_cov (needed by all paths)
-    t0_chol_sub = vmap(_stable_cholesky)(t0_cov_sub)
+    t0_chol_sub = vmap(
+        lambda cov: stable_cholesky(cov, min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE)
+    )(t0_cov_sub)
 
     if observation_operator.requires_interval_summary_handling:
         support = observation_operator.observation_support

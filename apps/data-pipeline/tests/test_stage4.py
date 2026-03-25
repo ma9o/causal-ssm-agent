@@ -55,19 +55,13 @@ def simple_model_spec() -> dict:
         ],
         "parameters": [
             {
-                "name": "intercept_mood_score",
-                "role": "fixed_effect",
-                "constraint": "none",
-                "description": "Intercept for mood",
-            },
-            {
                 "name": "rho_mood",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) coefficient for mood",
             },
             {
-                "name": "sigma_mood_score",
+                "name": "sigma_mood",
                 "role": "residual_sd",
                 "constraint": "positive",
                 "description": "Residual SD for mood",
@@ -80,13 +74,6 @@ def simple_model_spec() -> dict:
 def simple_priors() -> dict:
     """Simple priors matching the model spec."""
     return {
-        "intercept_mood_score": {
-            "parameter": "intercept_mood_score",
-            "distribution": "Normal",
-            "params": {"mu": 5.0, "sigma": 1.0},
-            "sources": [],
-            "reasoning": "Centered on scale midpoint",
-        },
         "rho_mood": {
             "parameter": "rho_mood",
             "distribution": "Beta",
@@ -94,8 +81,8 @@ def simple_priors() -> dict:
             "sources": [],
             "reasoning": "Weakly informative for AR coefficient",
         },
-        "sigma_mood_score": {
-            "parameter": "sigma_mood_score",
+        "sigma_mood": {
+            "parameter": "sigma_mood",
             "distribution": "HalfNormal",
             "params": {"sigma": 1.0},
             "sources": [],
@@ -321,7 +308,7 @@ class TestPriorPredictiveValidation:
         assert is_valid is True
         assert len(results) > 0
 
-    def test_model_build_failure(self, simple_priors):
+    def test_model_build_failure(self):
         """Broken spec -> is_valid=False, error in results."""
         broken_spec = {
             "likelihoods": [
@@ -341,6 +328,15 @@ class TestPriorPredictiveValidation:
                 }
             ],
         }
+        broken_priors = {
+            "rho_x": {
+                "parameter": "rho_x",
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "reasoning": "test",
+            }
+        }
         # This should still build (builder is tolerant), but let's test
         # with a truly broken spec by patching build_model to raise
         with patch(
@@ -348,7 +344,7 @@ class TestPriorPredictiveValidation:
             side_effect=ValueError("deliberate test failure"),
         ):
             is_valid, results, _samples = validate_prior_predictive(
-                broken_spec, simple_priors, None, n_samples=10
+                broken_spec, broken_priors, None, n_samples=10
             )
             assert is_valid is False
             assert any("model_build" in r.parameter for r in results)
@@ -604,8 +600,8 @@ class TestPriorPredictiveValidation:
         assert resolved["rho_mood"]["distribution"] == "Beta"
         assert resolved["rho_mood"]["params"] == {"alpha": 2.0, "beta": 2.0}
         assert resolved["rho_mood"]["reasoning"] == "Weakly informative for AR coefficient"
-        assert resolved["intercept_mood_score"]["distribution"] == "Normal"
-        assert resolved["intercept_mood_score"]["params"] == {"mu": 5.0, "sigma": 1.0}
+        assert resolved["sigma_mood"]["distribution"] == "HalfNormal"
+        assert resolved["sigma_mood"]["params"] == {"sigma": 1.0}
 
     def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
         """Compiled semantics should surface LogNormal and bounded real priors."""
@@ -747,19 +743,21 @@ class TestSSMPriorConversion:
         sigma_val = sigma[0] if isinstance(sigma, list) else sigma
         assert sigma_val > 0.4  # delta method sigma
 
-    def test_halfnormal_prior_preserves_sigma(self, simple_model_spec):
-        """HalfNormal(0.5) prior preserves sigma."""
+    def test_structured_prior_requires_structural_binding_for_residual_sd(
+        self, simple_model_spec
+    ):
+        """Structured priors should fail without a translated SSM binding."""
         priors = {
-            "sigma_mood_score": {
-                "parameter": "sigma_mood_score",
+            "sigma_mood": {
+                "parameter": "sigma_mood",
                 "distribution": "HalfNormal",
                 "params": {"sigma": 0.5},
                 "sources": [],
                 "reasoning": "test",
             },
         }
-        ssm_priors, _idx = compile_ssm_priors(priors, simple_model_spec, ssm_spec=None)
-        assert ssm_priors.diffusion_diag["sigma"] == 0.5
+        with pytest.raises(ValueError, match="could not be structurally bound"):
+            compile_ssm_priors(priors, simple_model_spec, ssm_spec=None)
 
     def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
         """Compilation should validate a dict spec once, then pass the parsed object through."""
@@ -770,8 +768,8 @@ class TestSSMPriorConversion:
 
         assert validate.call_count == 1
 
-    def test_role_based_mapping_covers_loading(self, simple_model_spec):
-        """LOADING role maps to lambda_free SSMPriors field."""
+    def test_structured_prior_requires_structural_binding_for_loading(self, simple_model_spec):
+        """Loading priors should fail without a translated SSM binding."""
         spec = dict(simple_model_spec)
         spec["parameters"] = [
             {
@@ -790,20 +788,19 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        ssm_priors, _idx = compile_ssm_priors(priors, spec, ssm_spec=None)
-        assert ssm_priors.lambda_free["sigma"] == 0.8
+        with pytest.raises(ValueError, match="could not be structurally bound"):
+            compile_ssm_priors(priors, spec, ssm_spec=None)
 
-    def test_keyword_fallback_without_model_spec(self):
-        """Without ModelSpec, keywords still map priors (no AR transform)."""
+    def test_unbound_prior_name_fails_without_model_spec(self):
+        """Prior names must match a ModelSpec parameter; keyword guessing is not allowed."""
         priors = {
             "rho_x": {
                 "distribution": "Normal",
                 "params": {"mu": -0.3, "sigma": 0.5},
             },
         }
-        ssm_priors, _idx = compile_ssm_priors(priors, {}, ssm_spec=None)
-        assert ssm_priors.drift_diag["mu"] == -0.3
-        assert ssm_priors.drift_diag["sigma"] == 0.5
+        with pytest.raises(ValueError, match="does not correspond to any parameter in ModelSpec"):
+            compile_ssm_priors(priors, {}, ssm_spec=None)
 
     def test_multiple_ar_params_produce_per_element_drift_diag(self):
         """Multiple AR params map to separate drift_diag array entries."""

@@ -41,6 +41,7 @@ _SPEC_ARRAY_FIELDS = {
 _SPEC_BOOL_ARRAY_FIELDS = {
     "drift_mask",
     "lambda_mask",
+    "t0_correlation_mask",
     "time_invariant_mask",
 }
 _SPEC_ENUM_FIELDS = {
@@ -199,14 +200,14 @@ def _collect_model_spec_compile_errors(
     n_manifest = len(model_spec.likelihoods)
 
     if causal_spec is not None:
-        from causal_ssm_agent.utils.causal_spec import get_constructs
+        from causal_ssm_agent.utils.causal_spec import get_estimation_state_order
 
-        constructs = get_constructs(causal_spec)
-        if not constructs:
-            errors.append("causal_spec.latent.constructs is empty")
+        latent_states = get_estimation_state_order(causal_spec)
+        if not latent_states:
+            errors.append("causal_spec.estimation.state_order is empty")
             return errors
 
-        n_latent = len(constructs)
+        n_latent = len(latent_states)
         if n_manifest < n_latent:
             errors.append(
                 "Loading matrix is rank-deficient: "

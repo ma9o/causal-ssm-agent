@@ -124,6 +124,24 @@ def _make_causal_spec_dict() -> dict:
                 },
             ],
         },
+        "estimation": {
+            "state_order": ["X", "Y", "Z"],
+            "edges": [
+                {
+                    "cause": "X",
+                    "effect": "Y",
+                    "description": "X causes Y",
+                    "lagged": True,
+                },
+                {
+                    "cause": "Y",
+                    "effect": "Z",
+                    "description": "Y causes Z",
+                    "lagged": True,
+                },
+            ],
+            "induced_dependencies": [],
+        },
     }
 
 
@@ -376,6 +394,179 @@ class TestBuilderMasks:
         )
         assert drift_mask is None
         assert lambda_mask is None
+
+    def test_translate_spec_builds_sparse_initial_state_correlation_mask(self):
+        """Only authored initial-state correlations should become free t0 pairs."""
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from causal_ssm_agent.orchestrator.schemas_model import (
+            DistributionFamily,
+            LikelihoodSpec,
+            LinkFunction,
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+
+        causal_spec = _make_causal_spec_dict()
+        model_spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="x1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="x2",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="y1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="z1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+            ],
+            parameters=[
+                ParameterSpec(
+                    name="cor0_X_Z",
+                    role=ParameterRole.INITIAL_STATE_CORRELATION,
+                    constraint=ParameterConstraint.CORRELATION,
+                    description="initial correlation",
+                ),
+            ],
+        )
+
+        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+
+        expected_mask = np.zeros((3, 3), dtype=bool)
+        expected_mask[2, 0] = True
+        assert spec.t0_var == "free"
+        assert spec.t0_correlation_mask is not None
+        np.testing.assert_array_equal(spec.t0_correlation_mask, expected_mask)
+
+    def test_translate_spec_rejects_duplicate_initial_state_correlation_pairs(self):
+        """Different parameter names may not target the same initial-state pair."""
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from causal_ssm_agent.orchestrator.schemas_model import (
+            DistributionFamily,
+            LikelihoodSpec,
+            LinkFunction,
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+
+        causal_spec = _make_causal_spec_dict()
+        model_spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="x1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="x2",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="y1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="z1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+            ],
+            parameters=[
+                ParameterSpec(
+                    name="cor0_X_Z",
+                    role=ParameterRole.INITIAL_STATE_CORRELATION,
+                    constraint=ParameterConstraint.CORRELATION,
+                    description="initial correlation",
+                ),
+                ParameterSpec(
+                    name="cor0_Z_X",
+                    role=ParameterRole.INITIAL_STATE_CORRELATION,
+                    constraint=ParameterConstraint.CORRELATION,
+                    description="duplicate initial correlation",
+                ),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="Duplicate INITIAL_STATE_CORRELATION parameters"):
+            translate_spec(model_spec, causal_spec=causal_spec)
+
+    def test_translate_spec_rejects_initial_state_self_correlations(self):
+        """Initial-state correlations must target two distinct latent states."""
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from causal_ssm_agent.orchestrator.schemas_model import (
+            DistributionFamily,
+            LikelihoodSpec,
+            LinkFunction,
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+
+        causal_spec = _make_causal_spec_dict()
+        model_spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="x1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="x2",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="y1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="z1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+            ],
+            parameters=[
+                ParameterSpec(
+                    name="cor0_X_X",
+                    role=ParameterRole.INITIAL_STATE_CORRELATION,
+                    constraint=ParameterConstraint.CORRELATION,
+                    description="invalid self correlation",
+                ),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="two distinct latent states"):
+            translate_spec(model_spec, causal_spec=causal_spec)
 
     def test_builder_end_to_end(self):
         """Full builder pipeline with causal_spec produces masked spec."""

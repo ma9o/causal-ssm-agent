@@ -401,10 +401,7 @@ def materialize_stage4_result(
         "authored_priors": authored_priors,
         "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
-        "validation": validation_result,
-        "model_info": model_result,
-        "is_valid": validation_result.get("is_valid", False),
-        "causal_spec": causal_spec,
+        "_causal_spec": causal_spec,
         "prior_predictive_samples": validation_result.get("prior_predictive_samples", {}),
     }
     if compiled_ssm is not None:

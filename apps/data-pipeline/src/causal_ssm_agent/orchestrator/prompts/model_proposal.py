@@ -246,7 +246,10 @@ def _format_structural_context(structural_context: dict) -> str:
         return (
             f"construct_1=`{structural_context['construct_1']}`; "
             f"construct_2=`{structural_context['construct_2']}`; "
-            f"marginalized_confounder=`{structural_context.get('marginalized_confounder')}`"
+            f"dependency_kind=`{structural_context.get('dependency_kind')}`; "
+            "source_confounders=`{}`".format(
+                ",".join(structural_context.get("source_confounders") or [])
+            )
         )
     if "indicator" in structural_context:
         return (
@@ -361,20 +364,47 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
     if correlation_cards:
         lines.extend(
             [
-                "#### Correlations",
+                "#### Innovation Correlations",
                 "",
-                "| Parameter | Construct 1 | Construct 2 | Marginalized Confounder | Constraint |",
-                "|-----------|-------------|-------------|-------------------------|------------|",
+                "| Parameter | Construct 1 | Construct 2 | Source Confounders | Constraint |",
+                "|-----------|-------------|-------------|--------------------|------------|",
             ]
         )
         for card in correlation_cards:
             structural_context = card.get("structural_context") or {}
             lines.append(
-                "| {parameter} | {construct_1} | {construct_2} | {confounder} | {constraint} |".format(
+                "| {parameter} | {construct_1} | {construct_2} | {source_confounders} | {constraint} |".format(
                     parameter=card["parameter"],
                     construct_1=structural_context.get("construct_1", "-"),
                     construct_2=structural_context.get("construct_2", "-"),
-                    confounder=structural_context.get("marginalized_confounder", "-"),
+                    source_confounders=", ".join(
+                        structural_context.get("source_confounders") or ["-"]
+                    ),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    initial_state_correlation_cards = groups.get("initial_state_correlation") or []
+    if initial_state_correlation_cards:
+        lines.extend(
+            [
+                "#### Initial-State Correlations",
+                "",
+                "| Parameter | Construct 1 | Construct 2 | Source Confounders | Constraint |",
+                "|-----------|-------------|-------------|--------------------|------------|",
+            ]
+        )
+        for card in initial_state_correlation_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {construct_1} | {construct_2} | {source_confounders} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct_1=structural_context.get("construct_1", "-"),
+                    construct_2=structural_context.get("construct_2", "-"),
+                    source_confounders=", ".join(
+                        structural_context.get("source_confounders") or ["-"]
+                    ),
                     constraint=card["constraint"],
                 )
             )
@@ -383,7 +413,15 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
     other_roles = [
         role
         for role in groups
-        if role not in {"ar_coefficient", "fixed_effect", "residual_sd", "loading", "correlation"}
+        if role
+        not in {
+            "ar_coefficient",
+            "fixed_effect",
+            "residual_sd",
+            "loading",
+            "correlation",
+            "initial_state_correlation",
+        }
     ]
     for role in sorted(other_roles):
         lines.extend(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 import numpyro.distributions as dist
 import pytest
 from jax.flatten_util import ravel_pytree
@@ -147,6 +148,20 @@ class TestSiteRegistry:
         names = {s.name for s in registry}
         assert "diffusion_diag_pop" in names
         assert "diffusion_lower" in names
+
+    def test_sparse_initial_state_correlations_only_include_authored_pairs(self):
+        """Initial-state correlation sites should only exist for authored pairs."""
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[2, 0] = True
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=2,
+            t0_var="free",
+            t0_correlation_mask=mask,
+        )
+        registry = build_site_registry(spec)
+        site_map = {site.name: site for site in registry}
+        assert site_map["t0_var_lower"].shape == (1,)
 
     def test_support_classes(self, simple_spec):
         """Check that support classes are correctly assigned."""
@@ -297,6 +312,67 @@ class TestDeterministicAssembly:
         assert jnp.allclose(det["t0_means"], jnp.broadcast_to(spec.t0_means, (3, 2)))
         expected_t0_cov = spec.t0_var @ spec.t0_var.T
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
+
+    def test_assemble_deterministics_from_registry_initial_state_correlations(self):
+        """Initial-state off-diagonal samples are interpreted as correlations."""
+        mask = np.zeros((2, 2), dtype=bool)
+        mask[1, 0] = True
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            t0_var="free",
+            t0_correlation_mask=mask,
+        )
+        registry = build_site_registry(spec)
+        samples = {
+            "drift_diag_pop": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_offdiag_pop": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "diffusion_diag_pop": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
+            "diffusion_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
+            "manifest_var_diag": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
+            "t0_means_pop": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
+            "t0_var_diag": jnp.array([[2.0, 3.0]], dtype=jnp.float32),
+            "t0_var_lower": jnp.array([[0.25]], dtype=jnp.float32),
+        }
+
+        det = assemble_deterministics_from_registry(samples, spec, registry)
+
+        assert jnp.allclose(
+            det["t0_cov"][0],
+            jnp.array([[4.0, 1.5], [1.5, 9.0]], dtype=jnp.float32),
+        )
+
+    def test_assemble_deterministics_repairs_invalid_initial_correlation_matrix(self):
+        """Impossible authored initial correlations are repaired to a PSD covariance."""
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[1, 0] = True
+        mask[2, 0] = True
+        mask[2, 1] = True
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=3,
+            t0_var="free",
+            t0_correlation_mask=mask,
+        )
+        registry = build_site_registry(spec)
+        samples = {
+            "drift_diag_pop": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
+            "drift_offdiag_pop": jnp.array([[0.1] * 6], dtype=jnp.float32),
+            "diffusion_diag_pop": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
+            "diffusion_lower": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
+            "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
+            "manifest_var_diag": jnp.array([[0.7, 0.8, 0.9]], dtype=jnp.float32),
+            "t0_means_pop": jnp.array([[1.0, -1.0, 0.5]], dtype=jnp.float32),
+            "t0_var_diag": jnp.array([[1.0, 1.0, 1.0]], dtype=jnp.float32),
+            "t0_var_lower": jnp.array([[0.9, 0.9, -0.9]], dtype=jnp.float32),
+        }
+
+        det = assemble_deterministics_from_registry(samples, spec, registry)
+        min_eig = jnp.min(jnp.linalg.eigvalsh(det["t0_cov"][0]))
+
+        assert bool(jnp.isfinite(det["t0_cov"]).all())
+        assert float(min_eig) > -1e-6
 
 
 # ---------------------------------------------------------------------------

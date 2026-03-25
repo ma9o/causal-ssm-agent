@@ -43,7 +43,13 @@ from causal_ssm_agent.models.ssm.counterfactual import (
 from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
+from causal_ssm_agent.utils.causal_spec import (
+    get_estimable_treatments,
+    get_estimation_constructs,
+    get_estimation_state_order,
+    get_indicators,
+    get_outcome_name,
+)
 from causal_ssm_agent.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
@@ -259,9 +265,8 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     non_identifiable = (causal_spec.get("identifiability") or {}).get(
         "non_identifiable_treatments"
     ) or {}
-    latent_model = stage1a.get("latent_model", {})
-    outcome_name = get_outcome_name(latent_model)
-    treatments = get_all_treatments(latent_model)
+    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(stage1a.get("latent_model", {}))
+    treatments = get_estimable_treatments(causal_spec)
 
     return {
         "_workspace_id": workspace_id,
@@ -364,10 +369,14 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     runtime = ctx["_prepared_runtime"]
     fitted_artifact = ctx["_fitted_artifact"]
     causal_spec = stage1b.get("causal_spec", {})
-    latent = causal_spec.get("latent") or {}
     measurement = causal_spec.get("measurement") or {}
-    constructs = list(latent.get("constructs", []) or [])
-    indicators = list(measurement.get("indicators", []) or [])
+    retained_state_names = set(get_estimation_state_order(causal_spec))
+    constructs = get_estimation_constructs(causal_spec)
+    indicators = [
+        indicator
+        for indicator in get_indicators(causal_spec)
+        if indicator.get("construct_name") in retained_state_names
+    ]
 
     if focused:
         constructs = [item for item in constructs if item.get("name") in focused]

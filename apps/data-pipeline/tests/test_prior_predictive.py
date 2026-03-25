@@ -6,6 +6,7 @@ get_failed_parameters.
 """
 
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 import pytest
 
@@ -348,3 +349,37 @@ class TestCompiledPriorPredictiveRuntime:
                 num_samples=3,
                 seed=0,
             )
+
+    def test_initial_state_correlation_runtime_repairs_invalid_draws(self):
+        """Compiled runtime should stabilize invalid multi-pair initial correlations."""
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[1, 0] = True
+        mask[2, 0] = True
+        mask[2, 1] = True
+        spec = SSMSpec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3, dtype=jnp.float32),
+            diffusion="diag",
+            t0_var="free",
+            t0_correlation_mask=mask,
+            manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
+            manifest_links=[LinkFunction.IDENTITY] * 3,
+        )
+        priors = SSMPriors(
+            t0_var_offdiag={"mu": 0.8, "sigma": 0.1, "lower": -1.0, "upper": 1.0, "family": 1}
+        )
+        semantics = compile_prior_semantics(spec, priors)
+
+        samples = sample_prior_predictive_from_compiled_semantics(
+            spec,
+            semantics,
+            jnp.arange(5, dtype=jnp.float32),
+            num_samples=20,
+            seed=0,
+        )
+
+        min_eigs = jnp.linalg.eigvalsh(samples["t0_cov"])[..., 0]
+        assert bool(jnp.isfinite(samples["observations"]).all())
+        assert bool(jnp.isfinite(samples["t0_cov"]).all())
+        assert bool((min_eigs > -1e-6).all())

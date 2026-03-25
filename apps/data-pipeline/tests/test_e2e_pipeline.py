@@ -381,17 +381,11 @@ def daily_data(causal_spec, worker_dfs):
 
 
 @pytest.fixture(scope="class")
-def stage4_result(model_spec, priors, daily_data):
+def stage4_result(model_spec, priors):
     """Assembled dict for stages 4b and 5 (with fast SVI config)."""
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
 
     return {
-        "model_spec": model_spec,
-        "priors": priors,
-        "validation": {"is_valid": True, "results": [], "issues": []},
-        "model_info": {"model_built": True, "model_type": "SSM", "version": "0.1.0"},
-        "is_valid": True,
-        "data_for_model": daily_data,
         "_compiled_ssm": compile_ssm_artifact(model_spec, priors),
     }
 
@@ -496,7 +490,7 @@ class TestE2EPipeline:
 
     def test_stage5_fit_via_pipeline_path(self, stage4_result, daily_data):
         """fit_model.fn() surfaces unstable SVI runs as explicit task failures."""
-        result = fit_model.fn(stage4_result, daily_data, sampler_config=_SVI_CONFIG)
+        result = fit_model.fn(stage4_result["_compiled_ssm"], daily_data, sampler_config=_SVI_CONFIG)
         assert result["fitted"] is False
         assert "non-finite losses" in result["error"]
 
@@ -562,7 +556,7 @@ class TestE2EPipeline:
         )
 
         fitted_result = fit_model.fn(
-            {"model_spec": {}},
+            None,
             data_for_model,
             sampler_config=svi_config,
             builder=builder,

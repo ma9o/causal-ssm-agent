@@ -91,11 +91,11 @@ async def stage1b(
         [dataset_schema],
         dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
     )
-    from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
-
-    treatments = list(get_all_treatments(latent_model))
-    outcome_name = get_outcome_name(latent_model) or ""
     causal_spec = result.get("causal_spec", {})
+    from causal_ssm_agent.utils.causal_spec import get_estimable_treatments, get_outcome_name
+
+    treatments = list(get_estimable_treatments(causal_spec))
+    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(latent_model) or ""
     identifiability = causal_spec.get("identifiability", {}) or {}
     non_identifiable = identifiability.get("non_identifiable_treatments", {})
 
@@ -117,14 +117,23 @@ async def stage1b(
             else:
                 logger.warning("  - %s → %s", treatment, outcome_name)
         treatments = [t for t in treatments if t not in non_identifiable]
-        logger.info("Continuing with %d identifiable treatments", len(treatments))
+        logger.info(
+            "Retaining %d estimable intervention targets after identifiability filtering",
+            len(treatments),
+        )
 
-    if not non_identifiable:
+    if not treatments:
+        logger.warning(
+            "No retained estimation-stage intervention targets remain for %s",
+            outcome_name or "the outcome",
+        )
+
+    if treatments and not non_identifiable:
         outcome = "success"
         fail_reason = None
     elif not treatments:
         outcome = "fail"
-        fail_reason = "no_identifiable_treatments"
+        fail_reason = "no_estimable_treatments"
     else:
         outcome = "warn"
         fail_reason = None
@@ -152,7 +161,6 @@ async def stage2(
 
     Returns dict with:
     - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
-    - ``_worker_statuses``: per-worker status list
     - plus web-serializable worker metadata
     """
     from prefect.task_runners import ThreadPoolTaskRunner
@@ -190,7 +198,6 @@ async def stage2(
 
     result = {
         "_data_for_model": data_for_model,
-        "_worker_statuses": worker_statuses,
         "workers": worker_statuses,
     }
     if "llm_trace" in stage2_result:
@@ -327,12 +334,12 @@ async def stage4(
 def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
     """Parametric identifiability diagnostics.
 
-    Returns: {parametric_id, inference_structure, ...stage4 passthrough}
+    Returns: {parametric_id, inference_structure, outcome}
     """
     from .stages import stage4b_parametric_id_flow
 
     result = stage4b_parametric_id_flow(
-        stage4,
+        compiled_ssm=stage4.get("_compiled_ssm"),
         data_for_model=load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
     )
@@ -400,7 +407,7 @@ def stage5a(
 
     svi_config = {"method": "svi", "num_steps": 5000, "num_samples": 500}
 
-    fitted = fit_model(stage4, data_for_model, sampler_config=svi_config, builder=None)
+    fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=svi_config)
     fitted_result = unwrap_task_result(fitted)
 
     if not fitted_result.get("fitted", False):
@@ -450,7 +457,7 @@ def stage5b(
 
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
 
-    fitted = fit_model(stage4, data_for_model, sampler_config=sampler_config, builder=None)
+    fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=sampler_config)
     fitted_result = unwrap_task_result(fitted)
     inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
 

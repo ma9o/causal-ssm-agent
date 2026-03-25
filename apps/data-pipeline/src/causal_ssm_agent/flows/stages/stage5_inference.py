@@ -21,7 +21,7 @@ logger = get_prefect_logger(__name__)
 
 @task(persist_result=False)
 def fit_model(
-    stage4_result: dict,
+    compiled_ssm: dict | None,
     data_for_model: pl.DataFrame,
     sampler_config: dict | None = None,
     builder: Any = None,
@@ -29,8 +29,7 @@ def fit_model(
     """Fit the SSM model to data.
 
     Args:
-        stage4_result: Result from stage4_agentic_flow containing
-            model_spec, priors, and model_info
+        compiled_ssm: Serialized executable SSM artifact from stage 4
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler_config: Override sampler configuration (None uses config defaults)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
@@ -40,13 +39,10 @@ def fit_model(
 
     NOTE: Uses NumPyro SSM implementation.
     """
-    model_spec = stage4_result.get("model_spec", {})
-    compiled_ssm = stage4_result.get("_compiled_ssm")
     logger.info(
-        "Fitting model: rows=%d indicators=%d parameters=%d sampler=%s builder_reused=%s",
+        "Fitting model: rows=%d indicators=%d sampler=%s builder_reused=%s",
         len(data_for_model),
         data_for_model["indicator"].n_unique() if "indicator" in data_for_model.columns else 0,
-        len(model_spec.get("parameters", [])),
         (sampler_config or {}).get("method", "config default"),
         builder is not None,
     )

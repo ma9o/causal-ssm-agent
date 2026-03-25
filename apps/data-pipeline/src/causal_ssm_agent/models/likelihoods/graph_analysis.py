@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from causal_ssm_agent.models.ssm.assembler import lower_triangle_positions
+
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
@@ -339,6 +341,12 @@ def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[
             if k in kalman_set:
                 indices.append(offset + k)
         offset += n
+        if spec.t0_var == "free":
+            lower_positions = lower_triangle_positions(n, spec.t0_correlation_mask)
+            for lower_idx, (i, j) in enumerate(lower_positions):
+                if i in kalman_set and j in kalman_set:
+                    indices.append(offset + lower_idx)
+            offset += len(lower_positions)
 
     # Noise family hyperparams (obs_df, proc_df, etc.) are global scalars —
     # include only if the entire model is Kalman-tractable.

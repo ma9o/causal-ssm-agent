@@ -13,10 +13,17 @@ from causal_ssm_agent.distributions import (
     get_prior_family_spec,
     get_real_runtime_family_index,
 )
-from causal_ssm_agent.orchestrator.schemas_model import ParameterRole
+from causal_ssm_agent.models.ssm.parameter_names import (
+    INITIAL_STATE_CORRELATION_KEYWORDS,
+)
+from causal_ssm_agent.models.ssm.parameter_names import (
+    split_compound_name as _split_compound_name,
+)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
+
+split_compound_name = _split_compound_name
 
 PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
@@ -24,22 +31,7 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
-]
-
-ROLE_TO_SSM: dict[ParameterRole, tuple[str, dict[str, float]]] = {
-    ParameterRole.AR_COEFFICIENT: ("drift_diag", {"mu": -0.5, "sigma": 1.0}),
-    ParameterRole.FIXED_EFFECT: ("drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
-    ParameterRole.RESIDUAL_SD: ("diffusion_diag", {"sigma": 1.0}),
-    ParameterRole.LOADING: ("lambda_free", {"mu": 0.5, "sigma": 0.5}),
-    ParameterRole.CORRELATION: ("diffusion_offdiag", {"mu": 0.0, "sigma": 0.5}),
-}
-
-KEYWORD_RULES: list[tuple[list[str], str, dict[str, float]]] = [
-    (["rho", "ar"], "drift_diag", {"mu": -0.5, "sigma": 1.0}),
-    (["beta"], "drift_offdiag", {"mu": 0.0, "sigma": 0.5}),
-    (["sigma", "sd"], "diffusion_diag", {"sigma": 1.0}),
-    (["lambda", "loading"], "lambda_free", {"mu": 0.5, "sigma": 0.5}),
-    (["cor"], "diffusion_offdiag", {"mu": 0.0, "sigma": 0.5}),
+    dict[str, tuple[str, int]],
 ]
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
@@ -48,12 +40,17 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "diffusion_diag": "diffusion_diag_pop",
     "diffusion_offdiag": "diffusion_lower",
     "lambda_free": "lambda_free",
+    "t0_var_offdiag": "t0_var_lower",
 }
 
-# Inverted view of KEYWORD_RULES: SSM prior field → parameter keywords.
-# Used by prior_predictive.get_failed_parameters() to map SSM-level validation
-# failures back to user-facing ModelSpec parameter names.
-SITE_TO_KEYWORDS: dict[str, list[str]] = {field: keywords for keywords, field, _ in KEYWORD_RULES}
+SITE_TO_KEYWORDS: dict[str, list[str]] = {
+    "drift_diag": ["rho", "ar"],
+    "drift_offdiag": ["beta"],
+    "diffusion_diag": ["sigma", "sd"],
+    "lambda_free": ["lambda", "loading"],
+    "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
+    "diffusion_offdiag": ["cor"],
+}
 # dynamics_stability is a synthetic validation site (not a prior field) that
 # covers both drift and diffusion parameters.
 SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
@@ -141,22 +138,6 @@ def normalize_prior_params(
 
     raise ValueError(f"Unsupported prior distribution family: {distribution!r}")
 
-
-def split_compound_name(
-    compound: str,
-    valid_first: set[str],
-    valid_second: set[str],
-) -> tuple[str, str] | None:
-    """Split an underscore-joined name into two known names."""
-    parts = compound.split("_")
-    for idx in range(1, len(parts)):
-        first = "_".join(parts[:idx])
-        second = "_".join(parts[idx:])
-        if first in valid_first and second in valid_second:
-            return first, second
-    return None
-
-
 def dump_prior_payloads(priors: dict[str, Any] | None) -> dict[str, dict]:
     """Normalize prior proposals into plain ``dict`` payloads."""
     return {
@@ -193,6 +174,13 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
             return 0
         return ssm_spec.n_latent * (ssm_spec.n_latent - 1) // 2
 
+    if attr == "t0_var_offdiag":
+        if ssm_spec.t0_var == "diag":
+            return 0
+        if ssm_spec.t0_correlation_mask is None:
+            return ssm_spec.n_latent * (ssm_spec.n_latent - 1) // 2
+        return int(np.asarray(ssm_spec.t0_correlation_mask).sum())
+
     return None
 
 
@@ -212,6 +200,8 @@ def build_array_prior_payload(
     include_sigma = "sigma" in current or any("sigma" in normalized for _, normalized in entries)
     include_loc = "loc" in current or any("loc" in normalized for _, normalized in entries)
     include_family = "family" in current or any("family" in normalized for _, normalized in entries)
+    include_lower = "lower" in current or any("lower" in normalized for _, normalized in entries)
+    include_upper = "upper" in current or any("upper" in normalized for _, normalized in entries)
     include_concentration = "concentration" in current or any(
         "concentration" in normalized for _, normalized in entries
     )
@@ -221,6 +211,8 @@ def build_array_prior_payload(
     sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
     loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
     family_arr = [int(current.get("family", 0))] * n_total if include_family else None
+    lower_arr = [float(current.get("lower", -1e6))] * n_total if include_lower else None
+    upper_arr = [float(current.get("upper", 1e6))] * n_total if include_upper else None
     concentration_arr = (
         [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
     )
@@ -235,6 +227,10 @@ def build_array_prior_payload(
             loc_arr[idx] = float(normalized["loc"])
         if "family" in normalized and family_arr is not None:
             family_arr[idx] = int(normalized["family"])
+        if "lower" in normalized and lower_arr is not None:
+            lower_arr[idx] = float(normalized["lower"])
+        if "upper" in normalized and upper_arr is not None:
+            upper_arr[idx] = float(normalized["upper"])
         if "concentration" in normalized and concentration_arr is not None:
             concentration_arr[idx] = float(normalized["concentration"])
         if "rate" in normalized and rate_arr is not None:
@@ -249,18 +245,13 @@ def build_array_prior_payload(
         result["loc"] = loc_arr
     if family_arr is not None:
         result["family"] = family_arr
+    if lower_arr is not None:
+        result["lower"] = lower_arr
+    if upper_arr is not None:
+        result["upper"] = upper_arr
     if concentration_arr is not None:
         result["concentration"] = concentration_arr
     if rate_arr is not None:
         result["rate"] = rate_arr
-
-    if any("lower" in normalized for _, normalized in entries):
-        lower_arr = [-1e6] * n_total
-        upper_arr = [1e6] * n_total
-        for idx, normalized in entries:
-            lower_arr[idx] = float(normalized.get("lower", -1e6))
-            upper_arr[idx] = float(normalized.get("upper", 1e6))
-        result["lower"] = lower_arr
-        result["upper"] = upper_arr
 
     return result

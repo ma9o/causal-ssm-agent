@@ -169,3 +169,86 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         {"day": 2.0, "effect": 3.0},
         {"day": 3.0, "effect": 3.0},
     ]
+
+
+def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():
+    ctx = {
+        "stage-1b": {
+            "causal_spec": {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "screen_time",
+                            "description": "Screen time",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "age",
+                            "description": "Age",
+                            "role": "exogenous",
+                            "temporal_status": "time_invariant",
+                        },
+                        {
+                            "name": "sleep",
+                            "description": "Sleep quality",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                    ],
+                    "edges": [
+                        {"cause": "screen_time", "effect": "sleep"},
+                        {"cause": "age", "effect": "sleep"},
+                    ],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "daily_event_count",
+                            "construct_name": "screen_time",
+                            "measurement_dtype": "continuous",
+                            "support_kind": "real",
+                            "summary_operator": "mean",
+                            "observation_window": "1d",
+                        },
+                        {
+                            "name": "sleep_issue_searches",
+                            "construct_name": "sleep",
+                            "measurement_dtype": "continuous",
+                            "support_kind": "real",
+                            "summary_operator": "mean",
+                            "observation_window": "1d",
+                        },
+                    ],
+                },
+                "estimation": {
+                    "state_order": ["screen_time", "sleep"],
+                    "edges": [{"cause": "screen_time", "effect": "sleep"}],
+                    "induced_dependencies": [],
+                },
+            }
+        },
+        "stage-4b": {},
+        "stage-5b": {"inference_metadata": {"method": "svi"}},
+        "stage-6": {},
+        "_prepared_runtime": SimpleNamespace(manifest_names=["daily_event_count", "sleep_issue_searches"]),
+        "_fitted_artifact": SimpleNamespace(builder=SimpleNamespace(_spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))),
+        "_identifiable_treatments": ["screen_time"],
+        "_outcome_name": "sleep",
+        "_observation_timestamps": [],
+    }
+
+    payload = tool_server._build_model_info_payload(
+        ctx,
+        {"sections": ["overview", "variables", "capabilities"]},
+    )
+
+    assert payload["overview"]["treatments"] == ["screen_time"]
+    assert [item["name"] for item in payload["variables"]["constructs"]] == ["screen_time", "sleep"]
+    assert [item["name"] for item in payload["variables"]["indicators"]] == [
+        "daily_event_count",
+        "sleep_issue_searches",
+    ]
+    assert payload["capabilities"]["intervention"]["supported_treatments"] == ["screen_time"]

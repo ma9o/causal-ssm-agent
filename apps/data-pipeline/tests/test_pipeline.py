@@ -472,7 +472,7 @@ def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeyp
 
     def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
         calls.append(("stage4b", stage4, stage2, ssm_builder))
-        assert stage4["causal_spec"] == causal_spec
+        assert stage4["_causal_spec"] == causal_spec
         return {"parametric_id": {}}
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -728,6 +728,95 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
     ]
 
 
+def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
+    latent_model = {
+        "constructs": [
+            {
+                "name": "screen_time",
+                "description": "Screen time",
+                "role": "endogenous",
+                "temporal_status": "time_varying",
+            },
+            {
+                "name": "age",
+                "description": "Age",
+                "role": "exogenous",
+                "temporal_status": "time_invariant",
+            },
+            {
+                "name": "sleep",
+                "description": "Sleep quality",
+                "role": "endogenous",
+                "temporal_status": "time_varying",
+                "is_outcome": True,
+            },
+        ],
+        "edges": [
+            {"cause": "screen_time", "effect": "sleep", "description": "Screen time affects sleep"},
+            {"cause": "age", "effect": "sleep", "description": "Age affects sleep"},
+        ],
+    }
+    causal_spec = {
+        "latent": latent_model,
+        "measurement": {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "daily_event_count",
+                    "construct_name": "screen_time",
+                    "how_to_measure": "Measure screen time",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "sleep_issue_searches",
+                    "construct_name": "sleep",
+                    "how_to_measure": "Measure sleep",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+            ],
+        },
+        "identifiability": {
+            "identifiable_treatments": {
+                "screen_time": {"method": "do_calculus"},
+                "age": {"method": "do_calculus"},
+            },
+            "non_identifiable_treatments": {},
+        },
+        "estimation": {
+            "state_order": ["screen_time", "sleep"],
+            "edges": [{"cause": "screen_time", "effect": "sleep", "description": "Screen time affects sleep"}],
+            "induced_dependencies": [],
+        },
+    }
+
+    monkeypatch.setattr(dag, "load_parquet", lambda _path: pl.DataFrame({"value": [1.0]}))
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.pipeline_helpers.format_schema_for_llm",
+        lambda *_args, **_kwargs: "schema",
+    )
+
+    async def fake_propose_measurement_with_identifiability_fix(*_args, **_kwargs):
+        return {"causal_spec": causal_spec}
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.propose_measurement_with_identifiability_fix",
+        fake_propose_measurement_with_identifiability_fix,
+    )
+
+    result = asyncio.run(
+        dag.stage1b(
+            "Does screen time affect sleep?",
+            {"_df_path": "/tmp/ignored.parquet", "_column_descriptions": {}},
+            {"latent_model": latent_model},
+        )
+    )
+
+    assert result["_identified_treatments"] == ["screen_time"]
+    assert result["outcome"] == "success"
+
+
 def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
@@ -809,7 +898,6 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         )
         return {
             "_data_for_model": data_for_model,
-            "_worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
             "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
         }
 
@@ -871,7 +959,6 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
 
     assert state["result"]["_data_for_model_path"] == str(model_path)
     assert state["result"]["workers"] == web_payload["workers"]
-    assert state["result"]["_worker_statuses"] == web_payload["workers"]
     assert state["result"]["preserved_field"] == "kept-from-snapshot"
 
 
@@ -1250,6 +1337,11 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                 }
             ],
         },
+        "estimation": {
+            "state_order": ["stress"],
+            "edges": [],
+            "induced_dependencies": [],
+        },
     }
     data_for_model = pl.DataFrame(
         {
@@ -1336,9 +1428,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
     )
 
     stage4_result = stage_state["result"]
-    assert stage4_result["causal_spec"] == causal_spec
-    assert stage4_result["model_info"]["model_built"] is True
-    assert stage4_result["model_info"] != override_payload["model_info"]
+    assert stage4_result["_causal_spec"] == causal_spec
     assert stage4_result["_compiled_ssm"] != override_payload["_compiled_ssm"]
     assert "_compiled_ssm" in stage4_result
 

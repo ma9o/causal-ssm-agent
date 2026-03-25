@@ -32,6 +32,11 @@ from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParam
 from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.constants import MIN_DT
+from causal_ssm_agent.models.ssm.covariance_utils import (
+    INITIAL_STATE_COV_MIN_EIGENVALUE,
+    stabilize_covariance_for_cholesky,
+)
+from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
@@ -118,6 +123,10 @@ class SSMSpec:
     # lambda_mask: (n_manifest, n_latent) bool — True where loading is free to sample
     lambda_mask: np.ndarray | None = None
 
+    # t0_correlation_mask: (n_latent, n_latent) bool — True on lower-triangle
+    # positions where an authored initial-state correlation parameter exists.
+    t0_correlation_mask: np.ndarray | None = None
+
     # Time-invariant latent mask: (n_latent,) bool — True for quasi-constant latents.
     # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
     time_invariant_mask: np.ndarray | None = None
@@ -154,6 +163,7 @@ class SSMPriors:
     # Initial state
     t0_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
     t0_var_diag: dict = field(default_factory=lambda: {"sigma": 2.0})
+    t0_var_offdiag: dict = field(default_factory=lambda: dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS))
 
 
 def assemble_sampled_extra_params(
@@ -536,7 +546,28 @@ class SSMModel:
                 "t0_var_diag",
                 dist.HalfNormal(self.priors.t0_var_diag["sigma"]).expand((n_l,)),
             )
-            t0_chol = jnp.diag(var_diag)
+            t0_corr = None
+            if spec.t0_var != "diag":
+                n_corr = len(self._assembler.t0_correlation_positions)
+                if n_corr > 0:
+                    t0_corr = numpyro.sample(
+                        "t0_var_lower",
+                        _make_prior_dist(self.priors.t0_var_offdiag).expand((n_corr,)),
+                    )
+            t0_cov_raw = self._assembler.assemble_t0_cov(var_diag, t0_corr)
+            t0_cov, min_eig = stabilize_covariance_for_cholesky(
+                t0_cov_raw,
+                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+            )
+            numpyro.factor(
+                "t0_correlation_positive_definite",
+                jnp.where(
+                    min_eig > INITIAL_STATE_COV_MIN_EIGENVALUE,
+                    0.0,
+                    -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eig),
+                ),
+            )
+            t0_chol = jnp.linalg.cholesky(t0_cov)
 
         numpyro.deterministic("t0_means", t0_means)
         numpyro.deterministic("t0_cov", t0_chol @ t0_chol.T)

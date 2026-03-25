@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.parameter_names import (
+    resolve_initial_state_correlation_bindings,
+)
 from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps, split_compound_name
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 
@@ -26,6 +29,7 @@ def build_prior_index_maps(
     diag_index: dict[str, tuple[str, int]] = {}
     diffusion_diag_index: dict[str, tuple[str, int]] = {}
     diffusion_offdiag_index: dict[str, tuple[str, int]] = {}
+    t0_offdiag_index: dict[str, tuple[str, int]] = {}
 
     if ssm_spec is None or not model_spec:
         return (
@@ -34,6 +38,7 @@ def build_prior_index_maps(
             diag_index,
             diffusion_diag_index,
             diffusion_offdiag_index,
+            t0_offdiag_index,
         )
 
     if isinstance(model_spec, dict):
@@ -47,6 +52,7 @@ def build_prior_index_maps(
             diag_index,
             diffusion_diag_index,
             diffusion_offdiag_index,
+            t0_offdiag_index,
         )
 
     latent_names = ssm_spec.latent_names or []
@@ -180,10 +186,42 @@ def build_prior_index_maps(
                     f"{parameter.name!r}"
                 )
 
+    if ssm_spec.t0_var != "diag":
+        try:
+            bindings = resolve_initial_state_correlation_bindings(latent_names, spec_obj)
+        except ValueError as exc:
+            if strict_structure:
+                raise
+            logger.warning("%s", exc)
+            bindings = []
+
+        modeled_pairs = {
+            (row_idx, col_idx)
+            for row_idx in range(ssm_spec.n_latent)
+            for col_idx in range(row_idx)
+            if ssm_spec.t0_correlation_mask is None or bool(ssm_spec.t0_correlation_mask[row_idx, col_idx])
+        }
+        retained_bindings = []
+        for binding in bindings:
+            position = (binding.row, binding.col)
+            if position in modeled_pairs:
+                retained_bindings.append(binding)
+            elif strict_structure:
+                raise ValueError(
+                    "INITIAL_STATE_CORRELATION parameter does not correspond to a modeled "
+                    f"initial-state pair: {binding.parameter_name!r}"
+                )
+        for dense_index, binding in enumerate(retained_bindings):
+            t0_offdiag_index[binding.parameter_name] = (
+                "t0_var_offdiag",
+                dense_index,
+            )
+
     return (
         offdiag_index,
         lambda_index,
         diag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        t0_offdiag_index,
     )
