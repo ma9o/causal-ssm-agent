@@ -15,6 +15,7 @@ import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import { getStageForPrefectRunName } from "../constants/stages";
 import {
   applyStageUpdate,
+  hasStoppedStage,
   initialProgress,
   mapPrefectTaskState,
   type PipelineProgress,
@@ -223,7 +224,7 @@ function isPipelineTerminal(
   workspaceId: string,
 ): boolean {
   const progress = queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId));
-  return progress?.isComplete === true || progress?.isFailed === true;
+  return progress?.isComplete === true || hasStoppedStage(progress) || progress?.isFailed === true;
 }
 
 function hydrateFromManifest(

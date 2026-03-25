@@ -75,11 +75,6 @@ describe("STAGES metadata", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("only stage-1b has a hard gate", () => {
-    const gated = STAGES.filter((s) => s.hasGate).map((s) => s.id);
-    expect(gated).toEqual(["stage-1b"]);
-  });
-
   it("stage numbers are in expected order", () => {
     const numbers = STAGES.map((s) => s.number);
     expect(numbers).toEqual(["0", "1a", "1b", "2", "3", "4", "4b", "5a", "5b", "6"]);

@@ -216,16 +216,19 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     lines.push("");
 
     const spec = s1b.causal_spec;
+    const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
+    const nonIdEntries = Object.entries(nonId);
 
-    // Gate alert
+    // Stage stop alert
     if (s1b.outcome === "fail") {
-      lines.push("> **GATE BLOCKED**: Non-identifiable treatment effects detected.");
+      lines.push("> **PIPELINE STOPPED**: No identifiable treatment effects remain after Stage 1b.");
+      lines.push("");
+    } else if (nonIdEntries.length > 0) {
+      lines.push("> **WARNING**: Some treatment effects were excluded from downstream analysis because they remain non-identifiable.");
       lines.push("");
     }
 
     // Non-identifiable treatments
-    const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
-    const nonIdEntries = Object.entries(nonId);
     if (nonIdEntries.length > 0) {
       lines.push(section(3, "Non-Identifiable Treatments"));
       lines.push("");
@@ -331,7 +334,7 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     const allIssues = [...indicatorIssues, ...datasetIssues];
 
     if (!s3.is_valid) {
-      lines.push("> **GATE BLOCKED**: Data validation failed.");
+      lines.push("> **PIPELINE STOPPED**: Data validation failed.");
       lines.push("");
     }
 

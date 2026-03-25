@@ -3,7 +3,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageId } from "@causal-ssm/api-types";
-import type { GateOverride, StageOutcome } from "@causal-ssm/api-types";
+import type { StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
@@ -21,8 +21,6 @@ export function StageSection({
   children,
   defaultCollapsed = false,
   elapsedMs,
-  hasGate = false,
-  gateOverridden,
   outcome = "success",
   loadingHint,
   runningContent,
@@ -41,8 +39,6 @@ export function StageSection({
   children?: ReactNode;
   defaultCollapsed?: boolean;
   elapsedMs?: number;
-  hasGate?: boolean;
-  gateOverridden?: GateOverride;
   outcome?: StageOutcome;
   loadingHint?: string;
   runningContent?: ReactNode;
@@ -96,8 +92,6 @@ export function StageSection({
             number={number}
             title={title}
             status={status}
-            hasGate={hasGate}
-            gateOverridden={gateOverridden}
             outcome={outcome}
             context={context}
           />

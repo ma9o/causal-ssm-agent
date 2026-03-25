@@ -285,7 +285,7 @@ describe("generateMarkdown", () => {
     };
     const result = generateMarkdown(data, "run-3");
     expect(result).toContain("Stage 3");
-    expect(result).toContain("GATE BLOCKED");
+    expect(result).toContain("PIPELINE STOPPED");
     expect(result).toContain("heart_rate");
     expect(result).toContain("1E 1W"); // heart_rate has 1 error, 1 warning
     expect(result).toContain("1E"); // steps has 1 error
@@ -372,7 +372,7 @@ describe("generateMarkdown", () => {
     expect(result).toContain("fail");
   });
 
-  it("surfaces stage 4b t-rule warnings as warnings rather than hard gate blocks", () => {
+  it("surfaces stage 4b t-rule warnings as warnings rather than pipeline stops", () => {
     const data: AllStageData = {
       "stage-4b": {
         outcome: "warn",
@@ -397,7 +397,7 @@ describe("generateMarkdown", () => {
     expect(result).toContain("**WARNING**");
     expect(result).toContain("T-Rule screen failed");
     expect(result).toContain("Lower-bound moment conditions");
-    expect(result).not.toContain("GATE BLOCKED");
+    expect(result).not.toContain("PIPELINE STOPPED");
   });
 
   it("includes stage 5a SVI preflight", () => {

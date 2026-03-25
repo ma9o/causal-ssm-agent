@@ -206,7 +206,6 @@ describe("POST /api/runs", () => {
           accessCode: "access-123",
           launchId: "launch-123",
           query: "Why is sleep worse after travel?",
-          overrideGates: true,
         }),
       }),
     );
@@ -242,7 +241,6 @@ describe("POST /api/runs", () => {
           parameters: {
             workspace_id: "USER123",
             query: "Why is sleep worse after travel?",
-            override_gates: true,
             openrouter_access_mode: "user",
             openrouter_secret_ref: "byok-ref-123",
           },

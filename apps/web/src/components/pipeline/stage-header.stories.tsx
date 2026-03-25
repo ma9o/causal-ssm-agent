@@ -80,7 +80,6 @@ export const CompletedFail: Story = {
     status: "completed",
     outcome: "fail",
     context: "One or more treatment effects are not identifiable via do-calculus.",
-    hasGate: true,
   },
 };
 
@@ -90,48 +89,5 @@ export const RuntimeFailed: Story = {
     title: "Inference & Diagnostics",
     status: "failed",
     context: "Fits the Bayesian model via MCMC or SVI and runs convergence diagnostics.",
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Gate states
-// ---------------------------------------------------------------------------
-
-export const GateActive: Story = {
-  name: "Gate / Active (no failure)",
-  args: {
-    number: "1b",
-    title: "Measurement & Nonparametric Identification",
-    status: "completed",
-    outcome: "success",
-    hasGate: true,
-    context: "Maps latent constructs to observable indicators and verifies nonparametric identifiability.",
-  },
-};
-
-export const GateOverridden: Story = {
-  name: "Gate / Overridden",
-  args: {
-    number: "4b",
-    title: "Parametric Identifiability",
-    status: "completed",
-    outcome: "warn",
-    hasGate: true,
-    gateOverridden: {
-      reason: "Rank deficiency detected in Fisher information matrix, but user accepted approximate identification.",
-    },
-    context: "Checks whether the specified model parameters are identifiable from the available data.",
-  },
-};
-
-export const GateFailedNotOverridden: Story = {
-  name: "Gate / Failed (blocks pipeline)",
-  args: {
-    number: "1b",
-    title: "Measurement & Nonparametric Identification",
-    status: "completed",
-    outcome: "fail",
-    hasGate: true,
-    context: "Treatment effect Sleep → Mood is not identifiable. Pipeline halted.",
   },
 };

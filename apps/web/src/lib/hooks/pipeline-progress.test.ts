@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   applyStageUpdate,
+  hasStoppedStage,
   initialProgress,
   mapPrefectTaskState,
-  type PipelineProgress,
 } from "./pipeline-progress";
 
 describe("initialProgress", () => {
@@ -12,6 +12,7 @@ describe("initialProgress", () => {
 
     expect(progress.currentStage).toBeNull();
     expect(progress.isComplete).toBe(false);
+    expect(hasStoppedStage(progress)).toBe(false);
     expect(progress.isFailed).toBe(false);
     expect(Object.values(progress.stages).every((status) => status === "pending")).toBe(true);
   });
@@ -48,16 +49,12 @@ describe("applyStageUpdate", () => {
     expect(progress).toEqual(afterCompletion);
   });
 
-  it("preserves outcome-level failure flags while later stages update", () => {
-    const progressWithFailedOutcome: PipelineProgress = {
-      ...initialProgress(),
-      isFailed: true,
-    };
+  it("derives semantic stops from completed fail outcomes", () => {
+    let progress = initialProgress();
+    progress = applyStageUpdate(progress, "stage-3", "completed", 4000, "fail");
 
-    const progress = applyStageUpdate(progressWithFailedOutcome, "stage-2", "running", 4000);
-
-    expect(progress.isFailed).toBe(true);
-    expect(progress.currentStage).toBe("stage-2");
+    expect(hasStoppedStage(progress)).toBe(true);
+    expect(progress.currentStage).toBeNull();
   });
 });
 

@@ -18,8 +18,7 @@ function buildInitialRunIdempotencyKey(
 }
 
 export async function POST(request: Request) {
-  const { workspaceId, accessCode, launchId, query, overrideGates } =
-    await request.json();
+  const { workspaceId, accessCode, launchId, query } = await request.json();
 
   if (typeof workspaceId !== "string" || !workspaceId.trim()) {
     return NextResponse.json(
@@ -86,7 +85,6 @@ export async function POST(request: Request) {
       parameters: {
         workspace_id: workspaceAccess.workspaceId,
         query: query.trim(),
-        override_gates: overrideGates || undefined,
       },
       workspaceId: workspaceAccess.workspaceId,
     });
