@@ -91,7 +91,7 @@ class TestStage4bInferenceStructurePayload:
         payload = build_inference_structure_payload(spec, plan)
 
         assert payload["likelihood_path"] == "particle"
-        assert payload["auto_method"] == "svi"
+        assert payload["auto_method"] == "laplace_em"
         assert payload["first_pass_rb"]["status"] == "inactive"
         assert payload["first_pass_rb"]["inactive_reason"] == "interval_summary_support"
 

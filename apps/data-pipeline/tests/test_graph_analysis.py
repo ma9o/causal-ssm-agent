@@ -598,8 +598,8 @@ class TestKalmanBlockProfileIndices:
 
 
 class TestSelectDefaultMethod:
-    def test_non_point_observation_support_routes_to_svi(self):
-        """Interval-summary observations should bypass IEKS/Kalman auto-routing."""
+    def test_non_point_observation_support_routes_to_laplace_em(self):
+        """Interval-summary observations should route to support-aware Laplace-EM."""
         spec = _make_spec()
         support = ObservationSupportRuntime(
             anchor_times=np.array([0.0, 1.0]),
@@ -616,7 +616,7 @@ class TestSelectDefaultMethod:
             emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
         )
 
-        assert select_default_method(spec, observation_support=support) == "svi"
+        assert select_default_method(spec, observation_support=support) == "laplace_em"
 
     def test_gaussian_model_routes_to_nuts(self):
         """Fully Gaussian model with identity links → nuts."""
@@ -667,7 +667,7 @@ class TestPlanInferenceStructure:
         plan = plan_inference_structure(spec, observation_support=support)
 
         assert plan.likelihood_path == "particle"
-        assert plan.auto_method == "svi"
+        assert plan.auto_method == "laplace_em"
         assert not plan.first_pass_rb.active
         assert plan.first_pass_rb.inactive_reason == "interval_summary_support"
 

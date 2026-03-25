@@ -478,7 +478,7 @@ class TestPrepareModelRuntime:
         assert runtime.manifest_names == ["stress_score"]
         assert runtime.builder._model.observation_support is runtime.observation_support
         assert runtime.inference_structure.likelihood_path == "particle"
-        assert runtime.inference_structure.auto_method == "svi"
+        assert runtime.inference_structure.auto_method == "laplace_em"
         assert (
             runtime.inference_structure.first_pass_rb.inactive_reason == "interval_summary_support"
         )
