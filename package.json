@@ -13,6 +13,7 @@
     "test": "turbo test",
     "format": "turbo format",
     "type-check": "turbo type-check",
+    "check": "turbo run check docs:check",
     "storybook": "turbo storybook"
   },
   "devDependencies": {
