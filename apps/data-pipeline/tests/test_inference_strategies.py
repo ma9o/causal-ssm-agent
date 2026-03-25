@@ -1894,7 +1894,7 @@ class TestAutoMethodConfigRouting:
             interval_weights=np.array([[0.0], [1.0]]),
         )
 
-    def test_auto_routes_non_point_support_to_svi(self, monkeypatch):
+    def test_auto_routes_non_point_support_to_laplace_em(self, monkeypatch):
         spec = SSMSpec(
             n_latent=1,
             n_manifest=1,
@@ -1906,18 +1906,21 @@ class TestAutoMethodConfigRouting:
         observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
-        def fake_fit_svi(_model, _observations, _times, **kwargs):
+        def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
             return InferenceResult(
                 _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="svi",
+                method="laplace_em",
                 diagnostics={"kwargs": kwargs},
             )
 
-        monkeypatch.setattr("causal_ssm_agent.models.ssm.inference._fit_svi", fake_fit_svi)
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.laplace_em.fit_laplace_em",
+            fake_fit_laplace_em,
+        )
 
         result = fit(model, observations=observations, times=times, method="auto")
 
-        assert result.method == "svi"
+        assert result.method == "laplace_em"
 
     def test_non_point_support_allows_laplace_em(self, monkeypatch):
         spec = SSMSpec(
@@ -1998,7 +2001,7 @@ class TestAutoMethodConfigRouting:
 
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.select_default_method",
-            lambda _spec, _support=None: "laplace_em",
+            lambda _spec, _likelihood="particle", _support=None: "laplace_em",
         )
 
         def fake_fit_laplace_em(_model, _observations, _times, **kwargs):

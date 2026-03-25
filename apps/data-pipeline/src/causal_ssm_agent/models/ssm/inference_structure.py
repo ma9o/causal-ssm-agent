@@ -55,7 +55,7 @@ def plan_inference_structure(
     if observation_support is not None and observation_support.requires_interval_summary_handling:
         return InferenceStructurePlan(
             likelihood_path="particle",
-            auto_method="svi",
+            auto_method="laplace_em",
             first_pass_rb=FirstPassRBPlan(
                 status="inactive",
                 inactive_reason="interval_summary_support",
