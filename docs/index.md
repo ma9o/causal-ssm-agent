@@ -39,18 +39,3 @@ This project separates them:
 | The construct-to-observed mapping | [`MeasurementModel`](reference/measurement-model/indicators.md) | [Stage 1b](pipeline/01b-measurement-identifiability.md) |
 | The combined latent, measurement, and identifiability handoff | [`CausalSpec`](reference/causal-spec/identifiability.md) | [Stage 1b](pipeline/01b-measurement-identifiability.md) |
 | The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](reference/model-spec/parameters-likelihoods-and-priors.md) | [Stage 4](pipeline/04-model-specification-priors.md) |
-
-## Route by Question
-
-| Question | Open first | Then |
-|---|---|---|
-| What does each stage do? | [pipeline.md](pipeline.md) | The relevant file under `pipeline/` |
-| Which stage introduces an artifact? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#artifact-index) | The introducing stage doc |
-| What objects move through the pipeline? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md) | [pipeline.md](pipeline.md) |
-| What does one of the four domain primitives mean? | The matching page under `reference/` | The linked stage doc if you need the emitted contract or field layout |
-| What should uploaded data look like? | [guides/data_contract.md](guides/data_contract.md) | [pipeline/00-ingestion.md](pipeline/00-ingestion.md) |
-| Why do the docs say `latent model`, `topological structure`, and `functional specification` instead of `structural model`? | [Terminology note](#terminology-note) | The relevant primitive or stage doc |
-| How does time work across extraction, fitting, and interventions? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#temporal-semantics) | [reference/estimation.md](reference/estimation.md) |
-| What gets validated where? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md#assurance-surface) | [pipeline.md](pipeline.md) |
-| How do resume, replay, overrides, and terminal outcomes work? | [reference/execution-semantics.md](reference/execution-semantics.md#1-control-flow-semantics) | [pipeline.md](pipeline.md) |
-| What gets persisted, restored, or exposed to the web? | [reference/execution-semantics.md](reference/execution-semantics.md#2-persistence-and-exposure-boundary) | [pipeline.md](pipeline.md) |

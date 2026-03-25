@@ -2,7 +2,7 @@
 
 The more useful view for design, implementation, and documentation is a small set of orthogonal dimensions that recur across stages.
 
-This page gives the conceptual cross-stage map: artifact lineage, scope, temporal semantics, execution modality, assurance surfaces, and the assumption map. Cross-cutting runtime behavior such as control flow, resume, and persistence surfaces lives in [execution-semantics.md](execution-semantics.md).
+This reference organizes the cross-stage map: artifact lineage, scope, temporal semantics, execution modality, assurance surfaces, and the assumption map. Cross-cutting runtime behavior such as control flow, resume, and persistence surfaces lives in [execution-semantics.md](execution-semantics.md).
 
 ## 1. Artifact Lineage
 
@@ -74,13 +74,13 @@ Important consequence: Stage 2 windowing, Stage 4 causal timescale choices, Stag
 
 The detailed time semantics live with the primitives that own them. Identifiability is checked by y0 in Stage 1b rather than enforced at the schema level.
 
-| Question | Primary owner | Detail page |
+| Topic | Primary owner | Detail page |
 |---|---|---|
-| What is a construct, and which edges are legal between constructs? | LatentModel | [constructs-and-edges.md](latent-model/constructs-and-edges.md) |
-| How do lag rules work at the construct level? | LatentModel | [constructs-and-edges.md#temporal-semantics](latent-model/constructs-and-edges.md#temporal-semantics) |
-| How do indicators define support windows, aggregation, and `model_clock`? | MeasurementModel | [indicators.md#observation-windows-and-model-clock](measurement-model/indicators.md#observation-windows-and-model-clock) |
-| How does temporal unrolling affect causal identification? | CausalSpec | [identifiability.md](causal-spec/identifiability.md) |
-| How is elapsed `dt` used in continuous-to-discrete runtime transitions? | Runtime estimation | [estimation.md](estimation.md) |
+| Construct ontology and legal edges | LatentModel | [constructs-and-edges.md](latent-model/constructs-and-edges.md) |
+| Construct-level lag rules | LatentModel | [constructs-and-edges.md#temporal-semantics](latent-model/constructs-and-edges.md#temporal-semantics) |
+| Indicator support windows, aggregation, and `model_clock` | MeasurementModel | [indicators.md#observation-windows-and-model-clock](measurement-model/indicators.md#observation-windows-and-model-clock) |
+| Temporal unrolling for causal identification | CausalSpec | [identifiability.md](causal-spec/identifiability.md) |
+| Elapsed `dt` in continuous-to-discrete runtime transitions | Runtime estimation | [estimation.md](estimation.md) |
 
 See [estimation.md](estimation.md) for CT-to-DT discretization.
 
@@ -94,13 +94,11 @@ Stages differ in how work is performed, independently of what artifact they prod
 
 For the per-stage modality classification, see the Stage Map in [pipeline.md](../pipeline.md). Two additional orthogonal execution questions—interactive vs non-interactive, and single-shot vs multi-turn—are tracked in the Stage Map and in [execution-semantics.md](execution-semantics.md#1-control-flow-semantics).
 
-This dimension answers "how does the stage run?" not "what does the stage mean?"
-
 ## 5. Assurance Surface
 
 The pipeline has several kinds of checks. They target different failure modes and should be documented separately.
 
-| Assurance target | Stage | Question being answered |
+| Assurance target | Stage | Decision |
 |---|---|---|
 | Causal identifiability | 1b | Is the target treatment -> outcome effect identified from the latent + measurement assumptions? |
 | Extraction and data quality | 3 | Are the observed indicator series usable and coherent? |

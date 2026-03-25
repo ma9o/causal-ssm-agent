@@ -1,6 +1,6 @@
 # Pipeline Execution Semantics
 
-This page explains the cross-cutting runtime behavior of the pipeline: how stage execution is ordered, how resume works, how the research question is materialized, and how internal results differ from web-facing payloads and heavyweight artifacts.
+This reference covers the cross-cutting runtime behavior of the pipeline: how stage execution is ordered, how resume works, how the research question is materialized, and how internal results differ from web-facing payloads and heavyweight artifacts.
 
 For the conceptual cross-stage map of artifacts, assumptions, temporal semantics, scope, execution modality, and assurance surfaces, see [pipeline-dimensions.md](pipeline-dimensions.md).
 

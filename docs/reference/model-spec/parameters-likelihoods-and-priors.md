@@ -1,6 +1,6 @@
 # ModelSpec: Parameters, Likelihoods, and Priors
 
-This page explains the deterministic guardrails that shape Stage 4 decisions. For the emitted `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, and `PriorProposal` contracts, see [Stage 4](../../pipeline/04-model-specification-priors.md).
+This reference defines the deterministic guardrails that shape Stage 4 decisions. For the emitted `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, and `PriorProposal` contracts, see [Stage 4](../../pipeline/04-model-specification-priors.md).
 
 ## Part 1: Rule-Based Specification (Guardrails)
 
