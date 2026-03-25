@@ -126,7 +126,7 @@ class TestIngestionTools:
     def sample_archive(self, tmp_path):
         """Create a temp directory simulating an extracted zip with a CSV."""
         csv_file = tmp_path / "data.csv"
-        csv_file.write_text("date,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
+        csv_file.write_text("timestamp,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
         json_file = tmp_path / "meta.json"
         json_file.write_text(json.dumps({"source": "test"}))
         sub = tmp_path / "subdir"
@@ -150,7 +150,7 @@ class TestIngestionTools:
         tools, _ = self._make_tools(sample_archive)
         read_tool = tools[1]
         result = _run(read_tool(path="data.csv", n_lines=10))
-        assert "date,value,category" in result
+        assert "timestamp,value,category" in result
         assert "2024-01-01" in result
 
     def test_read_file_traversal_blocked(self, sample_archive):
@@ -162,7 +162,10 @@ class TestIngestionTools:
     def test_execute_python_success(self, sample_archive):
         tools, capture = self._make_tools(sample_archive)
         exec_tool = tools[2]
-        code = 'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+        code = (
+            'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+            'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
+        )
         result = _run(exec_tool(code=code))
         assert "Success" in result
         assert "dataframe" in capture
@@ -187,13 +190,20 @@ class TestIngestionTools:
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(exec_tool(code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'))
+        _run(
+            exec_tool(
+                code=(
+                    'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+                    'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
+                )
+            )
+        )
 
         result = _run(
             submit_tool(
                 column_descriptions_json=json.dumps(
                     {
-                        "date": "Date of observation",
+                        "timestamp": "Timestamp of observation",
                         "value": "Numeric value",
                         "category": "Category label",
                     }
@@ -201,18 +211,71 @@ class TestIngestionTools:
             )
         )
         assert result == "VALID"
-        assert "date" in capture["column_descriptions"]
+        assert "timestamp" in capture["column_descriptions"]
+
+    def test_submit_table_missing_timestamp_column(self, sample_archive):
+        """submit_table rejects DataFrames without a 'timestamp' column."""
+        tools, _ = self._make_tools(sample_archive)
+        exec_tool = tools[2]
+        submit_tool = tools[3]
+
+        _run(
+            exec_tool(
+                code='result_df = pl.DataFrame({"id": [1], "value": [1.5]})'
+            )
+        )
+
+        result = _run(
+            submit_tool(
+                column_descriptions_json=json.dumps(
+                    {"id": "Row id", "value": "Numeric value"}
+                ),
+            )
+        )
+        assert "timestamp" in result.lower()
+
+    def test_submit_table_rejects_string_timestamp(self, sample_archive):
+        """submit_table rejects a 'timestamp' column that is not Datetime-typed."""
+        tools, _ = self._make_tools(sample_archive)
+        exec_tool = tools[2]
+        submit_tool = tools[3]
+
+        _run(
+            exec_tool(
+                code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+            )
+        )
+
+        result = _run(
+            submit_tool(
+                column_descriptions_json=json.dumps(
+                    {
+                        "timestamp": "Timestamp",
+                        "value": "Numeric value",
+                        "category": "Category label",
+                    }
+                ),
+            )
+        )
+        assert "Datetime" in result or "must be" in result.lower()
 
     def test_submit_table_missing_descriptions(self, sample_archive):
         tools, _ = self._make_tools(sample_archive)
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(exec_tool(code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'))
+        _run(
+            exec_tool(
+                code=(
+                    'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+                    'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
+                )
+            )
+        )
 
         result = _run(
             submit_tool(
-                column_descriptions_json=json.dumps({"date": "Date"}),
+                column_descriptions_json=json.dumps({"timestamp": "Timestamp"}),
             )
         )
         assert "Missing descriptions" in result
@@ -304,7 +367,7 @@ class TestRunAgenticIngestion:
         import causal_ssm_agent.flows.stages.stage0_ingest as mod
 
         csv_file = tmp_path / "data.csv"
-        csv_file.write_text("date,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
+        csv_file.write_text("timestamp,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
 
         monkeypatch.setattr(mod, "ModalCodeSandbox", _MockSandboxContext)
 
@@ -316,14 +379,17 @@ class TestRunAgenticIngestion:
 
             if "execute_python" in tool_map:
                 await tool_map["execute_python"](
-                    code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+                    code=(
+                        'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+                        'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
+                    )
                 )
                 return ""
 
             await tool_map["submit_table"](
                 column_descriptions_json=json.dumps(
                     {
-                        "date": "Date of observation",
+                        "timestamp": "Timestamp of observation",
                         "value": "Observed numeric value",
                         "category": "Category label",
                     }
@@ -338,7 +404,7 @@ class TestRunAgenticIngestion:
             ["submit_table"],
         ]
         assert result.column_descriptions == {
-            "date": "Date of observation",
+            "timestamp": "Timestamp of observation",
             "value": "Observed numeric value",
             "category": "Category label",
         }
@@ -347,7 +413,7 @@ class TestRunAgenticIngestion:
         import causal_ssm_agent.flows.stages.stage0_ingest as mod
 
         csv_file = tmp_path / "data.csv"
-        csv_file.write_text("date,value\n2024-01-01,1.5\n")
+        csv_file.write_text("timestamp,value\n2024-01-01,1.5\n")
 
         monkeypatch.setattr(mod, "ModalCodeSandbox", _MockSandboxContext)
 
@@ -355,7 +421,10 @@ class TestRunAgenticIngestion:
             tool_map = {tool.name: tool for tool in tools}
             if "execute_python" in tool_map:
                 await tool_map["execute_python"](
-                    code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
+                    code=(
+                        'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+                        'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
+                    )
                 )
             return ""
 

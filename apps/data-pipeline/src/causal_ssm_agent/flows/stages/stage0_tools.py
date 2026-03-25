@@ -455,6 +455,19 @@ def make_ingestion_tools(
             if not isinstance(col_descs, dict):
                 return "column_descriptions_json must be a JSON object mapping column names to descriptions."
 
+            # Require canonical timestamp column
+            if "timestamp" not in df.columns:
+                return (
+                    "DataFrame must contain a Datetime column named 'timestamp' "
+                    "as the primary temporal axis. Rename or cast the time column "
+                    "in your execute_python code."
+                )
+            if df.schema["timestamp"] not in (pl.Datetime, pl.Date):
+                return (
+                    f"Column 'timestamp' has type {df.schema['timestamp']}; "
+                    "it must be Datetime or Date. Cast it in your execute_python code."
+                )
+
             # Check all columns have descriptions
             missing = [c for c in df.columns if c not in col_descs]
             if missing:

@@ -1,67 +1,15 @@
 """Tests for support-window extraction infrastructure.
 
-Covers: detect_time_column, bucket_by_clock (data.py),
+Covers: bucket_by_clock (data.py),
 chunk_windows, format_window_chunk (workers/windows.py).
 """
 
 from datetime import datetime
 
 import polars as pl
-import pytest
 
-from causal_ssm_agent.utils.data import bucket_by_clock, detect_time_column
+from causal_ssm_agent.utils.data import bucket_by_clock
 from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
-
-# =============================================================================
-# detect_time_column
-# =============================================================================
-
-
-class TestDetectTimeColumn:
-    def test_single_datetime_column(self):
-        df = pl.DataFrame(
-            {
-                "id": [1],
-                "created_at": [datetime(2024, 1, 1)],
-            }
-        )
-        assert detect_time_column(df) == "created_at"
-
-    def test_prefers_common_name(self):
-        """When multiple datetime columns exist, prefer common names."""
-        df = pl.DataFrame(
-            {
-                "timestamp": [datetime(2024, 1, 1)],
-                "updated_at": [datetime(2024, 1, 2)],
-            }
-        )
-        assert detect_time_column(df) == "timestamp"
-
-    def test_fallback_to_name_match(self):
-        """When no datetime-typed columns, match by common name."""
-        df = pl.DataFrame(
-            {
-                "id": [1],
-                "timestamp": ["2024-01-01"],
-                "value": [42],
-            }
-        )
-        assert detect_time_column(df) == "timestamp"
-
-    def test_raises_when_no_time_column(self):
-        df = pl.DataFrame({"id": [1], "value": [42]})
-        with pytest.raises(ValueError, match="Could not detect time column"):
-            detect_time_column(df)
-
-    def test_single_date_column(self):
-        df = pl.DataFrame(
-            {
-                "id": [1],
-                "date": [datetime(2024, 1, 1).date()],
-            }
-        )
-        assert detect_time_column(df) == "date"
-
 
 # =============================================================================
 # bucket_by_clock

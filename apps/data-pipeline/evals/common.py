@@ -518,7 +518,6 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     from causal_ssm_agent.flows.run_store import load_parquet
     from causal_ssm_agent.flows.stages.stage2_extract import _prepare_semantic_chunks
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.data import detect_time_column
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)
@@ -535,7 +534,7 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     if not semantic_inds:
         raise ValueError(f"Workspace '{resolved}' has no semantic indicators for Stage 2 evals")
 
-    time_col = detect_time_column(raw_df)
+    time_col = "timestamp"
     stage2_workers = get_config().stage2_workers
     model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
     chunk_texts, chunk_window_starts, chunk_contexts = _prepare_semantic_chunks(

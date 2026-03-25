@@ -398,14 +398,14 @@ async def run_stage2_extraction_core(
     5. annotating canonical observation-row support metadata
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
-    from causal_ssm_agent.utils.data import annotate_observation_rows, detect_time_column
+    from causal_ssm_agent.utils.data import annotate_observation_rows
 
     semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_prefect
 
     all_indicators = get_indicators(causal_spec)
-    time_col = detect_time_column(raw_df)
+    time_col = "timestamp"
     model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
-    logger.info("Stage 2: detected time column '%s', model_clock='%s'", time_col, model_clock)
+    logger.info("Stage 2: time_col='%s', model_clock='%s'", time_col, model_clock)
 
     computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
     semantic_inds = [

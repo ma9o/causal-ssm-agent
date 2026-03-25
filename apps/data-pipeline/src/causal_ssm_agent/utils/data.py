@@ -41,46 +41,6 @@ def runs_dir(workspace_id: str) -> str:
     return join(DATA_URI, workspace_id, "run")
 
 
-_TIME_COLUMN_NAMES = (
-    "timestamp",
-    "time",
-    "date",
-    "datetime",
-    "created_at",
-    "ts",
-    "dt",
-    "updated_at",
-)
-
-
-def detect_time_column(df: pl.DataFrame) -> str:
-    """Detect the primary time/date column in a DataFrame.
-
-    Strategy:
-    1. Look for Datetime/Date-typed columns; if exactly one, use it.
-    2. If multiple, prefer common time column names.
-    3. If none have datetime type, look for common names regardless of type.
-
-    Raises:
-        ValueError: If no time column can be identified.
-    """
-    dt_cols = [c for c in df.columns if df.schema[c] in (pl.Datetime, pl.Date)]
-    if len(dt_cols) == 1:
-        return dt_cols[0]
-    if dt_cols:
-        for name in _TIME_COLUMN_NAMES:
-            if name in dt_cols:
-                return name
-        return dt_cols[0]
-
-    # Fallback: look for common names regardless of type
-    for name in _TIME_COLUMN_NAMES:
-        if name in df.columns:
-            return name
-
-    raise ValueError(f"Could not detect time column in DataFrame with columns: {df.columns}")
-
-
 def bucket_by_clock(
     df: pl.DataFrame,
     model_clock: str,
