@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = get_prefect_logger(__name__)
-MAX_STAGE4_PRIOR_BATCH_SIZE = 8
 
 
 # ---------------------------------------------------------------------------
@@ -203,10 +202,6 @@ def stage4_grounding(
         )
 
     if new_priors is not None:
-        prior_names = sorted(name for name in new_priors if isinstance(name, str))
-        if len(prior_names) > MAX_STAGE4_PRIOR_BATCH_SIZE:
-            return None, _format_prior_batch_limit_feedback(prior_names)
-
         redundant_priors = _find_redundant_prior_updates(new_priors, state.get("authored_priors"))
         if redundant_priors:
             return None, _format_redundant_stage4_update_feedback("priors", redundant_priors)
@@ -320,7 +315,6 @@ def _format_missing_priors_feedback(missing_priors: list[str]) -> str:
     return (
         "MODEL STATE SAVED:\n"
         f"- missing priors for {len(missing_priors)} parameters: {_summarize_names(missing_priors)}\n"
-        f"- submit priors in small batches (max {MAX_STAGE4_PRIOR_BATCH_SIZE} per call)\n"
         "- do not resend unchanged fields\n"
         "- submit only the missing priors or any corrections"
     )
@@ -337,16 +331,6 @@ def _find_redundant_prior_updates(
         if isinstance(name, str) and name in current and current[name] == prior:
             redundant.append(name)
     return sorted(redundant)
-
-
-def _format_prior_batch_limit_feedback(prior_names: list[str]) -> str:
-    """Tell the LLM to split a large prior submission into smaller batches."""
-    return (
-        "PRIOR UPDATE TOO LARGE:\n"
-        f"- submitted {len(prior_names)} priors; max is {MAX_STAGE4_PRIOR_BATCH_SIZE} per call\n"
-        f"- split this update into smaller batches: {_summarize_names(prior_names)}\n\n"
-        "Previously accepted state is retained. Resubmit only the fields you changed."
-    )
 
 
 def _format_redundant_stage4_update_feedback(kind: str, names: list[str]) -> str:
@@ -548,15 +532,20 @@ def _agentic_stage4_grounding(
             validate_model_spec_decisions_dict,
         )
 
-        redundant_decisions = _find_redundant_decision_updates(data, current=current)
-        if redundant_decisions:
+        pruned_data, redundant_decisions = _prune_redundant_decision_updates(
+            data,
+            current=current,
+        )
+        if redundant_decisions and not (
+            pruned_data.get("distribution_choices") or pruned_data.get("loading_constraints")
+        ):
             return None, _format_redundant_stage4_update_feedback(
                 "model decisions",
                 redundant_decisions,
             )
 
         decisions_data = _merge_stage4_decision_updates(
-            data,
+            pruned_data,
             current=current,
             ambiguous_indicators=ambiguous_indicators,
             all_params=all_params,
@@ -593,12 +582,12 @@ def _agentic_stage4_grounding(
     )
 
 
-def _find_redundant_decision_updates(
+def _prune_redundant_decision_updates(
     data: dict[str, Any],
     *,
     current: dict | None,
-) -> list[str]:
-    """Return decision targets whose accepted values were resubmitted unchanged."""
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    """Drop unchanged decision fields while preserving any real updates."""
     current_model_spec = (current or {}).get("model_spec") or {}
 
     current_likelihoods: dict[str, dict[str, Any]] = {}
@@ -617,6 +606,8 @@ def _find_redundant_decision_updates(
         if isinstance(name, str):
             current_loadings[name] = parameter
 
+    pruned_distribution_choices: list[dict[str, Any]] = []
+    pruned_loading_constraints: list[dict[str, Any]] = []
     redundant: list[str] = []
     for choice in data.get("distribution_choices") or []:
         if not isinstance(choice, dict):
@@ -629,6 +620,9 @@ def _find_redundant_decision_updates(
             and accepted.get("link") == choice.get("link")
         ):
             redundant.append(variable)
+            continue
+
+        pruned_distribution_choices.append(choice)
 
     for constraint in data.get("loading_constraints") or []:
         if not isinstance(constraint, dict):
@@ -637,8 +631,17 @@ def _find_redundant_decision_updates(
         accepted = current_loadings.get(parameter) if isinstance(parameter, str) else None
         if accepted is not None and accepted.get("constraint") == constraint.get("constraint"):
             redundant.append(parameter)
+            continue
 
-    return sorted(name for name in redundant if isinstance(name, str))
+        pruned_loading_constraints.append(constraint)
+
+    return (
+        {
+            "distribution_choices": pruned_distribution_choices,
+            "loading_constraints": pruned_loading_constraints,
+        },
+        sorted(name for name in redundant if isinstance(name, str)),
+    )
 
 
 def _merge_stage4_decision_updates(

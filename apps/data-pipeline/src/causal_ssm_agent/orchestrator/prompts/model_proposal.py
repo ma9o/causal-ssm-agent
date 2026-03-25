@@ -486,8 +486,9 @@ the fixed model context. The system handles CT conversion.
 ## Tools
 
 - `validate_model`: Stateful validator. It retains accepted model decisions and \
-valid priors across retries. It rejects mixed decision+prior submissions, large \
-prior dumps, and unchanged resubmissions. Start by validating the model spec, \
+valid priors across retries. It rejects mixed decision+prior submissions and \
+fully unchanged resubmissions. If you accidentally resend an already accepted \
+field alongside real changes, the unchanged field is ignored. Start by validating the model spec, \
 then add priors. After any failure, resubmit only the fields you changed.
 - `search_literature` (if available): Search for empirical effect sizes. Use \
 selectively for parameters where domain knowledge is uncertain.
@@ -500,7 +501,7 @@ single parameter. Returns an aggregated prior estimate.
 2. Optionally search literature for key causal effect parameters
 3. Submit the full `distribution_choices` and `loading_constraints` first to lock the model spec
 4. Do not include priors in that same `validate_model` call
-5. Add priors incrementally via `validate_model` in small batches of at most 8 priors
+5. Add priors via `validate_model` after the model spec is locked. One call or several focused updates are both acceptable.
 6. If validation fails, read the feedback, fix the issues, and resubmit only the changed fields
 7. Once you get "VALID", STOP immediately — do not output anything else
 """
@@ -547,7 +548,8 @@ role to avoid repetition.
 ---
 
 `validate_model` is stateful. You do not need to resend unchanged fields after a rejection.
-It rejects mixed decision+prior updates, large prior batches, and unchanged accepted fields.
+It rejects mixed decision+prior updates and fully unchanged accepted resubmissions.
+If one accepted field is accidentally included alongside real changes, that unchanged field is ignored.
 
 Typical sequence:
 
@@ -563,7 +565,7 @@ Typical sequence:
 }}
 ```
 
-2. Then add priors in focused updates. Priors must be sent without model decisions, and each call may include at most 8 priors:
+2. Then add priors. Priors must be sent without model decisions, and you may send them in one call or across focused updates:
 ```json
 {{
   "priors": {{

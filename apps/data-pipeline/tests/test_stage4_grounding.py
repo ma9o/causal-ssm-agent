@@ -1,7 +1,8 @@
-"""Unit tests for stage4_grounding in stage_tools.py.
+"""Focused tests for stage4_grounding in stage_tools.py.
 
-Tests the unified grounding function that handles model_spec and/or priors.
-Checks: schema validation → compile → prior predictive.
+The broad Stage 4 grounding contract lives in ``test_stage4.py``. This file
+keeps only the direct call-path branches that are not already covered there:
+missing input, missing state, and merge behavior across incremental updates.
 """
 
 import pytest
@@ -169,32 +170,12 @@ class TestStage4GroundingInputValidation:
 
 
 # ---------------------------------------------------------------------------
-# Check 1: schema validation
+# Schema validation
 # ---------------------------------------------------------------------------
 
 
 class TestStage4GroundingSchemaValidation:
-    """Schema validation for model_spec and priors."""
-
-    def test_invalid_model_spec_returns_error(self, causal_spec):
-        """model_spec with empty likelihoods/parameters gets stored but
-        fails compile (no likelihood specification)."""
-        _output, feedback = stage4_grounding(
-            {"model_spec": {"likelihoods": [], "parameters": []}},
-            causal_spec,
-        )
-        # Empty model_spec is stored but triggers a compile error
-        assert "COMPILE ERROR" in feedback or "no likelihood" in feedback.lower()
-
-    def test_invalid_prior_schema_returns_error(self, causal_spec, model_spec):
-        """Prior with missing required fields fails PriorProposal validation."""
-        output, feedback = stage4_grounding(
-            {"priors": {"beta_stress_sleep": {"bad": "data"}}},
-            causal_spec,
-            current={"model_spec": model_spec},
-        )
-        assert output is None
-        assert "SCHEMA ERRORS" in feedback
+    """Schema branches that are only exercised through stage4_grounding itself."""
 
     def test_invalid_prior_distribution_returns_error(self, causal_spec, model_spec):
         """Unknown prior family should fail schema validation immediately."""
@@ -216,76 +197,24 @@ class TestStage4GroundingSchemaValidation:
         assert output is None
         assert "SCHEMA ERRORS" in feedback
 
-    def test_valid_model_spec_saved_with_missing_priors(self, causal_spec, model_spec):
-        """Valid model_spec alone is saved but feedback requests priors."""
-        output, feedback = stage4_grounding(
-            {"model_spec": model_spec},
-            causal_spec,
-        )
-        assert output is not None
-        assert "model_spec" in output
-        # Model spec is accepted but priors are still needed
-        assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
-
 
 # ---------------------------------------------------------------------------
-# Check 2: compile
+# Missing state
 # ---------------------------------------------------------------------------
 
 
-class TestStage4GroundingCompile:
-    """Compile check: trial compile (no priors) or full compile (with priors)."""
+class TestStage4GroundingMissingState:
+    """Compile guidance when incremental updates arrive before model state exists."""
 
-    def test_priors_without_model_spec_returns_compile_error(self, causal_spec, model_spec, priors):
-        """Priors without model_spec in current state → compile error."""
+    def test_priors_without_model_spec_returns_compile_error(self, causal_spec, priors):
+        """Priors without model_spec in current state should fail with guidance."""
         _output, feedback = stage4_grounding(
             {"priors": {"beta_stress_sleep": priors["beta_stress_sleep"]}},
             causal_spec,
-            current=None,  # no existing model_spec
+            current=None,
         )
-        # Valid priors may be stored, but compile fails without model_spec
         assert "COMPILE ERROR" in feedback
         assert "model_spec" in feedback.lower()
-
-    def test_priors_with_current_model_spec_compiles(self, causal_spec, model_spec, priors):
-        """Priors + model_spec in current state → full compile."""
-        output, feedback = stage4_grounding(
-            {"priors": priors},
-            causal_spec,
-            current={"model_spec": model_spec},
-        )
-        assert output is not None
-        assert feedback == "VALID"
-        assert "authored_priors" in output
-
-    def test_model_spec_then_priors_separately(self, causal_spec, model_spec, priors):
-        """model_spec and priors must be submitted in separate calls."""
-        # First call: submit model_spec
-        output1, _feedback1 = stage4_grounding(
-            {"model_spec": model_spec},
-            causal_spec,
-        )
-        assert output1 is not None
-        assert "model_spec" in output1
-
-        # Second call: submit priors with model_spec in current state
-        output2, feedback2 = stage4_grounding(
-            {"priors": priors},
-            causal_spec,
-            current=output1,
-        )
-        assert output2 is not None
-        assert feedback2 == "VALID"
-        assert "authored_priors" in output2
-
-    def test_model_spec_and_priors_together_rejected(self, causal_spec, model_spec, priors):
-        """Submitting both model_spec and priors in one call is rejected."""
-        output, feedback = stage4_grounding(
-            {"model_spec": model_spec, "priors": priors},
-            causal_spec,
-        )
-        assert output is None
-        assert "UPDATE TOO BROAD" in feedback
 
 
 # ---------------------------------------------------------------------------
@@ -336,102 +265,3 @@ class TestStage4GroundingStateMerging:
         # Model spec accepted but priors still needed
         assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
         assert "extra_field" not in output["model_spec"]
-
-
-# ---------------------------------------------------------------------------
-# Check 3: prior predictive (only with data_for_model)
-# ---------------------------------------------------------------------------
-
-
-class TestStage4GroundingPriorPredictive:
-    """Prior predictive check runs only when priors + data_for_model are present."""
-
-    def test_with_data_for_model_runs_pp(self, causal_spec, model_spec, priors):
-        """With data_for_model, PP check runs. With reasonable priors it should pass."""
-        import numpy as np
-        import polars as pl
-
-        n = 100
-        rng = np.random.default_rng(42)
-        timestamps = pl.Series(
-            "timestamp",
-            pl.date_range(
-                pl.date(2024, 1, 1),
-                pl.date(2024, 1, 1) + pl.duration(days=n - 1),
-                eager=True,
-            ),
-        )
-        data_for_model = pl.DataFrame(
-            {
-                "indicator": ["pss_score"] * n + ["sleep_quality"] * n,
-                "value": np.concatenate(
-                    [
-                        rng.normal(3.0, 1.0, n),
-                        rng.normal(7.0, 1.5, n),
-                    ]
-                ),
-                "timestamp": pl.concat([timestamps, timestamps]),
-            }
-        )
-
-        # Must submit priors separately from model_spec
-        _output, feedback = stage4_grounding(
-            {"priors": priors},
-            causal_spec,
-            current={"model_spec": model_spec},
-            data_for_model=data_for_model,
-        )
-        # With reasonable priors and data, should pass (or fail with PP feedback)
-        # We mainly verify it runs without crashing
-        assert (
-            feedback == "VALID" or "PRIOR PREDICTIVE" in feedback or "parameter" in feedback.lower()
-        )
-
-    def test_extreme_priors_fail_pp(self, causal_spec, model_spec):
-        """Extremely wide priors should fail prior predictive checks."""
-        import numpy as np
-        import polars as pl
-
-        extreme_priors = {}
-        for p in model_spec["parameters"]:
-            name = p["name"]
-            extreme_priors[name] = {
-                "parameter": name,
-                "distribution": "Normal",
-                "params": {"mu": 1e6, "sigma": 1e6},
-                "sources": [],
-                "reasoning": "Deliberately extreme",
-            }
-
-        n = 100
-        rng = np.random.default_rng(42)
-        timestamps = pl.Series(
-            "timestamp",
-            pl.date_range(
-                pl.date(2024, 1, 1),
-                pl.date(2024, 1, 1) + pl.duration(days=n - 1),
-                eager=True,
-            ),
-        )
-        data_for_model = pl.DataFrame(
-            {
-                "indicator": ["pss_score"] * n + ["sleep_quality"] * n,
-                "value": np.concatenate(
-                    [
-                        rng.normal(3.0, 1.0, n),
-                        rng.normal(7.0, 1.5, n),
-                    ]
-                ),
-                "timestamp": pl.concat([timestamps, timestamps]),
-            }
-        )
-
-        _output, feedback = stage4_grounding(
-            {"priors": extreme_priors},
-            causal_spec,
-            current={"model_spec": model_spec},
-            data_for_model=data_for_model,
-        )
-        # Extreme priors should either fail compile or PP
-        # (Normal doesn't satisfy positive constraint for sigma parameters)
-        assert _output is None or "PRIOR PREDICTIVE" in feedback or "COMPILE ERROR" in feedback
