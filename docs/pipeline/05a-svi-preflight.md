@@ -2,73 +2,62 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | approximate posterior and [ELBO diagnostics](#svidiagnostics) |
+| Computed | No | [`SVIDiagnostics`](#svidiagnostics), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
-Runs a cheap variational fit as a sanity check before [Stage 5b](05b-inference-diagnostics.md) commits to expensive inference. The stage forces SVI with a lightweight fixed configuration, produces an ELBO convergence curve and approximate posterior summaries, and treats failure as best-effort—the pipeline never halts here.
+Runs a cheap variational fit as a sanity check before [Stage 5b](05b-inference-diagnostics.md) commits to expensive inference, producing an ELBO convergence curve and approximate posterior summaries.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `stage4.result` | [Stage 4](04-model-specification-priors.md) | Compiled SSM (`_compiled_ssm`) and model spec |
-| `stage2.result` | [Stage 2](02-indicator-extraction.md) | Encoded `ObservationRecord` parquet persisted from Stage 2 |
+| `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
+| `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 
-Stage 4 provided the [ModelSpec](04-model-specification-priors.md#modelspec) and priors; Stage 2 provided the extracted indicator time series. Stage 5a is the first point where the compiled model meets the data for fitting.
+Stage 5a is the first stage that fits the compiled model to the observation data.
 
 ## Process
 
-Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget forced. The runtime preparation, variational optimization, and summary extraction run as a single deterministic pipeline with no LLM involvement.
+Stage 5a is a fully deterministic stage (no LLM). If any step fails, the stage returns all diagnostic fields as `null`; the pipeline continues to Stage 5b regardless.
 
-**Model compilation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form `ObservationRecord` table into wide format, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization split). The result is a `PreparedModelRuntime` carrying the JAX observation array `(T, n_manifest)`, the time array `(T,)`, and the built model.
+```mermaid
+flowchart LR
+    P[Runtime\npreparation] --> F[SVI fit] -- success --> D[Diagnostic\nextraction] --> R([Preflight result])
+    P & F & D -- failure --> R
+```
 
-**SVI optimization.** The stage calls `fit` with a fixed configuration: `method="svi"`, `num_steps=5000`, `num_samples=500`. Internally, `_fit_svi` constructs an `AutoMultivariateNormal` guide over all latent sample sites, pairs it with a `ClippedAdam` optimizer (learning rate 0.01) and a `Trace_ELBO` loss, and runs 5 000 gradient steps. Non-finite losses or guide parameters raise a `FloatingPointError`, which the outer try/except catches and maps to `outcome="warn"`.
+**Runtime preparation:** Loads the observation data, pivots to wide format, builds an executable model from the [`CompiledSSMArtifact`](../reference/compilation.md), and resolves the [inference structure](../reference/inference-routing.md) (likelihood backend, Rao-Blackwellization split). The inference structure is re-derived at fit time rather than reused from [Stage 4b](04b-parametric-identifiability.md).
 
-**Posterior sampling.** After optimization converges, 500 draws are sampled from the fitted guide via NumPyro's `Predictive`. The samples are filtered to public sites only (excluding internal factor sites).
+**SVI fit:** Fits a full-rank multivariate normal guide over all latent parameters using 5 000 gradient steps, then draws 500 posterior samples. The multivariate normal family captures posterior correlations but cannot represent multimodality or heavy tails — sufficient for detecting gross misspecification, not for characterizing the full posterior.
 
-**Diagnostic extraction.** From the fitted `InferenceResult` the stage extracts:
+**Diagnostic extraction:** From the posterior draws the stage computes:
 
-- *ELBO curve*: the full loss trace, thinned to at most 500 points for the frontend.
-- *Posterior marginals*: for each scalar parameter (and the first 20 elements of array parameters), a histogram-based density curve with 50 bins, the posterior mean and standard deviation, and the 94% [highest density interval](https://en.wikipedia.org/wiki/Credible_interval#Highest_density_interval) (HDI) bounds.
-- *Posterior pairs*: pairwise scatter plots for up to 6 scalar parameters, thinned to at most 200 points. Because SVI produces no chain-level divergence information, the `divergent` field is always `null` for this stage.
+- *ELBO curve*: the full loss trace over the optimization steps
+- *Posterior marginals*: per-parameter density curve with mean, standard deviation, and 94% [highest density interval](https://en.wikipedia.org/wiki/Credible_interval#Highest_density_interval) (HDI)
+- *Posterior pairs*: pairwise scatter plots for up to 6 parameters, revealing posterior correlations
 
-**Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless because Stage 5a is best-effort preflight only.
+### Example
 
-**Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes.
+For a model with constructs `Symptom Burden`, `Medication Adherence`, and `Functional Capacity`, Stage 5a might produce: an ELBO curve that drops steeply over the first 1 000 steps then plateaus by step 3 000, indicating convergence; marginal densities showing `beta_symptom_adherence` centered at −0.18 (sd 0.09, 94% HDI [−0.35, −0.02]) and `rho_functional_capacity` at 0.81 (sd 0.04, HDI [0.73, 0.88]); and a pairwise scatter for (`rho_symptom_burden`, `sigma_symptom_burden`) revealing a strong negative posterior correlation (r ≈ −0.7), signaling that Stage 5b should watch for slow mixing between these two parameters.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `inference_metadata` | [`InferenceMetadata`](#inferencemetadata) | Method, sample count, and timing |
-| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) &#124; null | ELBO loss curve (null on failure) |
-| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] &#124; null | Per-parameter density summaries (null on failure) |
-| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] &#124; null | Pairwise scatter data (null on failure) |
+| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) | ELBO loss curve |
+| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] | Per-parameter density summaries |
+| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] | Pairwise scatter data |
 
-## Definitions
+### `SVIDiagnostics`
 
-### InferenceMetadata
-
-Summary metadata for the web frontend. Fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `method` | `str` | Always `"svi"` for this stage |
-| `n_samples` | `int` | Number of posterior draws (500 on success, 0 on failure) |
-| `duration_seconds` | `float` | Wall-clock time for the fit |
-
-### SVIDiagnostics
-
-Convergence diagnostics for the variational optimization.
+A monotonically decreasing ELBO curve indicates convergence; oscillations or a plateau suggest the guide cannot capture the posterior geometry.
 
 | Field | Type | Description |
 |---|---|---|
 | `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
 
-A monotonically decreasing curve indicates convergence; large oscillations or a plateau at a high value suggest the guide family cannot capture the posterior geometry. Stage 5b may choose a more expressive backend (NUTS, Laplace-EM) in that case.
+### `PosteriorMarginal`
 
-### PosteriorMarginal
-
-Marginal posterior density for a single scalar parameter, computed via histogram binning with 5% tail padding.
+Per-parameter marginal posterior density summary.
 
 | Field | Type | Description |
 |---|---|---|
@@ -80,16 +69,13 @@ Marginal posterior density for a single scalar parameter, computed via histogram
 | `hdi_3` | `float` | Lower bound of the 94% HDI |
 | `hdi_97` | `float` | Upper bound of the 94% HDI |
 
-### PosteriorPair
+### `PosteriorPair`
 
-Pairwise posterior scatter data for joint visualization. Up to 6 parameters are selected; array parameters contribute at most 4 elements each.
+Pairwise posterior scatter data for joint visualization.
 
 | Field | Type | Description |
 |---|---|---|
 | `param_x` | `str` | Name of the x-axis parameter |
 | `param_y` | `str` | Name of the y-axis parameter |
-| `x_values` | `list[float]` | Thinned posterior draws for x (at most 200 points) |
-| `y_values` | `list[float]` | Thinned posterior draws for y |
-| `divergent` | `list[bool]` &#124; null | Always `null` for SVI (no chain-level divergence data) |
-
-Example: for a model of symptom burden and medication adherence with latent constructs `Symptom Burden`, `Medication Adherence`, and `Functional Capacity`, Stage 5a would run 5 000 SVI steps over the compiled SSM, then produce an ELBO curve showing whether the multivariate normal guide captured the joint posterior, marginal densities for each drift and loading parameter, and pairwise scatter plots revealing any strong posterior correlations before Stage 5b invests in a full NUTS or Laplace-EM run.
+| `x_values` | `list[float]` | Posterior draws for x |
+| `y_values` | `list[float]` | Posterior draws for y |
