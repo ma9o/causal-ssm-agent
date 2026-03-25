@@ -537,6 +537,122 @@ describe("buildAnalysisManifest", () => {
     });
   });
 
+  it("treats an active rerun as authoritative for its downstream stage window", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "rerun-run" }, { id: "full-run" }]);
+        }
+
+        return jsonResponse([]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/full-run") {
+        return jsonResponse({
+          id: "full-run",
+          created: "2026-03-13T18:15:00.000Z",
+          parameters: { query: "Why does this happen?" },
+        });
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/rerun-run") {
+        return jsonResponse({
+          id: "rerun-run",
+          created: "2026-03-13T18:55:00.000Z",
+          parameters: {
+            query: "Why does this happen?",
+            start_stage: "stage-1a",
+          },
+        });
+      }
+
+      if (url === "http://localhost:4200/api/task_runs/filter") {
+        return jsonResponse([]);
+      }
+
+      if (url === "http://localhost:4200/api/events/filter") {
+        const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
+
+        if (rootFlowRunId === "full-run") {
+          return jsonResponse(
+            eventPage([
+              stageEvent("stage-0", "completed", "2026-03-13T18:16:00.000Z"),
+              stageEvent("stage-1a", "completed", "2026-03-13T18:17:00.000Z"),
+              stageEvent("stage-1b", "completed", "2026-03-13T18:18:00.000Z"),
+              stageEvent("stage-2", "completed", "2026-03-13T18:19:00.000Z"),
+              stageEvent("stage-3", "completed", "2026-03-13T18:20:00.000Z"),
+              stageEvent("stage-4", "failed", "2026-03-13T18:21:00.000Z"),
+            ]),
+          );
+        }
+
+        if (rootFlowRunId === "rerun-run") {
+          return jsonResponse(
+            eventPage([
+              stageEvent("stage-0", "completed", "2026-03-13T18:55:01.000Z"),
+              stageEvent("stage-1a", "running", "2026-03-13T18:55:02.000Z"),
+              stageEvent("stage-1a", "completed", "2026-03-13T18:56:00.000Z"),
+              stageEvent("stage-1b", "running", "2026-03-13T18:56:01.000Z"),
+            ]),
+          );
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest?.stages["stage-0"]).toEqual({
+      ownerRootFlowRunId: "full-run",
+      stageSubflowRunId: null,
+      logFlowRunIds: [],
+      execution: {
+        stateType: "COMPLETED",
+        startTime: "2026-03-13T18:16:00.000Z",
+        endTime: "2026-03-13T18:16:00.000Z",
+      },
+    });
+    expect(manifest?.stages["stage-1a"]).toEqual({
+      ownerRootFlowRunId: "rerun-run",
+      stageSubflowRunId: null,
+      logFlowRunIds: [],
+      execution: {
+        stateType: "COMPLETED",
+        startTime: "2026-03-13T18:55:02.000Z",
+        endTime: "2026-03-13T18:56:00.000Z",
+      },
+    });
+    expect(manifest?.stages["stage-1b"]).toEqual({
+      ownerRootFlowRunId: "rerun-run",
+      stageSubflowRunId: null,
+      logFlowRunIds: [],
+      execution: {
+        stateType: "RUNNING",
+        startTime: "2026-03-13T18:56:01.000Z",
+        endTime: null,
+      },
+    });
+    expect(manifest?.stages["stage-2"]).toEqual({
+      ownerRootFlowRunId: "rerun-run",
+      stageSubflowRunId: null,
+      logFlowRunIds: [],
+      execution: null,
+    });
+    expect(manifest?.stages["stage-4"]).toEqual({
+      ownerRootFlowRunId: "rerun-run",
+      stageSubflowRunId: null,
+      logFlowRunIds: [],
+      execution: null,
+    });
+  });
+
   it("can bootstrap a manifest directly from an explicit root flow run when Prefect tags are unavailable", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);

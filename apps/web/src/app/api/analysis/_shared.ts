@@ -85,10 +85,12 @@ function getStageOwningRootFlowRunId(
   for (const entry of lineage) {
     const startIndex = getStageIndex(entry.startStage);
     const endIndex = getStageIndex(entry.endStage);
+    const stageExecutions = stageExecutionsByRootFlowRunId.get(entry.rootFlowRunId);
+    const hasAnyStageExecution = !!stageExecutions && Object.keys(stageExecutions).length > 0;
     if (
+      hasAnyStageExecution &&
       startIndex <= stageIndex &&
-      stageIndex <= endIndex &&
-      stageExecutionsByRootFlowRunId.get(entry.rootFlowRunId)?.[stageId]
+      stageIndex <= endIndex
     ) {
       ownerRootFlowRunId = entry.rootFlowRunId;
     }
