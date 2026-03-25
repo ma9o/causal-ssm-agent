@@ -10,7 +10,7 @@ import {
 
 const originalStoreUrl = process.env.BYOK_SECRET_STORE_URL;
 const originalAuthToken = process.env.BYOK_SECRET_STORE_AUTH_TOKEN;
-const originalSecret = process.env.BYOK_SECRET_STORE_ENCRYPTION_KEY;
+const originalAppSecret = process.env.APP_SECRET;
 
 function restoreEnv() {
   if (originalStoreUrl === undefined) {
@@ -25,10 +25,10 @@ function restoreEnv() {
     process.env.BYOK_SECRET_STORE_AUTH_TOKEN = originalAuthToken;
   }
 
-  if (originalSecret === undefined) {
-    delete process.env.BYOK_SECRET_STORE_ENCRYPTION_KEY;
+  if (originalAppSecret === undefined) {
+    delete process.env.APP_SECRET;
   } else {
-    process.env.BYOK_SECRET_STORE_ENCRYPTION_KEY = originalSecret;
+    process.env.APP_SECRET = originalAppSecret;
   }
 }
 
@@ -47,7 +47,7 @@ describe("BYOK secret store", () => {
     tempDir = mkdtempSync(join(tmpdir(), "byok-secret-store-"));
     const dbPath = join(tempDir, "store.db");
     process.env.BYOK_SECRET_STORE_URL = `file:${dbPath}`;
-    process.env.BYOK_SECRET_STORE_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef";
+    process.env.APP_SECRET = "0123456789abcdef0123456789abcdef";
     delete process.env.BYOK_SECRET_STORE_AUTH_TOKEN;
 
     const { createClient } = await import("@libsql/client");

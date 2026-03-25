@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { Client } from "@libsql/client";
+import { deriveAppSecret } from "@/lib/server/app-secret";
 import { createControlStoreClient } from "@/lib/server/control-store";
 
 const BYOK_SECRET_TABLE = "byok_secret_refs";
@@ -12,11 +13,11 @@ function getByokSecretStoreTtlSeconds(): number {
 }
 
 function getByokSecretStoreSecret(): string {
-  const secret = process.env.BYOK_SECRET_STORE_ENCRYPTION_KEY;
-  if (!secret || secret.length < 32) {
-    throw new Error("BYOK_SECRET_STORE_ENCRYPTION_KEY must be set and at least 32 characters");
+  try {
+    return deriveAppSecret("byok-secret-store");
+  } catch {
+    throw new Error("APP_SECRET is not configured");
   }
-  return secret;
 }
 
 function getCipherKey(): Buffer {

@@ -32,25 +32,25 @@ export type RunnableOpenRouterAccessMode = RunnableOpenRouterAccess["mode"];
 
 let creditsCache: CreditsCacheEntry | null = null;
 
-function getOpenRouterTrialApiKey(): string | undefined {
-  return process.env.OPENROUTER_TRIAL_API_KEY;
+function getOpenRouterApiKey(): string | undefined {
+  return process.env.OPENROUTER_API_KEY;
 }
 
 function getOpenRouterCreditsApiKey(): string | undefined {
   return process.env.OPENROUTER_CREDITS_API_KEY;
 }
 
-function buildCreditsCacheKey(trialApiKey: string, creditsApiKey: string): string {
-  return `${trialApiKey}:${creditsApiKey}`;
+function buildCreditsCacheKey(apiKey: string, creditsApiKey: string): string {
+  return `${apiKey}:${creditsApiKey}`;
 }
 
-async function getTrialCreditStatus(trialApiKey: string): Promise<TrialCreditStatus> {
+async function getTrialCreditStatus(apiKey: string): Promise<TrialCreditStatus> {
   const creditsApiKey = getOpenRouterCreditsApiKey();
   if (!creditsApiKey) {
     return "unknown";
   }
 
-  const cacheKey = buildCreditsCacheKey(trialApiKey, creditsApiKey);
+  const cacheKey = buildCreditsCacheKey(apiKey, creditsApiKey);
   if (
     creditsCache &&
     creditsCache.cacheKey === cacheKey &&
@@ -94,15 +94,15 @@ export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAcces
     };
   }
 
-  const trialApiKey = getOpenRouterTrialApiKey();
-  if (!trialApiKey) {
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) {
     return {
       mode: "none",
       reason: "misconfigured",
     };
   }
 
-  const creditStatus = await getTrialCreditStatus(trialApiKey);
+  const creditStatus = await getTrialCreditStatus(apiKey);
   if (creditStatus === "exhausted") {
     return {
       mode: "none",
@@ -112,7 +112,7 @@ export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAcces
 
   return {
     mode: "trial",
-    apiKey: trialApiKey,
+    apiKey,
     creditStatus,
   };
 }

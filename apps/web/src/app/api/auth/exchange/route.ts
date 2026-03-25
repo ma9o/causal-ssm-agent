@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   }
   if (!hasOpenRouterSessionSecret()) {
     return NextResponse.json(
-      { error: "OPENROUTER_SESSION_SECRET is not configured" },
+      { error: "APP_SECRET is not configured" },
       { status: 500 },
     );
   }

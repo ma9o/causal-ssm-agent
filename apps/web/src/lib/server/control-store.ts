@@ -1,9 +1,10 @@
 import { createClient, type Client } from "@libsql/client";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import "@/lib/server/root-env";
+import { getRepoRoot } from "@/lib/server/repo-root";
 
-const REPO_ROOT = resolveRepoRoot();
+const REPO_ROOT = getRepoRoot();
 const DEFAULT_CONTROL_STORE_PATH = join(REPO_ROOT, ".local", "byok-secret-store.db");
 const DEFAULT_CONTROL_STORE_URL = `file:${DEFAULT_CONTROL_STORE_PATH}`;
 
@@ -12,19 +13,6 @@ type ControlStoreConfig = {
   filePath?: string;
   url: string;
 };
-
-function resolveRepoRoot(): string {
-  const cwd = process.cwd();
-  const candidates = [cwd, join(cwd, ".."), join(cwd, "..", "..")];
-
-  for (const candidate of candidates) {
-    if (existsSync(join(candidate, "apps")) && existsSync(join(candidate, "packages"))) {
-      return candidate;
-    }
-  }
-
-  return join(cwd, "..", "..");
-}
 
 function getControlStoreAuthToken(): string | undefined {
   const configured = process.env.BYOK_SECRET_STORE_AUTH_TOKEN?.trim();

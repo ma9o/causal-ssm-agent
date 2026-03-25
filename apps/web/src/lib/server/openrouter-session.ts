@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { getIronSession, type SessionOptions } from "iron-session";
 import "@/lib/server/root-env";
+import { deriveAppSecret } from "@/lib/server/app-secret";
 
 const OPENROUTER_SESSION_COOKIE = "openrouter_session";
 const OPENROUTER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -12,11 +13,11 @@ export type OpenRouterSession = {
 type OpenRouterSessionStore = Partial<OpenRouterSession>;
 
 function getOpenRouterSessionSecret(): string | undefined {
-  const secret = process.env.OPENROUTER_SESSION_SECRET;
-  if (!secret || secret.length < 32) {
+  try {
+    return deriveAppSecret("openrouter-session");
+  } catch {
     return undefined;
   }
-  return secret;
 }
 
 function getSessionOptions(): SessionOptions | null {
@@ -69,7 +70,7 @@ export async function readOpenRouterSession(): Promise<OpenRouterSession | null>
 export async function writeOpenRouterSession(session: OpenRouterSession): Promise<void> {
   const cookieSession = await getOpenRouterSessionStore();
   if (!cookieSession) {
-    throw new Error("OPENROUTER_SESSION_SECRET is not configured");
+    throw new Error("APP_SECRET is not configured");
   }
 
   cookieSession.apiKey = session.apiKey;

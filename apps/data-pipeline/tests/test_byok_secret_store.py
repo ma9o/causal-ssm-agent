@@ -1,6 +1,7 @@
 import time
 from base64 import urlsafe_b64encode
 from hashlib import sha256
+from hmac import new as hmac_new
 
 import libsql
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -22,6 +23,10 @@ def _build_web_payload(api_key: str, secret: str) -> str:
         f"v1.{_encode_base64url(nonce)}.{_encode_base64url(ciphertext)}."
         f"{_encode_base64url(auth_tag)}"
     )
+
+
+def _derive_local_secret(root_secret: str, scope: str) -> str:
+    return hmac_new(root_secret.encode("utf-8"), scope.encode("utf-8"), sha256).hexdigest()
 
 
 def _seed_byok_ref(tmp_path, ref: str, payload: str, *, expires_at_ms: int) -> None:
@@ -48,17 +53,17 @@ def _seed_byok_ref(tmp_path, ref: str, payload: str, *, expires_at_ms: int) -> N
 
 
 def test_consume_byok_secret_ref_reads_web_payload_and_is_single_use(monkeypatch, tmp_path):
-    secret = "0123456789abcdef0123456789abcdef"
+    app_secret = "0123456789abcdef0123456789abcdef"
     now_ms = int(time.time() * 1000)
     ref = "ref-123"
     monkeypatch.setenv("BYOK_SECRET_STORE_URL", f"file:{tmp_path / 'byok-secret-store.db'}")
-    monkeypatch.setenv("BYOK_SECRET_STORE_ENCRYPTION_KEY", secret)
+    monkeypatch.setenv("APP_SECRET", app_secret)
     monkeypatch.delenv("BYOK_SECRET_STORE_AUTH_TOKEN", raising=False)
 
     _seed_byok_ref(
         tmp_path,
         ref,
-        _build_web_payload("user-key", secret),
+        _build_web_payload("user-key", _derive_local_secret(app_secret, "byok-secret-store")),
         expires_at_ms=now_ms + 60_000,
     )
 
@@ -67,18 +72,36 @@ def test_consume_byok_secret_ref_reads_web_payload_and_is_single_use(monkeypatch
 
 
 def test_consume_byok_secret_ref_returns_none_for_expired_rows(monkeypatch, tmp_path):
-    secret = "0123456789abcdef0123456789abcdef"
+    app_secret = "0123456789abcdef0123456789abcdef"
     now_ms = int(time.time() * 1000)
     ref = "ref-expired"
     monkeypatch.setenv("BYOK_SECRET_STORE_URL", f"file:{tmp_path / 'byok-secret-store.db'}")
-    monkeypatch.setenv("BYOK_SECRET_STORE_ENCRYPTION_KEY", secret)
+    monkeypatch.setenv("APP_SECRET", app_secret)
     monkeypatch.delenv("BYOK_SECRET_STORE_AUTH_TOKEN", raising=False)
 
     _seed_byok_ref(
         tmp_path,
         ref,
-        _build_web_payload("user-key", secret),
+        _build_web_payload("user-key", _derive_local_secret(app_secret, "byok-secret-store")),
         expires_at_ms=now_ms - 1,
     )
 
     assert consume_byok_secret_ref(ref) is None
+
+
+def test_consume_byok_secret_ref_uses_app_secret(monkeypatch, tmp_path):
+    app_secret = "0123456789abcdef0123456789abcdef"
+    now_ms = int(time.time() * 1000)
+    ref = "ref-app-secret"
+    monkeypatch.setenv("BYOK_SECRET_STORE_URL", f"file:{tmp_path / 'byok-secret-store.db'}")
+    monkeypatch.setenv("APP_SECRET", app_secret)
+    monkeypatch.delenv("BYOK_SECRET_STORE_AUTH_TOKEN", raising=False)
+
+    _seed_byok_ref(
+        tmp_path,
+        ref,
+        _build_web_payload("user-key", _derive_local_secret(app_secret, "byok-secret-store")),
+        expires_at_ms=now_ms + 60_000,
+    )
+
+    assert consume_byok_secret_ref(ref) == "user-key"
