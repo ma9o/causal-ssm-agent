@@ -8,8 +8,8 @@ from typing import Any
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import LLMStageContext
+from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 LLMOrchestrator = Callable[..., Awaitable[Any]]
 ModelNameGetter = Callable[[], str]

@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.litellm_client import (
+from causal_ssm_agent.utils.openrouter_client import (
     GenerateConfig,
     Tool,
     call_model,
@@ -120,12 +120,11 @@ def get_generate_config() -> GenerateConfig:
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
         reasoning_effort=llm.reasoning_effort,
-        reasoning_history="all",  # Preserve reasoning across tool calls (required by Gemini)
     )
 
 
 def dict_messages_to_chat(messages: list[dict]) -> list[dict[str, Any]]:
-    """Normalize dict messages for LiteLLM/OpenAI chat format.
+    """Normalize dict messages for the OpenRouter/OpenAI chat format.
 
     Args:
         messages: List of dicts with 'role' and 'content' keys
@@ -156,7 +155,7 @@ def make_generate_fn(
     Works for both orchestrator stages (with follow_ups) and worker stages (without).
 
     Args:
-        model_name: LiteLLM model identifier
+        model_name: OpenRouter model identifier
         config: Optional generation config (uses get_generate_config() if None)
         trace_capture: Optional dict for capturing the LLM trace
 
@@ -519,7 +518,7 @@ async def multi_turn_generate(
 
     Args:
         messages: Initial messages (typically system + user prompt)
-        model_name: LiteLLM model identifier
+        model_name: OpenRouter model identifier
         follow_ups: List of follow-up user prompts to send after each response (default: none)
         tools: Optional list of tools the model can use on the first turn
         follow_up_tools: Optional list of tools for follow-up (self-review) turns.

@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from ..utils.litellm_client import use_openrouter_api_key
+from ..utils.openrouter_client import use_openrouter_api_key
 from . import get_prefect_logger
 from .run_store import (
     STAGE0_PARQUET_FILENAMES,

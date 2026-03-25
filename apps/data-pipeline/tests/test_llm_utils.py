@@ -7,7 +7,6 @@ Covers: parse_json_response, _validate_json_and_format, attach_trace,
 import json
 import logging
 
-import litellm
 import pytest
 
 from causal_ssm_agent.utils.llm import (
@@ -210,9 +209,7 @@ class TestWorkerValidationTools:
                         {
                             "id": "call_1",
                             "name": "validate_extractions",
-                            "arguments": json.dumps(
-                                {"output_json": _valid_worker_output_json()}
-                            ),
+                            "arguments": json.dumps({"output_json": _valid_worker_output_json()}),
                         }
                     ],
                 },
@@ -260,9 +257,7 @@ class TestWorkerValidationTools:
                         {
                             "id": "call_1",
                             "name": "validate_extractions",
-                            "arguments": json.dumps(
-                                {"output_json": _valid_worker_output_json()}
-                            ),
+                            "arguments": json.dumps({"output_json": _valid_worker_output_json()}),
                         }
                     ],
                 },
@@ -442,145 +437,118 @@ class TestAttachTrace:
         assert "llm_trace" not in output
 
 
-class TestLiteLLMAsyncLoggingPatch:
-    def test_skips_async_success_logging_without_callbacks(self, monkeypatch):
-        from causal_ssm_agent.utils import litellm_client
+class _FakeChatCompletions:
+    def __init__(self, response: dict[str, object], seen: dict[str, object]):
+        self._response = response
+        self._seen = seen
 
-        called = False
-
-        async def fake_original(*args, **kwargs):
-            nonlocal called
-            called = True
-
-        class DummyLoggingObj:
-            dynamic_async_success_callbacks = None
-
-        monkeypatch.setattr(litellm_client, "_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER", fake_original)
-        monkeypatch.setattr(litellm, "_async_success_callback", [])
-
-        _run(
-            litellm_client._quiet_client_async_logging_helper(
-                logging_obj=DummyLoggingObj(),
-                result=None,
-                start_time=None,
-                end_time=None,
-                is_completion_with_fallbacks=False,
-            )
-        )
-
-        assert called is False
-
-    def test_preserves_async_success_logging_when_callbacks_exist(self, monkeypatch):
-        from causal_ssm_agent.utils import litellm_client
-
-        seen = {}
-
-        async def fake_original(*args, **kwargs):
-            seen["called"] = True
-            seen["kwargs"] = kwargs
-
-        class DummyLoggingObj:
-            dynamic_async_success_callbacks = ("callback",)
-
-        monkeypatch.setattr(litellm_client, "_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER", fake_original)
-        monkeypatch.setattr(litellm, "_async_success_callback", [])
-
-        _run(
-            litellm_client._quiet_client_async_logging_helper(
-                logging_obj=DummyLoggingObj(),
-                result="ok",
-                start_time=1,
-                end_time=2,
-                is_completion_with_fallbacks=False,
-            )
-        )
-
-        assert seen["called"] is True
-        assert seen["kwargs"]["result"] == "ok"
+    async def create(self, **kwargs):
+        self._seen["kwargs"] = kwargs
+        return self._response
 
 
-class TestVerboseResponseLogging:
+class _FakeOpenRouterClient:
+    def __init__(self, response: dict[str, object], seen: dict[str, object]):
+        self.chat = type(
+            "_FakeChatNamespace",
+            (),
+            {"completions": _FakeChatCompletions(response, seen)},
+        )()
+
+
+class TestOpenRouterClient:
     def test_call_model_logs_completion_tool_calls_and_reasoning(self, monkeypatch, caplog):
-        from causal_ssm_agent.utils import litellm_client
+        from causal_ssm_agent.utils import openrouter_client
 
-        async def fake_acompletion(**kwargs):
-            return {
-                "model": "test-model",
-                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
-                "choices": [
-                    {
-                        "finish_reason": "tool_calls",
-                        "message": {
-                            "content": "final answer",
-                            "reasoning": "thought process",
-                            "tool_calls": [
-                                {
-                                    "id": "call_1",
-                                    "function": {
-                                        "name": "validate_extractions",
-                                        "arguments": {"ok": True},
-                                    },
-                                }
-                            ],
-                        },
-                    }
-                ],
-            }
+        seen: dict[str, object] = {}
+        response = {
+            "model": "test-model",
+            "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "content": "final answer",
+                        "reasoning": "thought process",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "function": {
+                                    "name": "validate_extractions",
+                                    "arguments": {"ok": True},
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
 
-        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+        monkeypatch.setattr(
+            openrouter_client,
+            "_get_openrouter_client",
+            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+        )
 
         with caplog.at_level(logging.INFO):
             _run(
-                litellm_client.call_model(
+                openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(),
+                    config=openrouter_client.GenerateConfig(),
                     log_label="stage2 chunk=1",
                 )
             )
 
+        assert seen["kwargs"]["model"] == "test-model"
         assert "call_model completion:\nfinal answer" in caplog.text
         assert '"name": "validate_extractions"' in caplog.text
         assert "call_model reasoning:\nthought process" in caplog.text
 
     def test_call_model_logs_completion_without_label(self, monkeypatch, caplog):
-        from causal_ssm_agent.utils import litellm_client
+        from causal_ssm_agent.utils import openrouter_client
 
-        async def fake_acompletion(**kwargs):
-            return {
-                "model": "test-model",
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-                "choices": [
-                    {
-                        "finish_reason": "stop",
-                        "message": {
-                            "content": "unlabeled completion",
-                        },
-                    }
-                ],
-            }
+        seen: dict[str, object] = {}
+        response = {
+            "model": "test-model",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "unlabeled completion",
+                    },
+                }
+            ],
+        }
 
-        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+        monkeypatch.setattr(
+            openrouter_client,
+            "_get_openrouter_client",
+            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+        )
 
         with caplog.at_level(logging.INFO):
             _run(
-                litellm_client.call_model(
+                openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(),
+                    config=openrouter_client.GenerateConfig(),
                 )
             )
 
+        assert seen["kwargs"]["messages"] == [{"role": "user", "content": "hello"}]
         assert "call_model completion:\nunlabeled completion" in caplog.text
 
     def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
-        from causal_ssm_agent.utils import litellm_client
+        from causal_ssm_agent.utils import openrouter_client
 
         seen: dict[str, object] = {}
+        monkeypatch.setattr(openrouter_client, "_openrouter_clients", {})
 
-        async def fake_acompletion(**kwargs):
-            seen["kwargs"] = kwargs
-            return {
+        def fake_build_client(api_key: str | None):
+            seen["api_key"] = api_key
+            response = {
                 "model": "test-model",
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
                 "choices": [
@@ -592,27 +560,63 @@ class TestVerboseResponseLogging:
                     }
                 ],
             }
+            return _FakeOpenRouterClient(response, seen)
 
-        monkeypatch.setattr(litellm_client, "acompletion", fake_acompletion)
+        monkeypatch.setattr(openrouter_client, "_build_openrouter_client", fake_build_client)
 
-        with litellm_client.use_openrouter_api_key("user-key"):
+        with openrouter_client.use_openrouter_api_key("user-key"):
             _run(
-                litellm_client.call_model(
+                openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=litellm_client.GenerateConfig(),
+                    config=openrouter_client.GenerateConfig(),
                 )
             )
 
-        assert seen["kwargs"]["api_key"] == "user-key"
+        assert seen["api_key"] == "user-key"
+        assert seen["kwargs"]["model"] == "test-model"
+
+    def test_call_model_uses_reasoning_config_in_extra_body(self, monkeypatch):
+        from causal_ssm_agent.utils import openrouter_client
+
+        seen: dict[str, object] = {}
+        response = {
+            "model": "test-model",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "ok",
+                    },
+                }
+            ],
+        }
+
+        monkeypatch.setattr(
+            openrouter_client,
+            "_get_openrouter_client",
+            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+        )
+
+        _run(
+            openrouter_client.call_model(
+                "test-model",
+                [{"role": "user", "content": "hello"}],
+                config=openrouter_client.GenerateConfig(reasoning_effort="high"),
+            )
+        )
+
+        assert seen["kwargs"]["extra_body"] == {"reasoning": {"effort": "high"}}
 
     def test_use_openrouter_api_key_none_preserves_current_request_local_key(self):
-        from causal_ssm_agent.utils import litellm_client
+        from causal_ssm_agent.utils import openrouter_client
 
-        with litellm_client.use_openrouter_api_key(
-            "user-key"
-        ), litellm_client.use_openrouter_api_key(None):
-            assert litellm_client.get_openrouter_api_key() == "user-key"
+        with (
+            openrouter_client.use_openrouter_api_key("user-key"),
+            openrouter_client.use_openrouter_api_key(None),
+        ):
+            assert openrouter_client.get_openrouter_api_key() == "user-key"
 
 
 # =============================================================================
@@ -633,11 +637,28 @@ class TestDictMessagesToChat:
         msgs = dict_messages_to_chat([])
         assert len(msgs) == 0
 
+    def test_preserves_reasoning_blocks(self):
+        from causal_ssm_agent.utils.llm import dict_messages_to_chat
+
+        msgs = dict_messages_to_chat(
+            [
+                {
+                    "role": "assistant",
+                    "content": "tool call pending",
+                    "reasoning": "thinking",
+                    "reasoning_details": [{"type": "reasoning.text", "text": "thinking"}],
+                }
+            ]
+        )
+
+        assert msgs[0]["reasoning"] == "thinking"
+        assert msgs[0]["reasoning_details"] == [{"type": "reasoning.text", "text": "thinking"}]
+
 
 class TestOpenRouterKeyContext:
     def test_llm_stage_task_uses_request_local_key_without_explicit_override(self, monkeypatch):
         from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
-        from causal_ssm_agent.utils import litellm_client
+        from causal_ssm_agent.utils import openrouter_client
 
         class _FakeLLMStageContext:
             def __init__(self, *_args, **_kwargs):
@@ -660,7 +681,7 @@ class TestOpenRouterKeyContext:
 
         async def orchestrator_fn(*, generate):
             _ = await generate([{"role": "user", "content": "hello"}])
-            return {"api_key": litellm_client.get_openrouter_api_key()}
+            return {"api_key": openrouter_client.get_openrouter_api_key()}
 
         monkeypatch.setattr(
             "causal_ssm_agent.flows.stages.llm_stage_task.LLMStageContext",
@@ -674,7 +695,7 @@ class TestOpenRouterKeyContext:
             model_name_getter=lambda: "test-model",
         )
 
-        with litellm_client.use_openrouter_api_key("user-key"):
+        with openrouter_client.use_openrouter_api_key("user-key"):
             result = _run(task())
 
         assert result == {"api_key": "user-key"}

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.litellm_client import acquire_limiter
+from causal_ssm_agent.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
     from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec

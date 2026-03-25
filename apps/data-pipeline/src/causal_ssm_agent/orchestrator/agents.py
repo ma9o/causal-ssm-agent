@@ -1,4 +1,4 @@
-"""Orchestrator agents using LiteLLM-backed runtime clients.
+"""Orchestrator agents using OpenRouter-backed runtime clients.
 
 Two-stage approach following Anderson & Gerbing (1988):
 1. Latent Model (Stage 1a) - theoretical constructs + causal edges, NO DATA
