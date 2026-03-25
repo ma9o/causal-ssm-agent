@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 from causal_ssm_agent.flows.stages.contracts import (
-    INTERACTIVE_STAGES,
     STAGE_TOOLS,
     validate_stage_payload,
 )
@@ -269,20 +268,19 @@ def valid_stage_payloads() -> dict[str, dict]:
     }
 
 
-def test_stage1_tool_contract_names_match_pipeline_runtime() -> None:
-    """Refinement proxy must expose the same tool names used in pipeline prompts."""
-    assert [tool.name for tool in STAGE_TOOLS["stage-1a"]] == ["validate_latent_model"]
-    assert [tool.name for tool in STAGE_TOOLS["stage-1b"]] == ["validate_measurement_model"]
+def test_tool_server_registry_matches_served_tool_contracts() -> None:
+    """Served tool contracts should match the tool server registry exactly."""
+    from causal_ssm_agent.tool_server import _TOOL_IMPLS
 
+    served_stage_ids = {stage_id for stage_id, _tool_name in _TOOL_IMPLS}
+    assert served_stage_ids == {"stage-1a", "stage-1b", "stage-2", "stage-4", "stage-6"}
 
-def test_stage6_tool_contract_names_match_analysis_assistant_runtime() -> None:
-    """Stage 6 assistant must expose the read-only model + simulation tool surface."""
-    assert [tool.name for tool in STAGE_TOOLS["stage-6"]] == [
-        "get_model_info",
-        "simulate_intervention",
-        "simulate_counterfactual",
-    ]
-    assert "stage-6" in INTERACTIVE_STAGES
+    for stage_id in served_stage_ids:
+        contract_names = {tool.name for tool in STAGE_TOOLS[stage_id]}
+        runtime_names = {
+            tool_name for served_stage_id, tool_name in _TOOL_IMPLS if served_stage_id == stage_id
+        }
+        assert runtime_names == contract_names
 
 
 def test_validate_stage_payload_accepts_all_stages(valid_stage_payloads: dict[str, dict]):

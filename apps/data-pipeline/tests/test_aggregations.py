@@ -27,90 +27,52 @@ def _make_df(values: list[float]) -> pl.DataFrame:
 
 
 class TestBuildAggExpr:
-    def test_mean(self):
-        df = _make_df([1.0, 2.0, 3.0])
-        result = df.select(_build_agg_expr("mean"))
-        assert abs(result["value"][0] - 2.0) < 1e-10
-
-    def test_sum(self):
-        df = _make_df([1.0, 2.0, 3.0])
-        result = df.select(_build_agg_expr("sum"))
-        assert abs(result["value"][0] - 6.0) < 1e-10
-
-    def test_min(self):
-        df = _make_df([3.0, 1.0, 2.0])
-        result = df.select(_build_agg_expr("min"))
-        assert abs(result["value"][0] - 1.0) < 1e-10
-
-    def test_max(self):
-        df = _make_df([3.0, 1.0, 2.0])
-        result = df.select(_build_agg_expr("max"))
-        assert abs(result["value"][0] - 3.0) < 1e-10
+    @pytest.mark.parametrize(
+        ("agg_name", "values", "expected"),
+        [
+            ("mean", [1.0, 2.0, 3.0], 2.0),
+            ("sum", [1.0, 2.0, 3.0], 6.0),
+            ("min", [3.0, 1.0, 2.0], 1.0),
+            ("max", [3.0, 1.0, 2.0], 3.0),
+            ("count", [1.0, 2.0, 3.0], 3.0),
+            ("median", [1.0, 5.0, 3.0], 3.0),
+            ("first", [7.0, 2.0, 3.0], 7.0),
+            ("last", [7.0, 2.0, 9.0], 9.0),
+            ("range", [1.0, 5.0, 3.0], 4.0),
+            ("p25", [1.0, 2.0, 3.0, 4.0], 2.0),
+            ("p75", [1.0, 2.0, 3.0, 4.0], 3.0),
+            ("iqr", [1.0, 2.0, 3.0, 4.0], 1.0),
+            ("cv", [10.0, 12.0, 8.0], 0.2),
+            ("instability", [1.0, 3.0, 2.0, 4.0], 3.0),
+        ],
+    )
+    def test_supported_aggregations(self, agg_name, values, expected):
+        df = _make_df(values)
+        result = df.select(_build_agg_expr(agg_name))
+        assert result["value"][0] == pytest.approx(expected)
 
     def test_std(self):
         df = _make_df([1.0, 2.0, 3.0])
         result = df.select(_build_agg_expr("std"))
         assert result["value"][0] > 0
 
-    def test_count(self):
-        df = _make_df([1.0, 2.0, 3.0])
-        result = df.select(_build_agg_expr("count"))
-        assert result["value"][0] == 3
-
-    def test_median(self):
-        df = _make_df([1.0, 5.0, 3.0])
-        result = df.select(_build_agg_expr("median"))
-        assert abs(result["value"][0] - 3.0) < 1e-10
-
-    def test_first(self):
-        df = _make_df([7.0, 2.0, 3.0])
-        result = df.select(_build_agg_expr("first"))
-        assert abs(result["value"][0] - 7.0) < 1e-10
-
-    def test_last(self):
-        df = _make_df([7.0, 2.0, 9.0])
-        result = df.select(_build_agg_expr("last"))
-        assert abs(result["value"][0] - 9.0) < 1e-10
-
-    def test_range(self):
-        df = _make_df([1.0, 5.0, 3.0])
-        result = df.select(_build_agg_expr("range"))
-        assert abs(result["value"][0] - 4.0) < 1e-10
-
-    def test_p25(self):
-        df = _make_df([1.0, 2.0, 3.0, 4.0])
-        result = df.select(_build_agg_expr("p25"))
-        assert result["value"][0] == pytest.approx(2.0)
-
-    def test_p75(self):
-        df = _make_df([1.0, 2.0, 3.0, 4.0])
-        result = df.select(_build_agg_expr("p75"))
-        assert result["value"][0] == pytest.approx(3.0)
-
-    def test_iqr(self):
-        df = _make_df([1.0, 2.0, 3.0, 4.0])
-        result = df.select(_build_agg_expr("iqr"))
-        assert result["value"][0] == pytest.approx(1.0)
-
-    def test_cv_nonzero_mean(self):
-        df = _make_df([10.0, 12.0, 8.0])
-        result = df.select(_build_agg_expr("cv"))
-        assert result["value"][0] == pytest.approx(0.2)
-
-    def test_instability(self):
-        """MSSD: mean of squared successive differences."""
-        df = _make_df([1.0, 3.0, 2.0, 4.0])
-        result = df.select(_build_agg_expr("instability"))
-        # diffs: [null, 2, -1, 2], squared: [null, 4, 1, 4], mean = 3.0
-        assert result["value"][0] == pytest.approx(3.0)
-
-    def test_single_value(self):
-        """Aggregating a single value works for all functions."""
-        df = _make_df([42.0])
-        for agg in ["mean", "sum", "min", "max", "count", "median", "first", "last"]:
-            result = df.select(_build_agg_expr(agg))
-            expected = 1 if agg == "count" else 42.0
-            assert result["value"][0] == pytest.approx(expected), f"{agg} failed on single value"
+    @pytest.mark.parametrize(
+        ("agg_name", "expected"),
+        [
+            ("mean", 42.0),
+            ("sum", 42.0),
+            ("min", 42.0),
+            ("max", 42.0),
+            ("count", 1.0),
+            ("median", 42.0),
+            ("first", 42.0),
+            ("last", 42.0),
+        ],
+    )
+    def test_single_value(self, agg_name, expected):
+        """Aggregating a single value works for the basic scalar reducers."""
+        result = _make_df([42.0]).select(_build_agg_expr(agg_name))
+        assert result["value"][0] == pytest.approx(expected), f"{agg_name} failed on single value"
 
     def test_cv_zero_mean(self):
         """CV with zero mean should handle division safely."""

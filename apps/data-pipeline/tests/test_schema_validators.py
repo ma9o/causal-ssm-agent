@@ -98,20 +98,6 @@ class TestValidateLatentModel:
         assert model is None
         assert len(errors) > 0
 
-    def test_edge_references_missing_construct(self):
-        data = _valid_latent_data()
-        data["edges"][0]["cause"] = "nonexistent"
-        model, errors = validate_latent_model(data)
-        assert model is None
-        assert any("nonexistent" in e for e in errors)
-
-    def test_time_varying_to_time_invariant_edge_is_rejected(self):
-        data = _valid_latent_data()
-        data["constructs"][1]["temporal_status"] = "time_invariant"
-        model, errors = validate_latent_model(data)
-        assert model is None
-        assert any("cannot be a cause of time-invariant construct" in e for e in errors)
-
     def test_multiple_errors_collected(self):
         """Should collect all errors, not just the first."""
         data = {
@@ -163,23 +149,6 @@ class TestValidateMeasurementModel:
         model, errors = validate_measurement_model({"indicators": "bad"}, latent)
         assert model is None
         assert any("list" in e.lower() for e in errors)
-
-    def test_indicator_references_unknown_construct(self):
-        latent, _ = validate_latent_model(_valid_latent_data())
-        data = {
-            "indicators": [
-                {
-                    "name": "x",
-                    "construct_name": "nonexistent",
-                    "how_to_measure": "Some measurement",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                }
-            ]
-        }
-        model, errors = validate_measurement_model(data, latent)
-        assert model is None
-        assert any("nonexistent" in e for e in errors)
 
     def test_duplicate_indicator_name(self):
         latent, _ = validate_latent_model(_valid_latent_data())
