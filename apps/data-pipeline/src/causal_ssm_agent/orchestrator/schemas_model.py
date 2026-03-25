@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from causal_ssm_agent.distributions import (
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
+    PARAMETER_ROLE_SPECS,
+    VALID_LIKELIHOODS_FOR_DTYPE,
     DistributionFamily,
 )
 
@@ -35,7 +37,10 @@ class ParameterRole(StrEnum):
     AR_COEFFICIENT = "ar_coefficient"  # DT persistence rho for autoregressive terms
     RESIDUAL_SD = "residual_sd"  # Sigma for residual variance
     STATIC_STATE_SD = "static_state_sd"  # Scale for quasi-constant latent states
-    CORRELATION = "correlation"  # Correlation between constructs
+    CORRELATION = "correlation"  # Correlation between latent innovations
+    INITIAL_STATE_CORRELATION = (
+        "initial_state_correlation"  # Correlation between initial latent states
+    )
     LOADING = "loading"  # Factor loading for multi-indicator constructs
 
 
@@ -48,31 +53,22 @@ class ParameterConstraint(StrEnum):
     CORRELATION = "correlation"  # Must be in [-1, 1]
 
 
-VALID_LIKELIHOODS_FOR_DTYPE: dict[str, set[DistributionFamily]] = {
-    "binary": {DistributionFamily.BERNOULLI},
-    "count": {DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL},
-    "continuous": {
-        DistributionFamily.GAUSSIAN,
-        DistributionFamily.STUDENT_T,
-        DistributionFamily.GAMMA,
-        DistributionFamily.BETA,
-    },
-    "ordinal": {DistributionFamily.ORDERED_LOGISTIC},
-    "categorical": {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC},
-}
-
 VALID_LINKS_FOR_DISTRIBUTION: dict[DistributionFamily, set[LinkFunction]] = {
     family: {LinkFunction(link) for link in links}
     for family, links in OBSERVATION_LINK_VALUES_BY_DISTRIBUTION.items()
 }
 
+# Derived: role -> constraint lookup used by validation code.
+# Authoritative source is PARAMETER_ROLE_SPECS in distributions.py.
 EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
-    ParameterRole.AR_COEFFICIENT: ParameterConstraint.UNIT_INTERVAL,
-    ParameterRole.RESIDUAL_SD: ParameterConstraint.POSITIVE,
-    ParameterRole.FIXED_EFFECT: ParameterConstraint.NONE,
-    ParameterRole.CORRELATION: ParameterConstraint.CORRELATION,
-    ParameterRole.STATIC_STATE_SD: ParameterConstraint.POSITIVE,
+    ParameterRole(spec.role): ParameterConstraint(spec.constraint)
+    for spec in PARAMETER_ROLE_SPECS
 }
+# initial_state_correlation shares the correlation constraint but is not
+# a user-facing doc row, so add it manually.
+EXPECTED_CONSTRAINT_FOR_ROLE[ParameterRole.INITIAL_STATE_CORRELATION] = (
+    ParameterConstraint.CORRELATION
+)
 
 
 class LikelihoodSource(BaseModel):
@@ -261,6 +257,13 @@ def validate_model_spec_dict(
                 errors.append(
                     f"parameters[{i}] '{name}': constraint '{constraint}' unexpected "
                     f"for role '{role}'; expected '{expected.value}'"
+                )
+            if role_enum == ParameterRole.INITIAL_STATE_CORRELATION and not name.startswith(
+                "cor0_"
+            ):
+                errors.append(
+                    f"parameters[{i}] '{name}': initial_state_correlation parameters "
+                    "must use canonical names starting with 'cor0_'"
                 )
 
     if not errors:
