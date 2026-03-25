@@ -32,7 +32,13 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 
 **Self-review.** A follow-up prompt asks the LLM to review its validated measurement model for coverage (every time-varying construct has at least one indicator), `how_to_measure` clarity, observation-window semantics, the [pure-indicators assumption](../reference/causal-spec/identifiability.md#a7-measurement-model-identification-enables-causal-identification) (no direct indicator-to-indicator edges), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
-**Gate semantics.** This stage gates the pipeline, but only after filtering. Treatment-to-outcome effects that remain non-identifiable are recorded in `causal_spec.identifiability` and excluded from downstream intervention analysis. The gate fails only if no identifiable treatments remain after that filtering step. The gate can be overridden by the user.
+**Outcome semantics.** This stage first filters treatment-to-outcome effects. Effects that remain non-identifiable are recorded in `causal_spec.identifiability` and excluded from downstream intervention analysis. The stage then classifies its public outcome:
+
+- `"success"`: every treatment effect is identifiable
+- `"warn"`: some treatment effects were filtered out, but at least one identifiable treatment remains
+- `"fail"` with `fail_reason = "no_identifiable_treatments"`: no identifiable treatments remain, so the pipeline stops after Stage 1b
+
+The Stage 1b stop can be overridden by the user; when overridden, the stage persists `gate_overridden` and downgrades the public outcome back to `"warn"`.
 
 ## Outputs
 
@@ -40,31 +46,44 @@ On failure the tool returns the specific errors; the LLM revises and resubmits w
 |---|---|---|
 | `causal_spec` | [`CausalSpec`](#causalspec) | Combined latent model, measurement model, and identifiability status |
 
-The public stage payload exposes that artifact directly. It may also include `gate_overridden` if the gate was overridden and `llm_trace` as runtime provenance for the UI. Internal post-processing analyses are not part of the public contract.
+The public stage payload exposes that artifact directly. It may also include `fail_reason` when the stage stops, `gate_overridden` when the Stage 1b stop was overridden, and `llm_trace` as runtime provenance for the UI. Internal post-processing analyses are not part of the public contract.
 
 ## Definitions
 
 ### Measurement Model
 
-The `MeasurementModel` defines how theoretical constructs are observed in data. It owns:
+The `MeasurementModel` nested inside `CausalSpec` has two top-level fields:
 
-- the indicator list—each indicator carries `name`, `construct_name`, `how_to_measure`, `measurement_dtype`, `aggregation`, `observation_window`, `source_columns`, and `extraction_mode`
-- the `model_clock`—the observation-window width used for extraction and discretization (see [Observation Windows and Model Clock](../reference/measurement-model/indicators.md#observation-windows-and-model-clock))
+| Field | Type | Description |
+|---|---|---|
+| `indicators` | `list[Indicator]` | Observed indicators attached to constructs. Each `Indicator` carries `name`, `construct_name`, `how_to_measure`, `measurement_dtype`, `aggregation`, `observation_window`, `ordinal_levels`, `source_columns`, and `extraction_mode`. |
+| `model_clock` | `str` | Shared observation-window width used for extraction and discretization. |
 
 Indicators are reflective: the construct causes the indicator value, not the reverse. Each indicator's `extraction_mode` is either `"computed"` (a deterministic aggregation that [Stage 2](02-indicator-extraction.md) can evaluate mechanically) or `"semantic"` (requiring an LLM worker to interpret unstructured text).
 
+For indicator semantics, support-window behavior, aggregation rules, and `model_clock`, see [reference/measurement-model/indicators.md](../reference/measurement-model/indicators.md).
+
 ### CausalSpec
 
-`CausalSpec` is the combined causal-and-measurement handoff object. It packages:
+`CausalSpec` is the Stage 1b handoff object:
 
-- the [Stage 1a `LatentModel`](01a-latent-model.md#latent-model)
-- the `MeasurementModel` introduced here
-- the treatment-level [`IdentifiabilityStatus`](#identifiabilitystatus)
+| Field | Type | Description |
+|---|---|---|
+| `latent` | [`LatentModel`](01a-latent-model.md#latent-model) | The validated Stage 1a construct-level graph. |
+| `measurement` | [`MeasurementModel`](#measurement-model) | The indicator mapping and model clock introduced here. |
+| `identifiability` | [`IdentifiabilityStatus`](#identifiabilitystatus) \| `null` | Treatment-level identifiability results from the Stage 1b checker. |
 
-Later stages should treat `CausalSpec` as the authoritative answer to "what causal question are we fitting?" and "how is each construct measured?"
+Downstream stages use `CausalSpec` as the combined causal-and-measurement input to extraction, model specification, and intervention analysis.
 
 ### IdentifiabilityStatus
 
-`IdentifiabilityStatus` records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions and which are blocked. For identifiable treatments it includes the identification method (backdoor, frontdoor, or instrumental variable under linearity) and the checker-reported `marginalized_confounders` field. For non-identifiable treatments it reports the blocking confounders.
+`IdentifiabilityStatus` records which treatment-to-outcome effects are identifiable under the latent and measurement assumptions:
+
+| Field | Type | Description |
+|---|---|---|
+| `identifiable_treatments` | `dict[str, IdentifiedTreatmentStatus]` | Treatment names mapped to the identification method, estimand, marginalized confounders, and any instruments used. |
+| `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes. |
+
+For the assumptions behind these results, including A3a and the internal DAG-to-ADMG projection, see [reference/causal-spec/identifiability.md](../reference/causal-spec/identifiability.md).
 
 Example: for a study of developer workload and code quality where Stage 1a posited an unobserved confounder `Organizational Pressure`, Stage 1b might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), map `Review Thoroughness` to "average review comment count per PR" (computed, mean), and add a proxy indicator "manager-reported deadline pressure" (semantic, ordinal) to restore identifiability of the `Organizational Pressure` confounder path.

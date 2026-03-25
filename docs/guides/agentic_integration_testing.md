@@ -162,10 +162,7 @@ The screenshots serve as visual regression artifacts. If the UI behaves unexpect
 
 ## Resuming After a Stage Failure
 
-**Do not restart the pipeline from scratch.** Every stage persists its output to
-`data/{workspace_id}/run/` (both `{stage_id}-state.pkl` snapshots and `{stage_id}.json`
-web payloads). When a stage fails, the earlier stages' artifacts are already on disk
-and can be reused.
+Resume behavior follows [execution-semantics.md#resume-semantics](../reference/execution-semantics.md#resume-semantics): earlier stages restore from persisted artifacts, then only the requested rerun window executes again.
 
 ### Identify the failed stage
 
@@ -184,9 +181,7 @@ If `stage-2-state.pkl` exists but `stage-3-state.pkl` does not, `stage-3` failed
 
 ### Rerun from the failed stage
 
-Use the `start_stage` parameter to skip all earlier stages — they are restored from
-their on-disk snapshots automatically. You do **not** need to re-supply the `query`
-parameter; it was materialized to `data/{workspace_id}/query.txt` during the original run.
+Use the `start_stage` parameter to skip all earlier stages. You do **not** need to re-supply the `query` parameter; it was materialized to `data/{workspace_id}/query.txt` during the original run.
 
 ```bash
 # Example: stage-3 failed, rerun from stage-3 onward

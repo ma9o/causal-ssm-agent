@@ -40,15 +40,17 @@ The public stage payload exposes that artifact directly. It may also include `ll
 
 ### Latent Model
 
-The `LatentModel` is the theoretical causal topological structure over latent constructs proposed before any measurement choices are made. It owns:
+Stage 1a emits a `LatentModel` with two top-level fields:
 
-- the construct set
-- the directed causal edges between constructs
-- the outcome designation encoded on the outcome construct
-- explicit latent confounder nodes when theory posits an unobserved common cause
+| Field | Type | Description |
+|---|---|---|
+| `constructs` | `list[Construct]` | Theoretical constructs in the model. Exactly one construct must have `is_outcome=true`. |
+| `edges` | `list[CausalEdge]` | Directed causal edges between constructs. `lagged=true` means the effect at time `t` depends on the cause at `t-1`. |
 
-Each construct carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each causal edge carries `cause`, `effect`, `description`, and `lagged`, where `lagged=true` means the effect at time `t` depends on the cause at `t-1`.
+Each `Construct` carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each `CausalEdge` carries `cause`, `effect`, `description`, and `lagged`.
 
 The designated outcome is encoded on the outcome construct via `is_outcome=true`. Candidate intervention variables are derived from the validated graph rather than stored as separate Stage 1a state.
 
-Example: for a question about whether developer workload affects code quality through review thoroughness, Stage 1a may posit constructs such as `Developer Workload`, `Review Thoroughness`, `Codebase Complexity`, and `Defect Rate`, plus directed edges between them and an explicit latent confounder node if an unobserved common cause (such as organizational pressure) is believed to exist.
+For construct semantics, edge legality, lag rules, and user-facing DAG conventions, see [reference/latent-model/constructs-and-edges.md](../reference/latent-model/constructs-and-edges.md).
+
+Example: for a question about whether tutoring intensity improves exam performance through study confidence, Stage 1a may posit constructs such as `Tutoring Intensity`, `Study Confidence`, `Prior Mastery`, and `Exam Performance`, plus directed edges between them and an explicit latent confounder node if an unobserved common cause is believed to exist.

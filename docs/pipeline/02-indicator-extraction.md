@@ -42,13 +42,13 @@ Each chunk is dispatched to a parallel LLM worker. The worker receives the forma
 |---|---|---|
 | `data_for_model` | [Model-ready data](#model-ready-data) | Numerically encoded observation table for downstream fitting |
 
-The public stage payload exposes per-worker execution summaries (`workers`: status, extraction count, window count, and error if any) and may include `llm_trace` as runtime provenance for the UI. The data table is persisted as a parquet sidecar file rather than serialized into the web payload. The stage outcome is `"success"` if at least one observation row was extracted.
+The public stage payload exposes per-worker execution summaries (`workers`: status, extraction count, window count, and error if any) and may include `llm_trace` as runtime provenance for the UI. The data table is persisted as a parquet sidecar file rather than serialized into the web payload. The stage outcome is `"success"` if at least one observation row was extracted; otherwise it is `"fail"` with `fail_reason = "no_observations_extracted"`, and the pipeline stops because no model-ready dataset exists for downstream fitting.
 
 ## Definitions
 
 ### Observation Row
 
-An observation row is the canonical extracted indicator datum. It owns:
+An observation row is the canonical extracted indicator datum. It includes:
 
 | Field | Type | Description |
 |---|---|---|

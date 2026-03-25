@@ -55,11 +55,11 @@ Stage 3 runs a fixed set of composable [validation rules](#validation-rules) ove
 
 **Outcome derivation.** The stage determines an outcome for the overall payload:
 
-- `"fail"` — at least one issue has `severity: "error"` (the `is_valid` flag is `false`).
+- `"fail"` — at least one issue has `severity: "error"` (the `is_valid` flag is `false`), with `fail_reason = "data_validation_failed"`.
 - `"warn"` — no errors, but at least one issue has `severity: "warning"`.
 - `"success"` — no issues at warning level or above.
 
-Stage 3 does **not** gate the pipeline: downstream stages proceed regardless of outcome, but [Stage 4](04-model-specification-priors.md) uses the audit to inform the LLM about data-quality constraints during prior elicitation.
+When Stage 3 emits `"fail"`, the pipeline stops before Stage 4 because there is no validated model-ready dataset on which to base quantitative fitting. `"warn"` and `"success"` continue downstream, and [Stage 4](04-model-specification-priors.md) still uses the audit to inform the LLM about data-quality constraints during prior elicitation.
 
 ## Outputs
 

@@ -1,6 +1,6 @@
 # MeasurementModel Assumptions
 
-This page owns the assumptions whose primary job is to constrain how constructs are measured.
+This page collects the assumptions that constrain how constructs are measured.
 
 ## A1. Reflective Measurement Model
 
@@ -113,4 +113,4 @@ The following are explicitly not assumed and may be added in future versions:
 
 ## Boundary
 
-These assumptions shape the `MeasurementModel` itself. The assumption that an identified measurement model permits causal identification lives with the [CausalSpec](../causal-spec/identifiability.md).
+These assumptions shape the `MeasurementModel` itself. The follow-on assumption that an identified measurement model permits causal identification lives with the [CausalSpec](../causal-spec/identifiability.md).

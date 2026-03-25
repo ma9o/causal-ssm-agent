@@ -21,7 +21,7 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 
 **Model compilation.** The stage loads the Stage 2 Parquet data, then calls `prepare_model_runtime` which pivots the long-form observation rows into wide format, compiles the Stage 4 `_compiled_ssm` into an executable `SSMModel` (via `SSMSpec` + `SSMPriors`), and plans the [inference structure](../reference/estimation.md) (likelihood backend, Rao-Blackwellization split). The result is a `PreparedModelRuntime` carrying the JAX observation array `(T, n_manifest)`, the time array `(T,)`, and the built model.
 
-**SVI optimization.** The stage calls `fit` with a fixed configuration: `method="svi"`, `num_steps=5000`, `num_samples=500`. Internally, `_fit_svi` constructs an `AutoMultivariateNormal` guide over all latent sample sites, pairs it with a `ClippedAdam` optimizer (learning rate 0.01) and a `Trace_ELBO` loss, and runs 5 000 gradient steps. Non-finite losses or guide parameters raise a `FloatingPointError`, which the outer try/except catches and maps to `outcome="fail"`.
+**SVI optimization.** The stage calls `fit` with a fixed configuration: `method="svi"`, `num_steps=5000`, `num_samples=500`. Internally, `_fit_svi` constructs an `AutoMultivariateNormal` guide over all latent sample sites, pairs it with a `ClippedAdam` optimizer (learning rate 0.01) and a `Trace_ELBO` loss, and runs 5 000 gradient steps. Non-finite losses or guide parameters raise a `FloatingPointError`, which the outer try/except catches and maps to `outcome="warn"`.
 
 **Posterior sampling.** After optimization converges, 500 draws are sampled from the fitted guide via NumPyro's `Predictive`. The samples are filtered to public sites only (excluding internal factor sites).
 
@@ -31,7 +31,7 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 - *Posterior marginals*: for each scalar parameter (and the first 20 elements of array parameters), a histogram-based density curve with 50 bins, the posterior mean and standard deviation, and the 94% [highest density interval](https://en.wikipedia.org/wiki/Credible_interval#Highest_density_interval) (HDI) bounds.
 - *Posterior pairs*: pairwise scatter plots for up to 6 scalar parameters, thinned to at most 200 points. Because SVI produces no chain-level divergence information, the `divergent` field is always `null` for this stage.
 
-**Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `outcome="fail"` with `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless.
+**Failure semantics.** If model fitting raises any exception (missing implementation, numerical failure, etc.), the stage returns `outcome="warn"` with `n_samples=0` and all diagnostic fields set to `null`. The pipeline continues to Stage 5b regardless because Stage 5a is best-effort preflight only.
 
 **Recompute-only resume.** Stage 5a is marked `skip_restore=True` in the stage registry—it is never restored from a prior run and always recomputed when the pipeline executes. This follows the recompute rules in [execution-semantics.md](../reference/execution-semantics.md#resume-semantics).
 
@@ -44,9 +44,11 @@ Stage 5a reuses the same `fit_model` task as Stage 5b but with method and budget
 | `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] &#124; null | Per-parameter density summaries (null on failure) |
 | `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] &#124; null | Pairwise scatter data (null on failure) |
 
-The contract also exposes `outcome` (`"success"` or `"fail"`) inherited from the base stage contract.
+The contract also exposes `outcome` (`"success"` or `"warn"`) inherited from the base stage contract.
 
 ## Definitions
+
+The definitions in this section are shared by Stage 5a and Stage 5b. Stage 5b links back here for the common inference-output payloads rather than restating them.
 
 ### InferenceMetadata
 
@@ -94,4 +96,4 @@ Pairwise posterior scatter data for joint visualization. Up to 6 parameters are 
 | `y_values` | `list[float]` | Thinned posterior draws for y |
 | `divergent` | `list[bool]` &#124; null | Always `null` for SVI (no chain-level divergence data) |
 
-Example: for a model of student engagement and academic performance with latent constructs `Engagement`, `Workload`, and `Performance`, Stage 5a would run 5 000 SVI steps over the compiled SSM, then produce an ELBO curve showing whether the multivariate normal guide captured the joint posterior, marginal densities for each drift and loading parameter (e.g., the cross-lag from `Workload` to `Performance`), and pairwise scatter plots revealing any strong posterior correlations between parameters—all before Stage 5b invests in a full NUTS or Laplace-EM run.
+Example: for a model of symptom burden and medication adherence with latent constructs `Symptom Burden`, `Medication Adherence`, and `Functional Capacity`, Stage 5a would run 5 000 SVI steps over the compiled SSM, then produce an ELBO curve showing whether the multivariate normal guide captured the joint posterior, marginal densities for each drift and loading parameter, and pairwise scatter plots revealing any strong posterior correlations before Stage 5b invests in a full NUTS or Laplace-EM run.

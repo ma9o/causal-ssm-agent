@@ -40,7 +40,7 @@ The fit produces an `InferenceResult` containing the posterior samples dict `{na
 
 **Artifact assembly and persistence.** The stage assembles a [`FittedArtifact`](#fittedartifact) packaging the `InferenceResult`, the runtime builder (needed by Stage 6 for intervention simulations), timing metadata, observation-support metadata, and the PPC and power-scaling results. This artifact is pickled to `stage5b-fitted-result.pkl` and is the sole runtime object consumed by [Stage 6](06-intervention-analysis.md). The web-facing diagnostic payloads (power-scaling list, PPC result, backend diagnostics, marginals, pairs) are persisted separately as the public JSON contract.
 
-**Outcome classification.** The stage sets `outcome` to `"warn"` if any power-scaling diagnosis is `prior_dominated` or `prior_data_conflict`, or if any PPC variable has warnings. Otherwise `outcome` is `"success"`. There is no hard gate—the pipeline always continues to Stage 6 regardless of diagnostic results.
+**Outcome classification.** The stage first checks whether model fitting succeeded at all. If fitting fails, the stage emits `outcome="fail"` with `fail_reason = "model_fit_failed"` and the pipeline stops before Stage 6 because no fitted posterior exists for intervention analysis. Conditional on a successful fit, the stage emits `"warn"` if any power-scaling diagnosis is `prior_dominated` or `prior_data_conflict`, or if any PPC variable has warnings; otherwise it emits `"success"`. Diagnostic warnings do not block Stage 6.
 
 ## Outputs
 
@@ -48,15 +48,15 @@ The fit produces an `InferenceResult` containing the posterior samples dict `{na
 |---|---|---|
 | `power_scaling` | list\[[`PowerScalingResult`](#powerscalingresult)\] | Per-parameter sensitivity diagnosis with PSIS reliability |
 | `ppc` | [`PPCResult`](#ppcresult) | Per-variable calibration, autocorrelation, and variance checks plus overlay data |
-| `inference_metadata` | [`InferenceMetadata`](#inferencemetadata) | Method, sample count, and timing |
+| `inference_metadata` | [`InferenceMetadata`](05a-svi-preflight.md#inferencemetadata) | Method, sample count, and timing |
 | `mcmc_diagnostics` | [`MCMCDiagnostics`](#mcmcdiagnostics) \| null | NUTS convergence diagnostics (null for non-MCMC backends) |
-| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) \| null | ELBO loss curve (null for non-SVI backends) |
+| `svi_diagnostics` | [`SVIDiagnostics`](05a-svi-preflight.md#svidiagnostics) \| null | ELBO loss curve (null for non-SVI backends) |
 | `smc_diagnostics` | [`SMCDiagnostics`](#smcdiagnostics) \| null | Tempering schedule and ESS history (null for non-SMC backends) |
 | `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| null | PSIS-LOO cross-validation with per-timestep Pareto-k values |
 | `posterior_marginals` | list\[[`PosteriorMarginal`](05a-svi-preflight.md#posteriormarginal)\] \| null | Per-parameter density summaries |
 | `posterior_pairs` | list\[[`PosteriorPair`](05a-svi-preflight.md#posteriorpair)\] \| null | Pairwise scatter data (includes `divergent` flags for MCMC backends) |
 
-The contract also exposes `outcome` (`"success"` or `"warn"`) inherited from the base stage contract.
+The contract also exposes `outcome` (`"success"`, `"warn"`, or `"fail"`) inherited from the base stage contract, plus `fail_reason` when the fit itself failed.
 
 ## Definitions
 
@@ -103,13 +103,9 @@ Aggregate posterior predictive check result.
 
 `PPCTestStat` provides `stat_name` (`"mean"`, `"sd"`, `"min"`, `"max"`), the `observed_value`, and the distribution of `rep_values` across posterior predictive draws.
 
-### InferenceMetadata
-
-Same schema as [Stage 5a `InferenceMetadata`](05a-svi-preflight.md#inferencemetadata), with `method` reflecting the actual backend used (e.g. `"nuts"`, `"laplace_em"`).
-
 ### Backend-Specific Diagnostics
 
-Exactly one of the three backend-specific diagnostic payloads is non-null, determined by which inference method ran.
+Exactly one of the three backend-specific diagnostic payloads is non-null, determined by which inference method ran. The shared `inference_metadata`, `svi_diagnostics`, `posterior_marginals`, and `posterior_pairs` schemas are defined in [Stage 5a](05a-svi-preflight.md#definitions).
 
 #### MCMCDiagnostics
 
@@ -128,10 +124,6 @@ Produced by NUTS, NUTS-DA, and PGAS backends.
 | `trace_data` | `list[TraceData]` \| null | Per-parameter thinned trace values across chains (at most 200 points per chain) |
 | `rank_histograms` | `list[RankHistogram]` \| null | Per-parameter rank histograms for chain mixing assessment (20 bins) |
 | `energy` | `EnergyDiagnostics` \| null | NUTS energy diagnostics with BFMI ([Betancourt 2017](https://arxiv.org/abs/1701.02434)) |
-
-#### SVIDiagnostics
-
-Produced by the SVI backend. Same schema as [Stage 5a `SVIDiagnostics`](05a-svi-preflight.md#svidiagnostics).
 
 #### SMCDiagnostics
 
