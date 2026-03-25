@@ -106,6 +106,87 @@ class PriorParameterGuidanceRow:
     scale: str
 
 
+# ---------------------------------------------------------------------------
+# Parameter role catalog — authoritative source for docs codegen and the
+# EXPECTED_CONSTRAINT_FOR_ROLE dict in schemas_model.py.
+# Uses plain strings (not enum references) so this module stays import-clean.
+# ---------------------------------------------------------------------------
+
+_CONSTRAINT_DOMAINS: Final[dict[str, str]] = {
+    "unit_interval": "[0, 1]",
+    "none": "(-inf, +inf)",
+    "positive": "(0, +inf)",
+    "correlation": "[-1, 1]",
+}
+
+
+@dataclass(frozen=True)
+class ParameterRoleSpec:
+    """Metadata for a parameter role used by docs codegen and validation."""
+
+    role: str  # matches ParameterRole enum value
+    symbol: str
+    count: str
+    constraint: str  # matches ParameterConstraint enum value
+    ssm_location: str
+    note: str = ""
+
+    @property
+    def domain(self) -> str:
+        return _CONSTRAINT_DOMAINS[self.constraint]
+
+
+PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
+    ParameterRoleSpec(
+        role="ar_coefficient",
+        symbol="rho",
+        count="One per endogenous time-varying construct",
+        constraint="unit_interval",
+        ssm_location="Drift diagonal",
+        note="Stage 4 elicits discrete-time persistence magnitude; "
+        "[compilation](../compilation.md) converts to continuous-time drift",
+    ),
+    ParameterRoleSpec(
+        role="fixed_effect",
+        symbol="beta",
+        count="One per causal edge",
+        constraint="none",
+        ssm_location="Drift off-diagonal",
+        note="Causal effects can be positive or negative; unconstrained",
+    ),
+    ParameterRoleSpec(
+        role="residual_sd",
+        symbol="sigma",
+        count="One per construct",
+        constraint="positive",
+        ssm_location="Diffusion diagonal",
+    ),
+    ParameterRoleSpec(
+        role="static_state_sd",
+        symbol="tau",
+        count="One per time-invariant endogenous construct (when needed)",
+        constraint="positive",
+        ssm_location="Static-state block",
+    ),
+    ParameterRoleSpec(
+        role="loading",
+        symbol="lambda",
+        count="One per non-reference indicator in multi-indicator constructs",
+        constraint="positive",
+        ssm_location="Measurement model",
+        note="Stage 4 may enforce `positive` for sign identification "
+        "or `none` when negative loadings are theoretically justified",
+    ),
+    ParameterRoleSpec(
+        role="correlation",
+        symbol="cor",
+        count="One per construct-pair with marginalized confounder",
+        constraint="correlation",
+        ssm_location="Diffusion covariance",
+    ),
+)
+
+
 OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilySpec, ...]] = (
     ObservationFamilySpec(
         family=DistributionFamily.GAUSSIAN,
@@ -220,6 +301,28 @@ PRIOR_FAMILY_REGISTRY: Final[dict[PriorDistributionFamily, PriorFamilySpec]] = {
 
 OBSERVATION_LINK_VALUES_BY_DISTRIBUTION: Final[dict[DistributionFamily, tuple[str, ...]]] = {
     spec.family: spec.links for spec in OBSERVATION_FAMILY_SPECS
+}
+
+# Ordered dtype → valid distributions (default first).  Authoritative source
+# for both the validation logic and the generated likelihoods docs.
+VALID_LIKELIHOODS_FOR_DTYPE: Final[dict[str, tuple[DistributionFamily, ...]]] = {
+    "continuous": (
+        DistributionFamily.GAUSSIAN,
+        DistributionFamily.STUDENT_T,
+        DistributionFamily.GAMMA,
+        DistributionFamily.BETA,
+    ),
+    "binary": (DistributionFamily.BERNOULLI,),
+    "count": (DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL),
+    "ordinal": (DistributionFamily.ORDERED_LOGISTIC,),
+    "categorical": (DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC),
+}
+
+# Per-alternative notes for the generated likelihoods table.
+_DTYPE_ALTERNATIVE_NOTES: Final[dict[tuple[str, DistributionFamily], str]] = {
+    ("categorical", DistributionFamily.ORDERED_LOGISTIC): (
+        "when categories are substantively ordered"
+    ),
 }
 
 PRIOR_CONSTRAINT_GUIDANCE: Final[tuple[PriorConstraintGuidance, ...]] = (
@@ -393,3 +496,97 @@ def render_prior_parameter_guidance_markdown_table() -> str:
             f"| {row.parameter_type} | {row.typical_distribution} | {row.typical_range} | {row.scale} |"
         )
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Likelihood doc renderers
+# ---------------------------------------------------------------------------
+
+def _format_dist_with_links(dist: DistributionFamily) -> str:
+    """Format a distribution with its valid links for the alternatives column."""
+    links = OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[dist]
+    if len(links) == 1:
+        return f"`{dist.value}` (`{links[0]}`)"
+    link_str = " or ".join(f"`{lk}`" for lk in links)
+    return f"`{dist.value}` ({link_str})"
+
+
+def render_dtype_likelihood_markdown_table() -> str:
+    """Render the dtype-to-distribution mapping table for likelihoods docs."""
+    lines = [
+        "| `measurement_dtype` | Default distribution | Link | Alternatives |",
+        "|---|---|---|---|",
+    ]
+    for dtype, valid_dists in VALID_LIKELIHOODS_FOR_DTYPE.items():
+        default_dist = valid_dists[0]
+        default_links = OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[default_dist]
+        default_link = default_links[0]
+
+        alternatives: list[str] = []
+        # Other links for the default distribution
+        for link in default_links[1:]:
+            alternatives.append(f"`{default_dist.value}` with `{link}`")
+        # Other distributions
+        for dist in valid_dists[1:]:
+            entry = _format_dist_with_links(dist)
+            note = _DTYPE_ALTERNATIVE_NOTES.get((dtype, dist))
+            if note:
+                entry = f"{entry} {note}"
+            alternatives.append(entry)
+
+        alt_str = ", ".join(alternatives) if alternatives else "None"
+        lines.append(
+            f"| `{dtype}` | `{default_dist.value}` | `{default_link}` | {alt_str} |"
+        )
+    return "\n".join(lines)
+
+
+def render_distribution_families_prose() -> str:
+    """Render the DistributionFamily enumeration as a prose sentence."""
+    names = [f"`{spec.family.value}`" for spec in OBSERVATION_FAMILY_SPECS]
+    return (
+        f"`DistributionFamily` enumerates the valid likelihood distribution names: "
+        f"{', '.join(names[:-1])}, and {names[-1]}."
+    )
+
+
+def render_link_functions_prose() -> str:
+    """Render the LinkFunction enumeration as a prose sentence."""
+    all_links: list[str] = []
+    seen: set[str] = set()
+    for spec in OBSERVATION_FAMILY_SPECS:
+        for link in spec.links:
+            if link not in seen:
+                seen.add(link)
+                all_links.append(f"`{link}`")
+    return (
+        f"`LinkFunction` enumerates the valid link function names: "
+        f"{', '.join(all_links[:-1])}, and {all_links[-1]}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parameter role doc renderers
+# ---------------------------------------------------------------------------
+
+def render_parameter_roles_markdown_table() -> str:
+    """Render the Parameter Roles table for docs codegen."""
+    lines = [
+        "| Role | Symbol | Count | Constraint | SSM location |",
+        "|---|---|---|---|---|",
+    ]
+    for spec in PARAMETER_ROLE_SPECS:
+        constraint_cell = f"`{spec.constraint}` `{spec.domain}`"
+        if spec.role == "loading":
+            constraint_cell = "`positive` or `none`"
+        lines.append(
+            f"| `{spec.role}` | `{spec.symbol}` "
+            f"| {spec.count} | {constraint_cell} | {spec.ssm_location} |"
+        )
+    return "\n".join(lines)
+
+
+def render_parameter_constraint_notes() -> str:
+    """Render the constraint notes bullets for docs codegen."""
+    notes = [spec for spec in PARAMETER_ROLE_SPECS if spec.note]
+    return "\n".join(f"- `{spec.role}`: {spec.note}" for spec in notes)

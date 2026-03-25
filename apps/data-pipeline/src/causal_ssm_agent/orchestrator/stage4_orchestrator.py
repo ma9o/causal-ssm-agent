@@ -10,19 +10,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
-from causal_ssm_agent.orchestrator.schemas_model import (
-    VALID_LIKELIHOODS_FOR_DTYPE,
-    VALID_LINKS_FOR_DISTRIBUTION,
-)
+from causal_ssm_agent.orchestrator.schemas_model import VALID_LINKS_FOR_DISTRIBUTION
 from causal_ssm_agent.utils.causal_spec import (
-    get_constructs,
-    get_edges,
+    get_estimation_edges,
+    get_estimation_state_order,
     get_indicators,
+    get_induced_dependencies,
+    get_latent_constructs,
     get_outcome_name,
-)
-from causal_ssm_agent.utils.identifiability import (
-    get_correlation_pairs_from_marginalization,
 )
 
 
@@ -48,9 +45,17 @@ class Stage4Skeleton:
 
 def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     """Pre-compute all deterministic parts of the stage-4 model skeleton."""
-    constructs = get_constructs(causal_spec)
-    edges = get_edges(causal_spec)
+    retained_state_order = get_estimation_state_order(causal_spec)
+    retained_edges = get_estimation_edges(causal_spec)
     indicators = get_indicators(causal_spec)
+    latent_construct_lookup = {
+        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+    }
+    retained_constructs = [
+        latent_construct_lookup[name]
+        for name in retained_state_order
+        if name in latent_construct_lookup
+    ]
 
     indicators_per_construct = _indicators_per_construct(indicators)
     reference_indicator_lookup = {
@@ -68,7 +73,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     for indicator in indicators:
         name = indicator["name"]
         dtype = indicator.get("measurement_dtype", "continuous")
-        valid_dists = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype, set())
+        valid_dists = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype, ())
 
         if len(valid_dists) == 1:
             dist = next(iter(valid_dists))
@@ -107,7 +112,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             )
 
     # --- Autoregressive parameters ---
-    for construct in constructs:
+    for construct in retained_constructs:
         if (
             construct.get("temporal_status") == "time_varying"
             and construct.get("role") == "endogenous"
@@ -124,7 +129,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             )
 
     # --- Fixed effects ---
-    for edge in edges:
+    for edge in retained_edges:
         cause = edge["cause"]
         effect = edge["effect"]
         parameters.append(
@@ -140,7 +145,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     # --- Residual SDs ---
-    for construct in constructs:
+    for construct in retained_constructs:
         construct_name = construct["name"]
         parameters.append(
             {
@@ -181,24 +186,32 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     # --- Correlations from marginalized confounders ---
-    correlation_pairs = get_correlation_pairs_from_marginalization(
-        causal_spec.get("latent", {}),
-        causal_spec.get("measurement", {}),
-        causal_spec.get("identifiability", {}),
-    )
-    for construct_1, construct_2, confounder in correlation_pairs:
+    for dependency in get_induced_dependencies(causal_spec):
+        construct_1, construct_2 = dependency["between"]
+        dependency_kind = dependency["kind"]
+        parameter_name = (
+            f"cor_{construct_1}_{construct_2}"
+            if dependency_kind == "innovation_correlation"
+            else f"cor0_{construct_1}_{construct_2}"
+        )
+        role = (
+            "correlation"
+            if dependency_kind == "innovation_correlation"
+            else "initial_state_correlation"
+        )
         parameters.append(
             {
-                "name": f"cor_{construct_1}_{construct_2}",
-                "role": "correlation",
+                "name": parameter_name,
+                "role": role,
                 "constraint": "correlation",
                 "description": (
-                    f"Residual correlation between {construct_1} and {construct_2} "
-                    f"(marginalized confounder: {confounder})"
+                    f"{dependency_kind.replace('_', ' ')} between {construct_1} and {construct_2} "
+                    f"(source confounders: {', '.join(dependency['source_confounders'])})"
                 ),
                 "construct_1": construct_1,
                 "construct_2": construct_2,
-                "marginalized_confounder": confounder,
+                "dependency_kind": dependency_kind,
+                "source_confounders": dependency["source_confounders"],
             }
         )
 
@@ -224,7 +237,7 @@ def build_model_topology(causal_spec: dict) -> dict[str, Any]:
                 "lagged": bool(edge.get("lagged", True)),
                 "description": edge.get("description"),
             }
-            for edge in get_edges(causal_spec)
+            for edge in get_estimation_edges(causal_spec)
         ],
     }
 
@@ -287,7 +300,15 @@ def build_construct_scale_cards(
     skeleton: Stage4Skeleton | None = None,
 ) -> list[dict[str, Any]]:
     """Build one construct-local scale card per construct."""
-    constructs = get_constructs(causal_spec)
+    retained_state_order = get_estimation_state_order(causal_spec)
+    latent_construct_lookup = {
+        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+    }
+    constructs = [
+        latent_construct_lookup[name]
+        for name in retained_state_order
+        if name in latent_construct_lookup
+    ]
     indicators = get_indicators(causal_spec)
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
     indicators_per_construct = _indicators_per_construct(indicators)
@@ -357,13 +378,14 @@ def build_prior_cards(skeleton: Stage4Skeleton) -> list[dict[str, Any]]:
                 "indicator": indicator_name,
                 "reference_indicator": reference_indicator,
             }
-        elif role == "correlation":
+        elif role in {"correlation", "initial_state_correlation"}:
             construct_1 = parameter["construct_1"]
             construct_2 = parameter["construct_2"]
             card["structural_context"] = {
                 "construct_1": construct_1,
                 "construct_2": construct_2,
-                "marginalized_confounder": parameter["marginalized_confounder"],
+                "dependency_kind": parameter["dependency_kind"],
+                "source_confounders": parameter["source_confounders"],
             }
         else:
             card["structural_context"] = {}
