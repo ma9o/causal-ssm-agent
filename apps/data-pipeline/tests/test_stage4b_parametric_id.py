@@ -178,8 +178,6 @@ class TestStage4bInferenceStructurePayload:
         )
 
         result = parametric_id_task.fn(
-            _model_spec={},
-            _priors={},
             data_for_model=pl.DataFrame(),
         )
 
@@ -290,8 +288,6 @@ class TestStage4bInferenceStructurePayload:
         )
 
         result = parametric_id_task.fn(
-            _model_spec={},
-            _priors={},
             data_for_model=pl.DataFrame(),
         )
 

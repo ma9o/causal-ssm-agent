@@ -1383,9 +1383,26 @@ class TestStage4CompileOwnership:
         assert "UPDATE TOO BROAD" in feedback
         assert "separate calls" in feedback
 
-    def test_rejects_large_prior_batches(self):
-        """Stage 4 should force prior updates into small batches."""
+    def test_accepts_large_prior_batches(self, monkeypatch):
+        """Stage 4 should allow a single submission to set many priors at once."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
         from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                compiled_ssm={"compiled": True},
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [{"parameter": "resolved"}],
+        )
 
         current = {
             "model_spec": {
@@ -1414,9 +1431,10 @@ class TestStage4CompileOwnership:
             data_for_model=None,
         )
 
-        assert output is None
-        assert "PRIOR UPDATE TOO LARGE" in feedback
-        assert "max is 8 per call" in feedback
+        assert output is not None
+        assert feedback == "VALID"
+        assert len(output["authored_priors"]) == 9
+        assert output["resolved_priors"] == [{"parameter": "resolved"}]
 
     def test_rejects_redundant_prior_updates(self):
         """Already-accepted priors should not be resent unchanged."""
@@ -1742,6 +1760,84 @@ def test_agentic_stage4_grounding_rejects_redundant_decision_update():
 
     assert output is None
     assert "REDUNDANT MODEL DECISIONS UPDATE" in feedback
+
+
+def test_agentic_stage4_grounding_ignores_redundant_decisions_when_cleanup_needed(monkeypatch):
+    from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
+
+    forwarded: dict[str, dict] = {}
+
+    def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
+        del causal_spec, current, data_for_model, indicator_audits
+        forwarded.update(data)
+        return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+        fake_stage4_grounding,
+    )
+
+    output, feedback = _agentic_stage4_grounding(
+        data={
+            "distribution_choices": [
+                {
+                    "variable": "daily_event_count",
+                    "distribution": "negative_binomial",
+                    "link": "log",
+                    "reasoning": "Already accepted and unchanged.",
+                },
+                {
+                    "variable": "sleep_issue_searches",
+                    "distribution": "negative_binomial",
+                    "link": "log",
+                    "reasoning": "Revert to the valid count likelihood.",
+                },
+            ]
+        },
+        causal_spec={},
+        current={
+            "model_spec": {
+                "likelihoods": [
+                    {
+                        "variable": "daily_event_count",
+                        "distribution": "negative_binomial",
+                        "link": "log",
+                        "reasoning": "Accepted choice.",
+                    },
+                    {
+                        "variable": "sleep_issue_searches",
+                        "distribution": "poisson",
+                        "link": "log",
+                        "reasoning": "Invalid temporary choice.",
+                    },
+                    {
+                        "variable": "chronotype",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "reasoning": "Stale invalid state that should be dropped.",
+                    },
+                ],
+                "parameters": [],
+            }
+        },
+        data_for_model=None,
+        indicator_audits=None,
+        resolved_likelihoods=[],
+        ambiguous_indicators=[
+            {"variable": "daily_event_count"},
+            {"variable": "sleep_issue_searches"},
+        ],
+        all_params=[],
+    )
+
+    assert feedback == "MODEL STATE SAVED"
+    assert output is not None
+    merged_likelihoods = {
+        likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
+    }
+    assert merged_likelihoods["daily_event_count"]["distribution"] == "negative_binomial"
+    assert merged_likelihoods["sleep_issue_searches"]["distribution"] == "negative_binomial"
+    assert "chronotype" not in merged_likelihoods
 
 
 def test_agentic_stage4_grounding_accepts_loading_constraint_delta(monkeypatch):
