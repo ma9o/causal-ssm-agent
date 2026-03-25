@@ -1,8 +1,7 @@
-"""Minimal LiteLLM runtime helpers.
+"""Minimal OpenRouter runtime helpers.
 
 Runtime orchestration uses plain OpenAI-style message dicts and a small local
-tool abstraction. LiteLLM handles transport; this module only fills the gaps
-LiteLLM does not cover for us directly.
+tool abstraction. This module owns the transport to OpenRouter directly.
 """
 
 from __future__ import annotations
@@ -18,14 +17,15 @@ from dataclasses import dataclass
 from time import monotonic, perf_counter
 from typing import Any, Literal, cast
 
-import litellm
-import litellm.utils as litellm_utils
-from litellm import acompletion
+from openai import AsyncOpenAI
 from pydantic import Field, create_model
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.utils.config import get_secret
 
 logger = get_prefect_logger(__name__)
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +72,8 @@ class RpmLimiter:
 
 _limiters: dict[str, RpmLimiter] = {}
 _openrouter_api_key: ContextVar[str | None] = ContextVar("openrouter_api_key", default=None)
+_openrouter_clients: dict[str, AsyncOpenAI] = {}
+_openrouter_clients_lock = threading.Lock()
 
 
 def set_limiter(name: str, limiter: RpmLimiter | None) -> None:
@@ -101,7 +103,12 @@ def get_openrouter_api_key() -> str | None:
 
 
 def resolve_openrouter_api_key(api_key: str | None = None) -> str | None:
-    return api_key if api_key is not None else get_openrouter_api_key()
+    if api_key is not None:
+        return api_key
+    request_local_key = get_openrouter_api_key()
+    if request_local_key is not None:
+        return request_local_key
+    return get_secret("OPENROUTER_API_KEY")
 
 
 @contextmanager
@@ -113,43 +120,28 @@ def use_openrouter_api_key(api_key: str | None):
         _openrouter_api_key.reset(token)
 
 
-# LiteLLM emits provider-resolution banners directly to stdout when provider inference fails.
-# They drown out the stage-level logs we rely on during Prefect runs.
-litellm.suppress_debug_info = True
-litellm.turn_off_message_logging = True
-
-_ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER = getattr(
-    litellm_utils,
-    "_client_async_logging_helper",
-    None,
-)
+def _openrouter_cache_key(api_key: str | None) -> str:
+    return api_key or "__default__"
 
 
-async def _quiet_client_async_logging_helper(*args: Any, **kwargs: Any) -> None:
-    """Skip LiteLLM async success logging when no async callbacks are configured.
-
-    Prefect executes worker tasks on short-lived event loops. LiteLLM starts a
-    background logging worker for every async completion even when the app has no
-    callbacks configured, which produces noisy "Task was destroyed but it is pending!"
-    errors as loops are torn down. We do not rely on LiteLLM's async callback path,
-    so bypass it unless a caller actually registered async success callbacks.
-    """
-
-    logging_obj = kwargs.get("logging_obj")
-    if logging_obj is None and args:
-        logging_obj = args[0]
-
-    dynamic_callbacks = getattr(logging_obj, "dynamic_async_success_callbacks", None) or []
-    global_callbacks = getattr(litellm, "_async_success_callback", None) or []
-    if not dynamic_callbacks and not global_callbacks:
-        return
-    if _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER is None:
-        return
-    await _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER(*args, **kwargs)
+def _build_openrouter_client(api_key: str | None) -> AsyncOpenAI:
+    return AsyncOpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        # The SDK requires a string up front; missing credentials still surface
+        # as a normal authentication error on the first request.
+        api_key=api_key or "missing",
+    )
 
 
-if _ORIGINAL_CLIENT_ASYNC_LOGGING_HELPER is not None:
-    litellm_utils._client_async_logging_helper = _quiet_client_async_logging_helper
+def _get_openrouter_client(api_key: str | None = None) -> AsyncOpenAI:
+    resolved_api_key = resolve_openrouter_api_key(api_key)
+    cache_key = _openrouter_cache_key(resolved_api_key)
+    with _openrouter_clients_lock:
+        client = _openrouter_clients.get(cache_key)
+        if client is None:
+            client = _build_openrouter_client(resolved_api_key)
+            _openrouter_clients[cache_key] = client
+    return client
 
 
 @dataclass(frozen=True)
@@ -158,10 +150,7 @@ class GenerateConfig:
 
     max_tokens: int | None = None
     timeout: int | None = None
-    verbosity: Literal["low", "medium", "high", "max"] | None = None
-    effort: Literal["low", "medium", "high", "max"] | None = None
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
-    reasoning_history: str | None = None
     max_tool_output: int = 16_000
 
 
@@ -278,7 +267,7 @@ def normalize_message(message: dict[str, Any]) -> dict[str, Any]:
         "role": message["role"],
         "content": message.get("content", ""),
     }
-    for key in ("tool_calls", "tool_call_id", "name"):
+    for key in ("tool_calls", "tool_call_id", "name", "reasoning", "reasoning_details"):
         value = message.get(key)
         if value is not None:
             normalized[key] = value
@@ -424,7 +413,7 @@ async def call_model(
     config: GenerateConfig | None = None,
     log_label: str | None = None,
 ) -> dict[str, Any]:
-    """Call LiteLLM and normalize the first choice into a plain dict."""
+    """Call OpenRouter and normalize the first choice into a plain dict."""
 
     request = config or GenerateConfig()
 
@@ -433,21 +422,17 @@ async def call_model(
     kwargs: dict[str, Any] = {
         "model": model_name,
         "messages": [normalize_message(message) for message in messages],
-        "drop_params": True,
     }
-    api_key = get_openrouter_api_key()
-    if api_key:
-        kwargs["api_key"] = api_key
     if request.max_tokens is not None:
         kwargs["max_tokens"] = request.max_tokens
     if request.timeout is not None:
         kwargs["timeout"] = request.timeout
-    if request.verbosity is not None:
-        kwargs["verbosity"] = request.verbosity
-    if request.effort is not None:
-        kwargs["effort"] = request.effort
     if request.reasoning_effort is not None:
-        kwargs["reasoning_effort"] = request.reasoning_effort
+        kwargs["extra_body"] = {
+            "reasoning": {
+                "effort": request.reasoning_effort,
+            }
+        }
     if tools:
         kwargs["tools"] = [_tool_schema(tool_obj) for tool_obj in tools]
 
@@ -463,12 +448,12 @@ async def call_model(
         )
 
     started_at = perf_counter()
-    response = await acompletion(**kwargs)
+    response = await _get_openrouter_client().chat.completions.create(**kwargs)
     elapsed = perf_counter() - started_at
 
     choices = _get_attr(response, "choices") or []
     if not choices:
-        raise ValueError("LiteLLM returned no choices")
+        raise ValueError("OpenRouter returned no choices")
 
     choice = choices[0]
     message = _assistant_message(_get_attr(choice, "message"))

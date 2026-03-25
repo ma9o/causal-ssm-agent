@@ -19,8 +19,8 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import input_dir
-from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import GenerateFn, LLMStageContext
+from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from .stage0_tools import ModalCodeSandbox, make_ingestion_tools
 
@@ -266,6 +266,8 @@ async def agentic_ingest(
                 result.llm_trace = trace_out["llm_trace"]
 
             logger.info(
-                "Ingested %d rows x %d columns", result.dataframe.shape[0], result.dataframe.shape[1]
+                "Ingested %d rows x %d columns",
+                result.dataframe.shape[0],
+                result.dataframe.shape[1],
             )
             return result

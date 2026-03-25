@@ -10,8 +10,8 @@ import polars as pl
 from prefect import flow
 
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.litellm_client import use_openrouter_api_key
 from causal_ssm_agent.utils.llm import LLMStageContext
+from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from .. import get_prefect_logger
 

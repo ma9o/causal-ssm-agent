@@ -406,7 +406,7 @@ def make_search_tool(search_captures: dict[str, str]) -> Any:
     Returns:
         Tool object
     """
-    from causal_ssm_agent.utils.litellm_client import Tool
+    from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(*, query: str, parameter_name: str) -> str:
         search_captures[parameter_name] = query
@@ -464,7 +464,7 @@ def make_stage_tool(
     Returns:
         (Tool, capture_dict)
     """
-    from causal_ssm_agent.utils.litellm_client import Tool
+    from causal_ssm_agent.utils.openrouter_client import Tool
 
     capture: dict = {}
 
@@ -717,7 +717,7 @@ def make_elicit_prior_gmm_tool(
     aggregates them via GMM, returning a formatted summary to the outer
     agentic conversation.
     """
-    from causal_ssm_agent.utils.litellm_client import Tool
+    from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(
         *,

@@ -98,7 +98,7 @@ async def modal_stage4_runner(
     enable_literature: bool,
 ) -> dict:
     """Invoke stage 4 on Modal."""
-    from causal_ssm_agent.utils.litellm_client import get_openrouter_api_key
+    from causal_ssm_agent.utils.openrouter_client import get_openrouter_api_key
 
     return await _run_stage4.remote.aio(
         question,

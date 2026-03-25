@@ -11,7 +11,7 @@ import pytest
 from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
-from causal_ssm_agent.utils import litellm_client
+from causal_ssm_agent.utils import openrouter_client
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
 
 
@@ -209,9 +209,8 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
-        openrouter_access_mode: str | None,
     ) -> dict:
-        return {"runner": "modal", "openrouter_api_key": litellm_client.get_openrouter_api_key()}
+        return {"runner": "modal", "openrouter_api_key": openrouter_client.get_openrouter_api_key()}
 
     async def fake_local_stage4(
         question: str,
@@ -220,14 +219,14 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage3: dict,
         enable_literature: bool,
     ) -> dict:
-        return {"runner": "local", "openrouter_api_key": litellm_client.get_openrouter_api_key()}
+        return {"runner": "local", "openrouter_api_key": openrouter_client.get_openrouter_api_key()}
 
     monkeypatch.setattr(modal_runners, "modal_stage4_runner", fake_stage4_runner)
     monkeypatch.setattr(dag, "stage4", fake_local_stage4)
 
     registry = stage_registry.get_stage_registry()
 
-    with litellm_client.use_openrouter_api_key("user-key"):
+    with openrouter_client.use_openrouter_api_key("user-key"):
         local_result = asyncio.run(
             registry["stage-4"].runner(
                 question="why",
@@ -311,7 +310,7 @@ def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp
     seen: list[tuple[str, str | None]] = []
 
     async def stage0(workspace_id: str) -> dict:
-        seen.append(("stage0", litellm_client.get_openrouter_api_key()))
+        seen.append(("stage0", openrouter_client.get_openrouter_api_key()))
         return {
             "outcome": "success",
             "source_label": "stub",
@@ -328,7 +327,7 @@ def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp
         }
 
     async def stage1a(question: str) -> dict:
-        seen.append(("stage1a", litellm_client.get_openrouter_api_key()))
+        seen.append(("stage1a", openrouter_client.get_openrouter_api_key()))
         return {
             "latent_model": {
                 "constructs": [
@@ -1560,7 +1559,7 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
     )
     monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_agentic_flow", stub)
 
-    with litellm_client.use_openrouter_api_key("context-key"):
+    with openrouter_client.use_openrouter_api_key("context-key"):
         asyncio.run(
             dag.stage4(
                 "why is this happening?",

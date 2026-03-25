@@ -329,7 +329,7 @@ async def _run_semantic_chunks_prefect(
     """Execute semantic chunks through the existing Prefect worker path."""
     from prefect.utilities.annotations import unmapped
 
-    from causal_ssm_agent.utils.litellm_client import RpmLimiter, set_limiter
+    from causal_ssm_agent.utils.openrouter_client import RpmLimiter, set_limiter
 
     all_indices = list(range(len(chunk_texts)))
     all_n_windows = [len(ids) for ids in chunk_window_starts]
@@ -566,8 +566,8 @@ async def extract_window_chunk_task(
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.litellm_client import GenerateConfig, use_openrouter_api_key
     from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
+    from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
@@ -581,7 +581,6 @@ async def extract_window_chunk_task(
         max_tokens=generate_config.max_tokens,
         timeout=worker_timeout,
         reasoning_effort=generate_config.reasoning_effort,
-        reasoning_history=generate_config.reasoning_history,
         max_tool_output=generate_config.max_tool_output,
     )
     indicator_count = len(get_indicators(causal_spec))

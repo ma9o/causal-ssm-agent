@@ -108,7 +108,6 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         max_tokens=1234,
         reasoning_effort="medium",
         timeout=None,
-        reasoning_history="summary",
         max_tool_output=None,
     )
     captured: dict[str, object] = {}
