@@ -158,12 +158,11 @@ def _partial_pipeline_result(
     }
 
 
-def _raise_if_restored_gate_failed(defn: Any, state: dict[str, Any]) -> None:
-    gate = state.get("gate")
-    if gate is None or not gate.get("gate_failed") or gate.get("gate_overridden"):
-        return
-    if defn.gate_error is not None:
-        raise RuntimeError(defn.gate_error(gate))
+def _stage_fail_reason(state: dict[str, Any]) -> str | None:
+    web = state.get("web") or {}
+    if web.get("outcome") != "fail":
+        return None
+    return web.get("fail_reason")
 
 
 @flow(
@@ -175,7 +174,6 @@ async def causal_inference_pipeline(
     workspace_id: str = "test_workspace",
     inference_method: str | None = None,
     enable_literature: bool | None = None,
-    override_gates: bool | None = None,
     query: str | None = None,
     stage_overrides: dict[str, dict] | None = None,
     start_stage: str | None = None,
@@ -189,7 +187,6 @@ async def causal_inference_pipeline(
         workspace_id: Workspace ID naming the workspace under ``data/{workspace_id}/``.
         inference_method: Override inference method (e.g. "auto", "svi", "nuts")
         enable_literature: Override literature search
-        override_gates: Continue past stage failures instead of halting
         query: Raw query text (used by web UI). Materialized to
             ``data/{workspace_id}/query.txt`` so resume runs auto-resolve it.
         stage_overrides: Dict mapping editable stage ids (e.g. "stage-1a") to
@@ -255,9 +252,6 @@ async def causal_inference_pipeline(
         question_stages=question_stages,
     )
 
-    gates_overridden = (
-        override_gates if override_gates is not None else config.pipeline.override_gates
-    )
     lit_enabled = (
         enable_literature
         if enable_literature is not None
@@ -266,12 +260,11 @@ async def causal_inference_pipeline(
 
     logger.info(
         "Pipeline starting: workspace_id=%s source=%s inference_method=%s literature=%s "
-        "override_gates=%s start_stage=%s end_stage=%s stage_overrides=%s",
+        "start_stage=%s end_stage=%s stage_overrides=%s",
         workspace_id,
         "raw text" if query else "resume/no-query",
         inference_method or "config default",
         lit_enabled,
-        gates_overridden,
         effective_start_stage,
         effective_end_stage,
         sorted(supported_overrides),
@@ -290,7 +283,6 @@ async def causal_inference_pipeline(
         workspace_id=workspace_id,
         prefect_run_id=prefect_run_id,
         question=question,
-        gates_overridden=gates_overridden,
         lit_enabled=lit_enabled,
         inference_method=inference_method,
         supported_overrides=supported_overrides,
@@ -324,7 +316,14 @@ async def causal_inference_pipeline(
             restored = load_stage_state(workspace_id, stage_id, prior_states=stage_states)
             stage_states[stage_id] = restored
             _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
-            _raise_if_restored_gate_failed(defn, restored)
+            fail_reason = _stage_fail_reason(restored)
+            if fail_reason is not None:
+                logger.info(
+                    "Pipeline stopped at restored %s (fail_reason=%s)",
+                    stage_id,
+                    fail_reason,
+                )
+                return _partial_pipeline_result(workspace_id, stage_id, restored)
         else:
             # Execute this stage
             if defn.question_required and question is None:
@@ -351,6 +350,14 @@ async def causal_inference_pipeline(
             logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
             _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
             stage_states[stage_id] = state
+            fail_reason = _stage_fail_reason(state)
+            if fail_reason is not None:
+                logger.info(
+                    "Pipeline stopped after %s (fail_reason=%s)",
+                    stage_id,
+                    fail_reason,
+                )
+                return _partial_pipeline_result(workspace_id, stage_id, state)
 
         partial = await _maybe_finish(stage_id)
         if partial is not None:

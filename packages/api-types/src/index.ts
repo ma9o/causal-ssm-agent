@@ -101,14 +101,6 @@ export type Stage4Data = Stage4PersistedData;
 export type { ToolDefinition } from "./generated/tools";
 export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";
 
-// ---------------------------------------------------------------------------
-// Hand-written types — not in Python contracts but used by frontend
-// ---------------------------------------------------------------------------
-
-export interface GateOverride {
-  reason: string;
-}
-
 export interface StageData<T = unknown> {
   stage: string;
   data: T;
@@ -140,6 +132,7 @@ export interface Stage0ColumnDescription {
 
 export interface Stage0Data {
   outcome: StageOutcome;
+  fail_reason?: string | null;
   llm_trace?: import("./generated/models").LLMTrace | null;
   n_records: number;
   n_columns: number;
@@ -164,6 +157,7 @@ export interface Extraction {
 
 export interface Stage2Data {
   outcome: StageOutcome;
+  fail_reason?: string | null;
   llm_trace?: import("./generated/models").LLMTrace | null;
   workers: import("./generated/models").WorkerStatusContract[];
   per_indicator_counts: {

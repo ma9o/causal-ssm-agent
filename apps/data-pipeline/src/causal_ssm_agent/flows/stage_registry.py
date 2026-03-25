@@ -56,7 +56,6 @@ class PipelineContext:
     workspace_id: str
     prefect_run_id: str
     question: str | None
-    gates_overridden: bool
     lit_enabled: bool
     inference_method: str | None
     supported_overrides: dict[str, dict]
@@ -95,13 +94,7 @@ class StageDefinition:
     # Bare stage computation function
     runner: Callable[..., dict | Awaitable[dict]]
 
-    # (result, stage_states, gates_overridden) -> gate_result | None
-    gate: Callable[[dict, dict[str, dict], bool], dict] | None = None
-
     materializer: StageMaterializer = field(default_factory=StageMaterializer)
-
-    # Error message for gate failure (receives gate_result)
-    gate_error: Callable[[dict], str] | None = None
 
     question_required: bool = False
     override_eligible: bool = False
@@ -123,7 +116,7 @@ async def run_stage_flow(
     ctx: PipelineContext,
     stage_states: dict[str, dict],
 ) -> dict[str, Any]:
-    """Execute a single stage: bind inputs, run, persist, gate, finalize."""
+    """Execute a single stage: bind inputs, run, persist, finalize."""
 
     # Check for override
     override_payload = (
@@ -145,31 +138,14 @@ async def run_stage_flow(
     result = defn.materializer.persist(result, ctx.workspace_id)
     extras = defn.materializer.finalize_extras(result, ctx.workspace_id)
 
-    # Gate check
-    gate_result = None
-    if defn.gate is not None:
-        gate_result = defn.gate(result, stage_states, ctx.gates_overridden)
-        gate_extras = _gate_extras(defn, gate_result)
-        extras.update(gate_extras)
-
     # Finalize (validate contract, persist JSON, save snapshot)
     state = finalize_stage(
         defn.stage_id,
         result,
         ctx.workspace_id,
         extras=extras or None,
-        gate=gate_result,
         contract=defn.contract,
     )
-
-    # Raise on hard gate failure
-    if (
-        gate_result is not None
-        and defn.gate_error is not None
-        and gate_result.get("gate_failed")
-        and not gate_result.get("gate_overridden")
-    ):
-        raise RuntimeError(defn.gate_error(gate_result))
 
     return state
 
@@ -188,12 +164,7 @@ def load_stage_state(
         restored = defn.materializer.restore(workspace_id, web, prior_states)
         result = dict(snapshot.get("result", {}) or {})
         result.update(restored)
-
-        gate_result = snapshot.get("gate")
-        if gate_result is None and defn.gate is not None:
-            gate_result = defn.gate(result, prior_states, bool(web.get("gate_overridden")))
-
-        return stage_state(result, web, gate=gate_result)
+        return stage_state(result, web)
     except FileNotFoundError:
         logger.info(
             "Reconstructing %s state from public payloads for workspace_id %s",
@@ -203,23 +174,7 @@ def load_stage_state(
 
     web = load_public_payload(workspace_id, stage_id)
     result = defn.materializer.restore(workspace_id, web, prior_states)
-
-    gate_result = None
-    if defn.gate is not None:
-        gate_result = defn.gate(result, prior_states, bool(web.get("gate_overridden")))
-
-    return stage_state(result, web, gate=gate_result)
-
-
-def _gate_extras(defn: StageDefinition, gate_result: dict) -> dict[str, Any]:
-    """Build finalization extras from a gate result."""
-    extras: dict[str, Any] = {}
-    outcome = gate_result.get("outcome") or gate_result.get("web_outcome")
-    if outcome:
-        extras["outcome"] = outcome
-    if gate_result.get("gate_overridden") and defn.gate_error is not None:
-        extras["gate_overridden"] = {"reason": defn.gate_error(gate_result)}
-    return extras
+    return stage_state(result, web)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -272,7 +227,12 @@ def _persist_stage2(result: dict, workspace_id: str) -> dict:
 
 def _finalize_stage2_extras(result: dict, workspace_id: str) -> dict[str, Any]:
     row_count = int(result.get("_data_for_model_row_count", 0))
-    return {"outcome": "success" if row_count > 0 else "fail"}
+    if row_count > 0:
+        return {"outcome": "success"}
+    return {
+        "outcome": "fail",
+        "fail_reason": "no_observations_extracted",
+    }
 
 
 def _persist_stage5b(result: dict, workspace_id: str) -> dict:
@@ -434,37 +394,7 @@ def _bind_stage6(ctx: PipelineContext, states: dict) -> dict:
         "stage5b": states["stage-5b"]["result"],
         "stage1a": states["stage-1a"]["result"],
         "stage1b": states["stage-1b"]["result"],
-        "stage1b_gate": states["stage-1b"]["gate"],
     }
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Per-stage gate adapters
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _gate_stage1b(result: dict, states: dict, gates_overridden: bool) -> dict:
-    from .dag import stage1b_gate
-
-    return stage1b_gate(states["stage-1a"]["result"], result, gates_overridden)
-
-
-def _gate_stage4b(result: dict, states: dict, gates_overridden: bool) -> dict:
-    from .dag import stage4b_gate
-
-    return stage4b_gate(result, gates_overridden)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Per-stage gate error messages
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _gate_error_stage1b(gate_result: dict) -> str:
-    return (
-        "No identifiable treatment effects remain after filtering. "
-        "All treatments are blocked by unobserved confounders."
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -530,8 +460,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-1b"],
             bind_inputs=_bind_stage1b,
             runner=dag.stage1b,
-            gate=_gate_stage1b,
-            gate_error=_gate_error_stage1b,
             question_required=True,
             override_eligible=True,
         ),
@@ -575,7 +503,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4b"],
             bind_inputs=_bind_stage4b,
             runner=dag.stage4b,
-            gate=_gate_stage4b,
             materializer=StageMaterializer(restore=_restore_stage4b),
         ),
         "stage-5a": StageDefinition(

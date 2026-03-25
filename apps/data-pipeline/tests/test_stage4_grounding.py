@@ -1,7 +1,7 @@
 """Unit tests for stage4_grounding in stage_tools.py.
 
 Tests the unified grounding function that handles model_spec and/or priors.
-Gates: schema validation → compile → prior predictive.
+Checks: schema validation → compile → prior predictive.
 """
 
 import pytest
@@ -155,7 +155,7 @@ def priors(model_spec):
 
 
 # ---------------------------------------------------------------------------
-# Gate 0: input validation
+# Check 0: input validation
 # ---------------------------------------------------------------------------
 
 
@@ -169,7 +169,7 @@ class TestStage4GroundingInputValidation:
 
 
 # ---------------------------------------------------------------------------
-# Gate 1: schema validation
+# Check 1: schema validation
 # ---------------------------------------------------------------------------
 
 
@@ -229,12 +229,12 @@ class TestStage4GroundingSchemaValidation:
 
 
 # ---------------------------------------------------------------------------
-# Gate 2: compile
+# Check 2: compile
 # ---------------------------------------------------------------------------
 
 
 class TestStage4GroundingCompile:
-    """Compile gate: trial compile (no priors) or full compile (with priors)."""
+    """Compile check: trial compile (no priors) or full compile (with priors)."""
 
     def test_priors_without_model_spec_returns_compile_error(self, causal_spec, model_spec, priors):
         """Priors without model_spec in current state → compile error."""
@@ -339,15 +339,15 @@ class TestStage4GroundingStateMerging:
 
 
 # ---------------------------------------------------------------------------
-# Gate 3: prior predictive (only with data_for_model)
+# Check 3: prior predictive (only with data_for_model)
 # ---------------------------------------------------------------------------
 
 
 class TestStage4GroundingPriorPredictive:
-    """Prior predictive gate runs only when priors + data_for_model are present."""
+    """Prior predictive check runs only when priors + data_for_model are present."""
 
     def test_with_data_for_model_runs_pp(self, causal_spec, model_spec, priors):
-        """With data_for_model, PP gate runs. With reasonable priors it should pass."""
+        """With data_for_model, PP check runs. With reasonable priors it should pass."""
         import numpy as np
         import polars as pl
 

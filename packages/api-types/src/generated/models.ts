@@ -90,6 +90,10 @@ export interface CausalSSMContracts {
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   column_descriptions: Stage0ColumnDescriptionContract[];
 }
@@ -133,6 +137,10 @@ export interface Stage0ColumnDescriptionContract {
 }
 export interface Stage1AContract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   latent_model: LatentModel;
 }
@@ -197,9 +205,12 @@ export interface CausalEdge {
 }
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   causal_spec: CausalSpec;
-  gate_overridden?: GateOverrideContract | null;
 }
 /**
  * Complete causal specification combining latent and measurement models.
@@ -344,11 +355,12 @@ export interface NonIdentifiableTreatmentStatus {
    */
   notes?: string | null;
 }
-export interface GateOverrideContract {
-  reason: string;
-}
 export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
 }
@@ -361,6 +373,10 @@ export interface WorkerStatusContract {
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   is_valid: boolean;
   indicators: {
     [k: string]: IndicatorAuditContract | undefined;
@@ -408,6 +424,10 @@ export interface ValidationIssueContract {
 }
 export interface Stage4Contract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   model_spec: ModelSpec;
   authored_priors: {
@@ -551,9 +571,12 @@ export interface PriorSource {
 }
 export interface Stage4BContract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   parametric_id: ParametricIdResult;
   inference_structure?: InferenceStructureResult | null;
-  gate_overridden?: GateOverrideContract | null;
 }
 /**
  * Full parametric identifiability result (Stage 4b payload).
@@ -666,6 +689,10 @@ export interface InferenceStructureVariable {
  */
 export interface Stage5AContract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   inference_metadata: InferenceMetadataContract;
   svi_diagnostics?: SVIDiagnostics | null;
   posterior_marginals?: PosteriorMarginal[] | null;
@@ -706,6 +733,10 @@ export interface PosteriorPair {
 }
 export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
@@ -869,6 +900,10 @@ export interface LOODiagnostics {
 }
 export interface Stage6Contract {
   outcome: "success" | "warn" | "fail";
+  /**
+   * Machine-readable reason for a terminal semantic stop.
+   */
+  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   intervention_results: TreatmentEffectContract[];
   saved_scenarios?: SavedScenarioContract[] | null;

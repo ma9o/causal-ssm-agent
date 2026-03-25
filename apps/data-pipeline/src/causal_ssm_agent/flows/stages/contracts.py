@@ -393,6 +393,18 @@ class BaseStageContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: Literal["success", "warn", "fail"] = "success"
+    fail_reason: str | None = Field(
+        default=None,
+        description="Machine-readable reason for a terminal semantic stop.",
+    )
+
+    @model_validator(mode="after")
+    def validate_fail_reason(self) -> BaseStageContract:
+        if self.outcome == "fail" and self.fail_reason is None:
+            raise ValueError("fail_reason is required when outcome='fail'")
+        if self.outcome != "fail" and self.fail_reason is not None:
+            raise ValueError("fail_reason is only allowed when outcome='fail'")
+        return self
 
     def summary_level(self) -> int:
         return logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO
@@ -408,12 +420,6 @@ class LLMStageContract(BaseStageContract):
     """Base contract for stages that surface an LLM trace."""
 
     llm_trace: LLMTrace | None = None
-
-
-class GateOverrideContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reason: str
 
 
 class DateRangeContract(BaseModel):
@@ -449,7 +455,6 @@ class Stage1aContract(LLMStageContract):
 
 class Stage1bContract(LLMStageContract):
     causal_spec: CausalSpec
-    gate_overridden: GateOverrideContract | None = None
 
     def summary_message(self) -> str:
         non_id = (
@@ -588,7 +593,6 @@ class Stage4Contract(LLMStageContract):
 class Stage4bContract(BaseStageContract):
     parametric_id: ParametricIdResult
     inference_structure: InferenceStructureResult | None = None
-    gate_overridden: GateOverrideContract | None = None
 
     def summary_message(self) -> str:
         pid = self.parametric_id

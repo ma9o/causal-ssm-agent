@@ -17,7 +17,6 @@ export interface StageMeta {
   id: StageId;
   label: string;
   number: string;
-  hasGate: boolean;
   prefectFlowName: string;
   /** Human-readable hint shown while this stage is running. */
   loadingHint: string;
@@ -32,7 +31,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-0",
     label: "Preprocess",
     number: "0",
-    hasGate: false,
     prefectFlowName: "stage-0-flow",
     loadingHint: "Parsing and preprocessing your data...",
     description: "Parses raw data files and prepares them for downstream analysis.",
@@ -42,7 +40,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-1a",
     label: "Latent Model",
     number: "1a",
-    hasGate: false,
     prefectFlowName: "stage-1a-flow",
     loadingHint: "LLM is proposing a causal DAG...",
     description:
@@ -53,7 +50,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-1b",
     label: "Measurement & Nonparametric Identification",
     number: "1b",
-    hasGate: true,
     prefectFlowName: "stage-1b-flow",
     loadingHint: "Mapping indicators and checking identifiability...",
     description:
@@ -64,7 +60,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-2",
     label: "Data Extraction",
     number: "2",
-    hasGate: false,
     prefectFlowName: "stage-2-flow",
     loadingHint: "Extracting indicator values from your data...",
     description:
@@ -75,7 +70,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-3",
     label: "Validation",
     number: "3",
-    hasGate: false,
     prefectFlowName: "stage-3-flow",
     loadingHint: "Validating extraction quality...",
     description:
@@ -86,7 +80,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-4",
     label: "Model Specification",
     number: "4",
-    hasGate: false,
     prefectFlowName: "stage-4-flow",
     loadingHint: "LLM is specifying priors and model parameters...",
     description:
@@ -97,7 +90,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-4b",
     label: "Parametric Identifiability",
     number: "4b",
-    hasGate: false,
     prefectFlowName: "stage-4b-flow",
     loadingHint: "Checking parametric identifiability...",
     description:
@@ -108,7 +100,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-5a",
     label: "SVI Preflight",
     number: "5a",
-    hasGate: false,
     prefectFlowName: "stage-5a-flow",
     loadingHint: "Running fast SVI approximation...",
     description:
@@ -119,7 +110,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-5b",
     label: "Inference & Diagnostics",
     number: "5b",
-    hasGate: false,
     prefectFlowName: "stage-5b-flow",
     loadingHint: "Running Bayesian inference...",
     description:
@@ -130,7 +120,6 @@ export const STAGES: StageMeta[] = [
     id: "stage-6",
     label: "Treatment Effects",
     number: "6",
-    hasGate: false,
     prefectFlowName: "stage-6-flow",
     loadingHint: "Computing interventional effects...",
     description:

@@ -1,11 +1,11 @@
-"""Identifiability gate for benchmark problems.
+"""Identifiability screen for benchmark problems.
 
 Every RecoveryProblem in benchmarks/problems/ must satisfy necessary conditions
 for parametric identifiability before being used in recovery benchmarks.
 
 Two tiers of checks:
 
-1. **Analytical (hard gate)** -- fast, reliable necessary conditions:
+1. **Analytical screen** -- fast, reliable necessary conditions:
    - Observability: n_manifest >= n_latent
    - Lambda rank: loading matrix has full column rank
    - Drift stability: all eigenvalues have negative real parts
@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 from benchmarks.problems import ALL_PROBLEMS
 
-# -- Tier 1: Analytical necessary conditions (hard gate) ------------------
+# -- Tier 1: Analytical necessary conditions -------------------------------
 
 
 @pytest.mark.parametrize("problem_name", ALL_PROBLEMS.keys())

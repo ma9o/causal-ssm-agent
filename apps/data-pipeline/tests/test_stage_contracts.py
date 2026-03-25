@@ -364,13 +364,19 @@ def test_stage6_saved_scenarios_reject_extra_fields(valid_stage_payloads: dict[s
 
 
 def test_outcome_warn_and_fail_accepted(valid_stage_payloads: dict[str, dict]):
-    """outcome: 'warn' and 'fail' should be accepted on every stage."""
+    """Warn outcomes and fail outcomes with fail_reason should be accepted."""
     for stage_id, payload in valid_stage_payloads.items():
-        for value in ("warn", "fail"):
-            p = deepcopy(payload)
-            p["outcome"] = value
-            validated = validate_stage_payload(stage_id, p)
-            assert validated["outcome"] == value
+        warn_payload = deepcopy(payload)
+        warn_payload["outcome"] = "warn"
+        validated_warn = validate_stage_payload(stage_id, warn_payload)
+        assert validated_warn["outcome"] == "warn"
+
+        fail_payload = deepcopy(payload)
+        fail_payload["outcome"] = "fail"
+        fail_payload["fail_reason"] = "test_failure"
+        validated_fail = validate_stage_payload(stage_id, fail_payload)
+        assert validated_fail["outcome"] == "fail"
+        assert validated_fail["fail_reason"] == "test_failure"
 
 
 def test_outcome_invalid_value_rejected(valid_stage_payloads: dict[str, dict]):
@@ -381,10 +387,14 @@ def test_outcome_invalid_value_rejected(valid_stage_payloads: dict[str, dict]):
         validate_stage_payload("stage-0", bad)
 
 
-def test_gate_failed_removed_from_stage1b_and_stage4b(valid_stage_payloads: dict[str, dict]):
-    """gate_failed field should no longer be accepted (extra=forbid)."""
-    for stage_id in ("stage-1b", "stage-4b"):
-        bad = deepcopy(valid_stage_payloads[stage_id])
-        bad["gate_failed"] = True
-        with pytest.raises(ValidationError):
-            validate_stage_payload(stage_id, bad)
+def test_fail_reason_must_match_fail_outcome(valid_stage_payloads: dict[str, dict]):
+    missing_reason = deepcopy(valid_stage_payloads["stage-1b"])
+    missing_reason["outcome"] = "fail"
+    with pytest.raises(ValidationError):
+        validate_stage_payload("stage-1b", missing_reason)
+
+    stray_reason = deepcopy(valid_stage_payloads["stage-1b"])
+    stray_reason["outcome"] = "warn"
+    stray_reason["fail_reason"] = "should_not_be_here"
+    with pytest.raises(ValidationError):
+        validate_stage_payload("stage-1b", stray_reason)

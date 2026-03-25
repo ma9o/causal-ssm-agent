@@ -281,20 +281,6 @@
       "title": "FirstPassRBResult",
       "type": "object"
     },
-    "GateOverrideContract": {
-      "additionalProperties": false,
-      "properties": {
-        "reason": {
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "reason"
-      ],
-      "title": "GateOverrideContract",
-      "type": "object"
-    },
     "IdentifiabilityStatus": {
       "description": "Status of causal effect identifiability.",
       "properties": {
@@ -2393,6 +2379,19 @@
           "title": "Outcome",
           "type": "string"
         },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
+        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2432,6 +2431,19 @@
           "title": "Outcome",
           "type": "string"
         },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
+        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2467,6 +2479,19 @@
           "title": "Outcome",
           "type": "string"
         },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
+        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2480,17 +2505,6 @@
         },
         "causal_spec": {
           "$ref": "#/$defs/CausalSpec"
-        },
-        "gate_overridden": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GateOverrideContract"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -2512,6 +2526,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "llm_trace": {
           "anyOf": [
@@ -2551,6 +2578,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "is_valid": {
           "title": "Is Valid",
@@ -2592,6 +2632,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "llm_trace": {
           "anyOf": [
@@ -2677,6 +2730,19 @@
           "title": "Outcome",
           "type": "string"
         },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
+        },
         "parametric_id": {
           "$ref": "#/$defs/ParametricIdResult"
         },
@@ -2684,17 +2750,6 @@
           "anyOf": [
             {
               "$ref": "#/$defs/InferenceStructureResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "gate_overridden": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GateOverrideContract"
             },
             {
               "type": "null"
@@ -2723,6 +2778,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "inference_metadata": {
           "$ref": "#/$defs/InferenceMetadataContract"
@@ -2788,6 +2856,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "power_scaling": {
           "items": {
@@ -2898,6 +2979,19 @@
           ],
           "title": "Outcome",
           "type": "string"
+        },
+        "fail_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Machine-readable reason for a terminal semantic stop.",
+          "title": "Fail Reason"
         },
         "llm_trace": {
           "anyOf": [

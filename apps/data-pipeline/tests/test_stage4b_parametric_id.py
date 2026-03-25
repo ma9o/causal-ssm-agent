@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
-from causal_ssm_agent.flows.dag import stage4b_gate
+from causal_ssm_agent.flows.dag import stage4b
 from causal_ssm_agent.flows.stages.stage4b_parametric_id import parametric_id_task
 from causal_ssm_agent.models.ssm.inference_structure import (
     build_inference_structure_payload,
@@ -308,9 +308,10 @@ class TestStage4bInferenceStructurePayload:
         assert "n_parameters" not in pid
         assert "parameter_names" not in pid
 
-    def test_stage4b_gate_demotes_t_rule_failure_to_warning(self):
-        gate = stage4b_gate(
-            {
+    def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4b_parametric_id_flow",
+            lambda *_args, **_kwargs: {
                 "parametric_id": {
                     "checked": True,
                     "t_rule": {
@@ -325,9 +326,9 @@ class TestStage4bInferenceStructurePayload:
                     },
                 }
             },
-            False,
         )
+        monkeypatch.setattr("causal_ssm_agent.flows.dag.load_parquet", lambda _path: pl.DataFrame())
 
-        assert gate["gate_failed"] is False
-        assert gate["gate_overridden"] is False
-        assert gate["outcome"] == "warn"
+        result = stage4b({}, {"_data_for_model_path": "unused"})
+
+        assert result["outcome"] == "warn"

@@ -133,7 +133,6 @@ FULL_CONFIG = textwrap.dedent("""\
       reasoning_effort: low
     pipeline:
       max_prior_retries: 5
-      override_gates: true
 """)
 
 
@@ -157,7 +156,7 @@ class TestLoadConfig:
         # Defaults for optional sections
         assert cfg.inference.method == "auto"
         assert cfg.llm.max_tokens == 65536
-        assert cfg.pipeline.override_gates is False
+        assert cfg.pipeline.max_prior_retries == 3
 
         load_config.cache_clear()
 
@@ -187,7 +186,7 @@ class TestLoadConfig:
         assert cfg.llm.max_tokens == 4096
         assert cfg.llm.reasoning_effort == "low"
         assert cfg.pipeline.max_prior_retries == 5
-        assert cfg.pipeline.override_gates is True
+        assert cfg.pipeline.max_prior_retries == 5
 
         load_config.cache_clear()
 
