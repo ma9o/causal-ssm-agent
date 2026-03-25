@@ -1,8 +1,8 @@
 # Stage 5b: Inference and Diagnostics
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Computed | No | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Computed | No | [`FittedArtifact`](#fittedartifact) plus [PPC](#ppcresult), [power-scaling](#powerscalingresult), and [backend-specific diagnostics](#backend-specific-diagnostics) |
 
 Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive calibration, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree: NUTS for Kalman-eligible models (all Gaussian emissions with identity links), Laplace-EM for non-Gaussian emissions. The user can override to any of the nine [available methods](../reference/inference-routing.md#method-taxonomy).
 

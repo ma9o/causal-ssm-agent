@@ -1,8 +1,8 @@
 # Stage 4: Model Specification and Prior Elicitation
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Semantic | Yes | No | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Semantic | Yes | [`ModelSpec`](#modelspec), [`PriorProposal`](#priorproposal) per parameter |
 
 Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against [prior predictive checks](#prior-predictive-validation). The resulting [`ModelSpec`](#modelspec) plus priors are then consumed by the [SSM compilation pipeline](../reference/compilation.md) to build an executable NumPyro model.
 

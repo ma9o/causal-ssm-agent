@@ -1,8 +1,8 @@
 # Stage 2: Indicator Extraction
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Hybrid | No | No | [Observation rows](#observation-row) and [model-ready data](#model-ready-data) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Hybrid | No | [Observation rows](#observation-row) and [model-ready data](#model-ready-data) |
 
 Extracts numeric indicator values from raw data by routing each indicator through either a deterministic Polars aggregation or a parallel LLM worker, then annotates the merged output into canonical [observation rows](#observation-row) with explicit [support-window semantics](../reference/measurement-model/indicators.md#derived-observation-semantics).
 

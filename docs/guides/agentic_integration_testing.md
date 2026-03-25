@@ -116,7 +116,7 @@ DEPLOY_ID=$(curl -s -X POST http://localhost:4200/api/deployments/filter \
 # Create flow run
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"query\":\"How does screen time affect sleep?\",\"workspace_id\":\"$WORKSPACE_ID\"}}" \
   | jq -r '.id')
 
 echo "Flow Run ID: $FLOW_RUN_ID"
@@ -187,7 +187,7 @@ Use the `start_stage` parameter to skip all earlier stages. You do **not** need 
 # Example: stage-3 failed, rerun from stage-3 onward
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-3\"}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"start_stage\":\"stage-3\"}}" \
   | jq -r '.id')
 ```
 
@@ -198,7 +198,7 @@ You can also scope the rerun to a single stage by combining `start_stage` and
 # Rerun only stage-4, then stop
 FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/create_flow_run" \
   -H 'Content-Type: application/json' \
-  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"override_gates\":true,\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
+  -d "{\"tags\":[\"workspace:$WORKSPACE_ID\"],\"parameters\":{\"workspace_id\":\"$WORKSPACE_ID\",\"start_stage\":\"stage-4\",\"end_stage\":\"stage-4\"}}" \
   | jq -r '.id')
 ```
 

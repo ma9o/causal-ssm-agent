@@ -16,9 +16,11 @@ Notably, there is no observed data input at this stage.
 
 ## Process
 
-Stage 1a runs a single LLM conversation with no data input—the model reasons purely from domain knowledge and the research question. The conversation has two phases: an initial proposal grounded by a structural validation tool, followed by a self-review pass.
+Stage 1a runs a single LLM conversation in which the LLM reasons purely from domain knowledge and the research question to come up with a purely theoretical causal DAG.
 
-**Backward reasoning from the outcome.** The LLM works backward from the outcome implied by the question: what directly causes it, what causes those causes, and so on until reaching [exogenous constructs](../reference/latent-model/constructs-and-edges.md#construct-dimensions)—factors taken as given. The goal is completeness over parsimony: all theoretically plausible confounders, mediating mechanisms, and moderating factors should be included. Downstream stages prune; this stage must not omit anything causally important.
+The conversation has two phases: an initial proposal grounded by a structural validation tool, followed by a self-review pass.
+
+**Backward reasoning from the outcome.** The LLM works backward from the outcome implied by the question: what directly causes it, what causes those causes, and so on. The goal is completeness over parsimony: downstream stages will prune based on identifiability; this stage must not omit anything causally important.
 
 Each proposed construct is classified by [role and temporal status](../reference/latent-model/constructs-and-edges.md#construct-dimensions), and each directed edge carries a [lag designation](../reference/latent-model/constructs-and-edges.md#edge-lag-rules)—lagged (cause at *t−1* → effect at *t*) or contemporaneous (within the same time index).
 
@@ -27,6 +29,13 @@ Each proposed construct is classified by [role and temporal status](../reference
 On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
 
 **Self-review.** A follow-up prompt then asks the LLM to review its validated model for theoretical coherence—outcome clarity, causal completeness, edge justification, temporal consistency, and whether exogenous designations are appropriate. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
+
+```mermaid
+flowchart LR
+    P[Propose] --> V1{Validate} -- errors --> P
+    V1 -- VALID --> R[Review] --> V2{Validate} -- errors --> R
+    V2 -- VALID --> F[LatentModel]
+```
 
 ## Outputs
 

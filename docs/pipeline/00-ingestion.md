@@ -1,8 +1,8 @@
 # Stage 0: Agentic Data Ingestion
 
-| Modality | Interactive | Gate | Produces |
-|---|---|---|---|
-| Semantic | No | No | [`Raw Dataframe`](#raw-dataframe) |
+| Modality | Interactive | Produces |
+|---|---|---|
+| Semantic | No | [`Raw Dataframe`](#raw-dataframe) |
 
 Normalizes the latest uploaded raw export into one typed Polars dataframe with human-readable descriptions for every column.
 

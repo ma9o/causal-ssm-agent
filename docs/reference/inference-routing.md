@@ -25,7 +25,7 @@ Every inference method makes three design choices:
 These axes are conceptually distinct but not independent. Two dependencies structure the design space:
 
 1. **A → C**: Augment and Gibbs both force C = MCMC. Augment creates an O(n\_latent × T)-dimensional sampling problem where VI and SMC are impractical (VI discards the exactness that motivates augmentation; SMC suffers weight degeneracy in high dimensions). Gibbs requires *sampling* from conditionals — replacing sampling with VI gives variational EM (a different algorithm class), and running SMC within each Gibbs sweep is better described as SMC². **Only Marginalize opens all three C options**, because it reduces the problem to inference on θ alone.
-2. **B → C**: Within Marginalize, the likelihood computation method determines gradient quality, which gates which parameter methods are viable. This is the binding constraint for the structural routing described below.
+2. **B → C**: Within Marginalize, the likelihood computation method determines gradient quality, which constrains which parameter methods are viable. This is the binding constraint for the structural routing described below.
 
 ### Axis A: State-Parameter Coupling
 
@@ -66,7 +66,7 @@ Given the state handling from Axes A+B, how to explore the parameter posterior p
 
 ### The B → C Constraint
 
-Axis B determines gradient quality, which gates which Axis C methods are viable:
+Axis B determines gradient quality, which constrains which Axis C methods are viable:
 
 | Likelihood (B) | Gradient quality | Viable parameter methods (C) |
 |----------------|-----------------|------------------------------|
