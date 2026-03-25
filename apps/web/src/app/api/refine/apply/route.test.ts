@@ -206,14 +206,16 @@ describe("POST /api/refine/apply", () => {
       sessionPersisted: true,
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0] ?? [];
+    const headers = (init as RequestInit | undefined)?.headers as Headers | undefined;
     expect(fetchSpy).toHaveBeenCalledWith(
       new URL("/api/replay", "http://localhost/api/refine/apply"),
       expect.objectContaining({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
       }),
     );
-    const [, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(headers).toBeInstanceOf(Headers);
+    expect(headers?.get("Content-Type")).toBe("application/json");
     const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}"));
     expect(body).toMatchObject({
       workspaceId: "user-123",
@@ -233,5 +235,59 @@ describe("POST /api/refine/apply", () => {
         },
       },
     });
+  });
+
+  it("forwards the workspace access cookie to the replay route", async () => {
+    vi.mocked(readData).mockResolvedValueOnce(
+      JSON.stringify({
+        causal_spec: { measurement: { indicators: [] } },
+        outcome: "success",
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          resumeFrom: "stage-2",
+          rootFlowRunId: "replay-cookie-1",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/refine/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: "workspace-access-abc=test-cookie",
+        },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-1b",
+          stagePatch: {
+            causal_spec: { measurement: { indicators: [] } },
+          },
+          messages: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = fetchSpy.mock.calls[0] ?? [];
+    const headers = (init as RequestInit | undefined)?.headers as Headers | Record<string, string>;
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      new URL("/api/replay", "http://localhost/api/refine/apply"),
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(headers).toBeInstanceOf(Headers);
+    expect((headers as Headers).get("cookie")).toBe("workspace-access-abc=test-cookie");
   });
 });

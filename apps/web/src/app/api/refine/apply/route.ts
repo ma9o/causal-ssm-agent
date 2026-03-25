@@ -121,9 +121,17 @@ export async function POST(request: Request) {
 
   try {
     // Trigger replay
+    const replayHeaders = new Headers({
+      "Content-Type": "application/json",
+    });
+    const cookie = request.headers.get("cookie");
+    if (cookie) {
+      replayHeaders.set("cookie", cookie);
+    }
+
     const replayRes = await fetch(new URL("/api/replay", request.url), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: replayHeaders,
       body: JSON.stringify({
         workspaceId: safeWorkspaceId,
         stageId: safeStageId,
