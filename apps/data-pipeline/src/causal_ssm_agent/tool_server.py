@@ -210,11 +210,6 @@ def _manifest_effects(
     return effects or None
 
 
-def _baseline_stage6_entry(stage6: dict[str, Any], treatment: str) -> dict[str, Any] | None:
-    for entry in stage6.get("intervention_results", []) or []:
-        if entry.get("treatment") == treatment:
-            return entry
-    return None
 
 
 def _select_evidence_window(
@@ -248,7 +243,6 @@ def _select_evidence_window(
 
 
 def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
-    stage1a = _load_stage_result(workspace_id, "stage-1a")
     stage1b = _load_stage_result(workspace_id, "stage-1b")
     stage4 = _load_optional_stage_result(workspace_id, "stage-4")
     stage4b = _load_optional_stage_result(workspace_id, "stage-4b")
@@ -265,12 +259,11 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     non_identifiable = (causal_spec.get("identifiability") or {}).get(
         "non_identifiable_treatments"
     ) or {}
-    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(stage1a.get("latent_model", {}))
+    outcome_name = get_outcome_name(causal_spec)
     treatments = get_estimable_treatments(causal_spec)
 
     return {
         "_workspace_id": workspace_id,
-        "stage-1a": stage1a,
         "stage-1b": stage1b,
         "stage-4": stage4,
         "stage-4b": stage4b,
@@ -456,13 +449,17 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         baseline = list(stage6.get("intervention_results", []) or [])
         if focused:
             baseline = [entry for entry in baseline if entry.get("treatment") in focused]
+
+        def _draws_summary(draws):
+            if not draws:
+                return None, None
+            return sum(draws) / len(draws), sum(1 for d in draws if d > 0) / len(draws)
+
         payload["baseline_effects"] = [
             {
                 "treatment": entry.get("treatment"),
-                "effect_size": entry.get("effect_size"),
-                "prob_positive": entry.get("prob_positive"),
-                "prior_sensitivity_warning": entry.get("prior_sensitivity_warning"),
-                "ppc_warning_count": len(entry.get("ppc_warnings", []) or []),
+                "effect_size": _draws_summary(entry.get("posterior_draws"))[0],
+                "prob_positive": _draws_summary(entry.get("posterior_draws"))[1],
             }
             for entry in baseline[:10]
         ]
@@ -589,16 +586,21 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
             fitted_artifact.observation_support,
         )
 
-    baseline_entry = _baseline_stage6_entry(ctx.get("stage-6", {}), treatment)
+    # Derive warnings from Stage 5b diagnostics
+    stage5b = ctx.get("stage-5b", {})
     warnings: list[str] = []
-    if baseline_entry and baseline_entry.get("prior_sensitivity_warning"):
-        warnings.append(str(baseline_entry["prior_sensitivity_warning"]))
-    if baseline_entry and baseline_entry.get("ppc_warnings"):
-        warnings.extend(
-            str(item.get("message"))
-            for item in baseline_entry.get("ppc_warnings", [])
-            if item.get("message")
-        )
+    for item in stage5b.get("power_scaling", []):
+        if item.get("diagnosis") == "prior_dominated":
+            param = item.get("parameter", "")
+            if treatment in param or param.startswith("drift_offdiag"):
+                warnings.append(
+                    f"Effect may be prior-driven: parameter {param} "
+                    f"is prior-dominated per power-scaling diagnostic"
+                )
+    for w in stage5b.get("ppc", {}).get("per_variable_warnings", []) or []:
+        msg = w.get("message")
+        if msg:
+            warnings.append(str(msg))
 
     return {
         "result": {

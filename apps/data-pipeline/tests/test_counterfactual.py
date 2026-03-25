@@ -368,8 +368,7 @@ class TestComputeInterventions:
         assert len(results) == 2
         for r in results:
             assert "treatment" in r
-            assert "effect_size" in r
-            assert "identifiable" in r
+            assert "posterior_draws" in r
 
     def test_outcome_not_in_latent_names(self):
         """Missing outcome returns skeleton entries."""
@@ -381,7 +380,7 @@ class TestComputeInterventions:
             latent_names=["A", "B", "C"],
         )
         assert len(results) == 1
-        assert results[0]["effect_size"] is None
+        assert results[0].get("posterior_draws") is None
 
     def test_treatment_not_in_latent_names(self):
         """Treatment not in latent names should return skeleton with None effect."""
@@ -392,7 +391,7 @@ class TestComputeInterventions:
             outcome="C",
             latent_names=["A", "B", "C"],
         )
-        assert results[0]["effect_size"] is None
+        assert results[0].get("posterior_draws") is None
 
     def test_no_drift_samples(self):
         """Missing drift returns skeletons."""
@@ -402,10 +401,10 @@ class TestComputeInterventions:
             outcome="C",
             latent_names=["A", "B", "C"],
         )
-        assert results[0]["effect_size"] is None
+        assert results[0].get("posterior_draws") is None
 
     def test_sorted_by_abs_effect(self):
-        """Results should be sorted by |effect_size| descending."""
+        """Results should be sorted by |mean(posterior_draws)| descending."""
         # Use non-diagonal A to get different effect sizes
         n = 10
         A = jnp.array([[-1.0, 0.0, 0.0], [0.8, -1.0, 0.0], [0.1, 0.0, -1.0]])
@@ -419,26 +418,12 @@ class TestComputeInterventions:
             outcome="C",
             latent_names=["A", "B", "C"],
         )
-        effects = [abs(r["effect_size"]) for r in results if r["effect_size"] is not None]
-        assert effects == sorted(effects, reverse=True)
-
-    def test_identifiability_flag(self):
-        """Non-identifiable treatments should be flagged."""
-        samples = self._make_samples()
-        causal_spec = {
-            "identifiability": {"non_identifiable_treatments": {"A": {"confounders": ["U"]}}}
-        }
-        results = compute_interventions(
-            samples,
-            treatments=["A", "B"],
-            outcome="C",
-            latent_names=["A", "B", "C"],
-            causal_spec=causal_spec,
-        )
-        a_result = next(r for r in results if r["treatment"] == "A")
-        b_result = next(r for r in results if r["treatment"] == "B")
-        assert a_result["identifiable"] is False
-        assert b_result["identifiable"] is True
+        means = [
+            abs(sum(r["posterior_draws"]) / len(r["posterior_draws"]))
+            for r in results
+            if r.get("posterior_draws")
+        ]
+        assert means == sorted(means, reverse=True)
 
     def test_missing_cint_defaults_to_zeros(self):
         """When cint is missing, should default to zeros."""
@@ -452,4 +437,4 @@ class TestComputeInterventions:
         )
         # With diagonal drift and zero cint, steady state is zero
         # so treatment effect should be nonzero from the shift
-        assert results[0]["effect_size"] is not None
+        assert results[0].get("posterior_draws") is not None

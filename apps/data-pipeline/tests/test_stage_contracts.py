@@ -250,10 +250,7 @@ def valid_stage_payloads() -> dict[str, dict]:
             "intervention_results": [
                 {
                     "treatment": "Stress",
-                    "effect_size": 0.12,
                     "posterior_draws": [0.08, 0.11, 0.14, 0.09, 0.15, 0.12, 0.10, 0.13],
-                    "prob_positive": 0.97,
-                    "identifiable": True,
                 }
             ],
             "saved_scenarios": [

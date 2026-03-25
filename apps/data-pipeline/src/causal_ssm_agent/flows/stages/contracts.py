@@ -611,12 +611,7 @@ class TreatmentEffectContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     treatment: str
-    effect_size: float | None
     posterior_draws: list[float] | None = None
-    prob_positive: float | None = None
-    identifiable: bool
-    ppc_warnings: list[PPCWarning] | None = None
-    prior_sensitivity_warning: str | None = None
     temporal: TemporalEffect | None = None
     manifest_effects: dict[str, float] | None = None
 
@@ -701,12 +696,9 @@ class Stage6Contract(LLMStageContract):
     final_summary: str | None = None
 
     def summary_message(self) -> str:
-        warnings = sum(
-            1 for r in self.intervention_results if r.ppc_warnings or r.prior_sensitivity_warning
-        )
         return (
             f"Stage 6 summary: treatments_ranked={len(self.intervention_results)} "
-            f"warnings={warnings} outcome={self.outcome}"
+            f"outcome={self.outcome}"
         )
 
 

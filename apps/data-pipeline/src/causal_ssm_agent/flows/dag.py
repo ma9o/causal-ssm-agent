@@ -592,7 +592,6 @@ def stage5b(
 
 async def stage6(
     stage5b: dict,
-    stage1a: dict,
     stage1b: dict,
     question: str | None = None,
 ) -> dict:
@@ -621,8 +620,8 @@ async def stage6(
 
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b["_identified_treatments"]
-    outcome_name = get_outcome_name(stage1a.get("latent_model", {})) or ""
     causal_spec = stage1b["causal_spec"]
+    outcome_name = get_outcome_name(causal_spec) or ""
 
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
@@ -635,24 +634,26 @@ async def stage6(
     )
     intervention_results = unwrap_task_result(results)
 
+    # Helper to derive summary stats from posterior draws
+    def _draws_stats(draws):
+        if not draws:
+            return None, None
+        return sum(draws) / len(draws), sum(1 for d in draws if d > 0) / len(draws)
+
     # Log ranked results
     if intervention_results:
-        logger.info("%-5s %-30s %10s %8s %4s", "Rank", "Treatment", "Effect", "P(>0)", "ID")
-        logger.info("-" * 59)
+        logger.info("%-5s %-30s %10s %8s", "Rank", "Treatment", "Effect", "P(>0)")
+        logger.info("-" * 55)
         for rank, entry in enumerate(intervention_results, 1):
             name = entry["treatment"]
-            effect = entry.get("effect_size")
-            prob = entry.get("prob_positive")
-            ident = "yes" if entry.get("identifiable", True) else "NO"
+            draws = entry.get("posterior_draws")
+            effect, prob = _draws_stats(draws)
             if effect is not None:
-                prob_str = f"{prob:.2f}" if prob is not None else ""
-                line = f"{rank:<5} {name:<30} {effect:>+10.4f} {prob_str:>8} {ident:>4}"
-                if entry.get("prior_sensitivity_warning"):
-                    line += "  *"
-                logger.info(line)
+                logger.info(
+                    "%d     %-30s %+10.4f %8.2f", rank, name, effect, prob
+                )
             else:
-                warning = entry.get("warning", "no estimate")
-                logger.info("%-5d %-30s %10s %8s %4s  (%s)", rank, name, "—", "", ident, warning)
+                logger.info("%-5d %-30s %10s", rank, name, "—")
 
         await _await_artifact(
             create_table_artifact(
@@ -662,16 +663,11 @@ async def stage6(
                         "rank": i + 1,
                         "treatment": r["treatment"],
                         "effect": (
-                            f"{r['effect_size']:+.4f}"
-                            if r.get("effect_size") is not None
-                            else "---"
+                            f"{e:+.4f}" if (e := _draws_stats(r.get("posterior_draws"))[0]) is not None else "---"
                         ),
                         "P(>0)": (
-                            f"{r['prob_positive']:.2f}"
-                            if r.get("prob_positive") is not None
-                            else ""
+                            f"{p:.2f}" if (p := _draws_stats(r.get("posterior_draws"))[1]) is not None else ""
                         ),
-                        "identifiable": "yes" if r.get("identifiable", True) else "NO",
                     }
                     for i, r in enumerate(intervention_results)
                 ],
@@ -679,25 +675,7 @@ async def stage6(
             )
         )
 
-    has_warnings = any(
-        r.get("ppc_warnings") or r.get("prior_sensitivity_warning") for r in intervention_results
-    )
-
-    top_results = [
-        {
-            "treatment": entry.get("treatment"),
-            "effect_size": entry.get("effect_size"),
-            "prob_positive": entry.get("prob_positive"),
-            "identifiable": entry.get("identifiable", True),
-            "prior_sensitivity_warning": entry.get("prior_sensitivity_warning"),
-            "ppc_warning_variables": [
-                warning.get("variable")
-                for warning in (entry.get("ppc_warnings") or [])
-                if isinstance(warning, dict) and warning.get("variable")
-            ],
-        }
-        for entry in intervention_results[:5]
-    ]
+    # Derive warnings from Stage 5b diagnostics
     power_scaling_issues = [
         {
             "parameter": item.get("parameter"),
@@ -717,6 +695,16 @@ async def stage6(
         }
         for warning in stage5b.get("ppc", {}).get("per_variable_warnings", [])
     ][:5]
+    has_warnings = bool(power_scaling_issues or ppc_warnings)
+
+    top_results = [
+        {
+            "treatment": entry.get("treatment"),
+            "effect_size": _draws_stats(entry.get("posterior_draws"))[0],
+            "prob_positive": _draws_stats(entry.get("posterior_draws"))[1],
+        }
+        for entry in intervention_results[:5]
+    ]
 
     commentary_input = {
         "question": question,

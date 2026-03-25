@@ -911,12 +911,7 @@ export interface Stage6Contract {
 }
 export interface TreatmentEffectContract {
   treatment: string;
-  effect_size: number | null;
   posterior_draws?: number[] | null;
-  prob_positive?: number | null;
-  identifiable: boolean;
-  ppc_warnings?: PPCWarning[] | null;
-  prior_sensitivity_warning?: string | null;
   temporal?: TemporalEffect | null;
   manifest_effects?: {
     [k: string]: number | undefined;

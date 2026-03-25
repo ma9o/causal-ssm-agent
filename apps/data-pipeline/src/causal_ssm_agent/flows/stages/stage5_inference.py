@@ -259,18 +259,7 @@ def run_interventions(
 
     # If model not fitted, return skeleton results
     if fitted_artifact.result is None or fitted_artifact.builder is None:
-        id_status = causal_spec.get("identifiability") if causal_spec else None
-        non_identifiable: set[str] = set()
-        if id_status:
-            non_identifiable = set(id_status.get("non_identifiable_treatments", {}).keys())
-        return [
-            {
-                "treatment": t,
-                "effect_size": None,
-                "identifiable": t not in non_identifiable,
-            }
-            for t in treatments
-        ]
+        return [{"treatment": t} for t in treatments]
 
     builder = fitted_artifact.builder
     result = fitted_artifact.result
@@ -289,9 +278,7 @@ def run_interventions(
         outcome=outcome,
         latent_names=latent_names,
         causal_spec=causal_spec,
-        ppc_result=fitted_artifact.ppc_result,
         manifest_names=manifest_names,
-        ps_result=fitted_artifact.power_scaling_result,
         times=fitted_artifact.times,
         observation_support=fitted_artifact.observation_support,
     )
