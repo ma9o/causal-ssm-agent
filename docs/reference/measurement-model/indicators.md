@@ -2,15 +2,7 @@
 
 This page explains how a `MeasurementModel` operationalizes constructs in data: indicator semantics, support windows, aggregation, and `model_clock`. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
 
-## Constructs vs Indicators
-
-A construct is the theoretical variable in the causal graph. An indicator is the observed manifestation used to measure that construct in data.
-
-Examples:
-
-- In healthcare, `Medication Adherence` may be measured by pharmacy refill gaps and pill-count compliance.
-- In software engineering, `Incident Load` may be measured by alert count and pages acknowledged.
-- In education, `Student Engagement` may be measured by attendance, assignment completion, and classroom participation.
+For the construct/indicator ontology—what a construct is, what an indicator is, and how they relate—see [Constructs and Edges: Ontology](../latent-model/constructs-and-edges.md#ontology).
 
 ## Indicator Semantics
 
@@ -36,15 +28,15 @@ Stage 2 executes those modes, but the choice belongs here in the measurement def
 
 `measurement_dtype` is a semantic commitment about the support of the observed variable. It is not yet a full likelihood choice.
 
-| Dtype | Meaning | Typical downstream consequence |
-|---|---|---|
-| `continuous` | Real-valued measurement | Gaussian-family default in Stage 4 |
-| `binary` | Two-state measurement | Bernoulli-family default |
-| `count` | Non-negative event count | Poisson-family default |
-| `ordinal` | Ordered categories | Ordered logistic default |
-| `categorical` | Unordered categories | Categorical-family default |
+| Dtype | Meaning |
+|---|---|
+| `continuous` | Real-valued measurement |
+| `binary` | Two-state measurement |
+| `count` | Non-negative event count |
+| `ordinal` | Ordered categories |
+| `categorical` | Unordered categories |
 
-Stage 4 consumes these dtype semantics when constructing the `ModelSpec`. For the full distribution and link-function mapping, see [Link Functions from Indicator dtype](../model-spec/parameters-likelihoods-and-priors.md#11-link-functions-from-indicator-dtype).
+Stage 4 consumes these dtype semantics when constructing the `ModelSpec`. For the distribution and link-function mapping from dtype, see [Link Functions from Indicator dtype](../model-spec/parameters-likelihoods-and-priors.md#11-link-functions-from-indicator-dtype).
 
 ## Observation Windows and Model Clock
 

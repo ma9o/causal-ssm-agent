@@ -100,7 +100,7 @@ The downstream [SSM compiler](../reference/compilation.md) consumes `ModelSpec` 
 | `constraint` | `ParameterConstraint` | Domain constraint: `none` (unconstrained), `positive`, `unit_interval`, or `correlation` ([-1, 1]) |
 | `description` | `str` | Human-readable description |
 
-Constraints are determined by role: AR coefficients are `unit_interval`, residual SDs are `positive`, fixed effects are `none`, correlations are `correlation`. Loading constraints are the one case where the LLM decides between `positive` and `none`.
+The deterministic role→constraint mapping is defined in [Parameter Roles and Constraints](../reference/model-spec/parameters-likelihoods-and-priors.md#15-parameter-roles-and-constraints). Loading constraints are the one case where the LLM decides between `positive` and `none`.
 
 ### PriorProposal
 

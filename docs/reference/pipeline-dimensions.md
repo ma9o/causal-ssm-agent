@@ -86,18 +86,13 @@ See [estimation.md](estimation.md) for CT-to-DT discretization.
 
 ## 4. Execution Modality
 
-Stages differ in how work is performed, independently of what artifact they produce.
+Stages differ in how work is performed, independently of what artifact they produce. Three modalities recur across the pipeline:
 
-| Modality | Meaning | Stages |
-|---|---|---|
-| Semantic | LLM-driven reasoning or extraction is the primary engine | 0, 1a, 1b, 4 |
-| Computed | Deterministic or numerical backend logic is the primary engine | 3, 4b, 5a, 5b |
-| Hybrid | Semantic and computed paths both matter | 2, 6 |
+- **Semantic**: LLM-driven reasoning or extraction is the primary engine.
+- **Computed**: Deterministic or numerical backend logic is the primary engine.
+- **Hybrid**: Semantic and computed paths both matter.
 
-Two additional orthogonal questions matter here:
-
-- `Interactive vs non-interactive`: 1a, 1b, 4, and 6 expose a user-facing refinement surface.
-- `Single-shot vs multi-turn`: 1a and 1b are single-conversation validation loops; Stage 4 and Stage 6 are multi-turn agentic surfaces.
+For the per-stage modality classification, see the Stage Map in [pipeline.md](../pipeline.md). Two additional orthogonal execution questions—interactive vs non-interactive, and single-shot vs multi-turn—are tracked in the Stage Map and in [execution-semantics.md](execution-semantics.md#1-control-flow-semantics).
 
 This dimension answers "how does the stage run?" not "what does the stage mean?"
 
