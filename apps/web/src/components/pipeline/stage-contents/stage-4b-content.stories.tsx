@@ -33,7 +33,6 @@ export const Pending: StoryObj = {
       title={stage.label}
       status="pending"
       context={stage.description}
-      hasGate={stage.hasGate}
     />
   ),
 };
@@ -45,7 +44,6 @@ export const Running: StoryObj = {
       title={stage.label}
       status="running"
       context={stage.description}
-      hasGate={stage.hasGate}
       loadingHint={stage.loadingHint}
     />
   ),
@@ -60,8 +58,6 @@ export const Completed: Story = {
       status="completed"
       outcome={data.outcome}
       context={stage.description}
-      hasGate={stage.hasGate}
-      gateOverridden={data.gate_overridden ?? undefined}
       elapsedMs={8_400}
     >
       <Stage4bContent {...args} />
@@ -76,7 +72,6 @@ export const Failed: StoryObj = {
       title={stage.label}
       status="failed"
       context={stage.description}
-      hasGate={stage.hasGate}
     />
   ),
 };

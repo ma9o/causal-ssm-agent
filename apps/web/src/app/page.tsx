@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/card";
 import type { AccessStatus } from "@/lib/auth-status";
 import { apiFetch } from "@/lib/api/client";
-import { Switch } from "@/components/ui/switch";
 import { unlockWorkspace } from "@/lib/api/analysis";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
@@ -25,7 +24,6 @@ import {
   KeyRound,
   Loader2,
   RotateCcw,
-  ShieldAlert,
   Sparkles,
   Upload,
   X,
@@ -120,7 +118,6 @@ export default function LandingPage() {
   const router = useRouter();
   const [question, setQuestion] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [overrideGates, setOverrideGates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMac] = useState(() =>
     typeof navigator !== "undefined" ? /Mac/.test(navigator.userAgent) : false,
@@ -153,7 +150,7 @@ export default function LandingPage() {
   }, [router]);
   useEffect(() => {
     launchIdRef.current = null;
-  }, [question, file, overrideGates]);
+  }, [question, file]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -224,7 +221,6 @@ export default function LandingPage() {
             accessCode: identity.accessCode,
             launchId,
             query: question,
-            overrideGates: overrideGates || undefined,
           }),
         },
       );
@@ -452,27 +448,6 @@ export default function LandingPage() {
                   }}
                 />
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div {...fadeInUp(0.2)}>
-          <Card>
-            <CardContent className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-warning-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Override stage gates</p>
-                  <p className="text-xs text-muted-foreground">
-                    Continue past stage failures instead of halting. Results may
-                    be unreliable.
-                  </p>
-                </div>
-              </div>
-              <Switch
-                checked={overrideGates}
-                onCheckedChange={setOverrideGates}
-              />
             </CardContent>
           </Card>
         </motion.div>

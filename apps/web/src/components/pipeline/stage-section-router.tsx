@@ -8,7 +8,6 @@ import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import { cn } from "@/lib/utils";
 import type {
-  GateOverride,
   LLMTrace,
   Stage0Data,
   Stage1aData,
@@ -66,7 +65,6 @@ type AnyStageData =
 type StageViewData = AnyStageData & {
   context?: string;
   llm_trace?: LLMTrace;
-  gate_overridden?: GateOverride;
   outcome?: StageOutcome;
 };
 
@@ -177,7 +175,7 @@ export function StageSectionRouter({
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
-  // Read context + trace + gate override + outcome from the stage data (once, after completion).
+  // Read context + trace + outcome from the stage data (once, after completion).
   const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
   const pendingStagePatch =
     refiningStageId === stage.id ? pendingStagePatches[stage.id] ?? null : null;
@@ -195,7 +193,6 @@ export function StageSectionRouter({
       return {
         ...old,
         stageOutcomes: { ...old.stageOutcomes, [stage.id]: outcome },
-        isFailed: outcome === "fail" ? true : old.isFailed,
       };
     });
   }, [outcome, queryClient, workspaceId, stage.id]);
@@ -211,8 +208,6 @@ export function StageSectionRouter({
       status={status}
       elapsedMs={elapsedMs}
       context={stage.description}
-      hasGate={stage.hasGate}
-      gateOverridden={projectedStageData?.gate_overridden}
       outcome={outcome}
       loadingHint={stage.loadingHint}
       runningContent={

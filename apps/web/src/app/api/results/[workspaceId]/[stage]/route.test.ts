@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { LLMTrace } from "@causal-ssm/api-types";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
@@ -80,7 +81,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     ]);
     const persisted = JSON.parse(stage0Json) as {
       outcome: "success" | "warn" | "fail";
-      llm_trace?: unknown;
+      llm_trace?: LLMTrace | null;
       column_descriptions: Array<{ name: string; description: string }>;
     };
 
@@ -139,7 +140,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     ]);
     const persisted = JSON.parse(stage2Json) as {
       outcome: "success" | "warn" | "fail";
-      llm_trace?: unknown;
+      llm_trace?: LLMTrace | null;
       workers: Array<{
         worker_id: number;
         indicator: string;

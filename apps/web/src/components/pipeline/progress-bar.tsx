@@ -110,7 +110,13 @@ export function PipelineProgressBar({
               ) : null;
 
             const tooltipSuffix =
-              outcome === "fail" ? " (blocked)" : outcome === "warn" ? " (warning)" : "";
+              status === "failed"
+                ? " (execution failed)"
+                : outcome === "fail"
+                  ? " (stopped)"
+                  : outcome === "warn"
+                    ? " (warning)"
+                    : "";
 
             const segmentColor =
               outcome === "fail" || status === "failed"

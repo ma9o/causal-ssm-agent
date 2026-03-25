@@ -50,6 +50,14 @@ export function initialProgress(): PipelineProgress {
   };
 }
 
+export function hasStoppedStage(progress: PipelineProgress | undefined): boolean {
+  if (!progress) return false;
+  return STAGES.some(
+    (stage) =>
+      progress.stages[stage.id] === "completed" && progress.stageOutcomes[stage.id] === "fail",
+  );
+}
+
 export function mapPrefectTaskState(
   stateType: string,
 ): StageRunStatus | null {
@@ -119,6 +127,6 @@ export function applyStageUpdate(
     stageOutcomes,
     currentStage: getCurrentRunningStage(stages),
     isComplete,
-    isFailed: current.isFailed || hasFailedStage || outcome === "fail",
+    isFailed: current.isFailed || hasFailedStage,
   };
 }

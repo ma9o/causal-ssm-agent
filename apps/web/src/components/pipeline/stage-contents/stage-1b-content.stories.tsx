@@ -10,7 +10,7 @@ const stage = STAGES.find((s) => s.id === "stage-1b")!;
 const data = fixture as unknown as Stage1bData;
 
 const meta = {
-  title: "Pipeline/Stages/1b – Measurement [gated]",
+  title: "Pipeline/Stages/1b – Measurement",
   component: Stage1bContent,
   decorators: [
     (Story) => (
@@ -33,7 +33,6 @@ export const Pending: StoryObj = {
       title={stage.label}
       status="pending"
       context={stage.description}
-      hasGate
     />
   ),
 };
@@ -45,7 +44,6 @@ export const Running: StoryObj = {
       title={stage.label}
       status="running"
       context={stage.description}
-      hasGate
       loadingHint={stage.loadingHint}
     />
   ),
@@ -60,8 +58,6 @@ export const Completed: Story = {
       status="completed"
       outcome={data.outcome}
       context={stage.description}
-      hasGate
-      gateOverridden={data.gate_overridden ?? undefined}
       elapsedMs={18_900}
     >
       <Stage1bContent {...args} />
@@ -76,7 +72,6 @@ export const Failed: StoryObj = {
       title={stage.label}
       status="failed"
       context={stage.description}
-      hasGate
     />
   ),
 };

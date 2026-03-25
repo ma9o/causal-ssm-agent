@@ -7,6 +7,7 @@ import {
   unlockWorkspace,
 } from "@/lib/api/analysis";
 import { getIdentity, setIdentity } from "@/lib/identity";
+import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
 import { getSharedWorkspaceAccessCode } from "@/lib/resume-key";
@@ -104,6 +105,11 @@ export default function AnalysisPage({
 
     if (progress.isComplete) {
       document.title = "Analysis Complete | Causal Inference Pipeline";
+      return;
+    }
+
+    if (hasStoppedStage(progress)) {
+      document.title = "Analysis Stopped | Causal Inference Pipeline";
       return;
     }
 
