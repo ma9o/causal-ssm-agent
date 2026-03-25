@@ -1,3 +1,5 @@
+from typing import TypedDict
+
 import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
@@ -15,6 +17,22 @@ from causal_ssm_agent.utils.storage import get_base_uri, join
 logger = get_prefect_logger(__name__)
 
 SECONDS_PER_DAY = 86400.0
+
+
+class ObservationRecord(TypedDict):
+    """Canonical serialized Stage 2 observation row."""
+
+    indicator: str
+    value: str | int | float | bool | None
+    anchor_time: str | None
+    support_kind: str | None
+    summary_operator: str | None
+    anchor_policy: str | None
+    observation_window: str | None
+    support_start: str | None
+    support_end: str | None
+
+
 OBSERVATION_ROW_SCHEMA = {
     "indicator": pl.Utf8,
     "value": pl.Utf8,

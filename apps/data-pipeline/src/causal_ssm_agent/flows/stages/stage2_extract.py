@@ -12,7 +12,7 @@ merged output into canonical observation rows with ``anchor_time``,
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 from prefect import flow, get_run_logger, task
@@ -398,7 +398,7 @@ async def run_stage2_extraction_core(
     5. annotating canonical observation-row support metadata
     """
     from causal_ssm_agent.utils.causal_spec import get_indicators
-    from causal_ssm_agent.utils.data import annotate_observation_rows
+    from causal_ssm_agent.utils.data import ObservationRecord, annotate_observation_rows
 
     semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_prefect
 
@@ -473,7 +473,10 @@ async def run_stage2_extraction_core(
         len(worker_statuses),
     )
 
-    observation_rows = annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts()
+    observation_rows = cast(
+        "list[ObservationRecord]",
+        annotate_observation_rows(pl.DataFrame(all_dicts), causal_spec).to_dicts(),
+    )
 
     result = {
         "observation_rows": observation_rows,
@@ -494,9 +497,9 @@ def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[s
     """
     from causal_ssm_agent.utils.aggregations import _encode_non_continuous
     from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
-    from causal_ssm_agent.utils.data import observation_row_schema
+    from causal_ssm_agent.utils.data import ObservationRecord, observation_row_schema
 
-    observation_dicts = stage2_result.get("observation_rows", [])
+    observation_dicts = cast("list[ObservationRecord]", stage2_result.get("observation_rows", []))
     if observation_dicts:
         data_for_model = pl.DataFrame(observation_dicts)
     else:
