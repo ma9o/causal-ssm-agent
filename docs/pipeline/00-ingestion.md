@@ -10,42 +10,29 @@ Normalizes the latest uploaded raw export into one typed Polars dataframe with h
 
 | Input | Source | Description |
 |---|---|---|
+| File upload | User | Single file or a zip bundle containing the raw data |
 | `workspace_id` | Pipeline request | Identifies the workspace. Stage 0 scans `data/{workspace_id}/input/` and selects the most recent non-hidden file. |
+
+The ingestion agent can normalize most tabular or semi-structured formats as long as the data has a time dimension. Other columns can feed either [computed or semantic](01b-measurement-identifiability.md#extraction-modes) indicators downstream.
 
 ## Process
 
-1. Scans `data/{workspace_id}/input/` and ingests the most recent non-hidden file. The question is stored in `data/{workspace_id}/query.txt`, and stage outputs land in `data/{workspace_id}/run/`
-2. Run a sandboxed agentic ingestion loop with `list_files`, `read_file_sample`, `execute_python`, and `submit_table`, requiring the agent to end with exactly one non-empty Polars dataframe plus a human-readable description for every dataframe column.
-3. Persist the full dataframe as a parquet sidecar and expose only serializable plumbing fields in the persisted stage payload; the web layer derives convenience summary fields from the parquet sidecar when rendering results.
+A sandboxed agentic ingestion loop with `list_files`, `read_file_sample`, `execute_python`, and `submit_table`, requiring the agent to end with exactly one non-empty Polars dataframe plus a human-readable description for every dataframe column.
 
-If a dataset spans several related raw files, they should usually be bundled into one archive. Stage 0 reads one latest uploaded file, so multi-file datasets need to arrive as one ingestible unit.
+### Example
 
-For what makes a useful upload, see [../guides/data_contract.md](../guides/data_contract.md).
+A ZIP containing `tickets.csv` and `deploys.csv` may be normalized into one dataframe with columns such as `timestamp`, `event_type`, `ticket_count`, `service_name`, `deploy_status`, and `incident_note`, where each row is one raw event on the shared timeline.
+
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `raw_dataframe` | `polars.DataFrame` | Normalized typed observed-data table persisted as the Stage 0 parquet artifact |
-
-Additionally the stage payload includes:
-
-- `column_descriptions` is the persisted JSON projection of per-column descriptions, stored as `{name, description}` entries.
-- `llm_trace` is optional runtime provenance for the UI.
-
-For how the persisted payload, restored runtime state, and web-facing projection differ, see [execution-semantics.md](../reference/execution-semantics.md#2-persistence-and-exposure-boundary).
-
-## Definitions
+| `raw_dataframe` | `polars.DataFrame` | Normalized typed observed-data table persisted indexed by `timestamp` |
+| `column_descriptions` | `list[dict{name, description}]` | Human-readable descriptions for each column in the dataframe, derived from the agent's reasoning about the raw data |
+| `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
 
 ### Raw Dataframe
 
-The raw dataframe includes:
+Dynamic artifact containing all extracted data in a single Polars dataframe, indexed by a `timestamp` column that the ingestion agent identifies and normalizes. The dataframe may be wide (multiple columns) or long (event log format), depending on the raw data structure and what the ingestion agent determines is most appropriate for downstream processing. Each column has an associated human-readable description to provide semantic context for later stages.
 
-- the full typed dataframe that downstream stages read from parquet
-- the row grain chosen during ingestion, typically one raw event, observation, or timepoint
-- the column set and dtypes chosen during ingestion
-- the column-level descriptions attached to that dataframe
-
-The agent may rename, cast, join, or concatenate related raw files to produce this table, but it still ends with one coherent observed-data dataframe.
-
-Example: a ZIP containing `tickets.csv` and `deploys.csv` may be normalized into one dataframe with columns such as `timestamp`, `event_type`, `ticket_count`, `service_name`, `deploy_status`, and `incident_note`, where each row is one raw event on the shared timeline.
