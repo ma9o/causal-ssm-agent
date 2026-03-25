@@ -71,16 +71,7 @@ Typical prior-family guidance by constraint lives in [Supported Prior Distributi
 
 ## PriorProposal
 
-`PriorProposal` is the user-facing prior object attached to one parameter in the `ModelSpec`.
-
-It owns:
-
-- the distribution family
-- the parameterization
-- provenance and reasoning
-- interval metadata needed for downstream time-scale translation
-
-Its `distribution` field uses the prior-specific vocabulary documented in [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods. Those prior-family names are also exact canonical strings; aliases are not accepted.
+The authoritative definition lives in [Stage 4: `PriorProposal`](../../pipeline/04-model-specification-priors.md#priorproposal). Its `distribution` field uses the prior-specific vocabulary from [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods.
 
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.
 

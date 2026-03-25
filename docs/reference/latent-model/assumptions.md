@@ -35,7 +35,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 **Justification:** Cyclic contemporaneous relationships are not identified without additional constraints such as instrumental variables or non-Gaussianity. Requiring acyclicity simplifies identification while allowing feedback dynamics through the temporal structure, as in dynamic SEM treatments such as Asparouhov, Hamaker, and Muthen (2018).
 
-**Identification implication:** When checking causal identifiability, Stage 1b unrolls the temporal graph to two timesteps and applies the Shpitser-Pearl ID algorithm to that finite graph. This correctly handles lagged confounding; an unobserved `U_{t-1}` affecting both `X_t` and `Y_t` blocks identification of `X_t -> Y_t`. The unrolled DAG is projected internally to an ADMG for the ID algorithm.
+**Identification implication:** A4 interacts with identifiability checking. See [A3a](../causal-spec/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach) for how Stage 1b unrolls the temporal graph to two timesteps and [the ADMG projection](../causal-spec/identifiability.md#user-facing-dag-vs-internal-admg-projection) for the internal ID algorithm.
 
 **References:**
 
