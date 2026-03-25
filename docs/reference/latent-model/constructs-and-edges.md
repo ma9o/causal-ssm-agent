@@ -1,6 +1,6 @@
 # LatentModel: Constructs and Edges
 
-`LatentModel` is the domain primitive that captures the theoretical causal structure over constructs before measurement choices are made. The authoritative schema lives in [Stage 1a](../../pipeline/01a-latent-model.md).
+This page explains how to read a `LatentModel`: what a construct is, which edges are legal, and how lag semantics work before measurement choices are made. For the emitted Stage 1a contract, see [Stage 1a](../../pipeline/01a-latent-model.md).
 
 ## Ontology
 
@@ -8,7 +8,7 @@
 
 **Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [MeasurementModel](../measurement-model/indicators.md) and reflect their parent construct via factor loadings.
 
-The `LatentModel` therefore owns the construct-level causal graph, not the observed-variable layer.
+The `LatentModel` therefore lives at the construct layer, not the observed-variable layer.
 
 ## Construct Dimensions
 

@@ -33,7 +33,7 @@ Stage 4b is a fully deterministic grounding stage (no LLM). It builds the SSM ru
 
 When [first-pass Rao-Blackwellization](../reference/inference-routing.md) is active with a composed likelihood path, only Kalman-block parameters are profiled—particle-block parameters have stochastic likelihoods that make profile curves unreliable.
 
-**Warning gate.** The stage never hard-gates the pipeline. It emits outcome `"warn"` if the T-rule fails, or if any structural issues, boundary issues, or weakly-identified parameters are detected; otherwise outcome is `"success"`. Warnings are logged and surfaced to the UI but do not block downstream stages.
+**Outcome semantics.** The stage never emits a terminal `"fail"` outcome. It emits `"warn"` if the T-rule fails, or if any structural issues, boundary issues, or weakly-identified parameters are detected; otherwise outcome is `"success"`. Warnings are logged and surfaced to the UI but do not block downstream stages.
 
 ## Outputs
 
@@ -42,13 +42,13 @@ When [first-pass Rao-Blackwellization](../reference/inference-routing.md) is act
 | `parametric_id` | [`ParametricIdResult`](#parametricidresult) | Combined T-rule, sensitivity, and profile-likelihood diagnostics |
 | `inference_structure` | [`InferenceStructureResult`](#inferencestructureresult) | Resolved likelihood path and inference-routing plan |
 
-The public stage payload exposes these two artifacts directly. It may also include `gate_overridden` if the warning gate was overridden.
+The public stage payload exposes these two artifacts directly.
 
 ## Definitions
 
 ### ParametricIdResult
 
-`ParametricIdResult` is the combined pre-fit recoverability payload. It owns:
+`ParametricIdResult` is the combined pre-fit recoverability payload. It contains:
 
 - `checked`—whether the diagnostics ran successfully
 - `t_rule`—the [T-rule result](#truleresult), or null if the check was skipped
@@ -66,7 +66,7 @@ The public stage payload exposes these two artifacts directly. It may also inclu
 - `auto_method`—the auto-selected inference method: `"nuts"` for fully Gaussian models, `"laplace_em"` when a particle block is present, or `"svi"` when interval-summary support requires it
 - `first_pass_rb`—the [first-pass Rao-Blackwellization plan](#firstpassrbresult) with per-variable Kalman/particle assignments
 
-Later stages should treat `InferenceStructureResult` as the authoritative answer to "how will this model be fitted?"
+Downstream stages use `InferenceStructureResult` as the runtime-facing summary of how this model will be fitted.
 
 ### TRuleResult
 

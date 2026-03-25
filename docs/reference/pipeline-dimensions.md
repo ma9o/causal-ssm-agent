@@ -2,7 +2,7 @@
 
 The more useful view for design, implementation, and documentation is a small set of orthogonal dimensions that recur across stages.
 
-This page owns the conceptual cross-stage map: artifact lineage, scope, temporal semantics, execution modality, assurance surfaces, and the assumption map. Cross-cutting runtime behavior such as control flow, resume, and persistence surfaces lives in [execution-semantics.md](execution-semantics.md).
+This page gives the conceptual cross-stage map: artifact lineage, scope, temporal semantics, execution modality, assurance surfaces, and the assumption map. Cross-cutting runtime behavior such as control flow, resume, and persistence surfaces lives in [execution-semantics.md](execution-semantics.md).
 
 ## 1. Artifact Lineage
 
@@ -31,7 +31,7 @@ This artifact lineage is the main spine of the pipeline. Most other distinctions
 | `LatentModel` | [Stage 1a: `LatentModel`](../pipeline/01a-latent-model.md#latent-model) | Stage 1a | Theoretical causal DAG over constructs | 1b, 6 |
 | Measurement model | [Stage 1b: Measurement Model](../pipeline/01b-measurement-identifiability.md#measurement-model) | Stage 1b | Mapping from constructs to observed indicators | 2, 4, 6 |
 | `CausalSpec` | [Stage 1b: `CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | Stage 1b | Combined latent, measurement, and identifiability payload | 2, 3, 4, 6 |
-| `IdentifiabilityStatus` | [Stage 1b: `IdentifiabilityStatus`](../pipeline/01b-measurement-identifiability.md#identifiabilitystatus) | Stage 1b | Treatment-level causal-identifiability result | 1b gate, 6 |
+| `IdentifiabilityStatus` | [Stage 1b: `IdentifiabilityStatus`](../pipeline/01b-measurement-identifiability.md#identifiabilitystatus) | Stage 1b | Treatment-level causal-identifiability result | 1b filtering, 6 |
 | Observation row | [Stage 2: Observation Row](../pipeline/02-indicator-extraction.md#observation-row) | Stage 2 | Canonical extracted indicator datum with support-window semantics | 3, fitting inputs |
 | Model-ready data | [Stage 2: Model-Ready Data](../pipeline/02-indicator-extraction.md#model-ready-data) | Stage 2 | Encoded observation table used by fitting backends | 4, 4b, 5a, 5b, 6 |
 | `IndicatorAudit` | [Stage 3: `IndicatorAudit`](../pipeline/03-extraction-validation.md#indicatoraudit) | Stage 3 | Empirical profile plus validation findings for one indicator | Stage 4, web diagnostics |

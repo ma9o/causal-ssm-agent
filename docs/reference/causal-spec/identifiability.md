@@ -1,6 +1,6 @@
 # CausalSpec: Identifiability
 
-`CausalSpec` is the Stage 1b handoff object that bundles the [`LatentModel`](../latent-model/constructs-and-edges.md), the [`MeasurementModel`](../measurement-model/indicators.md), and the treatment-level `IdentifiabilityStatus`. The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+This page explains the identifiability layer of `CausalSpec`: why Stage 1b checks treatment-outcome identifiability, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
 
 ## What Stage 1b Checks
 

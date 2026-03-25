@@ -1,6 +1,6 @@
 # ModelSpec: Parameters, Likelihoods, and Priors
 
-This page explains the rule-based part of Stage 4.
+This page explains the deterministic guardrails that shape Stage 4 decisions. For the emitted `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, and `PriorProposal` contracts, see [Stage 4](../../pipeline/04-model-specification-priors.md).
 
 ## Part 1: Rule-Based Specification (Guardrails)
 
@@ -45,6 +45,7 @@ Each parameter in the SSM has a **role** meaning its function in the model and a
 | `ar_coefficient` | `rho` | Autoregressive persistence of a latent state | Diagonal of `A` |
 | `fixed_effect` | `beta` | Cross-lag causal effect between constructs | Off-diagonal of `A` |
 | `residual_sd` | `sigma` | Scale of the innovation process noise | Diagonal of `G` |
+| `static_state_sd` | `tau` | Scale of quasi-constant latent-state variation | Static-state block |
 | `loading` | `lambda` | Factor loading mapping latent to observed | Measurement model |
 | `correlation` | `Omega` | Off-diagonal correlation between residuals | Noise covariance |
 
@@ -66,12 +67,13 @@ Typical prior-family guidance by constraint lives in [Supported Prior Distributi
 | `ar_coefficient` | `unit_interval` | Orchestrator elicits `rho ∈ [0, 1]` in discrete-time terms for persistence magnitude, then transforms that to the continuous-time drift diagonal via `-log(rho) / dt`. |
 | `fixed_effect` | `none` | Effect sizes can be positive or negative |
 | `residual_sd` | `positive` | Standard deviations are non-negative by definition |
+| `static_state_sd` | `positive` | Quasi-constant latent-state scales are non-negative by definition |
 | `loading` | `positive` or `none` | Stage 4 may enforce a positive reference loading for sign identification, while allowing unconstrained signs where negative loadings are substantively plausible |
 | `correlation` | `correlation` | Bounded by definition |
 
 ## PriorProposal
 
-The authoritative definition lives in [Stage 4: `PriorProposal`](../../pipeline/04-model-specification-priors.md#priorproposal). Its `distribution` field uses the prior-specific vocabulary from [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods.
+The emitted field contract lives in [Stage 4: `PriorProposal`](../../pipeline/04-model-specification-priors.md#priorproposal). Its `distribution` field uses the prior-specific vocabulary from [Supported Prior Distribution Families](./prior-distribution-families.md), not the observation-side `DistributionFamily` enum used by likelihoods.
 
 The runtime compiler later transforms these user-facing priors into executable prior arrays, but that compilation step does not change the semantic meaning established here.
 

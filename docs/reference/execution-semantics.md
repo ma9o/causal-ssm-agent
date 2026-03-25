@@ -1,21 +1,27 @@
 # Pipeline Execution Semantics
 
-This page owns the cross-cutting runtime behavior of the pipeline: how stage execution is ordered, how resume works, how the research question is materialized, and how internal results differ from web-facing payloads and heavyweight artifacts.
+This page explains the cross-cutting runtime behavior of the pipeline: how stage execution is ordered, how resume works, how the research question is materialized, and how internal results differ from web-facing payloads and heavyweight artifacts.
 
 For the conceptual cross-stage map of artifacts, assumptions, temporal semantics, scope, execution modality, and assurance surfaces, see [pipeline-dimensions.md](pipeline-dimensions.md).
 
 ## 1. Control-Flow Semantics
 
-Execution order is not hard-coded. It is derived from a dependency DAG declared in the stage registry, where each stage declares `stage_id`, `depends_on`, `contract`, `bind_inputs`, `runner`, optional gate behavior, and optional restore/persist/finalize behavior through a materializer. The runtime computes a topological order from `depends_on` and folds over that order.
+Execution order is not hard-coded. It is derived from a dependency DAG declared in the stage registry, where each stage declares `stage_id`, `depends_on`, `contract`, `bind_inputs`, `runner`, and optional restore/persist/finalize behavior through a materializer. The runtime computes a topological order from `depends_on` and folds over that order.
 
 | Property | Meaning | Current stages |
 |---|---|---|
 | `Interactive` | User can refine or follow up through the web surface | 1a, 1b, 4, 6 |
 | `Override-eligible` | Pipeline can accept a user-supplied replacement payload for the stage | 1a, 1b, 4 |
-| `Hard gate` | Failure can halt downstream execution unless explicitly overridden | 1b |
-| `Warning-only gate` | Failure is reported but does not halt the pipeline | 4b |
+| `Terminal semantic outcome` | A completed stage can stop downstream execution by emitting `outcome="fail"` with a machine-readable `fail_reason` | 1b, 2, 3, 5b |
+| `Stage-local override` | A stage-local stop condition can be explicitly overridden by the user | 1b |
+| `Non-blocking warning outcome` | Warnings are reported but do not halt the pipeline | 4b, 5a |
 | `Always recompute on resume` | Stage is intentionally not restored from checkpoint | 5a |
 | `Terminal in-place persistence` | Interactive changes persist in the current stage rather than replaying downstream stages | 6 |
+
+Execution therefore distinguishes two terminal cases:
+
+- An execution failure: the stage task itself crashes or violates its contract. Prefect marks the task as failed.
+- A semantic stop: the stage completes successfully, persists a valid artifact, and emits `outcome="fail"` with a `fail_reason`. The pipeline then stops cleanly at that stage without marking the task as crashed.
 
 ### Resume Semantics
 

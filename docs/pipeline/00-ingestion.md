@@ -39,7 +39,7 @@ For how the persisted payload, restored runtime state, and web-facing projection
 
 ### Raw Dataframe
 
-The raw dataframe owns:
+The raw dataframe includes:
 
 - the full typed dataframe that downstream stages read from parquet
 - the row grain chosen during ingestion, typically one raw event, observation, or timepoint
@@ -48,4 +48,4 @@ The raw dataframe owns:
 
 The agent may rename, cast, join, or concatenate related raw files to produce this table, but it still ends with one coherent observed-data dataframe.
 
-Example: a ZIP containing `vitals.csv` and `med_admin.csv` may be normalized into one dataframe with columns such as `timestamp`, `event_type`, `heart_rate_bpm`, `medication_name`, `dose_mg`, and `note_text`, where each row is one raw event on the shared timeline.
+Example: a ZIP containing `tickets.csv` and `deploys.csv` may be normalized into one dataframe with columns such as `timestamp`, `event_type`, `ticket_count`, `service_name`, `deploy_status`, and `incident_note`, where each row is one raw event on the shared timeline.

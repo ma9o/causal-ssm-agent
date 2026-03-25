@@ -12,13 +12,13 @@ flowchart LR
   end
 
   subgraph Stats["Statistics (verification + estimation)"]
-    S1b_gate["Stage 1b\ny0 identifiability gate"]
+    S1b_filter["Stage 1b\neligibility filter + stop rule"]
     S4b["Stage 4b\nParametric ID diagnostics"]
     S5["Stage 5\nNumPyro estimation + diagnostics"]
     S6_post["Posterior causal effects\nfrom fitted model"]
   end
 
-  S1a --> S1b_llm --> S1b_gate --> S4_llm --> S4b --> S5 --> S6_post --> S6
+  S1a --> S1b_llm --> S1b_filter --> S4_llm --> S4b --> S5 --> S6_post --> S6
 ```
 
 ## Key Feature: Natural Language Causal Queries

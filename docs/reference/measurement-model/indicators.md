@@ -1,6 +1,6 @@
 # MeasurementModel: Indicators
 
-`MeasurementModel` is the domain primitive that explains how constructs are observed in data. It owns indicator semantics, support windows, aggregation, and `model_clock`. The authoritative schema lives in [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+This page explains how a `MeasurementModel` operationalizes constructs in data: indicator semantics, support windows, aggregation, and `model_clock`. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
 
 ## Constructs vs Indicators
 
@@ -25,7 +25,7 @@ The schema for `Indicator` is defined in [Stage 1b](../../pipeline/01b-measureme
 
 ## Extraction Modes
 
-`MeasurementModel` owns whether an indicator is extracted by direct computation or by semantic interpretation:
+`MeasurementModel` specifies whether an indicator is extracted by direct computation or by semantic interpretation:
 
 - `computed`: the value can be obtained by deterministic transformation or aggregation over raw columns.
 - `semantic`: the value requires LLM interpretation over a support window before it becomes a numeric indicator.
@@ -48,7 +48,7 @@ Stage 4 consumes these dtype semantics when constructing the `ModelSpec`. For th
 
 ## Observation Windows and Model Clock
 
-An indicator value is defined over an explicit support window. The `MeasurementModel` owns that support semantics before any extraction code runs.
+An indicator value is defined over an explicit support window. The `MeasurementModel` sets that support semantics before any extraction code runs.
 
 Examples:
 

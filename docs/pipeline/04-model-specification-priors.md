@@ -70,12 +70,12 @@ The public stage payload also includes `search_queries` (literature provenance),
 
 ### ModelSpec
 
-`ModelSpec` is the functional specification of the statistical model proposed by Stage 4. It owns:
+`ModelSpec` is the functional specification emitted by Stage 4. It contains:
 
 - the [likelihood specifications](#likelihoodspec)—one per observed indicator, each binding a distribution family, link function, and reasoning
 - the [parameter specifications](#parameterspec)—one per free parameter, each carrying a name, role, constraint, and description
 
-Later stages should treat `ModelSpec` as the authoritative answer to "what is the statistical model we are fitting?" The downstream [SSM compiler](../reference/compilation.md) consumes it together with priors to produce an executable NumPyro model. The [compilation pipeline](../reference/compilation.md) describes how each field maps to compilation inputs.
+The downstream [SSM compiler](../reference/compilation.md) consumes `ModelSpec` together with priors to produce an executable NumPyro model. The deterministic guardrails that shape these fields are described in [parameters-likelihoods-and-priors.md](../reference/model-spec/parameters-likelihoods-and-priors.md).
 
 ### LikelihoodSpec
 
@@ -104,7 +104,7 @@ Constraints are determined by role: AR coefficients are `unit_interval`, residua
 
 ### PriorProposal
 
-`PriorProposal` is the prior distribution proposed for one parameter. It owns:
+`PriorProposal` is the prior distribution proposed for one parameter:
 
 | Field | Type | Description |
 |---|---|---|

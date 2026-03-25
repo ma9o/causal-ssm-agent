@@ -13,7 +13,7 @@ Applies the [steady-state and trajectory intervention semantics](#intervention-s
 | `stage5b.result` | [Stage 5b](05b-inference-diagnostics.md) | Pickled [`FittedArtifact`](05b-inference-diagnostics.md#fittedartifact) containing posterior samples, runtime builder, observation times, PPC result, and power-scaling result |
 | `stage1a.result` | [Stage 1a](01a-latent-model.md) | [`LatentModel`](01a-latent-model.md#latent-model) from which the outcome construct name is derived |
 | `stage1b.result` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) including identifiability status and measurement model |
-| `stage1b_gate.result` | [Stage 1b](01b-measurement-identifiability.md) gate | Filtered treatment list with non-identifiable treatments removed |
+| `stage1b_gate.result` | [Stage 1b](01b-measurement-identifiability.md) outcome filter | Filtered treatment list with non-identifiable treatments removed |
 | `question` | Pipeline request | Original research question for grounding the opening commentary |
 
 Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifiability verdicts. Stage 6 is the first point where posterior samples are translated into causal decision quantities.
@@ -22,7 +22,7 @@ Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifia
 
 Stage 6 runs in two phases: a deterministic intervention computation that produces the baseline ranking, followed by a single LLM generation that produces opening commentary. After completion the stage exposes three interactive tools for follow-up exploration.
 
-**Baseline intervention ranking.** For each treatment that passed the [Stage 1b identifiability gate](01b-measurement-identifiability.md), the stage applies the [steady-state do-operator](#steady-state-do-operator) for a unit intervention `do(treatment = baseline + 1)`, vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
+**Baseline intervention ranking.** For each treatment that remains after the [Stage 1b identifiability filter](01b-measurement-identifiability.md), the stage applies the [steady-state do-operator](#steady-state-do-operator) for a unit intervention `do(treatment = baseline + 1)`, vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
 
 **Temporal forward simulation.** When temporal information is available (either from the [`model_clock`](01b-measurement-identifiability.md#measurement-model) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment. This discretizes the continuous-time system, starts from the baseline steady state, clamps the treatment at each step, and records the outcome trajectory. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
 
@@ -41,7 +41,7 @@ Stage 6 runs in two phases: a deterministic intervention computation that produc
 
 ## Intervention Semantics
 
-Stage 6 owns the post-estimation causal semantics used by both the baseline ranking and the follow-up simulation tools.
+This section defines the post-estimation causal semantics used by both the baseline ranking and the follow-up simulation tools.
 
 ### Steady-State Do-Operator
 
@@ -114,7 +114,7 @@ The contract also exposes `outcome` (`"success"` or `"warn"`) and `llm_trace` in
 
 ### TreatmentEffect
 
-`TreatmentEffect` is the final causal-decision object for one treatment—the authoritative output of the pipeline. It packages the posterior effect estimate, its uncertainty, the identifiability verdict, upstream diagnostic warnings, and optional temporal and manifest-level decompositions.
+`TreatmentEffect` is the final causal-decision object for one treatment. It packages the posterior effect estimate, its uncertainty, the identifiability verdict, upstream diagnostic warnings, and optional temporal and manifest-level decompositions.
 
 | Field | Type | Description |
 |---|---|---|

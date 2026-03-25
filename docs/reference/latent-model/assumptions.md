@@ -1,6 +1,6 @@
 # LatentModel Assumptions
 
-This page owns the assumptions whose primary job is to constrain valid construct-level causal structure.
+This page collects the assumptions that constrain valid construct-level causal structure.
 
 ## A3. Markov Property for Temporal Dynamics
 
@@ -76,4 +76,4 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 ## Boundary
 
-A3, A4, A4b, and A5 are primarily about what the construct-level graph is allowed to say. Identification-specific assumptions that use the graph live with the [CausalSpec](../causal-spec/identifiability.md).
+A3, A4, A4b, and A5 constrain what the construct-level graph is allowed to say. Identification-specific assumptions that use that graph live with the [CausalSpec](../causal-spec/identifiability.md).
