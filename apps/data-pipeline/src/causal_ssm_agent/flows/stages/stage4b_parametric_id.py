@@ -57,29 +57,23 @@ def _build_parametric_id_summary(
 
 @task(task_run_name="parametric-id-check")
 def parametric_id_task(
-    _model_spec: dict,
-    _priors: dict[str, dict],
     data_for_model: pl.DataFrame,
     n_grid: int = 20,
     confidence: float = 0.95,
-    _causal_spec: dict | None = None,
     compiled_ssm: dict | None = None,
     builder: Any = None,
 ) -> dict:
     """Run parametric identifiability checks via profile likelihood.
 
-    1. Build SSMModel from spec + priors (or reuse provided builder)
+    1. Build SSMModel from compiled artifact (or reuse provided builder)
     2. Prepare data (pivot raw -> wide)
     3. Call profile_likelihood()
     4. Return result summary
 
     Args:
-        model_spec: Model specification dict
-        priors: Prior proposals by parameter name
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         n_grid: Number of grid points for profile likelihood
         confidence: Confidence level for chi-squared threshold
-        causal_spec: CausalSpec dict for DAG-constrained masks
         compiled_ssm: Serialized executable artifact from stage 4
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
@@ -257,16 +251,10 @@ def stage4b_parametric_id_flow(
     Returns:
         stage4_result augmented with 'parametric_id' and 'inference_structure' keys
     """
-    model_spec = stage4_result["model_spec"]
-    authored_priors = stage4_result["authored_priors"]
-    causal_spec = stage4_result.get("causal_spec")
     compiled_ssm = stage4_result.get("_compiled_ssm")
 
     diagnostics = parametric_id_task(
-        model_spec,
-        authored_priors,
         data_for_model,
-        _causal_spec=causal_spec,
         compiled_ssm=compiled_ssm,
         builder=builder,
     )

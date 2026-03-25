@@ -60,7 +60,7 @@ def validate_assembly(
     """
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
 
-    candidate = _prepare_model_spec(model_spec, causal_spec)
+    candidate = _prepare_model_spec(model_spec)
     if authored_priors:
         try:
             compiled_ssm = compile_ssm_artifact(candidate, authored_priors, causal_spec=causal_spec)
@@ -106,10 +106,7 @@ def validate_assembly(
     )
 
 
-def _prepare_model_spec(
-    model_spec: dict,
-    _causal_spec: dict | None,
-) -> dict[str, Any]:
+def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
     """Normalize a Stage 4 model spec before any compile-time work."""
     candidate = deepcopy(model_spec)
     return candidate
@@ -338,7 +335,7 @@ def compile_model_artifact(
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
-            _prepare_model_spec(model_spec, causal_spec),
+            _prepare_model_spec(model_spec),
             authored_priors,
             causal_spec=causal_spec,
         )
