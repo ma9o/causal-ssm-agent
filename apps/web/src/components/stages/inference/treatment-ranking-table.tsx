@@ -19,11 +19,10 @@ import {
 
 const col = createColumnHelper<TreatmentEffect>();
 
-/** Fail if not identifiable, warn if prior-sensitive. */
-function effectSeverity(row: TreatmentEffect): "fail" | "warn" | undefined {
-  if (!row.identifiable) return "fail";
-  if (row.prior_sensitivity_warning) return "warn";
-  return undefined;
+/** Compute mean of posterior draws, or null if unavailable. */
+function meanDraws(draws: number[] | null | undefined): number | null {
+  if (!draws || draws.length === 0) return null;
+  return draws.reduce((a, b) => a + b, 0) / draws.length;
 }
 
 function PosteriorHistogram({ draws, mean }: { draws: number[]; mean: number | null }) {
@@ -70,21 +69,21 @@ const columns = [
     header: "Treatment",
     cell: (info) => <span className="font-medium">{info.getValue()}</span>,
   }),
-  col.accessor("effect_size", {
+  col.display({
+    id: "effect_size",
     header: () => (
       <HeaderWithTooltip
         label={"\u03C4\u0302"}
         tooltip="Estimated individual treatment effect (ITE) via do-operator steady-state intervention. Positive values indicate the treatment increases the outcome."
       />
     ),
-    cell: (info) => {
-      const v = info.getValue();
+    cell: ({ row }) => {
+      const v = meanDraws(row.original.posterior_draws);
       return v === null ? "—" : formatNumber(v);
     },
     meta: {
       align: "right",
       mono: true,
-      severity: (_v: number | null, row: TreatmentEffect) => effectSeverity(row),
     },
   }),
   col.display({
@@ -106,7 +105,6 @@ const columns = [
     meta: {
       align: "right",
       mono: true,
-      severity: (_v: unknown, row: TreatmentEffect) => effectSeverity(row),
     },
   }),
   col.display({
@@ -120,7 +118,7 @@ const columns = [
     cell: ({ row }) => {
       const draws = row.original.posterior_draws;
       return draws && draws.length > 0 ? (
-        <PosteriorHistogram draws={draws} mean={row.original.effect_size} />
+        <PosteriorHistogram draws={draws} mean={meanDraws(draws)} />
       ) : (
         "—"
       );
@@ -133,7 +131,10 @@ const columns = [
 
 export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] }) {
   const sorted = useMemo(
-    () => [...results].sort((a, b) => Math.abs(b.effect_size ?? 0) - Math.abs(a.effect_size ?? 0)),
+    () =>
+      [...results].sort(
+        (a, b) => Math.abs(meanDraws(b.posterior_draws) ?? 0) - Math.abs(meanDraws(a.posterior_draws) ?? 0),
+      ),
     [results],
   );
 

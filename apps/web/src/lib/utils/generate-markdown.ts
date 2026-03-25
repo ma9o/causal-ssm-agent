@@ -1077,49 +1077,56 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       lines.push("No treatment effects were estimated.");
       lines.push("");
     } else {
-      // Sort by |effect_size| descending
+      // Helper to compute mean of posterior draws
+      const mean = (draws: number[] | null | undefined): number | null =>
+        draws && draws.length > 0 ? draws.reduce((a, b) => a + b, 0) / draws.length : null;
+      const probPositive = (draws: number[] | null | undefined): number | null =>
+        draws && draws.length > 0 ? draws.filter((d) => d > 0).length / draws.length : null;
+
+      // Sort by |mean(posterior_draws)| descending
       const sorted = [...s6.intervention_results].sort(
-        (a, b) => Math.abs(b.effect_size ?? 0) - Math.abs(a.effect_size ?? 0),
+        (a, b) => Math.abs(mean(b.posterior_draws) ?? 0) - Math.abs(mean(a.posterior_draws) ?? 0),
       );
+
+      // Derive non-identifiable set from Stage 1b
+      const nonIdSet = new Set(
+        Object.keys(data["stage-1b"]?.causal_spec?.identifiability?.non_identifiable_treatments ?? {}),
+      );
+
+      // Derive prior-dominated parameters from Stage 5b
+      const priorDominatedParams = (data["stage-5b"]?.power_scaling ?? [])
+        .filter((ps) => ps.diagnosis === "prior_dominated")
+        .map((ps) => ps.parameter);
 
       lines.push(section(3, "Treatment Ranking"));
       lines.push("");
 
       const txRows = sorted.map((t) => {
         const draws = t.posterior_draws;
+        const effectSize = mean(draws);
+        const pp = probPositive(draws);
         let ci = "\u2014";
         if (draws && draws.length > 0) {
           const sorted_draws = [...draws].sort((a, b) => a - b);
           ci = `[${formatNumber(quantile(sorted_draws, CI_LOWER))}, ${formatNumber(quantile(sorted_draws, CI_UPPER))}]`;
         }
         const warnings: string[] = [];
-        if (!t.identifiable) warnings.push("non-identifiable");
-        if (t.prior_sensitivity_warning) warnings.push("prior-sensitive");
+        if (nonIdSet.has(t.treatment)) warnings.push("non-identifiable");
+        if (priorDominatedParams.some((p) => p.includes(t.treatment) || p.startsWith("drift_offdiag")))
+          warnings.push("prior-sensitive");
         const statusStr = warnings.length > 0 ? warnings.join(", ") : "ok";
         return [
           t.treatment,
-          t.effect_size != null ? formatNumber(t.effect_size) : "\u2014",
+          effectSize != null ? formatNumber(effectSize) : "\u2014",
           ci,
-          t.prob_positive != null ? formatPercent(t.prob_positive) : "\u2014",
-          t.identifiable ? "Yes" : "No",
+          pp != null ? formatPercent(pp) : "\u2014",
           statusStr,
         ];
       });
       lines.push(
-        mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Identifiable", "Status"], txRows),
+        mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Status"], txRows),
       );
       lines.push("");
-
-      // Prior sensitivity warnings
-      const withPriorWarn = sorted.filter((t) => t.prior_sensitivity_warning);
-      if (withPriorWarn.length > 0) {
-        lines.push(section(4, "Prior Sensitivity Warnings"));
-        lines.push("");
-        for (const t of withPriorWarn) {
-          lines.push(`- **${t.treatment}**: ${t.prior_sensitivity_warning}`);
-        }
-        lines.push("");
-      }
 
       // ASCII posterior histograms per treatment
       for (const t of sorted) {

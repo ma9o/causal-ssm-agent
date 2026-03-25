@@ -391,7 +391,6 @@ def _bind_stage6(ctx: PipelineContext, states: dict) -> dict:
     return {
         "question": ctx.question,
         "stage5b": states["stage-5b"]["result"],
-        "stage1a": states["stage-1a"]["result"],
         "stage1b": states["stage-1b"]["result"],
     }
 
@@ -525,7 +524,7 @@ def _build_registry() -> dict[str, StageDefinition]:
         ),
         "stage-6": StageDefinition(
             stage_id="stage-6",
-            depends_on=frozenset({"stage-5b", "stage-1a", "stage-1b"}),
+            depends_on=frozenset({"stage-5b", "stage-1b"}),
             contract=STAGE_CONTRACTS["stage-6"],
             bind_inputs=_bind_stage6,
             runner=dag.stage6,

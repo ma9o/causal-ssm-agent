@@ -3333,17 +3333,6 @@
           "title": "Treatment",
           "type": "string"
         },
-        "effect_size": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Effect Size"
-        },
         "posterior_draws": {
           "anyOf": [
             {
@@ -3358,49 +3347,6 @@
           ],
           "default": null,
           "title": "Posterior Draws"
-        },
-        "prob_positive": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Prob Positive"
-        },
-        "identifiable": {
-          "title": "Identifiable",
-          "type": "boolean"
-        },
-        "ppc_warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PPCWarning"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ppc Warnings"
-        },
-        "prior_sensitivity_warning": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Prior Sensitivity Warning"
         },
         "temporal": {
           "anyOf": [
@@ -3430,8 +3376,6 @@
         }
       },
       "required": [
-        "effect_size",
-        "identifiable",
         "treatment"
       ],
       "title": "TreatmentEffectContract",

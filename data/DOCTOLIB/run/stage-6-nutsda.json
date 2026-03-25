@@ -2,7 +2,6 @@
   "intervention_results": [
     {
       "treatment": "lipid_burden",
-      "effect_size": 0.44,
       "posterior_draws": [
         0.2207,
         0.3507,
@@ -205,8 +204,6 @@
         0.4058,
         0.3175
       ],
-      "prob_positive": 0.991,
-      "identifiable": true,
       "temporal": {
         "effect_1d": 0.0042,
         "effect_7d": 0.0677,
@@ -226,7 +223,6 @@
     },
     {
       "treatment": "arterial_pressure",
-      "effect_size": 0.36,
       "posterior_draws": [
         0.3119,
         0.4167,
@@ -429,8 +425,6 @@
         0.378,
         0.4519
       ],
-      "prob_positive": 0.978,
-      "identifiable": true,
       "temporal": {
         "effect_1d": 0.0189,
         "effect_7d": 0.1705,
@@ -448,7 +442,6 @@
     },
     {
       "treatment": "glycemic_control",
-      "effect_size": -0.28,
       "posterior_draws": [
         -0.198,
         -0.2668,
@@ -651,8 +644,6 @@
         -0.2566,
         -0.1954
       ],
-      "prob_positive": 0.025,
-      "identifiable": true,
       "temporal": {
         "effect_1d": -0.0009,
         "effect_7d": -0.028,
@@ -671,7 +662,6 @@
     },
     {
       "treatment": "medication_adherence",
-      "effect_size": -0.35,
       "posterior_draws": [
         -0.3001,
         -0.3133,
@@ -874,8 +864,6 @@
         -0.3167,
         -0.167
       ],
-      "prob_positive": 0.015,
-      "identifiable": true,
       "temporal": {
         "effect_1d": -0.0092,
         "effect_7d": -0.0737,
@@ -894,7 +882,6 @@
     },
     {
       "treatment": "vascular_inflammation",
-      "effect_size": 0.38,
       "posterior_draws": [
         0.2803,
         0.6048,
@@ -1097,8 +1084,6 @@
         0.3428,
         0.2808
       ],
-      "prob_positive": 0.991,
-      "identifiable": true,
       "temporal": {
         "effect_1d": 0.021,
         "effect_7d": 0.182,

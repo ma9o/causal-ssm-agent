@@ -73,9 +73,6 @@ describe("generateMarkdown", () => {
         intervention_results: [
           {
             treatment: "exercise",
-            effect_size: 0.35,
-            identifiable: true,
-            prob_positive: 0.92,
             posterior_draws: [0.1, 0.2, 0.3, 0.4, 0.5],
           },
         ],
@@ -702,25 +699,37 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Pearson r:");
   });
 
-  it("includes stage 6 prior sensitivity warnings and manifest effects", () => {
+  it("includes stage 6 warnings derived from upstream stages and manifest effects", () => {
     const data: AllStageData = {
+      "stage-1b": {
+        outcome: "warn",
+        causal_spec: {
+          latent: { constructs: [], edges: [] },
+          measurement: { indicators: [], observation_window: null, model_clock: null },
+          identifiability: {
+            non_identifiable_treatments: { diet: { confounders: ["U"] } },
+            identifiable_treatments: {},
+          },
+        },
+      } as unknown as AllStageData["stage-1b"],
+      "stage-5b": {
+        outcome: "success",
+        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
+        power_scaling: [
+          { parameter: "drift_diag_exercise", diagnosis: "prior_dominated", prior_sensitivity: 0.9, likelihood_sensitivity: 0.1 },
+        ],
+      } as AllStageData["stage-5b"],
       "stage-6": {
         outcome: "success",
         intervention_results: [
           {
             treatment: "exercise",
-            effect_size: 0.35,
-            identifiable: true,
-            prob_positive: 0.92,
             posterior_draws: [0.1, 0.2, 0.3, 0.4, 0.5],
-            prior_sensitivity_warning: "Effect dominated by prior",
             manifest_effects: { daily_steps: 0.28, active_minutes: 0.15 },
           },
           {
             treatment: "diet",
-            effect_size: -0.1,
-            identifiable: false,
-            prob_positive: 0.3,
             posterior_draws: [-0.2, -0.1, 0, 0.1, -0.15],
           },
         ],
@@ -730,8 +739,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Status");
     expect(result).toContain("prior-sensitive");
     expect(result).toContain("non-identifiable");
-    expect(result).toContain("Prior Sensitivity Warnings");
-    expect(result).toContain("Effect dominated by prior");
     expect(result).toContain("Manifest Effects");
     expect(result).toContain("daily_steps");
     expect(result).toContain("active_minutes");
@@ -887,7 +894,7 @@ describe("generateMarkdown", () => {
       "stage-6": {
         outcome: "success",
         intervention_results: [
-          { treatment: "exercise", effect_size: 0.3, identifiable: true, prob_positive: 0.9 },
+          { treatment: "exercise", posterior_draws: [0.1, 0.2, 0.3, 0.4, 0.5] },
         ],
       } as AllStageData["stage-6"],
     };

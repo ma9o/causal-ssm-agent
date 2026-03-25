@@ -147,12 +147,10 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     def stage6(
         stage5b: dict,
-        stage1a: dict,
         stage1b: dict,
         question: str | None = None,
-        openrouter_api_key: str | None = None,
     ) -> dict:
-        calls.append(("stage6", stage5b, stage1a, stage1b, question))
+        calls.append(("stage6", stage5b, stage1b, question))
         return {"intervention_results": [], "outcome": "success"}
 
     def persist_web_result(stage_id: str, data: dict, workspace_id: str) -> dict:
@@ -641,18 +639,21 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
 
     def fake_compute_interventions(**kwargs):
         captured.update(kwargs)
-        return [{"treatment": "screen_time", "effect_size": 1.0, "identifiable": True}]
+        return [{"treatment": "screen_time", "posterior_draws": [0.9, 1.0, 1.1]}]
 
     monkeypatch.setattr(
         "causal_ssm_agent.models.ssm.counterfactual.compute_interventions",
         fake_compute_interventions,
     )
 
+    latent_model = _stage1a_latent_model("screen_time", "sleep_quality")
     result = asyncio.run(
         dag.stage6(
             stage5b_result,
-            {"latent_model": _stage1a_latent_model("screen_time", "sleep_quality")},
-            {"causal_spec": {}, "_identified_treatments": ["screen_time"]},
+            {
+                "causal_spec": {"latent": latent_model},
+                "_identified_treatments": ["screen_time"],
+            },
         )
     )
 

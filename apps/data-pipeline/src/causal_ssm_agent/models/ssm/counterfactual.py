@@ -389,9 +389,7 @@ def compute_interventions(
     outcome: str,
     latent_names: list[str],
     causal_spec: dict | None = None,
-    ppc_result: dict | None = None,
     manifest_names: list[str] | None = None,
-    ps_result: dict | None = None,
     times: jnp.ndarray | None = None,
     observation_support=None,
 ) -> list[dict[str, Any]]:
@@ -404,34 +402,21 @@ def compute_interventions(
         treatments: List of treatment construct names.
         outcome: Name of the outcome variable.
         latent_names: Ordered list of latent construct names (maps to drift indices).
-        causal_spec: Optional CausalSpec dict with identifiability status.
-        ppc_result: Optional PPC result dict for attaching per-treatment warnings.
-        manifest_names: Manifest variable names (needed if ppc_result provided).
-        ps_result: Optional power-scaling result dict for flagging prior-dominated effects.
+        causal_spec: Optional CausalSpec dict with measurement clock info.
+        manifest_names: Manifest variable names (needed for manifest-level projection).
         times: Optional observation time points (fractional days). When provided,
             forward simulation is run alongside steady-state analysis.
         observation_support: Optional compiled observation semantics. Non-point
             manifests are excluded from simple loading-based manifest effects.
 
     Returns:
-        List of intervention result dicts, sorted by |effect_size| descending.
+        List of intervention result dicts, sorted by |mean(posterior_draws)| descending.
     """
-    # Parse identifiability status
-    id_status = causal_spec.get("identifiability") if causal_spec else None
-    non_identifiable: set[str] = set()
-    if id_status:
-        ni_map = id_status.get("non_identifiable_treatments", {})
-        non_identifiable = set(ni_map.keys())
-
     name_to_idx = {name: i for i, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
 
     def _skeleton(treatment_name: str) -> dict[str, Any]:
-        return {
-            "treatment": treatment_name,
-            "effect_size": None,
-            "identifiable": treatment_name not in non_identifiable,
-        }
+        return {"treatment": treatment_name}
 
     # Guard: outcome not in latent names
     if outcome_idx is None:
@@ -494,14 +479,10 @@ def compute_interventions(
         )
 
         mean_effect = float(jnp.mean(effects))
-        prob_positive = float(jnp.mean(effects > 0))
 
         entry: dict[str, Any] = {
             "treatment": treatment_name,
-            "effect_size": mean_effect,
             "posterior_draws": effects.tolist(),
-            "prob_positive": prob_positive,
-            "identifiable": treatment_name not in non_identifiable,
         }
 
         # Forward simulation for temporal effects
@@ -543,61 +524,11 @@ def compute_interventions(
 
         results.append(entry)
 
-    # Sort by |effect_size| descending
-    results.sort(
-        key=lambda x: abs(x["effect_size"]) if x["effect_size"] is not None else 0,
-        reverse=True,
-    )
+    # Sort by |mean(posterior_draws)| descending
+    def _abs_mean(entry: dict) -> float:
+        draws = entry.get("posterior_draws")
+        return abs(sum(draws) / len(draws)) if draws else 0.0
 
-    # Attach PPC warnings to each treatment entry
-    ppc_warnings = ppc_result.get("per_variable_warnings", []) if ppc_result else []
-    if ppc_result and ppc_result.get("checked", False) and ppc_warnings:
-        from causal_ssm_agent.models.posterior_predictive import get_relevant_manifest_variables
-
-        lambda_mat = samples.get("lambda")
-        if lambda_mat is not None and lambda_mat.ndim == 3:
-            lambda_mat = jnp.mean(lambda_mat, axis=0)
-
-        m_names = manifest_names or []
-
-        if lambda_mat is not None:
-            for entry in results:
-                ti = name_to_idx.get(entry["treatment"])
-                relevant_vars = get_relevant_manifest_variables(
-                    lambda_mat, ti, outcome_idx, m_names
-                )
-                entry_ppc = [w for w in ppc_warnings if w.get("variable") in relevant_vars]
-                if entry_ppc:
-                    entry["ppc_warnings"] = entry_ppc
-        else:
-            # Lambda is fixed (identity) — not in posterior samples.
-            # Attach all PPC warnings to every treatment.
-            for entry in results:
-                entry["ppc_warnings"] = ppc_warnings
-
-    # Attach power-scaling sensitivity warnings to intervention entries.
-    # Flag treatments whose drift parameters are prior-dominated.
-    if ps_result and ps_result.get("checked", False):
-        diagnosis = ps_result.get("diagnosis", {})
-        prior_dominated = {k for k, v in diagnosis.items() if v == "prior_dominated"}
-        if prior_dominated:
-            for entry in results:
-                t_name = entry["treatment"]
-                t_idx = name_to_idx.get(t_name)
-                if t_idx is None:
-                    continue
-                # Check drift parameters involving this treatment
-                relevant = []
-                for param_name in prior_dominated:
-                    if param_name.startswith("drift_offdiag") or (
-                        (param_name.startswith("drift_diag") or param_name.startswith("beta_"))
-                        and t_name in param_name
-                    ):
-                        relevant.append(param_name)
-                if relevant:
-                    entry["prior_sensitivity_warning"] = (
-                        f"Effect may be prior-driven: parameters {relevant} "
-                        f"are prior-dominated per power-scaling diagnostic"
-                    )
+    results.sort(key=_abs_mean, reverse=True)
 
     return results
