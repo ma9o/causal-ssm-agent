@@ -31,6 +31,10 @@ from causal_ssm_agent.distributions import (
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
+from causal_ssm_agent.models.ssm.covariance_utils import (
+    INITIAL_STATE_COV_MIN_EIGENVALUE,
+    stabilize_covariance_for_cholesky,
+)
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.assembler import SSMAssembler
@@ -52,6 +56,7 @@ class SupportClass(Enum):
 
     REAL = "real"
     POSITIVE = "positive"
+    CORRELATION = "correlation"
 
 
 class TransformKind(Enum):
@@ -59,6 +64,7 @@ class TransformKind(Enum):
 
     IDENTITY = "identity"
     EXP = "exp"
+    CORRELATION = "correlation"
 
 
 class SiteKind(Enum):
@@ -74,6 +80,7 @@ class SiteKind(Enum):
     MANIFEST_VAR_DIAG = "manifest_var_diag"
     T0_MEANS = "t0_means"
     T0_VAR_DIAG = "t0_var_diag"
+    T0_VAR_LOWER = "t0_var_lower"
     OBS_DF = "obs_df"
     OBS_SHAPE = "obs_shape"
     OBS_R = "obs_r"
@@ -234,7 +241,12 @@ def _site(
     runtime_prior_key: str | None = None,
 ) -> SiteDescriptor:
     """Construct a site descriptor with consistent metadata defaults."""
-    transform_kind = TransformKind.IDENTITY if support == SupportClass.REAL else TransformKind.EXP
+    if support == SupportClass.REAL:
+        transform_kind = TransformKind.IDENTITY
+    elif support == SupportClass.POSITIVE:
+        transform_kind = TransformKind.EXP
+    else:
+        transform_kind = TransformKind.CORRELATION
     runtime_key = runtime_prior_key or name
     return SiteDescriptor(
         name=name,
@@ -418,6 +430,21 @@ def build_site_registry(
                 priors_field="t0_var_diag",
             )
         )
+        if spec.t0_var != "diag":
+            n_lower = len(assembler.t0_correlation_positions)
+            if n_lower > 0:
+                sites.append(
+                    _site(
+                        "t0_var_lower",
+                        (n_lower,),
+                        SupportClass.CORRELATION,
+                        "t0",
+                        SiteKind.T0_VAR_LOWER,
+                        deterministic_name="t0_cov",
+                        fixed_spec_field="t0_var",
+                        priors_field="t0_var_offdiag",
+                    )
+                )
 
     # -- Likelihood extra-parameter sites -----------------------------------
 
@@ -515,6 +542,13 @@ def build_transforms(
             transforms[site.name] = dist.transforms.IdentityTransform()
         elif site.transform_kind == TransformKind.EXP:
             transforms[site.name] = dist.transforms.ExpTransform()
+        elif site.transform_kind == TransformKind.CORRELATION:
+            transforms[site.name] = dist.transforms.ComposeTransform(
+                [
+                    dist.transforms.SigmoidTransform(),
+                    dist.transforms.AffineTransform(loc=-1.0, scale=2.0),
+                ]
+            )
     return transforms
 
 
@@ -614,6 +648,49 @@ def _assemble_diag_to_cov(
     return None
 
 
+def _assemble_t0_cov(
+    diag_site: SiteDescriptor | None,
+    corr_site: SiteDescriptor | None,
+    samples: dict[str, jnp.ndarray],
+    fixed_chol: jnp.ndarray | None,
+    assembler: SSMAssembler,
+    n_draws: int,
+    dim: int,
+) -> jnp.ndarray | None:
+    """Assemble initial-state covariance from SDs and sparse correlations."""
+    if diag_site is not None and diag_site.name in samples:
+        diag_samples = samples[diag_site.name]
+        corr_samples = (
+            samples[corr_site.name]
+            if corr_site is not None and corr_site.name in samples
+            else None
+        )
+
+        def _build_stable_cov(
+            diag_values: jnp.ndarray,
+            corr_values: jnp.ndarray | None = None,
+        ) -> jnp.ndarray:
+            raw_cov = (
+                assembler.assemble_t0_cov(diag_values, corr_values)
+                if corr_values is not None
+                else jnp.diag(diag_values**2)
+            )
+            stable_cov, _min_eig = stabilize_covariance_for_cholesky(
+                raw_cov,
+                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+            )
+            return stable_cov
+
+        if corr_samples is not None:
+            return jax.vmap(_build_stable_cov)(diag_samples, corr_samples)
+        return jax.vmap(_build_stable_cov)(diag_samples)
+
+    if isinstance(fixed_chol, jnp.ndarray):
+        fixed_cov = fixed_chol @ fixed_chol.T
+        return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
+    return None
+
+
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
@@ -694,8 +771,14 @@ def assemble_deterministics_from_registry(
     elif isinstance(spec.t0_means, jnp.ndarray):
         det["t0_means"] = _broadcast_fixed(spec.t0_means, n_draws)
 
-    t0_cov = _assemble_diag_to_cov(
-        by_kind.get(SiteKind.T0_VAR_DIAG), samples, spec.t0_var, n_draws, n_l
+    t0_cov = _assemble_t0_cov(
+        by_kind.get(SiteKind.T0_VAR_DIAG),
+        by_kind.get(SiteKind.T0_VAR_LOWER),
+        samples,
+        spec.t0_var,
+        assembler,
+        n_draws,
+        n_l,
     )
     if t0_cov is not None:
         det["t0_cov"] = t0_cov
@@ -824,6 +907,23 @@ def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
     )
 
 
+def _correlation_constrain(z: jnp.ndarray) -> jnp.ndarray:
+    """Map unconstrained values to the open interval (-1, 1)."""
+    return 2.0 * jax.nn.sigmoid(z) - 1.0
+
+
+def _correlation_inverse(x: jnp.ndarray) -> jnp.ndarray:
+    """Inverse of ``_correlation_constrain``."""
+    x_safe = jnp.clip(x, -1.0 + 1e-6, 1.0 - 1e-6)
+    p = 0.5 * (x_safe + 1.0)
+    return jnp.log(p) - jnp.log1p(-p)
+
+
+def _correlation_log_abs_det_jacobian(z: jnp.ndarray) -> jnp.ndarray:
+    """Log absolute Jacobian determinant for the correlation transform."""
+    return jnp.log(2.0) + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z)
+
+
 # ---------------------------------------------------------------------------
 # Composite prior log-density
 # ---------------------------------------------------------------------------
@@ -886,6 +986,20 @@ def log_prior_unconstrained(
             )
             # log|det J| = sum(z) for exp transform
             lp = lp + jnp.sum(z_site)
+
+        elif site.support == SupportClass.CORRELATION:
+            x_site = _correlation_constrain(z_site)
+            low = params.get("low", jnp.full_like(params["loc"], -1.0))
+            high = params.get("high", jnp.full_like(params["loc"], 1.0))
+            lp = lp + _real_log_prob(
+                x_site,
+                params["family"],
+                params["loc"],
+                params["scale"],
+                low,
+                high,
+            )
+            lp = lp + jnp.sum(_correlation_log_abs_det_jacobian(z_site))
 
     return lp
 
@@ -980,6 +1094,40 @@ def sample_prior_unconstrained(
                 )
                 # Unconstrained = log(x)
                 parts.append(jnp.log(jnp.maximum(x, 1e-30)).reshape(-1))
+
+            elif site.support == SupportClass.CORRELATION:
+                shape = site.shape if site.shape else ()
+                family = jnp.broadcast_to(
+                    jnp.asarray(params["family"], dtype=jnp.int32),
+                    shape if shape else (),
+                )
+                if not jnp.all((family == 0) | (family == 1) | (family == 2)):
+                    raise ValueError(f"Unknown CORRELATION family index in site {site.name}")
+
+                low = params.get("low", jnp.full(shape if shape else (), -1.0, dtype=jnp.float32))
+                high = params.get("high", jnp.full(shape if shape else (), 1.0, dtype=jnp.float32))
+                sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
+                normal_sample = params["loc"] + params["scale"] * random.normal(
+                    sk_normal, shape=shape
+                )
+                truncated_sample = dist.TruncatedNormal(
+                    loc=params["loc"],
+                    scale=params["scale"],
+                    low=low,
+                    high=high,
+                ).sample(sk_trunc)
+                uniform_sample = random.uniform(
+                    sk_uniform,
+                    shape=shape,
+                    minval=low,
+                    maxval=high,
+                )
+                x = jnp.where(
+                    family == 0,
+                    normal_sample,
+                    jnp.where(family == 1, truncated_sample, uniform_sample),
+                )
+                parts.append(_correlation_inverse(x).reshape(-1))
 
         if parts:
             all_samples.append(jnp.concatenate(parts))
@@ -1098,6 +1246,8 @@ def build_prior_runtime_state(
             # Fallback: sensible defaults
             if site.support == SupportClass.POSITIVE:
                 state[site.name] = _make_positive_params(site.shape)
+            elif site.support == SupportClass.CORRELATION:
+                state[site.name] = _make_real_params(site.shape, low=-1.0, high=1.0)
             else:
                 state[site.name] = _make_real_params(site.shape)
 
@@ -1109,15 +1259,15 @@ def _params_from_prior_dict(
     prior_dict: dict,
 ) -> dict[str, jnp.ndarray]:
     """Convert an SSMPriors prior dict to canonical params for a site."""
-    if site.support == SupportClass.REAL:
+    if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         has_bounds = "lower" in prior_dict and "upper" in prior_dict
         return _make_real_params(
             site.shape,
-            family=prior_dict.get("family", 1 if has_bounds else 0),
+            family=prior_dict.get("family", 1 if has_bounds or site.support == SupportClass.CORRELATION else 0),
             loc=prior_dict.get("mu", 0.0),
             scale=prior_dict.get("sigma", 1.0),
-            low=prior_dict.get("lower"),
-            high=prior_dict.get("upper"),
+            low=prior_dict.get("lower", -1.0 if site.support == SupportClass.CORRELATION else None),
+            high=prior_dict.get("upper", 1.0 if site.support == SupportClass.CORRELATION else None),
         )
     elif site.support == SupportClass.POSITIVE:
         return _make_positive_params(
@@ -1350,7 +1500,7 @@ def reconstruct_ssm_priors(
 
         params = prior_state[site.name]
 
-        if site.support == SupportClass.REAL:
+        if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
             family_values = np.asarray(params["family"], dtype=int).ravel()
             family = int(family_values[0]) if family_values.size else 0
             runtime_kind = get_real_runtime_kind_from_index(family)

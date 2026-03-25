@@ -7,6 +7,7 @@ import numpy as np
 
 from causal_ssm_agent.models.likelihoods.observation_families import supported_distribution_families
 from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionFamily,
@@ -14,7 +15,12 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     ModelSpec,
     ParameterRole,
 )
-from causal_ssm_agent.utils.causal_spec import get_constructs, get_edges, get_indicators
+from causal_ssm_agent.utils.causal_spec import (
+    get_estimation_edges,
+    get_estimation_state_order,
+    get_indicators,
+    get_latent_constructs,
+)
 
 
 def get_construct_dt_days(causal_spec: dict | None, _construct_name: str = "") -> float:
@@ -36,44 +42,31 @@ def get_construct_dt_days(causal_spec: dict | None, _construct_name: str = "") -
         return 1.0
 
 
-def get_structural_latent_layout(
+def get_estimation_latent_layout(
     causal_spec: dict | None,
 ) -> tuple[list[str], np.ndarray | None] | None:
-    """Build the canonical latent ordering from the causal structure."""
+    """Build the canonical latent ordering from the retained estimation states."""
     if causal_spec is None:
         return None
 
-    constructs = get_constructs(causal_spec)
-    if not constructs:
-        raise ValueError("causal_spec.latent.constructs is empty")
+    state_order = get_estimation_state_order(causal_spec)
+    if not state_order:
+        raise ValueError("causal_spec.estimation.state_order is empty")
 
-    time_varying: list[str] = []
-    time_invariant: list[str] = []
-    seen: set[str] = set()
+    latent_construct_lookup = {
+        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+    }
 
-    for construct in constructs:
-        name = construct.get("name") if isinstance(construct, dict) else construct.name
-        temporal = (
-            construct.get("temporal_status")
-            if isinstance(construct, dict)
-            else construct.temporal_status
-        )
-        if name in seen:
-            raise ValueError(f"Duplicate construct name in causal_spec: {name!r}")
-        seen.add(name)
-        if temporal == "time_invariant":
-            time_invariant.append(name)
-        else:
-            time_varying.append(name)
-
-    latent_names = time_varying + time_invariant
-    time_invariant_mask = None
-    if time_invariant:
-        time_invariant_mask = np.array(
-            [False] * len(time_varying) + [True] * len(time_invariant),
-            dtype=bool,
-        )
-    return latent_names, time_invariant_mask
+    time_invariant_mask = np.array(
+        [
+            latent_construct_lookup[name].get("temporal_status") == "time_invariant"
+            for name in state_order
+        ],
+        dtype=bool,
+    )
+    if not bool(time_invariant_mask.any()):
+        time_invariant_mask = None
+    return state_order, time_invariant_mask
 
 
 def build_masks_from_causal_spec(
@@ -88,7 +81,7 @@ def build_masks_from_causal_spec(
     if causal_spec is None or latent_names is None:
         return None, jnp.eye(n_manifest, n_latent), None, {}
 
-    edges = get_edges(causal_spec)
+    edges = get_estimation_edges(causal_spec)
     indicators = get_indicators(causal_spec)
 
     indicator_names = {
@@ -162,7 +155,6 @@ def build_masks_from_causal_spec(
 
     return drift_mask, lambda_mat, lambda_mask, edge_lag_days
 
-
 def translate_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -179,7 +171,7 @@ def translate_spec(
     manifest_cols = [lik.variable for lik in model_spec.likelihoods]
     n_manifest = len(manifest_cols)
 
-    structural_layout = get_structural_latent_layout(causal_spec)
+    structural_layout = get_estimation_latent_layout(causal_spec)
     if structural_layout is not None:
         latent_names, time_invariant_mask = structural_layout
         n_latent = len(latent_names)
@@ -229,10 +221,12 @@ def translate_spec(
         causal_spec=causal_spec,
     )
 
-    has_correlation = any(
+    has_innovation_correlation = any(
         parameter.role == ParameterRole.CORRELATION for parameter in model_spec.parameters
     )
-    diffusion_mode = "free" if has_correlation else "diag"
+    t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+    diffusion_mode = "free" if has_innovation_correlation else "diag"
+    t0_var_mode = "free" if t0_correlation_mask is not None else "diag"
 
     spec = SSMSpec(
         n_latent=n_latent,
@@ -248,11 +242,12 @@ def translate_spec(
         manifest_link=manifest_link,
         manifest_links=manifest_links,
         t0_means="free",
-        t0_var="diag",
+        t0_var=t0_var_mode,
         latent_names=latent_names,
         manifest_names=manifest_cols,
         drift_mask=drift_mask,
         lambda_mask=lambda_mask,
+        t0_correlation_mask=t0_correlation_mask,
         time_invariant_mask=time_invariant_mask,
     )
     return spec, edge_lag_days

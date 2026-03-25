@@ -1,7 +1,11 @@
 """Accessor helpers for CausalSpec dicts.
 
-Replaces the repeated pattern of causal_spec.get("latent", {}).get("constructs", [])
-with clear, typed accessor functions.
+The contract now has two structural layers:
+- ``latent``: user-facing theoretical DAG
+- ``estimation``: retained executable state-space projection
+
+Use the explicit latent/estimation accessors in new code. The historical
+``get_constructs()`` / ``get_edges()`` helpers still refer to the latent DAG.
 """
 
 import networkx as nx
@@ -14,18 +18,63 @@ from causal_ssm_agent.utils.observation_semantics import (
 
 
 def get_constructs(causal_spec: dict) -> list[dict]:
-    """Get constructs from a CausalSpec dict."""
+    """Get latent constructs from a CausalSpec dict."""
     return causal_spec.get("latent", {}).get("constructs", [])
 
 
 def get_edges(causal_spec: dict) -> list[dict]:
-    """Get causal edges from a CausalSpec dict."""
+    """Get latent DAG edges from a CausalSpec dict."""
     return causal_spec.get("latent", {}).get("edges", [])
+
+
+def get_latent_constructs(causal_spec: dict) -> list[dict]:
+    """Get user-facing latent constructs from a CausalSpec dict."""
+    return get_constructs(causal_spec)
+
+
+def get_latent_edges(causal_spec: dict) -> list[dict]:
+    """Get user-facing latent DAG edges from a CausalSpec dict."""
+    return get_edges(causal_spec)
 
 
 def get_indicators(causal_spec: dict) -> list[dict]:
     """Get indicators from a CausalSpec dict."""
     return causal_spec.get("measurement", {}).get("indicators", [])
+
+
+def get_estimation_spec(causal_spec: dict) -> dict:
+    """Get the estimation projection, failing loudly when it is missing."""
+    estimation = causal_spec.get("estimation")
+    if not isinstance(estimation, dict):
+        raise ValueError("causal_spec.estimation is required for estimation-sensitive access")
+    return estimation
+
+
+def get_estimation_state_order(causal_spec: dict) -> list[str]:
+    """Get retained latent states in canonical estimation order."""
+    return list(get_estimation_spec(causal_spec).get("state_order") or [])
+
+
+def get_estimation_edges(causal_spec: dict) -> list[dict]:
+    """Get retained directed edges in the estimation projection."""
+    return list(get_estimation_spec(causal_spec).get("edges") or [])
+
+
+def get_estimation_constructs(causal_spec: dict) -> list[dict]:
+    """Get retained latent construct payloads in estimation-state order."""
+    latent_lookup = {
+        construct["name"]: construct for construct in get_latent_constructs(causal_spec) if construct.get("name")
+    }
+    return [
+        latent_lookup[name]
+        for name in get_estimation_state_order(causal_spec)
+        if name in latent_lookup
+    ]
+
+
+def get_induced_dependencies(causal_spec: dict) -> list[dict]:
+    """Get induced dependencies created by marginalizing latent roots."""
+    return list(get_estimation_spec(causal_spec).get("induced_dependencies") or [])
 
 
 def get_effective_observation_window(indicator: dict, model_clock: str | None) -> str | None:
@@ -166,10 +215,37 @@ def build_digraph(latent_model: dict) -> nx.DiGraph:
     Returns:
         nx.DiGraph with one node per referenced construct
     """
+    return build_digraph_from_edges(latent_model.get("edges", []))
+
+
+def build_digraph_from_edges(edges: list[dict]) -> nx.DiGraph:
+    """Build a simple DiGraph from an edge list."""
     G = nx.DiGraph()
-    for edge in latent_model.get("edges", []):
+    for edge in edges:
         G.add_edge(edge["cause"], edge["effect"])
     return G
+
+
+def _get_treatments_from_graph(
+    *,
+    node_names: list[str],
+    edges: list[dict],
+    outcome: str | None,
+) -> list[str]:
+    """Return nodes with a directed path to the outcome within the given graph."""
+    if not outcome:
+        return []
+
+    G = build_digraph_from_edges(edges)
+    G.add_nodes_from(node_names)
+    if outcome not in G:
+        return []
+
+    return sorted(
+        node
+        for node in node_names
+        if node != outcome and G.has_node(node) and nx.has_path(G, node, outcome)
+    )
 
 
 def get_all_treatments(latent_model: dict) -> list[str]:
@@ -183,10 +259,22 @@ def get_all_treatments(latent_model: dict) -> list[str]:
     Returns:
         Sorted list of treatment construct names
     """
-    outcome = get_outcome_name(latent_model)
-    if not outcome:
-        return []
+    return _get_treatments_from_graph(
+        node_names=[
+            construct["name"]
+            for construct in latent_model.get("constructs", [])
+            if construct.get("name")
+        ],
+        edges=list(latent_model.get("edges", []) or []),
+        outcome=get_outcome_name(latent_model),
+    )
 
-    G = build_digraph(latent_model)
-    treatments = [node for node in G.nodes() if node != outcome and nx.has_path(G, node, outcome)]
-    return sorted(treatments)
+
+def get_estimable_treatments(causal_spec: dict) -> list[str]:
+    """Get intervention targets that remain in the retained estimation graph."""
+    state_order = get_estimation_state_order(causal_spec)
+    return _get_treatments_from_graph(
+        node_names=state_order,
+        edges=get_estimation_edges(causal_spec),
+        outcome=get_outcome_name(causal_spec),
+    )

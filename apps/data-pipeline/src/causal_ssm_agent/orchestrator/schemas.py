@@ -8,7 +8,7 @@ Separates:
 import ast
 import re
 from enum import StrEnum
-from typing import get_args
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
@@ -686,6 +686,37 @@ class IdentifiabilityStatus(BaseModel):
     )
 
 
+class InducedDependency(BaseModel):
+    """Dependence induced among retained states after marginalizing latent roots."""
+
+    between: tuple[str, str] = Field(
+        description="Pair of retained states whose joint dependence is induced"
+    )
+    kind: Literal["innovation_correlation", "initial_state_correlation"] = Field(
+        description="Which covariance block the induced dependence belongs to"
+    )
+    source_confounders: list[str] = Field(
+        default_factory=list,
+        description="Marginalized source constructs that induce this dependence",
+    )
+
+
+class EstimationSpec(BaseModel):
+    """Deterministic estimation-time projection of the user-facing latent DAG."""
+
+    state_order: list[str] = Field(
+        description="Retained latent states in canonical array order for compilation"
+    )
+    edges: list[CausalEdge] = Field(
+        default_factory=list,
+        description="Directed estimation graph over retained states",
+    )
+    induced_dependencies: list[InducedDependency] = Field(
+        default_factory=list,
+        description="Dependencies induced after marginalizing latent root confounders",
+    )
+
+
 class CausalSpec(BaseModel):
     """Complete causal specification combining latent and measurement models.
 
@@ -697,6 +728,10 @@ class CausalSpec(BaseModel):
     measurement: MeasurementModel = Field(description="Operationalization into indicators")
     identifiability: IdentifiabilityStatus | None = Field(
         default=None, description="Identifiability status of target causal effects"
+    )
+    estimation: EstimationSpec | None = Field(
+        default=None,
+        description="Deterministic estimation-time projection consumed by downstream fitting",
     )
 
     @model_validator(mode="after")
@@ -710,6 +745,40 @@ class CausalSpec(BaseModel):
                 raise ValueError(
                     f"Indicator '{indicator.name}' references unknown construct '{indicator.construct_name}'"
                 )
+
+        estimation = self.estimation
+        if estimation is not None:
+            if len(estimation.state_order) != len(set(estimation.state_order)):
+                raise ValueError("Estimation state_order contains duplicate construct names")
+
+            state_names = set(estimation.state_order)
+            unknown_states = state_names - construct_names
+            if unknown_states:
+                raise ValueError(
+                    "Estimation state_order references unknown constructs: "
+                    f"{sorted(unknown_states)}"
+                )
+
+            for edge in estimation.edges:
+                if edge.cause not in state_names or edge.effect not in state_names:
+                    raise ValueError(
+                        "Estimation edge must reference retained states: "
+                        f"{edge.cause!r} -> {edge.effect!r}"
+                    )
+
+            for dependency in estimation.induced_dependencies:
+                state_1, state_2 = dependency.between
+                if state_1 not in state_names or state_2 not in state_names:
+                    raise ValueError(
+                        "Induced dependency must reference retained states: "
+                        f"{dependency.between!r}"
+                    )
+                unknown_sources = set(dependency.source_confounders) - construct_names
+                if unknown_sources:
+                    raise ValueError(
+                        "Induced dependency references unknown source confounders: "
+                        f"{sorted(unknown_sources)}"
+                    )
 
         return self
 
@@ -931,7 +1000,19 @@ def validate_causal_spec(
         return None, ["Measurement model errors:", *measurement_errors]
 
     try:
-        model = CausalSpec(latent=latent, measurement=measurement)
+        from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
+
+        latent_payload = latent.model_dump(mode="json")
+        measurement_payload = measurement.model_dump(mode="json")
+        model = CausalSpec(
+            latent=latent,
+            measurement=measurement,
+            estimation=build_estimation_projection(
+                latent_payload,
+                measurement_payload,
+                identifiability_result=None,
+            ),
+        )
         return model, []
     except Exception as e:
         return None, [f"CausalSpec validation failed: {e}"]

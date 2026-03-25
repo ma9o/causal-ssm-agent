@@ -19,7 +19,7 @@ from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import (
     build_masks_from_causal_spec,
     get_construct_dt_days,
-    get_structural_latent_layout,
+    get_estimation_latent_layout,
     translate_spec,
 )
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
@@ -75,7 +75,7 @@ __all__ = [
     "compile_priors",
     "compile_ssm_inputs",
     "get_construct_dt_days",
-    "get_structural_latent_layout",
+    "get_estimation_latent_layout",
     "normalize_prior_params",
     "split_compound_name",
     "translate_spec",

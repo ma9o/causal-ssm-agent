@@ -234,25 +234,22 @@ def parametric_id_task(
 
 @flow(name="stage4b-parametric-id", log_prints=True, persist_result=True, result_serializer="json")
 def stage4b_parametric_id_flow(
-    stage4_result: dict,
+    compiled_ssm: dict | None,
     data_for_model: pl.DataFrame,
     builder: Any = None,
 ) -> dict:
     """Stage 4b: Parametric identifiability check.
 
-    Takes stage4 output, runs pre-fit diagnostics,
-    returns augmented result with parametric ID info.
+    Runs pre-fit diagnostics on the compiled SSM artifact.
 
     Args:
-        stage4_result: Output from stage4_agentic_flow
+        compiled_ssm: Serialized executable artifact from stage 4
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         builder: Pre-built SSMModelBuilder (avoids rebuilding)
 
     Returns:
-        stage4_result augmented with 'parametric_id' and 'inference_structure' keys
+        Dict with 'parametric_id' and 'inference_structure' keys
     """
-    compiled_ssm = stage4_result.get("_compiled_ssm")
-
     diagnostics = parametric_id_task(
         data_for_model,
         compiled_ssm=compiled_ssm,
@@ -260,7 +257,6 @@ def stage4b_parametric_id_flow(
     )
 
     return {
-        **stage4_result,
         "parametric_id": diagnostics["parametric_id"],
         "inference_structure": diagnostics["inference_structure"],
     }

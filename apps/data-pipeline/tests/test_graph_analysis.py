@@ -15,6 +15,7 @@ from causal_ssm_agent.models.likelihoods.graph_analysis import (
     get_per_channel_links,
     get_per_channel_manifest,
     get_per_variable_diffusion,
+    kalman_block_profile_indices,
 )
 from causal_ssm_agent.models.ssm.inference import select_default_method
 from causal_ssm_agent.models.ssm.inference_structure import plan_inference_structure
@@ -255,6 +256,53 @@ class TestAnalyzeFirstPassRB:
         np.testing.assert_array_equal(partition.particle_idx, [2])
         np.testing.assert_array_equal(partition.obs_kalman_idx, [0, 1])
         np.testing.assert_array_equal(partition.obs_particle_idx, [2])
+
+
+class TestKalmanBlockProfileIndices:
+    def test_includes_initial_state_lower_triangle_when_t0_is_free(self):
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3),
+            drift=jnp.diag(jnp.array([-0.5, -0.5, -0.5])),
+            diffusion="diag",
+            t0_var="free",
+        )
+        partition = RBPartition(
+            kalman_idx=np.array([0, 2]),
+            particle_idx=np.array([1]),
+            obs_kalman_idx=np.array([0, 2]),
+            obs_particle_idx=np.array([1]),
+        )
+
+        indices = kalman_block_profile_indices(spec, partition)
+
+        assert 13 in indices
+
+    def test_respects_sparse_initial_state_correlation_mask(self):
+        spec = _make_spec(
+            n_latent=3,
+            n_manifest=3,
+            lambda_mat=jnp.eye(3),
+            drift=jnp.diag(jnp.array([-0.5, -0.5, -0.5])),
+            diffusion="diag",
+            t0_var="free",
+        )
+        mask = np.zeros((3, 3), dtype=bool)
+        mask[2, 0] = True
+        spec.t0_correlation_mask = mask
+        partition = RBPartition(
+            kalman_idx=np.array([0, 2]),
+            particle_idx=np.array([1]),
+            obs_kalman_idx=np.array([0, 2]),
+            obs_particle_idx=np.array([1]),
+        )
+
+        indices = kalman_block_profile_indices(spec, partition)
+
+        assert indices.count(12) == 1
+        assert 13 not in indices
+        assert 14 not in indices
 
     def test_nongaussian_obs_prevents_kalman(self):
         """Gaussian diffusion but Poisson observation → variable goes to PF."""

@@ -4,6 +4,7 @@ Covers: normalize_prior_params, split_compound_name, fit-input preparation.
 """
 
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 import pytest
 
@@ -239,6 +240,119 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="DT persistence scale"):
             compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+    def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
+        """Initial-state correlations should compile to bounded correlation priors."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "sleep",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "cor0_mood_sleep",
+                    "role": "initial_state_correlation",
+                    "constraint": "correlation",
+                    "description": "",
+                }
+            ],
+        }
+        priors = {
+            "cor0_mood_sleep": {
+                "distribution": "Normal",
+                "params": {"mu": 0.2, "sigma": 0.8},
+            }
+        }
+        t0_mask = np.zeros((2, 2), dtype=bool)
+        t0_mask[1, 0] = True
+        ssm_spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["mood", "sleep"],
+            manifest_names=["mood", "sleep"],
+            t0_var="free",
+            t0_correlation_mask=t0_mask,
+        )
+
+        ssm_priors, _index_maps = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+        assert ssm_priors.t0_var_offdiag["mu"] == [0.2]
+        assert ssm_priors.t0_var_offdiag["sigma"] == [0.8]
+        assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
+        assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
+
+    def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
+        """Filtered initial-state pairs should not leave holes in prior arrays."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "a",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "b",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "c",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "cor0_A_B",
+                    "role": "initial_state_correlation",
+                    "constraint": "correlation",
+                    "description": "",
+                },
+                {
+                    "name": "cor0_C_B",
+                    "role": "initial_state_correlation",
+                    "constraint": "correlation",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "cor0_C_B": {
+                "distribution": "Normal",
+                "params": {"mu": 0.1, "sigma": 0.2},
+            }
+        }
+        t0_mask = np.zeros((3, 3), dtype=bool)
+        t0_mask[2, 1] = True
+        ssm_spec = SSMSpec(
+            n_latent=3,
+            n_manifest=3,
+            latent_names=["A", "B", "C"],
+            manifest_names=["a", "b", "c"],
+            t0_var="free",
+            t0_correlation_mask=t0_mask,
+        )
+
+        ssm_priors, index_maps = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+        assert index_maps[5]["cor0_C_B"] == ("t0_var_offdiag", 0)
+        assert ssm_priors.t0_var_offdiag["mu"] == [0.1]
+        assert ssm_priors.t0_var_offdiag["sigma"] == [0.2]
+        assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
+        assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
 
 
 class TestObservationSupportValidation:

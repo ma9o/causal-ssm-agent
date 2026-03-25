@@ -168,6 +168,18 @@ class TestValidateModelSpecDict:
         assert spec is None
         assert any("expected 'unit_interval'" in e for e in errors)
 
+    def test_initial_state_correlation_requires_canonical_prefix(self):
+        d = _valid_spec_dict()
+        d["parameters"][0] = {
+            "name": "init_cor_mood_sleep",
+            "role": "initial_state_correlation",
+            "constraint": "correlation",
+            "description": "legacy alias should be rejected",
+        }
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("must use canonical names starting with 'cor0_'" in e for e in errors)
+
 
 # =============================================================================
 # merge_decisions_to_spec

@@ -9,8 +9,6 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
 from causal_ssm_agent.models.ssm_compilation_common import (
-    KEYWORD_RULES,
-    ROLE_TO_SSM,
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
     build_array_prior_payload,
@@ -150,6 +148,23 @@ def _append_structured_prior(
     per_element.setdefault(attr, []).append((idx, normalized))
 
 
+def _coerce_initial_state_correlation_prior(
+    normalized: dict[str, float | int],
+) -> dict[str, float | int]:
+    """Interpret authored initial-state priors on the correlation scale."""
+    coerced = dict(normalized)
+    lower = max(float(coerced.get("lower", -1.0)), -1.0)
+    upper = min(float(coerced.get("upper", 1.0)), 1.0)
+    if lower >= upper:
+        raise ValueError(
+            "Initial-state correlation priors must have bounds within [-1, 1] "
+            f"with lower < upper; got lower={lower}, upper={upper}."
+        )
+    coerced["lower"] = lower
+    coerced["upper"] = upper
+    return coerced
+
+
 def compile_priors(
     raw_priors: dict[str, dict],
     model_spec: ModelSpec | dict | None,
@@ -168,6 +183,7 @@ def compile_priors(
         diag_param_index,
         diffusion_diag_param_index,
         diffusion_offdiag_param_index,
+        t0_offdiag_param_index,
     ) = index_maps
 
     for param_name, prior_spec in raw_priors.items():
@@ -251,42 +267,27 @@ def compile_priors(
             _append_structured_prior(per_element, attr, idx, normalized)
             continue
 
-        # --- Scalar fallback paths ---
-        # The index maps above assign per-element array priors (e.g. drift_diag.mu = [0.5, 0.3]).
-        # When structural resolution is unavailable (ssm_spec is None, or the parameter
-        # references an unknown construct), these fallbacks set a uniform scalar prior
-        # on the entire SSM field instead.  This is a degraded but safe default.
-        role = role_by_name.get(param_name)
-        if role and role in ROLE_TO_SSM:
-            attr, defaults = ROLE_TO_SSM[role]
-            merged = {**defaults, **normalized}
-            setattr(ssm_priors, attr, merged)
-            logger.info(
-                "Prior '%s': role-based scalar fallback -> %s (no structural index)",
-                param_name,
+        if param_name in t0_offdiag_param_index:
+            attr, idx = t0_offdiag_param_index[param_name]
+            _append_structured_prior(
+                per_element,
                 attr,
+                idx,
+                _coerce_initial_state_correlation_prior(normalized),
             )
             continue
 
-        # Last resort: substring match on parameter name.
-        name_lower = param_name.lower()
-        matched = False
-        for keywords, attr, defaults in KEYWORD_RULES:
-            matching_kw = [kw for kw in keywords if kw in name_lower]
-            if not matching_kw:
-                continue
-            logger.info(
-                "Prior '%s': keyword fallback matched '%s' -> %s",
-                param_name,
-                matching_kw[0],
-                attr,
+        role = role_by_name.get(param_name)
+        if role is not None:
+            raise ValueError(
+                f"Prior {param_name!r} with role {role.value!r} could not be structurally "
+                "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
+                "matches the ModelSpec."
             )
-            merged = {**defaults, **normalized}
-            setattr(ssm_priors, attr, merged)
-            matched = True
-            break
-        if not matched:
-            logger.debug("Prior '%s': no role or keyword match found, skipping", param_name)
+
+        raise ValueError(
+            f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
+        )
 
     for attr, entries in per_element.items():
         current = getattr(ssm_priors, attr)
@@ -319,6 +320,7 @@ def bind_parameters(
         diag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        t0_offdiag_index,
     ) = index_maps
 
     bindings: list[dict[str, Any]] = []
@@ -327,6 +329,7 @@ def bind_parameters(
         offdiag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        t0_offdiag_index,
         lambda_index,
     )
     for mapping in ordered_maps:

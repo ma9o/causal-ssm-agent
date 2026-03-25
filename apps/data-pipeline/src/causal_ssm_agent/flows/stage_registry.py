@@ -268,7 +268,6 @@ def _restore_stage2(workspace_id: str, web: dict, prior_states: dict) -> dict:
     workers = list(web.get("workers", []) or [])
     result = dict(web)
     result["workers"] = workers
-    result["_worker_statuses"] = workers
     result["_data_for_model_path"] = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     return result
 
@@ -278,7 +277,7 @@ def _restore_stage4(workspace_id: str, web: dict, prior_states: dict) -> dict:
     result["authored_priors"] = dict(web.get("authored_priors", {}) or {})
     stage1b_state = prior_states.get("stage-1b")
     if stage1b_state is not None:
-        result.setdefault("causal_spec", stage1b_state["result"]["causal_spec"])
+        result.setdefault("_causal_spec", stage1b_state["result"]["causal_spec"])
     try:
         compiled_ssm_path = find_run_artifact(workspace_id, STAGE4_COMPILED_SSM_FILENAMES)
     except FileNotFoundError:

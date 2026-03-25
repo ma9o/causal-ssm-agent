@@ -13,7 +13,22 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from causal_ssm_agent.models.ssm.model import SSMSpec
+
+
+def lower_triangle_positions(
+    n_latent: int,
+    mask: np.ndarray | None = None,
+) -> list[tuple[int, int]]:
+    """Enumerate lower-triangle positions, optionally filtered by a boolean mask."""
+    positions: list[tuple[int, int]] = []
+    for row in range(n_latent):
+        for col in range(row):
+            if mask is None or bool(mask[row, col]):
+                positions.append((row, col))
+    return positions
 
 
 class SSMAssembler:
@@ -42,6 +57,10 @@ class SSMAssembler:
 
         self.ti_mask: jnp.ndarray | None = (
             jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
+        )
+        self.t0_correlation_positions = lower_triangle_positions(
+            spec.n_latent,
+            spec.t0_correlation_mask if spec.t0_var != "diag" else None,
         )
 
         # Lambda: pre-compute mode, template, and free positions
@@ -93,6 +112,21 @@ class SSMAssembler:
             new_diag = jnp.where(self.ti_mask, 1e-6, diag_vals)
             diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
         return diffusion
+
+    def assemble_t0_cov(
+        self,
+        t0_diag: jnp.ndarray,
+        t0_correlation: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Build initial-state covariance from standard deviations and correlations."""
+        std = jnp.asarray(t0_diag)
+        corr = jnp.eye(self.n_latent, dtype=std.dtype)
+        if t0_correlation is not None:
+            for idx, (row, col) in enumerate(self.t0_correlation_positions):
+                corr = corr.at[row, col].set(t0_correlation[idx])
+                corr = corr.at[col, row].set(t0_correlation[idx])
+        cov = corr * (std[:, None] * std[None, :])
+        return 0.5 * (cov + cov.T)
 
     def assemble_lambda(self, free_loadings: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build lambda (factor loading) matrix.
