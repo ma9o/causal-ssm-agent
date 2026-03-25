@@ -1,19 +1,19 @@
 # MeasurementModel: Indicators
 
-This page explains how a `MeasurementModel` operationalizes constructs in data: indicator semantics, support windows, aggregation, and `model_clock`. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
+`MeasurementModel` operationalizes constructs in data through indicator semantics, support windows, aggregation, and `model_clock`. For the emitted Stage 1b contract, see [Stage 1b](../../pipeline/01b-measurement-identifiability.md).
 
 For the construct/indicator ontology—what a construct is, what an indicator is, and how they relate—see [Constructs and Edges: Ontology](../latent-model/constructs-and-edges.md#ontology).
 
 ## Indicator Semantics
 
-The schema for `Indicator` is defined in [Stage 1b](../../pipeline/01b-measurement-identifiability.md). Semantically, each indicator answers four questions:
+The schema for `Indicator` is defined in [Stage 1b](../../pipeline/01b-measurement-identifiability.md). Each indicator definition has four parts:
 
-| Question | Field family | Meaning |
+| Aspect | Field family | Meaning |
 |---|---|---|
-| What is being measured? | `name`, `construct_name`, `how_to_measure` | The indicator's substantive meaning |
-| What kind of value is produced? | `measurement_dtype`, `ordinal_levels` | The support and category semantics of the measurement |
-| Where does the value come from? | `source_columns`, `extraction_mode` | Whether extraction is computed directly or requires semantic interpretation |
-| Over what support is it defined? | `aggregation`, `observation_window` | How raw observations become one indicator value |
+| Measured quantity | `name`, `construct_name`, `how_to_measure` | The indicator's substantive meaning |
+| Value type | `measurement_dtype`, `ordinal_levels` | The support and category semantics of the measurement |
+| Data source and extraction path | `source_columns`, `extraction_mode` | Whether extraction is computed directly or requires semantic interpretation |
+| Support definition | `aggregation`, `observation_window` | How raw observations become one indicator value |
 
 ## Extraction Modes
 

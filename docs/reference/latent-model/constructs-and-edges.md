@@ -1,6 +1,6 @@
 # LatentModel: Constructs and Edges
 
-This page explains how to read a `LatentModel`: what a construct is, which edges are legal, and how lag semantics work before measurement choices are made. For the emitted Stage 1a contract, see [Stage 1a](../../pipeline/01a-latent-model.md).
+This reference defines how to read a `LatentModel`: what a construct is, which edges are legal, and how lag semantics work before measurement choices are made. For the emitted Stage 1a contract, see [Stage 1a](../../pipeline/01a-latent-model.md).
 
 ## Ontology
 
