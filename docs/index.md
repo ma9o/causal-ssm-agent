@@ -1,41 +1,49 @@
 # Documentation Index
 
-## Top-Level Areas
+## Start Here
 
-| Family | First stop | Use it for |
-|---|---|---|
-| Pipeline | [pipeline.md](pipeline.md) | Stage order plus the stage docs under `pipeline/`, which define the outputs and artifacts introduced at each stage |
-| Reference | [reference/](reference/) | Domain semantics, assumptions, estimation, inference routing, and runtime behavior |
-| Guides | [guides/dev_setup.md](guides/dev_setup.md) | Operator and contributor workflows |
+| Need | Open |
+|---|---|
+| Stage-by-stage pipeline walkthrough | [pipeline.md](pipeline.md) |
+| Contributor and operator workflows | [guides/](guides/.md) |
+| Cross-cutting runtime and modeling references | [reference/](reference/) |
 
-## Navigate by Domain Object
+## Artifact Owners
 
-- [`LatentModel`](reference/latent-model/constructs-and-edges.md): construct ontology, edge legality, and lag semantics
-- [`MeasurementModel`](reference/measurement-model/indicators.md): indicators, extraction semantics, support windows, aggregation, and `model_clock`
-- [`CausalSpec`](reference/causal-spec/identifiability.md): identifiability and the Stage 1b handoff contract
-- [`ModelSpec`](reference/model-spec/parameters-likelihoods-and-priors.md): parameter roles, likelihoods, and prior elicitation
+| Artifact or concept | Owning doc |
+|---|---|
+| `LatentModel` | [pipeline/01a-latent-model.md](pipeline/01a-latent-model.md) |
+| `MeasurementModel`, `Indicator`, `CausalSpec`, `IdentifiabilityStatus` | [pipeline/01b-measurement-identifiability.md](pipeline/01b-measurement-identifiability.md) |
+| `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/02-indicator-extraction.md](pipeline/02-indicator-extraction.md) |
+| `IndicatorAudit` and validation findings | [pipeline/03-extraction-validation.md](pipeline/03-extraction-validation.md) |
+| `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, `PriorProposal` | [pipeline/04-model-specification-priors.md](pipeline/04-model-specification-priors.md) |
+| `ParametricIdResult` and `InferenceStructureResult` | [pipeline/04b-parametric-identifiability.md](pipeline/04b-parametric-identifiability.md) |
+| `FittedArtifact` and post-fit diagnostics | [pipeline/05b-inference-diagnostics.md](pipeline/05b-inference-diagnostics.md) |
+| `TreatmentEffect` and intervention tools | [pipeline/06-intervention-analysis.md](pipeline/06-intervention-analysis.md) |
 
 ## Cross-Cutting References
 
-- [Pipeline dimensions](reference/pipeline-dimensions.md): artifacts, assumptions, temporal semantics, scope, and assurance surfaces
-- [Compilation](reference/compilation.md): how Stage 4 outputs become an executable SSM
-- [Estimation](reference/estimation.md): CT-SDE formulation, discretization, likelihood
-- [Stage 6 intervention analysis](pipeline/06-intervention-analysis.md): do-operator semantics, trajectory simulation, and interpretation guidance
-- [Inference routing](reference/inference-routing.md): method selection and structural routing
-- [Execution semantics](reference/execution-semantics.md): dependency DAG, resume, question materialization, and persistence surfaces
+| Topic | Open |
+|---|---|
+| Artifact lineage, temporal layers, assurance surfaces | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md) |
+| Compilation from Stage 4 outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
+| Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
+| Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
 
-## Terminology Note
+## Guides
 
-The term `structural` is historically shared by the SEM and SCM traditions, but it points to different layers of a model.
+| Workflow | Open |
+|---|---|
+| Local setup | [guides/dev_setup.md](guides/dev_setup.md) |
+| TypeScript codegen from Python contracts | [guides/codegen.md](guides/codegen.md) |
+| Integration testing | [guides/agentic_integration_testing.md](guides/agentic_integration_testing.md) |
+| Evaluations | [guides/running_evals.md](guides/running_evals.md) |
 
-- In SEM, the `structural model` is the part of the model that specifies directional relations among endogenous variables, in contrast to the `measurement model`.
-- In SCM, `structural equations` are the assignment mechanisms `X_i = f_i(Pa_i, U_i)` for endogenous variables.
+## Route by Question
 
-This project separates them:
-
-| Description | Domain primitive | Owner stage |
-|---|---|---|
-| The latent-to-latent DAG proposed from theory | [`LatentModel`](reference/latent-model/constructs-and-edges.md) | [Stage 1a](pipeline/01a-latent-model.md) |
-| The construct-to-observed mapping | [`MeasurementModel`](reference/measurement-model/indicators.md) | [Stage 1b](pipeline/01b-measurement-identifiability.md) |
-| The combined latent, measurement, and identifiability handoff | [`CausalSpec`](reference/causal-spec/identifiability.md) | [Stage 1b](pipeline/01b-measurement-identifiability.md) |
-| The equations, likelihoods, priors, and parameterization used for fitting | [`ModelSpec`](reference/model-spec/parameters-likelihoods-and-priors.md) | [Stage 4](pipeline/04-model-specification-priors.md) |
+| Question | Open first |
+|---|---|
+| What does this stage emit? | The relevant file under `pipeline/` |
+| What does this artifact mean? | The stage doc that introduces it |
+| What assumptions constrain that artifact? | The matching page under `reference/` |
+| How does time work across extraction, fitting, and interventions? | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md) |
