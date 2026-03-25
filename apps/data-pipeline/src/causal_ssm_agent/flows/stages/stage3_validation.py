@@ -40,6 +40,7 @@ OBSERVATION_TIME_COLUMN = "anchor_time"
 
 _TIMESTAMP_FORMATS: tuple[tuple[str | None, bool], ...] = (
     ("%Y-%m-%d %H:%M:%S", False),
+    ("%Y-%m-%d %H:%M:%S%.f", False),
     ("%Y-%m-%d %H:%M", False),
     ("%Y-%m-%d", False),
     ("%Y-%m-%dT%H:%M:%S", False),
