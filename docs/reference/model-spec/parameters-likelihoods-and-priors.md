@@ -64,7 +64,7 @@ Typical prior-family guidance by constraint lives in [Supported Prior Distributi
 
 | Role | Default constraint | Rationale |
 |---|---|---|
-| `ar_coefficient` | `unit_interval` | Orchestrator elicits `rho ∈ [0, 1]` in discrete-time terms for persistence magnitude, then transforms that to the continuous-time drift diagonal via `-log(rho) / dt`. |
+| `ar_coefficient` | `unit_interval` | Orchestrator elicits `rho ∈ [0, 1]` in discrete-time terms for persistence magnitude. The compiler transforms this to the continuous-time drift diagonal; see [Prior Compilation](../compilation.md#stage-3-prior-compilation-ssm_prior_compilationpy). |
 | `fixed_effect` | `none` | Effect sizes can be positive or negative |
 | `residual_sd` | `positive` | Standard deviations are non-negative by definition |
 | `static_state_sd` | `positive` | Quasi-constant latent-state scales are non-negative by definition |

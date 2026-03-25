@@ -57,11 +57,9 @@ This distinction is intentional. The pipeline treats "no evidence" differently f
 
 ## `computed` Versus `semantic` Indicators
 
-These are pipeline terms, not just informal descriptions. `computed` indicators are derived deterministically from raw columns; `semantic` indicators require LLM interpretation over a support window. Both produce the same downstream observation-row contract.
+These are pipeline terms, not just informal descriptions. Both produce the same downstream observation-row contract. For definitions and semantics, see [Extraction Modes](../reference/measurement-model/indicators.md#extraction-modes). [Stage 1b](../pipeline/01b-measurement-identifiability.md) defines `Indicator.extraction_mode`; [Stage 2](../pipeline/02-indicator-extraction.md) executes the corresponding extraction paths.
 
-For the full semantics, see [Extraction Modes](../reference/measurement-model/indicators.md#extraction-modes). [Stage 1b](../pipeline/01b-measurement-identifiability.md) defines `Indicator.extraction_mode`; [Stage 2](../pipeline/02-indicator-extraction.md) executes the corresponding extraction paths.
-
-Supported aggregation operators are `first`, `last`, `sum`, `count`, `mean`, and `std`. For operator semantics and dtype compatibility rules, see [Aggregation at Indicator Level](../reference/measurement-model/indicators.md#aggregation-at-indicator-level).
+For the supported aggregation operators and their semantics, see [Aggregation at Indicator Level](../reference/measurement-model/indicators.md#aggregation-at-indicator-level).
 
 ## Minimum Viable Dataset
 
