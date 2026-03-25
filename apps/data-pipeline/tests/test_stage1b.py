@@ -11,12 +11,15 @@ import json
 
 import pytest
 
+from causal_ssm_agent.flows.stages.stage1b_measurement import build_causal_spec
 from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
+from causal_ssm_agent.orchestrator.schemas import CausalSpec
 from causal_ssm_agent.orchestrator.stage1b import (
     Stage1bMessages,
     Stage1bResult,
     run_stage1b,
 )
+from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from tests.helpers import make_mock_generate
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -134,6 +137,33 @@ class TestMeasurementCompiler:
 
 class TestStage1bGrounding:
     """Test the grounding function directly."""
+
+    def test_build_causal_spec_round_trips_schema(
+        self, stage1b_simple_latent, stage1b_measurement_all_observed
+    ):
+        """build_causal_spec.fn() returns a valid CausalSpec with the expected outcome."""
+        spec = build_causal_spec.fn(
+            stage1b_simple_latent,
+            stage1b_measurement_all_observed,
+            identifiability_status={
+                "identifiable_treatments": {
+                    "Treatment": {
+                        "method": "do_calculus",
+                        "estimand": "P(Outcome|do(Treatment))",
+                        "marginalized_confounders": [],
+                        "instruments": [],
+                    }
+                },
+                "non_identifiable_treatments": {},
+            },
+        )
+
+        validated = CausalSpec.model_validate(spec)
+        assert len(validated.latent.constructs) == 2
+        assert len(validated.measurement.indicators) == 2
+        assert validated.estimation is not None
+        assert set(validated.estimation.state_order) == {"Treatment", "Outcome"}
+        assert get_outcome_name(spec["latent"]) == "Outcome"
 
     def test_valid_identifiable(self, stage1b_simple_latent, stage1b_measurement_all_observed):
         """Valid + identifiable returns VALID feedback and stage_output."""

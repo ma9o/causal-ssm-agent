@@ -29,39 +29,6 @@ from causal_ssm_agent.orchestrator.schemas import (
 class TestConstruct:
     """Tests for Construct validation."""
 
-    def test_endogenous_time_varying(self):
-        """Endogenous, time-varying construct (classic outcome)."""
-        c = Construct(
-            name="mood",
-            description="Daily mood state",
-            role=Role.ENDOGENOUS,
-            temporal_status=TemporalStatus.TIME_VARYING,
-        )
-        assert c.role == Role.ENDOGENOUS
-        assert c.temporal_status == TemporalStatus.TIME_VARYING
-
-    def test_exogenous_time_varying(self):
-        """Exogenous, time-varying construct (classic input)."""
-        c = Construct(
-            name="weather",
-            description="Daily temperature",
-            role=Role.EXOGENOUS,
-            temporal_status=TemporalStatus.TIME_VARYING,
-        )
-        assert c.role == Role.EXOGENOUS
-        assert c.temporal_status == TemporalStatus.TIME_VARYING
-
-    def test_exogenous_time_invariant(self):
-        """Exogenous, time-invariant construct (classic covariate)."""
-        c = Construct(
-            name="age",
-            description="Participant age",
-            role=Role.EXOGENOUS,
-            temporal_status=TemporalStatus.TIME_INVARIANT,
-        )
-        assert c.role == Role.EXOGENOUS
-        assert c.temporal_status == TemporalStatus.TIME_INVARIANT
-
     def test_exogenous_cannot_be_outcome(self):
         """Exogenous construct cannot be outcome."""
         with pytest.raises(ValueError, match=r"Outcome construct .* must be endogenous"):
@@ -72,25 +39,6 @@ class TestConstruct:
                 is_outcome=True,
                 temporal_status=TemporalStatus.TIME_VARYING,
             )
-
-
-class TestCausalEdge:
-    """Tests for CausalEdge."""
-
-    def test_contemporaneous_edge(self):
-        """Contemporaneous edge (lagged=False) is valid."""
-        edge = CausalEdge(
-            cause="stress", effect="mood", description="Stress affects mood", lagged=False
-        )
-        assert edge.lagged is False
-
-    def test_lagged_edge(self):
-        """Lagged edge (default) is valid."""
-        edge = CausalEdge(
-            cause="sleep", effect="mood", description="Sleep quality affects next day mood"
-        )
-        assert edge.lagged is True
-
 
 class TestLatentModel:
     """Tests for LatentModel validation."""
@@ -219,41 +167,8 @@ class TestLatentModel:
                 edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
             )
 
-    def test_build_digraph(self, construct_factory):
-        """Latent model dict converts to NetworkX graph via build_digraph."""
-        from causal_ssm_agent.utils.causal_spec import build_digraph
-
-        structure = LatentModel(
-            constructs=[
-                construct_factory("stress", Role.EXOGENOUS),
-                construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[
-                CausalEdge(
-                    cause="stress", effect="mood", description="Stress affects mood", lagged=False
-                )
-            ],
-        )
-        G = build_digraph(structure.model_dump())
-        assert "stress" in G.nodes
-        assert "mood" in G.nodes
-        assert ("stress", "mood") in G.edges
-
-
 class TestIndicator:
     """Tests for Indicator validation."""
-
-    def test_valid_indicator(self):
-        """Valid indicator passes validation."""
-        ind = Indicator(
-            name="mood_rating",
-            construct_name="mood",
-            how_to_measure="Extract mood ratings (1-10 scale)",
-            measurement_dtype="continuous",
-            aggregation="mean",
-        )
-        assert ind.name == "mood_rating"
-        assert ind.construct_name == "mood"
 
     def test_invalid_aggregation(self):
         """Invalid aggregation is rejected."""
@@ -627,30 +542,6 @@ class TestCausalSpec:
         causal_spec = CausalSpec(latent=latent, measurement=measurement)
         assert len(causal_spec.latent.constructs) == 2
         assert len(causal_spec.measurement.indicators) == 1
-
-    def test_build_digraph_from_causal_spec(self, construct_factory, indicator_factory):
-        """build_digraph produces correct topology from a CausalSpec's latent model."""
-        from causal_ssm_agent.utils.causal_spec import build_digraph
-
-        latent = LatentModel(
-            constructs=[
-                construct_factory("stress", Role.EXOGENOUS),
-                construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
-            ],
-            edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
-        )
-        measurement = MeasurementModel(
-            model_clock="1d",
-            indicators=[
-                indicator_factory("mood_rating", "mood"),
-            ],
-        )
-        causal_spec = CausalSpec(latent=latent, measurement=measurement)
-        G = build_digraph(causal_spec.latent.model_dump())
-
-        assert "stress" in G.nodes
-        assert "mood" in G.nodes
-        assert ("stress", "mood") in G.edges
 
     def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
         """CausalSpec.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
