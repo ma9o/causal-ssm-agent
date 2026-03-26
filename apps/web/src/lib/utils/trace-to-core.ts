@@ -83,7 +83,7 @@ export function traceToModelMessages(messages: TraceMessage[]): ModelMessage[] {
             type: "tool-call",
             toolCallId: tc.id,
             toolName: tc.name,
-            args:
+            input:
               typeof tc.arguments === "string"
                 ? JSON.parse(tc.arguments)
                 : tc.arguments,
