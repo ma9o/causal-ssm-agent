@@ -55,21 +55,36 @@ export function LLMTracePanelView({
   onSubmit?: (e: FormEvent) => void;
 }) {
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const hasRefinement = refinementMessages.length > 0;
 
   const messageCount = traceMessages.length + refinementMessages.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count change
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    // Defer until after parent layout/animation settles so the container
+    // has its final constrained height (e.g. StageWithTrace motion).
+    const raf = requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messageCount]);
+
+  // Auto-focus the refinement input on mount
+  useEffect(() => {
+    if (!canRefine) return;
+    const raf = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [canRefine]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <TraceSummary trace={trace} />
 
       {/* Trace messages — read-only */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <ChatMessages messages={traceMessages} />
 
         {/* Separator between trace and refinement */}
@@ -84,14 +99,13 @@ export function LLMTracePanelView({
 
         {/* Refinement messages — interactive */}
         {hasRefinement && <ChatMessages messages={refinementMessages} />}
-
-        <div ref={bottomRef} />
       </div>
 
       {/* Refinement input */}
       {canRefine && (
         <form onSubmit={onSubmit} className="shrink-0 flex gap-2">
           <input
+            ref={inputRef}
             value={input}
             onChange={(e) => onInputChange?.(e.target.value)}
             placeholder="Ask a follow-up question or request a change..."
