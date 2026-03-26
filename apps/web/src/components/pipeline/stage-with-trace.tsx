@@ -15,11 +15,13 @@ export function StageWithTrace({
   children,
   panelContent,
   stageId,
+  interactive,
 }: {
   children: ReactNode;
   panelContent: ReactNode;
   /** When provided, the panel auto-opens if a prefill targets this stage. */
   stageId?: string;
+  interactive?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const leftRef = useRef<HTMLDivElement>(null);
@@ -63,7 +65,7 @@ export function StageWithTrace({
               className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
             >
               <Bot className="h-3.5 w-3.5" />
-              Show Assistant Details
+              {interactive ? "Interact with LLM" : "Show LLM Trace"}
             </button>
           </div>
         )}
@@ -84,7 +86,7 @@ export function StageWithTrace({
               className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors"
             >
               <Bot className="h-3.5 w-3.5" />
-              Hide Assistant Details
+              {interactive ? "Hide LLM Chat" : "Hide LLM Trace"}
             </button>
             <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
               {panelContent}
