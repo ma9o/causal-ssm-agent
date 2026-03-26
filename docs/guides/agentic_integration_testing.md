@@ -14,7 +14,11 @@ The key insight: never make the browser do the heavy lifting. Use programmatic c
 
 ## Prerequisites
 
-You need two long-running backend services plus the existing web frontend on port `3000`.
+You need three long-running backend services plus the web frontend on port `3000`.
+
+All backend processes that might touch BYOK replay/refinement paths must source the
+same root `.env` as the web app so `APP_SECRET` is available everywhere, not just
+in Next.js.
 
 ### 1. Reuse the existing Next.js dev server
 
@@ -33,8 +37,9 @@ Start these processes in separate terminals (or background them). **Order matter
 | # | Process | Port | Start command | What it does |
 |---|---------|------|---------------|--------------|
 | 1 | Prefect server | 4200 | See below | Central API coordinator |
-| 2 | Pipeline deployment | — | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
-| 3 | Next.js frontend | 3000 | Reuse the existing dev server | Web UI for session resume and stage visualization |
+| 2 | Pipeline deployment | — | `cd apps/data-pipeline && set -a && source ../../.env && set +a && PREFECT_API_URL=http://localhost:4200/api uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
+| 3 | Tool server | 8100 | `cd apps/data-pipeline && set -a && source ../../.env && set +a && uv run uvicorn causal_ssm_agent.tool_server:app --port 8100` | Serves refinement tools and stage patch persistence used by the web refinement flow |
+| 4 | Next.js frontend | 3000 | Reuse the existing dev server or start it with the same `.env` | Web UI for session resume and stage visualization |
 
 #### Prefect server (file-backed SQLite)
 
@@ -44,7 +49,7 @@ failures we hit during child-flow state transitions.
 
 ```bash
 rm -f /tmp/causal-ssm-agent-prefect.db /tmp/causal-ssm-agent-prefect.db-shm /tmp/causal-ssm-agent-prefect.db-wal
-cd apps/data-pipeline && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlite:////tmp/causal-ssm-agent-prefect.db" uv run prefect server start
+cd apps/data-pipeline && set -a && source ../../.env && set +a && PREFECT_SERVER_DATABASE_CONNECTION_URL="sqlite+aiosqlite:////tmp/causal-ssm-agent-prefect.db" uv run prefect server start
 ```
 
 Delete the database files before every restart so each integration run starts from
@@ -62,11 +67,14 @@ curl -s -X POST http://localhost:4200/api/deployments/filter \
   -d '{"deployments":{"name":{"any_":["causal-inference"]}}}' \
   | jq -r '.[0].id' && echo "deployment ok"
 
+# Tool server
+curl -sf http://localhost:8100/api/tools/docs && echo "tool server ok"
+
 # Next.js frontend
 curl -sf -o /dev/null http://localhost:3000 && echo "next.js ok"
 ```
 
-All three must succeed before proceeding. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
+All four must succeed before proceeding. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
 
 ## Workspace Layout
 
