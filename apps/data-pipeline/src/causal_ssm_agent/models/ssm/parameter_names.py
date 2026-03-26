@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 
 if TYPE_CHECKING:
@@ -20,6 +21,12 @@ INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS: dict[str, float] = {
     "lower": -1.0,
     "upper": 1.0,
 }
+
+
+class InitialStateCorrelationResolutionError(AggregatedCompileError):
+    """Aggregate independent initial-state correlation name-resolution errors."""
+
+    header = "Initial-state correlation resolution failed"
 
 
 @dataclass(frozen=True)
@@ -70,6 +77,7 @@ def resolve_initial_state_correlation_bindings(
 
     unresolved: list[tuple[str, str, str, int, int]] = []
     seen_pairs: dict[tuple[int, int], str] = {}
+    errors: list[str] = []
 
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.INITIAL_STATE_CORRELATION:
@@ -77,28 +85,34 @@ def resolve_initial_state_correlation_bindings(
         compound = _strip_initial_state_correlation_prefix(parameter.name)
         result = split_compound_name(compound, latent_name_set, latent_name_set)
         if result is None:
-            raise ValueError(
+            errors.append(
                 "Could not parse INITIAL_STATE_CORRELATION parameter "
                 f"{parameter.name!r} into known latent states {sorted(latent_name_set)}"
             )
+            continue
         state1_name, state2_name = result
         idx1 = latent_idx[state1_name]
         idx2 = latent_idx[state2_name]
         if idx1 == idx2:
-            raise ValueError(
+            errors.append(
                 "INITIAL_STATE_CORRELATION parameters must reference two distinct latent "
                 f"states; got self-correlation {parameter.name!r}"
             )
+            continue
         row, col = (idx1, idx2) if idx1 > idx2 else (idx2, idx1)
         pair_key = (row, col)
         if pair_key in seen_pairs:
-            raise ValueError(
+            errors.append(
                 "Duplicate INITIAL_STATE_CORRELATION parameters target the same initial-state "
                 f"pair ({latent_names[col]!r}, {latent_names[row]!r}): "
                 f"{seen_pairs[pair_key]!r} and {parameter.name!r}"
             )
+            continue
         seen_pairs[pair_key] = parameter.name
         unresolved.append((parameter.name, state1_name, state2_name, row, col))
+
+    if errors:
+        raise InitialStateCorrelationResolutionError(errors)
 
     unresolved.sort(key=lambda entry: (entry[3], entry[4], entry[0]))
     return [

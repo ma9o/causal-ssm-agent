@@ -6,6 +6,7 @@ to propose an informed prior distribution.
 
 from causal_ssm_agent.distributions import (
     format_prior_distribution_choice_list,
+    render_dynamic_prior_scale_guidance,
     render_prior_distribution_guidance_bullets,
     render_prior_parameter_guidance_markdown_table,
 )
@@ -13,6 +14,7 @@ from causal_ssm_agent.distributions import (
 PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
 PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
 PRIOR_PARAMETER_GUIDANCE_TABLE = render_prior_parameter_guidance_markdown_table()
+DYNAMIC_PRIOR_SCALE_GUIDANCE = render_dynamic_prior_scale_guidance()
 
 SYSTEM = """\
 You are a Bayesian statistician eliciting a prior distribution for a single model parameter.
@@ -60,14 +62,20 @@ Return a JSON object:
       "effect_size": "r=0.3, 95% CI [0.2, 0.4]"
     }
   ],
-  "reasoning": "Justification for the prior"
+  "reasoning": "Justification for the prior",
+  "reference_interval_days": 7.0
 }
 ```
+
+Only include `reference_interval_days` when the evidence is expressed on a \
+different observation interval than the model interval. For lagged `beta_*` \
+priors, keep `params` on that authored interval scale and let the compiler \
+rescale them.
 
 ### Parameter Guidelines by Type
 __PRIOR_PARAMETER_GUIDANCE_TABLE__
 
-**Important**: Both beta and rho priors should be on the **discrete-time scale** (e.g. standardized regression coefficients from the literature). They are automatically converted to continuous-time rates internally.
+**Important**: __DYNAMIC_PRIOR_SCALE_GUIDANCE__
 """
 
 SYSTEM = SYSTEM.replace(
@@ -81,6 +89,10 @@ SYSTEM = SYSTEM.replace(
 SYSTEM = SYSTEM.replace(
     "__PRIOR_PARAMETER_GUIDANCE_TABLE__",
     PRIOR_PARAMETER_GUIDANCE_TABLE,
+)
+SYSTEM = SYSTEM.replace(
+    "__DYNAMIC_PRIOR_SCALE_GUIDANCE__",
+    DYNAMIC_PRIOR_SCALE_GUIDANCE,
 )
 
 USER = """\

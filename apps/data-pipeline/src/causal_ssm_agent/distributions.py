@@ -106,6 +106,42 @@ class PriorParameterGuidanceRow:
     scale: str
 
 
+LAGGED_BETA_AUTHORED_INTERVAL_SCALE: Final[str] = (
+    "Authored interval effect (defaults to model interval; use "
+    "`reference_interval_days` when evidence is on another interval)"
+)
+
+
+def render_dynamic_prior_scale_guidance() -> str:
+    """Render the shared authored-scale contract for dynamic priors."""
+    return (
+        "AR coefficients (`rho_*`) should be authored as discrete-time persistence "
+        "per observation interval. `beta_*` priors should be authored on the "
+        "interval they mean. For lagged `beta_*`, set `reference_interval_days` "
+        "when the evidence is on a different interval; otherwise the model interval "
+        "is assumed. The compiler handles interval normalization and CT conversion."
+    )
+
+
+def render_lagged_beta_authored_interval_guidance() -> str:
+    """Render the shared Stage 4 guidance for lagged beta priors."""
+    return "\n".join(
+        [
+            "- Author `params` on the interval you actually mean.",
+            "- If you omit `reference_interval_days`, the system assumes `params` "
+            "are already expressed on the model interval shown in the fixed-effect "
+            "prior card.",
+            "- If the literature estimate comes from a different study interval, set "
+            "`reference_interval_days` to that interval and keep `params` on that "
+            "authored interval scale. The compiler will rescale it before CT compilation.",
+            "- Do not manually pre-convert lagged `beta_*` priors into continuous-time "
+            "or one-step drift units.",
+            "- If `Feedback Loop` is `yes`, use a more conservative interval-scale "
+            "effect than a cross-sectional or multi-day association would suggest.",
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Parameter role catalog — authoritative source for docs codegen and the
 # EXPECTED_CONSTRAINT_FOR_ROLE dict in schemas_model.py.
@@ -337,7 +373,12 @@ PRIOR_CONSTRAINT_GUIDANCE: Final[tuple[PriorConstraintGuidance, ...]] = (
 )
 
 PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
-    PriorParameterGuidanceRow("beta (causal effect)", "Normal(0, 0.5)", "[-2, 2]", "Discrete-time"),
+    PriorParameterGuidanceRow(
+        "beta (causal effect)",
+        "Normal(0, 0.5)",
+        "[-2, 2]",
+        LAGGED_BETA_AUTHORED_INTERVAL_SCALE,
+    ),
     PriorParameterGuidanceRow(
         "rho (AR coefficient)",
         "Beta(2, 2) or Uniform(0, 1)",

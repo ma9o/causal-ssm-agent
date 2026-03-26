@@ -3,9 +3,11 @@
 Covers: format_literature_for_parameter, generate_paraphrased_prompts.
 """
 
+from causal_ssm_agent.distributions import render_prior_parameter_guidance_markdown_table
 from causal_ssm_agent.workers.prompts.prior_research import (
     NO_LITERATURE,
     PARAPHRASE_TEMPLATES,
+    SYSTEM,
     format_literature_for_parameter,
     generate_paraphrased_prompts,
 )
@@ -132,3 +134,15 @@ class TestGenerateParaphrasedPrompts:
         )
         # The tail (instruction part) should differ
         assert len(set(prompts)) == 3
+
+
+class TestPromptContracts:
+    def test_worker_prompt_mentions_reference_interval_days_for_lagged_beta(self):
+        assert "reference_interval_days" in SYSTEM
+        assert "authored interval scale" in SYSTEM
+        assert "authored on the interval they mean" in SYSTEM
+
+    def test_prior_guidance_table_uses_authored_interval_label_for_beta(self):
+        table = render_prior_parameter_guidance_markdown_table()
+        assert "Authored interval effect" in table
+        assert "`reference_interval_days`" in table
