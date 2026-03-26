@@ -22,9 +22,11 @@ import type {
   StageOutcome,
 } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
+import { Wrench } from "lucide-react";
 import {
   Suspense,
   lazy,
+  useCallback,
   useEffect,
 } from "react";
 import { StageSection } from "./stage-section";
@@ -36,6 +38,7 @@ const Stage1bContent = lazy(() => import("./stage-contents/stage-1b-content"));
 const Stage2Content = lazy(() => import("./stage-contents/stage-2-content"));
 const Stage2RunningContent = lazy(() => import("./stage-contents/stage-2-running-content"));
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
+import { buildFixPrompt } from "./stage-contents/stage-3-content";
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5aContent = lazy(() => import("./stage-contents/stage-5a-content"));
@@ -74,7 +77,7 @@ export function StageSectionRouter({
   stageRun?: AnalysisStageRun;
 }) {
   const queryClient = useQueryClient();
-  const { isInvalidated, pendingStagePatches, refiningStageId } = useRefinement();
+  const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill } = useRefinement();
   const invalidated = isInvalidated(stage.id);
   const isCompleted = status === "completed";
   const elapsedMs =
@@ -104,6 +107,19 @@ export function StageSectionRouter({
 
   const isStage2Running = stage.id === "stage-2" && status === "running";
 
+  const handleFixMeasurements = useCallback(() => {
+    if (!projectedStageData || stage.id !== "stage-3") return;
+    const prompt = buildFixPrompt(projectedStageData as Stage3Data);
+    if (!prompt) return;
+    setPrefill("stage-1b", prompt);
+    requestAnimationFrame(() => {
+      document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [projectedStageData, stage.id, setPrefill]);
+
+  const showFixButton =
+    stage.id === "stage-3" && isCompleted && (outcome === "fail" || outcome === "warn");
+
   const section = (
     <StageSection
       id={stage.id}
@@ -115,6 +131,18 @@ export function StageSectionRouter({
       context={stage.description}
       outcome={outcome}
       loadingHint={stage.loadingHint}
+      actions={
+        showFixButton ? (
+          <button
+            type="button"
+            onClick={handleFixMeasurements}
+            className="inline-flex items-center gap-1.5 rounded-md border border-warning/50 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning-foreground transition-colors hover:bg-warning/20"
+          >
+            <Wrench className="h-3.5 w-3.5" />
+            Fix measurements
+          </button>
+        ) : undefined
+      }
       runningContent={
         isStage2Running ? (
           <Suspense fallback={null}>
@@ -146,6 +174,7 @@ export function StageSectionRouter({
     return (
       <StageWithTrace
         stageId={stage.id}
+        interactive={stage.interactive}
         panelContent={
           <LLMTracePanel
             trace={projectedStageData.llm_trace}
