@@ -5,6 +5,11 @@ import type { StageId } from "@causal-ssm/api-types";
 import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 
+export interface RefinementPrefill {
+  stageId: StageId;
+  prompt: string;
+}
+
 interface RefinementState {
   /** Stage currently being refined (null if none). */
   refiningStageId: StageId | null;
@@ -20,6 +25,8 @@ interface RefinementState {
   pendingStagePatches: Partial<Record<StageId, Record<string, unknown>>>;
   /** In-memory refinement conversations that have not been materialized yet. */
   refinementMessages: Partial<Record<StageId, RefinementUIMessage[]>>;
+  /** Prefilled prompt to inject into a target stage's refinement input. */
+  prefill: RefinementPrefill | null;
 
   /** Called by LLMTracePanel on first refinement message. Opens the modal. */
   requestRefinement: (stageId: StageId) => void;
@@ -41,6 +48,10 @@ interface RefinementState {
   clearPendingMaterialization: (stageId: StageId) => void;
   /** Check if a given stage is invalidated. */
   isInvalidated: (stageId: StageId) => boolean;
+  /** Set a prefilled prompt targeting a specific stage's refinement input. */
+  setPrefill: (stageId: StageId, prompt: string) => void;
+  /** Clear the prefill after it has been consumed. */
+  clearPrefill: () => void;
 }
 
 const RefinementContext = createContext<RefinementState | null>(null);
@@ -82,6 +93,7 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
   const [refinementMessages, setRefinementMessages] = useState<
     Partial<Record<StageId, RefinementUIMessage[]>>
   >({});
+  const [prefill, setPrefillState] = useState<RefinementPrefill | null>(null);
 
   const requestRefinement = useCallback((stageId: StageId) => {
     if (!stageHasDownstreamStages(stageId)) {
@@ -151,6 +163,13 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setPrefill = useCallback(
+    (stageId: StageId, prompt: string) => setPrefillState({ stageId, prompt }),
+    [],
+  );
+
+  const clearPrefill = useCallback(() => setPrefillState(null), []);
+
   const isInvalidated = useCallback(
     (stageId: StageId) => {
       if (!invalidatedAfter) return false;
@@ -170,6 +189,7 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
       pendingStageId,
       pendingStagePatches,
       refinementMessages,
+      prefill,
       requestRefinement,
       confirmRefinement,
       cancelRefinement,
@@ -177,6 +197,8 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
       setPendingMaterialization,
       clearPendingMaterialization,
       isInvalidated,
+      setPrefill,
+      clearPrefill,
     }),
     [
       refiningStageId,
@@ -186,6 +208,7 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
       pendingStageId,
       pendingStagePatches,
       refinementMessages,
+      prefill,
       requestRefinement,
       confirmRefinement,
       cancelRefinement,
@@ -193,6 +216,8 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
       setPendingMaterialization,
       clearPendingMaterialization,
       isInvalidated,
+      setPrefill,
+      clearPrefill,
     ],
   );
 

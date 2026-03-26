@@ -25,10 +25,10 @@ export function StageSection({
   loadingHint,
   runningContent,
   workspaceId,
-  stageSubflowRunId,
   logFlowRunIds = [],
   invalidated = false,
   showLogViewer = true,
+  actions,
 }: {
   id?: string;
   stageId?: StageId;
@@ -43,10 +43,11 @@ export function StageSection({
   loadingHint?: string;
   runningContent?: ReactNode;
   workspaceId?: string;
-  stageSubflowRunId?: string | null;
   logFlowRunIds?: string[];
   invalidated?: boolean;
   showLogViewer?: boolean;
+  /** Optional actions rendered top-right of the card header. */
+  actions?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -71,7 +72,7 @@ export function StageSection({
       className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6 ${invalidated ? "pointer-events-none border-dashed border-muted-foreground/30" : ""}`}
     >
       <div
-        className={isCollapsible ? "flex items-start gap-3 cursor-pointer" : ""}
+        className={`flex items-start gap-3${isCollapsible ? " cursor-pointer" : ""}`}
         role={isCollapsible ? "button" : undefined}
         tabIndex={isCollapsible ? 0 : undefined}
         aria-expanded={isCollapsible ? !collapsed : undefined}
@@ -102,18 +103,21 @@ export function StageSection({
             </span>
           )}
         </div>
-        {isCollapsible && (
-          <div className="flex shrink-0 items-center gap-2 pt-1">
-            {elapsedMs !== undefined && (
-              <span className="text-xs text-muted-foreground/60 font-mono">
-                {prettyMs(elapsedMs)}
-              </span>
-            )}
-            <ChevronDown
-              className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
-            />
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-2 pt-1">
+          {actions}
+          {isCollapsible && (
+            <>
+              {elapsedMs !== undefined && (
+                <span className="text-xs text-muted-foreground/60 font-mono">
+                  {prettyMs(elapsedMs)}
+                </span>
+              )}
+              <ChevronDown
+                className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`}
+              />
+            </>
+          )}
+        </div>
       </div>
       {status === "running" && (
         <motion.div
@@ -162,7 +166,6 @@ export function StageSection({
         <StageLogViewer
           workspaceId={workspaceId}
           stageId={stageId}
-          stageSubflowRunId={stageSubflowRunId}
           logFlowRunIds={logFlowRunIds}
           status={status}
         />

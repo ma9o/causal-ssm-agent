@@ -47,9 +47,11 @@ export function LLMTracePanel({
     refiningStageId,
     pendingStagePatches,
     refinementMessages: savedRefinementMessages,
+    prefill,
     requestRefinement,
     markSettled,
     setPendingMaterialization,
+    clearPrefill,
   } = useRefinement();
 
   const canRefine = interactive && !!workspaceId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
@@ -109,11 +111,20 @@ export function LLMTracePanel({
     }
   }, [canRefine, refiningStageId, stageId, hasRefinement, isLoading, markSettled]);
 
+  // Consume prefill: inject prompt text into the input field
+  useEffect(() => {
+    if (prefill && stageId && prefill.stageId === stageId) {
+      setInput(prefill.prompt);
+      clearPrefill();
+    }
+  }, [prefill, stageId, clearPrefill]);
+
   // Send queued message after refinement is confirmed via the modal
   useEffect(() => {
     if (refiningStageId === stageId && queuedMessageRef.current) {
       const text = queuedMessageRef.current;
       queuedMessageRef.current = null;
+      setInput("");
       sendMessage({ text });
     }
   }, [refiningStageId, stageId, sendMessage]);
@@ -122,9 +133,9 @@ export function LLMTracePanel({
     e.preventDefault();
     const text = input.trim();
     if (!text || isLoading || !canRefine) return;
-    setInput("");
 
     // First message enters refinement mode. Non-terminal stages open the invalidation modal.
+    // Don't clear input yet — the user may cancel the modal.
     if (refinementNeedsActivation(stageId as StageId, refiningStageId)) {
       queuedMessageRef.current = text;
       requestRefinement(stageId as StageId);
@@ -132,6 +143,7 @@ export function LLMTracePanel({
     }
 
     // Stage is already in refinement mode, or it's terminal and can refine in place.
+    setInput("");
     sendMessage({ text });
   }
 
