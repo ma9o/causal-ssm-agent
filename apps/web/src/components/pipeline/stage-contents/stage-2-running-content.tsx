@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
-import { type PrefectLogEntry, logLevelLabel } from "@/lib/prefect-log-client";
+import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import {
@@ -9,35 +9,10 @@ import {
   useStage2Workers,
 } from "@/lib/hooks/use-stage2-workers";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-const LEVEL_COLORS: Record<number, string> = {
-  10: "text-muted-foreground/50",
-  20: "text-muted-foreground",
-  30: "text-amber-500",
-  40: "text-red-500",
-  50: "text-red-600 font-semibold",
-};
+import { useEffect, useMemo, useState } from "react";
+import { VirtualizedLogList } from "../virtualized-log-list";
 
 const MAX_RPM = 450;
-
-function LogLine({ entry }: { entry: PrefectLogEntry }) {
-  const ts = new Date(entry.timestamp).toLocaleTimeString();
-  const level = logLevelLabel(entry.level);
-  const color = LEVEL_COLORS[entry.level] ?? "text-muted-foreground";
-
-  return (
-    <div className="flex gap-2 leading-5 hover:bg-muted/30">
-      <span className="shrink-0 text-muted-foreground/40 select-none">
-        {ts}
-      </span>
-      <span className={cn("shrink-0 w-12 text-right", color)}>{level}</span>
-      <span className={cn("break-all", entry.level >= 40 && "text-red-500")}>
-        {entry.message}
-      </span>
-    </div>
-  );
-}
 
 function WorkerGrid({ workers }: { workers: Stage2Worker[] }) {
   if (workers.length === 0) return null;
@@ -127,8 +102,6 @@ export function Stage2RunningView({
   logConnectionState?: "idle" | "connecting" | "authenticating" | "streaming" | "error";
   rpm?: number;
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
   const total = workers.length;
   const completed = workers.filter((w) => w.state === "completed").length;
   const failed = workers.filter((w) => w.state === "failed").length;
@@ -143,10 +116,6 @@ export function Stage2RunningView({
         : logConnectionState === "connecting" || logConnectionState === "authenticating"
           ? "Connecting to live log stream..."
           : "Waiting for worker logs...";
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs.length]);
 
   return (
     <div className="space-y-4">
@@ -195,16 +164,11 @@ export function Stage2RunningView({
           Live log stream disconnected. Prefect `logs/out` must remain available during Stage 2.
         </p>
       )}
-      <div className="max-h-64 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-[11px] leading-relaxed">
-        {logs.length === 0 ? (
-          <p className="text-muted-foreground/50 text-center py-4">
-            {emptyMessage}
-          </p>
-        ) : (
-          logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
-        )}
-        <div ref={bottomRef} />
-      </div>
+      <VirtualizedLogList
+        logs={logs}
+        emptyMessage={emptyMessage}
+        className="border border-border/50 bg-muted/20 p-3 leading-relaxed"
+      />
     </div>
   );
 }
