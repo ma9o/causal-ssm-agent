@@ -15,8 +15,21 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const remarkPlugins = [remarkGfm];
+type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
+type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
+type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
 
-const TextPart = memo(function TextPart({ text }: { text: string }) {
+const TextPart = memo(function TextPart({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  if (streaming) {
+    return <div className="whitespace-pre-wrap text-sm leading-6 text-foreground">{text}</div>;
+  }
+
   return (
     <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-th:text-foreground prose-code:text-foreground prose-pre:bg-muted/50 prose-pre:text-foreground [&_pre]:text-xs [&_code]:text-xs [&_table]:text-xs [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm [&_pre]:my-1 [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto">
       <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
@@ -66,28 +79,40 @@ function formatToolData(data: unknown): string {
   return JSON.stringify(deepParseJson(data), null, 2);
 }
 
+function isToolMessagePart(part: UIMessage["parts"][number]): part is ToolMessagePart {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function getToolName(part: ToolMessagePart): string {
+  return part.type === "dynamic-tool" ? part.toolName : part.type.slice(5);
+}
+
 function ToolPart({
   part,
   idx,
+  className,
 }: {
-  part: Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
+  part: ToolMessagePart;
   idx: number;
+  className?: string;
 }) {
   const hasOutput = part.state === "output-available";
   const hasError = part.state === "output-error";
   const isFinished = hasOutput || hasError;
+  const toolName = getToolName(part);
 
   return (
     <div
       className={cn(
-        "mt-2 rounded-md border p-2.5",
+        "rounded-md border p-2.5",
+        className,
         hasError ? "border-destructive/30 bg-destructive/5" : "border-muted bg-muted/30",
       )}
     >
       <div className="flex items-center gap-1.5">
         <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
         <Badge variant="outline" className="text-[11px]">
-          {part.toolName}
+          {toolName}
         </Badge>
         {isFinished && (
           <Badge variant={hasError ? "destructive" : "success"} className="text-[11px]">
@@ -175,7 +200,13 @@ function UserMessage({ msg }: { msg: UIMessage }) {
   );
 }
 
-function AssistantMessage({ msg }: { msg: UIMessage }) {
+function AssistantMessage({
+  msg,
+  streaming = false,
+}: {
+  msg: UIMessage;
+  streaming?: boolean;
+}) {
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
       <div className="mb-1 flex items-center gap-1.5">
@@ -188,30 +219,45 @@ function AssistantMessage({ msg }: { msg: UIMessage }) {
         const key = `${part.type}-${i}`;
         switch (part.type) {
           case "text":
-            return <TextPart key={key} text={part.text} />;
+            return <TextPart key={key} text={part.text} streaming={streaming} />;
           case "reasoning":
             return <ReasoningPart key={key} text={part.text} idx={i} />;
           case "dynamic-tool":
-            return <ToolPart key={key} part={part} idx={i} />;
+          case "tool-validate_measurement_model":
+          case "tool-stage1b_grounding":
+          case "tool-search_literature":
+          case "tool-elicit_prior_gmm":
+            return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
           default:
-            return null;
+            return isToolMessagePart(part) ? (
+              <ToolPart key={key} part={part} idx={i} className="mt-2" />
+            ) : null;
         }
       })}
     </div>
   );
 }
 
-export const ChatMessages = memo(function ChatMessages({ messages }: { messages: UIMessage[] }) {
+export const ChatMessages = memo(function ChatMessages({
+  messages,
+  streaming = false,
+}: {
+  messages: UIMessage[];
+  streaming?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      {messages.map((msg) => {
+      {messages.map((msg, idx) => {
+        const isStreamingMessage =
+          streaming && idx === messages.length - 1 && msg.role === "assistant";
+
         switch (msg.role) {
           case "system":
             return <SystemMessage key={msg.id} msg={msg} />;
           case "user":
             return <UserMessage key={msg.id} msg={msg} />;
           case "assistant":
-            return <AssistantMessage key={msg.id} msg={msg} />;
+            return <AssistantMessage key={msg.id} msg={msg} streaming={isStreamingMessage} />;
           default:
             return null;
         }
