@@ -36,6 +36,29 @@ describe("parsePrefectStageProgressEvent", () => {
       stageId: "stage-2",
       status: "completed",
       eventTime: new Date("2026-03-10T08:06:15.000Z").getTime(),
+      occurred: "2026-03-10T08:06:15.000Z",
+    });
+  });
+
+  it("captures nested stage runtime metadata from the event payload", () => {
+    expect(
+      parsePrefectStageProgressEvent({
+        event: "causal-ssm.pipeline-stage.running",
+        occurred: "2026-03-10T08:06:15.000Z",
+        payload: {
+          stage_id: "stage-4",
+          status: "running",
+          stage_subflow_run_id: "subflow-123",
+          log_flow_run_ids: ["subflow-123"],
+        },
+      }),
+    ).toEqual({
+      stageId: "stage-4",
+      status: "running",
+      eventTime: new Date("2026-03-10T08:06:15.000Z").getTime(),
+      occurred: "2026-03-10T08:06:15.000Z",
+      stageSubflowRunId: "subflow-123",
+      logFlowRunIds: ["subflow-123"],
     });
   });
 

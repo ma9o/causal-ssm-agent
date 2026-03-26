@@ -39,13 +39,11 @@ export function StageLogViewer({
   workspaceId,
   stageId,
   status,
-  stageSubflowRunId,
   logFlowRunIds,
 }: {
   workspaceId: string;
   stageId: StageId;
   status: StageRunStatus;
-  stageSubflowRunId?: string | null;
   logFlowRunIds?: string[];
 }) {
   const {
@@ -55,7 +53,6 @@ export function StageLogViewer({
   } = useStageLogs(
     workspaceId,
     stageId,
-    stageSubflowRunId ?? null,
     logFlowRunIds ?? [],
     status,
   );

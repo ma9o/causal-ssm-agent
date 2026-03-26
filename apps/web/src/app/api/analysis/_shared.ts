@@ -1,10 +1,15 @@
 import type {
   AnalysisManifest,
-  AnalysisStageExecution,
   AnalysisStageRun,
   AnalysisStageRuns,
 } from "@/lib/api/analysis";
 import { dedupeRootFlowRunIds, getWorkspaceRunTag } from "@/lib/root-flow-runs";
+import {
+  type StageExecutionSummary,
+  STAGE_PROGRESS_EVENT_FILTER_PREFIX,
+  type StageProgressStatus,
+  summarizeStageProgressEvents,
+} from "@/lib/stage-runtime";
 import { prefectFetch } from "@/lib/server/prefect-runs";
 import { readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
@@ -18,15 +23,6 @@ interface PrefectFlowRun {
   created?: string | null;
   start_time?: string | null;
   expected_start_time?: string | null;
-}
-
-interface PrefectTaskRun {
-  id: string;
-  name: string;
-  task_key?: string | null;
-  state_type: string;
-  start_time: string | null;
-  end_time: string | null;
 }
 
 interface PrefectEventPage {
@@ -74,7 +70,7 @@ function getStageIndex(stageId: StageId): number {
 
 function getStageOwningRootFlowRunId(
   lineage: RootFlowRunLineageEntry[],
-  stageExecutionsByRootFlowRunId: Map<string, Partial<Record<StageId, AnalysisStageExecution>>>,
+  stageExecutionsByRootFlowRunId: Map<string, Partial<Record<StageId, StageExecutionSummary>>>,
   stageId: StageId,
 ): string | null {
   const stageIndex = getStageIndex(stageId);
@@ -101,47 +97,11 @@ function getStageOwningRootFlowRunId(
 
 function isStageProgressStatus(
   value: unknown,
-): value is "running" | "completed" | "failed" {
+): value is StageProgressStatus {
   return value === "running" || value === "completed" || value === "failed";
 }
 
-function compareOccurredAt(left: PrefectEvent, right: PrefectEvent): number {
-  return Date.parse(left.occurred ?? "") - Date.parse(right.occurred ?? "");
-}
-
-function summarizeStageExecution(events: PrefectEvent[]): AnalysisStageExecution | null {
-  if (events.length === 0) {
-    return null;
-  }
-
-  const orderedEvents = [...events].sort(compareOccurredAt);
-  const runningEvent = orderedEvents.find((event) => event.payload?.status === "running");
-  const terminalEvent = [...orderedEvents]
-    .reverse()
-    .find((event) => event.payload?.status === "completed" || event.payload?.status === "failed");
-  const latestEvent = terminalEvent ?? orderedEvents[orderedEvents.length - 1];
-  const latestStatus = latestEvent.payload?.status;
-
-  if (!isStageProgressStatus(latestStatus)) {
-    return null;
-  }
-
-  const startTime =
-    runningEvent?.occurred ?? terminalEvent?.occurred ?? latestEvent.occurred ?? null;
-
-  return {
-    stateType:
-      latestStatus === "running"
-        ? "RUNNING"
-        : latestStatus === "completed"
-          ? "COMPLETED"
-          : "FAILED",
-    startTime,
-    endTime: latestStatus === "running" ? null : (terminalEvent?.occurred ?? startTime),
-  };
-}
-
-function summarizeStageExecutions(events: PrefectEvent[]): Partial<Record<StageId, AnalysisStageExecution>> {
+function summarizeStageExecutions(events: PrefectEvent[]): Partial<Record<StageId, StageExecutionSummary>> {
   const byStageId = new Map<StageId, PrefectEvent[]>();
 
   for (const event of events) {
@@ -157,9 +117,19 @@ function summarizeStageExecutions(events: PrefectEvent[]): Partial<Record<StageI
 
   return Object.fromEntries(
     [...byStageId.entries()]
-      .map(([stageId, stageEvents]) => [stageId, summarizeStageExecution(stageEvents)] as const)
-      .filter((entry): entry is readonly [StageId, AnalysisStageExecution] => entry[1] !== null),
-  ) as Partial<Record<StageId, AnalysisStageExecution>>;
+      .map(([stageId, stageEvents]) => [
+        stageId,
+        summarizeStageProgressEvents(
+          stageEvents.map((event) => ({
+            status: event.payload?.status as StageProgressStatus,
+            occurred: event.occurred,
+            stageSubflowRunId: event.payload?.stage_subflow_run_id,
+            logFlowRunIds: event.payload?.log_flow_run_ids,
+          })),
+        ),
+      ] as const)
+      .filter((entry): entry is readonly [StageId, StageExecutionSummary] => entry[1] !== null),
+  ) as Partial<Record<StageId, StageExecutionSummary>>;
 }
 
 async function prefectGetJson<T>(path: string): Promise<T | null> {
@@ -249,19 +219,10 @@ function sortLineageEntries(
   });
 }
 
-async function fetchTaskRunsForRootFlowRun(rootFlowRunId: string): Promise<PrefectTaskRun[]> {
-  return (
-    (await prefectPostJson<PrefectTaskRun[]>("/task_runs/filter", {
-      flow_runs: { id: { any_: [rootFlowRunId] } },
-      sort: "EXPECTED_START_TIME_DESC",
-    })) ?? []
-  );
-}
-
 async function fetchStageProgressEventsForRootFlowRun(rootFlowRunId: string): Promise<PrefectEvent[]> {
   const page = await prefectPostJson<PrefectEventPage>("/events/filter", {
     filter: {
-      event: { prefix: ["causal-ssm.pipeline-stage."] },
+      event: { prefix: [STAGE_PROGRESS_EVENT_FILTER_PREFIX] },
       resource: { id: [`prefect.flow-run.${rootFlowRunId}`] },
       order: "ASC",
     },
@@ -271,83 +232,17 @@ async function fetchStageProgressEventsForRootFlowRun(rootFlowRunId: string): Pr
   return page?.events ?? [];
 }
 
-const STAGE_SUBFLOW_PARENT_TASK_KEY_PREFIX: Partial<Record<StageId, string>> = {
-  "stage-2": "stage2_extraction_flow",
-  "stage-4": "stage4_agentic_flow",
-  "stage-4b": "stage4b_parametric_id_flow",
-};
-
-function findStageSubflowParentTaskRun(
-  taskRuns: PrefectTaskRun[],
-  stageId: StageId,
-): PrefectTaskRun | null {
-  const taskKeyPrefix = STAGE_SUBFLOW_PARENT_TASK_KEY_PREFIX[stageId];
-  if (!taskKeyPrefix) return null;
-
-  return (
-    taskRuns.find((candidate) =>
-      candidate.task_key === taskKeyPrefix ||
-      candidate.task_key?.startsWith(`${taskKeyPrefix}-`),
-    ) ?? null
-  );
-}
-
-async function fetchStageSubflowRunId(stageId: StageId, parentTaskRunId: string): Promise<string | null> {
-  const stage = STAGES.find((candidate) => candidate.id === stageId);
-  if (!stage?.prefectSubflowName) return null;
-
-  const flowRuns = await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
-    flows: { name: { any_: [stage.prefectSubflowName] } },
-    flow_runs: { parent_task_run_id: { any_: [parentTaskRunId] } },
-    sort: "START_TIME_DESC",
-    limit: 1,
-  });
-
-  return flowRuns?.[0]?.id ?? null;
-}
-
-export async function fetchStageLogFlowRunIds(
-  stageId: StageId,
-  stageSubflowRunId: string | null,
-): Promise<string[]> {
-  if (!stageSubflowRunId) {
-    return [];
-  }
-
-  if (stageId !== "stage-2") {
-    return [stageSubflowRunId];
-  }
-
-  const childFlowRuns =
-    (await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
-      flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
-      sort: "START_TIME_ASC",
-      limit: 50,
-    })) ?? [];
-
-  return [...new Set([stageSubflowRunId, ...childFlowRuns.map((flowRun) => flowRun.id)])];
-}
-
 async function buildStageRuns(
   rootFlowRunIds: string[],
   lineage?: RootFlowRunLineageEntry[],
 ): Promise<AnalysisStageRuns> {
   const effectiveLineage = lineage ?? (await fetchRootFlowRunLineage(rootFlowRunIds));
-  const [taskRunsEntries, stageExecutionEntries] = await Promise.all([
-    Promise.all(
-      effectiveLineage.map(async ({ rootFlowRunId }) => [
-        rootFlowRunId,
-        await fetchTaskRunsForRootFlowRun(rootFlowRunId),
-      ] as const),
-    ),
-    Promise.all(
-      effectiveLineage.map(async ({ rootFlowRunId }) => [
-        rootFlowRunId,
-        summarizeStageExecutions(await fetchStageProgressEventsForRootFlowRun(rootFlowRunId)),
-      ] as const),
-    ),
-  ]);
-  const taskRunsByRootFlowRunId = new Map(taskRunsEntries);
+  const stageExecutionEntries = await Promise.all(
+    effectiveLineage.map(async ({ rootFlowRunId }) => [
+      rootFlowRunId,
+      summarizeStageExecutions(await fetchStageProgressEventsForRootFlowRun(rootFlowRunId)),
+    ] as const),
+  );
   const stageExecutionsByRootFlowRunId = new Map(stageExecutionEntries);
 
   const stageRuns = await Promise.all(
@@ -361,22 +256,15 @@ async function buildStageRuns(
         return [stage.id, emptyStageRun()] as const;
       }
 
-      const execution = stageExecutionsByRootFlowRunId.get(ownerRootFlowRunId)?.[stage.id] ?? null;
-      const subflowParentTaskRun = findStageSubflowParentTaskRun(
-        taskRunsByRootFlowRunId.get(ownerRootFlowRunId) ?? [],
-        stage.id,
-      );
-      const stageSubflowRunId = subflowParentTaskRun
-        ? await fetchStageSubflowRunId(stage.id, subflowParentTaskRun.id)
-        : null;
+      const stageExecution = stageExecutionsByRootFlowRunId.get(ownerRootFlowRunId)?.[stage.id] ?? null;
 
       return [
         stage.id,
         {
           ownerRootFlowRunId,
-          stageSubflowRunId,
-          logFlowRunIds: await fetchStageLogFlowRunIds(stage.id, stageSubflowRunId),
-          execution,
+          stageSubflowRunId: stageExecution?.stageSubflowRunId ?? null,
+          logFlowRunIds: stageExecution?.logFlowRunIds ?? [],
+          execution: stageExecution?.execution ?? null,
         },
       ] as const;
     }),

@@ -28,10 +28,6 @@ function parseBody(init?: RequestInit): Record<string, unknown> {
   return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
 }
 
-function getTaskRunRootFlowRunId(body: Record<string, unknown>): string | undefined {
-  return ((body.flow_runs as { id?: { any_?: string[] } } | undefined)?.id?.any_ ?? [])[0];
-}
-
 function getEventRootFlowRunId(body: Record<string, unknown>): string | undefined {
   const resourceId =
     ((body.filter as { resource?: { id?: string[] } } | undefined)?.resource?.id ?? [])[0];
@@ -42,15 +38,27 @@ function stageEvent(
   stageId: string,
   status: "running" | "completed" | "failed",
   occurred: string,
-  outcome?: string,
+  outcomeOrRuntime?:
+    | string
+    | {
+        outcome?: string;
+        stageSubflowRunId?: string;
+        logFlowRunIds?: string[];
+      },
 ) {
+  const runtime =
+    typeof outcomeOrRuntime === "string" ? { outcome: outcomeOrRuntime } : (outcomeOrRuntime ?? {});
   return {
     occurred,
     event: `causal-ssm.pipeline-stage.${status}`,
     payload: {
       stage_id: stageId,
       status,
-      ...(outcome ? { outcome } : {}),
+      ...(runtime.outcome ? { outcome: runtime.outcome } : {}),
+      ...(runtime.stageSubflowRunId
+        ? { stage_subflow_run_id: runtime.stageSubflowRunId }
+        : {}),
+      ...(runtime.logFlowRunIds ? { log_flow_run_ids: runtime.logFlowRunIds } : {}),
     },
   };
 }
@@ -80,18 +88,11 @@ describe("buildAnalysisManifest", () => {
         const body = parseBody(init);
         const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
         const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
-        const parentTaskRunId =
-          (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
 
         if (tags?.[0] === "workspace:user-123") {
           return jsonResponse([{ id: "resume-run" }, { id: "full-run" }]);
         }
-        if (parentTaskRunId === "stage-4-task") {
-          return jsonResponse([{ id: "stage-4-subflow" }]);
-        }
-        if (parentTaskRunId === "stage-4b-task") {
-          return jsonResponse([{ id: "stage-4b-subflow" }]);
-        }
+        return jsonResponse([]);
       }
 
       if (url === "http://localhost:4200/api/flow_runs/full-run") {
@@ -110,36 +111,6 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        const rootFlowRunId = getTaskRunRootFlowRunId(parseBody(init));
-
-        if (rootFlowRunId === "full-run") {
-          return jsonResponse([
-            {
-              id: "stage-4-task",
-              name: "stage4-agentic-0",
-              task_key: "stage4_agentic_flow-275aab65",
-              state_type: "COMPLETED",
-              start_time: "2026-03-13T18:15:00.000Z",
-              end_time: "2026-03-13T18:20:00.000Z",
-            },
-          ]);
-        }
-
-        if (rootFlowRunId === "resume-run") {
-          return jsonResponse([
-            {
-              id: "stage-4b-task",
-              name: "stage4b-parametric-id-0",
-              task_key: "stage4b_parametric_id_flow-275aab65",
-              state_type: "COMPLETED",
-              start_time: "2026-03-13T18:33:00.000Z",
-              end_time: "2026-03-13T18:35:00.000Z",
-            },
-          ]);
-        }
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
 
@@ -147,7 +118,10 @@ describe("buildAnalysisManifest", () => {
           return jsonResponse(
             eventPage([
               stageEvent("stage-3", "completed", "2026-03-13T18:18:00.000Z"),
-              stageEvent("stage-4", "running", "2026-03-13T18:18:30.000Z"),
+              stageEvent("stage-4", "running", "2026-03-13T18:18:30.000Z", {
+                stageSubflowRunId: "stage-4-subflow",
+                logFlowRunIds: ["stage-4-subflow"],
+              }),
               stageEvent("stage-4", "completed", "2026-03-13T18:20:00.000Z"),
             ]),
           );
@@ -157,7 +131,10 @@ describe("buildAnalysisManifest", () => {
           return jsonResponse(
             eventPage([
               stageEvent("stage-4", "completed", "2026-03-13T18:33:00.000Z"),
-              stageEvent("stage-4b", "running", "2026-03-13T18:33:05.000Z"),
+              stageEvent("stage-4b", "running", "2026-03-13T18:33:05.000Z", {
+                stageSubflowRunId: "stage-4b-subflow",
+                logFlowRunIds: ["stage-4b-subflow"],
+              }),
               stageEvent("stage-4b", "completed", "2026-03-13T18:35:00.000Z"),
               stageEvent("stage-5b", "running", "2026-03-13T18:35:10.000Z"),
               stageEvent("stage-5b", "completed", "2026-03-13T18:45:00.000Z", "warn"),
@@ -221,7 +198,7 @@ describe("buildAnalysisManifest", () => {
     });
   });
 
-  it("resolves child flow runs from the documented subflow parent task", async () => {
+  it("hydrates child flow runs directly from stage runtime events", async () => {
     const fetchMock = vi.fn(async (input, init) => {
       const url = String(input);
 
@@ -232,14 +209,7 @@ describe("buildAnalysisManifest", () => {
         if ((flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123") {
           return jsonResponse([{ id: "run-abc" }]);
         }
-
-        expect(body).toEqual({
-          flows: { name: { any_: ["stage4b-parametric-id"] } },
-          flow_runs: { parent_task_run_id: { any_: ["task-1"] } },
-          sort: "START_TIME_DESC",
-          limit: 1,
-        });
-        return jsonResponse([{ id: "flow-123" }]);
+        return jsonResponse([]);
       }
 
       if (url === "http://localhost:4200/api/flow_runs/run-abc") {
@@ -250,23 +220,13 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        return jsonResponse([
-          {
-            id: "task-1",
-            name: "friendly-whale",
-            task_key: "stage4b_parametric_id_flow-275aab65",
-            state_type: "COMPLETED",
-            start_time: "2026-03-13T18:33:00.000Z",
-            end_time: "2026-03-13T18:35:00.000Z",
-          },
-        ]);
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         return jsonResponse(
           eventPage([
-            stageEvent("stage-4b", "running", "2026-03-13T18:33:00.000Z"),
+            stageEvent("stage-4b", "running", "2026-03-13T18:33:00.000Z", {
+              stageSubflowRunId: "flow-123",
+              logFlowRunIds: ["flow-123"],
+            }),
             stageEvent("stage-4b", "completed", "2026-03-13T18:35:00.000Z"),
           ]),
         );
@@ -322,10 +282,6 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        return jsonResponse([]);
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
         if (rootFlowRunId === "full-run") {
@@ -351,7 +307,7 @@ describe("buildAnalysisManifest", () => {
     });
   });
 
-  it("resolves stage-2 log flow sources server-side, including nested worker flows", async () => {
+  it("hydrates stage-2 log sources directly from stage runtime events", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);
 
@@ -359,20 +315,11 @@ describe("buildAnalysisManifest", () => {
         const body = parseBody(init);
         const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
         const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
-        const parentTaskRunId =
-          (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
-        const parentFlowRunId =
-          (flowRuns?.parent_flow_run_id as { any_?: string[] } | undefined)?.any_?.[0];
 
         if (tags?.[0] === "workspace:user-123") {
           return jsonResponse([{ id: "run-abc" }]);
         }
-        if (parentTaskRunId === "stage-2-task") {
-          return jsonResponse([{ id: "stage-2-subflow" }]);
-        }
-        if (parentFlowRunId === "stage-2-subflow") {
-          return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
-        }
+        return jsonResponse([]);
       }
 
       if (url === "http://localhost:4200/api/flow_runs/run-abc") {
@@ -383,21 +330,15 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        return jsonResponse([
-          {
-            id: "stage-2-task",
-            name: "stage2-worker-extraction-0",
-            task_key: "stage2_extraction_flow-62940994",
-            state_type: "RUNNING",
-            start_time: "2026-03-13T18:33:00.000Z",
-            end_time: null,
-          },
-        ]);
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
-        return jsonResponse(eventPage([stageEvent("stage-2", "running", "2026-03-13T18:33:00.000Z")]));
+        return jsonResponse(
+          eventPage([
+            stageEvent("stage-2", "running", "2026-03-13T18:33:00.000Z", {
+              stageSubflowRunId: "stage-2-subflow",
+              logFlowRunIds: ["stage-2-subflow"],
+            }),
+          ]),
+        );
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -408,7 +349,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-2"]).toEqual({
       ownerRootFlowRunId: "run-abc",
       stageSubflowRunId: "stage-2-subflow",
-      logFlowRunIds: ["stage-2-subflow", "worker-flow-1", "worker-flow-2"],
+      logFlowRunIds: ["stage-2-subflow"],
       execution: {
         stateType: "RUNNING",
         startTime: "2026-03-13T18:33:00.000Z",
@@ -425,15 +366,11 @@ describe("buildAnalysisManifest", () => {
         const body = parseBody(init);
         const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
         const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
-        const parentTaskRunId =
-          (flowRuns?.parent_task_run_id as { any_?: string[] } | undefined)?.any_?.[0];
 
         if (tags?.[0] === "workspace:user-123") {
           return jsonResponse([{ id: "rerun-run" }, { id: "full-run" }]);
         }
-        if (parentTaskRunId === "stage-4-task") {
-          return jsonResponse([{ id: "stage-4-subflow" }]);
-        }
+        return jsonResponse([]);
       }
 
       if (url === "http://localhost:4200/api/flow_runs/full-run") {
@@ -456,27 +393,6 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        const rootFlowRunId = getTaskRunRootFlowRunId(parseBody(init));
-
-        if (rootFlowRunId === "full-run") {
-          return jsonResponse([]);
-        }
-
-        if (rootFlowRunId === "rerun-run") {
-          return jsonResponse([
-            {
-              id: "stage-4-task",
-              name: "stage4-agentic-0",
-              task_key: "stage4_agentic_flow-275aab65",
-              state_type: "COMPLETED",
-              start_time: "2026-03-13T18:55:00.000Z",
-              end_time: "2026-03-13T19:00:00.000Z",
-            },
-          ]);
-        }
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
 
@@ -493,7 +409,10 @@ describe("buildAnalysisManifest", () => {
         if (rootFlowRunId === "rerun-run") {
           return jsonResponse(
             eventPage([
-              stageEvent("stage-4", "running", "2026-03-13T18:55:00.000Z"),
+              stageEvent("stage-4", "running", "2026-03-13T18:55:00.000Z", {
+                stageSubflowRunId: "stage-4-subflow",
+                logFlowRunIds: ["stage-4-subflow"],
+              }),
               stageEvent("stage-4", "completed", "2026-03-13T19:00:00.000Z"),
             ]),
           );
@@ -570,10 +489,6 @@ describe("buildAnalysisManifest", () => {
             start_stage: "stage-1a",
           },
         });
-      }
-
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        return jsonResponse([]);
       }
 
       if (url === "http://localhost:4200/api/events/filter") {
@@ -675,14 +590,6 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        expect(parseBody(init)).toEqual({
-          flow_runs: { id: { any_: ["live-run"] } },
-          sort: "EXPECTED_START_TIME_DESC",
-        });
-        return jsonResponse([]);
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         return jsonResponse(eventPage([stageEvent("stage-0", "running", "2026-03-14T10:00:05.000Z")]));
       }
@@ -735,10 +642,6 @@ describe("buildAnalysisManifest", () => {
         });
       }
 
-      if (url === "http://localhost:4200/api/task_runs/filter") {
-        return jsonResponse([]);
-      }
-
       if (url === "http://localhost:4200/api/events/filter") {
         return jsonResponse(eventPage([]));
       }
@@ -765,7 +668,6 @@ describe("buildAnalysisManifest", () => {
           parameters: { query: "Why does this happen?" },
         }),
       )
-      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse(eventPage([])));
 
     globalThis.fetch = fetchMock as typeof fetch;
@@ -778,7 +680,7 @@ describe("buildAnalysisManifest", () => {
       rootFlowRunIds: ["run-abc"],
       latestRootFlowRunId: "run-abc",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "http://localhost:4200/api/flow_runs/filter",

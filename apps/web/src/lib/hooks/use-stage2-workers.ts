@@ -48,8 +48,7 @@ export function getStage2WorkerQueryKeyPrefix(workspaceId: string) {
 export function useStage2Workers(
   workspaceId: string,
   rootFlowRunId: string | null,
-  stageSubflowRunId: string | null,
-  initialLogFlowRunIds: string[],
+  logFlowRunIds: string[],
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
   const isActive = stageStatus === "running";
@@ -66,7 +65,7 @@ export function useStage2Workers(
     logs,
     bootstrapStatus: logBootstrapStatus,
     connectionState: logConnectionState,
-  } = useStageLogs(workspaceId, "stage-2", stageSubflowRunId, initialLogFlowRunIds, stageStatus, {
+  } = useStageLogs(workspaceId, "stage-2", logFlowRunIds, stageStatus, {
     pageSize: STAGE2_LOG_PAGE_SIZE,
   });
 
