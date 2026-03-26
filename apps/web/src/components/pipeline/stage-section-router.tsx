@@ -136,10 +136,10 @@ export function StageSectionRouter({
           <button
             type="button"
             onClick={handleFixMeasurements}
-            className="inline-flex items-center gap-1.5 rounded-md border border-warning/50 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning-foreground transition-colors hover:bg-warning/20"
+            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
           >
             <Wrench className="h-3.5 w-3.5" />
-            Fix measurements
+            Propose fixes
           </button>
         ) : undefined
       }
