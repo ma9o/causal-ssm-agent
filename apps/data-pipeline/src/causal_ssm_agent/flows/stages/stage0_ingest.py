@@ -249,7 +249,10 @@ async def agentic_ingest(
     config = get_config()
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext("stage-0") as ctx:
-            generate = ctx.make_generate(config.stage0_ingestion.model)
+            generate = ctx.make_generate(
+                config.stage0_ingestion.model,
+                max_tool_turns=config.stage0_ingestion.max_tool_turns,
+            )
 
             with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
                 if storage.is_remote():

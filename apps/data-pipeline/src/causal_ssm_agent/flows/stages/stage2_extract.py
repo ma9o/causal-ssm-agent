@@ -603,7 +603,11 @@ async def extract_window_chunk_task(
 
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
-            generate = ctx.make_generate(config.stage2_workers.model, config=generate_config)
+            generate = ctx.make_generate(
+                config.stage2_workers.model,
+                config=generate_config,
+                max_tool_turns=config.stage2_workers.max_tool_turns,
+            )
 
             started_at = perf_counter()
             try:

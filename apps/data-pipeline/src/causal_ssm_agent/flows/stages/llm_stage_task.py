@@ -14,6 +14,7 @@ from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 LLMOrchestrator = Callable[..., Awaitable[Any]]
 ModelNameGetter = Callable[[], str]
 PayloadBuilder = Callable[[Any], dict[str, Any]]
+MaxToolTurnsGetter = Callable[[], int]
 
 
 def make_llm_stage_task(
@@ -22,6 +23,7 @@ def make_llm_stage_task(
     orchestrator_fn: LLMOrchestrator,
     model_name_getter: ModelNameGetter,
     payload_builder: PayloadBuilder,
+    max_tool_turns_getter: MaxToolTurnsGetter | None = None,
     task_options: dict[str, Any] | None = None,
 ):
     """Build a Prefect task wrapper for an LLM-backed stage.
@@ -45,7 +47,13 @@ def make_llm_stage_task(
         openrouter_api_key = kwargs.pop("openrouter_api_key", None)
         with use_openrouter_api_key(openrouter_api_key):
             async with LLMStageContext(stage_id) as ctx:
-                generate = ctx.make_generate(model_name_getter())
+                if max_tool_turns_getter is None:
+                    generate = ctx.make_generate(model_name_getter())
+                else:
+                    generate = ctx.make_generate(
+                        model_name_getter(),
+                        max_tool_turns=max_tool_turns_getter(),
+                    )
                 result = await orchestrator_fn(*args, generate=generate, **kwargs)
                 return ctx.finalize(payload_builder(result))
 

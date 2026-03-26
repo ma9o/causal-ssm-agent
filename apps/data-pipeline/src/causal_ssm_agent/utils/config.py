@@ -19,6 +19,7 @@ class Stage0Config:
     """Stage 0: Agentic Data Ingestion."""
 
     model: str = "openrouter/anthropic/claude-sonnet-4"
+    max_tool_turns: int = 40
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ class Stage1Config:
     model: str
     sample_chunks: int
     chunk_size: int
+    stage1a_max_tool_turns: int = 40
+    stage1b_max_tool_turns: int = 40
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class Stage2Config:
     max_rpm: int = 450
     worker_timeout: int = 120
     chunk_size: int = 50
+    max_tool_turns: int = 40
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,7 @@ class Stage4Config:
     """Stage 4: Model Specification & Prior Elicitation (Single Agentic Conversation)."""
 
     model: str
+    max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = LiteratureSearchConfig()
     paraphrasing: ParaphrasingConfig = ParaphrasingConfig()
 
@@ -164,8 +169,6 @@ class LLMConfig:
 class PipelineBehaviorConfig:
     """Pipeline-level behavioral settings."""
 
-    max_prior_retries: int = 3
-
 
 @dataclass(frozen=True)
 class PipelineConfig:
@@ -221,6 +224,7 @@ def load_config() -> PipelineConfig:
     paraphrasing_raw = stage4_raw.get("paraphrasing", {})
     stage4_config = Stage4Config(
         model=stage4_raw["model"],
+        max_tool_turns=stage4_raw.get("max_tool_turns", Stage4Config.max_tool_turns),
         literature_search=LiteratureSearchConfig(**lit_search_raw)
         if lit_search_raw
         else LiteratureSearchConfig(),

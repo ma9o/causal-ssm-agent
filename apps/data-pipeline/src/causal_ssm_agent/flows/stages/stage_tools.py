@@ -292,7 +292,10 @@ def should_capture_stage4_output(stage_output: dict | None, feedback: str) -> bo
     if validation is not None:
         if getattr(validation, "compile_ok", True) is False:
             return False
-        if getattr(validation, "pp_checked", False) and getattr(validation, "pp_valid", True) is False:
+        if (
+            getattr(validation, "pp_checked", False)
+            and getattr(validation, "pp_valid", True) is False
+        ):
             return False
 
     if feedback.startswith("COMPILE ERROR:"):
@@ -498,7 +501,9 @@ def make_stage_tool(
         elapsed = time.monotonic() - t0
         is_success = feedback == success_feedback
 
-        should_capture = capture_when(stage_output, feedback) if capture_when else stage_output is not None
+        should_capture = (
+            capture_when(stage_output, feedback) if capture_when else stage_output is not None
+        )
         if should_capture and stage_output is not None:
             capture.update(stage_output)
         if is_success:
@@ -748,6 +753,7 @@ def make_elicit_prior_gmm_tool(
     question: str,
     model_name: str,
     n_paraphrases: int = 10,
+    max_tool_turns: int = 40,
 ) -> Any:
     """Create an ``elicit_prior_gmm`` tool for the agentic Stage 4 flow.
 
@@ -774,6 +780,7 @@ def make_elicit_prior_gmm_tool(
             question=question,
             model_name=model_name,
             n_paraphrases=n_paraphrases,
+            max_tool_turns=max_tool_turns,
         )
 
     return Tool(

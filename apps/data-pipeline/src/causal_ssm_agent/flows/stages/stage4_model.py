@@ -56,7 +56,7 @@ async def stage4_agentic_flow(
 
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext("stage-4") as ctx:
-            generate = ctx.make_generate(s4.model)
+            generate = ctx.make_generate(s4.model, max_tool_turns=s4.max_tool_turns)
 
             result = await run_stage4(
                 causal_spec=causal_spec,
@@ -68,6 +68,7 @@ async def stage4_agentic_flow(
                 enable_paraphrasing=s4.paraphrasing.enabled,
                 n_paraphrases=s4.paraphrasing.n_paraphrases,
                 gmm_model=s4.paraphrasing.gmm_model or s4.model,
+                max_tool_turns=s4.max_tool_turns,
             )
 
             materialized = materialize_stage4_result(
