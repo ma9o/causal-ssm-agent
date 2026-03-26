@@ -1,8 +1,11 @@
 # Estimation Pipeline
 
-The end-to-end estimation pipeline: from continuous-time SDE specification through discretization, likelihood computation, and Bayesian inference. For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
+This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-6-builder--runtime-ssm_compilerpy-ssm_builderpy-ssm_observation_metadatapy). The entry point is a compiled artifact containing `SSMSpec`, `SSMPriors`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
-Within the pipeline artifact lineage, this document starts after Stage 4 has produced a [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) and the compilation path has produced an executable SSM runtime. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md).
+**Reader map:**
+
+- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how likelihoods are computed via Kalman or particle filtering.
+- **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `InferenceResult`.
 
 ## 1. CT-SDE Formulation
 
@@ -97,14 +100,14 @@ The estimation pipeline composes three main libraries:
 
 ```mermaid
 flowchart LR
-    A["ModelSpec"] --> B["compile_inputs()"]
-    B --> C["SSMSpec + SSMPriors"]
-    C --> D["SSMModel.model()"]
+    A["CompiledSSMArtifact"] --> B["build_compiled_ssm_builder()"]
+    B --> C["SSMModel"]
+    C --> D["SSMModel.model(obs, times)"]
     D --> E["inference.fit()"]
     E --> F["InferenceResult"]
 ```
 
-[`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) enters from the orchestrator. `SSMModelBuilder.compile_inputs()` produces the spec and priors. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT, runs the Kalman or particle likelihood, and injects it via `numpyro.factor("log_likelihood", ll)`. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
+A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-ssm_compilerpy) arrives from the compilation pipeline. `build_compiled_ssm_builder()` deserializes it into a live `SSMModel`. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT (§2), runs the Kalman or particle likelihood (§3), and injects it via `numpyro.factor("log_likelihood", ll)`. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
 

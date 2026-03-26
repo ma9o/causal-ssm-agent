@@ -102,8 +102,8 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 ## Prior Elicitation
 
-- **Riegler et al. (2025).** Riegler, L., et al. (2025). Prior Calibration Vulnerability in LLM-Elicited Priors. *Scientific Reports*, 15, 18425. https://doi.org/10.1038/s41598-025-18425-9
+- **Riegler et al. (2025).** Riegler, M. A., Hellton, K. H., Thambawita, V., & Hammer, H. L. (2025). Using Large Language Models to Suggest Informative Prior Distributions in Bayesian Regression Analysis. *Scientific Reports*, 15, 33386. https://doi.org/10.1038/s41598-025-18425-9
 
-- **Capstick et al. (2024).** Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation. arXiv:2411.17284. https://arxiv.org/abs/2411.17284
+- **Capstick et al. (2024).** Capstick, A., Krishnan, R. G., & Barnaghi, P. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling. arXiv:2411.17284. https://arxiv.org/abs/2411.17284
 
-- **Huang (2025).** Huang, Y. (2025). Gaussian Mixture Aggregation for Paraphrased Elicitation. arXiv:2508.03766. https://arxiv.org/abs/2508.03766
+- **Huang (2025).** Huang, Y. (2025). LLM-Prior: A Framework for Knowledge-Driven Prior Elicitation and Aggregation. arXiv:2508.03766. https://arxiv.org/abs/2508.03766
