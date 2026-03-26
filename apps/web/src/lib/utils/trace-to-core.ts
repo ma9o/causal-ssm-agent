@@ -7,6 +7,7 @@
  */
 import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
 import type { AssistantModelMessage, ModelMessage, UIMessage } from "ai";
+import { normalizeTraceToolCall } from "./trace-tool-call";
 
 export interface RefinementUsage {
   inputTokens?: number;
@@ -67,7 +68,7 @@ export function traceToModelMessages(messages: TraceMessage[]): ModelMessage[] {
             type: "tool-call";
             toolCallId: string;
             toolName: string;
-            args: unknown;
+            input: unknown;
           }
       > = [];
 
@@ -79,14 +80,16 @@ export function traceToModelMessages(messages: TraceMessage[]): ModelMessage[] {
       }
       if (msg.tool_calls) {
         for (const tc of msg.tool_calls) {
+          const normalized = normalizeTraceToolCall(tc);
+          if (!normalized) {
+            continue;
+          }
+
           content.push({
             type: "tool-call",
-            toolCallId: tc.id,
-            toolName: tc.name,
-            input:
-              typeof tc.arguments === "string"
-                ? JSON.parse(tc.arguments)
-                : tc.arguments,
+            toolCallId: normalized.toolCallId,
+            toolName: normalized.toolName,
+            input: normalized.input,
           });
         }
       }

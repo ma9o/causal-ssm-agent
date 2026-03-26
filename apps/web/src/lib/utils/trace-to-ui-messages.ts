@@ -9,6 +9,7 @@
  */
 import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
 import type { UIMessage } from "ai";
+import { normalizeTraceToolCall } from "./trace-tool-call";
 
 type Part = UIMessage["parts"][number];
 
@@ -63,14 +64,19 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
       const toolParts: Map<string, Part> = new Map();
       if (msg.tool_calls) {
         for (const tc of msg.tool_calls) {
+          const normalized = normalizeTraceToolCall(tc);
+          if (!normalized) {
+            continue;
+          }
+
           const part: Part = {
             type: "dynamic-tool" as const,
-            toolCallId: tc.id,
-            toolName: tc.name,
+            toolCallId: normalized.toolCallId,
+            toolName: normalized.toolName,
             state: "input-available" as const,
-            input: tc.arguments,
+            input: normalized.input,
           };
-          toolParts.set(tc.id, part);
+          toolParts.set(normalized.toolCallId, part);
           parts.push(part);
         }
       }

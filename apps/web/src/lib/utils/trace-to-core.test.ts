@@ -58,4 +58,50 @@ describe("traceToModelMessages", () => {
 
     expect(modelMessageSchema.array().parse(messages)).toEqual(messages);
   });
+
+  it("accepts persisted nested function tool call shapes", () => {
+    const messages = traceToModelMessages([
+      {
+        role: "assistant",
+        content: "I repaired the measurement model.",
+        tool_calls: [
+          {
+            id: "call-2",
+            type: "function",
+            function: {
+              name: "validate_measurement_model",
+              arguments: JSON.stringify({
+                measurement_json: '{"model_clock":"1d","indicators":[]}',
+              }),
+            },
+          },
+        ],
+        tool_is_error: false,
+      },
+      {
+        role: "tool",
+        content: "VALID",
+        tool_call_id: "call-2",
+        tool_name: "validate_measurement_model",
+        tool_result: "VALID",
+        tool_is_error: false,
+      },
+    ]);
+
+    expect(modelMessageSchema.array().parse(messages)).toEqual(messages);
+    expect(messages[0]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "I repaired the measurement model." },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "validate_measurement_model",
+          input: {
+            measurement_json: '{"model_clock":"1d","indicators":[]}',
+          },
+        },
+      ],
+    });
+  });
 });
