@@ -27,7 +27,7 @@ flowchart LR
 
 **Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, auto-selected inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
 
-**T-rule:** A fast necessary-condition check that compares the number of free parameters against a conservative lower bound on the number of independent moment conditions available from the data. In SEM terms this is a `t`-rule or positive-degrees-of-freedom screen, which is necessary but not sufficient for identification[^hunter2025]. For a model with `p` manifest variables observed at `T` time points, the available moments are:
+**T-rule:** A fast necessary-condition check that compares the number of free parameters against a conservative lower bound on the number of independent moment conditions available from the data. In SEM terms this borrows the `t`-rule or positive-degrees-of-freedom intuition[^hunter2025]. For this longitudinal SSM setting, the stage uses the following conservative project-specific lower-bound heuristic for available moments:
 
 - `p` means
 - `p(p+1)/2` contemporaneous covariance entries
@@ -35,9 +35,9 @@ flowchart LR
 
 If the free-parameter count exceeds this lower bound, the model is at high risk of non-identifiability. This screen is warning-only: passing does not guarantee identification, and failing does not halt inference. When the T-rule fails, the stage short-circuits and skips the more expensive sensitivity and profile-likelihood analyses.
 
-**Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is the vector of predicted observation means and variances from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) (no data update) and `θ` is the unconstrained parameter vector. This follows the same logic as the Jacobian mapping from free parameters to model-implied moments in Hunter et al. (2025)[^hunter2025]: near-zero singular values reveal locally non-identifiable parameter directions.
+**Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is the vector of predicted observation means and variances from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) (no data update) and `θ` is the unconstrained parameter vector. This follows the same general logic as the Jacobian mapping from free parameters to model-implied moments in Hunter et al. (2025)[^hunter2025]: near-zero singular values reveal locally non-identifiable parameter directions.
 
-*Raw and normalized variants.* The analysis runs both raw and normalized Jacobians. The normalized variant scales columns by prior standard deviation and rows by observation-noise scale, giving thresholds in interpretable units.
+*Raw and normalized variants.* The analysis runs both raw and normalized Jacobians. The normalized variant scales columns by prior standard deviation and rows by observation-noise scale, giving thresholds in interpretable units. The normalized thresholds below are conservative project heuristics rather than cutoffs taken from a standard reference.
 
 *Per-parameter classification.* Each parameter's identifiability is classified via its effective singular value — the smallest singular value in which the parameter participates with weight > 0.1:
 
@@ -103,5 +103,5 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 | `auto_method` | `str` | Current auto-selected inference method per the [structural routing](../reference/inference-routing.md#structural-routing) decision tree: `"nuts"` or `"laplace_em"` |
 | `first_pass_rb` | `FirstPassRBResult` | [First-pass Rao-Blackwellization](../reference/inference-routing.md#first-pass-rao-blackwellization) plan with per-variable Kalman/particle assignments |
 
-[^hunter2025]: Hunter, M. D., Garrison, S. M., Burt, S. A., & Rodgers, J. L. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*. [Bibliography entry](../reference/bibliography.md)
+[^hunter2025]: Hunter, M. D., Kirkpatrick, R. M., & Neale, M. C. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*, 90(2), 418-441. [Bibliography entry](../reference/bibliography.md)
 [^raue2009]: Raue, A., et al. (2009). Structural and Practical Identifiability Analysis of Partially Observed Dynamical Models. *Bioinformatics*, 25(15), 1923–1929. [Bibliography entry](../reference/bibliography.md)

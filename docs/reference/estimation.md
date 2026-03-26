@@ -30,7 +30,7 @@ where:
 - `Lambda` is the `n_manifest x n_latent` **factor loading matrix** mapping latent states to observed indicators.
 - `mu` is the `n_manifest x 1` **manifest intercept**.
 - `R` is the `n_manifest x n_manifest` **measurement error covariance** (Cholesky-parameterized internally).
-- `F` is the observation noise family -- Gaussian by default, but also Poisson (log-link), Student-t, Gamma (log-link), Bernoulli (logit-link), Negative Binomial (log-link), or Beta (logit-link).
+- `F` is the [observation noise family](model-spec/likelihoods.md#distribution-families) with its associated [link function](model-spec/likelihoods.md#link-functions). Gaussian (identity link) by default; see the [dtype-to-distribution mapping](model-spec/likelihoods.md#dtype-to-distribution-mapping) for all supported families.
 
 ## 2. Discretization (CT to DT)
 

@@ -40,7 +40,7 @@ In a formative model, indicators cause the construct, as in examples like socioe
 - Single-indicator constructs may have attenuated coefficients biased toward zero
 - Both are "observed" for the purpose of causal identification; the distinction is about precision, not identifiability
 
-**Justification:** Separating measurement error from true construct variance requires multiple indicators to identify the factor structure. With a single indicator, the two sources of variance are fundamentally confounded without external reliability information.
+**Justification:** Separating measurement error from true construct variance requires multiple indicators to identify the factor structure[^bollen1989]. With a single indicator, the two sources of variance are fundamentally confounded without external reliability information.
 
 ## A8. Indicator Residuals Are Temporally Independent
 

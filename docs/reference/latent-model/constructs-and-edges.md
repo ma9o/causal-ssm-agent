@@ -21,14 +21,14 @@ Constructs are classified along two dimensions:
 
 This yields four construct types:
 
-| Role | Temporal | AR Structure | Example |
-|---|---|---|---|
-| Exogenous | Time-varying | None (conditioned on) | Weather, day of week |
-| Exogenous | Time-invariant | None (conditioned on) | Age, gender, person intercept |
-| Endogenous | Time-varying | AR(1) | Mood, stress, sleep quality |
-| Endogenous | Time-invariant | None | Baseline severity, stable trait outcome |
+| Role | Temporal | Example |
+|---|---|---|
+| Exogenous | Time-varying | Weather, day of week |
+| Exogenous | Time-invariant | Age, gender, person intercept |
+| Endogenous | Time-varying | Mood, stress, sleep quality |
+| Endogenous | Time-invariant | Baseline severity, stable trait outcome |
 
-Edge restriction: time-invariant constructs may only have time-invariant parents. A time-varying construct cannot cause a time-invariant construct, because the child is fixed within person over the modeled window. See [A5](../latent-model/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states) for the full rationale and runtime implementation (drift ≈ 0, diffusion ≈ 0).
+AR structure and edge restrictions follow from the [latent-model assumptions](assumptions.md): endogenous time-varying constructs receive [AR(1)](assumptions.md#a3-markov-property-for-temporal-dynamics), and time-invariant constructs may only have [time-invariant parents](assumptions.md#a5-time-invariant-latents-as-subject-level-static-states).
 
 ## Temporal Semantics
 
@@ -36,20 +36,12 @@ Edge restriction: time-invariant constructs may only have time-invariant parents
 
 All time-varying constructs currently share a single timescale set by the [Stage 1b `model_clock`](../../pipeline/01b-measurement-identifiability.md#observation-windows-and-model-clock). Time-invariant constructs have no temporal granularity of their own.
 
-### Autoregressive Structure
-
-- Endogenous time-varying constructs receive AR(1) under [A3](assumptions.md#a3-markov-property-for-temporal-dynamics).
-- Exogenous constructs do not receive AR structure; downstream models condition on their values.
-- Indicators do not receive AR structure; temporal dependence in indicator series is attributed to construct dynamics, and indicator residuals are assumed iid under [A8](../measurement-model/assumptions.md#a8-indicator-residuals-are-temporally-independent).
-
 ### Edge Lag Rules
 
-Two lag values are valid under the [Markov property](assumptions.md#a3-markov-property-for-temporal-dynamics):
+Two lag values are valid under the [Markov property (A3)](assumptions.md#a3-markov-property-for-temporal-dynamics):
 
-- **Lag = 0:** Contemporaneous effect within the same time index. Under [A4b](assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), this is not a valid encoding for edges between constructs that are both endogenous and time-varying.
-- **Lag = 1 model-clock tick:** Lagged effect from `t - 1` to `t`.
-
-Higher-order lags (`t - 2`, `t - 3`, and so on) are not permitted. Under Markovian dynamics, `t - 1` is a sufficient statistic for all prior history, so information from `t - 2` is already propagated through the AR(1) path.
+- **Lag = 0:** Contemporaneous effect within the same time index. Under [A4b](assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), not valid for edges between constructs that are both endogenous and time-varying.
+- **Lag = 1 model-clock tick:** Lagged effect from `t - 1` to `t`. Higher-order lags are not permitted because [A3](assumptions.md#a3-markov-property-for-temporal-dynamics) makes `t - 1` a sufficient statistic for all prior history.
 
 ## Edges
 

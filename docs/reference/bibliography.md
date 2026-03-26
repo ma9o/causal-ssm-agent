@@ -14,13 +14,13 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 ## Causal Inference and Identification
 
-- **Shpitser & Pearl (2006).** Shpitser, I., & Pearl, J. (2006). Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models. *AAAI*, 1955–1960.
+- **Shpitser & Pearl (2006).** Shpitser, I., & Pearl, J. (2006). Identification of Joint Interventional Distributions in Recursive Semi-Markovian Causal Models. *AAAI*, 1955–1960. https://aaai.org/Papers/AAAI/2006/AAAI06-191.pdf
 
 - **Pearl (2019).** Pearl, J. (2019). The Seven Tools of Causal Inference, with Reflections on Machine Learning. *Communications of the ACM*, 62(3), 54–60. https://doi.org/10.1145/3241036
 
-- **Pearl, Glymour & Jewell (2016).** Pearl, J., Glymour, M., & Jewell, N. P. (2016). *Causal Inference in Statistics: A Primer*. Wiley.
+- **Pearl, Glymour & Jewell (2016).** Pearl, J., Glymour, M., & Jewell, N. P. (2016). *Causal Inference in Statistics: A Primer*. Wiley. https://bayes.cs.ucla.edu/PRIMER/
 
-- **Jahn, Karnik & Schulman (2025).** Jahn, E., Karnik, K., & Schulman, L. J. (2025). Causal Identification in Time Series Models. arXiv:2504.20172.
+- **Jahn, Karnik & Schulman (2025).** Jahn, E., Karnik, K., & Schulman, L. J. (2025). Causal Identification in Time Series Models. arXiv:2504.20172. https://arxiv.org/abs/2504.20172
 
 - **Miao, Geng & Tchetgen Tchetgen (2018).** Miao, W., Geng, Z., & Tchetgen Tchetgen, E. J. (2018). Identifying Causal Effects with Proxy Variables of an Unmeasured Confounder. *Biometrika*, 105(4), 987–993. https://doi.org/10.1093/biomet/asy038
 
@@ -44,23 +44,25 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 - **Bell (1994).** Bell, B. M. (1994). The Iterated Kalman Smoother as a Gauss-Newton Method. *SIAM Journal on Optimization*, 4(3), 626–636. https://doi.org/10.1137/0804035
 
-- **Doucet et al. (2000).** Doucet, A., de Freitas, N., Murphy, K., & Russell, S. (2000). Rao-Blackwellised Particle Filtering for Dynamic Bayesian Networks. *UAI*, 176–183.
+- **Doucet et al. (2000).** Doucet, A., de Freitas, N., Murphy, K., & Russell, S. (2000). Rao-Blackwellised Particle Filtering for Dynamic Bayesian Networks. *UAI*, 176–183. https://ora.ox.ac.uk/objects/uuid:7dbf5fe6-8e61-4e74-9075-cbacd9585527
 
 ## Bayesian Workflow and Inference
 
-- **Gelman et al. (2020).** Gelman, A., Vehtari, A., Simpson, D., Margossian, C. C., Carpenter, B., Yao, Y., Kennedy, L., Gabry, J., Bürkner, P.-C., & Modrák, M. (2020). Bayesian Workflow. arXiv:2011.01808.
+- **Gelman et al. (2020).** Gelman, A., Vehtari, A., Simpson, D., Margossian, C. C., Carpenter, B., Yao, Y., Kennedy, L., Gabry, J., Bürkner, P.-C., & Modrák, M. (2020). Bayesian Workflow. arXiv:2011.01808. https://arxiv.org/abs/2011.01808
 
-- **Hoffman & Gelman (2014).** Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo. *JMLR*, 15, 1593–1623.
+- **Gelman et al. (2008).** Gelman, A., Jakulin, A., Pittau, M. G., & Su, Y.-S. (2008). A Weakly Informative Default Prior Distribution for Logistic and Other Regression Models. *The Annals of Applied Statistics*, 2(4), 1360–1383. https://doi.org/10.1214/08-AOAS191
 
-- **Betancourt (2017).** Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo. arXiv:1701.02434.
+- **Hoffman & Gelman (2014).** Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo. *JMLR*, 15, 1593–1623. https://jmlr.org/papers/v15/hoffman14a.html
+
+- **Betancourt (2017).** Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo. arXiv:1701.02434. https://arxiv.org/abs/1701.02434
 
 - **Blei, Kucukelbir & McAuliffe (2017).** Blei, D. M., Kucukelbir, A., & McAuliffe, J. D. (2017). Variational Inference: A Review for Statisticians. *JASA*, 112(518), 859–877. https://doi.org/10.1080/01621459.2017.1285773
 
-- **Kucukelbir et al. (2017).** Kucukelbir, A., Tran, D., Ranganath, R., Gelman, A., & Blei, D. M. (2017). Automatic Differentiation Variational Inference. *JMLR*, 18(14), 1–45.
+- **Kucukelbir et al. (2017).** Kucukelbir, A., Tran, D., Ranganath, R., Gelman, A., & Blei, D. M. (2017). Automatic Differentiation Variational Inference. *JMLR*, 18(14), 1–45. https://jmlr.org/papers/v18/16-107.html
 
-- **Archer et al. (2015).** Archer, E., Park, I. M., Buesing, L., Cunningham, J. P., & Paninski, L. (2015). Black Box Variational Inference for State Space Models. arXiv:1511.07367.
+- **Archer et al. (2015).** Archer, E., Park, I. M., Buesing, L., Cunningham, J. P., & Paninski, L. (2015). Black Box Variational Inference for State Space Models. arXiv:1511.07367. https://arxiv.org/abs/1511.07367
 
-- **Krishnan, Shalit & Sontag (2017).** Krishnan, R. G., Shalit, U., & Sontag, D. (2017). Structured Inference Networks for Nonlinear State Space Models. *AAAI Conference on Artificial Intelligence*.
+- **Krishnan, Shalit & Sontag (2017).** Krishnan, R. G., Shalit, U., & Sontag, D. (2017). Structured Inference Networks for Nonlinear State Space Models. *AAAI Conference on Artificial Intelligence*. https://arxiv.org/abs/1609.09869
 
 ## Sequential Monte Carlo
 
@@ -70,9 +72,9 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 - **Andrieu, Doucet & Holenstein (2010).** Andrieu, C., Doucet, A., & Holenstein, R. (2010). Particle Markov Chain Monte Carlo Methods. *JRSS-B*, 72(3), 269–342. https://doi.org/10.1111/j.1467-9868.2009.00736.x
 
-- **Murphy et al. (2025).** Murphy, J., Boustati, A., Gao, F., & Sherlock, C. (2025). Hess-MC²: Sequential Monte Carlo Squared Using Hessian Information and Second Order Proposals.
+- **Murphy et al. (2025).** Murphy, J., Boustati, A., Gao, F., & Sherlock, C. (2025). Hess-MC²: Sequential Monte Carlo Squared Using Hessian Information and Second Order Proposals. https://arxiv.org/abs/2507.07461
 
-- **Lindsten, Jordan & Schön (2014).** Lindsten, F., Jordan, M. I., & Schön, T. B. (2014). Particle Gibbs with Ancestor Sampling. *JMLR*, 15, 2145–2184.
+- **Lindsten, Jordan & Schön (2014).** Lindsten, F., Jordan, M. I., & Schön, T. B. (2014). Particle Gibbs with Ancestor Sampling. *JMLR*, 15, 2145–2184. https://jmlr.org/beta/papers/v15/lindsten14a.html
 
 - **Naesseth et al. (2018).** Naesseth, C., Linderman, S., Ranganath, R., & Blei, D. M. (2018). Variational Sequential Monte Carlo. *Proceedings of Machine Learning Research*, 84, 968–977. https://proceedings.mlr.press/v84/naesseth18a.html
 
@@ -80,7 +82,7 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 - **Tanner & Wong (1987).** Tanner, M. A., & Wong, W. H. (1987). The Calculation of Posterior Distributions by Data Augmentation. *JASA*, 82(398), 528–540. https://doi.org/10.1080/01621459.1987.10478458
 
-- **Zhang et al. (2022).** Zhang, L., Carpenter, B., Gelman, A., & Vehtari, A. (2022). Pathfinder: Parallel Quasi-Newton Variational Inference. *JMLR*, 23(306), 1–49.
+- **Zhang et al. (2022).** Zhang, L., Carpenter, B., Gelman, A., & Vehtari, A. (2022). Pathfinder: Parallel Quasi-Newton Variational Inference. *JMLR*, 23(306), 1–49. https://jmlr.org/papers/v23/21-0889.html
 
 ## Model Diagnostics
 
@@ -96,12 +98,12 @@ Central literature reference for the causal-ssm-agent documentation. Individual 
 
 ## Parametric Identification
 
-- **Hunter et al. (2025).** Hunter, M. D., Garrison, S. M., Burt, S. A., & Rodgers, J. L. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*. https://doi.org/10.1017/psy.2025.4
+- **Hunter et al. (2025).** Hunter, M. D., Kirkpatrick, R. M., & Neale, M. C. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*, 90(2), 418–441. https://doi.org/10.1017/psy.2025.19
 
 ## Prior Elicitation
 
 - **Riegler et al. (2025).** Riegler, L., et al. (2025). Prior Calibration Vulnerability in LLM-Elicited Priors. *Scientific Reports*, 15, 18425. https://doi.org/10.1038/s41598-025-18425-9
 
-- **Capstick et al. (2024).** Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation. arXiv:2411.17284.
+- **Capstick et al. (2024).** Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation. arXiv:2411.17284. https://arxiv.org/abs/2411.17284
 
-- **Huang (2025).** Huang, Y. (2025). Gaussian Mixture Aggregation for Paraphrased Elicitation. arXiv:2508.03766.
+- **Huang (2025).** Huang, Y. (2025). Gaussian Mixture Aggregation for Paraphrased Elicitation. arXiv:2508.03766. https://arxiv.org/abs/2508.03766

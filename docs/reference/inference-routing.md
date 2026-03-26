@@ -52,7 +52,7 @@ Two critical observations:
 
 1. **Our CT-LTI framework guarantees linear dynamics** (drift is always a matrix A). So "linear dynamics" is always satisfied. The IEKS path is blocked only when the emission log-density isn't twice-differentiable.
 
-2. **All seven emission families have twice-differentiable log-densities** (Gaussian, Poisson, Student-t, Gamma, Bernoulli, Negative Binomial, Beta). So laplace\_em is structurally available for every non-Kalman model we support -- it just might not be *accurate* enough for highly non-Gaussian state posteriors (e.g., very sparse count data).
+2. **All [supported emission families](model-spec/likelihoods.md#distribution-families) have twice-differentiable log-densities.** So laplace\_em is structurally available for every non-Kalman model we support -- it just might not be *accurate* enough for highly non-Gaussian state posteriors (e.g., very sparse count data).
 
 ### Axis C: Parameter Posterior Method
 

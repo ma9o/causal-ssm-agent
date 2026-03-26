@@ -18,6 +18,8 @@ Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causal
 
 Stage 4 is the first point where the pipeline reasons about statistical model form. Earlier stages defined what to measure and how.
 
+The intended ownership boundary for Stage 4 is documented in the [LLM decision surface reference](../reference/llm-decision-surface.md), which distinguishes semantic judgments that should remain LLM-mediated from numerical calibration work that should move into deterministic code.
+
 ## Process
 
 Stage 4 runs in two phases — model specification followed by prior elicitation — each gated by a validation loop.
@@ -38,7 +40,7 @@ flowchart LR
 Temporal and measurement structure fixed by the skeleton:
 
 - Endogenous time-varying constructs receive AR(1) dynamics under the [Stage 1a](01a-latent-model.md) Markov commitment
-- Single-indicator constructs fix λ = 1; multi-indicator constructs use factor-analysis structure with the first or reference loading fixed for scale identification
+- Single-indicator constructs fix λ = 1; multi-indicator constructs use factor-analysis structure with the first or reference loading fixed for scale identification[^bollen1989]
 - When cause and effect operate at different granularities, finer-to-coarser effects are aggregated with the indicator's declared operator; coarser-to-finer values are broadcast across governed finer timepoints
 
 **Modeling Decisions:** The LLM resolves two sets of choices left open by the skeleton:
@@ -58,6 +60,8 @@ These decisions are merged with the skeleton to produce a complete `ModelSpec`.
 
 All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
+The current implementation still gives the LLM a broader prior-authoring role than the [recommended Stage 4 boundary](../reference/llm-decision-surface.md#stage-4-recommended-split). That reference describes the target direction: deterministic prior-family policy and time-scale normalization, with the LLM focused on ambiguous measurement choices and causal-effect intent.
+
 *Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies that inform prior calibration. Evidence synthesis such as meta-analyses or closely matched longitudinal studies can justify narrower priors only when the estimand, population, and timescale align; otherwise the safer default is a weaker prior checked by prior predictive simulation[^gelman2020], following the standard Bayesian workflow[^gelman2013].
 
 *Paraphrased elicitation (optional):* To reduce overconfidence from any single prompt wording, the pipeline can run multiple paraphrased LLM calls for a parameter and aggregate via simple pooling or a Gaussian mixture model[^huang2025], following the AutoElicit strategy[^capstick2024]. Disabled by default for cost reasons.
@@ -75,8 +79,8 @@ All priors are specified on the discrete-time scale at the model clock interval;
 
 - *Numerical health*: no NaN/Inf values in simulated sites; no extreme values (|value| > 10⁶)
 - *Constraint satisfaction*: positive-constrained parameters (diffusion, observation variance, initial-state variance) must not violate their support
-- *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws, ensuring stationary dynamics
-- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of Gelman et al. (2020)[^gelman2020], aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to this kind of scale miscalibration[^riegler2025].
+- *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws, ensuring stationary dynamics for the linear SDE[^sarkka2019]
+- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation[^sarkka2019] — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of Gelman et al. (2020)[^gelman2020], aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to this kind of scale miscalibration[^riegler2025].
 
 ### Example
 
@@ -108,6 +112,8 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)
+[^bollen1989]: Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. [Bibliography entry](../reference/bibliography.md)
+[^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](../reference/bibliography.md)
 [^huang2025]: Huang, Y. (2025). Gaussian Mixture Aggregation for Paraphrased Elicitation. arXiv:2508.03766. [Bibliography entry](../reference/bibliography.md)
 [^capstick2024]: Capstick, A., et al. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation. arXiv:2411.17284. [Bibliography entry](../reference/bibliography.md)
 [^riegler2025]: Riegler, L., et al. (2025). Prior Calibration Vulnerability in LLM-Elicited Priors. *Scientific Reports*, 15, 18425. [Bibliography entry](../reference/bibliography.md)

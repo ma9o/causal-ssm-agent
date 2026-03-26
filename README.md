@@ -39,7 +39,7 @@ The orchestrator LLM translates these informal queries into formal causal struct
 
 See [`docs/index.md`](docs/index.md) for the documentation entrypoint.
 
-References are colocated with the docs that use them rather than collected in a standalone bibliography page.
+References are colocated with the docs that use them and mirrored in the [standalone bibliography page](docs/reference/bibliography.md) for convenience.
 
 - **[Pipeline](docs/pipeline.md)** - Ordered stage map plus the stage docs that own emitted artifacts
 - **[Reference](docs/reference/)** - Assumptions, cross-cutting concepts, compilation, estimation, inference routing, and execution semantics
