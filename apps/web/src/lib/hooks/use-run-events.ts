@@ -371,6 +371,7 @@ export function useRunEvents(
 
   usePrefectSocketSubscription<PrefectEventSocketMessage>({
     enabled: !isMockMode() && !!workspaceId && !!activeRootFlowRunId,
+    subscriptionKey: activeRootFlowRunId ?? "",
     getSocketUrl: () => getPrefectEventsUrl(window.location.origin),
     buildFilterMessage: () => buildPrefectEventFilterMessage(activeRootFlowRunId as string),
     onMessage: handlePrefectEventMessage,

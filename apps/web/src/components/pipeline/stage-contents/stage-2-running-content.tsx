@@ -1,12 +1,13 @@
 "use client";
 
+import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { type PrefectLogEntry, logLevelLabel } from "@/lib/prefect-log-client";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import {
   type Stage2Worker,
   useStage2Workers,
 } from "@/lib/hooks/use-stage2-workers";
-import { type PrefectLogEntry, logLevelLabel } from "@/lib/hooks/use-stage-logs";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -210,19 +211,16 @@ export function Stage2RunningView({
 
 export default function Stage2RunningContent({
   workspaceId,
-  rootFlowRunId,
   stageStatus,
-  logFlowRunIds,
+  stageRun,
 }: {
   workspaceId: string;
-  rootFlowRunId?: string | null;
   stageStatus: StageRunStatus;
-  logFlowRunIds?: string[];
+  stageRun?: AnalysisStageRun | null;
 }) {
   const { workers, logs, logBootstrapStatus, logConnectionState } = useStage2Workers(
     workspaceId,
-    rootFlowRunId ?? null,
-    logFlowRunIds ?? [],
+    stageRun,
     stageStatus,
   );
   const rpm = useRpm(workers);

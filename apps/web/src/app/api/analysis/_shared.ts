@@ -10,6 +10,7 @@ import {
   type StageProgressStatus,
   summarizeStageProgressEvents,
 } from "@/lib/stage-runtime";
+import { getStageLogScopePolicy } from "@/lib/stage-observability";
 import { prefectFetch } from "@/lib/server/prefect-runs";
 import { readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
@@ -47,7 +48,7 @@ function emptyStageRun(): AnalysisStageRun {
   return {
     ownerRootFlowRunId: null,
     stageSubflowRunId: null,
-    logFlowRunIds: [],
+    initialLogFlowRunIds: [],
     execution: null,
   };
 }
@@ -232,6 +233,28 @@ async function fetchStageProgressEventsForRootFlowRun(rootFlowRunId: string): Pr
   return page?.events ?? [];
 }
 
+export async function resolveStageLogScopeFlowRunIds(
+  stageId: StageId,
+  stageSubflowRunId: string | null,
+): Promise<string[]> {
+  if (!stageSubflowRunId) {
+    return [];
+  }
+
+  if (getStageLogScopePolicy(stageId) === "subflow") {
+    return [stageSubflowRunId];
+  }
+
+  const childFlowRuns =
+    (await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
+      flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
+      sort: "START_TIME_ASC",
+      limit: 50,
+    })) ?? [];
+
+  return [...new Set([stageSubflowRunId, ...childFlowRuns.map((flowRun) => flowRun.id)])];
+}
+
 async function buildStageRuns(
   rootFlowRunIds: string[],
   lineage?: RootFlowRunLineageEntry[],
@@ -263,7 +286,7 @@ async function buildStageRuns(
         {
           ownerRootFlowRunId,
           stageSubflowRunId: stageExecution?.stageSubflowRunId ?? null,
-          logFlowRunIds: stageExecution?.logFlowRunIds ?? [],
+          initialLogFlowRunIds: stageExecution?.initialLogFlowRunIds ?? [],
           execution: stageExecution?.execution ?? null,
         },
       ] as const;

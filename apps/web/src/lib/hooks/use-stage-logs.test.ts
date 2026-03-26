@@ -5,7 +5,7 @@ import {
   fetchIncrementalPrefectLogs,
   mergePrefectLogs,
   type PrefectLogEntry,
-} from "./use-stage-logs";
+} from "@/lib/prefect-log-client";
 
 const originalFetch = globalThis.fetch;
 
@@ -134,6 +134,53 @@ describe("fetchIncrementalPrefectLogs", () => {
       sort: "TIMESTAMP_ASC",
       limit: 2,
       logs: { flow_run_id: { any_: ["run-1"] } },
+    });
+  });
+
+  it("can restart paging from offset zero and merge against cached logs when the scope widens", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse([
+          logEntry("log-1", "2026-03-22T10:00:00.000Z"),
+          logEntry("log-2", "2026-03-22T10:00:01.000Z"),
+        ]),
+      )
+      .mockResolvedValueOnce(jsonResponse([logEntry("log-3", "2026-03-22T10:00:02.000Z")]));
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const existing = [
+      logEntry("log-1", "2026-03-22T10:00:00.000Z"),
+      logEntry("log-2", "2026-03-22T10:00:01.000Z"),
+    ];
+
+    const logs = await fetchIncrementalPrefectLogs(["run-1", "run-2"], existing, {
+      limit: 2,
+      offset: 0,
+    });
+
+    expect(logs.map((entry) => entry.id)).toEqual([
+      "log-1",
+      "log-2",
+      "log-3",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
+    const secondBody = JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string);
+
+    expect(firstBody).toMatchObject({
+      offset: 0,
+      sort: "TIMESTAMP_ASC",
+      limit: 2,
+      logs: { flow_run_id: { any_: ["run-1", "run-2"] } },
+    });
+    expect(secondBody).toMatchObject({
+      offset: 2,
+      sort: "TIMESTAMP_ASC",
+      limit: 2,
+      logs: { flow_run_id: { any_: ["run-1", "run-2"] } },
     });
   });
 });

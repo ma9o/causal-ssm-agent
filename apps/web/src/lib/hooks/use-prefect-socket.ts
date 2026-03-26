@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import ReconnectingWebSocket from "reconnecting-websocket";
 
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -19,34 +19,39 @@ interface PrefectSocketEnvelope {
 
 export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvelope>({
   enabled,
+  subscriptionKey,
   getSocketUrl,
   buildFilterMessage,
+  onSubscribed,
   onMessage,
 }: {
   enabled: boolean;
+  subscriptionKey: string;
   getSocketUrl: () => string;
   buildFilterMessage: () => unknown;
+  onSubscribed?: (socket: ReconnectingWebSocket) => void;
   onMessage: (message: TMessage, socket: ReconnectingWebSocket) => void;
 }): PrefectSocketConnectionState {
   const [connectionState, setConnectionState] = useState<PrefectSocketConnectionState>("idle");
-  const getSocketUrlRef = useRef(getSocketUrl);
-  const buildFilterMessageRef = useRef(buildFilterMessage);
-  const onMessageRef = useRef(onMessage);
-
-  getSocketUrlRef.current = getSocketUrl;
-  buildFilterMessageRef.current = buildFilterMessage;
-  onMessageRef.current = onMessage;
+  const resolveSocketUrl = useEffectEvent(() => getSocketUrl());
+  const resolveFilterMessage = useEffectEvent(() => buildFilterMessage());
+  const handleSubscribed = useEffectEvent((socket: ReconnectingWebSocket) => {
+    onSubscribed?.(socket);
+  });
+  const handleMessage = useEffectEvent(
+    (message: TMessage, socket: ReconnectingWebSocket) => {
+      onMessage(message, socket);
+    },
+  );
 
   useEffect(() => {
     if (!enabled) {
-      setConnectionState("idle");
       return;
     }
 
     let disposed = false;
-    setConnectionState("connecting");
 
-    const ws = new ReconnectingWebSocket(getSocketUrlRef.current(), ["prefect"], {
+    const ws = new ReconnectingWebSocket(resolveSocketUrl(), ["prefect"], {
       maxRetries: MAX_RECONNECT_ATTEMPTS,
       minReconnectionDelay: BASE_DELAY_MS,
       maxReconnectionDelay: BASE_DELAY_MS * 2 ** MAX_RECONNECT_ATTEMPTS,
@@ -69,8 +74,9 @@ export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvel
       try {
         const message = JSON.parse(event.data) as TMessage;
         if (message.type === "auth_success") {
-          ws.send(JSON.stringify(buildFilterMessageRef.current()));
+          ws.send(JSON.stringify(resolveFilterMessage()));
           setConnectionState("streaming");
+          handleSubscribed(ws);
           return;
         }
         if (message.type === "auth_failure") {
@@ -78,7 +84,7 @@ export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvel
           return;
         }
 
-        onMessageRef.current(message, ws);
+        handleMessage(message, ws);
       } catch {
         // Ignore parse errors
       }
@@ -101,7 +107,11 @@ export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvel
       setConnectionState("idle");
       ws.close();
     };
-  }, [enabled]);
+  }, [enabled, subscriptionKey]);
 
-  return connectionState;
+  if (!enabled) {
+    return "idle";
+  }
+
+  return connectionState === "idle" ? "connecting" : connectionState;
 }

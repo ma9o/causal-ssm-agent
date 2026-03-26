@@ -1,10 +1,9 @@
 "use client";
 
+import type { AnalysisStageRun } from "@/lib/api/analysis";
+import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import type { StageRunStatus } from "./use-run-events";
-import type {
-  PrefectLogEntry,
-  PrefectLogsResult,
-} from "./use-stage-logs";
+import type { PrefectLogsResult } from "./use-stage-logs";
 import { useStageLogs } from "./use-stage-logs";
 import { useQuery } from "@tanstack/react-query";
 
@@ -47,11 +46,11 @@ export function getStage2WorkerQueryKeyPrefix(workspaceId: string) {
  */
 export function useStage2Workers(
   workspaceId: string,
-  rootFlowRunId: string | null,
-  logFlowRunIds: string[],
+  stageRun: AnalysisStageRun | null | undefined,
   stageStatus: StageRunStatus,
 ): Stage2WorkerProgress {
   const isActive = stageStatus === "running";
+  const rootFlowRunId = stageRun?.ownerRootFlowRunId ?? null;
 
   // Workers: populated by WebSocket events in use-run-events.ts
   const { data: workers = [] } = useQuery<Stage2Worker[]>({
@@ -65,7 +64,7 @@ export function useStage2Workers(
     logs,
     bootstrapStatus: logBootstrapStatus,
     connectionState: logConnectionState,
-  } = useStageLogs(workspaceId, "stage-2", logFlowRunIds, stageStatus, {
+  } = useStageLogs(workspaceId, "stage-2", stageRun, stageStatus, {
     pageSize: STAGE2_LOG_PAGE_SIZE,
   });
 

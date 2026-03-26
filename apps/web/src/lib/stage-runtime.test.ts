@@ -6,7 +6,7 @@ function emptyStageRun(): AnalysisStageRun {
   return {
     ownerRootFlowRunId: null,
     stageSubflowRunId: null,
-    logFlowRunIds: [],
+    initialLogFlowRunIds: [],
     execution: null,
   };
 }
@@ -36,7 +36,7 @@ describe("stage runtime reducers", () => {
         endTime: "2026-03-10T08:00:10.000Z",
       },
       stageSubflowRunId: "subflow-123",
-      logFlowRunIds: ["subflow-123"],
+      initialLogFlowRunIds: ["subflow-123"],
     });
 
     const stageRun = events.reduce(
@@ -52,7 +52,7 @@ describe("stage runtime reducers", () => {
         endTime: "2026-03-10T08:00:10.000Z",
       },
       stageSubflowRunId: "subflow-123",
-      logFlowRunIds: ["subflow-123"],
+      initialLogFlowRunIds: ["subflow-123"],
     });
   });
 
@@ -81,6 +81,6 @@ describe("stage runtime reducers", () => {
       endTime: "2026-03-10T08:00:10.000Z",
     });
     expect(nextStageRun.stageSubflowRunId).toBe("subflow-123");
-    expect(nextStageRun.logFlowRunIds).toEqual(["subflow-123"]);
+    expect(nextStageRun.initialLogFlowRunIds).toEqual(["subflow-123"]);
   });
 });

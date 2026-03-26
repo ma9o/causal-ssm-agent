@@ -90,16 +90,20 @@ export function LLMTracePanelView({
 
   // Resize textarea on external input changes:
   // - Shrink back when cleared (e.g. after submit)
-  // - Only auto-expand if the user is actively editing (focused),
-  //   so prefilled text doesn't immediately blow up to max height
+  // - Auto-expand prefilled text after layout settles so "Propose Fixes"
+  //   prompts open at the expected capped height
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     if (!input) {
       el.style.height = "auto";
-    } else if (document.activeElement === el) {
-      resizeTextarea();
+      return;
     }
+
+    const raf = requestAnimationFrame(() => {
+      resizeTextarea();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [input, resizeTextarea]);
 
   return (

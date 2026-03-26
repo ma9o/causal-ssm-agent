@@ -1,11 +1,9 @@
 "use client";
 
+import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { type PrefectLogEntry, logLevelLabel } from "@/lib/prefect-log-client";
 import type { StageId } from "@causal-ssm/api-types";
-import {
-  type PrefectLogEntry,
-  logLevelLabel,
-  useStageLogs,
-} from "@/lib/hooks/use-stage-logs";
+import { useStageLogs } from "@/lib/hooks/use-stage-logs";
 import { cn } from "@/lib/utils";
 import { Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -39,12 +37,12 @@ export function StageLogViewer({
   workspaceId,
   stageId,
   status,
-  logFlowRunIds,
+  stageRun,
 }: {
   workspaceId: string;
   stageId: StageId;
   status: StageRunStatus;
-  logFlowRunIds?: string[];
+  stageRun?: AnalysisStageRun | null;
 }) {
   const {
     logs,
@@ -53,7 +51,7 @@ export function StageLogViewer({
   } = useStageLogs(
     workspaceId,
     stageId,
-    logFlowRunIds ?? [],
+    stageRun,
     status,
   );
   const [open, setOpen] = useState(false);
