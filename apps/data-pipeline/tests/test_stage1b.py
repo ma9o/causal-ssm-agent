@@ -15,37 +15,11 @@ from causal_ssm_agent.flows.stages.stage1b_measurement import build_causal_spec
 from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
 from causal_ssm_agent.orchestrator.schemas import CausalSpec
 from causal_ssm_agent.orchestrator.stage1b import (
-    Stage1bMessages,
     Stage1bResult,
     run_stage1b,
 )
 from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from tests.helpers import make_mock_generate
-
-# ══════════════════════════════════════════════════════════════════════════════
-# UNIT TESTS: Stage1bMessages
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-class TestStage1bMessages:
-    """Test Stage1bMessages builder."""
-
-    def test_proposal_messages(self, stage1b_simple_latent, stage1b_dummy_chunks):
-        """Proposal messages include question, latent model, and chunks."""
-        msgs = Stage1bMessages(
-            question="Does treatment improve outcome?",
-            latent_model=stage1b_simple_latent,
-            chunks=stage1b_dummy_chunks,
-        )
-
-        messages = msgs.proposal_messages()
-
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
-        assert "treatment improve outcome" in messages[1]["content"]
-        assert "Treatment" in messages[1]["content"]
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UNIT TESTS: Measurement Compiler

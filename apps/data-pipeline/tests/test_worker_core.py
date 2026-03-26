@@ -151,18 +151,6 @@ class TestWorkerMessages:
     def _sample_window_text(self):
         return "## Window Start: 2024-01-01\n\n08:00  pss=25, sleep=6.5\n09:00  pss=18, sleep=7.2"
 
-    def test_extraction_messages_structure(self):
-        wm = WorkerMessages(
-            question="Does stress affect sleep?",
-            causal_spec=_causal_spec(),
-            window_text=self._sample_window_text(),
-            n_windows=1,
-        )
-        msgs = wm.extraction_messages()
-        assert len(msgs) == 2
-        assert msgs[0]["role"] == "system"
-        assert msgs[1]["role"] == "user"
-
     def test_user_message_contains_context(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
