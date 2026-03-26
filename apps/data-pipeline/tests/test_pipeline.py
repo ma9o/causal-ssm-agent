@@ -184,8 +184,13 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        root_run_id: str | None = None,
     ) -> dict:
-        return {"runner": "modal", "openrouter_api_key": openrouter_client.get_openrouter_api_key()}
+        return {
+            "runner": "modal",
+            "openrouter_api_key": openrouter_client.get_openrouter_api_key(),
+            "root_run_id": root_run_id,
+        }
 
     async def fake_local_stage4(
         question: str,
@@ -193,8 +198,13 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        root_run_id: str | None = None,
     ) -> dict:
-        return {"runner": "local", "openrouter_api_key": openrouter_client.get_openrouter_api_key()}
+        return {
+            "runner": "local",
+            "openrouter_api_key": openrouter_client.get_openrouter_api_key(),
+            "root_run_id": root_run_id,
+        }
 
     monkeypatch.setattr(modal_runners, "modal_stage4_runner", fake_stage4_runner)
     monkeypatch.setattr(dag, "stage4", fake_local_stage4)
@@ -210,6 +220,7 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
                 stage3={},
                 enable_literature=True,
                 openrouter_access_mode="user",
+                root_run_id="root-run-local",
             )
         )
     modal_result = asyncio.run(
@@ -220,11 +231,20 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
             stage3={},
             enable_literature=True,
             openrouter_access_mode=None,
+            root_run_id="root-run-modal",
         )
     )
 
-    assert local_result == {"runner": "local", "openrouter_api_key": "user-key"}
-    assert modal_result == {"runner": "modal", "openrouter_api_key": None}
+    assert local_result == {
+        "runner": "local",
+        "openrouter_api_key": "user-key",
+        "root_run_id": "root-run-local",
+    }
+    assert modal_result == {
+        "runner": "modal",
+        "openrouter_api_key": None,
+        "root_run_id": "root-run-modal",
+    }
 
 
 def test_build_main_deployment_enforces_schema_without_global_serial_concurrency():
@@ -972,11 +992,13 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
 
-    emitted: list[tuple[str, dict, dict | None]] = []
+    emitted: list[tuple[str, str, str, dict | None]] = []
     monkeypatch.setattr(
         pipeline,
-        "emit_event",
-        lambda event, resource, payload=None, **_kwargs: emitted.append((event, resource, payload)),
+        "emit_stage_progress_event",
+        lambda run_id, stage_id, status, **kwargs: emitted.append(
+            (run_id, stage_id, status, kwargs.get("error"))
+        ),
     )
 
     calls: list = []
@@ -996,16 +1018,13 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     )
 
     assert result["final_stage"] == "stage-1a"
-    assert [(event, payload["stage_id"], payload["status"]) for event, _, payload in emitted] == [
-        ("causal-ssm.pipeline-stage.running", "stage-0", "running"),
-        ("causal-ssm.pipeline-stage.completed", "stage-0", "completed"),
-        ("causal-ssm.pipeline-stage.running", "stage-1a", "running"),
-        ("causal-ssm.pipeline-stage.completed", "stage-1a", "completed"),
+    assert [(stage_id, status) for _, stage_id, status, _ in emitted] == [
+        ("stage-0", "running"),
+        ("stage-0", "completed"),
+        ("stage-1a", "running"),
+        ("stage-1a", "completed"),
     ]
-    assert all(
-        resource["prefect.resource.id"].startswith("prefect.flow-run.")
-        for _, resource, _ in emitted
-    )
+    assert all(run_id for run_id, _, _, _ in emitted)
 
 
 def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
@@ -1017,11 +1036,11 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
 
-    emitted: list[tuple[str, dict]] = []
+    emitted: list[tuple[str, str, str]] = []
     monkeypatch.setattr(
         pipeline,
-        "emit_event",
-        lambda event, resource, **_kwargs: emitted.append((event, resource)),
+        "emit_stage_progress_event",
+        lambda run_id, stage_id, status, **_kwargs: emitted.append((run_id, stage_id, status)),
     )
 
     calls: list = []
@@ -1040,11 +1059,11 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
             )
         )
 
-    assert [event for event, _ in emitted] == [
-        "causal-ssm.pipeline-stage.running",
-        "causal-ssm.pipeline-stage.completed",
-        "causal-ssm.pipeline-stage.running",
-        "causal-ssm.pipeline-stage.failed",
+    assert [status for _, _, status in emitted] == [
+        "running",
+        "completed",
+        "running",
+        "failed",
     ]
 
 

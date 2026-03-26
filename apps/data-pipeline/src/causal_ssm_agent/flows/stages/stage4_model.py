@@ -14,6 +14,7 @@ from causal_ssm_agent.utils.llm import LLMStageContext
 from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from .. import get_prefect_logger
+from ..runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
@@ -26,6 +27,7 @@ async def stage4_agentic_flow(
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
     openrouter_api_key: str | None = None,
+    root_run_id: str | None = None,
 ) -> dict:
     """Stage 4 agentic flow: single multi-turn LLM conversation.
 
@@ -45,6 +47,9 @@ async def stage4_agentic_flow(
     from causal_ssm_agent.orchestrator.stage4 import run_stage4
 
     from .stage4_assembly import materialize_stage4_result
+
+    if root_run_id:
+        emit_nested_stage_running_event(root_run_id, "stage-4")
 
     config = get_config()
     s4 = config.stage4_prior_elicitation
