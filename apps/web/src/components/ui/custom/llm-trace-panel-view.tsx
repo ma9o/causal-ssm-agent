@@ -13,7 +13,7 @@ function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
   return (
     <div className="shrink-0 flex flex-wrap items-center gap-2 border-b bg-background pb-2 text-xs">
-      <Badge variant="secondary" className="gap-1 text-[10px]">
+      <Badge variant="secondary" className="gap-1 text-[11px]">
         <Cpu className="h-3 w-3" />
         {trace.model}
       </Badge>
