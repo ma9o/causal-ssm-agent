@@ -119,9 +119,10 @@ export default function LandingPage() {
   const [question, setQuestion] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMac] = useState(() =>
-    typeof navigator !== "undefined" ? /Mac/.test(navigator.userAgent) : false,
-  );
+  const [isMac, setIsMac] = useState(false);
+  useEffect(() => {
+    setIsMac(/Mac/.test(navigator.userAgent));
+  }, []);
   const auth = useAuth();
   const launchIdRef = useRef<string | null>(null);
 
