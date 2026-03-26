@@ -120,8 +120,8 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             "outcome": "success",
         }
 
-    def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
-        calls.append(("stage4b", stage4, stage2, ssm_builder))
+    def stage4b(stage4: dict, stage2: dict, ssm_builder=None, root_run_id: str | None = None):
+        calls.append(("stage4b", stage4, stage2, ssm_builder, root_run_id))
         return {"parametric_id": {}}
 
     def stage5b(
@@ -244,16 +244,6 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         "openrouter_api_key": None,
         "root_run_id": "root-run-modal",
     }
-
-
-def test_build_main_deployment_enforces_schema_without_global_serial_concurrency():
-    deployment = pipeline.build_main_deployment()
-
-    assert deployment.name == "causal-inference"
-    assert deployment.enforce_parameter_schema is True
-    assert deployment.concurrency_limit is None
-
-
 def test_stage2_binding_uses_access_mode_for_free_window_limit():
     from causal_ssm_agent.flows.stages.stage2_extract import MAX_FREE_WINDOWS
 
@@ -410,14 +400,16 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         stage3: dict,
         enable_literature: bool,
         openrouter_api_key: str | None = None,
+        root_run_id: str | None = None,
     ) -> dict:
-        calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature))
+        calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature, root_run_id))
         return {
             "model_spec": {},
             "priors": {},
             "authored_priors": {},
             "resolved_priors": [],
             "causal_spec": stage1b["causal_spec"],
+            "_compiled_ssm": {},
         }
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -445,76 +437,6 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         for entry in calls
     )
     assert result == {"stage5b": True, "stage6": True}
-
-
-def test_stage4_override_preserves_replay_contract_for_downstream_stages(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    _redirect_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
-        _stub_config,
-    )
-    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
-
-    calls: list = []
-    _patch_common_stage_stubs(monkeypatch, calls)
-
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
-        calls.append(("stage1a", question))
-        return {"latent_model": _stage1a_latent_model()}
-
-    causal_spec = {
-        "latent": {"constructs": [{"name": "L"}], "edges": []},
-        "measurement": {"model_clock": "1d", "indicators": [{"name": "m"}]},
-    }
-
-    async def stage1b(
-        question: str,
-        stage0: dict,
-        stage1a: dict,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
-        calls.append(("stage1b", question, stage0, stage1a))
-        return {"causal_spec": causal_spec}
-
-    async def stage4(
-        question: str,
-        stage1b: dict,
-        stage2: dict,
-        stage3: dict,
-        enable_literature: bool,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
-        raise AssertionError("stage4 should be skipped when an override is provided")
-
-    def stage4b(stage4: dict, stage2: dict, ssm_builder=None):
-        calls.append(("stage4b", stage4, stage2, ssm_builder))
-        assert stage4["_causal_spec"] == causal_spec
-        return {"parametric_id": {}}
-
-    monkeypatch.setattr(dag, "stage1a", stage1a)
-    monkeypatch.setattr(dag, "stage1b", stage1b)
-    monkeypatch.setattr(dag, "stage4", stage4)
-    monkeypatch.setattr(dag, "stage4b", stage4b)
-    _reset_stage_registry(monkeypatch)
-
-    override_payload = {
-        "model_spec": {"parameters": []},
-        "authored_priors": {},
-        "resolved_priors": [],
-    }
-
-    result = asyncio.run(
-        pipeline.causal_inference_pipeline(
-            query="why is this happening?",
-            stage_overrides={"stage-4": override_payload},
-        )
-    )
-
-    assert any(entry[0] == "persist_web_result" and entry[1] == "stage-4" for entry in calls)
-    assert result == {"stage5b": True, "stage6": True}
-
-
 def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)

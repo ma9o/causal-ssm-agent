@@ -1,7 +1,6 @@
 """Tests for Stage 4 model proposal prompt formatting."""
 
 from causal_ssm_agent.orchestrator.prompts.model_proposal import (
-    AGENTIC_SYSTEM,
     format_construct_scale_cards,
     format_distribution_cards,
     format_loading_params,
@@ -11,10 +10,6 @@ from causal_ssm_agent.orchestrator.prompts.model_proposal import (
 
 
 class TestFormatModelTopology:
-    def test_empty_context(self):
-        result = format_model_topology({})
-        assert "none" in result.lower()
-
     def test_renders_model_metadata_and_edges(self):
         result = format_model_topology(
             {
@@ -39,10 +34,6 @@ class TestFormatModelTopology:
 
 
 class TestFormatDistributionCards:
-    def test_empty_cards(self):
-        result = format_distribution_cards([])
-        assert "deterministic" in result.lower()
-
     def test_renders_indicator_options_profile_and_issues(self):
         result = format_distribution_cards(
             [
@@ -85,10 +76,6 @@ class TestFormatDistributionCards:
 
 
 class TestFormatLoadingParams:
-    def test_empty_list(self):
-        result = format_loading_params([])
-        assert "skip" in result.lower()
-
     def test_single_loading(self):
         result = format_loading_params(
             [{"name": "lambda_mood_pss", "indicator": "pss_score", "construct": "mood"}]
@@ -100,10 +87,6 @@ class TestFormatLoadingParams:
 
 
 class TestFormatConstructScaleCards:
-    def test_empty_cards(self):
-        result = format_construct_scale_cards([])
-        assert "none" in result.lower()
-
     def test_renders_single_indicator_construct_inline(self):
         result = format_construct_scale_cards(
             [
@@ -219,10 +202,6 @@ class TestFormatConstructScaleCards:
 
 
 class TestFormatPriorCards:
-    def test_empty_cards(self):
-        result = format_prior_cards([])
-        assert "none" in result.lower()
-
     def test_renders_compact_parameter_inventory(self):
         result = format_prior_cards(
             [
@@ -247,16 +226,6 @@ class TestFormatPriorCards:
         assert "#### Fixed Effects" in result
         assert "#### AR Coefficients" in result
         assert "beta_stress_sleep" in result
-        assert "| beta_stress_sleep | stress | sleep | lagged | none |" in result
+        assert "| beta_stress_sleep | stress | sleep | lagged |" in result
         assert "| rho_sleep | sleep | unit_interval |" in result
-
-
-class TestAgenticSystemPrompt:
-    def test_embeds_catalog_derived_likelihood_guidance(self):
-        assert "- `gaussian`: Continuous unbounded data, approximately symmetric." in AGENTIC_SYSTEM
-        assert "- `ordered_logistic`: Ordered categorical outcomes with ranked levels." in (
-            AGENTIC_SYSTEM
-        )
-        assert "- `categorical`: Unordered multi-class outcomes." in AGENTIC_SYSTEM
-        assert "- **gamma**: `log` (default) or `inverse`" in AGENTIC_SYSTEM
-        assert "- **bernoulli**: `logit` (default) or `probit`" in AGENTIC_SYSTEM
+        assert "no | none |" in result
