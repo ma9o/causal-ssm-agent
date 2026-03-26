@@ -12,7 +12,6 @@ import json
 from dataclasses import dataclass
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.identifiability import analyze_unobserved_constructs
 from causal_ssm_agent.utils.llm import GenerateFn
 
 from .prompts import measurement_model
@@ -27,7 +26,6 @@ class Stage1bResult:
     measurement_model: dict
     identifiability_status: dict
     causal_spec: dict
-    marginalization_analysis: dict | None = None
 
 
 @dataclass
@@ -77,7 +75,7 @@ async def run_stage1b(
         dataset_summary: Optional description of the dataset
 
     Returns:
-        Stage1bResult with measurement model, identifiability, and marginalization
+        Stage1bResult with measurement model, identifiability, and causal spec
     """
     from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool, stage1b_grounding
 
@@ -110,12 +108,8 @@ async def run_stage1b(
     if graph_info is not None:
         id_status["graph_info"] = graph_info
 
-    # Deterministic post-processing: which unobserved constructs can be marginalized
-    marginalization = analyze_unobserved_constructs(latent_model, measurement, id_status)
-
     return Stage1bResult(
         measurement_model=measurement,
         identifiability_status=id_status,
         causal_spec=causal_spec,
-        marginalization_analysis=marginalization,
     )

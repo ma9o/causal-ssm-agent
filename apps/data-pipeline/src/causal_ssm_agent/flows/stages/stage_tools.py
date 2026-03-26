@@ -61,7 +61,10 @@ def stage1b_grounding(data: dict, latent_model: dict) -> tuple[dict | None, str]
 
     stage_output is set on cases 2 and 3 (whenever structurally valid).
     """
-    from causal_ssm_agent.models.ssm_compiler import validate_measurement_model_for_compilation
+    from causal_ssm_agent.models.ssm_compiler import (
+        collect_estimation_projection_compile_errors,
+        validate_measurement_model_for_compilation,
+    )
     from causal_ssm_agent.orchestrator.agents import build_causal_spec
     from causal_ssm_agent.orchestrator.schemas import LatentModel
     from causal_ssm_agent.utils.identifiability import check_identifiability
@@ -83,6 +86,9 @@ def stage1b_grounding(data: dict, latent_model: dict) -> tuple[dict | None, str]
         id_status["graph_info"] = id_result["graph_info"]
 
     causal_spec = build_causal_spec(latent_model, measurement, id_status)
+    estimation_errors = collect_estimation_projection_compile_errors(causal_spec)
+    if estimation_errors:
+        return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in estimation_errors)
     stage_output: dict[str, Any] = {"causal_spec": causal_spec}
     if "graph_info" in id_result:
         stage_output["graph_info"] = id_result["graph_info"]

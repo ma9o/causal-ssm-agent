@@ -189,6 +189,7 @@ class TestStage1bGrounding:
 
         assert output is not None  # stage_output set even when not identifiable
         assert "causal_spec" in output
+        assert output["causal_spec"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
         assert feedback != "VALID"
         assert "NOT fully identifiable" in feedback
         assert "proxy" in feedback.lower()
@@ -203,6 +204,72 @@ class TestStage1bGrounding:
 
         assert output is None
         assert "VALIDATION ERRORS" in feedback
+
+    def test_drops_unmeasured_constructs_from_estimation_projection(self, monkeypatch):
+        """Latent-only constructs should not remain in the executable state vector."""
+        from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
+
+        latent_model = {
+            "constructs": [
+                {
+                    "name": "Treatment",
+                    "description": "Observed treatment",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "Mediator",
+                    "description": "Unmeasured mediator",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "Outcome",
+                    "description": "Observed outcome",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+            ],
+            "edges": [
+                {"cause": "Treatment", "effect": "Mediator", "description": "Treatment shifts mediator"},
+                {"cause": "Mediator", "effect": "Outcome", "description": "Mediator shifts outcome"},
+            ],
+        }
+        measurement_model = {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "treatment_signal",
+                    "construct_name": "Treatment",
+                    "how_to_measure": "Use the treatment column directly",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "outcome_signal",
+                    "construct_name": "Outcome",
+                    "how_to_measure": "Use the outcome column directly",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+            ],
+        }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.identifiability.check_identifiability",
+            lambda *_args, **_kwargs: {
+                "identifiable_treatments": {},
+                "non_identifiable_treatments": {},
+            },
+        )
+
+        output, feedback = stage1b_grounding(measurement_model, latent_model)
+
+        assert output is not None
+        assert feedback == "VALID"
+        assert output["causal_spec"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
+        assert output["causal_spec"]["estimation"]["edges"] == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -257,29 +324,6 @@ class TestStage1bFlow:
 
         assert isinstance(result, Stage1bResult)
         assert len(result.identifiability_status["non_identifiable_treatments"]) > 0
-
-    def test_marginalization_analysis_included(
-        self,
-        stage1b_confounded_latent,
-        stage1b_measurement_all_observed,
-        stage1b_dummy_chunks,
-    ):
-        """Marginalization analysis is computed and accessible."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
-
-        result = asyncio.run(
-            run_stage1b(
-                question="Does treatment improve outcome?",
-                latent_model=stage1b_confounded_latent,
-                chunks=stage1b_dummy_chunks,
-                generate=mock_generate,
-            )
-        )
-
-        assert result.marginalization_analysis is not None
-        assert "can_marginalize" in result.marginalization_analysis
-        assert "blocking_details" in result.marginalization_analysis
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

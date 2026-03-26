@@ -23,14 +23,14 @@ def build_estimation_projection(
     constructs. This helper derives the executable state-space view used by the
     compiler and downstream model-facing surfaces.
 
-    Conservative rule for the initial implementation:
-    - Always retain measured constructs.
+    Current compiler/runtime rule:
+    - Retain only constructs with at least one measurement indicator.
     - Marginalize only unobserved root exogenous constructs that are safe to
       marginalize per the deterministic identifiability analysis.
     - Convert marginalized shared confounders into pairwise induced
       dependencies among retained states.
-    - Keep any unobserved non-root / endogenous construct in the state graph
-      until richer directed latent projection semantics are implemented.
+    - Leave other unmeasured constructs in the user-facing latent DAG only;
+      they do not remain in the executable estimation state vector.
     """
 
     identifiability = identifiability_result or {}
@@ -48,6 +48,12 @@ def build_estimation_projection(
         if isinstance(cause, str) and isinstance(effect, str):
             parents_by_construct[effect].add(cause)
             children_by_construct[cause].add(effect)
+
+    observed_constructs = {
+        indicator.get("construct_name")
+        for indicator in measurement_model.get("indicators", [])
+        if isinstance(indicator, dict) and isinstance(indicator.get("construct_name"), str)
+    }
 
     analysis = analyze_unobserved_constructs(
         latent_model,
@@ -70,9 +76,7 @@ def build_estimation_projection(
             continue
         marginalizable_roots.add(name)
 
-    retained_names = {
-        name for name in construct_lookup if name not in marginalizable_roots
-    }
+    retained_names = set(observed_constructs)
     state_order = _build_state_order(latent_model, retained_names)
 
     retained_edges = [
