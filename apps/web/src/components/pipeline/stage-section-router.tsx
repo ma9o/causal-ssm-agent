@@ -26,6 +26,7 @@ import { Wrench } from "lucide-react";
 import {
   Suspense,
   lazy,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -64,19 +65,36 @@ type StageViewData = AnyStageData & {
   outcome?: StageOutcome;
 };
 
-export function StageSectionRouter({
-  stage,
-  workspaceId,
-  status,
-  timing,
-  stageRun,
-}: {
+type StageSectionRouterProps = {
   stage: StageMeta;
   workspaceId: string;
   status: StageRunStatus;
   timing?: StageTiming;
   stageRun?: AnalysisStageRun;
-}) {
+};
+
+function stageRunsEqual(
+  previous?: AnalysisStageRun,
+  next?: AnalysisStageRun,
+): boolean {
+  return (
+    previous?.ownerRootFlowRunId === next?.ownerRootFlowRunId &&
+    previous?.stageSubflowRunId === next?.stageSubflowRunId &&
+    previous?.execution?.stateType === next?.execution?.stateType &&
+    previous?.execution?.startTime === next?.execution?.startTime &&
+    previous?.execution?.endTime === next?.execution?.endTime &&
+    (previous?.initialLogFlowRunIds.join("|") ?? "") ===
+      (next?.initialLogFlowRunIds.join("|") ?? "")
+  );
+}
+
+function StageSectionRouterInner({
+  stage,
+  workspaceId,
+  status,
+  timing,
+  stageRun,
+}: StageSectionRouterProps) {
   const queryClient = useQueryClient();
   const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill } = useRefinement();
   const invalidated = isInvalidated(stage.id);
@@ -199,6 +217,17 @@ export function StageSectionRouter({
 
   return <div className="max-w-6xl mx-auto">{section}</div>;
 }
+
+export const StageSectionRouter = memo(
+  StageSectionRouterInner,
+  (previous, next) =>
+    previous.workspaceId === next.workspaceId &&
+    previous.stage.id === next.stage.id &&
+    previous.status === next.status &&
+    previous.timing?.startedAt === next.timing?.startedAt &&
+    previous.timing?.completedAt === next.timing?.completedAt &&
+    stageRunsEqual(previous.stageRun, next.stageRun),
+);
 
 function Stage4Wrapper({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
   const { data: stage2 } = useStageData<Stage2Data>(workspaceId, "stage-2", true);

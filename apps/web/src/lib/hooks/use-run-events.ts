@@ -240,12 +240,13 @@ function isPipelineTerminal(
   return progress?.isComplete === true || hasStoppedStage(progress) || progress?.isFailed === true;
 }
 
-function hydrateFromManifest(
+function mergeHydratedManifestProgress(
   workspaceId: string,
   stageRuns: AnalysisStageRuns,
   queryClient: ReturnType<typeof useQueryClient>,
+  progress?: PipelineProgress,
 ) {
-  let progress = initialProgress();
+  let next = progress ?? initialProgress();
 
   for (const stage of STAGES) {
     const execution = stageRuns[stage.id]?.execution;
@@ -253,13 +254,13 @@ function hydrateFromManifest(
       continue;
     }
 
-    progress = applyHydratedExecutionToProgress(progress, stage.id, execution);
-    if (progress.stages[stage.id] === "completed") {
+    next = applyHydratedExecutionToProgress(next, stage.id, execution);
+    if (next.stages[stage.id] === "completed") {
       invalidateStageData(queryClient, workspaceId, stage.id);
     }
   }
 
-  return progress;
+  return next;
 }
 
 export function useRunEvents(
@@ -343,14 +344,16 @@ export function useRunEvents(
     // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
     queryClient.removeQueries({ queryKey: getStage2WorkerQueryKeyPrefix(workspaceId) });
+  }, [queryClient, rootFlowRunIds, workspaceId]);
 
-    if (stageRuns) {
-      queryClient.setQueryData(
-        getPipelineStatusQueryKey(workspaceId),
-        hydrateFromManifest(workspaceId, stageRuns, queryClient),
-      );
-    }
-  }, [queryClient, rootFlowRunIds, stageRuns, workspaceId]);
+  useEffect(() => {
+    if (!workspaceId || !stageRuns) return;
+
+    queryClient.setQueryData<PipelineProgress | undefined>(
+      getPipelineStatusQueryKey(workspaceId),
+      (old) => mergeHydratedManifestProgress(workspaceId, stageRuns, queryClient, old),
+    );
+  }, [queryClient, stageRuns, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId) return;

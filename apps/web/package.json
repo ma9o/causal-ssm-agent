@@ -12,6 +12,7 @@
     "type-check": "tsc --noEmit",
     "check": "bun run lint && bun run test && bun run build && bun run type-check",
     "test": "vitest run",
+    "test:prefect-logs": "vitest run --config vitest.integration.config.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "postinstall": "node scripts/copy-perspective-assets.mjs"
@@ -73,6 +74,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
     "eslint-plugin-storybook": "^10.3.0",
+    "react-test-renderer": "^19.2.4",
     "storybook": "^10.2.17",
     "tailwindcss": "^4",
     "typescript": "^5",
