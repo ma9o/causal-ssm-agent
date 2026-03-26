@@ -3,12 +3,12 @@
 # Stage 0: Agentic Data Ingestion
 # LLM agent that explores zip archives and parses data into a Polars DataFrame
 stage0_ingestion:
-  model: openrouter/anthropic/claude-sonnet-4-6
+  model: openrouter/z-ai/glm-5 #openrouter/anthropic/claude-sonnet-4-6
 
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:
-  model: openrouter/google/gemini-3.1-pro-preview
+  model: openrouter/z-ai/glm-5 #openrouter/google/gemini-3.1-pro-preview
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
 
@@ -27,7 +27,7 @@ stage2_workers:
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  model: openrouter/anthropic/claude-opus-4.6
+  model: openrouter/z-ai/glm-5 #openrouter/anthropic/claude-opus-4.6
   # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true
