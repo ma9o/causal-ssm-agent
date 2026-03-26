@@ -1,7 +1,7 @@
 "use client";
 
 import { useRefinement } from "@/lib/contexts/refinement-context";
-import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
+import { STAGES } from "@causal-ssm/api-types";
 import { AlertTriangle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
@@ -10,9 +10,7 @@ export function InvalidationWarningModal() {
 
   if (!pendingStageId) return null;
 
-  const stageIdx = STAGE_IDS.indexOf(pendingStageId);
   const pendingStage = STAGES.find((s) => s.id === pendingStageId);
-  const invalidatedStages = STAGES.filter((_, i) => i > stageIdx);
 
   return (
     <AnimatePresence>
@@ -54,18 +52,6 @@ export function InvalidationWarningModal() {
                   </span>{" "}
                   will clear all later results. They will be re-run after you apply your changes.
                 </p>
-                {invalidatedStages.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {invalidatedStages.map((s) => (
-                      <span
-                        key={s.id}
-                        className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                      >
-                        {s.number}. {s.label}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 

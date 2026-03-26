@@ -6,7 +6,7 @@ import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import type { UIMessage } from "ai";
 import { Clock, Cpu, Loader2, MessageSquare, Send } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef } from "react";
 import { ChatMessages } from "./chat-messages";
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
@@ -56,8 +56,15 @@ export function LLMTracePanelView({
 }) {
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasRefinement = refinementMessages.length > 0;
+
+  const resizeTextarea = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
 
   const messageCount = traceMessages.length + refinementMessages.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count change
@@ -78,6 +85,20 @@ export function LLMTracePanelView({
     const raf = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(raf);
   }, [canRefine]);
+
+  // Resize textarea on external input changes:
+  // - Shrink back when cleared (e.g. after submit)
+  // - Only auto-expand if the user is actively editing (focused),
+  //   so prefilled text doesn't immediately blow up to max height
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (!input) {
+      el.style.height = "auto";
+    } else if (document.activeElement === el) {
+      resizeTextarea();
+    }
+  }, [input, resizeTextarea]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -103,14 +124,25 @@ export function LLMTracePanelView({
 
       {/* Refinement input */}
       {canRefine && (
-        <form onSubmit={onSubmit} className="shrink-0 flex gap-2">
-          <input
+        <form onSubmit={onSubmit} className="shrink-0 flex items-end gap-2">
+          <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => onInputChange?.(e.target.value)}
+            rows={1}
+            onChange={(e) => {
+              onInputChange?.(e.target.value);
+              resizeTextarea();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSubmit?.(e as unknown as FormEvent);
+              }
+            }}
             placeholder="Ask a follow-up question or request a change..."
             disabled={isLoading}
-            className="flex-1 rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+            className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm leading-5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+            style={{ maxHeight: "calc(5 * 1.25rem + 1rem)" }}
           />
           <button
             type="submit"
