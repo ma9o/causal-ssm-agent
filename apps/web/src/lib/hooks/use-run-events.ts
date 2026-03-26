@@ -2,11 +2,19 @@
 
 import {
   getAnalysisManifestQueryKey,
+  type AnalysisManifest,
   type AnalysisStageRuns,
   type AnalysisStageExecution,
 } from "@/lib/api/analysis";
 import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
 import { getPrefectEventsUrl } from "@/lib/runtime-urls";
+import {
+  patchStageRun,
+  normalizeLogFlowRunIds,
+  normalizeStageSubflowRunId,
+  STAGE_PROGRESS_EVENT_FILTER_PREFIX,
+  type StageProgressStatus,
+} from "@/lib/stage-runtime";
 import type { StageId } from "@causal-ssm/api-types";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,7 +40,6 @@ export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-p
 const EVENT_LOOKBACK_MS = 60_000;
 const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 const CAUSAL_SSM_EVENT_PREFIX = "causal-ssm.";
-const STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage.";
 const WORKER_EVENT_PREFIX = "causal-ssm.worker.";
 
 interface PrefectEventSocketMessage {
@@ -77,22 +84,25 @@ function isStageId(value: unknown): value is StageId {
   return typeof value === "string" && STAGES.some((stage) => stage.id === value);
 }
 
-function isStageRunStatus(value: unknown): value is StageRunStatus {
+function isStageRunStatus(value: unknown): value is StageProgressStatus {
   return value === "running" || value === "completed" || value === "failed";
 }
 
 export interface StageProgressEvent {
   stageId: StageId;
-  status: StageRunStatus;
+  status: StageProgressStatus;
   eventTime?: number;
+  occurred?: string;
   outcome?: string;
   error?: { type: string; message: string };
+  stageSubflowRunId?: string;
+  logFlowRunIds?: string[];
 }
 
 export function parsePrefectStageProgressEvent(
   event: PrefectEventSocketMessage["event"],
 ): StageProgressEvent | null {
-  if (!event?.event?.startsWith(STAGE_PROGRESS_EVENT_PREFIX)) {
+  if (!event?.event?.startsWith(STAGE_PROGRESS_EVENT_FILTER_PREFIX)) {
     return null;
   }
 
@@ -103,15 +113,21 @@ export function parsePrefectStageProgressEvent(
     return null;
   }
 
+  const stageSubflowRunId = normalizeStageSubflowRunId(payload?.stage_subflow_run_id) ?? undefined;
+  const explicitLogFlowRunIds = normalizeLogFlowRunIds(payload?.log_flow_run_ids);
+
   return {
     stageId,
     status,
     eventTime: event.occurred ? new Date(event.occurred).getTime() : undefined,
+    occurred: event.occurred,
     outcome: typeof payload?.outcome === "string" ? payload.outcome : undefined,
     error:
       payload?.error && typeof payload.error === "object"
         ? (payload.error as { type: string; message: string })
         : undefined,
+    stageSubflowRunId,
+    logFlowRunIds: explicitLogFlowRunIds.length > 0 ? explicitLogFlowRunIds : undefined,
   };
 }
 
@@ -284,7 +300,23 @@ export function useRunEvents(
         return;
       }
 
-      queryClient.invalidateQueries({ queryKey: getAnalysisManifestQueryKey(workspaceId) });
+      queryClient.setQueriesData<AnalysisManifest>(
+        { queryKey: getAnalysisManifestQueryKey(workspaceId) },
+        (old) =>
+          old
+            ? {
+                ...old,
+                stages: {
+                  ...old.stages,
+                  [stageEvent.stageId]: patchStageRun(
+                    old.stages[stageEvent.stageId],
+                    activeRootFlowRunId,
+                    stageEvent,
+                  ),
+                },
+              }
+            : old,
+      );
       updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime, stageEvent.outcome);
       if (stageEvent.status === "completed") {
         invalidateStageData(queryClient, workspaceId, stageEvent.stageId);

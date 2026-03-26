@@ -32,10 +32,6 @@ interface PrefectLogSocketMessage {
   log?: PrefectLogEntry;
 }
 
-interface StageLogSourcesResponse {
-  logFlowRunIds: string[];
-}
-
 const LOG_PAGE_SIZE = 200;
 const LOG_STREAM_LOOKBACK_MS = 60_000;
 const LOG_STREAM_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
@@ -103,18 +99,6 @@ export function buildPrefectLogStreamFilterMessage(
   };
 }
 
-export function buildStageLogSourcesPath(
-  workspaceId: string,
-  stageId: StageId,
-  stageSubflowRunId: string,
-) {
-  const search = new URLSearchParams({
-    stageId,
-    stageSubflowRunId,
-  });
-  return `/api/analysis/${workspaceId}/stage-log-sources?${search.toString()}`;
-}
-
 async function fetchPrefectLogPage(
   flowRunIds: string[],
   offset = 0,
@@ -160,64 +144,12 @@ export async function fetchIncrementalPrefectLogs(
   return merged;
 }
 
-function useStageLogFlowRunIds(
-  workspaceId: string,
-  stageId: StageId,
-  stageSubflowRunId: string | null,
-  initialLogFlowRunIds: string[],
-  status: StageRunStatus,
-) {
-  const initialFlowRunIds =
-    initialLogFlowRunIds.length > 0
-      ? initialLogFlowRunIds
-      : stageSubflowRunId
-        ? [stageSubflowRunId]
-        : [];
-
-  const initialSignature = initialFlowRunIds.join("|");
-  const isRefreshingStage2Sources = stageId === "stage-2" && status === "running" && !!stageSubflowRunId;
-
-  const { data } = useQuery({
-    queryKey: [
-      "analysis",
-      workspaceId,
-      "stage-log-sources",
-      stageId,
-      stageSubflowRunId,
-      initialSignature,
-    ] as const,
-    queryFn: async () => {
-      const response = await fetch(
-        buildStageLogSourcesPath(workspaceId, stageId, stageSubflowRunId as string),
-        { cache: "no-store" },
-      );
-      if (!response.ok) {
-        return initialFlowRunIds;
-      }
-      const payload = (await response.json()) as StageLogSourcesResponse;
-      return payload.logFlowRunIds;
-    },
-    enabled: isRefreshingStage2Sources,
-    initialData: initialFlowRunIds,
-    initialDataUpdatedAt: 0,
-    refetchInterval: 3000,
-    staleTime: 1000,
-  });
-
-  return isRefreshingStage2Sources ? (data ?? initialFlowRunIds) : initialFlowRunIds;
-}
-
 function usePrefectLogStream(
   queryKey: readonly unknown[],
   flowRunIds: string[],
   enabled: boolean,
 ) {
   const queryClient = useQueryClient();
-  const queryKeyRef = useRef(queryKey);
-  const flowRunIdsRef = useRef(flowRunIds);
-
-  queryKeyRef.current = queryKey;
-  flowRunIdsRef.current = flowRunIds;
 
   const handleLogMessage = useCallback(
     (message: PrefectLogSocketMessage) => {
@@ -225,17 +157,17 @@ function usePrefectLogStream(
         return;
       }
 
-      queryClient.setQueryData<PrefectLogEntry[]>(queryKeyRef.current, (old) =>
+      queryClient.setQueryData<PrefectLogEntry[]>(queryKey, (old) =>
         mergePrefectLogs(old ?? [], [message.log as PrefectLogEntry]),
       );
     },
-    [queryClient],
+    [queryClient, queryKey],
   );
 
   return usePrefectSocketSubscription<PrefectLogSocketMessage>({
     enabled,
     getSocketUrl: () => getPrefectLogsUrl(window.location.origin),
-    buildFilterMessage: () => buildPrefectLogStreamFilterMessage(flowRunIdsRef.current),
+    buildFilterMessage: () => buildPrefectLogStreamFilterMessage(flowRunIds),
     onMessage: handleLogMessage,
   });
 }
@@ -254,9 +186,6 @@ export function usePrefectLogs(
   const flowRunIdsSignature = flowRunIds.join("|");
   const previousStatusRef = useRef<StageRunStatus>(status);
   const previousFlowRunIdsRef = useRef<string>(flowRunIdsSignature);
-  const queryKeyRef = useRef(queryKey);
-
-  queryKeyRef.current = queryKey;
 
   const { data: logs = [], status: bootstrapStatus } = useQuery({
     queryKey,
@@ -285,18 +214,18 @@ export function usePrefectLogs(
 
     if (previousFlowRunIdsRef.current !== flowRunIdsSignature) {
       previousFlowRunIdsRef.current = flowRunIdsSignature;
-      queryClient.invalidateQueries({ queryKey: queryKeyRef.current });
+      queryClient.invalidateQueries({ queryKey });
     }
-  }, [flowRunIds.length, flowRunIdsSignature, queryClient, status]);
+  }, [flowRunIds.length, flowRunIdsSignature, queryClient, queryKey, status]);
 
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
     previousStatusRef.current = status;
 
     if (previousStatus === "running" && status !== "running" && flowRunIds.length > 0) {
-      queryClient.invalidateQueries({ queryKey: queryKeyRef.current });
+      queryClient.invalidateQueries({ queryKey });
     }
-  }, [flowRunIds.length, queryClient, status]);
+  }, [flowRunIds.length, queryClient, queryKey, status]);
 
   return {
     logs,
@@ -308,8 +237,7 @@ export function usePrefectLogs(
 export function useStageLogs(
   workspaceId: string,
   stageId: StageId,
-  stageSubflowRunId: string | null,
-  initialLogFlowRunIds: string[],
+  logFlowRunIds: string[],
   status: StageRunStatus,
   {
     pageSize = LOG_PAGE_SIZE,
@@ -317,13 +245,6 @@ export function useStageLogs(
     pageSize?: number;
   } = {},
 ): PrefectLogsResult {
-  const flowRunIds = useStageLogFlowRunIds(
-    workspaceId,
-    stageId,
-    stageSubflowRunId,
-    initialLogFlowRunIds,
-    status,
-  );
-  const queryKey = ["pipeline", workspaceId, "logs", stageId, stageSubflowRunId] as const;
-  return usePrefectLogs(queryKey, flowRunIds, status, { pageSize });
+  const queryKey = ["pipeline", workspaceId, "logs", stageId, logFlowRunIds.join("|")] as const;
+  return usePrefectLogs(queryKey, logFlowRunIds, status, { pageSize });
 }

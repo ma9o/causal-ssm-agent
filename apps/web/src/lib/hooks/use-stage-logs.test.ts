@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildPrefectLogFilterBody,
   buildPrefectLogStreamFilterMessage,
-  buildStageLogSourcesPath,
   fetchIncrementalPrefectLogs,
   mergePrefectLogs,
   type PrefectLogEntry,
@@ -80,14 +79,6 @@ describe("buildPrefectLogStreamFilterMessage", () => {
         },
       },
     });
-  });
-});
-
-describe("buildStageLogSourcesPath", () => {
-  it("targets the local analysis route for stage log source resolution", () => {
-    expect(buildStageLogSourcesPath("user-123", "stage-2", "subflow-1")).toBe(
-      "/api/analysis/user-123/stage-log-sources?stageId=stage-2&stageSubflowRunId=subflow-1",
-    );
   });
 });
 

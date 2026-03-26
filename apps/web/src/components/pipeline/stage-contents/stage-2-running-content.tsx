@@ -212,19 +212,16 @@ export default function Stage2RunningContent({
   workspaceId,
   rootFlowRunId,
   stageStatus,
-  stageSubflowRunId,
   logFlowRunIds,
 }: {
   workspaceId: string;
   rootFlowRunId?: string | null;
   stageStatus: StageRunStatus;
-  stageSubflowRunId?: string | null;
   logFlowRunIds?: string[];
 }) {
   const { workers, logs, logBootstrapStatus, logConnectionState } = useStage2Workers(
     workspaceId,
     rootFlowRunId ?? null,
-    stageSubflowRunId ?? null,
     logFlowRunIds ?? [],
     stageStatus,
   );
