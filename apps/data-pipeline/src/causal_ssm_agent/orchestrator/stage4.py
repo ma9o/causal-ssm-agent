@@ -121,7 +121,7 @@ async def run_stage4(
     model_topology = build_model_topology(causal_spec)
     distribution_cards = build_distribution_cards(causal_spec, indicator_audits, skeleton)
     construct_scale_cards = build_construct_scale_cards(causal_spec, indicator_audits, skeleton)
-    prior_cards = build_prior_cards(skeleton)
+    prior_cards = build_prior_cards(causal_spec, skeleton)
 
     # 2. Build messages
     msgs = Stage4Messages(

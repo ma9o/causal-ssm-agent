@@ -240,6 +240,8 @@ class TestStage4Messages:
                         "cause": "stress",
                         "effect": "sleep",
                         "lagged": True,
+                        "expected_lag_days": 1.0,
+                        "feedback_loop": True,
                     },
                 }
             ],
@@ -250,8 +252,12 @@ class TestStage4Messages:
 
         assert "### 4. Parameter Prior Cards" in user_content
         assert "#### Fixed Effects" in user_content
-        assert "| beta_stress_sleep | stress | sleep | lagged | none |" in user_content
+        assert (
+            "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |"
+            in user_content
+        )
         assert "### 3. Construct Scale Cards" in user_content
+        assert "one-step model interval" in user_content
 
 
 # --- SSMModelBuilder Tests ---
@@ -451,6 +457,50 @@ class TestPriorPredictiveValidation:
         assert compile_mock.call_count == 1
         assert seen_compiled == [compiled_artifact]
         assert validation.compiled_ssm == compiled_artifact
+
+    def test_validate_assembly_rejects_lagged_prior_mismatches_before_prior_predictive(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Lagged DT/CT mismatches should fail before prior predictive sampling."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import validate_assembly
+
+        compiled_artifact = {
+            "schema_version": 1,
+            "spec": {},
+            "compiled_prior_semantics": {},
+        }
+
+        with (
+            patch(
+                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                return_value=compiled_artifact,
+            ),
+            patch(
+                "causal_ssm_agent.flows.stages.stage4_assembly._format_compile_diagnostics_feedback",
+                return_value=(
+                    "PRIOR INTERVAL/STABILITY ERRORS:\n"
+                    "- beta_stress_sleep: implied timescale 10.0d does not match the expected "
+                    "lag 1.0d.\n"
+                    "  Suggested: include reference_interval_days."
+                ),
+            ),
+            patch(
+                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive"
+            ) as pp_mock,
+        ):
+            validation = validate_assembly(
+                simple_model_spec,
+                simple_priors,
+                _make_polars_data(),
+                None,
+                {"measurement": {"model_clock": "1d"}},
+            )
+
+        assert validation.compile_ok is False
+        assert "PRIOR INTERVAL/STABILITY ERRORS" in validation.compile_error
+        pp_mock.assert_not_called()
 
     def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
         self,
@@ -731,7 +781,11 @@ class TestSSMPriorConversion:
             },
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
-        ssm_priors, _idx = compile_ssm_priors(priors, simple_model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+            priors,
+            simple_model_spec,
+            ssm_spec=ssm_spec,
+        )
 
         # Beta(2,2): E[X] = 0.5 → drift mu = -ln(0.5)/1.0 ≈ 0.693
         # Per-element with 1 entry: mu is a list [0.693]
@@ -843,7 +897,11 @@ class TestSSMPriorConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 5.0}},
         }
         ssm_spec = SSMSpec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
-        ssm_priors, _idx = compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+        )
 
         # Both should produce per-element arrays (lists), not scalars
         assert isinstance(ssm_priors.drift_diag["mu"], list)
@@ -892,7 +950,7 @@ class TestSSMPriorConversion:
             "measurement": {"model_clock": "1h", "indicators": []},
         }
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
-        ssm_priors, _idx = compile_ssm_priors(
+        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
@@ -960,7 +1018,11 @@ class TestSSMPriorConversion:
             latent_names=["mood", "stress"],
             drift_mask=drift_mask,
         )
-        ssm_priors, _idx = compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+        )
 
         # Daily default: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu = ssm_priors.drift_offdiag["mu"]
@@ -1033,7 +1095,7 @@ class TestSSMPriorConversion:
             latent_names=["heart_rate", "activity"],
             drift_mask=drift_mask,
         )
-        ssm_priors, _idx = compile_ssm_priors(
+        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
@@ -1249,8 +1311,8 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         del causal_spec, indicator_audits, skeleton
         return []
 
-    def stub_build_prior_cards(skeleton):
-        del skeleton
+    def stub_build_prior_cards(causal_spec, skeleton):
+        del causal_spec, skeleton
         return []
 
     monkeypatch.setattr(stage4_module, "derive_deterministic_spec", stub_derive_deterministic_spec)

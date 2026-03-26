@@ -70,6 +70,14 @@ def validate_assembly(
                 compile_ok=False,
                 compile_error=str(exc),
             )
+        compile_issue_feedback = _format_compile_diagnostics_feedback(compiled_ssm)
+        if compile_issue_feedback:
+            return AssemblyValidation(
+                normalized_model_spec=candidate,
+                compile_ok=False,
+                compile_error=compile_issue_feedback,
+                compiled_ssm=compiled_ssm,
+            )
     else:
         compile_error = trial_compile_model_spec(candidate, causal_spec)
         if compile_error:
@@ -110,6 +118,22 @@ def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
     """Normalize a Stage 4 model spec before any compile-time work."""
     candidate = deepcopy(model_spec)
     return candidate
+
+
+def _format_compile_diagnostics_feedback(
+    compiled_ssm: dict[str, Any],
+) -> str | None:
+    """Format compiler-owned lagged-prior diagnostics for Stage 4 feedback."""
+    diagnostics = compiled_ssm.get("compile_diagnostics") or {}
+    issues = diagnostics.get("lagged_drift_prior_issues") or []
+    if not issues:
+        return None
+
+    lines = ["PRIOR INTERVAL/STABILITY ERRORS:"]
+    for issue in issues:
+        lines.append(f"- {issue['parameter']}: {issue['issue']}")
+        lines.append(f"  Suggested: {issue['suggested_adjustment']}")
+    return "\n".join(lines)
 
 
 def _indicator_audit_scale_stats(

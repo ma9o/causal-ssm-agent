@@ -271,7 +271,7 @@ def _compile_validated_ssm_artifact(
     from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
     from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 
-    spec, ssm_priors, parameter_bindings = compile_ssm_inputs(
+    spec, ssm_priors, parameter_bindings, compile_diagnostics = compile_ssm_inputs(
         validated_model_spec,
         raw_priors,
         causal_spec=causal_spec,
@@ -282,6 +282,7 @@ def _compile_validated_ssm_artifact(
         "spec": serialize_ssm_spec(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": parameter_bindings,
+        "compile_diagnostics": compile_diagnostics,
     }
 
 
@@ -647,6 +648,15 @@ def _reconstruct_priors_from_compiled_semantics(
     return reconstruct_ssm_priors(bundle.registry, bundle.prior_state)
 
 
+def _reconstruct_ssm_inputs_from_artifact(
+    compiled_ssm: CompiledSSMArtifact,
+):
+    """Reconstruct executable SSM inputs from a compiled artifact."""
+    spec = deserialize_ssm_spec(compiled_ssm["spec"])
+    priors = _reconstruct_priors_from_compiled_semantics(compiled_ssm)
+    return spec, priors
+
+
 def make_builder_from_compiled_artifact(
     compiled_ssm: CompiledSSMArtifact,
     *,
@@ -660,8 +670,7 @@ def make_builder_from_compiled_artifact(
     """
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
-    spec = deserialize_ssm_spec(compiled_ssm["spec"])
-    priors = _reconstruct_priors_from_compiled_semantics(compiled_ssm)
+    spec, priors = _reconstruct_ssm_inputs_from_artifact(compiled_ssm)
 
     return SSMModelBuilder(
         ssm_spec=spec,

@@ -16,9 +16,15 @@ def _make_causal_spec(
     indicators: list[dict],
 ) -> dict:
     """Build a CausalSpec dict from components."""
+    retained_names = [construct["name"] for construct in constructs]
     return {
         "latent": {"constructs": constructs, "edges": edges},
         "measurement": {"model_clock": "1d", "indicators": indicators},
+        "estimation": {
+            "state_order": retained_names,
+            "edges": edges,
+            "induced_dependencies": [],
+        },
     }
 
 
@@ -256,19 +262,27 @@ class TestDeriveDeterministicSpec:
             "identifiable_treatments": {},
             "non_identifiable_treatments": {},
         }
+        spec["estimation"]["induced_dependencies"] = [
+            {
+                "between": ["sleep", "stress"],
+                "kind": "innovation_correlation",
+                "source_confounders": ["u_shared"],
+            }
+        ]
 
         skeleton = derive_deterministic_spec(spec)
         correlation_params = [p for p in skeleton.parameters if p["role"] == "correlation"]
         assert len(correlation_params) == 1
         assert correlation_params[0]["name"] == "cor_sleep_stress"
         assert correlation_params[0]["constraint"] == "correlation"
-        assert correlation_params[0]["marginalized_confounder"] == "u_shared"
+        assert correlation_params[0]["source_confounders"] == ["u_shared"]
 
 
 class TestBuildPriorCards:
     def test_prior_cards_reference_structural_context_only_once(self):
-        skeleton = derive_deterministic_spec(_simple_spec())
-        cards = build_prior_cards(skeleton)
+        spec = _simple_spec()
+        skeleton = derive_deterministic_spec(spec)
+        cards = build_prior_cards(spec, skeleton)
         beta_card = next(card for card in cards if card["parameter"] == "beta_stress_sleep")
         sigma_card = next(card for card in cards if card["parameter"] == "sigma_sleep")
 
@@ -276,6 +290,8 @@ class TestBuildPriorCards:
             "cause": "stress",
             "effect": "sleep",
             "lagged": True,
+            "expected_lag_days": 1.0,
+            "feedback_loop": False,
         }
         assert sigma_card["structural_context"] == {"construct": "sleep"}
 
