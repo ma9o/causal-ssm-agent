@@ -1,85 +1,109 @@
 # causal-ssm-agent
 
-causal-ssm-agent is for single-individual or already-aggregated longitudinal questions where the data are messy, irregularly sampled, and semantically heterogeneous. The LLM proposes latent constructs, a measurement model, causal structure, and priors, but quantitative answers only proceed through explicit identifiability checks and Bayesian continuous-time state-space estimation. The goal is not just to estimate effects, but to know when numeric causal claims are justified and when the system should stop at structural reasoning.
+> Ask a causal question in plain English. Get a statistically rigorous answer — or an honest "not identifiable" — from your own longitudinal data.
+
+[![CI](https://github.com/ma9o/causal-ssm-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/ma9o/causal-ssm-agent/actions/workflows/ci.yml)
+![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab?logo=python&logoColor=white)
+![Next.js 16](https://img.shields.io/badge/Next.js-16-000?logo=next.js)
+![NumPyro + JAX](https://img.shields.io/badge/NumPyro-JAX-9b59b6)
+
+**causal-ssm-agent** translates natural-language causal questions into formal causal inference. An LLM proposes latent constructs, a measurement model, a causal DAG with explicit confounders, and informative priors. Algebraic identifiability checks gate numeric estimation — unidentified effects stop at structural reasoning. Identified effects are estimated via continuous-time state-space models with variational inference on JAX.
+
+Built for intensive longitudinal data (ILD) and N-of-1 settings: irregular timestamps, mixed indicator types, semantic heterogeneity.
+
+*"Why do I feel tired on Mondays?"* · *"Does talking to my therapist actually help?"* · *"What's making my code reviews take so long?"*
+
+<!-- TODO: Add screenshot of web UI showing a completed pipeline run -->
+
+## Pipeline
 
 ```mermaid
 flowchart LR
-  subgraph LLM["LLM (proposals)"]
-    S1a["Stage 1a\nLatent constructs + causal DAG"]
-    S1b_llm["Stage 1b\nMeasurement model specification"]
-    S4_llm["Stage 4\nObservation model + priors\n(optional literature support)"]
-    S6["Stage 6\nIntervention interpretation"]
-  end
+  Q(["Causal question"])
+  L["Latent constructs\n& causal DAG"]
+  M["Measurement\nmodel"]
+  ID{"Identified?"}
+  P["Priors &\nlikelihoods"]
+  PID["Parametric\nID"]
+  EST["Bayesian\nestimation"]
+  R(["Causal effect\nestimate"])
+  S(["Structural\nreasoning only"])
 
-  subgraph Stats["Statistics (verification + estimation)"]
-    S1b_filter["Stage 1b\nidentifiability screening + stop rule"]
-    S4b["Stage 4b\nParametric ID diagnostics"]
-    S5["Stage 5\nNumPyro estimation + diagnostics"]
-    S6_post["Posterior causal effects\nfrom fitted model"]
-  end
-
-  S1a --> S1b_llm --> S1b_filter --> S4_llm --> S4b --> S5 --> S6_post --> S6
+  Q --> L --> M --> ID
+  ID -- yes --> P --> PID --> EST --> R
+  ID -- no --> S
 ```
 
-## Key Feature: Natural Language Causal Queries
+Stages alternate between LLM proposals (constructs, measurement model, priors) and statistical verification (identifiability, parametric diagnostics, estimation). The identification gate is the central architectural decision: if a causal effect can't be nonparametrically identified from the proposed DAG, the system stops and explains why rather than producing an unwarranted estimate. See the [pipeline docs](docs/pipeline.md) for the full stage breakdown.
 
-Users don't need to be data scientists or understand causal inference terminology. They can ask questions in plain language:
+## Features
 
-- *"Why do I feel tired on Mondays?"*
-- *"Does talking to my therapist actually help?"*
-- *"What's making my code reviews take so long?"*
+- **Natural language queries** — Users ask informal causal questions; the LLM translates into formal structure with latent constructs, indicators, and explicit confounders
+- **Identification before estimation** — Structural identifiability checked via [y0](https://y0.readthedocs.io/) ([Shpitser & Pearl 2006](https://doi.org/10.1016/j.artint.2008.12.006)) before any numeric claim. No identification, no causal estimate.
+- **Continuous-time state-space models** — Multivariate Ornstein-Uhlenbeck dynamics with exact matrix-exponential discretization for arbitrarily irregular observation intervals
+- **Mixed likelihood families** — Gaussian, ordinal logistic, Poisson, Bernoulli, Beta, categorical — matched to indicator dtype automatically
+- **LLM-elicited priors** — Prior distributions proposed by the LLM with optional literature grounding via [Exa](https://docs.exa.ai/) search, validated through prior predictive checks (stability, scale plausibility)
+- **Explicit latent confounders** — Unobserved confounding modeled as explicit nodes in the DAG, never bidirected edges; ADMGs used only internally for the ID algorithm
+- **Dual inference backends** — Kalman filter (exact, via [cuthbert](https://github.com/cuthbert-ai/cuthbert)) for linear-Gaussian models; Rao-Blackwellized particle filter for non-Gaussian observations
+- **Full web interface** — Interactive DAG visualization, stage-by-stage pipeline progress, posterior diagnostics, intervention analysis
 
-The orchestrator LLM translates these informal queries into formal causal structures - identifying relevant variables, potential confounders, and constructing a proper DAG. This democratizes causal inference, making it accessible to anyone with data and curiosity.
+## Modeling
 
-## Quickstart
+A causal question becomes a directed acyclic graph: latent constructs as nodes, directed edges as hypothesized effects, with unobserved confounders as explicit latent nodes. Each target effect is checked for nonparametric identifiability — the DAG is [temporally unrolled](https://arxiv.org/abs/2504.20172), projected to an ADMG, and passed through the [ID algorithm](https://doi.org/10.1016/j.artint.2008.12.006). Effects that aren't identified stop here — no estimate produced.
 
-[...]
+Identified effects are estimated as a continuous-time latent state-space model:
+
+$$d\boldsymbol{\eta}(t) = \bigl(\mathbf{A}\,\boldsymbol{\eta}(t) + \mathbf{c}\bigr)\,dt + \mathbf{G}\,d\mathbf{W}(t)$$
+
+Off-diagonal entries of the drift matrix $\mathbf{A}$ are the causal effects of interest. Observations link to latent states through indicator-specific likelihoods (Gaussian, ordinal, Poisson, Bernoulli, Beta, categorical) via a factor loading matrix, and exact matrix-exponential discretization handles irregular time intervals natively.
+
+See [estimation](docs/reference/estimation.md) and [compilation](docs/reference/compilation.md) for the full formulation.
+
+## Quick Start
+
+```bash
+bun install --frozen-lockfile
+cd apps/data-pipeline && uv sync --frozen --group dev && cd ../..
+
+# Environment — set OPENROUTER_API_KEY at minimum
+cp .env.example.dev .env
+
+# Start all dev servers - NextJS, Prefect and LLM tools server
+bun run dev
+```
+
+See the [dev setup guide](docs/guides/dev_setup.md) for full details including environment variables and optional dependencies.
 
 ## Documentation
 
-See [`docs/index.md`](docs/index.md) for the documentation entrypoint.
+| Section | Description |
+|---------|-------------|
+| **[Index](docs/index.md)** | Full documentation entrypoint with route-by-question |
+| **[Pipeline](docs/pipeline.md)** | Stage-by-stage walkthrough and artifact ownership |
+| **[Reference](docs/reference/)** | Assumptions, compilation, estimation, inference routing |
+| **[Guides](docs/guides/)** | Dev setup, codegen, integration testing, evals |
 
-References are colocated with the docs that use them and mirrored in the [standalone bibliography page](docs/reference/bibliography.md) for convenience.
-
-- **[Pipeline](docs/pipeline.md)** - Ordered stage map plus the stage docs that own emitted artifacts
-- **[Reference](docs/reference/)** - Assumptions, cross-cutting concepts, compilation, estimation, inference routing, and execution semantics
-- **[Guides](docs/guides/)** - Practical usage: data contract, data workflow, running evals, codegen
-- **[Stage 1b](docs/pipeline/01b-measurement-identifiability.md)** - Measurement model, indicator semantics, and causal identifiability
-- **[Stage 4](docs/pipeline/04-model-specification-priors.md)** - Model specification, likelihood rules, parameter roles, and prior elicitation
-
-## Structure
+## Project Structure
 
 ```text
-causal-ssm-agent/                  # Turborepo monorepo
+causal-ssm-agent/                    # Turborepo monorepo
 ├── apps/
-│   ├── data-pipeline/             # Python – Prefect pipeline + NumPyro models
+│   ├── data-pipeline/               # Python — Prefect pipeline + NumPyro models
 │   │   ├── src/causal_ssm_agent/
-│   │   │   ├── orchestrator/      # LLM model specification (latent + measurement)
-│   │   │   ├── workers/           # Indicator extraction + prior research LLMs
-│   │   │   ├── models/            # NumPyro SSM compilation, likelihoods, inference routing
-│   │   │   ├── flows/             # Prefect pipeline stages (0–6) + replay orchestration
-│   │   │   └── utils/             # Shared utilities (config, LLM runtime, identifiability)
-│   │   │       └── byok_secret_store.py  # Single-use encrypted OpenRouter handoff refs for pipeline access handoff
-│   │   ├── benchmarks/            # Inference method benchmarks (parameter recovery)
-│   │   ├── evals/                 # Inspect AI evals
-│   │   ├── notebooks/             # Showcase notebooks
-│   │   ├── tests/                 # pytest tests
-│   │   └── tools/                 # Narrow utilities (eval log reader, GPU smoke, LaTeX renderer)
-│   └── web/                       # Next.js frontend
+│   │   │   ├── orchestrator/        # LLM agents: construct, measurement, prior proposals
+│   │   │   ├── workers/             # Parallel indicator extraction + prior research
+│   │   │   ├── models/              # NumPyro SSM compilation + likelihoods
+│   │   │   ├── flows/               # Prefect stages (0–6) + orchestration
+│   │   │   └── utils/               # Identifiability, config, LLM runtime
+│   │   ├── evals/                   # Inspect AI evaluation suites
+│   │   └── tests/                   # pytest suite
+│   └── web/                         # Next.js — interactive frontend
 │       └── src/
-│           ├── app/               # App router pages + API routes
-│           │   ├── api/auth/      # OpenRouter session exchange/logout/status routes and trial access reporting
-│           │   ├── api/refine/    # Interactive-LLM refinement route
-│           │   └── api/runs/      # Server-mediated pipeline launch endpoint with OpenRouter access resolution
-│           ├── components/        # React components (stages, charts, DAG, pipeline)
-│           └── lib/               # API clients, hooks, types, utilities
-│               ├── root-flow-runs.ts  # Root Prefect run lineage helpers
-│               └── server/        # Server-only OpenRouter, Prefect, and run-lock helpers
+│           ├── app/                  # App router + API routes
+│           ├── components/           # DAG editor, charts, pipeline views
+│           └── lib/                  # Clients, hooks, types
 ├── packages/
-│   ├── api-types/                 # Generated TypeScript types + exported schema snapshots
-│   └── typescript-config/         # Shared TS config
-├── data/                          # Root data workspace shared by web + pipeline
-│   └── <WORKSPACE_ID>/            # Workspace: access.json, input/, query.txt, run/
-├── docs/                          # Project documentation (see docs/index.md)
-└── scratchpad/                    # Temporary work files (gitignored)
+│   └── api-types/                   # Generated TypeScript types from Pydantic
+├── data/                            # Workspace data (local inputs, runs, artifacts)
+└── docs/                            # Documentation
 ```
