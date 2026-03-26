@@ -438,12 +438,16 @@ async def call_model(
         kwargs["max_tokens"] = request.max_tokens
     if request.timeout is not None:
         kwargs["timeout"] = request.timeout
-    if request.reasoning_effort is not None:
-        kwargs["extra_body"] = {
-            "reasoning": {
-                "effort": request.reasoning_effort,
-            }
+    extra_body: dict[str, Any] = {
+        "provider": {
+            "sort": "throughput",
         }
+    }
+    if request.reasoning_effort is not None:
+        extra_body["reasoning"] = {
+            "effort": request.reasoning_effort,
+        }
+    kwargs["extra_body"] = extra_body
     if tools:
         kwargs["tools"] = [_tool_schema(tool_obj) for tool_obj in tools]
 
