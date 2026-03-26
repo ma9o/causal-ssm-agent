@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import fields
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -21,6 +21,8 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import polars as pl
 
     from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
@@ -191,29 +193,70 @@ def trial_compile_measurement_model(
     return None
 
 
+def collect_estimation_projection_compile_errors(
+    causal_spec: dict,
+    *,
+    manifest_names: Sequence[str] | None = None,
+) -> list[str]:
+    """Validate that the retained estimation projection can be compiled.
+
+    Under the current compiler/runtime, every retained estimation state must be
+    supported by at least one manifest channel, and the loading matrix must be
+    able to reach full column rank.
+    """
+    from causal_ssm_agent.utils.causal_spec import get_estimation_state_order, get_indicators
+
+    errors: list[str] = []
+    latent_states = get_estimation_state_order(causal_spec)
+    if not latent_states:
+        return ["causal_spec.estimation.state_order is empty"]
+
+    indicators = get_indicators(causal_spec)
+    indicator_lookup = {
+        indicator["name"]: indicator
+        for indicator in indicators
+        if isinstance(indicator, dict) and isinstance(indicator.get("name"), str)
+    }
+    used_manifests = list(manifest_names) if manifest_names is not None else list(indicator_lookup.keys())
+    covered_state_counts = Counter(
+        indicator.get("construct_name")
+        for manifest_name in used_manifests
+        if isinstance((indicator := indicator_lookup.get(manifest_name)), dict)
+        and isinstance(indicator.get("construct_name"), str)
+    )
+    uncovered_states = sorted(state for state in latent_states if covered_state_counts.get(state, 0) == 0)
+    if uncovered_states:
+        errors.append(
+            "Retained estimation states have no measurement indicators: "
+            f"{uncovered_states}. Add proxy indicators for these constructs or "
+            "exclude them from the executable estimation projection."
+        )
+
+    n_manifest = len(used_manifests)
+    n_latent = len(latent_states)
+    if n_manifest < n_latent:
+        errors.append(
+            "Loading matrix is rank-deficient: "
+            f"n_manifest ({n_manifest}) < n_latent ({n_latent})."
+        )
+
+    return errors
+
+
 def _collect_model_spec_compile_errors(
     model_spec: ModelSpec,
     causal_spec: dict | None = None,
 ) -> list[str]:
     """Collect deterministic ModelSpec checks that the compiler owns."""
     errors: list[str] = []
-    n_manifest = len(model_spec.likelihoods)
-
     if causal_spec is not None:
-        from causal_ssm_agent.utils.causal_spec import get_estimation_state_order
+        manifest_names = [likelihood.variable for likelihood in model_spec.likelihoods]
+        return collect_estimation_projection_compile_errors(
+            causal_spec,
+            manifest_names=manifest_names,
+        )
 
-        latent_states = get_estimation_state_order(causal_spec)
-        if not latent_states:
-            errors.append("causal_spec.estimation.state_order is empty")
-            return errors
-
-        n_latent = len(latent_states)
-        if n_manifest < n_latent:
-            errors.append(
-                "Loading matrix is rank-deficient: "
-                f"n_manifest ({n_manifest}) < n_latent ({n_latent})."
-            )
-        return errors
+    n_manifest = len(model_spec.likelihoods)
 
     ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
     if not ar_params:
