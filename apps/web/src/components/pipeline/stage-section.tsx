@@ -1,6 +1,7 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AnalysisStageRun } from "@/lib/api/analysis";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageId } from "@causal-ssm/api-types";
 import type { StageOutcome } from "@causal-ssm/api-types";
@@ -25,7 +26,7 @@ export function StageSection({
   loadingHint,
   runningContent,
   workspaceId,
-  logFlowRunIds = [],
+  stageRun,
   invalidated = false,
   showLogViewer = true,
   actions,
@@ -43,7 +44,7 @@ export function StageSection({
   loadingHint?: string;
   runningContent?: ReactNode;
   workspaceId?: string;
-  logFlowRunIds?: string[];
+  stageRun?: AnalysisStageRun | null;
   invalidated?: boolean;
   showLogViewer?: boolean;
   /** Optional actions rendered top-right of the card header. */
@@ -166,7 +167,7 @@ export function StageSection({
         <StageLogViewer
           workspaceId={workspaceId}
           stageId={stageId}
-          logFlowRunIds={logFlowRunIds}
+          stageRun={stageRun}
           status={status}
         />
       )}

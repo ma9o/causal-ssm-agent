@@ -28,7 +28,7 @@ export interface AnalysisStageExecution {
 export interface AnalysisStageRun {
   ownerRootFlowRunId: string | null;
   stageSubflowRunId: string | null;
-  logFlowRunIds: string[];
+  initialLogFlowRunIds: string[];
   execution: AnalysisStageExecution | null;
 }
 

@@ -28,6 +28,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useMemo,
 } from "react";
 import { StageSection } from "./stage-section";
 import { StageWithTrace } from "./stage-with-trace";
@@ -87,8 +88,13 @@ export function StageSectionRouter({
   const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
   const pendingStagePatch =
     refiningStageId === stage.id ? pendingStagePatches[stage.id] ?? null : null;
-  const projectedStageData =
-    stageData && pendingStagePatch ? ({ ...stageData, ...pendingStagePatch } as StageViewData) : stageData;
+  const projectedStageData = useMemo(
+    () =>
+      stageData && pendingStagePatch
+        ? ({ ...stageData, ...pendingStagePatch } as StageViewData)
+        : stageData,
+    [pendingStagePatch, stageData],
+  );
 
   const outcome: StageOutcome = projectedStageData?.outcome ?? "success";
 
@@ -106,19 +112,22 @@ export function StageSectionRouter({
   }, [outcome, queryClient, workspaceId, stage.id]);
 
   const isStage2Running = stage.id === "stage-2" && status === "running";
+  const fixMeasurementsPrompt = useMemo(() => {
+    if (!projectedStageData || stage.id !== "stage-3") {
+      return "";
+    }
+    return buildFixPrompt(projectedStageData as Stage3Data);
+  }, [projectedStageData, stage.id]);
 
   const handleFixMeasurements = useCallback(() => {
-    if (!projectedStageData || stage.id !== "stage-3") return;
-    const prompt = buildFixPrompt(projectedStageData as Stage3Data);
-    if (!prompt) return;
-    setPrefill("stage-1b", prompt);
+    if (!fixMeasurementsPrompt) return;
+    setPrefill("stage-1b", fixMeasurementsPrompt);
     requestAnimationFrame(() => {
       document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [projectedStageData, stage.id, setPrefill]);
+  }, [fixMeasurementsPrompt, setPrefill]);
 
-  const showFixButton =
-    stage.id === "stage-3" && isCompleted && (outcome === "fail" || outcome === "warn");
+  const showFixButton = stage.id === "stage-3" && isCompleted && fixMeasurementsPrompt.length > 0;
 
   const section = (
     <StageSection
@@ -148,15 +157,14 @@ export function StageSectionRouter({
           <Suspense fallback={null}>
             <Stage2RunningContent
               workspaceId={workspaceId}
-              rootFlowRunId={stageRun?.ownerRootFlowRunId ?? null}
               stageStatus={status}
-              logFlowRunIds={stageRun?.logFlowRunIds ?? []}
+              stageRun={stageRun}
             />
           </Suspense>
         ) : undefined
       }
       workspaceId={workspaceId}
-      logFlowRunIds={stageRun?.logFlowRunIds ?? []}
+      stageRun={stageRun}
       invalidated={invalidated}
       showLogViewer={!isStage2Running}
     >

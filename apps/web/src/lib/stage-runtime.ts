@@ -1,4 +1,5 @@
 import type { AnalysisStageExecution, AnalysisStageRun } from "@/lib/api/analysis";
+import { normalizeFlowRunIds } from "./flow-run-ids";
 
 export const STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage";
 export const STAGE_PROGRESS_EVENT_FILTER_PREFIX = `${STAGE_PROGRESS_EVENT_PREFIX}.`;
@@ -15,7 +16,7 @@ export interface StageRuntimeEventRecord {
 export interface StageExecutionSummary {
   execution: AnalysisStageExecution;
   stageSubflowRunId: string | null;
-  logFlowRunIds: string[];
+  initialLogFlowRunIds: string[];
 }
 
 export function normalizeStageSubflowRunId(value: unknown): string | null {
@@ -23,25 +24,7 @@ export function normalizeStageSubflowRunId(value: unknown): string | null {
 }
 
 export function normalizeLogFlowRunIds(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const item of value) {
-    if (typeof item !== "string") {
-      continue;
-    }
-    const normalized = item.trim();
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    ids.push(normalized);
-  }
-
-  return ids;
+  return Array.isArray(value) ? normalizeFlowRunIds(value) : [];
 }
 
 function compareOccurredAt(left: StageRuntimeEventRecord, right: StageRuntimeEventRecord): number {
@@ -94,16 +77,16 @@ export function summarizeStageProgressEvents(
   const latestStatus = latestEvent.status;
 
   let stageSubflowRunId: string | null = null;
-  let logFlowRunIds: string[] = [];
+  let initialLogFlowRunIds: string[] = [];
   for (const event of orderedEvents) {
     const runtime = resolveStageRuntimeMetadata(event);
     stageSubflowRunId = runtime.stageSubflowRunId ?? stageSubflowRunId;
     if (runtime.logFlowRunIds.length > 0) {
-      logFlowRunIds = runtime.logFlowRunIds;
+      initialLogFlowRunIds = runtime.logFlowRunIds;
     }
   }
-  if (logFlowRunIds.length === 0 && stageSubflowRunId) {
-    logFlowRunIds = [stageSubflowRunId];
+  if (initialLogFlowRunIds.length === 0 && stageSubflowRunId) {
+    initialLogFlowRunIds = [stageSubflowRunId];
   }
 
   const startTime =
@@ -116,7 +99,7 @@ export function summarizeStageProgressEvents(
       endTime: latestStatus === "running" ? null : (terminalEvent?.occurred ?? startTime),
     },
     stageSubflowRunId,
-    logFlowRunIds,
+    initialLogFlowRunIds,
   };
 }
 
@@ -127,11 +110,11 @@ export function patchStageRun(
 ): AnalysisStageRun {
   const runtime = resolveStageRuntimeMetadata(event);
   const stageSubflowRunId = runtime.stageSubflowRunId ?? existingStageRun.stageSubflowRunId ?? null;
-  const logFlowRunIds =
+  const initialLogFlowRunIds =
     runtime.logFlowRunIds.length > 0
       ? runtime.logFlowRunIds
-      : existingStageRun.logFlowRunIds.length > 0
-        ? existingStageRun.logFlowRunIds
+      : existingStageRun.initialLogFlowRunIds.length > 0
+        ? existingStageRun.initialLogFlowRunIds
         : stageSubflowRunId
           ? [stageSubflowRunId]
           : [];
@@ -152,7 +135,7 @@ export function patchStageRun(
     ...existingStageRun,
     ownerRootFlowRunId,
     stageSubflowRunId,
-    logFlowRunIds,
+    initialLogFlowRunIds,
     execution,
   };
 }

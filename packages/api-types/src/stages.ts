@@ -13,6 +13,8 @@ export const STAGE_IDS = [
 
 export type StageId = (typeof STAGE_IDS)[number];
 
+export type StageLogScopePolicy = "subflow" | "subflow-with-children";
+
 export interface StageMeta {
   id: StageId;
   label: string;
@@ -23,6 +25,8 @@ export interface StageMeta {
   description: string;
   /** Whether the LLM trace panel allows refinement (chat input + apply). */
   interactive: boolean;
+  /** How stage logs should expand from the stage subflow at runtime. */
+  logScopePolicy?: StageLogScopePolicy;
 }
 
 export const STAGES: StageMeta[] = [
@@ -60,6 +64,7 @@ export const STAGES: StageMeta[] = [
     description:
       "Dispatches worker LLMs to extract indicator observations from raw activity data, processing each chunk independently.",
     interactive: false,
+    logScopePolicy: "subflow-with-children",
   },
   {
     id: "stage-3",

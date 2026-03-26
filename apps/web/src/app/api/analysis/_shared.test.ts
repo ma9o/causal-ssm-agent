@@ -5,7 +5,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { readData } from "@/lib/storage";
-import { buildAnalysisManifest } from "./_shared";
+import { buildAnalysisManifest, resolveStageLogScopeFlowRunIds } from "./_shared";
 
 const originalFetch = globalThis.fetch;
 
@@ -159,7 +159,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-3"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:18:00.000Z",
@@ -169,7 +169,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: "stage-4-subflow",
-      logFlowRunIds: ["stage-4-subflow"],
+      initialLogFlowRunIds: ["stage-4-subflow"],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:18:30.000Z",
@@ -179,7 +179,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4b"]).toEqual({
       ownerRootFlowRunId: "resume-run",
       stageSubflowRunId: "stage-4b-subflow",
-      logFlowRunIds: ["stage-4b-subflow"],
+      initialLogFlowRunIds: ["stage-4b-subflow"],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:33:05.000Z",
@@ -189,7 +189,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-5b"]).toEqual({
       ownerRootFlowRunId: "resume-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:35:10.000Z",
@@ -242,7 +242,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4b"]).toEqual({
       ownerRootFlowRunId: "run-abc",
       stageSubflowRunId: "flow-123",
-      logFlowRunIds: ["flow-123"],
+      initialLogFlowRunIds: ["flow-123"],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:33:00.000Z",
@@ -298,7 +298,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-0"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:16:00.000Z",
@@ -349,7 +349,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-2"]).toEqual({
       ownerRootFlowRunId: "run-abc",
       stageSubflowRunId: "stage-2-subflow",
-      logFlowRunIds: ["stage-2-subflow"],
+      initialLogFlowRunIds: ["stage-2-subflow"],
       execution: {
         stateType: "RUNNING",
         startTime: "2026-03-13T18:33:00.000Z",
@@ -427,7 +427,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4"]).toEqual({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: "stage-4-subflow",
-      logFlowRunIds: ["stage-4-subflow"],
+      initialLogFlowRunIds: ["stage-4-subflow"],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:55:00.000Z",
@@ -437,7 +437,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-4b"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:46:00.000Z",
@@ -447,7 +447,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-6"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:50:00.000Z",
@@ -527,7 +527,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-0"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:16:00.000Z",
@@ -537,7 +537,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-1a"]).toEqual({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:55:02.000Z",
@@ -547,7 +547,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-1b"]).toEqual({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "RUNNING",
         startTime: "2026-03-13T18:56:01.000Z",
@@ -557,13 +557,13 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-2"]).toEqual({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: null,
     });
     expect(manifest?.stages["stage-4"]).toEqual({
       ownerRootFlowRunId: "rerun-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: null,
     });
   });
@@ -609,7 +609,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.stages["stage-0"]).toEqual({
       ownerRootFlowRunId: "live-run",
       stageSubflowRunId: null,
-      logFlowRunIds: [],
+      initialLogFlowRunIds: [],
       execution: {
         stateType: "RUNNING",
         startTime: "2026-03-14T10:00:05.000Z",
@@ -691,5 +691,28 @@ describe("buildAnalysisManifest", () => {
       "http://localhost:4200/api/flow_runs/filter",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+});
+
+describe("resolveStageLogScopeFlowRunIds", () => {
+  it("expands stage-2 log scope to include child worker flows", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+      if (url !== "http://localhost:4200/api/flow_runs/filter") {
+        throw new Error(`Unexpected fetch: ${url}`);
+      }
+
+      expect(parseBody(init)).toEqual({
+        flow_runs: { parent_flow_run_id: { any_: ["stage-2-subflow"] } },
+        sort: "START_TIME_ASC",
+        limit: 50,
+      });
+
+      return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
+    }) as typeof fetch;
+
+    await expect(
+      resolveStageLogScopeFlowRunIds("stage-2", "stage-2-subflow"),
+    ).resolves.toEqual(["stage-2-subflow", "worker-flow-1", "worker-flow-2"]);
   });
 });

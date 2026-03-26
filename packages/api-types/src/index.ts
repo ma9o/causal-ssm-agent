@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 export type { PipelineRun, RunStatus, StageState, StageStatus } from "./run";
-export type { StageId, StageMeta } from "./stages";
+export type { StageId, StageLogScopePolicy, StageMeta } from "./stages";
 export { STAGE_IDS, STAGES } from "./stages";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,7 @@ export type {
   DistributionFamily,
   EnergyDiagnostics,
   EnergyHistogram,
+  FirstPassRBResult,
   IdentifiabilityStatus,
   IdentifiedTreatmentStatus,
   Indicator,
@@ -37,6 +38,8 @@ export type {
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
   IndicatorValidationContract as IndicatorValidation,
   InferenceMetadataContract as InferenceMetadata,
+  InferenceStructureResult,
+  InferenceStructureVariable,
   LatentModel,
   LikelihoodSource,
   LikelihoodSpec,
@@ -53,9 +56,6 @@ export type {
   ParameterRole,
   ParameterSpec,
   ParametricIdResult,
-  InferenceStructureResult,
-  InferenceStructureVariable,
-  FirstPassRBResult,
   PosteriorMarginal,
   PosteriorPair,
   PowerScalingResultContract as PowerScalingResult,
@@ -93,7 +93,10 @@ export type {
   WorkerStatusContract as WorkerStatus,
 } from "./generated/models";
 
-export type Stage4PersistedData = Omit<import("./generated/models").Stage4Contract, "resolved_priors"> & {
+export type Stage4PersistedData = Omit<
+  import("./generated/models").Stage4Contract,
+  "resolved_priors"
+> & {
   resolved_priors: import("./generated/models").PriorProposal[];
 };
 export type Stage4Data = Stage4PersistedData;
