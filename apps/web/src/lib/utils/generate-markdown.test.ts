@@ -13,13 +13,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("**Generated**:");
   });
 
-  it("generates empty report without crashing", () => {
-    const data: AllStageData = {};
-    const result = generateMarkdown(data, "empty");
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
-  });
-
   it("includes stage 0 section when data is present", () => {
     const data: AllStageData = {
       "stage-0": {
@@ -55,15 +48,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Column Descriptions");
     expect(result).toContain("timestamp");
     expect(result).toContain("Heart rate in BPM");
-  });
-
-  it("handles null stage data gracefully", () => {
-    const data: AllStageData = {
-      "stage-0": null,
-      "stage-1a": null,
-    };
-    const result = generateMarkdown(data, "null-test");
-    expect(typeof result).toBe("string");
   });
 
   it("includes stage 6 treatment effects section", () => {

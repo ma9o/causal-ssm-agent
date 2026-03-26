@@ -1625,7 +1625,7 @@ def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
     assert data_for_model.filter(pl.col("indicator") == "stress_score")["value"][0] == 4.0
 
 
-def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
+def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_path):
     data_path = tmp_path / "stage2-model-data.parquet"
     pl.DataFrame(
         {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
@@ -1662,6 +1662,20 @@ def test_stage4_calls_subflow_directly(monkeypatch, tmp_path):
 
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
+    args, kwargs = stub.calls[0]
+    assert args == ()
+    assert kwargs["causal_spec"] == {
+        "latent": {"constructs": []},
+        "measurement": {"model_clock": "1d", "indicators": []},
+    }
+    assert kwargs["question"] == "why is this happening?"
+    assert kwargs["indicator_audits"] == {}
+    assert kwargs["enable_literature"] is True
+    assert kwargs["openrouter_api_key"] is None
+    assert kwargs["root_run_id"] is None
+    assert kwargs["data_for_model"].to_dicts() == [
+        {"indicator": "stress_score", "value": "1.0", "anchor_time": "2024-01-01"}
+    ]
     assert result["model_spec"] == {"parameters": []}
 
 
@@ -1704,7 +1718,7 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
     assert stub.calls[0][1]["openrouter_api_key"] == "explicit-key"
 
 
-def test_stage4b_calls_subflow_directly(monkeypatch, tmp_path):
+def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_path):
     data_path = tmp_path / "stage2-model-data.parquet"
     pl.DataFrame(
         {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
@@ -1712,12 +1726,23 @@ def test_stage4b_calls_subflow_directly(monkeypatch, tmp_path):
 
     stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
     monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4b_parametric_id_flow", stub)
+    builder = object()
 
     result = dag.stage4b(
-        {"model_spec": {"parameters": []}},
+        {"model_spec": {"parameters": []}, "_compiled_ssm": "compiled-ssm"},
         {"_data_for_model_path": str(data_path)},
+        ssm_builder=builder,
+        root_run_id="root-123",
     )
 
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
+    args, kwargs = stub.calls[0]
+    assert args == ()
+    assert kwargs["compiled_ssm"] == "compiled-ssm"
+    assert kwargs["builder"] is builder
+    assert kwargs["root_run_id"] == "root-123"
+    assert kwargs["data_for_model"].to_dicts() == [
+        {"indicator": "stress_score", "value": "1.0", "anchor_time": "2024-01-01"}
+    ]
     assert result == {"parametric_id": {"checked": True}, "outcome": "success"}

@@ -1,3 +1,4 @@
+import { STAGES } from "@causal-ssm/api-types";
 import { afterEach, describe, expect, it } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 
@@ -16,29 +17,20 @@ describe("isMockMode", () => {
     }
   });
 
-  it("returns false when env var is unset", () => {
-    unsetEnv("NEXT_PUBLIC_MOCK_DATA");
-    expect(isMockMode()).toBe(false);
-  });
+  it.each([
+    [undefined, false],
+    ["", false],
+    ["false", false],
+    ["true", true],
+    ["doctolib", true],
+  ])("interprets NEXT_PUBLIC_MOCK_DATA=%s as mock mode %s", (value, expected) => {
+    if (value === undefined) {
+      unsetEnv("NEXT_PUBLIC_MOCK_DATA");
+    } else {
+      process.env.NEXT_PUBLIC_MOCK_DATA = value;
+    }
 
-  it("returns false when env var is empty string", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "";
-    expect(isMockMode()).toBe(false);
-  });
-
-  it("returns false when env var is 'false'", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "false";
-    expect(isMockMode()).toBe(false);
-  });
-
-  it("returns true when env var is 'true'", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "true";
-    expect(isMockMode()).toBe(true);
-  });
-
-  it("returns true when env var is a fixture name", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "doctolib";
-    expect(isMockMode()).toBe(true);
+    expect(isMockMode()).toBe(expected);
   });
 });
 
@@ -53,68 +45,39 @@ describe("getMockFixture", () => {
     }
   });
 
-  it("returns 'DEFAULT' when env var is unset", () => {
-    unsetEnv("NEXT_PUBLIC_MOCK_DATA");
-    expect(getMockFixture()).toBe("DEFAULT");
-  });
+  it.each([
+    [undefined, "DEFAULT"],
+    ["", "DEFAULT"],
+    ["true", "DEFAULT"],
+    ["doctolib", "DOCTOLIB"],
+  ])("maps NEXT_PUBLIC_MOCK_DATA=%s to fixture %s", (value, expected) => {
+    if (value === undefined) {
+      unsetEnv("NEXT_PUBLIC_MOCK_DATA");
+    } else {
+      process.env.NEXT_PUBLIC_MOCK_DATA = value;
+    }
 
-  it("returns uppercase fixture workspaceId from env var", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "doctolib";
-    expect(getMockFixture()).toBe("DOCTOLIB");
-  });
-
-  it("returns 'DEFAULT' when env var is 'true'", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "true";
-    expect(getMockFixture()).toBe("DEFAULT");
-  });
-
-  it("returns 'DEFAULT' when env var is empty", () => {
-    process.env.NEXT_PUBLIC_MOCK_DATA = "";
-    expect(getMockFixture()).toBe("DEFAULT");
+    expect(getMockFixture()).toBe(expected);
   });
 });
 
 describe("simulatePipelineEvents", () => {
-  it("calls onStageStart and onStageComplete for each stage synchronously", () => {
-    const starts: string[] = [];
-    const completes: string[] = [];
-
-    simulatePipelineEvents({
-      onStageStart: (id) => starts.push(id),
-      onStageComplete: (id) => completes.push(id),
-    });
-
-    expect(starts.length).toBe(10); // 10 stages
-    expect(completes.length).toBe(10);
-    expect(starts).toContain("stage-0");
-    expect(starts).toContain("stage-6");
-    expect(completes).toContain("stage-0");
-    expect(completes).toContain("stage-6");
-  });
-
-  it("fires onStageStart before onStageComplete for each stage", () => {
+  it("emits paired start and complete callbacks for each declared stage", () => {
     const events: Array<{ type: string; id: string }> = [];
 
-    simulatePipelineEvents({
+    const cleanup = simulatePipelineEvents({
       onStageStart: (id) => events.push({ type: "start", id }),
       onStageComplete: (id) => events.push({ type: "complete", id }),
     });
 
-    // For each stage, start should come before complete
-    for (const id of ["stage-0", "stage-1a", "stage-6"]) {
-      const startIdx = events.findIndex((e) => e.type === "start" && e.id === id);
-      const completeIdx = events.findIndex((e) => e.type === "complete" && e.id === id);
-      expect(startIdx).toBeLessThan(completeIdx);
+    expect(events).toHaveLength(STAGES.length * 2);
+    for (let index = 0; index < events.length; index += 2) {
+      expect(events[index]?.type).toBe("start");
+      expect(events[index + 1]?.type).toBe("complete");
+      expect(events[index]?.id).toBe(events[index + 1]?.id);
     }
-  });
-
-  it("returns a no-op cleanup function", () => {
-    const cleanup = simulatePipelineEvents({
-      onStageStart: () => {},
-      onStageComplete: () => {},
-    });
-
+    expect(new Set(events.map((event) => event.id)).size).toBe(STAGES.length);
     expect(typeof cleanup).toBe("function");
-    cleanup(); // should not throw
+    expect(cleanup()).toBeUndefined();
   });
 });
