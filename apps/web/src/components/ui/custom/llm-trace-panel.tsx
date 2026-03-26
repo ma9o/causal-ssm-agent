@@ -94,16 +94,6 @@ export function LLMTracePanel({
   const isLoading = status === "streaming" || status === "submitted";
   const hasRefinement = refinementMessages.length > 0;
 
-  useEffect(() => {
-    if (!normalizedStageId || refinementMessages.length === 0) {
-      return;
-    }
-
-    setPendingMaterialization(normalizedStageId, {
-      messages: refinementMessages,
-    });
-  }, [normalizedStageId, refinementMessages, setPendingMaterialization]);
-
   // Report settled state to the context so the ResumeButton can appear
   useEffect(() => {
     if (canRefine && refiningStageId === stageId) {

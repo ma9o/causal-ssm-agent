@@ -67,17 +67,19 @@ export function LLMTracePanelView({
   }, []);
 
   const messageCount = traceMessages.length + refinementMessages.length;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count change
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     // Defer until after parent layout/animation settles so the container
     // has its final constrained height (e.g. StageWithTrace motion).
     const raf = requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: isLoading ? "auto" : "smooth",
+      });
     });
     return () => cancelAnimationFrame(raf);
-  }, [messageCount]);
+  }, [messageCount, refinementMessages, isLoading]);
 
   // Auto-focus the refinement input on mount
   useEffect(() => {
@@ -119,7 +121,7 @@ export function LLMTracePanelView({
         )}
 
         {/* Refinement messages — interactive */}
-        {hasRefinement && <ChatMessages messages={refinementMessages} />}
+        {hasRefinement && <ChatMessages messages={refinementMessages} streaming={isLoading} />}
       </div>
 
       {/* Refinement input */}
