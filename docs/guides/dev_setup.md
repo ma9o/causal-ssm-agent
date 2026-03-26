@@ -63,7 +63,7 @@ Or individually:
 | App | Command | Port |
 |-----|---------|------|
 | Web frontend | `cd apps/web && bun run dev` | 3000 |
-| Prefect server | `cd apps/data-pipeline && uv run prefect server start` | 4200 |
+| Prefect server | `cd apps/data-pipeline && PREFECT_SERVER_LOGS_STREAM_OUT_ENABLED=true PREFECT_SERVER_LOGS_STREAM_PUBLISHING_ENABLED=true uv run prefect server start` | 4200 |
 | Tool server | `cd apps/data-pipeline && bun run dev` | 8100 |
 | Pipeline deployment | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | — |
 
