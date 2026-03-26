@@ -11,9 +11,8 @@ from causal_ssm_agent.models.ssm_compilation_common import (
 )
 from causal_ssm_agent.models.ssm_prior_compilation import (
     bind_parameters,
-    check_drift_lag_consistency,
+    collect_compile_diagnostics,
     compile_priors,
-    warn_first_order_approximation,
 )
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import (
@@ -35,8 +34,8 @@ def compile_ssm_inputs(
     ssm_spec: SSMSpec | None = None,
     ssm_priors: SSMPriors | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]]]:
-    """Resolve executable SSM inputs from either semantic specs or precompiled state."""
+) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]], dict[str, object]]:
+    """Resolve executable SSM inputs plus structured compiler diagnostics."""
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
     )
@@ -49,12 +48,18 @@ def compile_ssm_inputs(
 
     index_maps = None
     if ssm_priors is None:
-        ssm_priors, index_maps = compile_priors(
+        ssm_priors, index_maps, diagnostics = compile_priors(
             priors or {},
             resolved_model_spec,
             ssm_spec,
             edge_lag_days=edge_lag_days,
             causal_spec=causal_spec,
+        )
+    else:
+        diagnostics = collect_compile_diagnostics(
+            ssm_priors,
+            ssm_spec,
+            edge_lag_days=edge_lag_days,
         )
 
     bindings = bind_parameters(
@@ -63,7 +68,7 @@ def compile_ssm_inputs(
         index_maps=index_maps,
         causal_spec=causal_spec,
     )
-    return ssm_spec, ssm_priors, bindings
+    return ssm_spec, ssm_priors, bindings, diagnostics
 
 
 __all__ = [
@@ -71,7 +76,6 @@ __all__ = [
     "bind_parameters",
     "build_masks_from_causal_spec",
     "build_prior_index_maps",
-    "check_drift_lag_consistency",
     "compile_priors",
     "compile_ssm_inputs",
     "get_construct_dt_days",
@@ -79,5 +83,4 @@ __all__ = [
     "normalize_prior_params",
     "split_compound_name",
     "translate_spec",
-    "warn_first_order_approximation",
 ]

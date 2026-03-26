@@ -101,7 +101,7 @@ class SSMModelBuilder:
 
     def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
         """Compile user-facing specs into executable SSM inputs."""
-        spec, priors, bindings = compile_ssm_inputs(
+        spec, priors, bindings, _diagnostics = compile_ssm_inputs(
             model_spec=self._model_spec,
             priors=dump_prior_payloads(self._priors),
             ssm_spec=self._ssm_spec,
@@ -143,7 +143,7 @@ class SSMModelBuilder:
                 n_manifest=len(manifest_cols),
                 lambda_mat=jnp.eye(len(manifest_cols)),
             )
-            spec, priors, _bindings = compile_ssm_inputs(
+            spec, priors, _bindings, _diagnostics = compile_ssm_inputs(
                 priors=dump_prior_payloads(self._priors),
                 ssm_spec=spec,
                 causal_spec=self._causal_spec,

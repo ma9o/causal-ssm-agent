@@ -22,6 +22,119 @@ from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
 
 
+def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
+    positions: list[tuple[int, int]] = []
+    if ssm_spec.drift_mask is None:
+        return positions
+
+    for effect_idx in range(ssm_spec.n_latent):
+        for cause_idx in range(ssm_spec.n_latent):
+            if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
+                positions.append((effect_idx, cause_idx))
+    return positions
+
+
+def _drift_parameter_name(
+    ssm_spec: SSMSpec,
+    effect_idx: int,
+    cause_idx: int,
+) -> tuple[str, str, str]:
+    cause_name = ssm_spec.latent_names[cause_idx] if ssm_spec.latent_names else f"latent_{cause_idx}"
+    effect_name = (
+        ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
+    )
+    return f"beta_{cause_name}_{effect_name}", cause_name, effect_name
+
+
+def collect_lagged_drift_prior_issues(
+    ssm_priors: SSMPriors,
+    ssm_spec: SSMSpec,
+    *,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+) -> list[dict[str, str]]:
+    """Collect lagged-edge DT/CT diagnostics that should stop Stage 4 retries early."""
+    edge_lags = edge_lag_days or {}
+    if not edge_lags:
+        return []
+
+    offdiag_prior = ssm_priors.drift_offdiag
+    if offdiag_prior is None:
+        return []
+
+    offdiag_mu = offdiag_prior.get("mu")
+    if offdiag_mu is None:
+        return []
+
+    if isinstance(offdiag_mu, (int, float)):
+        offdiag_mu = [offdiag_mu]
+    if not offdiag_mu:
+        return []
+
+    positions = _iter_offdiag_positions(ssm_spec)
+    issues_by_parameter: dict[str, list[str]] = {}
+
+    for flat_idx, (effect_idx, cause_idx) in enumerate(positions):
+        if flat_idx >= len(offdiag_mu) or (effect_idx, cause_idx) not in edge_lags:
+            continue
+
+        parameter_name, cause_name, effect_name = _drift_parameter_name(
+            ssm_spec,
+            effect_idx,
+            cause_idx,
+        )
+        offdiag_abs = abs(float(offdiag_mu[flat_idx]))
+
+        if offdiag_abs < NUMERICAL_EPSILON:
+            continue
+
+        expected_lag_days = edge_lags[(effect_idx, cause_idx)]
+        implied_timescale_days = 1.0 / offdiag_abs
+        ratio = max(implied_timescale_days, expected_lag_days) / max(
+            min(implied_timescale_days, expected_lag_days),
+            NUMERICAL_EPSILON,
+        )
+        if ratio > 5.0:
+            issues_by_parameter.setdefault(parameter_name, []).append(
+                f"implied timescale {implied_timescale_days:.1f}d does not match the "
+                f"expected lag {expected_lag_days:.1f}d for {cause_name}->{effect_name} "
+                f"({ratio:.0f}x mismatch)."
+            )
+
+    return [
+        {
+            "parameter": parameter,
+            "issue": " ".join(messages),
+            "suggested_adjustment": (
+                "Use a true one-step effect for this lagged edge. If the literature estimate "
+                "comes from a longer study interval, include reference_interval_days. "
+                "Otherwise shrink the DT prior mean/sigma."
+            ),
+        }
+        for parameter, messages in issues_by_parameter.items()
+    ]
+
+
+def collect_compile_diagnostics(
+    ssm_priors: SSMPriors,
+    ssm_spec: SSMSpec,
+    *,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+) -> dict[str, list[dict[str, str]]]:
+    """Collect structured compiler diagnostics for downstream consumers."""
+    return {
+        "lagged_drift_prior_issues": collect_lagged_drift_prior_issues(
+            ssm_priors,
+            ssm_spec,
+            edge_lag_days=edge_lag_days,
+        )
+    }
+
+
+def _log_compile_diagnostics(diagnostics: dict[str, list[dict[str, str]]]) -> None:
+    for issue in diagnostics.get("lagged_drift_prior_issues") or []:
+        logger.warning("%s: %s", issue["parameter"], issue["issue"])
+
+
 def warn_first_order_approximation(ssm_priors: SSMPriors) -> None:
     """Warn when the first-order DT->CT approximation is likely inaccurate."""
     diag_prior = ssm_priors.drift_diag
@@ -60,67 +173,6 @@ def warn_first_order_approximation(ssm_priors: SSMPriors) -> None:
             min_diag,
         )
         break
-
-
-def check_drift_lag_consistency(
-    ssm_priors: SSMPriors,
-    ssm_spec: SSMSpec,
-    *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
-) -> None:
-    """Check CT drift rates against expected lag metadata from the causal structure."""
-    edge_lags = edge_lag_days or {}
-    if not edge_lags:
-        return
-
-    offdiag_prior = ssm_priors.drift_offdiag
-    if offdiag_prior is None or "mu" not in offdiag_prior:
-        return
-
-    mu_arr = offdiag_prior["mu"]
-    if not isinstance(mu_arr, list):
-        return
-
-    offdiag_positions: list[tuple[int, int]] = []
-    if ssm_spec.drift_mask is not None:
-        for effect_idx in range(ssm_spec.n_latent):
-            for cause_idx in range(ssm_spec.n_latent):
-                if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
-                    offdiag_positions.append((effect_idx, cause_idx))
-
-    for flat_idx, (effect_idx, cause_idx) in enumerate(offdiag_positions):
-        if flat_idx >= len(mu_arr) or (effect_idx, cause_idx) not in edge_lags:
-            continue
-
-        mu_ct = abs(float(mu_arr[flat_idx]))
-        if mu_ct < NUMERICAL_EPSILON:
-            continue
-
-        expected_lag_days = edge_lags[(effect_idx, cause_idx)]
-        implied_timescale_days = 1.0 / mu_ct
-        ratio = max(implied_timescale_days, expected_lag_days) / max(
-            min(implied_timescale_days, expected_lag_days),
-            NUMERICAL_EPSILON,
-        )
-        if ratio <= 5.0:
-            continue
-
-        cause_name = (
-            ssm_spec.latent_names[cause_idx] if ssm_spec.latent_names else f"latent_{cause_idx}"
-        )
-        effect_name = (
-            ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
-        )
-        logger.warning(
-            "Drift rate for %s->%s implies timescale %.1f days, but edge lag suggests %.1f days "
-            "(%.0fx mismatch). The literature prior may be calibrated to a different observation "
-            "interval than the causal model expects.",
-            cause_name,
-            effect_name,
-            implied_timescale_days,
-            expected_lag_days,
-            ratio,
-        )
 
 
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
@@ -171,7 +223,7 @@ def compile_priors(
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMPriors, PriorIndexMaps]:
+) -> tuple[SSMPriors, PriorIndexMaps, dict[str, list[dict[str, str]]]]:
     """Compile prior proposals into ``SSMPriors`` with explicit index maps."""
     ssm_priors = SSMPriors()
     role_by_name = _collect_role_lookup(model_spec)
@@ -294,11 +346,17 @@ def compile_priors(
         result = build_array_prior_payload(attr, entries, current, ssm_spec)
         setattr(ssm_priors, attr, result)
 
+    diagnostics: dict[str, list[dict[str, str]]] = {"lagged_drift_prior_issues": []}
     warn_first_order_approximation(ssm_priors)
     if ssm_spec is not None:
-        check_drift_lag_consistency(ssm_priors, ssm_spec, edge_lag_days=edge_lag_days)
+        diagnostics = collect_compile_diagnostics(
+            ssm_priors,
+            ssm_spec,
+            edge_lag_days=edge_lag_days,
+        )
+        _log_compile_diagnostics(diagnostics)
 
-    return ssm_priors, index_maps
+    return ssm_priors, index_maps, diagnostics
 
 
 def bind_parameters(

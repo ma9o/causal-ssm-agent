@@ -298,20 +298,22 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             [
                 "#### Fixed Effects",
                 "",
-                "| Parameter | Cause | Effect | Relation | Constraint |",
-                "|-----------|-------|--------|----------|------------|",
+                "| Parameter | Cause | Effect | Relation | Interval (days) | Feedback Loop | Constraint |",
+                "|-----------|-------|--------|----------|-----------------|---------------|------------|",
             ]
         )
         for card in fixed_effect_cards:
             structural_context = card.get("structural_context") or {}
             lines.append(
-                "| {parameter} | {cause} | {effect} | {relation} | {constraint} |".format(
+                "| {parameter} | {cause} | {effect} | {relation} | {interval_days} | {feedback_loop} | {constraint} |".format(
                     parameter=card["parameter"],
                     cause=structural_context.get("cause", "-"),
                     effect=structural_context.get("effect", "-"),
                     relation="lagged"
                     if structural_context.get("lagged", True)
                     else "same_interval",
+                    interval_days=structural_context.get("expected_lag_days", "-"),
+                    feedback_loop="yes" if structural_context.get("feedback_loop") else "no",
                     constraint=card["constraint"],
                 )
             )
@@ -521,6 +523,11 @@ Time is measured in fractional days. AR coefficients represent discrete-time \
 persistence per observation interval, in (0, 1). The model interval is shown in \
 the fixed model context. The system handles CT conversion.
 
+For lagged `beta_*` priors:
+- Treat the prior mean as a **one-step effect** over the `Interval (days)` shown in the fixed-effect prior card.
+- If the literature estimate comes from a different study interval, include `reference_interval_days` so the system can rescale it before CT compilation.
+- If `Feedback Loop` is `yes`, use a more conservative one-step prior than a cross-sectional or multi-day association would suggest.
+
 ## Tools
 
 - `validate_model`: Stateful validator. It retains accepted model decisions and \
@@ -623,7 +630,9 @@ Never combine priors with model decisions in the same tool call. After a failure
 
 Only include `reference_interval_days` when the literature evidence is expressed \
 on a different observation interval than the model interval shown in Model \
-Topology. Include a prior for EVERY parameter listed above.
+Topology. For lagged `beta_*` priors, if you omit `reference_interval_days`, the \
+system will interpret the effect as already being on the one-step model interval. \
+Include a prior for EVERY parameter listed above.
 """
 
 AGENTIC_USER = AGENTIC_USER.replace(

@@ -284,7 +284,11 @@ class TestBuilderPriorConversion:
             t0_correlation_mask=t0_mask,
         )
 
-        ssm_priors, _index_maps = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, _index_maps, _diagnostics = compile_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+        )
 
         assert ssm_priors.t0_var_offdiag["mu"] == [0.2]
         assert ssm_priors.t0_var_offdiag["sigma"] == [0.8]
@@ -346,7 +350,11 @@ class TestBuilderPriorConversion:
             t0_correlation_mask=t0_mask,
         )
 
-        ssm_priors, index_maps = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+        ssm_priors, index_maps, _diagnostics = compile_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+        )
 
         assert index_maps[5]["cor0_C_B"] == ("t0_var_offdiag", 0)
         assert ssm_priors.t0_var_offdiag["mu"] == [0.1]

@@ -348,8 +348,14 @@ def build_construct_scale_cards(
     return cards
 
 
-def build_prior_cards(skeleton: Stage4Skeleton) -> list[dict[str, Any]]:
+def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[str, Any]]:
     """Build compact prompt-local prior cards for every deterministic parameter."""
+    model_interval_days = get_construct_dt_days(causal_spec)
+    lagged_edges = {
+        (edge["cause"], edge["effect"])
+        for edge in get_estimation_edges(causal_spec)
+        if edge.get("lagged", True)
+    }
     cards: list[dict[str, Any]] = []
     for parameter in skeleton.all_params:
         role = parameter["role"]
@@ -364,10 +370,13 @@ def build_prior_cards(skeleton: Stage4Skeleton) -> list[dict[str, Any]]:
         elif role == "fixed_effect":
             cause = parameter["cause"]
             effect = parameter["effect"]
+            lagged = parameter.get("lagged", True)
             card["structural_context"] = {
                 "cause": cause,
                 "effect": effect,
-                "lagged": parameter.get("lagged", True),
+                "lagged": lagged,
+                "expected_lag_days": model_interval_days if lagged else 0.0,
+                "feedback_loop": lagged and (effect, cause) in lagged_edges,
             }
         elif role == "loading":
             construct_name = parameter["construct"]
