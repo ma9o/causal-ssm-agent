@@ -273,6 +273,33 @@ def stage4_grounding(
     return output, _with_stateful_retry_guidance(feedback)
 
 
+def should_capture_stage4_output(stage_output: dict | None, feedback: str) -> bool:
+    """Return whether a Stage 4 tool result should become the new accepted state.
+
+    Accepted state includes:
+    - structurally valid model decisions waiting on more priors
+    - schema-valid prior subsets merged into the current accepted state
+    - fully valid model + prior submissions
+
+    Rejected compile attempts and prior-predictive failures must not overwrite
+    the last accepted state, or the final materialized Stage 4 payload can drift
+    away from what the tool actually accepted.
+    """
+    if stage_output is None:
+        return False
+
+    validation = stage_output.get("validation")
+    if validation is not None:
+        if getattr(validation, "compile_ok", True) is False:
+            return False
+        if getattr(validation, "pp_checked", False) and getattr(validation, "pp_valid", True) is False:
+            return False
+
+    if feedback.startswith("COMPILE ERROR:"):
+        return False
+    return not feedback.startswith("PRIOR PREDICTIVE FEEDBACK:")
+
+
 def _required_prior_names(model_spec: dict | None) -> list[str]:
     """Return the parameter names that still need priors."""
     names: list[str] = []
@@ -436,6 +463,7 @@ def make_stage_tool(
     param_description: str,
     compute_fn: Callable[[dict], tuple[dict | None, str]],
     success_feedback: str = "VALID",
+    capture_when: Callable[[dict | None, str], bool] | None = None,
 ) -> tuple[Any, dict]:
     """Create a fat tool for pipeline use wrapping a compute function.
 
@@ -470,7 +498,8 @@ def make_stage_tool(
         elapsed = time.monotonic() - t0
         is_success = feedback == success_feedback
 
-        if stage_output is not None:
+        should_capture = capture_when(stage_output, feedback) if capture_when else stage_output is not None
+        if should_capture and stage_output is not None:
             capture.update(stage_output)
         if is_success:
             logger.info("[%s] grounding passed (%.1fs)", name, elapsed)

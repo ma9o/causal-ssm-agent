@@ -5,9 +5,16 @@ This file owns the direct grounding call paths:
 - ``_agentic_stage4_grounding`` delta application behavior
 """
 
+import asyncio
+import json
+
 import pytest
 
-from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+from causal_ssm_agent.flows.stages.stage_tools import (
+    make_stage_tool,
+    should_capture_stage4_output,
+    stage4_grounding,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -322,6 +329,62 @@ class TestStage4GroundingCompileOwnership:
         assert "COMPILE ERROR" in feedback
         assert "dimension mismatch" in feedback
         assert "Resubmit only the fields you changed" in feedback
+
+    def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        accepted_state = {
+            "model_spec": {
+                "likelihoods": [{"variable": "mood_score", "distribution": "gaussian", "link": "identity"}],
+                "parameters": [{"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}],
+            },
+            "validation": AssemblyValidation(
+                normalized_model_spec={"likelihoods": [], "parameters": []},
+                compile_ok=True,
+            ),
+        }
+        rejected_state = {
+            "model_spec": {
+                "likelihoods": [{"variable": "mood_score", "distribution": "gamma", "link": "log"}],
+                "parameters": [{"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}],
+            },
+            "authored_priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "bad update",
+                }
+            },
+            "validation": AssemblyValidation(
+                normalized_model_spec={"likelihoods": [], "parameters": []},
+                compile_ok=False,
+                compile_error="support mismatch",
+            ),
+        }
+        responses = iter(
+            [
+                (accepted_state, "MODEL STATE SAVED:\n- missing priors for 1 parameters: `rho_mood`"),
+                (rejected_state, "COMPILE ERROR:\nsupport mismatch"),
+            ]
+        )
+
+        tool, capture = make_stage_tool(
+            name="validate_model",
+            description="test",
+            param_name="model_json",
+            param_description="test payload",
+            compute_fn=lambda _data: next(responses),
+            capture_when=should_capture_stage4_output,
+        )
+
+        asyncio.run(tool(model_json=json.dumps({"step": 1})))
+        first_capture = dict(capture)
+        asyncio.run(tool(model_json=json.dumps({"step": 2})))
+
+        assert capture == first_capture
+        assert capture["model_spec"]["likelihoods"][0]["distribution"] == "gaussian"
 
     def test_schema_error_keeps_valid_priors_and_model_state(self):
         current = {
