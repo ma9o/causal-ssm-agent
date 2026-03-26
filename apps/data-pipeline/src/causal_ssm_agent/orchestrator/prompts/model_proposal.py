@@ -10,6 +10,8 @@ in causal_ssm_agent.distributions.PriorDistributionFamily
 
 from causal_ssm_agent.distributions import (
     format_prior_distribution_choice_list,
+    render_dynamic_prior_scale_guidance,
+    render_lagged_beta_authored_interval_guidance,
     render_observation_distribution_guidance_bullets,
     render_observation_link_guidance_bullets,
     render_prior_distribution_guidance_bullets,
@@ -21,6 +23,8 @@ OBSERVATION_LINK_GUIDANCE_BULLETS = render_observation_link_guidance_bullets()
 PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
 PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
 PRIOR_PARAMETER_GUIDANCE_TABLE = render_prior_parameter_guidance_markdown_table()
+DYNAMIC_PRIOR_SCALE_GUIDANCE = render_dynamic_prior_scale_guidance()
+LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE = render_lagged_beta_authored_interval_guidance()
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -298,8 +302,8 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             [
                 "#### Fixed Effects",
                 "",
-                "| Parameter | Cause | Effect | Relation | Interval (days) | Feedback Loop | Constraint |",
-                "|-----------|-------|--------|----------|-----------------|---------------|------------|",
+                "| Parameter | Cause | Effect | Relation | Model Interval (days) | Feedback Loop | Constraint |",
+                "|-----------|-------|--------|----------|-----------------------|---------------|------------|",
             ]
         )
         for card in fixed_effect_cards:
@@ -505,8 +509,7 @@ __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 ### Parameter Guidelines by Type
 __PRIOR_PARAMETER_GUIDANCE_TABLE__
 
-Both beta and rho priors should be on the **discrete-time scale**. They are \
-automatically converted to continuous-time rates internally.
+__DYNAMIC_PRIOR_SCALE_GUIDANCE__
 
 ### Literature Evidence
 - If you have access to the `search_literature` tool, use it for key causal \
@@ -524,9 +527,7 @@ persistence per observation interval, in (0, 1). The model interval is shown in 
 the fixed model context. The system handles CT conversion.
 
 For lagged `beta_*` priors:
-- Treat the prior mean as a **one-step effect** over the `Interval (days)` shown in the fixed-effect prior card.
-- If the literature estimate comes from a different study interval, include `reference_interval_days` so the system can rescale it before CT compilation.
-- If `Feedback Loop` is `yes`, use a more conservative one-step prior than a cross-sectional or multi-day association would suggest.
+__LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE__
 
 ## Tools
 
@@ -631,7 +632,9 @@ Never combine priors with model decisions in the same tool call. After a failure
 Only include `reference_interval_days` when the literature evidence is expressed \
 on a different observation interval than the model interval shown in Model \
 Topology. For lagged `beta_*` priors, if you omit `reference_interval_days`, the \
-system will interpret the effect as already being on the one-step model interval. \
+system will interpret `params` as already being authored on the model interval. \
+If you provide `reference_interval_days`, keep `params` on that authored interval \
+scale and let the compiler rescale them. \
 Include a prior for EVERY parameter listed above.
 """
 
@@ -654,4 +657,12 @@ AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
 AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
     "__PRIOR_PARAMETER_GUIDANCE_TABLE__",
     PRIOR_PARAMETER_GUIDANCE_TABLE,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__DYNAMIC_PRIOR_SCALE_GUIDANCE__",
+    DYNAMIC_PRIOR_SCALE_GUIDANCE,
+)
+AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
+    "__LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE__",
+    LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE,
 )

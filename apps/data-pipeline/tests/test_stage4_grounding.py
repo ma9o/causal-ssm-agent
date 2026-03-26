@@ -330,13 +330,54 @@ class TestStage4GroundingCompileOwnership:
         assert "dimension mismatch" in feedback
         assert "Resubmit only the fields you changed" in feedback
 
+    def test_compile_feedback_aggregates_independent_prior_errors(
+        self, causal_spec, model_spec, priors
+    ):
+        current = {"model_spec": model_spec, "authored_priors": dict(priors)}
+
+        output, feedback = stage4_grounding(
+            {
+                "priors": {
+                    "rho_stress": {
+                        "parameter": "rho_stress",
+                        "distribution": "Uniform",
+                        "params": {"lower": -1.0, "upper": 2.0},
+                        "sources": [],
+                        "reasoning": "Deliberately invalid AR bounds.",
+                    },
+                    "bogus_param": {
+                        "parameter": "bogus_param",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                        "sources": [],
+                        "reasoning": "Deliberately unbound prior.",
+                    },
+                }
+            },
+            causal_spec,
+            current=current,
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert output["validation"].compile_ok is False
+        assert "COMPILE ERROR" in feedback
+        assert "Prior compilation failed" in feedback
+        assert "lower bound is -1" in feedback
+        assert "upper bound is 2" in feedback
+        assert "bogus_param" in feedback
+
     def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
         from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
 
         accepted_state = {
             "model_spec": {
-                "likelihoods": [{"variable": "mood_score", "distribution": "gaussian", "link": "identity"}],
-                "parameters": [{"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}],
+                "likelihoods": [
+                    {"variable": "mood_score", "distribution": "gaussian", "link": "identity"}
+                ],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
+                ],
             },
             "validation": AssemblyValidation(
                 normalized_model_spec={"likelihoods": [], "parameters": []},
@@ -346,7 +387,9 @@ class TestStage4GroundingCompileOwnership:
         rejected_state = {
             "model_spec": {
                 "likelihoods": [{"variable": "mood_score", "distribution": "gamma", "link": "log"}],
-                "parameters": [{"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
+                ],
             },
             "authored_priors": {
                 "rho_mood": {
@@ -365,7 +408,10 @@ class TestStage4GroundingCompileOwnership:
         }
         responses = iter(
             [
-                (accepted_state, "MODEL STATE SAVED:\n- missing priors for 1 parameters: `rho_mood`"),
+                (
+                    accepted_state,
+                    "MODEL STATE SAVED:\n- missing priors for 1 parameters: `rho_mood`",
+                ),
                 (rejected_state, "COMPILE ERROR:\nsupport mismatch"),
             ]
         )
@@ -694,7 +740,8 @@ class TestAgenticStage4Grounding:
         assert feedback == "MODEL STATE SAVED"
         assert output is not None
         merged_likelihoods = {
-            likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
+            likelihood["variable"]: likelihood
+            for likelihood in forwarded["model_spec"]["likelihoods"]
         }
         assert merged_likelihoods["ide_focus_gaps"]["distribution"] == "student_t"
         assert merged_likelihoods["advanced_tech_searches"]["distribution"] == "bernoulli"
@@ -843,7 +890,8 @@ class TestAgenticStage4Grounding:
         assert feedback == "MODEL STATE SAVED"
         assert output is not None
         merged_likelihoods = {
-            likelihood["variable"]: likelihood for likelihood in forwarded["model_spec"]["likelihoods"]
+            likelihood["variable"]: likelihood
+            for likelihood in forwarded["model_spec"]["likelihoods"]
         }
         assert merged_likelihoods["daily_event_count"]["distribution"] == "negative_binomial"
         assert merged_likelihoods["sleep_issue_searches"]["distribution"] == "negative_binomial"

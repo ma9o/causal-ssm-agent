@@ -63,7 +63,9 @@ def get_estimation_edges(causal_spec: dict) -> list[dict]:
 def get_estimation_constructs(causal_spec: dict) -> list[dict]:
     """Get retained latent construct payloads in estimation-state order."""
     latent_lookup = {
-        construct["name"]: construct for construct in get_latent_constructs(causal_spec) if construct.get("name")
+        construct["name"]: construct
+        for construct in get_latent_constructs(causal_spec)
+        if construct.get("name")
     }
     return [
         latent_lookup[name]

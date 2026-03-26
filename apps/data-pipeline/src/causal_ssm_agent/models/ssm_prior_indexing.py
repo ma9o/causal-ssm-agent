@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
 )
@@ -15,6 +16,12 @@ if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
+
+
+class PriorIndexingError(AggregatedCompileError):
+    """Aggregate independent structural binding failures for strict causal specs."""
+
+    header = "Prior index binding failed"
 
 
 def build_prior_index_maps(
@@ -59,6 +66,7 @@ def build_prior_index_maps(
     latent_idx_map = {name: idx for idx, name in enumerate(latent_names)}
     latent_name_set = set(latent_idx_map)
     strict_structure = causal_spec is not None
+    errors: list[str] = []
 
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.AR_COEFFICIENT:
@@ -67,7 +75,7 @@ def build_prior_index_maps(
         if construct in latent_idx_map:
             diag_index[parameter.name] = ("drift_diag", latent_idx_map[construct])
         elif strict_structure:
-            raise ValueError(
+            errors.append(
                 "AR parameter does not reference a construct in causal_spec: "
                 f"{parameter.name!r} not in {sorted(latent_idx_map)}"
             )
@@ -79,7 +87,7 @@ def build_prior_index_maps(
         if construct in latent_idx_map:
             diffusion_diag_index[parameter.name] = ("diffusion_diag", latent_idx_map[construct])
         elif strict_structure:
-            raise ValueError(
+            errors.append(
                 "RESIDUAL_SD parameter does not reference a construct in causal_spec: "
                 f"{parameter.name!r} not in {sorted(latent_idx_map)}"
             )
@@ -102,7 +110,8 @@ def build_prior_index_maps(
                     f"{parameter.name!r} into (cause, effect) from known latents {sorted(latent_name_set)}"
                 )
                 if strict_structure:
-                    raise ValueError(message)
+                    errors.append(message)
+                    continue
                 logger.warning("%s", message)
                 continue
             cause_name, effect_name = result
@@ -110,7 +119,7 @@ def build_prior_index_maps(
             if position in positions:
                 offdiag_index[parameter.name] = ("drift_offdiag", positions.index(position))
             elif strict_structure:
-                raise ValueError(
+                errors.append(
                     "FIXED_EFFECT parameter does not correspond to an edge in causal_spec: "
                     f"{parameter.name!r}"
                 )
@@ -138,7 +147,8 @@ def build_prior_index_maps(
                     f"{sorted(manifest_name_set)} / latents {sorted(latent_name_set)}"
                 )
                 if strict_structure:
-                    raise ValueError(message)
+                    errors.append(message)
+                    continue
                 logger.warning("%s", message)
                 continue
             indicator_name, construct_name = result
@@ -146,7 +156,7 @@ def build_prior_index_maps(
             if position in positions:
                 lambda_index[parameter.name] = ("lambda_free", positions.index(position))
             elif strict_structure:
-                raise ValueError(
+                errors.append(
                     "LOADING parameter does not correspond to a free loading in causal_spec: "
                     f"{parameter.name!r}"
                 )
@@ -168,7 +178,8 @@ def build_prior_index_maps(
                     f"{parameter.name!r} into (state1, state2) from known latents {sorted(latent_name_set)}"
                 )
                 if strict_structure:
-                    raise ValueError(message)
+                    errors.append(message)
+                    continue
                 logger.warning("%s", message)
                 continue
             state1_name, state2_name = result
@@ -181,7 +192,7 @@ def build_prior_index_maps(
                     lower_positions.index(position),
                 )
             elif strict_structure:
-                raise ValueError(
+                errors.append(
                     "CORRELATION parameter does not correspond to a modeled latent pair: "
                     f"{parameter.name!r}"
                 )
@@ -191,7 +202,7 @@ def build_prior_index_maps(
             bindings = resolve_initial_state_correlation_bindings(latent_names, spec_obj)
         except ValueError as exc:
             if strict_structure:
-                raise
+                errors.append(str(exc))
             logger.warning("%s", exc)
             bindings = []
 
@@ -199,7 +210,8 @@ def build_prior_index_maps(
             (row_idx, col_idx)
             for row_idx in range(ssm_spec.n_latent)
             for col_idx in range(row_idx)
-            if ssm_spec.t0_correlation_mask is None or bool(ssm_spec.t0_correlation_mask[row_idx, col_idx])
+            if ssm_spec.t0_correlation_mask is None
+            or bool(ssm_spec.t0_correlation_mask[row_idx, col_idx])
         }
         retained_bindings = []
         for binding in bindings:
@@ -207,7 +219,7 @@ def build_prior_index_maps(
             if position in modeled_pairs:
                 retained_bindings.append(binding)
             elif strict_structure:
-                raise ValueError(
+                errors.append(
                     "INITIAL_STATE_CORRELATION parameter does not correspond to a modeled "
                     f"initial-state pair: {binding.parameter_name!r}"
                 )
@@ -216,6 +228,9 @@ def build_prior_index_maps(
                 "t0_var_offdiag",
                 dense_index,
             )
+
+    if errors:
+        raise PriorIndexingError(errors)
 
     return (
         offdiag_index,

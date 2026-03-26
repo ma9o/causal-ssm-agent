@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.likelihoods.observation_families import supported_distribution_families
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
@@ -21,6 +22,12 @@ from causal_ssm_agent.utils.causal_spec import (
     get_indicators,
     get_latent_constructs,
 )
+
+
+class SpecTranslationError(AggregatedCompileError):
+    """Aggregate independent ``ModelSpec`` -> ``SSMSpec`` translation errors."""
+
+    header = "Spec translation failed"
 
 
 def get_construct_dt_days(causal_spec: dict | None, _construct_name: str = "") -> float:
@@ -49,13 +56,25 @@ def get_estimation_latent_layout(
     if causal_spec is None:
         return None
 
-    state_order = get_estimation_state_order(causal_spec)
+    try:
+        state_order = get_estimation_state_order(causal_spec)
+    except ValueError as exc:
+        raise SpecTranslationError([str(exc)]) from exc
+    errors: list[str] = []
     if not state_order:
-        raise ValueError("causal_spec.estimation.state_order is empty")
+        errors.append("causal_spec.estimation.state_order is empty")
+        raise SpecTranslationError(errors)
 
     latent_construct_lookup = {
         construct["name"]: construct for construct in get_latent_constructs(causal_spec)
     }
+    unknown_states = [name for name in state_order if name not in latent_construct_lookup]
+    if unknown_states:
+        errors.append(
+            "causal_spec.estimation.state_order references constructs absent from latent.constructs: "
+            f"{sorted(unknown_states)}"
+        )
+        raise SpecTranslationError(errors)
 
     time_invariant_mask = np.array(
         [
@@ -81,8 +100,12 @@ def build_masks_from_causal_spec(
     if causal_spec is None or latent_names is None:
         return None, jnp.eye(n_manifest, n_latent), None, {}
 
-    edges = get_estimation_edges(causal_spec)
+    try:
+        edges = get_estimation_edges(causal_spec)
+    except ValueError as exc:
+        raise SpecTranslationError([str(exc)]) from exc
     indicators = get_indicators(causal_spec)
+    errors: list[str] = []
 
     indicator_names = {
         (indicator.get("name") if isinstance(indicator, dict) else indicator.name)
@@ -90,7 +113,7 @@ def build_masks_from_causal_spec(
     }
     unknown_likelihoods = sorted(set(manifest_cols) - indicator_names)
     if unknown_likelihoods:
-        raise ValueError(
+        errors.append(
             "ModelSpec likelihoods reference indicators absent from causal_spec measurement: "
             f"{unknown_likelihoods}"
         )
@@ -118,6 +141,7 @@ def build_masks_from_causal_spec(
     lambda_mask = np.zeros((n_manifest, n_latent), dtype=bool)
     reference_set: set[str] = set()
     matched_manifests: set[str] = set()
+    invalid_construct_manifests: set[str] = set()
 
     for indicator in indicators:
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
@@ -129,10 +153,12 @@ def build_masks_from_causal_spec(
         if ind_name not in manifest_idx:
             continue
         if construct_name not in latent_idx:
-            raise ValueError(
+            errors.append(
                 "CausalSpec measurement indicator references unknown construct: "
                 f"{ind_name!r} -> {construct_name!r}"
             )
+            invalid_construct_manifests.add(ind_name)
+            continue
 
         manifest_idx_value = manifest_idx[ind_name]
         latent_idx_value = latent_idx[construct_name]
@@ -146,14 +172,23 @@ def build_masks_from_causal_spec(
 
     lambda_mat = jnp.array(lambda_mat_np)
 
-    unmatched_manifests = sorted(set(manifest_cols) - matched_manifests)
+    unmatched_manifests = sorted(
+        set(manifest_cols)
+        - matched_manifests
+        - set(unknown_likelihoods)
+        - invalid_construct_manifests
+    )
     if unmatched_manifests:
-        raise ValueError(
+        errors.append(
             "ModelSpec likelihoods could not be mapped to causal_spec measurement indicators: "
             f"{unmatched_manifests}"
         )
 
+    if errors:
+        raise SpecTranslationError(errors)
+
     return drift_mask, lambda_mat, lambda_mask, edge_lag_days
+
 
 def translate_spec(
     model_spec: ModelSpec | dict,
@@ -170,23 +205,38 @@ def translate_spec(
 
     manifest_cols = [lik.variable for lik in model_spec.likelihoods]
     n_manifest = len(manifest_cols)
+    errors: list[str] = []
 
-    structural_layout = get_estimation_latent_layout(causal_spec)
+    layout_failed = False
+    try:
+        structural_layout = get_estimation_latent_layout(causal_spec)
+    except SpecTranslationError as exc:
+        structural_layout = None
+        layout_failed = True
+        errors.extend(exc.errors)
     if structural_layout is not None:
         latent_names, time_invariant_mask = structural_layout
         n_latent = len(latent_names)
     else:
-        ar_params = [
-            param for param in model_spec.parameters if param.role == ParameterRole.AR_COEFFICIENT
-        ]
-        if not ar_params:
-            raise ValueError(
-                "No AR_COEFFICIENT parameters found in ModelSpec; "
-                "cannot infer latent dimensionality without causal_spec."
-            )
-        n_latent = len(ar_params)
-        latent_names = [param.name.removeprefix("rho_") for param in ar_params]
-        time_invariant_mask = None
+        if causal_spec is not None and layout_failed:
+            latent_names = []
+            time_invariant_mask = None
+            n_latent = 0
+        else:
+            ar_params = [
+                param
+                for param in model_spec.parameters
+                if param.role == ParameterRole.AR_COEFFICIENT
+            ]
+            if not ar_params:
+                errors.append(
+                    "No AR_COEFFICIENT parameters found in ModelSpec; "
+                    "cannot infer latent dimensionality without causal_spec."
+                )
+                raise SpecTranslationError(errors)
+            n_latent = len(ar_params)
+            latent_names = [param.name.removeprefix("rho_") for param in ar_params]
+            time_invariant_mask = None
 
     manifest_dists: list[DistributionFamily] = []
     supported_families = supported_distribution_families()
@@ -194,11 +244,14 @@ def translate_spec(
         dist = likelihood.distribution
         if dist not in supported_families:
             supported = sorted(distribution.value for distribution in supported_families)
-            raise ValueError(
+            errors.append(
                 f"Indicator '{likelihood.variable}': distribution '{dist}' "
                 f"has no native emission function. Supported: {supported}."
             )
         manifest_dists.append(dist)
+
+    if causal_spec is not None and layout_failed:
+        raise SpecTranslationError(errors)
 
     manifest_dist = DistributionFamily.GAUSSIAN
     for dist in manifest_dists:
@@ -213,20 +266,34 @@ def translate_spec(
             manifest_link = link
             break
 
-    drift_mask, lambda_mat, lambda_mask, edge_lag_days = build_masks_from_causal_spec(
-        latent_names,
-        manifest_cols,
-        n_latent,
-        n_manifest,
-        causal_spec=causal_spec,
-    )
+    try:
+        drift_mask, lambda_mat, lambda_mask, edge_lag_days = build_masks_from_causal_spec(
+            latent_names,
+            manifest_cols,
+            n_latent,
+            n_manifest,
+            causal_spec=causal_spec,
+        )
+    except SpecTranslationError as exc:
+        errors.extend(exc.errors)
+        drift_mask = None
+        lambda_mat = jnp.eye(n_manifest, n_latent)
+        lambda_mask = None
+        edge_lag_days = {}
 
     has_innovation_correlation = any(
         parameter.role == ParameterRole.CORRELATION for parameter in model_spec.parameters
     )
-    t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+    try:
+        t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+    except ValueError as exc:
+        errors.append(str(exc))
+        t0_correlation_mask = None
     diffusion_mode = "free" if has_innovation_correlation else "diag"
     t0_var_mode = "free" if t0_correlation_mask is not None else "diag"
+
+    if errors:
+        raise SpecTranslationError(errors)
 
     spec = SSMSpec(
         n_latent=n_latent,

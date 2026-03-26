@@ -204,10 +204,16 @@ def collect_estimation_projection_compile_errors(
     supported by at least one manifest channel, and the loading matrix must be
     able to reach full column rank.
     """
-    from causal_ssm_agent.utils.causal_spec import get_estimation_state_order, get_indicators
+    from causal_ssm_agent.utils.causal_spec import (
+        get_estimation_state_order,
+        get_indicators,
+    )
 
     errors: list[str] = []
-    latent_states = get_estimation_state_order(causal_spec)
+    try:
+        latent_states = get_estimation_state_order(causal_spec)
+    except ValueError as exc:
+        return [str(exc)]
     if not latent_states:
         return ["causal_spec.estimation.state_order is empty"]
 
@@ -217,14 +223,18 @@ def collect_estimation_projection_compile_errors(
         for indicator in indicators
         if isinstance(indicator, dict) and isinstance(indicator.get("name"), str)
     }
-    used_manifests = list(manifest_names) if manifest_names is not None else list(indicator_lookup.keys())
+    used_manifests = (
+        list(manifest_names) if manifest_names is not None else list(indicator_lookup.keys())
+    )
     covered_state_counts = Counter(
         indicator.get("construct_name")
         for manifest_name in used_manifests
         if isinstance((indicator := indicator_lookup.get(manifest_name)), dict)
         and isinstance(indicator.get("construct_name"), str)
     )
-    uncovered_states = sorted(state for state in latent_states if covered_state_counts.get(state, 0) == 0)
+    uncovered_states = sorted(
+        state for state in latent_states if covered_state_counts.get(state, 0) == 0
+    )
     if uncovered_states:
         errors.append(
             "Retained estimation states have no measurement indicators: "
@@ -236,8 +246,7 @@ def collect_estimation_projection_compile_errors(
     n_latent = len(latent_states)
     if n_manifest < n_latent:
         errors.append(
-            "Loading matrix is rank-deficient: "
-            f"n_manifest ({n_manifest}) < n_latent ({n_latent})."
+            f"Loading matrix is rank-deficient: n_manifest ({n_manifest}) < n_latent ({n_latent})."
         )
 
     return errors

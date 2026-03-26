@@ -17,6 +17,7 @@ Phase 2 tests:
 """
 
 import math
+from copy import deepcopy
 
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
@@ -34,6 +35,21 @@ from causal_ssm_agent.models.ssm_compilation import (
 )
 
 
+def _with_estimation_projection(causal_spec: dict) -> dict:
+    causal_spec = deepcopy(causal_spec)
+    latent = causal_spec.get("latent", {})
+    causal_spec["estimation"] = {
+        "state_order": [
+            construct["name"]
+            for construct in latent.get("constructs", [])
+            if isinstance(construct, dict) and isinstance(construct.get("name"), str)
+        ],
+        "edges": deepcopy(latent.get("edges", [])),
+        "induced_dependencies": [],
+    }
+    return causal_spec
+
+
 def _translate_spec_for_test(model_spec: dict, causal_spec: dict | None = None):
     return translate_ssm_spec(model_spec, causal_spec=causal_spec)
 
@@ -46,13 +62,14 @@ def _compile_priors_for_test(
     causal_spec: dict | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ):
-    return compile_ssm_priors(
+    ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
         priors,
         model_spec,
         ssm_spec,
         edge_lag_days=edge_lag_days,
         causal_spec=causal_spec,
     )
+    return ssm_priors, index_maps
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -68,59 +85,61 @@ def two_construct_causal_spec() -> dict:
     - 3 indicators: mood_rating, stress_self_report, stress_cortisol
     - stress_cortisol is a second indicator for stress (free loading)
     """
-    return {
-        "latent": {
-            "constructs": [
-                {
-                    "name": "mood",
-                    "description": "Daily mood state",
-                    "role": "endogenous",
-                    "is_outcome": True,
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "stress",
-                    "description": "Daily stress level",
-                    "role": "exogenous",
-                    "temporal_status": "time_varying",
-                },
-            ],
-            "edges": [
-                {
-                    "cause": "stress",
-                    "effect": "mood",
-                    "description": "Stress impairs mood",
-                    "lagged": True,
-                },
-            ],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "name": "mood_rating",
-                    "construct_name": "mood",
-                    "how_to_measure": "Self-reported mood (1-10)",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                },
-                {
-                    "name": "stress_self_report",
-                    "construct_name": "stress",
-                    "how_to_measure": "Self-reported stress (1-10)",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                },
-                {
-                    "name": "stress_cortisol",
-                    "construct_name": "stress",
-                    "how_to_measure": "Salivary cortisol (nmol/L)",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                },
-            ],
-        },
-    }
+    return _with_estimation_projection(
+        {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "mood",
+                        "description": "Daily mood state",
+                        "role": "endogenous",
+                        "is_outcome": True,
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "stress",
+                        "description": "Daily stress level",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [
+                    {
+                        "cause": "stress",
+                        "effect": "mood",
+                        "description": "Stress impairs mood",
+                        "lagged": True,
+                    },
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "mood_rating",
+                        "construct_name": "mood",
+                        "how_to_measure": "Self-reported mood (1-10)",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "stress_self_report",
+                        "construct_name": "stress",
+                        "how_to_measure": "Self-reported stress (1-10)",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "stress_cortisol",
+                        "construct_name": "stress",
+                        "how_to_measure": "Salivary cortisol (nmol/L)",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -296,65 +315,67 @@ class TestE2ESpecToDiscretization:
 
     def test_causal_spec_owns_latent_identity(self):
         """Latent identity comes from causal_spec, not from AR parameter count."""
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "mood",
-                        "description": "Daily mood",
-                        "role": "endogenous",
-                        "is_outcome": True,
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "stress",
-                        "description": "Daily stress",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "trait_vulnerability",
-                        "description": "Stable vulnerability factor",
-                        "role": "exogenous",
-                        "temporal_status": "time_invariant",
-                    },
-                ],
-                "edges": [
-                    {
-                        "cause": "stress",
-                        "effect": "mood",
-                        "description": "Stress impairs mood",
-                        "lagged": True,
-                    }
-                ],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "mood_rating",
-                        "construct_name": "mood",
-                        "how_to_measure": "Mood rating",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "stress_rating",
-                        "construct_name": "stress",
-                        "how_to_measure": "Stress rating",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "vulnerability_score",
-                        "construct_name": "trait_vulnerability",
-                        "how_to_measure": "Vulnerability questionnaire",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
-        }
+        causal_spec = _with_estimation_projection(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "mood",
+                            "description": "Daily mood",
+                            "role": "endogenous",
+                            "is_outcome": True,
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "stress",
+                            "description": "Daily stress",
+                            "role": "exogenous",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "trait_vulnerability",
+                            "description": "Stable vulnerability factor",
+                            "role": "exogenous",
+                            "temporal_status": "time_invariant",
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "cause": "stress",
+                            "effect": "mood",
+                            "description": "Stress impairs mood",
+                            "lagged": True,
+                        }
+                    ],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "mood_rating",
+                            "construct_name": "mood",
+                            "how_to_measure": "Mood rating",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "stress_rating",
+                            "construct_name": "stress",
+                            "how_to_measure": "Stress rating",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "vulnerability_score",
+                            "construct_name": "trait_vulnerability",
+                            "how_to_measure": "Vulnerability questionnaire",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                    ],
+                },
+            }
+        )
         model_spec = {
             "likelihoods": [
                 {
@@ -912,29 +933,36 @@ class TestE2ESpecToDiscretization:
         beta=0.3 from daily  (dt=1) → CT rate ≈ 0.300
         This is the Kuiper & Ryan (2018) sign-reversal effect in action.
         """
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "mood",
-                        "description": "Mood",
-                        "role": "endogenous",
-                        "is_outcome": True,
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "stress",
-                        "description": "Stress",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [
-                    {"cause": "stress", "effect": "mood", "description": "test", "lagged": True},
-                ],
-            },
-            "measurement": {"model_clock": "1d", "indicators": []},
-        }
+        causal_spec = _with_estimation_projection(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "mood",
+                            "description": "Mood",
+                            "role": "endogenous",
+                            "is_outcome": True,
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "stress",
+                            "description": "Stress",
+                            "role": "exogenous",
+                            "temporal_status": "time_varying",
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "cause": "stress",
+                            "effect": "mood",
+                            "description": "test",
+                            "lagged": True,
+                        },
+                    ],
+                },
+                "measurement": {"model_clock": "1d", "indicators": []},
+            }
+        )
 
         model_spec = {
             "likelihoods": [

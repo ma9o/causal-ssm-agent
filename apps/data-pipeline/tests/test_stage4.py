@@ -253,12 +253,9 @@ class TestStage4Messages:
 
         assert "### 4. Parameter Prior Cards" in user_content
         assert "#### Fixed Effects" in user_content
-        assert (
-            "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |"
-            in user_content
-        )
+        assert "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |" in user_content
         assert "### 3. Construct Scale Cards" in user_content
-        assert "one-step model interval" in user_content
+        assert "authored on the model interval" in user_content
 
 
 # --- SSMModelBuilder Tests ---
@@ -482,14 +479,19 @@ class TestPriorPredictiveValidation:
                 "causal_ssm_agent.flows.stages.stage4_assembly._format_compile_diagnostics_feedback",
                 return_value=(
                     "PRIOR INTERVAL/STABILITY ERRORS:\n"
-                    "- beta_stress_sleep: implied timescale 10.0d does not match the expected "
-                    "lag 1.0d.\n"
-                    "  Suggested: include reference_interval_days."
+                    "- beta_stress_sleep: The authored prior is being treated as an effect over "
+                    "1.0d (`reference_interval_days` omitted, so the prior is being interpreted "
+                    "on the default model interval (1.0d)). After interval normalization, it "
+                    "implies a characteristic timescale of 10.0d for stress->sleep, which is "
+                    "too weak/slow for a 1.0d lagged edge (10x mismatch).\n"
+                    "  Suggested: Keep `params` on the interval you actually want to author. If "
+                    "the evidence comes from a longer study interval, set "
+                    "`reference_interval_days` to that interval. Otherwise change the prior "
+                    "mean/sigma on the current authored interval scale so the normalized "
+                    "one-step effect matches this lagged edge."
                 ),
             ),
-            patch(
-                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive"
-            ) as pp_mock,
+            patch("causal_ssm_agent.models.prior_predictive.validate_prior_predictive") as pp_mock,
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -798,9 +800,7 @@ class TestSSMPriorConversion:
         sigma_val = sigma[0] if isinstance(sigma, list) else sigma
         assert sigma_val > 0.4  # delta method sigma
 
-    def test_structured_prior_requires_structural_binding_for_residual_sd(
-        self, simple_model_spec
-    ):
+    def test_structured_prior_requires_structural_binding_for_residual_sd(self, simple_model_spec):
         """Structured priors should fail without a translated SSM binding."""
         priors = {
             "sigma_mood": {
@@ -856,6 +856,163 @@ class TestSSMPriorConversion:
         }
         with pytest.raises(ValueError, match="does not correspond to any parameter in ModelSpec"):
             compile_ssm_priors(priors, {}, ssm_spec=None)
+
+    def test_compile_priors_aggregates_independent_prior_errors(self):
+        """Independent prior compile failures should be reported together."""
+        from causal_ssm_agent.models.ssm import SSMSpec
+
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                }
+            ],
+        }
+        priors = {
+            "rho_mood": {
+                "distribution": "Uniform",
+                "params": {"lower": -1.0, "upper": 2.0},
+            },
+            "bogus_param": {
+                "distribution": "Normal",
+                "params": {"mu": 0.0, "sigma": 1.0},
+            },
+        }
+        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
+
+        with pytest.raises(ValueError) as exc_info:
+            compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+        message = str(exc_info.value)
+        assert "Prior compilation failed" in message
+        assert "lower bound is -1" in message
+        assert "upper bound is 2" in message
+        assert "bogus_param" in message
+
+    def test_compile_ssm_artifact_aggregates_strict_binding_errors(self):
+        """Strict causal-spec binding errors should be reported together."""
+        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "mood",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                    {
+                        "name": "stress",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [{"cause": "stress", "effect": "mood"}],
+            },
+            "estimation": {
+                "state_order": ["mood", "stress"],
+                "edges": [{"cause": "stress", "effect": "mood"}],
+                "induced_dependencies": [],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "mood_score",
+                        "construct_name": "mood",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "how_to_measure": "Use mood_score directly",
+                    },
+                    {
+                        "name": "stress_score",
+                        "construct_name": "stress",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "how_to_measure": "Use stress_score directly",
+                    },
+                ],
+            },
+        }
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "Continuous score",
+                },
+                {
+                    "variable": "stress_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "Continuous score",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_affect",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "Invalid AR name",
+                },
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "Valid AR name",
+                },
+                {
+                    "name": "beta_mood_stress",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "Wrong causal direction",
+                },
+            ],
+        }
+        priors = {
+            "rho_affect": {
+                "parameter": "rho_affect",
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "reasoning": "test",
+            },
+            "rho_stress": {
+                "parameter": "rho_stress",
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "reasoning": "test",
+            },
+            "beta_mood_stress": {
+                "parameter": "beta_mood_stress",
+                "distribution": "Normal",
+                "params": {"mu": 0.0, "sigma": 0.5},
+                "sources": [],
+                "reasoning": "test",
+            },
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
+
+        message = str(exc_info.value)
+        assert "Prior index binding failed" in message
+        assert "rho_affect" in message
+        assert "beta_mood_stress" in message
 
     def test_multiple_ar_params_produce_per_element_drift_diag(self):
         """Multiple AR params map to separate drift_diag array entries."""
@@ -1029,6 +1186,94 @@ class TestSSMPriorConversion:
         mu = ssm_priors.drift_offdiag["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - 0.3) < 0.01
+
+    def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
+        """Lagged-edge diagnostics should mention the default authored interval semantics."""
+        from causal_ssm_agent.models.ssm import SSMSpec
+
+        model_spec = {
+            "likelihoods": [
+                {"variable": "sleep", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+                {"variable": "stress", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+            ],
+            "parameters": [
+                {
+                    "name": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "beta_stress_sleep": {
+                "distribution": "Normal",
+                "params": {"mu": 0.1, "sigma": 0.05},
+            },
+        }
+        ssm_spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["stress", "sleep"],
+            drift_mask=np.array([[True, False], [True, True]]),
+        )
+
+        _priors, _idx, diagnostics = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+            edge_lag_days={(1, 0): 1.0},
+        )
+
+        issues = diagnostics["lagged_drift_prior_issues"]
+        assert len(issues) == 1
+        assert "`reference_interval_days` omitted" in issues[0]["issue"]
+        assert "default model interval (1.0d)" in issues[0]["issue"]
+        assert "current authored interval scale" in issues[0]["suggested_adjustment"]
+
+    def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
+        """Lagged-edge diagnostics should talk about the authored reference interval."""
+        from causal_ssm_agent.models.ssm import SSMSpec
+
+        model_spec = {
+            "likelihoods": [
+                {"variable": "sleep", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+                {"variable": "stress", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+            ],
+            "parameters": [
+                {
+                    "name": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "beta_stress_sleep": {
+                "distribution": "Normal",
+                "params": {"mu": 0.3, "sigma": 0.15},
+                "reference_interval_days": 7.0,
+            },
+        }
+        ssm_spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["stress", "sleep"],
+            drift_mask=np.array([[True, False], [True, True]]),
+        )
+
+        _priors, _idx, diagnostics = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+            edge_lag_days={(1, 0): 1.0},
+        )
+
+        issues = diagnostics["lagged_drift_prior_issues"]
+        assert len(issues) == 1
+        assert "`reference_interval_days=7.0`" in issues[0]["issue"]
+        assert "effect over 7.0d" in issues[0]["issue"]
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
@@ -1280,6 +1525,105 @@ class TestTrialCompile:
 
         assert result is not None
         assert "Loading matrix is rank-deficient" in result
+
+    def test_trial_compile_aggregates_initial_state_translation_errors(self):
+        """Translation should report multiple initial-state correlation errors together."""
+        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "X",
+                        "role": "exogenous",
+                        "description": "X",
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "Y",
+                        "role": "endogenous",
+                        "description": "Y",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [{"cause": "X", "effect": "Y"}],
+            },
+            "estimation": {
+                "state_order": ["X", "Y"],
+                "edges": [{"cause": "X", "effect": "Y"}],
+                "induced_dependencies": [],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "x_score",
+                        "construct_name": "X",
+                        "how_to_measure": "Use x_score directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "y_score",
+                        "construct_name": "Y",
+                        "how_to_measure": "Use y_score directly",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+        }
+        spec = {
+            "likelihoods": [
+                {
+                    "variable": "x_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                },
+                {
+                    "variable": "y_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_X",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "test",
+                },
+                {
+                    "name": "rho_Y",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "test",
+                },
+                {
+                    "name": "cor0_X_X",
+                    "role": "initial_state_correlation",
+                    "constraint": "correlation",
+                    "description": "invalid self correlation",
+                },
+                {
+                    "name": "cor0_unknown_pair",
+                    "role": "initial_state_correlation",
+                    "constraint": "correlation",
+                    "description": "invalid parse",
+                },
+            ],
+        }
+
+        result = trial_compile_model_spec(spec, causal_spec)
+
+        assert result is not None
+        assert "Initial-state correlation resolution failed" in result
+        assert "cor0_X_X" in result
+        assert "cor0_unknown_pair" in result
+
 
 def test_run_stage4_returns_captured_validation(monkeypatch):
     """The last successful validation should be carried into materialization."""

@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
 from causal_ssm_agent.models.ssm_compilation_common import (
@@ -20,6 +21,12 @@ from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
+
+
+class PriorCompilationError(AggregatedCompileError):
+    """Aggregate independent prior-compilation failures into one exception."""
+
+    header = "Prior compilation failed"
 
 
 def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
@@ -39,7 +46,9 @@ def _drift_parameter_name(
     effect_idx: int,
     cause_idx: int,
 ) -> tuple[str, str, str]:
-    cause_name = ssm_spec.latent_names[cause_idx] if ssm_spec.latent_names else f"latent_{cause_idx}"
+    cause_name = (
+        ssm_spec.latent_names[cause_idx] if ssm_spec.latent_names else f"latent_{cause_idx}"
+    )
     effect_name = (
         ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
     )
@@ -51,6 +60,7 @@ def collect_lagged_drift_prior_issues(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
+    raw_priors: dict[str, dict] | None = None,
 ) -> list[dict[str, str]]:
     """Collect lagged-edge DT/CT diagnostics that should stop Stage 4 retries early."""
     edge_lags = edge_lag_days or {}
@@ -94,9 +104,29 @@ def collect_lagged_drift_prior_issues(
             NUMERICAL_EPSILON,
         )
         if ratio > 5.0:
+            prior_spec = (raw_priors or {}).get(parameter_name) or {}
+            ref_days = prior_spec.get("reference_interval_days")
+            authored_interval_days = (
+                float(ref_days)
+                if ref_days is not None and float(ref_days) > 0
+                else expected_lag_days
+            )
+            interval_source = (
+                f"`reference_interval_days={authored_interval_days:.1f}`"
+                if ref_days is not None and float(ref_days) > 0
+                else (
+                    "`reference_interval_days` omitted, so the prior is being interpreted on "
+                    f"the default model interval ({expected_lag_days:.1f}d)"
+                )
+            )
+            strength_note = (
+                "too weak/slow" if implied_timescale_days > expected_lag_days else "too strong/fast"
+            )
             issues_by_parameter.setdefault(parameter_name, []).append(
-                f"implied timescale {implied_timescale_days:.1f}d does not match the "
-                f"expected lag {expected_lag_days:.1f}d for {cause_name}->{effect_name} "
+                f"The authored prior is being treated as an effect over {authored_interval_days:.1f}d "
+                f"({interval_source}). After interval normalization, it implies a characteristic "
+                f"timescale of {implied_timescale_days:.1f}d for {cause_name}->{effect_name}, "
+                f"which is {strength_note} for a {expected_lag_days:.1f}d lagged edge "
                 f"({ratio:.0f}x mismatch)."
             )
 
@@ -105,9 +135,10 @@ def collect_lagged_drift_prior_issues(
             "parameter": parameter,
             "issue": " ".join(messages),
             "suggested_adjustment": (
-                "Use a true one-step effect for this lagged edge. If the literature estimate "
-                "comes from a longer study interval, include reference_interval_days. "
-                "Otherwise shrink the DT prior mean/sigma."
+                "Keep `params` on the interval you actually want to author. If the evidence "
+                "comes from a longer study interval, set `reference_interval_days` to that "
+                "interval. Otherwise change the prior mean/sigma on the current authored "
+                "interval scale so the normalized one-step effect matches this lagged edge."
             ),
         }
         for parameter, messages in issues_by_parameter.items()
@@ -119,6 +150,7 @@ def collect_compile_diagnostics(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
+    raw_priors: dict[str, dict] | None = None,
 ) -> dict[str, list[dict[str, str]]]:
     """Collect structured compiler diagnostics for downstream consumers."""
     return {
@@ -126,6 +158,7 @@ def collect_compile_diagnostics(
             ssm_priors,
             ssm_spec,
             edge_lag_days=edge_lag_days,
+            raw_priors=raw_priors,
         )
     }
 
@@ -237,109 +270,123 @@ def compile_priors(
         diffusion_offdiag_param_index,
         t0_offdiag_param_index,
     ) = index_maps
+    errors: list[str] = []
 
     for param_name, prior_spec in raw_priors.items():
-        distribution = prior_spec.get("distribution", "Normal")
-        normalized = normalize_prior_params(distribution, prior_spec.get("params", {}))
+        try:
+            distribution = prior_spec.get("distribution", "Normal")
+            normalized = normalize_prior_params(distribution, prior_spec.get("params", {}))
 
-        if param_name in diag_param_index:
-            attr, idx = diag_param_index[param_name]
-            construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
-            ref_days = prior_spec.get("reference_interval_days")
-            dt = (
-                float(ref_days)
-                if ref_days is not None and ref_days > 0
-                else get_construct_dt_days(causal_spec, construct_name)
-            )
-            lower = normalized.get("lower")
-            upper = normalized.get("upper")
-            if lower is not None and float(lower) < 0.0:
-                raise ValueError(
-                    f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
-                    f"but lower bound is {float(lower):.3g}"
+            if param_name in diag_param_index:
+                attr, idx = diag_param_index[param_name]
+                construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
+                ref_days = prior_spec.get("reference_interval_days")
+                dt = (
+                    float(ref_days)
+                    if ref_days is not None and ref_days > 0
+                    else get_construct_dt_days(causal_spec, construct_name)
                 )
-            if upper is not None and float(upper) > 1.0:
-                raise ValueError(
-                    f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
-                    f"but upper bound is {float(upper):.3g}"
+                param_errors: list[str] = []
+                lower = normalized.get("lower")
+                upper = normalized.get("upper")
+                if lower is not None and float(lower) < 0.0:
+                    param_errors.append(
+                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
+                        f"but lower bound is {float(lower):.3g}"
+                    )
+                if upper is not None and float(upper) > 1.0:
+                    param_errors.append(
+                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
+                        f"but upper bound is {float(upper):.3g}"
+                    )
+
+                mu_ar = float(normalized.get("mu", 0.5))
+                if not 0.0 < mu_ar < 1.0:
+                    param_errors.append(
+                        f"AR prior '{param_name}' must have DT persistence mean in (0, 1), got {mu_ar:.3g}"
+                    )
+                if param_errors:
+                    errors.extend(param_errors)
+                    continue
+
+                mu_ar = min(max(mu_ar, 0.001), 0.999)
+                sigma_ar = normalized.get("sigma", 0.2)
+                _append_structured_prior(
+                    per_element,
+                    attr,
+                    idx,
+                    {"mu": -math.log(mu_ar) / dt, "sigma": sigma_ar / (mu_ar * dt)},
                 )
+                continue
 
-            mu_ar = float(normalized.get("mu", 0.5))
-            if not 0.0 < mu_ar < 1.0:
-                raise ValueError(
-                    f"AR prior '{param_name}' must have DT persistence mean in (0, 1), got {mu_ar:.3g}"
+            if param_name in offdiag_param_index:
+                attr, idx = offdiag_param_index[param_name]
+                ref_days = prior_spec.get("reference_interval_days")
+                if ref_days is not None and ref_days > 0:
+                    dt = float(ref_days)
+                else:
+                    dt = 1.0
+                    if ssm_spec is not None and ssm_spec.latent_names:
+                        latent_set = set(ssm_spec.latent_names)
+                        compound = param_name.removeprefix("beta_")
+                        split = split_compound_name(compound, latent_set, latent_set)
+                        if split is not None:
+                            _cause, effect = split
+                            dt = get_construct_dt_days(causal_spec, effect)
+                _append_structured_prior(
+                    per_element,
+                    attr,
+                    idx,
+                    {
+                        "mu": normalized.get("mu", 0.0) / dt,
+                        "sigma": normalized.get("sigma", 0.5) / dt,
+                    },
                 )
-            mu_ar = min(max(mu_ar, 0.001), 0.999)
-            sigma_ar = normalized.get("sigma", 0.2)
-            _append_structured_prior(
-                per_element,
-                attr,
-                idx,
-                {"mu": -math.log(mu_ar) / dt, "sigma": sigma_ar / (mu_ar * dt)},
+                continue
+
+            if param_name in lambda_param_index:
+                attr, idx = lambda_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in diffusion_diag_param_index:
+                attr, idx = diffusion_diag_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in diffusion_offdiag_param_index:
+                attr, idx = diffusion_offdiag_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in t0_offdiag_param_index:
+                attr, idx = t0_offdiag_param_index[param_name]
+                _append_structured_prior(
+                    per_element,
+                    attr,
+                    idx,
+                    _coerce_initial_state_correlation_prior(normalized),
+                )
+                continue
+
+            role = role_by_name.get(param_name)
+            if role is not None:
+                errors.append(
+                    f"Prior {param_name!r} with role {role.value!r} could not be structurally "
+                    "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
+                    "matches the ModelSpec."
+                )
+                continue
+
+            errors.append(
+                f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
             )
+        except ValueError as exc:
+            errors.append(str(exc))
             continue
 
-        if param_name in offdiag_param_index:
-            attr, idx = offdiag_param_index[param_name]
-            ref_days = prior_spec.get("reference_interval_days")
-            if ref_days is not None and ref_days > 0:
-                dt = float(ref_days)
-            else:
-                dt = 1.0
-                if ssm_spec is not None and ssm_spec.latent_names:
-                    latent_set = set(ssm_spec.latent_names)
-                    compound = param_name.removeprefix("beta_")
-                    split = split_compound_name(compound, latent_set, latent_set)
-                    if split is not None:
-                        _cause, effect = split
-                        dt = get_construct_dt_days(causal_spec, effect)
-            _append_structured_prior(
-                per_element,
-                attr,
-                idx,
-                {
-                    "mu": normalized.get("mu", 0.0) / dt,
-                    "sigma": normalized.get("sigma", 0.5) / dt,
-                },
-            )
-            continue
-
-        if param_name in lambda_param_index:
-            attr, idx = lambda_param_index[param_name]
-            _append_structured_prior(per_element, attr, idx, normalized)
-            continue
-
-        if param_name in diffusion_diag_param_index:
-            attr, idx = diffusion_diag_param_index[param_name]
-            _append_structured_prior(per_element, attr, idx, normalized)
-            continue
-
-        if param_name in diffusion_offdiag_param_index:
-            attr, idx = diffusion_offdiag_param_index[param_name]
-            _append_structured_prior(per_element, attr, idx, normalized)
-            continue
-
-        if param_name in t0_offdiag_param_index:
-            attr, idx = t0_offdiag_param_index[param_name]
-            _append_structured_prior(
-                per_element,
-                attr,
-                idx,
-                _coerce_initial_state_correlation_prior(normalized),
-            )
-            continue
-
-        role = role_by_name.get(param_name)
-        if role is not None:
-            raise ValueError(
-                f"Prior {param_name!r} with role {role.value!r} could not be structurally "
-                "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
-                "matches the ModelSpec."
-            )
-
-        raise ValueError(
-            f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
-        )
+    if errors:
+        raise PriorCompilationError(errors)
 
     for attr, entries in per_element.items():
         current = getattr(ssm_priors, attr)
@@ -353,6 +400,7 @@ def compile_priors(
             ssm_priors,
             ssm_spec,
             edge_lag_days=edge_lag_days,
+            raw_priors=raw_priors,
         )
         _log_compile_diagnostics(diagnostics)
 
