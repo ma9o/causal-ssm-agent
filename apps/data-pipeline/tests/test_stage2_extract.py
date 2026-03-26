@@ -116,7 +116,9 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     monkeypatch.setattr(
         config_mod,
         "get_config",
-        lambda: SimpleNamespace(stage2_workers=SimpleNamespace(model="mock-stage2-model")),
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(model="mock-stage2-model", max_tool_turns=55)
+        ),
     )
     monkeypatch.setattr(
         causal_spec_mod,
@@ -128,6 +130,7 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     def fake_make_generate_fn(model_name, config=None, **_kwargs):
         captured["model_name"] = model_name
         captured["generate_config"] = config
+        captured["generate_kwargs"] = _kwargs
         return "mock-generate"
 
     async def fake_run_worker_extraction(**kwargs):
@@ -170,6 +173,7 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     assert captured["model_name"] == "mock-stage2-model"
     assert captured["generate_config"].max_tokens == generate_config.max_tokens
     assert captured["generate_config"].reasoning_effort == generate_config.reasoning_effort
+    assert captured["generate_kwargs"]["max_tool_turns"] == 55
     worker_kwargs = captured["worker_kwargs"]
     assert isinstance(worker_kwargs, dict)
     assert worker_kwargs["window_text"] == window_text

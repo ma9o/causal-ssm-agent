@@ -30,7 +30,6 @@ def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace
 
 def _stub_config() -> SimpleNamespace:
     return SimpleNamespace(
-        pipeline=SimpleNamespace(max_prior_retries=3),
         stage4_prior_elicitation=SimpleNamespace(literature_search=SimpleNamespace(enabled=True)),
     )
 
@@ -641,7 +640,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        def make_generate(self, _model: str):
+        def make_generate(self, _model: str, **_kwargs):
             async def _generate(messages: list[dict], label: str | None = None):
                 captured["commentary_messages"] = messages
                 captured["commentary_label"] = label
@@ -807,7 +806,13 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         },
         "estimation": {
             "state_order": ["screen_time", "sleep"],
-            "edges": [{"cause": "screen_time", "effect": "sleep", "description": "Screen time affects sleep"}],
+            "edges": [
+                {
+                    "cause": "screen_time",
+                    "effect": "sleep",
+                    "description": "Screen time affects sleep",
+                }
+            ],
             "induced_dependencies": [],
         },
     }

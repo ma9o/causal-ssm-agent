@@ -127,6 +127,7 @@ async def run_gmm_elicitation(
     question: str,
     model_name: str,
     n_paraphrases: int = 10,
+    max_tool_turns: int = 40,
 ) -> str:
     """Run paraphrased prior elicitation and return GMM-aggregated result.
 
@@ -148,7 +149,7 @@ async def run_gmm_elicitation(
         n_paraphrases=n_paraphrases,
     )
 
-    generate = make_generate_fn(model_name)
+    generate = make_generate_fn(model_name, max_tool_turns=max_tool_turns)
     tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
     results = await asyncio.gather(*tasks)
 

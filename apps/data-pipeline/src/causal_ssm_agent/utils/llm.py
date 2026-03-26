@@ -18,6 +18,11 @@ from causal_ssm_agent.utils.openrouter_client import (
 
 logger = get_prefect_logger(__name__)
 
+DEFAULT_MAX_TOOL_LOOP_TURNS = 40
+WARN_TOOL_LOOP_TURNS = 10
+MAX_TOOL_REPAIR_RETRIES = 1
+MAX_TOOL_REPAIR_ERROR_CHARS = 1200
+
 
 # ---------------------------------------------------------------------------
 # Trace models
@@ -148,6 +153,7 @@ def make_generate_fn(
     model_name: str,
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
+    max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
 ) -> GenerateFn:
     """Create a generate function for LLM calls.
 
@@ -158,6 +164,7 @@ def make_generate_fn(
         model_name: OpenRouter model identifier
         config: Optional generation config (uses get_generate_config() if None)
         trace_capture: Optional dict for capturing the LLM trace
+        max_tool_turns: Maximum number of tool-loop turns for each multi-turn call
 
     Returns:
         An async function that handles multi-turn generation with tools and follow-ups
@@ -182,6 +189,7 @@ def make_generate_fn(
                 config=config,
                 trace_capture=trace_capture,
                 log_label=label,
+                max_tool_turns=max_tool_turns,
             )
         response = await call_model(model_name, chat_messages, config=config, log_label=label)
         return response["completion"]
@@ -277,11 +285,6 @@ def make_validation_tool(
 # ---------------------------------------------------------------------------
 # Per-turn logging helpers
 # ---------------------------------------------------------------------------
-
-MAX_TOOL_LOOP_TURNS = 40
-WARN_TOOL_LOOP_TURNS = 10
-MAX_TOOL_REPAIR_RETRIES = 1
-MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
 
 def _summarize_output(output: dict[str, Any], elapsed: float) -> str:
@@ -412,7 +415,7 @@ async def _run_tool_loop(
     config: GenerateConfig | None,
     label: str = "tool",
     log_label: str | None = None,
-    max_turns: int = MAX_TOOL_LOOP_TURNS,
+    max_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
     warn_turns: int = WARN_TOOL_LOOP_TURNS,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run a tool loop with per-turn logging and an infinite-loop guard.
@@ -426,6 +429,7 @@ async def _run_tool_loop(
     t0 = time.monotonic()
     turn = 0
     scoped_label = _combine_log_label(log_label, label)
+    warn_turns = min(warn_turns, max_turns)
 
     while True:
         turn += 1
@@ -509,6 +513,7 @@ async def multi_turn_generate(
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
     log_label: str | None = None,
+    max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
 ) -> str:
     """
     Run a multi-turn conversation with optional tool use.
@@ -528,6 +533,7 @@ async def multi_turn_generate(
         config: Optional generation config
         trace_capture: Optional dict; when provided, the full LLMTrace is stored
             under ``trace_capture["trace"]`` before returning.
+        max_tool_turns: Maximum number of tool-loop turns for each tool-using phase
 
     Returns:
         The final completion string
@@ -558,6 +564,7 @@ async def multi_turn_generate(
             config,
             label="initial",
             log_label=log_label,
+            max_turns=max_tool_turns,
         )
     else:
         t_gen = time.monotonic()
@@ -590,6 +597,7 @@ async def multi_turn_generate(
                 config,
                 label=f"follow-up-{i + 1}",
                 log_label=log_label,
+                max_turns=max_tool_turns,
             )
         else:
             t_fu = time.monotonic()
@@ -658,7 +666,13 @@ class LLMStageContext:
         """Direct access to the trace capture dict (for advanced use)."""
         return self._trace_capture
 
-    def make_generate(self, model_name: str, config: GenerateConfig | None = None) -> GenerateFn:
+    def make_generate(
+        self,
+        model_name: str,
+        config: GenerateConfig | None = None,
+        *,
+        max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
+    ) -> GenerateFn:
         """Create a generate function wired to this context's trace capture."""
         self._model_name = model_name
         logger.info("[%s] starting (model=%s)", self.stage_id, model_name)
@@ -666,6 +680,7 @@ class LLMStageContext:
             model_name,
             config=config,
             trace_capture=self._trace_capture,
+            max_tool_turns=max_tool_turns,
         )
 
     def finalize(self, output: dict) -> dict:

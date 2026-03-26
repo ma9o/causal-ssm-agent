@@ -105,12 +105,16 @@ FULL_CONFIG = textwrap.dedent("""\
       model: claude-3
       sample_chunks: 5
       chunk_size: 800
+      stage1a_max_tool_turns: 25
+      stage1b_max_tool_turns: 35
     stage2_workers:
       model: claude-3
       chunk_size: 400
       max_concurrent_workers: 6
+      max_tool_turns: 45
     stage4_prior_elicitation:
       model: claude-3
+      max_tool_turns: 100
       literature_search:
         enabled: false
       paraphrasing:
@@ -131,8 +135,6 @@ FULL_CONFIG = textwrap.dedent("""\
       max_tokens: 4096
       timeout: 120
       reasoning_effort: low
-    pipeline:
-      max_prior_retries: 5
 """)
 
 
@@ -150,13 +152,16 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.stage1_structure_proposal.model == "gpt-4"
         assert cfg.stage1_structure_proposal.sample_chunks == 3
+        assert cfg.stage1_structure_proposal.stage1a_max_tool_turns == 40
+        assert cfg.stage1_structure_proposal.stage1b_max_tool_turns == 40
         assert cfg.stage2_workers.chunk_size == 300
         assert cfg.stage2_workers.max_concurrent_workers == 4
+        assert cfg.stage2_workers.max_tool_turns == 40
         assert cfg.stage4_prior_elicitation.model == "gpt-4"
+        assert cfg.stage4_prior_elicitation.max_tool_turns == 40
         # Defaults for optional sections
         assert cfg.inference.method == "auto"
         assert cfg.llm.max_tokens == 65536
-        assert cfg.pipeline.max_prior_retries == 3
 
         load_config.cache_clear()
 
@@ -171,7 +176,11 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
+        assert cfg.stage1_structure_proposal.stage1a_max_tool_turns == 25
+        assert cfg.stage1_structure_proposal.stage1b_max_tool_turns == 35
         assert cfg.stage2_workers.max_concurrent_workers == 6
+        assert cfg.stage2_workers.max_tool_turns == 45
+        assert cfg.stage4_prior_elicitation.max_tool_turns == 100
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
         assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
@@ -185,8 +194,6 @@ class TestLoadConfig:
         assert cfg.inference.nuts.max_tree_depth == 10
         assert cfg.llm.max_tokens == 4096
         assert cfg.llm.reasoning_effort == "low"
-        assert cfg.pipeline.max_prior_retries == 5
-        assert cfg.pipeline.max_prior_retries == 5
 
         load_config.cache_clear()
 

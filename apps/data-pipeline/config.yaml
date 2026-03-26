@@ -4,6 +4,7 @@
 # LLM agent that explores zip archives and parses data into a Polars DataFrame
 stage0_ingestion:
   model: openrouter/z-ai/glm-5 #openrouter/anthropic/claude-sonnet-4-6
+  max_tool_turns: 40
 
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
@@ -11,6 +12,8 @@ stage1_structure_proposal:
   model: openrouter/z-ai/glm-5 #openrouter/google/gemini-3.1-pro-preview
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
+  stage1a_max_tool_turns: 40
+  stage1b_max_tool_turns: 40
 
 # Stage 2: Support-Window Extraction
 # Workers process chunks of support windows in parallel to extract indicator values
@@ -21,6 +24,7 @@ stage2_workers:
   max_events_per_window: 300   # Truncate/sample text beyond this per support window
   max_rpm: 450                 # OpenRouter sliding-window RPM limit
   worker_timeout: 120          # Per-LLM-call timeout in seconds (prevents hung workers)
+  max_tool_turns: 40
 
 # Stage 3: Validation
 # Rule-based extraction validation and indicator audits - no LLM needed
@@ -28,6 +32,7 @@ stage2_workers:
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
   model: openrouter/z-ai/glm-5 #openrouter/anthropic/claude-opus-4.6
+  max_tool_turns: 100
   # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true
@@ -68,7 +73,3 @@ llm:
   max_tokens: 65536
   timeout: 900
   reasoning_effort: xhigh
-
-# Pipeline-level behavior
-pipeline:
-  max_prior_retries: 3

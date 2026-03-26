@@ -415,6 +415,62 @@ class TestWorkerValidationTools:
         assert result == "no-tool review"
         assert call_count == 2
 
+    def test_multi_turn_generate_respects_max_tool_turns(self, monkeypatch):
+        from causal_ssm_agent.utils.openrouter_client import Tool
+
+        call_count = 0
+
+        async def _retry_tool() -> str:
+            return "try again"
+
+        tool = Tool(
+            name="retry_tool",
+            description="Never terminal; forces the loop to keep going.",
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+            execute=_retry_tool,
+        )
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{call_count}",
+                            "name": "retry_tool",
+                            "arguments": "{}",
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        with pytest.raises(RuntimeError, match="exceeded 3 turns"):
+            _run(
+                multi_turn_generate(
+                    messages=[{"role": "user", "content": "Extract sleep hours"}],
+                    model_name="test-model",
+                    tools=[tool],
+                    max_tool_turns=3,
+                )
+            )
+
+        assert call_count == 3
+
 
 # =============================================================================
 # attach_trace
@@ -703,7 +759,7 @@ class TestOpenRouterKeyContext:
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
-            def make_generate(self, _model_name):
+            def make_generate(self, _model_name, **_kwargs):
                 async def _generate(_messages):
                     return {"content": "ok"}
 
@@ -726,9 +782,59 @@ class TestOpenRouterKeyContext:
             orchestrator_fn=orchestrator_fn,
             payload_builder=lambda result: result,
             model_name_getter=lambda: "test-model",
+            task_options={"cache_policy": None},
         )
 
         with openrouter_client.use_openrouter_api_key("user-key"):
             result = _run(task())
 
         assert result == {"api_key": "user-key"}
+
+    def test_llm_stage_task_forwards_stage_max_tool_turns(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
+
+        captured: dict[str, object] = {}
+
+        class _FakeLLMStageContext:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def make_generate(self, _model_name, **kwargs):
+                captured["make_generate_kwargs"] = kwargs
+
+                async def _generate(_messages):
+                    return {"content": "ok"}
+
+                return _generate
+
+            def finalize(self, result):
+                return result
+
+        async def orchestrator_fn(*, generate):
+            _ = await generate([{"role": "user", "content": "hello"}])
+            return {"ok": True}
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.llm_stage_task.LLMStageContext",
+            _FakeLLMStageContext,
+        )
+
+        task = make_llm_stage_task(
+            stage_id="test-stage-turn-cap",
+            orchestrator_fn=orchestrator_fn,
+            payload_builder=lambda result: result,
+            model_name_getter=lambda: "test-model",
+            max_tool_turns_getter=lambda: 77,
+            task_options={"cache_policy": None},
+        )
+
+        result = _run(task())
+
+        assert result == {"ok": True}
+        assert captured["make_generate_kwargs"]["max_tool_turns"] == 77

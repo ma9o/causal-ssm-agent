@@ -88,6 +88,7 @@ async def run_stage4(
     enable_paraphrasing: bool = False,
     n_paraphrases: int = 10,
     gmm_model: str | None = None,
+    max_tool_turns: int = 40,
 ) -> Stage4Result:
     """Run the agentic Stage 4 flow: propose model spec + priors in one conversation.
 
@@ -104,6 +105,8 @@ async def run_stage4(
         enable_paraphrasing: Whether to offer the elicit_prior_gmm tool
         n_paraphrases: Number of paraphrases for GMM tool
         gmm_model: Model name for inner GMM paraphrase calls
+        max_tool_turns: Maximum number of tool-loop turns for this stage and
+            its optional GMM helper
 
     Returns:
         Stage4Result with model_spec and authored priors
@@ -167,6 +170,7 @@ async def run_stage4(
                 question=question,
                 model_name=gmm_model or "",
                 n_paraphrases=n_paraphrases,
+                max_tool_turns=max_tool_turns,
             )
         )
 
