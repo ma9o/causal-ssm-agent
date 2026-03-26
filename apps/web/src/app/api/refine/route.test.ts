@@ -54,6 +54,7 @@ vi.mock("@openrouter/ai-sdk-provider", () => ({
 vi.mock("ai", () => ({
   convertToModelMessages: vi.fn(async (messages) => messages),
   jsonSchema: vi.fn((schema) => schema),
+  stepCountIs: vi.fn((count: number) => ({ type: "stepCountIs", count })),
   tool: vi.fn((definition) => definition),
   streamText: streamTextMock,
 }));
@@ -233,6 +234,78 @@ describe("POST /api/refine", () => {
           outputTokens: 4,
           reasoningTokens: 1,
         },
+      },
+    });
+
+    expect(streamTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stopWhen: { type: "stepCountIs", count: 10 },
+      }),
+    );
+  });
+
+  it("stringifies object payloads for tool params declared as strings", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: "VALID",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    streamTextMock.mockImplementation(({ tools }) => ({
+      toUIMessageStreamResponse: async () => {
+        await tools.validate_measurement_model.execute({
+          measurement_json: {
+            model_clock: "1d",
+            indicators: [],
+          },
+        });
+
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    }));
+
+    vi.mocked(readData).mockResolvedValueOnce(JSON.stringify({ llm_trace: baseTrace }));
+
+    const response = await POST(
+      new Request("http://localhost/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-1b",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Validate the revised measurement model." }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://tools.example/api/tools/stage-1b/validate_measurement_model",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const [, init] = fetchSpy.mock.calls[0] ?? [];
+    expect(JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}"))).toEqual({
+      workspace_id: "user-123",
+      input: {
+        measurement_json: '{"model_clock":"1d","indicators":[]}',
       },
     });
   });

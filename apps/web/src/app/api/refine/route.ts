@@ -1,7 +1,7 @@
 import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { convertToModelMessages, jsonSchema, streamText, tool } from "ai";
+import { convertToModelMessages, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { NextResponse } from "next/server";
 
 import { getToolServerUrl } from "@/lib/runtime-urls";
@@ -44,6 +44,28 @@ async function loadTraceContext(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeToolArgsForSchema(
+  args: Record<string, unknown>,
+  schema: unknown,
+): Record<string, unknown> {
+  if (!isRecord(schema) || !isRecord(schema.properties)) {
+    return args;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    const propertySchema = schema.properties[key];
+    if (isRecord(propertySchema) && propertySchema.type === "string" && typeof value !== "string") {
+      normalized[key] = JSON.stringify(value);
+      continue;
+    }
+
+    normalized[key] = value;
+  }
+
+  return normalized;
 }
 
 /**
@@ -104,12 +126,16 @@ export async function POST(req: Request) {
           if (!normalizedWorkspaceId) {
             throw new Error("Tool execution requires a workspace");
           }
+          const normalizedArgs = normalizeToolArgsForSchema(args, t.parameters);
           const res = await fetch(
             `${TOOL_SERVER}/api/tools/${safeStageId}/${t.name}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ workspace_id: normalizedWorkspaceId, input: args }),
+              body: JSON.stringify({
+                workspace_id: normalizedWorkspaceId,
+                input: normalizedArgs,
+              }),
             },
           );
           if (!res.ok) {
@@ -140,7 +166,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: openrouter(REFINE_MODEL),
     messages: [...traceContext, ...modelMessages],
-    ...(Object.keys(tools).length > 0 ? { tools, maxSteps: 10 } : {}),
+    ...(Object.keys(tools).length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
   });
 
   return result.toUIMessageStreamResponse({
