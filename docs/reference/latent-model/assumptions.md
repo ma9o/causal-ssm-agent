@@ -19,7 +19,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 - Cross-lagged effects use lag-1 at the native granularity
 - Residual autocorrelation suggests missing cross-lags or unmeasured confounders, not higher-order AR
 
-**Justification:** The Markov property is a parsimony constraint with asymmetric costs. Including unnecessary AR(1) wastes one parameter (coefficient approximately 0, harmless). Omitting necessary AR(1) biases standard errors and inflates cross-lag estimates (harmful). Default AR(1) is the conservative choice.
+**Justification:** First-order within-person dynamics are a standard starting point in dynamic SEM[^asparouhov2018]. In this project, the Markov property is also a parsimony constraint with asymmetric costs. Including unnecessary AR(1) wastes one parameter (coefficient approximately 0, harmless). Omitting necessary AR(1) biases standard errors and inflates cross-lag estimates (harmful). Default AR(1) is the conservative choice.
 
 ## A4. Acyclicity Within Time Slice
 
@@ -49,7 +49,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 - Directed cross-construct effects among latent states are encoded as drift-mediated temporal dependence
 - Same-time co-movement should be represented by explicit latent confounders or diffusion covariance, depending on whether the dependence is theoretical or stochastic
 
-**Justification:** The chosen latent-process family is a multivariate continuous-time SDE. In that model class, directed coupling between evolving latent states is carried by the drift term, while contemporaneous dependence is captured by common causes or shared innovation. Adding directed same-slice structural equations between endogenous time-varying states would introduce a second within-slice structural layer that is outside the project's current semantic contract.
+**Justification:** The chosen latent-process family is a multivariate continuous-time SDE. In that model class, directed coupling between evolving latent states is carried by the drift term, while contemporaneous dependence is captured by common causes or shared innovation. This is therefore a project modeling-contract choice for the current runtime, not a claim that every dynamic latent-variable model must encode same-slice effects this way.
 
 ## A5. Time-Invariant Latents as Subject-Level Static States
 
