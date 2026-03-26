@@ -13,16 +13,14 @@ from typing import Any
 
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact
-from prefect.events import emit_event
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.runtime_events import emit_stage_progress_event
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.byok_secret_store import consume_byok_secret_ref
 from causal_ssm_agent.utils.data import DATA_URI, runs_dir
 
 logger = get_prefect_logger(__name__)
-
-STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
 
 
 def _preview(text: str, *, limit: int = 120) -> str:
@@ -120,33 +118,6 @@ async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
     )
     if isawaitable(artifact):
         await artifact
-
-
-def _emit_stage_progress_event(
-    prefect_run_id: str,
-    stage_id: str,
-    status: str,
-    *,
-    outcome: str | None = None,
-    error: dict[str, Any] | None = None,
-) -> None:
-    payload: dict[str, Any] = {
-        "stage_id": stage_id,
-        "status": status,
-    }
-    if outcome is not None:
-        payload["outcome"] = outcome
-    if error is not None:
-        payload["error"] = error
-    emit_event(
-        event=f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{prefect_run_id}",
-            "prefect.resource.name": prefect_run_id,
-        },
-        payload=payload,
-    )
-
 
 def _partial_pipeline_result(
     workspace_id: str, stage_id: str, state: dict[str, Any]
@@ -315,7 +286,7 @@ async def causal_inference_pipeline(
                 continue
             restored = load_stage_state(workspace_id, stage_id, prior_states=stage_states)
             stage_states[stage_id] = restored
-            _emit_stage_progress_event(prefect_run_id, stage_id, "completed")
+            emit_stage_progress_event(prefect_run_id, stage_id, "completed")
             fail_reason = _stage_fail_reason(restored)
             if fail_reason is not None:
                 logger.info(
@@ -331,13 +302,13 @@ async def causal_inference_pipeline(
 
             logger.info(">>> %s starting", stage_id)
             t0 = time.monotonic()
-            _emit_stage_progress_event(prefect_run_id, stage_id, "running")
+            emit_stage_progress_event(prefect_run_id, stage_id, "running")
             try:
                 state = await run_stage_flow(defn, ctx, stage_states)
             except Exception as exc:
                 elapsed = time.monotonic() - t0
                 logger.error(">>> %s FAILED after %.1fs: %s", stage_id, elapsed, exc)
-                _emit_stage_progress_event(
+                emit_stage_progress_event(
                     prefect_run_id,
                     stage_id,
                     "failed",
@@ -348,7 +319,7 @@ async def causal_inference_pipeline(
             web_data = state.get("web", {}) if isinstance(state, dict) else {}
             stage_outcome = web_data.get("outcome")
             logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
-            _emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
+            emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
             stage_states[stage_id] = state
             fail_reason = _stage_fail_reason(state)
             if fail_reason is not None:

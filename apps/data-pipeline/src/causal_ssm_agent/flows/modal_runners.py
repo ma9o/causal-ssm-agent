@@ -61,6 +61,7 @@ async def _run_stage4(
     stage3: dict,
     enable_literature: bool,
     openrouter_api_key: str | None,
+    root_run_id: str | None,
 ) -> dict:
     """Run stage 4 on Modal."""
     from causal_ssm_agent.flows.dag import stage4
@@ -72,6 +73,7 @@ async def _run_stage4(
         stage3,
         enable_literature,
         openrouter_api_key=openrouter_api_key,
+        root_run_id=root_run_id,
     )
 
 
@@ -96,6 +98,7 @@ async def modal_stage4_runner(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    root_run_id: str | None = None,
 ) -> dict:
     """Invoke stage 4 on Modal."""
     from causal_ssm_agent.utils.openrouter_client import get_openrouter_api_key
@@ -107,6 +110,7 @@ async def modal_stage4_runner(
         stage3,
         enable_literature,
         get_openrouter_api_key(),
+        root_run_id,
     )
 
 

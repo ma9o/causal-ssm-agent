@@ -309,6 +309,7 @@ async def stage4(
     stage3: dict,
     enable_literature: bool,
     openrouter_api_key: str | None = None,
+    root_run_id: str | None = None,
 ) -> dict:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
     from .stages import stage4_agentic_flow
@@ -323,6 +324,7 @@ async def stage4(
         indicator_audits=stage3["indicators"],
         enable_literature=enable_literature,
         openrouter_api_key=openrouter_api_key,
+        root_run_id=root_run_id,
     )
 
 
@@ -331,7 +333,12 @@ async def stage4(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
+def stage4b(
+    stage4: dict,
+    stage2: dict,
+    ssm_builder: Any = None,
+    root_run_id: str | None = None,
+) -> dict:
     """Parametric identifiability diagnostics.
 
     Returns: {parametric_id, inference_structure, outcome}
@@ -342,6 +349,7 @@ def stage4b(stage4: dict, stage2: dict, ssm_builder: Any = None) -> dict:
         compiled_ssm=stage4.get("_compiled_ssm"),
         data_for_model=load_parquet(stage2["_data_for_model_path"]),
         builder=ssm_builder,
+        root_run_id=root_run_id,
     )
     param_id = result.get("parametric_id") or {}
     t_rule: dict = {}

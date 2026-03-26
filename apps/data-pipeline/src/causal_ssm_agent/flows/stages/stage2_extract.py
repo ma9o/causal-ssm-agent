@@ -20,6 +20,7 @@ from prefect.events import emit_event
 from prefect.futures import as_completed
 
 from .. import get_prefect_logger
+from ..runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
@@ -671,6 +672,9 @@ async def stage2_extraction_flow(
         'worker_statuses', and 'n_total_extractions'.
     """
     from causal_ssm_agent.utils.config import get_config
+
+    if root_run_id:
+        emit_nested_stage_running_event(root_run_id, "stage-2")
 
     config = get_config()
     raw_df = pl.read_parquet(Path(raw_df_path))

@@ -16,6 +16,7 @@ import polars as pl
 from prefect import flow, task
 
 from .. import get_prefect_logger
+from ..runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
@@ -237,6 +238,7 @@ def stage4b_parametric_id_flow(
     compiled_ssm: dict | None,
     data_for_model: pl.DataFrame,
     builder: Any = None,
+    root_run_id: str | None = None,
 ) -> dict:
     """Stage 4b: Parametric identifiability check.
 
@@ -250,6 +252,9 @@ def stage4b_parametric_id_flow(
     Returns:
         Dict with 'parametric_id' and 'inference_structure' keys
     """
+    if root_run_id:
+        emit_nested_stage_running_event(root_run_id, "stage-4b")
+
     diagnostics = parametric_id_task(
         data_for_model,
         compiled_ssm=compiled_ssm,
