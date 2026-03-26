@@ -10,16 +10,19 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { Bot, User, Wrench } from "lucide-react";
+import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-function TextPart({ text }: { text: string }) {
+const remarkPlugins = [remarkGfm];
+
+const TextPart = memo(function TextPart({ text }: { text: string }) {
   return (
     <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-th:text-foreground prose-code:text-foreground prose-pre:bg-muted/50 prose-pre:text-foreground [&_pre]:text-xs [&_code]:text-xs [&_table]:text-xs [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm [&_pre]:my-1 [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto">
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
     </div>
   );
-}
+});
 
 function ReasoningPart({ text, idx }: { text: string; idx: number }) {
   return (
@@ -198,7 +201,7 @@ function AssistantMessage({ msg }: { msg: UIMessage }) {
   );
 }
 
-export function ChatMessages({ messages }: { messages: UIMessage[] }) {
+export const ChatMessages = memo(function ChatMessages({ messages }: { messages: UIMessage[] }) {
   return (
     <div className="flex flex-col gap-2">
       {messages.map((msg) => {
@@ -215,4 +218,4 @@ export function ChatMessages({ messages }: { messages: UIMessage[] }) {
       })}
     </div>
   );
-}
+});
