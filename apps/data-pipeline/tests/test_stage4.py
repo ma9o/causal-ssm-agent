@@ -22,6 +22,7 @@ import polars as pl
 import pytest
 
 import causal_ssm_agent.orchestrator.stage4 as stage4_module
+from causal_ssm_agent.flows import stage_registry
 from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
 from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
@@ -1353,3 +1354,12 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     )
 
     assert result.validation is validation
+
+
+def test_finalize_stage4_marks_missing_compiled_ssm_as_failure():
+    extras = stage_registry._finalize_stage4_extras({}, "workspace")
+
+    assert extras == {
+        "outcome": "fail",
+        "fail_reason": "model_compile_failed",
+    }

@@ -317,18 +317,23 @@ def _execute_validate_measurement_model(
 
 
 def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    from causal_ssm_agent.flows.stages.stage_tools import should_capture_stage4_output
+
     workspace_id = ctx["_workspace_id"]
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(workspace_id)
     data_for_model = _load_data_for_model(workspace_id)
-    return _run_compute(
+    result = _run_compute(
         args,
         "model_json",
         lambda data: stage4_grounding(
             data, causal_spec, current=current, data_for_model=data_for_model
         ),
     )
+    if not should_capture_stage4_output(result.get("stage_output"), result.get("result", "")):
+        result["stage_output"] = None
+    return result
 
 
 async def _execute_search_literature(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:

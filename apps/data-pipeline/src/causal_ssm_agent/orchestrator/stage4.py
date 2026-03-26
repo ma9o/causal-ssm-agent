@@ -113,6 +113,7 @@ async def run_stage4(
         make_elicit_prior_gmm_tool,
         make_search_tool,
         make_stage_tool,
+        should_capture_stage4_output,
     )
 
     # 1. Pre-compute deterministic spec from CausalSpec
@@ -153,6 +154,7 @@ async def run_stage4(
             ambiguous_indicators=skeleton.ambiguous_indicators,
             all_params=all_params,
         ),
+        capture_when=should_capture_stage4_output,
     )
 
     search_captures: dict[str, str] = {}

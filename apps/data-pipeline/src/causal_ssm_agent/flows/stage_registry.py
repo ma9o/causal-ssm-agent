@@ -235,6 +235,15 @@ def _finalize_stage2_extras(result: dict, workspace_id: str) -> dict[str, Any]:
     }
 
 
+def _finalize_stage4_extras(result: dict, workspace_id: str) -> dict[str, Any]:
+    if result.get("_compiled_ssm") is not None:
+        return {"outcome": "success"}
+    return {
+        "outcome": "fail",
+        "fail_reason": "model_compile_failed",
+    }
+
+
 def _persist_stage5b(result: dict, workspace_id: str) -> dict:
     fitted_artifact = result.pop("_fitted_artifact")
     result["_fitted_result_path"] = save_pickle(
@@ -492,6 +501,7 @@ def _build_registry() -> dict[str, StageDefinition]:
             materializer=StageMaterializer(
                 restore=_restore_stage4,
                 persist=_persist_stage4,
+                finalize_extras=_finalize_stage4_extras,
             ),
             question_required=True,
             override_eligible=True,
