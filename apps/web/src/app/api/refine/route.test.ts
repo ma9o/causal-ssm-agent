@@ -327,6 +327,103 @@ describe("POST /api/refine", () => {
     await expect(response.json()).resolves.toEqual({ error: "messages must be an array" });
   });
 
+  it("appends broad Stage 4 refinement context after the saved trace", async () => {
+    vi.mocked(readData).mockImplementation(async (path: string) => {
+      if (path.endsWith("/stage-4.json")) {
+        return JSON.stringify({
+          llm_trace: baseTrace,
+          outcome: "success",
+          model_spec: {
+            likelihoods: [
+              {
+                variable: "pss_score",
+                distribution: "gaussian",
+                link: "identity",
+                reasoning: "Continuous score.",
+                sources: [],
+              },
+            ],
+            parameters: [
+              {
+                name: "beta_stress_sleep",
+                role: "fixed_effect",
+                constraint: "none",
+                description: "Effect of stress on sleep.",
+              },
+            ],
+          },
+          authored_priors: {
+            beta_stress_sleep: {
+              parameter: "beta_stress_sleep",
+              distribution: "Normal",
+              params: { mu: -0.2, sigma: 0.1 },
+              sources: [],
+              reasoning: "Prior from longitudinal literature.",
+            },
+          },
+          resolved_priors: [],
+          search_queries: {
+            beta_stress_sleep: "daily stress sleep longitudinal effect size",
+          },
+        });
+      }
+      throw new Error(`ENOENT: ${path}`);
+    });
+
+    streamTextMock.mockImplementation(({ messages }) => ({
+      toUIMessageStreamResponse: () =>
+        new Response(
+          JSON.stringify({
+            messages,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    }));
+
+    const response = await POST(
+      new Request("http://localhost/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-4",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Tighten the stress to sleep prior." }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.messages).toHaveLength(5);
+    expect(payload.messages[0]).toMatchObject({
+      role: "system",
+      content: "Comment on the Stage 6 results.",
+    });
+    expect(payload.messages[2]).toMatchObject({
+      role: "system",
+    });
+    expect(String(payload.messages[2].content)).toContain("live refinement path");
+    expect(payload.messages[3]).toMatchObject({
+      role: "user",
+    });
+    expect(String(payload.messages[3].content)).toContain("All current Stage 4 decisions are shown together");
+    expect(String(payload.messages[3].content)).toContain("## Your Decisions");
+    expect(String(payload.messages[3].content)).toContain("beta_stress_sleep");
+    expect(String(payload.messages[3].content)).not.toContain("## Full Current model_spec");
+    expect(payload.messages[4]).toMatchObject({
+      role: "user",
+    });
+  });
+
   it("keeps terminal stage activation separate from downstream invalidation confirmation", () => {
     expect(refinementNeedsActivation("stage-6", null)).toBe(true);
     expect(refinementRequiresConfirmation("stage-6", null)).toBe(false);
