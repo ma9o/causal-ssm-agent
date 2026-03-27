@@ -93,11 +93,30 @@ def _build_trace(all_messages: list[dict[str, Any]], output: dict[str, Any]) -> 
     )
 
 
+def _merge_trace(existing: LLMTrace, new_trace: LLMTrace) -> LLMTrace:
+    """Append a new trace segment onto an existing stage-local trace."""
+    return LLMTrace(
+        messages=[*existing.messages, *new_trace.messages],
+        model=new_trace.model or existing.model,
+        total_time_seconds=existing.total_time_seconds + new_trace.total_time_seconds,
+        usage=TraceUsage(
+            input_tokens=existing.usage.input_tokens + new_trace.usage.input_tokens,
+            output_tokens=existing.usage.output_tokens + new_trace.usage.output_tokens,
+            reasoning_tokens=(
+                (existing.usage.reasoning_tokens or 0) + (new_trace.usage.reasoning_tokens or 0)
+            )
+            or None,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Type aliases for generate functions (unified)
 # ---------------------------------------------------------------------------
 
 GenerateFn = Callable[..., Awaitable[str]]
+MessageRewriter = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+ToolRewriter = Callable[[list[Tool]], list[Tool]]
 
 
 def _combine_log_label(*parts: str | None) -> str | None:
@@ -144,6 +163,26 @@ def dict_messages_to_chat(messages: list[dict]) -> list[dict[str, Any]]:
     return chat_messages
 
 
+def _rewrite_context_messages(
+    messages: list[dict[str, Any]],
+    rewrite_messages: MessageRewriter | None,
+) -> list[dict[str, Any]]:
+    """Apply an optional context-only message rewrite."""
+    if rewrite_messages is None:
+        return messages
+    return rewrite_messages(list(messages))
+
+
+def _rewrite_available_tools(
+    tools: list[Tool],
+    rewrite_tools: ToolRewriter | None,
+) -> list[Tool]:
+    """Apply an optional tool-list rewrite for the current turn."""
+    if rewrite_tools is None:
+        return tools
+    return rewrite_tools(list(tools))
+
+
 # ---------------------------------------------------------------------------
 # Generate function factory (unified for orchestrator and worker)
 # ---------------------------------------------------------------------------
@@ -177,6 +216,8 @@ def make_generate_fn(
         tools: list | None = None,
         follow_ups: list[str] | None = None,
         label: str | None = None,
+        rewrite_messages: MessageRewriter | None = None,
+        rewrite_tools: ToolRewriter | None = None,
     ) -> str:
         chat_messages = dict_messages_to_chat(messages)
 
@@ -190,7 +231,10 @@ def make_generate_fn(
                 trace_capture=trace_capture,
                 log_label=label,
                 max_tool_turns=max_tool_turns,
+                rewrite_messages=rewrite_messages,
+                rewrite_tools=rewrite_tools,
             )
+        chat_messages = _rewrite_context_messages(chat_messages, rewrite_messages)
         response = await call_model(model_name, chat_messages, config=config, log_label=label)
         return response["completion"]
 
@@ -371,6 +415,7 @@ async def _call_model_with_tool_repair(
     tools: list[Tool] | None,
     config: GenerateConfig,
     log_label: str | None,
+    trace_messages: list[dict[str, Any]] | None = None,
     max_retries: int = MAX_TOOL_REPAIR_RETRIES,
 ) -> dict[str, Any]:
     """Call the model and repair malformed tool-call turns by prompting a retry."""
@@ -405,11 +450,15 @@ async def _call_model_with_tool_repair(
                 max_retries,
                 _truncate_tool_error(error_text, limit=240).replace("\n", " "),
             )
-            messages.append(_tool_retry_message(error_text, tools))
+            retry_message = _tool_retry_message(error_text, tools)
+            messages.append(retry_message)
+            if trace_messages is not None:
+                trace_messages.append(retry_message)
 
 
 async def _run_tool_loop(
-    messages: list[dict[str, Any]],
+    context_messages: list[dict[str, Any]],
+    trace_messages: list[dict[str, Any]],
     model_name: str,
     tools: list[Tool],
     config: GenerateConfig | None,
@@ -417,6 +466,8 @@ async def _run_tool_loop(
     log_label: str | None = None,
     max_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
     warn_turns: int = WARN_TOOL_LOOP_TURNS,
+    rewrite_messages: MessageRewriter | None = None,
+    rewrite_tools: ToolRewriter | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run a tool loop with per-turn logging and an infinite-loop guard.
 
@@ -452,14 +503,18 @@ async def _run_tool_loop(
             )
 
         t_turn = time.monotonic()
+        current_tools = _rewrite_available_tools(tools, rewrite_tools)
+        context_messages = _rewrite_context_messages(context_messages, rewrite_messages)
         output = await _call_model_with_tool_repair(
-            messages,
+            context_messages,
             model_name,
-            tools=tools,
+            tools=current_tools or None,
             config=_config,
             log_label=_combine_log_label(scoped_label, f"turn-{turn}", "llm"),
+            trace_messages=trace_messages,
         )
-        messages.append(output["message"])
+        context_messages.append(output["message"])
+        trace_messages.append(output["message"])
         elapsed_turn = time.monotonic() - t_turn
 
         logger.info(
@@ -470,13 +525,16 @@ async def _run_tool_loop(
         if output["message"].get("tool_calls"):
             tool_messages = await execute_tools(
                 output["message"],
-                tools,
+                current_tools,
                 _config.max_tool_output,
                 log_label=_combine_log_label(scoped_label, f"turn-{turn}", "tools"),
             )
-            messages.extend(tool_messages)
+            context_messages.extend(tool_messages)
+            trace_messages.extend(tool_messages)
 
-        terminal_tool = _terminal_tool_success(tool_messages, tools) if tool_messages else None
+        terminal_tool = (
+            _terminal_tool_success(tool_messages, current_tools) if tool_messages else None
+        )
         if terminal_tool is not None:
             tool_name, result_text = terminal_tool
             elapsed_total = time.monotonic() - t0
@@ -489,14 +547,14 @@ async def _run_tool_loop(
                 turn,
                 elapsed_total,
             )
-            return messages, output
+            return context_messages, output
 
         if not output["message"].get("tool_calls"):
             elapsed_total = time.monotonic() - t0
             logger.info(
                 scoped_log(scoped_label, "completed: %d turns in %.1fs"), turn, elapsed_total
             )
-            return messages, output
+            return context_messages, output
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +572,8 @@ async def multi_turn_generate(
     trace_capture: dict | None = None,
     log_label: str | None = None,
     max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
+    rewrite_messages: MessageRewriter | None = None,
+    rewrite_tools: ToolRewriter | None = None,
 ) -> str:
     """
     Run a multi-turn conversation with optional tool use.
@@ -534,12 +594,17 @@ async def multi_turn_generate(
         trace_capture: Optional dict; when provided, the full LLMTrace is stored
             under ``trace_capture["trace"]`` before returning.
         max_tool_turns: Maximum number of tool-loop turns for each tool-using phase
+        rewrite_messages: Optional hook that rewrites only the model-facing
+            conversation context between turns. The full trace remains append-only.
+        rewrite_tools: Optional hook that rewrites the available tool list
+            between turns. The underlying trace remains append-only.
 
     Returns:
         The final completion string
     """
     t0 = time.monotonic()
-    messages = list(messages)  # Don't mutate original
+    context_messages = list(messages)  # Don't mutate original
+    trace_messages = list(messages)
     follow_ups = follow_ups or []
     _config = config or GenerateConfig()
 
@@ -557,25 +622,31 @@ async def multi_turn_generate(
 
     # --- Initial turn ---
     if tools:
-        messages, output = await _run_tool_loop(
-            messages,
+        context_messages, output = await _run_tool_loop(
+            context_messages,
+            trace_messages,
             model_name,
             tools,
             config,
             label="initial",
             log_label=log_label,
             max_turns=max_tool_turns,
+            rewrite_messages=rewrite_messages,
+            rewrite_tools=rewrite_tools,
         )
     else:
         t_gen = time.monotonic()
+        context_messages = _rewrite_context_messages(context_messages, rewrite_messages)
         output = await _call_model_with_tool_repair(
-            messages,
+            context_messages,
             model_name,
             tools=None,
             config=_config,
             log_label=_combine_log_label(log_label, "initial", "llm"),
+            trace_messages=trace_messages,
         )
-        messages.append(output["message"])
+        context_messages.append(output["message"])
+        trace_messages.append(output["message"])
         elapsed_gen = time.monotonic() - t_gen
         logger.info(
             scoped_log(log_label, "single-turn | %s"), _summarize_output(output, elapsed_gen)
@@ -587,28 +658,36 @@ async def multi_turn_generate(
     for i, prompt in enumerate(follow_ups):
         follow_up_label = _combine_log_label(log_label, f"follow-up-{i + 1}")
         logger.info(scoped_log(follow_up_label, "starting (%d/%d)"), i + 1, len(follow_ups))
-        messages.append({"role": "user", "content": prompt})
+        follow_up_message = {"role": "user", "content": prompt}
+        context_messages.append(follow_up_message)
+        trace_messages.append(follow_up_message)
 
         if follow_up_tools:
-            messages, output = await _run_tool_loop(
-                messages,
+            context_messages, output = await _run_tool_loop(
+                context_messages,
+                trace_messages,
                 model_name,
                 follow_up_tools,
                 config,
                 label=f"follow-up-{i + 1}",
                 log_label=log_label,
                 max_turns=max_tool_turns,
+                rewrite_messages=rewrite_messages,
+                rewrite_tools=rewrite_tools,
             )
         else:
             t_fu = time.monotonic()
+            context_messages = _rewrite_context_messages(context_messages, rewrite_messages)
             output = await _call_model_with_tool_repair(
-                messages,
+                context_messages,
                 model_name,
                 tools=None,
                 config=_config,
                 log_label=_combine_log_label(follow_up_label, "llm"),
+                trace_messages=trace_messages,
             )
-            messages.append(output["message"])
+            context_messages.append(output["message"])
+            trace_messages.append(output["message"])
             elapsed_fu = time.monotonic() - t_fu
             logger.info(
                 scoped_log(follow_up_label, "%d/%d | %s"),
@@ -622,7 +701,12 @@ async def multi_turn_generate(
 
     # --- Finalize ---
     if trace_capture is not None:
-        trace_capture["trace"] = _build_trace(messages, output)
+        new_trace = _build_trace(trace_messages, output)
+        existing = trace_capture.get("trace")
+        if isinstance(existing, LLMTrace):
+            trace_capture["trace"] = _merge_trace(existing, new_trace)
+        else:
+            trace_capture["trace"] = new_trace
 
     elapsed_total = time.monotonic() - t0
     logger.info(scoped_log(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)

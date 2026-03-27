@@ -471,6 +471,182 @@ class TestWorkerValidationTools:
 
         assert call_count == 3
 
+    def test_multi_turn_generate_rewrites_context_but_preserves_trace(self, monkeypatch):
+        from causal_ssm_agent.utils.openrouter_client import Tool
+
+        call_count = 0
+        rewrite_inputs: list[list[str]] = []
+        trace_capture: dict[str, object] = {}
+
+        def rewrite_messages(messages: list[dict]) -> list[dict]:
+            rewrite_inputs.append([str(message["role"]) for message in messages])
+            return [{"role": "user", "content": f"compact-{len(rewrite_inputs)}"}]
+
+        async def _retry_tool() -> str:
+            return "keep going"
+
+        tool = Tool(
+            name="retry_tool",
+            description="Non-terminal tool used to force another model turn.",
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+            execute=_retry_tool,
+        )
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = args[1]
+
+            assert messages == [{"role": "user", "content": f"compact-{call_count}"}]
+
+            if call_count == 1:
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "name": "retry_tool",
+                                "arguments": "{}",
+                            }
+                        ],
+                    },
+                    "completion": "",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "tool_calls",
+                }
+
+            if call_count == 2:
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "done",
+                    },
+                    "completion": "done",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "stop",
+                }
+
+            raise AssertionError("unexpected call")
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "original prompt"}],
+                model_name="test-model",
+                tools=[tool],
+                trace_capture=trace_capture,
+                rewrite_messages=rewrite_messages,
+            )
+        )
+
+        assert result == "done"
+        assert call_count == 2
+        assert rewrite_inputs == [["user"], ["user", "assistant", "tool"]]
+
+        trace = trace_capture["trace"]
+        assert isinstance(trace, LLMTrace)
+        assert [message.role for message in trace.messages] == ["user", "assistant", "tool", "assistant"]
+        assert trace.messages[0].content == "original prompt"
+        assert trace.messages[2].tool_result == "keep going"
+        assert all("compact-" not in message.content for message in trace.messages)
+
+    def test_multi_turn_generate_rewrites_available_tools_each_turn(self, monkeypatch):
+        from causal_ssm_agent.utils.openrouter_client import Tool
+
+        call_count = 0
+        seen_tool_names: list[list[str]] = []
+
+        async def _validate() -> str:
+            return "keep going"
+
+        async def _search() -> str:
+            return "done"
+
+        validate_tool = Tool(
+            name="validate_model",
+            description="validate",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=_validate,
+        )
+        search_tool = Tool(
+            name="search_literature",
+            description="search",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=_search,
+        )
+
+        def rewrite_tools(tools: list[Tool]) -> list[Tool]:
+            if call_count == 0:
+                return [tool for tool in tools if tool.name == "validate_model"]
+            return [tool for tool in tools if tool.name == "search_literature"]
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            tools = kwargs.get("tools") or []
+            seen_tool_names.append([tool.name for tool in tools])
+            call_count += 1
+
+            if call_count == 1:
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "name": "validate_model",
+                                "arguments": "{}",
+                            }
+                        ],
+                    },
+                    "completion": "",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "tool_calls",
+                }
+
+            if call_count == 2:
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "done",
+                    },
+                    "completion": "done",
+                    "usage": None,
+                    "model": "test-model",
+                    "time": 0.1,
+                    "stop_reason": "stop",
+                }
+
+            raise AssertionError("unexpected call")
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "original prompt"}],
+                model_name="test-model",
+                tools=[validate_tool, search_tool],
+                rewrite_tools=rewrite_tools,
+            )
+        )
+
+        assert result == "done"
+        assert seen_tool_names == [["validate_model"], ["search_literature"]]
+
 
 # =============================================================================
 # attach_trace
@@ -696,7 +872,10 @@ class TestOpenRouterClient:
             )
         )
 
-        assert seen["kwargs"]["extra_body"] == {"reasoning": {"effort": "high"}}
+        assert seen["kwargs"]["extra_body"] == {
+            "provider": {"sort": "throughput"},
+            "reasoning": {"effort": "high"},
+        }
 
     def test_use_openrouter_api_key_none_preserves_current_request_local_key(self):
         from causal_ssm_agent.utils import openrouter_client
