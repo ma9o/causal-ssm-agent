@@ -2628,7 +2628,7 @@ class TestStage4Mechanics:
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.accepted.as_current() == {}
 
-    def test_global_review_can_reopen_small_coupled_model_block_set(self):
+    def test_global_review_can_reopen_model_block_set(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
         runtime.phase = "global_review"
         runtime.active_block_id = "review:model_spec"
@@ -2667,6 +2667,81 @@ class TestStage4Mechanics:
         assert runtime.phase == "model_decisions"
         assert runtime.block_status["indicator:steps"] == "reopened"
         assert runtime.block_status["loading:activity"] == "reopened"
+
+    def test_global_review_allows_reopening_more_than_three_model_blocks(self):
+        model_blocks = (
+            Stage4FrontierBlock(
+                id="indicator:a",
+                kind="indicator_decision",
+                label="Indicator a",
+                variable_names=("a",),
+            ),
+            Stage4FrontierBlock(
+                id="indicator:b",
+                kind="indicator_decision",
+                label="Indicator b",
+                variable_names=("b",),
+            ),
+            Stage4FrontierBlock(
+                id="loading:c",
+                kind="loading_decision",
+                label="Loading c",
+                parameter_names=("lambda_c",),
+            ),
+            Stage4FrontierBlock(
+                id="loading:d",
+                kind="loading_decision",
+                label="Loading d",
+                parameter_names=("lambda_d",),
+            ),
+        )
+        review_block = Stage4FrontierBlock(
+            id="review:model_spec",
+            kind="global_review",
+            label="Review",
+            payload={"reopenable_block_ids": tuple(block.id for block in model_blocks)},
+        )
+        plan = _make_plan(model_blocks=model_blocks, review_block=review_block)
+        runtime = _make_runtime(
+            plan,
+            phase="global_review",
+            active_block_id="review:model_spec",
+            accepted=Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]}),
+        )
+        for block in model_blocks:
+            runtime.block_status[block.id] = "accepted"
+        runtime.block_status["review:model_spec"] = "pending"
+
+        stage_output, feedback = compute_stage4_validate_step(
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "reopen",
+                    "reopen_block_ids": [block.id for block in model_blocks],
+                    "reasoning": "These measurement decisions need to be reconsidered together.",
+                },
+            },
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec={},
+                skeleton=object(),
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                    "grounding should not run for review-only reopen decisions"
+                ),
+            ),
+        )
+
+        assert stage_output is None
+        assert "MODEL REVIEW REOPENED" in feedback
+        assert "`indicator:a`, `indicator:b`, `loading:c`, `loading:d`" in feedback
+        assert runtime.active_block_id == "indicator:a"
+        assert runtime.phase == "model_decisions"
+        for block in model_blocks:
+            assert runtime.block_status[block.id] == "reopened"
 
     def test_compute_stage4_validate_step_reopens_indicator_on_support_mismatch(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()

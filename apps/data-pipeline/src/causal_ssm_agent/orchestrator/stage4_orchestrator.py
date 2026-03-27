@@ -200,12 +200,12 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
     "global_review": Stage4PromptScopePolicy(
         system_task=(
             "Review the fully locked Stage 4 model form before prior elicitation. "
-            "Do not propose priors. Either approve the locked model or reopen a small coupled "
-            "set of model-decision blocks if something materially needs revision."
+            "Do not propose priors. Either approve the locked model or reopen the relevant "
+            "model-decision blocks if something materially needs revision."
         ),
         user_task=(
-            "Review the locked model form shown below. If it is coherent, approve it. "
-            "If not, reopen a small coupled set of model-decision blocks and explain why. "
+            "Review the locked model form shown below. If it is coherent, approve it. If not, "
+            "reopen the relevant model-decision blocks and explain why. "
             "Do not submit priors in this block."
         ),
         visible_sections=("distribution_cards", "loading_params", "construct_scale_cards"),
