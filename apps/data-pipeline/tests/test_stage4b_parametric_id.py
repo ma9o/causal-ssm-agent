@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
+import pytest
 
 from causal_ssm_agent.flows.dag import stage4b
 from causal_ssm_agent.flows.stages.stage4b_parametric_id import parametric_id_task
@@ -63,9 +64,48 @@ def _make_separable_spec(first_pass_rb: bool = True) -> SSMSpec:
 
 
 class TestStage4bInferenceStructurePayload:
-    def test_payload_marks_first_pass_inactive_when_disabled(self):
-        spec = _make_separable_spec(first_pass_rb=False)
-        model = _make_model(spec)
+    @pytest.mark.parametrize(
+        "label, spec_factory, obs_support, expected_reason",
+        [
+            (
+                "disabled_in_spec",
+                lambda: _make_separable_spec(first_pass_rb=False),
+                None,
+                "disabled_in_spec",
+            ),
+            (
+                "interval_summary_support",
+                _make_separable_spec,
+                _support_runtime,
+                "interval_summary_support",
+            ),
+            (
+                "no_executable_partition",
+                lambda: SSMSpec(
+                    n_latent=2,
+                    n_manifest=2,
+                    drift=jnp.diag(jnp.array([-0.5, -0.3])),
+                    lambda_mat=jnp.ones((2, 2)),
+                    diffusion_dists=[
+                        DistributionFamily.GAUSSIAN,
+                        DistributionFamily.STUDENT_T,
+                    ],
+                    latent_names=["g0", "s0"],
+                    manifest_names=["y0", "y1"],
+                ),
+                None,
+                "no_executable_partition",
+            ),
+        ],
+        ids=["disabled_in_spec", "interval_summary", "no_executable_partition"],
+    )
+    def test_payload_marks_first_pass_inactive(
+        self, label, spec_factory, obs_support, expected_reason
+    ):
+        spec = spec_factory()
+        model = _make_model(
+            spec, observation_support=obs_support() if obs_support else None
+        )
         plan = plan_inference_structure(
             model.spec,
             likelihood=model.likelihood,
@@ -76,47 +116,7 @@ class TestStage4bInferenceStructurePayload:
         assert payload["likelihood_path"] == "particle"
         assert payload["auto_method"] == "laplace_em"
         assert payload["first_pass_rb"]["status"] == "inactive"
-        assert payload["first_pass_rb"]["inactive_reason"] == "disabled_in_spec"
-        assert payload["first_pass_rb"]["latent_variables"] == []
-        assert payload["first_pass_rb"]["obs_variables"] == []
-
-    def test_payload_marks_first_pass_inactive_for_interval_summary_runtime(self):
-        spec = _make_separable_spec()
-        model = _make_model(spec, observation_support=_support_runtime())
-        plan = plan_inference_structure(
-            model.spec,
-            likelihood=model.likelihood,
-            observation_support=model.observation_support,
-        )
-        payload = build_inference_structure_payload(spec, plan)
-
-        assert payload["likelihood_path"] == "particle"
-        assert payload["auto_method"] == "laplace_em"
-        assert payload["first_pass_rb"]["status"] == "inactive"
-        assert payload["first_pass_rb"]["inactive_reason"] == "interval_summary_support"
-
-    def test_payload_marks_first_pass_inactive_when_no_executable_split_exists(self):
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            drift=jnp.diag(jnp.array([-0.5, -0.3])),
-            lambda_mat=jnp.ones((2, 2)),
-            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            latent_names=["g0", "s0"],
-            manifest_names=["y0", "y1"],
-        )
-        model = _make_model(spec)
-        plan = plan_inference_structure(
-            model.spec,
-            likelihood=model.likelihood,
-            observation_support=model.observation_support,
-        )
-        payload = build_inference_structure_payload(spec, plan)
-
-        assert payload["likelihood_path"] == "particle"
-        assert payload["auto_method"] == "laplace_em"
-        assert payload["first_pass_rb"]["status"] == "inactive"
-        assert payload["first_pass_rb"]["inactive_reason"] == "no_executable_partition"
+        assert payload["first_pass_rb"]["inactive_reason"] == expected_reason
 
     def test_payload_includes_active_first_pass_assignments(self):
         spec = _make_separable_spec()

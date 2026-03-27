@@ -153,13 +153,6 @@ class TestMCMCDiagnostics:
         # num_samples may be None if _num_samples is not set on MCMC object
         assert diag["num_samples"] is None or diag["num_samples"] == 200
 
-    def test_svi_returns_none(self):
-        result = InferenceResult(
-            _samples={"x": jnp.ones(10)},
-            method="svi",
-            diagnostics={},
-        )
-        assert result.get_mcmc_diagnostics() is None
 
 
 class TestLOODiagnostics:

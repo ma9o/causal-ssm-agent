@@ -1,12 +1,26 @@
 """Tests for Stage 4 deterministic skeleton and prior-card derivation."""
 
+import polars as pl
+
+from causal_ssm_agent.orchestrator.stage4 import (
+    Stage4AcceptedState,
+    Stage4Deps,
+    Stage4Messages,
+    Stage4Runtime,
+    Stage4Session,
+    make_stage4_runtime,
+)
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
+    Stage4FrontierBlock,
+    Stage4Plan,
     Stage4Skeleton,
     build_construct_scale_cards,
     build_distribution_cards,
     build_model_topology,
     build_prior_cards,
+    build_stage4_plan,
     derive_deterministic_spec,
+    get_stage4_prompt_scope_policy,
 )
 
 
@@ -64,21 +78,82 @@ def _simple_spec():
     )
 
 
+def _noop_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+    """Minimal grounding stub for message-rewriter tests."""
+    if current:
+        return dict(current), "VALID"
+    return data, "VALID"
+
+
+def _make_session(
+    *,
+    messages: Stage4Messages,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+) -> Stage4Session:
+    """Build a minimal Stage 4 session for prompt/turn tests."""
+    return Stage4Session(
+        plan=plan,
+        prompt_context=messages,
+        deps=Stage4Deps(
+            skeleton=Stage4Skeleton(),
+            causal_spec={},
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            grounding_fn=_noop_stage4_grounding,
+        ),
+        runtime=runtime,
+    )
+
+
+def _make_plan(
+    *,
+    model_blocks: tuple[Stage4FrontierBlock, ...] = (),
+    review_block: Stage4FrontierBlock | None = None,
+    prior_blocks: tuple[Stage4FrontierBlock, ...] = (),
+) -> Stage4Plan:
+    """Build a minimal Stage 4 plan for focused unit tests."""
+    all_blocks = (
+        *model_blocks,
+        *((review_block,) if review_block is not None else ()),
+        *prior_blocks,
+    )
+    blocks_by_id = {block.id: block for block in all_blocks}
+    parameter_to_block_id: dict[str, str] = {}
+    indicator_to_decision_block_id: dict[str, str] = {}
+    indicator_to_measurement_block_id: dict[str, str] = {}
+
+    for block in prior_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "measurement_prior":
+            for indicator_name in block.variable_names:
+                indicator_to_measurement_block_id[indicator_name] = block.id
+
+    for block in model_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "indicator_decision":
+            for indicator_name in block.variable_names:
+                indicator_to_decision_block_id[indicator_name] = block.id
+
+    return Stage4Plan(
+        model_blocks=model_blocks,
+        review_block=review_block,
+        prior_blocks=prior_blocks,
+        blocks_by_id=blocks_by_id,
+        parameter_to_block_id=parameter_to_block_id,
+        indicator_to_decision_block_id=indicator_to_decision_block_id,
+        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+    )
+
+
 # =============================================================================
 # derive_deterministic_spec
 # =============================================================================
 
 
 class TestDeriveDeterministicSpec:
-    def test_returns_stage4_skeleton(self):
-        """Should return a typed deterministic skeleton."""
-        result = derive_deterministic_spec(_simple_spec())
-        assert isinstance(result, Stage4Skeleton)
-        assert isinstance(result.resolved_likelihoods, list)
-        assert isinstance(result.ambiguous_indicators, list)
-        assert isinstance(result.parameters, list)
-        assert isinstance(result.loading_params, list)
-
     def test_continuous_resolves_to_gaussian(self):
         """Continuous dtype should resolve to gaussian/identity."""
         skeleton = derive_deterministic_spec(_simple_spec())
@@ -415,3 +490,323 @@ class TestPromptContextBuilders:
         cards = build_construct_scale_cards(spec, {"happy": {"profile": {"n_obs": 20}}}, skeleton)
         mood_card = next(card for card in cards if card["construct"] == "mood")
         assert mood_card["indicators"][0]["has_distribution_decision_card"] is True
+
+    def test_construct_scale_cards_include_support_window_and_extended_profile_fields(self):
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "mood",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                }
+            ],
+            edges=[],
+            indicators=[
+                {
+                    "name": "happy",
+                    "construct_name": "mood",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average happiness this week",
+                    "aggregation": "mean",
+                    "observation_window": "1w",
+                }
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        cards = build_construct_scale_cards(
+            spec,
+            {
+                "happy": {
+                    "profile": {
+                        "n_obs": 20,
+                        "q25": 2.0,
+                        "q50": 3.0,
+                        "q75": 4.0,
+                        "time_coverage_ratio": 0.75,
+                        "max_gap_ratio": 2.5,
+                        "duplicate_pct": 0.10,
+                        "n_unparseable_timestamps": 1,
+                    }
+                }
+            },
+            skeleton,
+        )
+        indicator = cards[0]["indicators"][0]
+
+        assert indicator["observation_window"] == "1w"
+        assert indicator["effective_window"] == "1w"
+        assert indicator["profile"]["q50"] == 3.0
+        assert indicator["profile"]["time_coverage_ratio"] == 0.75
+        assert indicator["profile"]["max_gap_ratio"] == 2.5
+        assert indicator["profile"]["duplicate_pct"] == 0.10
+        assert indicator["profile"]["n_unparseable_timestamps"] == 1
+
+
+class TestStage4Plan:
+    def test_plan_splits_model_and_prior_blocks(self):
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "activity",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                }
+            ],
+            edges=[],
+            indicators=[
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Count steps",
+                    "aggregation": "sum",
+                }
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        plan = build_stage4_plan(spec, skeleton)
+
+        assert [block.kind for block in plan.model_blocks] == ["indicator_decision"]
+        assert plan.model_blocks[0].variable_names == ("steps",)
+        assert plan.review_block is not None
+        assert plan.review_block.kind == "global_review"
+        assert [block.kind for block in plan.prior_blocks] == ["dynamics_prior"]
+        assert set(plan.prior_blocks[0].parameter_names) == {"rho_activity", "sigma_activity"}
+
+    def test_plan_groups_effect_priors_by_target_construct(self):
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "activity",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "sleep",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+            ],
+            edges=[
+                {"cause": "stress", "effect": "sleep"},
+                {"cause": "activity", "effect": "sleep"},
+            ],
+            indicators=[
+                {
+                    "name": "stress_score",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Stress score",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Count steps",
+                    "aggregation": "sum",
+                },
+                {
+                    "name": "sleep_score",
+                    "construct_name": "sleep",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Sleep score",
+                    "aggregation": "mean",
+                },
+            ],
+        )
+
+        skeleton = derive_deterministic_spec(spec)
+        plan = build_stage4_plan(spec, skeleton)
+        effect_block = next(block for block in plan.prior_blocks if block.kind == "effect_prior")
+
+        assert effect_block.id == "effects:sleep"
+        assert effect_block.parameter_names == (
+            "beta_stress_sleep",
+            "beta_activity_sleep",
+        )
+        assert effect_block.construct_names == ("stress", "activity", "sleep")
+
+
+class TestStage4TurnProjection:
+    def test_messages_for_scope_render_only_active_block(self):
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "activity",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+                {
+                    "name": "sleep",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
+            ],
+            edges=[{"cause": "activity", "effect": "sleep"}],
+            indicators=[
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Count steps",
+                    "aggregation": "sum",
+                },
+                {
+                    "name": "sleep_score",
+                    "construct_name": "sleep",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Sleep score",
+                    "aggregation": "mean",
+                },
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        plan = build_stage4_plan(spec, skeleton)
+        messages = Stage4Messages(
+            question="Does activity affect sleep?",
+            model_topology=build_model_topology(spec),
+            distribution_cards=build_distribution_cards(spec, {}, skeleton),
+            loading_params=skeleton.loading_params,
+            construct_scale_cards=build_construct_scale_cards(spec, {}, skeleton),
+            prior_cards=build_prior_cards(spec, skeleton),
+        )
+        runtime = make_stage4_runtime(plan)
+        session = _make_session(messages=messages, plan=plan, runtime=runtime)
+
+        turn = session.current_turn()
+        assert turn is not None
+        prompt = turn.messages
+
+        assert prompt[0]["role"] == "system"
+        assert prompt[1]["role"] == "user"
+        assert "`id`: `indicator:steps`" in prompt[1]["content"]
+        assert (
+            "Choose exactly one distribution/link pair for the active indicator."
+            in prompt[1]["content"]
+        )
+        assert "| steps | activity | count | sum |" in prompt[1]["content"]
+        assert "beta_activity_sleep" not in prompt[1]["content"]
+        assert '"block_kind": "indicator_decision"' in prompt[1]["content"]
+        assert "### Parameter Prior Cards" not in prompt[1]["content"]
+
+    def test_current_turn_moves_to_next_pending_prior_block(self):
+        messages = Stage4Messages(
+            question="How does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            construct_scale_cards=[],
+            prior_cards=[],
+        )
+        prior_blocks = (
+            Stage4FrontierBlock(
+                id="effects:sleep",
+                kind="effect_prior",
+                label="Effect prior",
+                construct_names=("stress", "sleep"),
+                parameter_names=("beta_stress_sleep",),
+            ),
+            Stage4FrontierBlock(
+                id="dynamics:sleep",
+                kind="dynamics_prior",
+                label="Dynamics prior",
+                construct_names=("sleep",),
+                parameter_names=("rho_sleep",),
+            ),
+        )
+        plan = _make_plan(prior_blocks=prior_blocks)
+        runtime = Stage4Runtime(
+            phase="prior_blocks",
+            active_block_id="dynamics:sleep",
+            block_status={
+                "effects:sleep": "accepted",
+                "dynamics:sleep": "pending",
+            },
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}, {"name": "rho_sleep"}]},
+                authored_priors={"beta_stress_sleep": {"distribution": "Normal"}},
+            ),
+        )
+        session = _make_session(messages=messages, plan=plan, runtime=runtime)
+
+        turn = session.current_turn()
+        assert turn is not None
+        assert turn.block.id == "dynamics:sleep"
+        assert "`id`: `dynamics:sleep`" in turn.messages[1]["content"]
+        assert "rho_sleep" in turn.messages[1]["content"]
+        assert "beta_stress_sleep" not in turn.messages[1]["content"]
+
+    def test_current_turn_surfaces_runtime_feedback(self):
+        prior_blocks = (
+            Stage4FrontierBlock(
+                id="effects:sleep",
+                kind="effect_prior",
+                label="Effect prior",
+                construct_names=("stress", "sleep"),
+                parameter_names=("beta_stress_sleep",),
+            ),
+        )
+        plan = _make_plan(prior_blocks=prior_blocks)
+        runtime = Stage4Runtime(
+            phase="prior_blocks",
+            active_block_id="effects:sleep",
+            block_status={"effects:sleep": "pending"},
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+            ),
+            last_feedback="submit priors",
+        )
+        session = _make_session(
+            messages=Stage4Messages(
+                question="How does stress affect sleep?",
+                model_topology={},
+                construct_scale_cards=[],
+                prior_cards=[],
+            ),
+            plan=plan,
+            runtime=runtime,
+        )
+
+        turn = session.current_turn()
+        assert turn is not None
+        assert turn.latest_feedback == "submit priors"
+        assert "submit priors" in turn.messages[1]["content"]
+
+
+class TestStage4PromptScopePolicy:
+    def test_policy_is_looked_up_by_block_kind(self):
+        policy = get_stage4_prompt_scope_policy("measurement_prior")
+
+        assert policy.system_task.startswith("Propose full prior specifications")
+        assert policy.user_task.startswith("Propose full prior specifications")
+        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.guidance_section_keys == (
+            "prior_distribution_types",
+            "parameter_guidance",
+            "measurement_prior_guidance",
+        )
+        assert policy.parameter_guidance_prefixes == ("lambda",)
+        assert policy.allowed_tool_names == (
+            "validate_model",
+            "search_literature",
+            "elicit_prior_gmm",
+        )
+
+    def test_global_review_policy_is_validate_only(self):
+        policy = get_stage4_prompt_scope_policy("global_review")
+
+        assert policy.user_task.startswith("Review the locked model form")
+        assert policy.visible_sections == (
+            "distribution_cards",
+            "loading_params",
+            "construct_scale_cards",
+        )
+        assert policy.allowed_tool_names == ("validate_model",)

@@ -2,7 +2,6 @@
 
 This file owns the direct grounding call paths:
 - ``stage4_grounding`` validation, merge, and feedback behavior
-- ``_agentic_stage4_grounding`` delta application behavior
 """
 
 import asyncio
@@ -10,11 +9,14 @@ import json
 
 import pytest
 
+from causal_ssm_agent.flows.stages.stage4_assembly import format_prior_proposal_errors
 from causal_ssm_agent.flows.stages.stage_tools import (
+    make_search_tool,
     make_stage_tool,
     should_capture_stage4_output,
     stage4_grounding,
 )
+from causal_ssm_agent.orchestrator.stage4 import Stage4Runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -214,6 +216,24 @@ class TestStage4GroundingSchemaValidation:
         )
         assert output is None
         assert "SCHEMA ERRORS" in feedback
+
+
+class TestStage4PriorSourceGuidance:
+    def test_source_schema_errors_include_recovery_hint(self):
+        feedback = format_prior_proposal_errors(
+            {
+                "beta_stress_sleep": (
+                    "1 validation error for PriorProposal\n"
+                    "sources.0.title\n"
+                    "  Field required"
+                )
+            }
+        )
+
+        assert "`sources` must be a list of objects, not raw strings" in feedback
+        assert "each source object must include `title` and `snippet`" in feedback
+        assert '"study_interval_days": 7.0' in feedback
+        assert '"sources": []' in feedback
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +491,46 @@ class TestStage4GroundingCompileOwnership:
         assert sorted(output["authored_priors"]) == ["rho_mood"]
         assert "SCHEMA ERRORS for prior 'sigma_mood'" in feedback
 
+
+class TestStage4SearchTool:
+    def test_repeated_query_reuses_cached_result(self, monkeypatch):
+        calls: list[str] = []
+
+        async def stub_search_literature(query: str) -> str:
+            calls.append(query)
+            return f"RESULT for {query}"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.search_literature",
+            stub_search_literature,
+        )
+
+        state = Stage4Runtime()
+        tool = make_search_tool(state)
+
+        first = asyncio.run(
+            tool(
+                query="stress sleep effect size meta-analysis",
+                parameter_name="beta_stress_sleep",
+            )
+        )
+        second = asyncio.run(
+            tool(
+                query="stress sleep effect size meta-analysis",
+                parameter_name="beta_sleep_stress",
+            )
+        )
+
+        assert first == second == "RESULT for stress sleep effect size meta-analysis"
+        assert calls == ["stress sleep effect size meta-analysis"]
+        assert state.search_cache == {
+            "stress sleep effect size meta-analysis": "RESULT for stress sleep effect size meta-analysis"
+        }
+        assert state.search_queries == {
+            "beta_stress_sleep": "stress sleep effect size meta-analysis",
+            "beta_sleep_stress": "stress sleep effect size meta-analysis",
+        }
+
     def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, model_spec):
         from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
 
@@ -652,314 +712,3 @@ class TestStage4GroundingCompileOwnership:
         assert len(payload["issues"]) == 1
         assert "global issue" in payload["issues"][0]
         assert "model_spec issue" in payload["issues"][0]
-
-
-class TestAgenticStage4Grounding:
-    def test_merges_distribution_choice_delta(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
-
-        forwarded: dict[str, dict] = {}
-
-        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
-            del causal_spec, current, data_for_model, indicator_audits
-            forwarded.update(data)
-            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
-            fake_stage4_grounding,
-        )
-
-        output, feedback = _agentic_stage4_grounding(
-            data={
-                "distribution_choices": [
-                    {
-                        "variable": "ide_focus_gaps",
-                        "distribution": "student_t",
-                        "link": "identity",
-                        "reasoning": "Updated choice for zero-heavy duration data.",
-                    }
-                ]
-            },
-            causal_spec={},
-            current={
-                "model_spec": {
-                    "likelihoods": [
-                        {
-                            "variable": "dev_platform_activity",
-                            "distribution": "bernoulli",
-                            "link": "logit",
-                            "reasoning": "Deterministic.",
-                        },
-                        {
-                            "variable": "ide_focus_gaps",
-                            "distribution": "gamma",
-                            "link": "log",
-                            "reasoning": "Old choice.",
-                        },
-                        {
-                            "variable": "advanced_tech_searches",
-                            "distribution": "bernoulli",
-                            "link": "logit",
-                            "reasoning": "Retained choice.",
-                        },
-                    ],
-                    "parameters": [
-                        {
-                            "name": "lambda_stackoverflow_visits_productivity",
-                            "role": "loading",
-                            "constraint": "positive",
-                            "description": "loading",
-                        }
-                    ],
-                }
-            },
-            data_for_model=None,
-            indicator_audits=None,
-            resolved_likelihoods=[
-                {
-                    "variable": "dev_platform_activity",
-                    "distribution": "bernoulli",
-                    "link": "logit",
-                }
-            ],
-            ambiguous_indicators=[
-                {"variable": "ide_focus_gaps"},
-                {"variable": "advanced_tech_searches"},
-            ],
-            all_params=[
-                {
-                    "name": "lambda_stackoverflow_visits_productivity",
-                    "role": "loading",
-                    "constraint": "none",
-                    "description": "loading",
-                }
-            ],
-        )
-
-        assert feedback == "MODEL STATE SAVED"
-        assert output is not None
-        merged_likelihoods = {
-            likelihood["variable"]: likelihood
-            for likelihood in forwarded["model_spec"]["likelihoods"]
-        }
-        assert merged_likelihoods["ide_focus_gaps"]["distribution"] == "student_t"
-        assert merged_likelihoods["advanced_tech_searches"]["distribution"] == "bernoulli"
-
-    def test_rejects_mixed_updates(self):
-        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
-
-        output, feedback = _agentic_stage4_grounding(
-            data={
-                "distribution_choices": [
-                    {
-                        "variable": "ide_focus_gaps",
-                        "distribution": "student_t",
-                        "link": "identity",
-                        "reasoning": "Changed likelihood.",
-                    }
-                ],
-                "priors": {
-                    "rho_mood": {
-                        "parameter": "rho_mood",
-                        "distribution": "Beta",
-                        "params": {"alpha": 2, "beta": 2},
-                        "sources": [],
-                        "reasoning": "test prior",
-                    }
-                },
-            },
-            causal_spec={},
-            current={},
-            data_for_model=None,
-            indicator_audits=None,
-            resolved_likelihoods=[],
-            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
-            all_params=[],
-        )
-
-        assert output is None
-        assert "UPDATE TOO BROAD" in feedback
-
-    def test_rejects_redundant_decision_update(self):
-        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
-
-        output, feedback = _agentic_stage4_grounding(
-            data={
-                "distribution_choices": [
-                    {
-                        "variable": "ide_focus_gaps",
-                        "distribution": "student_t",
-                        "link": "identity",
-                        "reasoning": "Same decision, different words.",
-                    }
-                ]
-            },
-            causal_spec={},
-            current={
-                "model_spec": {
-                    "likelihoods": [
-                        {
-                            "variable": "ide_focus_gaps",
-                            "distribution": "student_t",
-                            "link": "identity",
-                            "reasoning": "Accepted choice.",
-                        }
-                    ],
-                    "parameters": [],
-                }
-            },
-            data_for_model=None,
-            indicator_audits=None,
-            resolved_likelihoods=[],
-            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
-            all_params=[],
-        )
-
-        assert output is None
-        assert "REDUNDANT MODEL DECISIONS UPDATE" in feedback
-
-    def test_ignores_redundant_decisions_when_cleanup_needed(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
-
-        forwarded: dict[str, dict] = {}
-
-        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
-            del causal_spec, current, data_for_model, indicator_audits
-            forwarded.update(data)
-            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
-            fake_stage4_grounding,
-        )
-
-        output, feedback = _agentic_stage4_grounding(
-            data={
-                "distribution_choices": [
-                    {
-                        "variable": "daily_event_count",
-                        "distribution": "negative_binomial",
-                        "link": "log",
-                        "reasoning": "Already accepted and unchanged.",
-                    },
-                    {
-                        "variable": "sleep_issue_searches",
-                        "distribution": "negative_binomial",
-                        "link": "log",
-                        "reasoning": "Revert to the valid count likelihood.",
-                    },
-                ]
-            },
-            causal_spec={},
-            current={
-                "model_spec": {
-                    "likelihoods": [
-                        {
-                            "variable": "daily_event_count",
-                            "distribution": "negative_binomial",
-                            "link": "log",
-                            "reasoning": "Accepted choice.",
-                        },
-                        {
-                            "variable": "sleep_issue_searches",
-                            "distribution": "poisson",
-                            "link": "log",
-                            "reasoning": "Invalid temporary choice.",
-                        },
-                        {
-                            "variable": "chronotype",
-                            "distribution": "gaussian",
-                            "link": "identity",
-                            "reasoning": "Stale invalid state that should be dropped.",
-                        },
-                    ],
-                    "parameters": [],
-                }
-            },
-            data_for_model=None,
-            indicator_audits=None,
-            resolved_likelihoods=[],
-            ambiguous_indicators=[
-                {"variable": "daily_event_count"},
-                {"variable": "sleep_issue_searches"},
-            ],
-            all_params=[],
-        )
-
-        assert feedback == "MODEL STATE SAVED"
-        assert output is not None
-        merged_likelihoods = {
-            likelihood["variable"]: likelihood
-            for likelihood in forwarded["model_spec"]["likelihoods"]
-        }
-        assert merged_likelihoods["daily_event_count"]["distribution"] == "negative_binomial"
-        assert merged_likelihoods["sleep_issue_searches"]["distribution"] == "negative_binomial"
-        assert "chronotype" not in merged_likelihoods
-
-    def test_accepts_loading_constraint_delta(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage_tools import _agentic_stage4_grounding
-
-        forwarded: dict[str, dict] = {}
-
-        def fake_stage4_grounding(data, causal_spec, current, data_for_model, indicator_audits):
-            del causal_spec, current, data_for_model, indicator_audits
-            forwarded.update(data)
-            return {"model_spec": data["model_spec"]}, "MODEL STATE SAVED"
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
-            fake_stage4_grounding,
-        )
-
-        output, feedback = _agentic_stage4_grounding(
-            data={
-                "loading_constraints": [
-                    {
-                        "parameter": "lambda_stackoverflow_visits_productivity",
-                        "constraint": "positive",
-                        "reasoning": "Updated loading sign.",
-                    }
-                ]
-            },
-            causal_spec={},
-            current={
-                "model_spec": {
-                    "likelihoods": [
-                        {
-                            "variable": "ide_focus_gaps",
-                            "distribution": "student_t",
-                            "link": "identity",
-                            "reasoning": "Accepted choice.",
-                        }
-                    ],
-                    "parameters": [
-                        {
-                            "name": "lambda_stackoverflow_visits_productivity",
-                            "role": "loading",
-                            "constraint": "none",
-                            "description": "loading",
-                        }
-                    ],
-                }
-            },
-            data_for_model=None,
-            indicator_audits=None,
-            resolved_likelihoods=[],
-            ambiguous_indicators=[{"variable": "ide_focus_gaps"}],
-            all_params=[
-                {
-                    "name": "lambda_stackoverflow_visits_productivity",
-                    "role": "loading",
-                    "constraint": "none",
-                    "description": "loading",
-                }
-            ],
-        )
-
-        assert feedback == "MODEL STATE SAVED"
-        assert output is not None
-        merged_params = {
-            parameter["name"]: parameter for parameter in forwarded["model_spec"]["parameters"]
-        }
-        assert merged_params["lambda_stackoverflow_visits_productivity"]["constraint"] == "positive"
