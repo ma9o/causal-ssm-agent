@@ -1,37 +1,29 @@
 "use client";
 
-import type { AnalysisStageRun } from "@/lib/api/analysis";
-import type { StageId } from "@causal-ssm/api-types";
-import { useStageLogs } from "@/lib/hooks/use-stage-logs";
+import type { PrefectLogEntry } from "@/lib/prefect-log-client";
+import type { PrefectSocketConnectionState } from "@/lib/hooks/use-prefect-socket";
 import { Terminal } from "lucide-react";
 import { useState } from "react";
+import type { QueryStatus } from "@tanstack/react-query";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { VirtualizedLogList } from "./virtualized-log-list";
 
-export function StageLogViewer({
-  workspaceId,
-  stageId,
+/** Presentational log view — no data-fetching, fully drivable from props. */
+export function StageLogView({
+  logs,
   status,
-  stageRun,
+  bootstrapStatus,
+  connectionState,
 }: {
-  workspaceId: string;
-  stageId: StageId;
+  logs: PrefectLogEntry[];
   status: StageRunStatus;
-  stageRun?: AnalysisStageRun | null;
+  bootstrapStatus: QueryStatus;
+  connectionState: PrefectSocketConnectionState;
 }) {
-  const {
-    logs,
-    bootstrapStatus,
-    connectionState,
-  } = useStageLogs(
-    workspaceId,
-    stageId,
-    stageRun,
-    status,
-  );
   const [open, setOpen] = useState(false);
+  const isRunning = status === "running";
 
-  if (logs.length === 0 && status !== "running") return null;
+  if (logs.length === 0 && !isRunning) return null;
 
   const emptyMessage =
     bootstrapStatus === "pending"
@@ -44,6 +36,33 @@ export function StageLogViewer({
           ? "Connecting to live log stream..."
           : "Waiting for logs...";
 
+  // While running, show logs inline in the card body (no collapsible)
+  if (isRunning) {
+    return (
+      <div>
+        {connectionState === "error" && (
+          <p className="mb-2 text-xs text-destructive">
+            Live log stream disconnected. Prefect `logs/out` must be available for running-stage logs.
+          </p>
+        )}
+        <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+          <Terminal className="h-3.5 w-3.5" />
+          Logs
+          {logs.length > 0 && (
+            <span className="text-muted-foreground/50">({logs.length})</span>
+          )}
+        </div>
+        <VirtualizedLogList
+          logs={logs}
+          emptyMessage={emptyMessage}
+          autoScroll
+          className="bg-muted/30 p-2"
+        />
+      </div>
+    );
+  }
+
+  // Completed/failed: collapsible toggle
   return (
     <div className="mt-3 border-t pt-3">
       <button
@@ -57,16 +76,11 @@ export function StageLogViewer({
           <span className="text-muted-foreground/50">({logs.length})</span>
         )}
       </button>
-      {status === "running" && connectionState === "error" && (
-        <p className="mt-2 text-xs text-destructive">
-          Live log stream disconnected. Prefect `logs/out` must be available for running-stage logs.
-        </p>
-      )}
       {open && (
         <VirtualizedLogList
           logs={logs}
           emptyMessage={emptyMessage}
-          autoScroll={status === "running"}
+          autoScroll={false}
           className="mt-2 bg-muted/30 p-2"
         />
       )}
