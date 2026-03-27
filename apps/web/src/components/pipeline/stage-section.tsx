@@ -1,20 +1,16 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AnalysisStageRun } from "@/lib/api/analysis";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageId } from "@causal-ssm/api-types";
 import type { StageOutcome } from "@causal-ssm/api-types";
 import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
 import { type ReactNode, useState } from "react";
 import { StageHeader } from "./stage-header";
-import { StageLogViewer } from "./stage-log-viewer";
 
 export function StageSection({
   id,
-  stageId,
   number,
   title,
   status,
@@ -25,14 +21,11 @@ export function StageSection({
   outcome = "success",
   loadingHint,
   runningContent,
-  workspaceId,
-  stageRun,
   invalidated = false,
-  showLogViewer = true,
   actions,
+  logView,
 }: {
   id?: string;
-  stageId?: StageId;
   number: string;
   title: string;
   status: StageRunStatus;
@@ -43,12 +36,11 @@ export function StageSection({
   outcome?: StageOutcome;
   loadingHint?: string;
   runningContent?: ReactNode;
-  workspaceId?: string;
-  stageRun?: AnalysisStageRun | null;
   invalidated?: boolean;
-  showLogViewer?: boolean;
   /** Optional actions rendered top-right of the card header. */
   actions?: ReactNode;
+  /** Log view element — placed inline during running, collapsible at the bottom otherwise. */
+  logView?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -130,9 +122,13 @@ export function StageSection({
           {runningContent ?? (
             <>
               {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-              <Skeleton className="h-32 w-full" />
+              {logView ?? (
+                <>
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-32 w-full" />
+                </>
+              )}
             </>
           )}
         </motion.div>
@@ -163,14 +159,7 @@ export function StageSection({
           </div>
         </motion.div>
       )}
-      {showLogViewer && workspaceId && stageId && status !== "pending" && (
-        <StageLogViewer
-          workspaceId={workspaceId}
-          stageId={stageId}
-          stageRun={stageRun}
-          status={status}
-        />
-      )}
+      {status !== "running" && status !== "pending" && logView}
     </motion.section>
   );
 }

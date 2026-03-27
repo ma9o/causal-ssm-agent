@@ -5,6 +5,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { useRefinement } from "@/lib/contexts/refinement-context";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
+import { useStageLogs } from "@/lib/hooks/use-stage-logs";
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import type {
   LLMTrace,
@@ -31,6 +32,7 @@ import {
   useEffect,
   useMemo,
 } from "react";
+import { StageLogView } from "./stage-log-viewer";
 import { StageSection } from "./stage-section";
 import { StageWithTrace } from "./stage-with-trace";
 
@@ -130,6 +132,25 @@ function StageSectionRouterInner({
   }, [outcome, queryClient, workspaceId, stage.id]);
 
   const isStage2Running = stage.id === "stage-2" && status === "running";
+
+  // Hook lives here (always mounted) so transition tracking works across
+  // running→completed without remounting.
+  const { logs, bootstrapStatus, connectionState } = useStageLogs(
+    workspaceId,
+    stage.id,
+    stageRun,
+    status,
+  );
+  const showLogViewer = !isStage2Running && status !== "pending";
+  const logView = showLogViewer ? (
+    <StageLogView
+      logs={logs}
+      status={status}
+      bootstrapStatus={bootstrapStatus}
+      connectionState={connectionState}
+    />
+  ) : undefined;
+
   const fixMeasurementsPrompt = useMemo(() => {
     if (!projectedStageData || stage.id !== "stage-3") {
       return "";
@@ -150,7 +171,6 @@ function StageSectionRouterInner({
   const section = (
     <StageSection
       id={stage.id}
-      stageId={stage.id}
       number={stage.number}
       title={stage.label}
       status={status}
@@ -181,10 +201,8 @@ function StageSectionRouterInner({
           </Suspense>
         ) : undefined
       }
-      workspaceId={workspaceId}
-      stageRun={stageRun}
       invalidated={invalidated}
-      showLogViewer={!isStage2Running}
+      logView={logView}
     >
       {isCompleted && (
         <ErrorBoundary>
