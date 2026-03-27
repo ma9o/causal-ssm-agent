@@ -351,6 +351,8 @@ def _format_missing_priors_feedback(missing_priors: list[str]) -> str:
     return (
         "MODEL STATE SAVED:\n"
         f"- missing priors for {len(missing_priors)} parameters: {_summarize_names(missing_priors)}\n"
+        "- model decisions are already locked; do not send distribution_choices or loading_constraints again\n"
+        "- your next validate_model call must contain only `priors`\n"
         "- do not resend unchanged fields\n"
         "- submit only the missing priors or any corrections"
     )
@@ -372,6 +374,15 @@ def _find_redundant_prior_updates(
 def _format_redundant_stage4_update_feedback(kind: str, names: list[str]) -> str:
     """Tell the LLM not to resend already accepted stage-4 fields."""
     summary = _summarize_names(names)
+    if kind == "model decisions":
+        return (
+            f"REDUNDANT {kind.upper()} UPDATE:\n"
+            f"- already accepted and unchanged: {summary}\n"
+            "- model-decision phase is closed; do not send distribution_choices or loading_constraints again\n"
+            "- your next validate_model call must contain only `priors`\n"
+            "- do not resend unchanged fields\n\n"
+            "Previously accepted state is retained. Resubmit only changed or missing priors."
+        )
     return (
         f"REDUNDANT {kind.upper()} UPDATE:\n"
         f"- already accepted and unchanged: {summary}\n"
@@ -412,16 +423,15 @@ async def search_literature(query: str) -> str:
     return format_literature_for_parameter(sources)
 
 
-def make_search_tool(search_captures: dict[str, str]) -> Any:
+def make_search_tool(state: Any) -> Any:
     """Create a search_literature Tool for pipeline use.
 
-    Captures the actual query the LLM uses for each parameter into
-    ``search_captures``, keyed by parameter name.  This is process
-    provenance recorded on the Stage 4 contract (not on the model spec).
+    Captures the actual query the LLM uses for each parameter and caches
+    exact query results for deterministic replay within the current run.
 
     Args:
-        search_captures: Mutable dict that accumulates
-            ``{parameter_name: query}`` entries as the LLM calls the tool.
+        state: Mutable stage-owned object with ``search_queries`` and
+            ``search_cache`` mappings.
 
     Returns:
         Tool object
@@ -429,8 +439,13 @@ def make_search_tool(search_captures: dict[str, str]) -> Any:
     from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(*, query: str, parameter_name: str) -> str:
-        search_captures[parameter_name] = query
-        return await search_literature(query)
+        state.search_queries[parameter_name] = query
+        cached = state.search_cache.get(query)
+        if cached is not None:
+            return cached
+        result = await search_literature(query)
+        state.search_cache[query] = result
+        return result
 
     return Tool(
         name="search_literature",
@@ -529,219 +544,6 @@ def make_stage_tool(
         stop_on_success=True,
         success_output=success_feedback,
     ), capture
-
-
-# ---------------------------------------------------------------------------
-# Stage 4 agentic grounding (decisions-merge wrapper)
-# ---------------------------------------------------------------------------
-
-
-def _agentic_stage4_grounding(
-    data: dict,
-    causal_spec: dict,
-    current: dict | None,
-    data_for_model: Any,
-    indicator_audits: dict[str, dict[str, Any]] | None,
-    *,
-    resolved_likelihoods: list[dict],
-    ambiguous_indicators: list[dict],
-    all_params: list[dict],
-) -> tuple[dict | None, str]:
-    """Agentic grounding for Stage 4: handles decisions-merge then delegates.
-
-    On the first call the LLM typically submits ``distribution_choices`` +
-    ``loading_constraints`` + ``priors``.  This wrapper merges the decisions
-    with the pre-computed skeleton to produce a full ``ModelSpec``, then
-    delegates to :func:`stage4_grounding` for compile + prior-predictive
-    validation.
-
-    On subsequent calls (prior refinement only) the data contains just
-    ``priors`` and the wrapper delegates directly.
-    """
-    if ("distribution_choices" in data or "loading_constraints" in data) and "priors" in data:
-        return (
-            None,
-            "UPDATE TOO BROAD:\n"
-            "- submit model decisions and priors in separate calls\n"
-            "- validate model decisions first, then add priors in later calls\n\n"
-            "Previously accepted state is retained. Resubmit only the fields you changed.",
-        )
-
-    if "distribution_choices" in data or "loading_constraints" in data:
-        from causal_ssm_agent.orchestrator.schemas_model import (
-            validate_model_spec_decisions_dict,
-        )
-
-        pruned_data, redundant_decisions = _prune_redundant_decision_updates(
-            data,
-            current=current,
-        )
-        if redundant_decisions and not (
-            pruned_data.get("distribution_choices") or pruned_data.get("loading_constraints")
-        ):
-            return None, _format_redundant_stage4_update_feedback(
-                "model decisions",
-                redundant_decisions,
-            )
-
-        decisions_data = _merge_stage4_decision_updates(
-            pruned_data,
-            current=current,
-            ambiguous_indicators=ambiguous_indicators,
-            all_params=all_params,
-        )
-        model_spec_result, errors = validate_model_spec_decisions_dict(
-            decisions_data,
-            resolved_likelihoods=resolved_likelihoods,
-            ambiguous_indicators=ambiguous_indicators,
-            parameters=all_params,
-        )
-        if errors:
-            return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
-
-        merged_data: dict[str, Any] = {
-            "model_spec": model_spec_result.model_dump(mode="json"),
-        }
-        if "priors" in data:
-            merged_data["priors"] = data["priors"]
-        return stage4_grounding(
-            merged_data,
-            causal_spec,
-            current=current,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-        )
-
-    # No decisions — delegate directly (model_spec and/or priors only)
-    return stage4_grounding(
-        data,
-        causal_spec,
-        current=current,
-        data_for_model=data_for_model,
-        indicator_audits=indicator_audits,
-    )
-
-
-def _prune_redundant_decision_updates(
-    data: dict[str, Any],
-    *,
-    current: dict | None,
-) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
-    """Drop unchanged decision fields while preserving any real updates."""
-    current_model_spec = (current or {}).get("model_spec") or {}
-
-    current_likelihoods: dict[str, dict[str, Any]] = {}
-    for likelihood in current_model_spec.get("likelihoods") or []:
-        if not isinstance(likelihood, dict):
-            continue
-        variable = likelihood.get("variable")
-        if isinstance(variable, str):
-            current_likelihoods[variable] = likelihood
-
-    current_loadings: dict[str, dict[str, Any]] = {}
-    for parameter in current_model_spec.get("parameters") or []:
-        if not isinstance(parameter, dict):
-            continue
-        name = parameter.get("name")
-        if isinstance(name, str):
-            current_loadings[name] = parameter
-
-    pruned_distribution_choices: list[dict[str, Any]] = []
-    pruned_loading_constraints: list[dict[str, Any]] = []
-    redundant: list[str] = []
-    for choice in data.get("distribution_choices") or []:
-        if not isinstance(choice, dict):
-            continue
-        variable = choice.get("variable")
-        accepted = current_likelihoods.get(variable) if isinstance(variable, str) else None
-        if (
-            accepted is not None
-            and accepted.get("distribution") == choice.get("distribution")
-            and accepted.get("link") == choice.get("link")
-        ):
-            redundant.append(variable)
-            continue
-
-        pruned_distribution_choices.append(choice)
-
-    for constraint in data.get("loading_constraints") or []:
-        if not isinstance(constraint, dict):
-            continue
-        parameter = constraint.get("parameter")
-        accepted = current_loadings.get(parameter) if isinstance(parameter, str) else None
-        if accepted is not None and accepted.get("constraint") == constraint.get("constraint"):
-            redundant.append(parameter)
-            continue
-
-        pruned_loading_constraints.append(constraint)
-
-    return (
-        {
-            "distribution_choices": pruned_distribution_choices,
-            "loading_constraints": pruned_loading_constraints,
-        },
-        sorted(name for name in redundant if isinstance(name, str)),
-    )
-
-
-def _merge_stage4_decision_updates(
-    data: dict[str, Any],
-    *,
-    current: dict | None,
-    ambiguous_indicators: list[dict],
-    all_params: list[dict],
-) -> dict[str, list[dict[str, Any]]]:
-    """Merge decision deltas with the currently accepted stage-4 model spec."""
-    current_model_spec = (current or {}).get("model_spec") or {}
-
-    ambiguous_vars = {
-        indicator["variable"]
-        for indicator in ambiguous_indicators
-        if isinstance(indicator, dict) and isinstance(indicator.get("variable"), str)
-    }
-    current_dist_choices: dict[str, dict[str, Any]] = {}
-    for likelihood in current_model_spec.get("likelihoods") or []:
-        if not isinstance(likelihood, dict):
-            continue
-        variable = likelihood.get("variable")
-        if isinstance(variable, str) and variable in ambiguous_vars:
-            current_dist_choices[variable] = {
-                "variable": variable,
-                "distribution": likelihood.get("distribution"),
-                "link": likelihood.get("link"),
-                "reasoning": likelihood.get("reasoning")
-                or "Retained from previously accepted state.",
-            }
-    for choice in data.get("distribution_choices") or []:
-        if isinstance(choice, dict) and isinstance(choice.get("variable"), str):
-            current_dist_choices[choice["variable"]] = choice
-
-    loading_param_names = {
-        parameter["name"]
-        for parameter in all_params
-        if isinstance(parameter, dict)
-        and parameter.get("role") == "loading"
-        and isinstance(parameter.get("name"), str)
-    }
-    current_loading_constraints: dict[str, dict[str, Any]] = {}
-    for parameter in current_model_spec.get("parameters") or []:
-        if not isinstance(parameter, dict):
-            continue
-        name = parameter.get("name")
-        if isinstance(name, str) and name in loading_param_names:
-            current_loading_constraints[name] = {
-                "parameter": name,
-                "constraint": parameter.get("constraint"),
-                "reasoning": "Retained from previously accepted state.",
-            }
-    for constraint in data.get("loading_constraints") or []:
-        if isinstance(constraint, dict) and isinstance(constraint.get("parameter"), str):
-            current_loading_constraints[constraint["parameter"]] = constraint
-
-    return {
-        "distribution_choices": list(current_dist_choices.values()),
-        "loading_constraints": list(current_loading_constraints.values()),
-    }
 
 
 # ---------------------------------------------------------------------------

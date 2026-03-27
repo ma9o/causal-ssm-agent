@@ -40,14 +40,14 @@ flowchart LR
 
 **Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/model-spec/parameters.md), locks [likelihoods](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
 
-**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → causal effects → confounding.
+**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → grouped causal-effect families (incoming effects per target construct) → confounding.
 
 **Model-Decision Block:** Each block resolves either:
 
 - *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics; or
 - *Loading constraint* for a construct's loading parameters: `positive` for sign identification, or `none` if negative loadings are theoretically plausible
 
-The [compilation check](../reference/compilation.md) gates each block with PPCs disabled; errors reopen only the failing block.
+The [compilation check](../reference/compilation.md) gates each block with PPCs disabled; errors reopen only the failing block. Before prior elicitation, a compact global-review checkpoint can reopen a small coupled set of model-decision blocks when those choices need to move together.
 
 **Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 

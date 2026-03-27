@@ -1,19 +1,20 @@
 """Tests for Stage 4: Model Specification & Prior Elicitation.
 
-Unit tests for prior validation helpers, default priors, aggregation, and
-prompt generation live in their dedicated files:
+Unit tests for prior validation helpers, default priors, and aggregation live
+in their dedicated files:
 - test_prior_predictive.py (NaN/constraint/extreme checks, format functions)
 - test_prior_aggregation.py (simple/GMM aggregation)
-- test_prior_research_prompts.py (paraphrase generation)
 - test_get_default_prior.py (constraint→distribution mapping)
 Grounding helpers in ``stage_tools.py`` live in ``test_stage4_grounding.py``.
-This file tests Stage 4 orchestration, prior predictive validation, failed
-parameter identification with causal_spec context, SSM prior conversion,
-and trial compilation.
+This file tests Stage 4 prompt assembly, orchestration, prior predictive
+validation, failed parameter identification with causal_spec context, SSM prior
+conversion, and trial compilation.
 """
 
 import asyncio
+import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -24,6 +25,7 @@ import pytest
 import causal_ssm_agent.orchestrator.stage4 as stage4_module
 from causal_ssm_agent.flows import stage_registry
 from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+from causal_ssm_agent.flows.stages.stage4_model import _stage4_generate_config
 from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
@@ -34,7 +36,27 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs,
 )
-from causal_ssm_agent.orchestrator.stage4 import Stage4Messages, run_stage4
+from causal_ssm_agent.orchestrator.stage4 import (
+    Stage4AcceptedState,
+    Stage4Deps,
+    Stage4Messages,
+    Stage4Runtime,
+    Stage4Session,
+    compute_stage4_validate_step,
+    get_active_plan_block,
+    get_stage4_block_handler,
+    get_stage4_phase,
+    make_stage4_runtime,
+    run_stage4,
+)
+from causal_ssm_agent.orchestrator.stage4_orchestrator import (
+    Stage4FrontierBlock,
+    Stage4Plan,
+    build_stage4_plan,
+    derive_deterministic_spec,
+)
+from causal_ssm_agent.utils.llm import make_generate_fn
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
@@ -105,11 +127,85 @@ def simple_data() -> pd.DataFrame:
     )
 
 
+def _make_plan(
+    *,
+    model_blocks: tuple[Stage4FrontierBlock, ...] = (),
+    review_block: Stage4FrontierBlock | None = None,
+    prior_blocks: tuple[Stage4FrontierBlock, ...] = (),
+) -> Stage4Plan:
+    """Build a minimal Stage 4 plan for focused unit tests."""
+    all_blocks = (
+        *model_blocks,
+        *((review_block,) if review_block is not None else ()),
+        *prior_blocks,
+    )
+    blocks_by_id = {block.id: block for block in all_blocks}
+    parameter_to_block_id: dict[str, str] = {}
+    indicator_to_decision_block_id: dict[str, str] = {}
+    indicator_to_measurement_block_id: dict[str, str] = {}
+
+    for block in prior_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "measurement_prior":
+            for indicator_name in block.variable_names:
+                indicator_to_measurement_block_id[indicator_name] = block.id
+
+    for block in model_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "indicator_decision":
+            for indicator_name in block.variable_names:
+                indicator_to_decision_block_id[indicator_name] = block.id
+
+    return Stage4Plan(
+        model_blocks=model_blocks,
+        review_block=review_block,
+        prior_blocks=prior_blocks,
+        blocks_by_id=blocks_by_id,
+        parameter_to_block_id=parameter_to_block_id,
+        indicator_to_decision_block_id=indicator_to_decision_block_id,
+        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+    )
+
+
+def _make_runtime(
+    plan: Stage4Plan,
+    *,
+    phase: str | None = None,
+    active_block_id: str | None = None,
+    accepted: Stage4AcceptedState | None = None,
+    last_feedback: str | None = None,
+) -> Stage4Runtime:
+    """Build a Stage 4 runtime for focused unit tests."""
+    runtime = make_stage4_runtime(plan)
+    if phase is not None:
+        runtime.phase = phase
+    if active_block_id is not None:
+        runtime.active_block_id = active_block_id
+    if accepted is not None:
+        runtime.accepted = accepted
+    runtime.last_feedback = last_feedback
+    return runtime
+
+
 # --- Prompt assembly tests ---
 
 
 class TestStage4Messages:
-    def test_proposal_messages_include_compact_model_context(self):
+    def test_messages_for_scope_include_compact_model_context(self):
+        block = Stage4FrontierBlock(
+            id="indicator:pss_score",
+            kind="indicator_decision",
+            label="Choose likelihood for pss_score",
+            construct_names=("stress",),
+            variable_names=("pss_score",),
+            payload={
+                "variable": "pss_score",
+                "fixed_distribution": "gaussian",
+                "valid_links": ["identity"],
+            },
+        )
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={
@@ -186,36 +282,102 @@ class TestStage4Messages:
                 }
             ],
         )
-
-        messages = msgs.proposal_messages()
+        plan = _make_plan(model_blocks=(block,))
+        runtime = _make_runtime(plan)
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
         user_content = messages[1]["content"]
 
         assert "## Model Topology" in user_content
-        assert "Stress reduces subsequent sleep quality." in user_content
+        assert "Stress reduces subsequent sleep quality." not in user_content
         assert "Use the pss column directly" in user_content
         assert "model_interval_days" in user_content
-        assert "### 3. Construct Scale Cards" in user_content
+        assert "### Construct Scale Cards" in user_content
         assert "see distribution decision card" in user_content
+        assert "### Parameter Prior Cards" not in user_content
+        assert "### Loading Constraints" not in user_content
 
-    def test_proposal_messages_separate_context_from_decision_surface(self):
+    def test_messages_for_scope_render_frontier_contract(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+        )
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={},
-            distribution_cards=[],
-            loading_params=[],
+            distribution_cards=[
+                {
+                    "variable": "pss_score",
+                    "construct": "stress",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "how_to_measure": "Use the pss column directly",
+                    "options": [{"distribution": "gaussian", "links": ["identity"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
+            loading_params=[
+                {
+                    "name": "lambda_pss_score_stress",
+                    "construct": "stress",
+                    "indicator": "pss_score",
+                }
+            ],
             construct_scale_cards=[],
-            prior_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                }
+            ],
         )
-
-        messages = msgs.proposal_messages()
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+            ),
+        )
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
         user_content = messages[1]["content"]
 
         assert "## Fixed Model Context" in user_content
-        assert "## Your Decisions" in user_content
-        assert "Provide exactly one prior for EVERY parameter below." in user_content
-        assert "Indicators not shown already have deterministic likelihoods." in user_content
+        assert "## Frontier Status" in user_content
+        assert "`id`: `effects:sleep`" in user_content
+        assert '"block_id": "effects:sleep"' in user_content
+        assert "Propose full prior specifications only for this block's parameters" in user_content
+        assert "### Distribution Decision Cards" not in user_content
+        assert "### Loading Constraints" not in user_content
 
-    def test_proposal_messages_include_parameter_prior_cards(self):
+    def test_messages_for_scope_include_parameter_prior_cards(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress",),
+            parameter_names=("beta_stress_sleep",),
+        )
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
@@ -247,15 +409,418 @@ class TestStage4Messages:
                 }
             ],
         )
-
-        messages = msgs.proposal_messages()
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+            ),
+        )
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
         user_content = messages[1]["content"]
 
-        assert "### 4. Parameter Prior Cards" in user_content
+        assert "### Parameter Prior Cards" in user_content
         assert "#### Fixed Effects" in user_content
         assert "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |" in user_content
-        assert "### 3. Construct Scale Cards" in user_content
-        assert "authored on the model interval" in user_content
+        assert "### Construct Scale Cards" in user_content
+        assert '"block_kind": "effect_prior"' in user_content
+
+    def test_messages_for_effect_scope_include_neighboring_topology_context(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={
+                "model_clock": "1d",
+                "model_interval_days": 1.0,
+                "outcome": "sleep",
+                "latent_edges": [
+                    {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "description": "Primary effect under review",
+                    },
+                    {
+                        "cause": "mood",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "description": "Competing parent of sleep",
+                    },
+                ],
+            },
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "expected_lag_days": 1.0,
+                        "feedback_loop": False,
+                    },
+                }
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "| stress | sleep | yes | Primary effect under review |" in user_content
+        assert "| mood | sleep | yes | Competing parent of sleep |" in user_content
+
+    def test_messages_for_scope_respects_visible_sections_even_when_data_matches(self):
+        block = Stage4FrontierBlock(
+            id="loading:stress",
+            kind="loading_decision",
+            label="Loading decision",
+            construct_names=("stress",),
+            parameter_names=("lambda_worry_stress",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={},
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "how_to_measure": "Use the worry column directly",
+                    "options": [{"distribution": "gaussian", "links": ["identity"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
+            loading_params=[
+                {
+                    "name": "lambda_worry_stress",
+                    "construct": "stress",
+                    "indicator": "worry_score",
+                }
+            ],
+            construct_scale_cards=[
+                {
+                    "construct": "stress",
+                    "description": "Perceived stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": False,
+                    "reference_indicator": "pss_score",
+                    "indicators": [],
+                }
+            ],
+            prior_cards=[
+                {
+                    "parameter": "lambda_worry_stress",
+                    "role": "loading",
+                    "constraint": "positive",
+                    "structural_context": {
+                        "construct": "stress",
+                        "indicator": "worry_score",
+                        "reference_indicator": "pss_score",
+                    },
+                }
+            ],
+        )
+        plan = _make_plan(model_blocks=(block,))
+        runtime = _make_runtime(plan)
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "### Loading Constraints" in user_content
+        assert "### Construct Scale Cards" in user_content
+        assert "### Distribution Decision Cards" not in user_content
+        assert "### Parameter Prior Cards" not in user_content
+
+    def test_messages_for_scope_render_extended_profile_and_support_window_metadata(self):
+        block = Stage4FrontierBlock(
+            id="indicator:worry_score",
+            kind="indicator_decision",
+            label="Indicator decision",
+            construct_names=("stress",),
+            variable_names=("worry_score",),
+            payload={
+                "variable": "worry_score",
+                "fixed_distribution": "bernoulli",
+                "valid_links": ["logit", "probit"],
+            },
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={},
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "binary",
+                    "aggregation": "mean",
+                    "effective_window": "1w",
+                    "how_to_measure": "Weekly worry indicator",
+                    "options": [{"distribution": "bernoulli", "links": ["logit", "probit"]}],
+                    "profile": {
+                        "n_obs": 40,
+                        "q50": 1.0,
+                        "time_coverage_ratio": 0.75,
+                        "max_gap_ratio": 2.5,
+                        "duplicate_pct": 0.05,
+                        "n_unparseable_timestamps": 1,
+                    },
+                    "validation_issues": [],
+                }
+            ],
+            loading_params=[],
+            construct_scale_cards=[
+                {
+                    "construct": "stress",
+                    "description": "Perceived stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": False,
+                    "reference_indicator": "pss_score",
+                    "indicators": [
+                        {
+                            "indicator": "worry_score",
+                            "measurement_dtype": "binary",
+                            "aggregation": "mean",
+                            "effective_window": "1w",
+                            "is_reference": False,
+                            "has_distribution_decision_card": True,
+                            "profile": {
+                                "n_obs": 40,
+                                "q50": 1.0,
+                                "time_coverage_ratio": 0.75,
+                            },
+                            "how_to_measure": "Weekly worry indicator",
+                        }
+                    ],
+                }
+            ],
+            prior_cards=[],
+        )
+        plan = _make_plan(model_blocks=(block,))
+        runtime = _make_runtime(plan)
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "| worry_score | stress | binary | mean | 1w |" in user_content
+        assert "q50=1" in user_content
+        assert "coverage=75%" in user_content
+        assert "max_gap=2.5x" in user_content
+        assert "dups=5.0%" in user_content
+        assert "bad_ts=1" in user_content
+
+    def test_messages_for_scope_render_stateful_accepted_decisions(self):
+        block = Stage4FrontierBlock(
+            id="measurement:stress",
+            kind="measurement_prior",
+            label="Measurement prior",
+            construct_names=("stress",),
+            variable_names=("pss_score", "worry_score"),
+            parameter_names=("lambda_worry_score_stress",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[
+                {
+                    "construct": "stress",
+                    "description": "Perceived stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": False,
+                    "reference_indicator": "pss_score",
+                    "indicators": [
+                        {
+                            "indicator": "pss_score",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "effective_window": "1d",
+                            "is_reference": True,
+                            "has_distribution_decision_card": False,
+                            "profile": {"n_obs": 40},
+                            "how_to_measure": "Daily PSS score",
+                        },
+                        {
+                            "indicator": "worry_score",
+                            "measurement_dtype": "binary",
+                            "aggregation": "mean",
+                            "effective_window": "1d",
+                            "is_reference": False,
+                            "has_distribution_decision_card": True,
+                            "profile": {"n_obs": 40},
+                            "how_to_measure": "Daily worry indicator",
+                        },
+                    ],
+                }
+            ],
+            prior_cards=[
+                {
+                    "parameter": "lambda_worry_score_stress",
+                    "role": "loading",
+                    "constraint": "positive",
+                    "structural_context": {
+                        "construct": "stress",
+                        "indicator": "worry_score",
+                        "reference_indicator": "pss_score",
+                    },
+                }
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={
+                    "likelihoods": [
+                        {
+                            "variable": "pss_score",
+                            "distribution": "gaussian",
+                            "link": "identity",
+                        },
+                        {
+                            "variable": "worry_score",
+                            "distribution": "bernoulli",
+                            "link": "probit",
+                        },
+                    ],
+                    "parameters": [
+                        {
+                            "name": "lambda_worry_score_stress",
+                            "role": "loading",
+                            "constraint": "none",
+                        }
+                    ],
+                }
+            ),
+        )
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "`bernoulli` / `probit`" in user_content
+        assert (
+            "| lambda_worry_score_stress | stress | worry_score | pss_score | none |"
+            in user_content
+        )
+
+    def test_stage4_tool_rewriter_hides_prior_tools_for_model_decision_scope(self):
+        model_block = Stage4FrontierBlock(
+            id="indicator:steps",
+            kind="indicator_decision",
+            label="Indicator decision",
+            variable_names=("steps",),
+        )
+        prior_block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            parameter_names=("beta_activity_sleep",),
+        )
+        plan = _make_plan(model_blocks=(model_block,), prior_blocks=(prior_block,))
+        runtime = _make_runtime(plan)
+        session = _make_stage4_session(
+            question="Does activity improve sleep?",
+            plan=plan,
+            runtime=runtime,
+            skeleton=SimpleNamespace(),
+            causal_spec={},
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail("grounding should not run"),
+            enable_literature=True,
+            enable_paraphrasing=True,
+        )
+        tools = [
+            SimpleNamespace(name="validate_model"),
+            SimpleNamespace(name="search_literature"),
+            SimpleNamespace(name="elicit_prior_gmm"),
+        ]
+        turn = session.current_turn()
+        assert turn is not None
+        assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
+            "validate_model"
+        ]
+
+        runtime.accepted.model_spec = {"parameters": [{"name": "beta_activity_sleep"}]}
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "effects:sleep"
+
+        turn = session.current_turn()
+        assert turn is not None
+        assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
+            "validate_model",
+            "search_literature",
+            "elicit_prior_gmm",
+        ]
+
+
+def test_stage4_generate_config_removes_stage4_caps(monkeypatch):
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage4_model.get_generate_config",
+        lambda: GenerateConfig(
+            max_tokens=65536,
+            timeout=321,
+            reasoning_effort="high",
+            max_tool_output=1234,
+        ),
+    )
+
+    config = _stage4_generate_config()
+
+    assert config.max_tokens is None
+    assert config.timeout == 321
+    assert config.reasoning_effort == "high"
+    assert config.max_tool_output is None
 
 
 # --- SSMModelBuilder Tests ---
@@ -298,6 +863,204 @@ def _make_polars_data() -> pl.DataFrame:
             "observation_window": [None] * n,
         }
     )
+
+
+def _make_stage4_mechanics_spec() -> dict:
+    """Stage 4 spec with an ambiguous indicator, loading block, and effect prior."""
+    constructs = [
+        {
+            "name": "activity",
+            "role": "exogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "sleep",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+            "is_outcome": True,
+        },
+    ]
+    edges = [{"cause": "activity", "effect": "sleep"}]
+    indicators = [
+        {
+            "name": "steps",
+            "construct_name": "activity",
+            "measurement_dtype": "count",
+            "how_to_measure": "Daily step count",
+            "aggregation": "sum",
+        },
+        {
+            "name": "activity_vas",
+            "construct_name": "activity",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Activity visual analog scale",
+            "aggregation": "mean",
+        },
+        {
+            "name": "sleep_quality",
+            "construct_name": "sleep",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Sleep quality rating",
+            "aggregation": "mean",
+        },
+    ]
+    return {
+        "latent": {"constructs": constructs, "edges": edges},
+        "measurement": {"model_clock": "1d", "indicators": indicators},
+        "estimation": {
+            "state_order": [construct["name"] for construct in constructs],
+            "edges": edges,
+            "induced_dependencies": [],
+        },
+    }
+
+
+def _make_stage4_no_model_block_spec() -> dict:
+    """Stage 4 spec whose reducer starts directly in the prior phase."""
+    constructs = [
+        {
+            "name": "sleep",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+            "is_outcome": True,
+        },
+    ]
+    indicators = [
+        {
+            "name": "sleep_quality",
+            "construct_name": "sleep",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Sleep quality rating",
+            "aggregation": "mean",
+        },
+    ]
+    return {
+        "latent": {"constructs": constructs, "edges": []},
+        "measurement": {"model_clock": "1d", "indicators": indicators},
+        "estimation": {
+            "state_order": ["sleep"],
+            "edges": [],
+            "induced_dependencies": [],
+        },
+    }
+
+
+def _make_stage4_mechanics_context() -> tuple[
+    dict, object, Stage4Plan, Stage4Runtime, pl.DataFrame
+]:
+    """Build the standard deterministic Stage 4 mechanics fixture."""
+    causal_spec = _make_stage4_mechanics_spec()
+    skeleton = derive_deterministic_spec(causal_spec)
+    plan = build_stage4_plan(causal_spec, skeleton)
+    runtime = make_stage4_runtime(plan)
+    return causal_spec, skeleton, plan, runtime, pl.DataFrame()
+
+
+def _make_stage4_deps(
+    *,
+    causal_spec: dict,
+    skeleton: object,
+    data_for_model: pl.DataFrame,
+    indicator_audits: dict[str, dict],
+    stage4_grounding_fn,
+) -> Stage4Deps:
+    """Build a Stage 4 reducer environment for tests."""
+    return Stage4Deps(
+        skeleton=skeleton,
+        causal_spec=causal_spec,
+        data_for_model=data_for_model,
+        indicator_audits=indicator_audits,
+        grounding_fn=stage4_grounding_fn,
+    )
+
+
+def _make_stage4_session(
+    *,
+    question: str,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    skeleton: object,
+    causal_spec: dict,
+    data_for_model: pl.DataFrame,
+    indicator_audits: dict[str, dict],
+    stage4_grounding_fn,
+    model_topology: dict[str, Any] | None = None,
+    distribution_cards: list[dict[str, Any]] | None = None,
+    loading_params: list[dict[str, Any]] | None = None,
+    construct_scale_cards: list[dict[str, Any]] | None = None,
+    prior_cards: list[dict[str, Any]] | None = None,
+    enable_literature: bool = False,
+    enable_paraphrasing: bool = False,
+) -> Stage4Session:
+    """Build a Stage 4 session for tests."""
+    return Stage4Session(
+        plan=plan,
+        prompt_context=Stage4Messages(
+            question=question,
+            model_topology=model_topology or {},
+            distribution_cards=distribution_cards or [],
+            loading_params=loading_params or [],
+            construct_scale_cards=construct_scale_cards or [],
+            prior_cards=prior_cards or [],
+            enable_literature=enable_literature,
+            enable_paraphrasing=enable_paraphrasing,
+        ),
+        deps=_make_stage4_deps(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            data_for_model=data_for_model,
+            indicator_audits=indicator_audits,
+            stage4_grounding_fn=stage4_grounding_fn,
+        ),
+        runtime=runtime,
+    )
+
+
+def _apply_stage4_step_and_capture(
+    payload: dict,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    *,
+    skeleton: dict,
+    causal_spec: dict,
+    data_for_model: pl.DataFrame,
+    indicator_audits: dict[str, dict],
+    stage4_grounding_fn,
+) -> tuple[dict | None, str]:
+    """Run one reducer step."""
+    return compute_stage4_validate_step(
+        payload,
+        plan=plan,
+        runtime=runtime,
+        deps=_make_stage4_deps(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            data_for_model=data_for_model,
+            indicator_audits=indicator_audits,
+            stage4_grounding_fn=stage4_grounding_fn,
+        ),
+    )
+
+
+def _make_scripted_stage4_generate(
+    submissions: list[dict[str, object]],
+    *,
+    visited_blocks: list[str],
+    visible_tools: list[list[str]],
+):
+    """Drive ``run_stage4()`` with scripted ``validate_model`` submissions only."""
+
+    async def _generate(messages, tools, rewrite_messages=None, rewrite_tools=None, label=None):
+        del messages, rewrite_messages, rewrite_tools, label
+        submission = submissions[len(visited_blocks)]
+        visited_blocks.append(submission["block_id"])
+        visible_tools.append([tool.name for tool in tools])
+        validate_tool = next(tool for tool in tools if tool.name == "validate_model")
+        feedback = await validate_tool(model_json=json.dumps(submission))
+        assert isinstance(feedback, str)
+        return ""
+
+    return _generate
 
 
 class TestPriorPredictiveValidation:
@@ -1193,8 +1956,18 @@ class TestSSMPriorConversion:
 
         model_spec = {
             "likelihoods": [
-                {"variable": "sleep", "distribution": "gaussian", "link": "identity", "reasoning": ""},
-                {"variable": "stress", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+                {
+                    "variable": "sleep",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
             ],
             "parameters": [
                 {
@@ -1237,8 +2010,18 @@ class TestSSMPriorConversion:
 
         model_spec = {
             "likelihoods": [
-                {"variable": "sleep", "distribution": "gaussian", "link": "identity", "reasoning": ""},
-                {"variable": "stress", "distribution": "gaussian", "link": "identity", "reasoning": ""},
+                {
+                    "variable": "sleep",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
             ],
             "parameters": [
                 {
@@ -1673,18 +2456,23 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         stub_build_construct_scale_cards,
     )
     monkeypatch.setattr(stage4_module, "build_prior_cards", stub_build_prior_cards)
-
-    def fake_make_stage_tool(**kwargs):
-        return object(), capture
-
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage_tools.make_stage_tool",
-        fake_make_stage_tool,
+        stage4_module,
+        "build_stage4_plan",
+        lambda _causal_spec, _skeleton: _make_plan(),
     )
 
-    async def fake_generate(messages, tools):
-        assert len(messages) == 2
-        assert len(tools) == 1
+    def stub_stage4_grounding(*_args, **_kwargs):
+        return capture, "VALID"
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+        stub_stage4_grounding,
+    )
+
+    async def fake_generate(messages, tools, label=None):
+        del messages, tools, label
+        pytest.fail("generate should not run when Stage 4 auto-completes before prompting")
 
     result = asyncio.run(
         run_stage4(
@@ -1707,3 +2495,1236 @@ def test_finalize_stage4_marks_missing_compiled_ssm_as_failure():
         "outcome": "fail",
         "fail_reason": "model_compile_failed",
     }
+
+
+class TestStage4Mechanics:
+    @pytest.mark.parametrize(
+        ("payload", "expected_feedback"),
+        [
+            (
+                {
+                    "block_id": "loading:activity",
+                    "block_kind": "indicator_decision",
+                    "proposal": {
+                        "variable": "steps",
+                        "distribution": "poisson",
+                        "link": "log",
+                        "reasoning": "wrong block id",
+                    },
+                },
+                "WRONG BLOCK",
+            ),
+            (
+                {
+                    "block_id": "indicator:steps",
+                    "block_kind": "loading_decision",
+                    "proposal": {
+                        "loading_constraints": [
+                            {
+                                "parameter": "lambda_activity_vas_activity",
+                                "constraint": "positive",
+                                "reasoning": "wrong block kind",
+                            }
+                        ]
+                    },
+                },
+                "WRONG BLOCK KIND",
+            ),
+        ],
+    )
+    def test_compute_stage4_validate_step_rejects_wrong_block_payloads(
+        self,
+        payload,
+        expected_feedback,
+    ):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+
+        stage_output, feedback = compute_stage4_validate_step(
+            payload,
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=data_for_model,
+                indicator_audits={},
+                stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                    "grounding should not run for invalid submissions"
+                ),
+            ),
+        )
+
+        assert stage_output is None
+        assert expected_feedback in feedback
+        assert runtime.last_feedback == feedback
+        assert runtime.decisions.distribution_choices == {}
+        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+
+    def test_compute_stage4_validate_step_reopens_model_block_when_model_lock_fails(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+
+        indicator_payload = {
+            "block_id": "indicator:steps",
+            "block_kind": "indicator_decision",
+            "proposal": {
+                "variable": "steps",
+                "distribution": "poisson",
+                "link": "log",
+                "reasoning": "Step counts are nonnegative integers.",
+            },
+        }
+        loading_payload = {
+            "block_id": "loading:activity",
+            "block_kind": "loading_decision",
+            "proposal": {
+                "loading_constraints": [
+                    {
+                        "parameter": "lambda_activity_vas_activity",
+                        "constraint": "positive",
+                        "reasoning": "Higher self-rated activity should reflect more activity.",
+                    }
+                ]
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            assert current == {}
+            assert "model_spec" in data
+            model_spec = data["model_spec"]
+            return {
+                "validation": AssemblyValidation(
+                    normalized_model_spec=model_spec,
+                    compile_ok=False,
+                    compile_error="steps support mismatch",
+                )
+            }, "COMPILE ERROR:\nsteps support mismatch"
+
+        _apply_stage4_step_and_capture(
+            indicator_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=data_for_model,
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            loading_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=data_for_model,
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "COMPILE ERROR:\nsteps support mismatch"
+        assert runtime.active_block_id == "indicator:steps"
+        assert runtime.block_status["indicator:steps"] == "reopened"
+        assert runtime.last_feedback == feedback
+        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert runtime.accepted.as_current() == {}
+
+    def test_global_review_can_reopen_small_coupled_model_block_set(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        runtime.phase = "global_review"
+        runtime.active_block_id = "review:model_spec"
+        runtime.accepted = Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]})
+        runtime.block_status["indicator:steps"] = "accepted"
+        runtime.block_status["loading:activity"] = "accepted"
+        runtime.block_status["review:model_spec"] = "pending"
+
+        stage_output, feedback = compute_stage4_validate_step(
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "reopen",
+                    "reopen_block_ids": ["loading:activity", "indicator:steps"],
+                    "reasoning": "The sign convention and count likelihood should be reconsidered together.",
+                },
+            },
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=data_for_model,
+                indicator_audits={},
+                stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                    "grounding should not run for review-only reopen decisions"
+                ),
+            ),
+        )
+
+        assert stage_output is None
+        assert "MODEL REVIEW REOPENED" in feedback
+        assert "`indicator:steps`, `loading:activity`" in feedback
+        assert runtime.active_block_id == "indicator:steps"
+        assert runtime.phase == "model_decisions"
+        assert runtime.block_status["indicator:steps"] == "reopened"
+        assert runtime.block_status["loading:activity"] == "reopened"
+
+    def test_compute_stage4_validate_step_reopens_indicator_on_support_mismatch(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {"variable": "steps", "distribution": "poisson", "link": "log"},
+                ],
+                "parameters": [
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "lambda_activity_vas_activity"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+            },
+        )
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "effects:sleep"
+        effect_payload = {
+            "block_id": "effects:sleep",
+            "block_kind": "effect_prior",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "effect prior with support issue",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    pp_results=[
+                        PriorValidationResult(
+                            parameter="model_build",
+                            is_valid=False,
+                            issue=(
+                                "Observation support check failed:\n"
+                                "- 'steps' uses gamma emission but observations are outside support"
+                            ),
+                            suggested_adjustment="Fix the emission support",
+                        )
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE CHECKS FAILED"
+
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            effect_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=data_for_model,
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE CHECKS FAILED"
+        assert runtime.active_block_id == "indicator:steps"
+        assert runtime.block_status["indicator:steps"] == "reopened"
+        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+
+    def test_compute_stage4_validate_step_rejects_calls_after_completion(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={"parameters": [{"name": "done"}]},
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        runtime.phase = "done"
+        runtime.active_block_id = None
+
+        stage_output, feedback = compute_stage4_validate_step(
+            {
+                "block_id": "effects:sleep",
+                "block_kind": "effect_prior",
+                "proposal": {},
+            },
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=data_for_model,
+                indicator_audits={},
+                stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                    "grounding should not run after completion"
+                ),
+            ),
+        )
+
+        assert stage_output is None
+        assert feedback == "VALIDATION ERRORS:\n- no active Stage 4 frontier block remains"
+        assert runtime.last_feedback is None
+
+    def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+
+        submissions = [
+            {
+                "block_id": "indicator:steps",
+                "block_kind": "indicator_decision",
+                "proposal": {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "Step counts are nonnegative integers.",
+                },
+            },
+            {
+                "block_id": "loading:activity",
+                "block_kind": "loading_decision",
+                "proposal": {
+                    "loading_constraints": [
+                        {
+                            "parameter": "lambda_activity_vas_activity",
+                            "constraint": "positive",
+                            "reasoning": "Higher self-rated activity should reflect more activity.",
+                        }
+                    ]
+                },
+            },
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The locked likelihoods and loading choices are coherent.",
+                },
+            },
+            {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.4},
+                            "sources": [],
+                            "reasoning": "initial measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                            "sources": [],
+                            "reasoning": "stable activity residual scale",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 2.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "bad sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                            "sources": [],
+                            "reasoning": "paired with bad dynamics prior",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "corrected sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "corrected sleep residual scale",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "effects:sleep",
+                "block_kind": "effect_prior",
+                "proposal": {
+                    "priors": {
+                        "beta_activity_sleep": {
+                            "parameter": "beta_activity_sleep",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.2},
+                            "sources": [],
+                            "reasoning": "effect prior that exposes measurement mismatch",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.25},
+                            "sources": [],
+                            "reasoning": "corrected measurement prior",
+                        }
+                    }
+                },
+            },
+        ]
+
+        expected_blocks = [
+            "indicator:steps",
+            "loading:activity",
+            "review:model_spec",
+            "measurement:activity",
+            "dynamics:activity",
+            "dynamics:sleep",
+            "dynamics:sleep",
+            "effects:sleep",
+            "measurement:activity",
+        ]
+        expected_reopen_ids = [
+            None,
+            None,
+            None,
+            None,
+            None,
+            "dynamics:sleep",
+            None,
+            "measurement:activity",
+            None,
+        ]
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = current or {}
+            if "model_spec" in data:
+                model_spec = data["model_spec"]
+                return {
+                    "model_spec": model_spec,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            priors = data["priors"]
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(priors)
+            model_spec = current.get("model_spec")
+
+            if (
+                priors.get("lambda_activity_vas_activity", {}).get("reasoning")
+                == "initial measurement prior"
+            ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "sigma_activity" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if priors.get("rho_sleep", {}).get("reasoning") == "bad sleep dynamics prior":
+                return {
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=False,
+                        compile_error="rho_sleep interval instability",
+                    ),
+                }, "COMPILE ERROR:\nrho_sleep interval instability"
+
+            if "rho_sleep" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "beta_activity_sleep" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=False,
+                        pp_results=[
+                            PriorValidationResult(
+                                parameter="scale_activity_vas",
+                                is_valid=False,
+                                issue="Scale mismatch for activity_vas",
+                                suggested_adjustment="Tighten the measurement prior",
+                            )
+                        ],
+                    ),
+                }, "PRIOR PREDICTIVE CHECKS FAILED"
+
+            if (
+                priors.get("lambda_activity_vas_activity", {}).get("reasoning")
+                == "corrected measurement prior"
+            ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=True,
+                    ),
+                }, "VALID"
+
+            raise AssertionError(f"Unexpected Stage 4 grounding payload: {data}")
+
+        visited_blocks: list[str] = []
+        reopen_ids: list[str | None] = []
+        for expected_block, _expected_reopen_id, payload in zip(
+            expected_blocks, expected_reopen_ids, submissions, strict=True
+        ):
+            active_block = get_active_plan_block(plan, runtime)
+            assert active_block is not None
+            visited_blocks.append(active_block.id)
+            assert active_block.id == expected_block
+
+            _apply_stage4_step_and_capture(
+                payload,
+                plan,
+                runtime,
+                skeleton=skeleton,
+                causal_spec=causal_spec,
+                data_for_model=data_for_model,
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            )
+            reopen_ids.append(
+                runtime.active_block_id
+                if runtime.active_block_id is not None
+                and runtime.block_status.get(runtime.active_block_id) == "reopened"
+                else None
+            )
+
+        assert visited_blocks == expected_blocks
+        assert reopen_ids == expected_reopen_ids
+        assert get_active_plan_block(plan, runtime) is None
+        assert get_stage4_phase(runtime) == "done"
+        assert sorted(runtime.accepted.authored_priors) == [
+            "beta_activity_sleep",
+            "lambda_activity_vas_activity",
+            "rho_sleep",
+            "sigma_activity",
+            "sigma_sleep",
+        ]
+
+    def test_run_stage4_can_follow_scripted_validate_model_path(self, monkeypatch):
+        causal_spec = _make_stage4_mechanics_spec()
+
+        submissions = [
+            {
+                "block_id": "indicator:steps",
+                "block_kind": "indicator_decision",
+                "proposal": {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "Step counts are nonnegative integers.",
+                },
+            },
+            {
+                "block_id": "loading:activity",
+                "block_kind": "loading_decision",
+                "proposal": {
+                    "loading_constraints": [
+                        {
+                            "parameter": "lambda_activity_vas_activity",
+                            "constraint": "positive",
+                            "reasoning": "Higher self-rated activity should reflect more activity.",
+                        }
+                    ]
+                },
+            },
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The locked likelihoods and loading choices are coherent.",
+                },
+            },
+            {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.25},
+                            "sources": [],
+                            "reasoning": "measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                            "sources": [],
+                            "reasoning": "activity residual scale",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "effects:sleep",
+                "block_kind": "effect_prior",
+                "proposal": {
+                    "priors": {
+                        "beta_activity_sleep": {
+                            "parameter": "beta_activity_sleep",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.2},
+                            "sources": [],
+                            "reasoning": "effect prior",
+                        }
+                    }
+                },
+            },
+        ]
+        visited_blocks: list[str] = []
+        visible_tools: list[list[str]] = []
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = current or {}
+            if "model_spec" in data:
+                model_spec = data["model_spec"]
+                return {
+                    "model_spec": model_spec,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=len(authored_priors) == 5,
+                    pp_valid=True,
+                ),
+            }, "VALID"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            stub_stage4_grounding,
+        )
+
+        result = asyncio.run(
+            run_stage4(
+                causal_spec=causal_spec,
+                question="Does activity improve sleep?",
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                generate=_make_scripted_stage4_generate(
+                    submissions,
+                    visited_blocks=visited_blocks,
+                    visible_tools=visible_tools,
+                ),
+                enable_literature=False,
+                enable_paraphrasing=False,
+            )
+        )
+
+        assert visited_blocks == [
+            "indicator:steps",
+            "loading:activity",
+            "review:model_spec",
+            "measurement:activity",
+            "dynamics:activity",
+            "dynamics:sleep",
+            "effects:sleep",
+        ]
+        assert visible_tools == [["validate_model"]] * len(submissions)
+        assert any(
+            likelihood["variable"] == "steps" and likelihood["distribution"] == "poisson"
+            for likelihood in result.model_spec["likelihoods"]
+        )
+        assert sorted(result.authored_priors) == [
+            "beta_activity_sleep",
+            "lambda_activity_vas_activity",
+            "rho_sleep",
+            "sigma_activity",
+            "sigma_sleep",
+        ]
+
+    def test_run_stage4_auto_locks_initial_model_spec_when_no_model_blocks(self, monkeypatch):
+        causal_spec = _make_stage4_no_model_block_spec()
+        submissions = [
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The deterministic model form is coherent.",
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+        ]
+        visited_blocks: list[str] = []
+        visible_tools: list[list[str]] = []
+        model_spec_calls: list[dict] = []
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            if "model_spec" in data:
+                model_spec_calls.append(data["model_spec"])
+                return {
+                    "model_spec": data["model_spec"],
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=data["model_spec"],
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=True,
+                ),
+            }, "VALID"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            stub_stage4_grounding,
+        )
+
+        result = asyncio.run(
+            run_stage4(
+                causal_spec=causal_spec,
+                question="How persistent is sleep quality?",
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                generate=_make_scripted_stage4_generate(
+                    submissions,
+                    visited_blocks=visited_blocks,
+                    visible_tools=visible_tools,
+                ),
+                enable_literature=False,
+                enable_paraphrasing=False,
+            )
+        )
+
+        assert len(model_spec_calls) == 1
+        assert visited_blocks == ["review:model_spec", "dynamics:sleep"]
+        assert visible_tools == [["validate_model"], ["validate_model"]]
+        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+
+    def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
+        from causal_ssm_agent.utils.openrouter_client import Tool
+
+        causal_spec = _make_stage4_mechanics_spec()
+        submissions = [
+            {
+                "block_id": "indicator:steps",
+                "block_kind": "indicator_decision",
+                "proposal": {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "Step counts are nonnegative integers.",
+                },
+            },
+            {
+                "block_id": "loading:activity",
+                "block_kind": "loading_decision",
+                "proposal": {
+                    "loading_constraints": [
+                        {
+                            "parameter": "lambda_activity_vas_activity",
+                            "constraint": "positive",
+                            "reasoning": "Higher self-rated activity should reflect more activity.",
+                        }
+                    ]
+                },
+            },
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The locked likelihoods and loading choices are coherent.",
+                },
+            },
+            {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.4},
+                            "sources": [],
+                            "reasoning": "initial measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                            "sources": [],
+                            "reasoning": "stable activity residual scale",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 2.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "bad sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                            "sources": [],
+                            "reasoning": "paired with bad dynamics prior",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "corrected sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "corrected sleep residual scale",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "effects:sleep",
+                "block_kind": "effect_prior",
+                "proposal": {
+                    "priors": {
+                        "beta_activity_sleep": {
+                            "parameter": "beta_activity_sleep",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.2},
+                            "sources": [],
+                            "reasoning": "effect prior that exposes measurement mismatch",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.25},
+                            "sources": [],
+                            "reasoning": "corrected measurement prior",
+                        }
+                    }
+                },
+            },
+        ]
+        expected_blocks = [
+            "indicator:steps",
+            "loading:activity",
+            "review:model_spec",
+            "measurement:activity",
+            "dynamics:activity",
+            "dynamics:sleep",
+            "dynamics:sleep",
+            "effects:sleep",
+            "measurement:activity",
+        ]
+        seen_block_ids: list[str] = []
+        seen_feedbacks: list[str] = []
+        seen_message_counts: list[int] = []
+        seen_message_roles: list[list[str]] = []
+        seen_tool_names: list[list[str]] = []
+        trace_capture: dict[str, object] = {}
+        call_index = 0
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = current or {}
+            if "model_spec" in data:
+                model_spec = data["model_spec"]
+                return {
+                    "model_spec": model_spec,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            priors = data["priors"]
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(priors)
+            model_spec = current.get("model_spec")
+
+            if (
+                priors.get("lambda_activity_vas_activity", {}).get("reasoning")
+                == "initial measurement prior"
+            ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "sigma_activity" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if priors.get("rho_sleep", {}).get("reasoning") == "bad sleep dynamics prior":
+                return {
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=False,
+                        compile_error="rho_sleep interval instability",
+                    ),
+                }, "COMPILE ERROR:\nrho_sleep interval instability"
+
+            if "rho_sleep" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "beta_activity_sleep" in priors:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=False,
+                        pp_results=[
+                            PriorValidationResult(
+                                parameter="scale_activity_vas",
+                                is_valid=False,
+                                issue="Scale mismatch for activity_vas",
+                                suggested_adjustment="Tighten the measurement prior",
+                            )
+                        ],
+                    ),
+                }, "PRIOR PREDICTIVE CHECKS FAILED"
+
+            if (
+                priors.get("lambda_activity_vas_activity", {}).get("reasoning")
+                == "corrected measurement prior"
+            ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=True,
+                    ),
+                }, "VALID"
+
+            raise AssertionError(f"Unexpected Stage 4 grounding payload: {data}")
+
+        session = _make_stage4_session(
+            question="Does activity improve sleep?",
+            plan=plan,
+            runtime=runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+            model_topology={},
+            loading_params=skeleton.loading_params,
+        )
+
+        async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
+            nonlocal call_index
+            assert model_name == "test-model"
+            assert tools is not None
+            turn = session.current_turn()
+            assert turn is not None
+            seen_message_counts.append(len(messages))
+            seen_message_roles.append([message["role"] for message in messages])
+            seen_tool_names.append([tool.name for tool in tools])
+            seen_block_ids.append(turn.block.id)
+            seen_feedbacks.append(turn.latest_feedback)
+            payload = submissions[call_index]
+            call_index += 1
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{call_index}",
+                            "type": "function",
+                            "function": {
+                                "name": "validate_model",
+                                "arguments": json.dumps({"model_json": json.dumps(payload)}),
+                            },
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        async def _execute_validate(*, model_json: str) -> str:
+            data = json.loads(model_json)
+            return session.submit(data)
+
+        validate_tool = Tool(
+            name="validate_model",
+            description="Submit one active Stage 4 frontier block for validation.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "model_json": {
+                        "type": "string",
+                        "description": "JSON object with block-local Stage 4 submission payload.",
+                    }
+                },
+                "required": ["model_json"],
+                "additionalProperties": False,
+            },
+            execute=_execute_validate,
+            stop_on_success=True,
+            success_output=None,
+        )
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        generate = make_generate_fn(
+            "test-model",
+            config=GenerateConfig(),
+            trace_capture=trace_capture,
+        )
+        completion = ""
+        while not session.is_done():
+            turn = session.current_turn()
+            assert turn is not None
+            completion = asyncio.run(generate(turn.messages, [validate_tool]))
+
+        assert completion == ""
+        assert seen_block_ids == expected_blocks
+        assert call_index == len(submissions)
+        assert seen_message_counts == [2] * len(submissions)
+        assert seen_message_roles == [["system", "user"]] * len(submissions)
+        assert seen_tool_names == [["validate_model"]] * len(submissions)
+        assert seen_feedbacks == [
+            "No validator feedback yet. Submit the active block only.",
+            "BLOCK ACCEPTED:\n- saved `indicator:steps`\n- next block: `loading:activity` (loading_decision)",
+            "MODEL STATE SAVED:\n- missing priors",
+            "BLOCK ACCEPTED:\n- saved `review:model_spec`\n- next block: `measurement:activity` (measurement_prior)",
+            "MODEL STATE SAVED:\n- missing priors",
+            "MODEL STATE SAVED:\n- missing priors",
+            "COMPILE ERROR:\nrho_sleep interval instability",
+            "MODEL STATE SAVED:\n- missing priors",
+            "PRIOR PREDICTIVE CHECKS FAILED",
+        ]
+
+        trace = trace_capture["trace"]
+        assert len(trace.messages) == 4 * len(submissions)
+        assert [message.role for message in trace.messages[:2]] == ["system", "user"]
+        assert sum(message.role == "assistant" for message in trace.messages) == len(submissions)
+        assert sum(message.role == "tool" for message in trace.messages) == len(submissions)
+        assert len(trace.messages) > max(seen_message_counts)
+        assert any(
+            message.tool_result == "COMPILE ERROR:\nrho_sleep interval instability"
+            for message in trace.messages
+        )
+        assert any(
+            message.tool_result == "PRIOR PREDICTIVE CHECKS FAILED" for message in trace.messages
+        )
+        assert runtime.accepted.model_spec is not None
+        assert sorted(runtime.accepted.authored_priors) == [
+            "beta_activity_sleep",
+            "lambda_activity_vas_activity",
+            "rho_sleep",
+            "sigma_activity",
+            "sigma_sleep",
+        ]

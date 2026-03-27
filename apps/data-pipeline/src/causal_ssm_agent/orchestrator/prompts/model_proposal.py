@@ -1,7 +1,7 @@
-"""Stage 4 prompts: Model Specification & Prior Elicitation.
+"""Stage 4 prompts: frontier-reduced model specification and prior elicitation.
 
-The AGENTIC_SYSTEM / AGENTIC_USER prompts drive the single-conversation
-agentic flow (``orchestrator/stage4.py``).
+The Stage 4 prompt builders narrow the LLM context to one active decision scope
+at a time.
 
 NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
 and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py, and prior families
@@ -9,22 +9,31 @@ in causal_ssm_agent.distributions.PriorDistributionFamily
 """
 
 from causal_ssm_agent.distributions import (
-    format_prior_distribution_choice_list,
+    PRIOR_PARAMETER_GUIDANCE_ROWS,
     render_dynamic_prior_scale_guidance,
     render_lagged_beta_authored_interval_guidance,
     render_observation_distribution_guidance_bullets,
     render_observation_link_guidance_bullets,
     render_prior_distribution_guidance_bullets,
-    render_prior_parameter_guidance_markdown_table,
 )
 
 OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS = render_observation_distribution_guidance_bullets()
 OBSERVATION_LINK_GUIDANCE_BULLETS = render_observation_link_guidance_bullets()
-PRIOR_DISTRIBUTION_CHOICE_LIST = format_prior_distribution_choice_list()
 PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
-PRIOR_PARAMETER_GUIDANCE_TABLE = render_prior_parameter_guidance_markdown_table()
 DYNAMIC_PRIOR_SCALE_GUIDANCE = render_dynamic_prior_scale_guidance()
 LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE = render_lagged_beta_authored_interval_guidance()
+PRIOR_SOURCE_GUIDANCE = """If you include non-empty `sources`, each entry must be an object with this shape:
+```json
+{{
+  "title": "Source title",
+  "snippet": "Relevant excerpt supporting the prior",
+  "url": "https://example.org/paper",
+  "effect_size": "β=0.21",
+  "study_interval_days": 7.0
+}}
+```
+
+Only `title` and `snippet` are required. Do not use raw strings or ad hoc keys such as `citation`, `finding`, `study_type`, or `notes`. If you are unsure, use `"sources": []`. `study_interval_days` belongs inside each source entry; `reference_interval_days` belongs on the prior itself."""
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -39,7 +48,11 @@ def format_loading_params(loading_params: list[dict]) -> str:
         "",
     ]
     for lp in loading_params:
-        lines.append(f"- `{lp['name']}`: `{lp['indicator']}` on `{lp['construct']}`")
+        selected_constraint = lp.get("selected_constraint")
+        selected_suffix = f" (selected: `{selected_constraint}`)" if selected_constraint else ""
+        lines.append(
+            f"- `{lp['name']}`: `{lp['indicator']}` on `{lp['construct']}`{selected_suffix}"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -53,12 +66,23 @@ def _format_profile_summary(profile: dict | None) -> str:
     for key, label in (
         ("mean", "mean"),
         ("std", "std"),
+        ("q25", "q25"),
+        ("q50", "q50"),
+        ("q75", "q75"),
         ("min", "min"),
         ("max", "max"),
     ):
         value = profile.get(key)
         if value is not None:
             fields.append(f"{label}={value:.3g}")
+    if profile.get("time_coverage_ratio") is not None:
+        fields.append(f"coverage={profile['time_coverage_ratio']:.0%}")
+    if profile.get("max_gap_ratio") is not None:
+        fields.append(f"max_gap={profile['max_gap_ratio']:.3g}x")
+    if profile.get("duplicate_pct") is not None:
+        fields.append(f"dups={profile['duplicate_pct']:.1%}")
+    if profile.get("n_unparseable_timestamps") is not None:
+        fields.append(f"bad_ts={int(profile['n_unparseable_timestamps'])}")
     if profile.get("zero_fraction") is not None:
         fields.append(f"zero_frac={profile['zero_fraction']:.2%}")
     if profile.get("variance_to_mean_ratio") is not None:
@@ -74,6 +98,22 @@ def _format_profile_summary(profile: dict | None) -> str:
     if support_flags:
         fields.append("support=" + ",".join(support_flags))
     return "; ".join(fields)
+
+
+def _format_window_summary(window: str | None) -> str:
+    """Render the effective support window for prompt tables."""
+    return window or "-"
+
+
+def _format_selected_likelihood(item: dict | None) -> str:
+    """Render the currently selected likelihood when available."""
+    if not item:
+        return "-"
+    distribution = item.get("selected_distribution")
+    link = item.get("selected_link")
+    if distribution and link:
+        return f"`{distribution}` / `{link}`"
+    return "-"
 
 
 def format_model_topology(model_topology: dict) -> str:
@@ -118,8 +158,8 @@ def format_distribution_cards(distribution_cards: list[dict]) -> str:
         return "(none — all indicator likelihoods were deterministic)"
 
     lines: list[str] = [
-        "| Variable | Construct | Dtype | Aggregation | Options | Empirical Profile | Issues | How to Measure |",
-        "|----------|-----------|-------|-------------|---------|-------------------|--------|----------------|",
+        "| Variable | Construct | Dtype | Aggregation | Window | Current Choice | Options | Empirical Profile | Issues | How to Measure |",
+        "|----------|-----------|-------|-------------|--------|----------------|---------|-------------------|--------|----------------|",
     ]
     for card in distribution_cards:
         option_parts = []
@@ -137,11 +177,13 @@ def format_distribution_cards(distribution_cards: list[dict]) -> str:
         issues_str = "; ".join(issues) if issues else "none"
 
         lines.append(
-            "| {variable} | {construct} | {dtype} | {aggregation} | {options} | {profile} | {issues} | {how} |".format(
+            "| {variable} | {construct} | {dtype} | {aggregation} | {window} | {current_choice} | {options} | {profile} | {issues} | {how} |".format(
                 variable=card["variable"],
                 construct=card.get("construct") or "unknown",
                 dtype=card.get("measurement_dtype") or "unknown",
                 aggregation=card.get("aggregation") or "unknown",
+                window=_format_window_summary(card.get("effective_window")).replace("|", "/"),
+                current_choice=_format_selected_likelihood(card).replace("|", "/"),
                 options=options_str.replace("|", "/"),
                 profile=_format_profile_summary(card.get("profile")).replace("|", "/"),
                 issues=issues_str.replace("|", "/"),
@@ -182,15 +224,31 @@ def format_construct_scale_cards(construct_scale_cards: list[dict]) -> str:
         if len(indicators) == 1:
             indicator = indicators[0]
             if indicator.get("has_distribution_decision_card"):
+                selected_likelihood = _format_selected_likelihood(indicator)
+                details = (
+                    "see distribution decision card"
+                    if selected_likelihood == "-"
+                    else (
+                        f"likelihood={selected_likelihood}; "
+                        f"{_format_profile_summary(indicator.get('profile'))}; "
+                        f"how={indicator.get('how_to_measure') or '-'}"
+                    )
+                )
                 lines.append(
-                    "- indicator: `{indicator}`; reference: `{reference}`; details: "
-                    "see distribution decision card".format(
+                    "- indicator: `{indicator}`; dtype: `{dtype}`; aggregation: "
+                    "`{aggregation}`; window: `{window}`; reference: `{reference}`; details: {details}".format(
                         indicator=indicator["indicator"],
+                        dtype=indicator.get("measurement_dtype") or "unknown",
+                        aggregation=indicator.get("aggregation") or "unknown",
+                        window=_format_window_summary(indicator.get("effective_window")),
                         reference="yes" if indicator.get("is_reference") else "no",
+                        details=details,
                     )
                 )
             else:
                 details = (
+                    f"window={_format_window_summary(indicator.get('effective_window'))}; "
+                    f"likelihood={_format_selected_likelihood(indicator)}; "
                     f"{_format_profile_summary(indicator.get('profile'))}; "
                     f"how={indicator.get('how_to_measure') or '-'}"
                 )
@@ -209,23 +267,31 @@ def format_construct_scale_cards(construct_scale_cards: list[dict]) -> str:
 
         lines.extend(
             [
-                "| Indicator | Dtype | Aggregation | Reference | Details |",
-                "|-----------|-------|-------------|-----------|---------|",
+                "| Indicator | Dtype | Aggregation | Window | Likelihood | Reference | Details |",
+                "|-----------|-------|-------------|--------|------------|-----------|---------|",
             ]
         )
         for indicator in indicators:
             if indicator.get("has_distribution_decision_card"):
-                details = "see distribution decision card"
+                details = (
+                    "see distribution decision card"
+                    if not indicator.get("selected_distribution")
+                    else _format_profile_summary(indicator.get("profile"))
+                )
             else:
                 details = (
                     f"{_format_profile_summary(indicator.get('profile'))}; "
                     f"how={indicator.get('how_to_measure') or '-'}"
                 )
             lines.append(
-                "| {indicator} | {dtype} | {aggregation} | {reference} | {details} |".format(
+                "| {indicator} | {dtype} | {aggregation} | {window} | {likelihood} | {reference} | {details} |".format(
                     indicator=indicator["indicator"],
                     dtype=indicator.get("measurement_dtype") or "unknown",
                     aggregation=indicator.get("aggregation") or "unknown",
+                    window=_format_window_summary(indicator.get("effective_window")).replace(
+                        "|", "/"
+                    ),
+                    likelihood=_format_selected_likelihood(indicator).replace("|", "/"),
                     reference="yes" if indicator.get("is_reference") else "no",
                     details=details.replace("|", "/"),
                 )
@@ -454,215 +520,210 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Agentic prompts (single-conversation flow)
+# Frontier-reduced prompts
 # ---------------------------------------------------------------------------
 
-AGENTIC_SYSTEM = """\
-You are a Bayesian statistician completing a model specification and eliciting \
-priors for causal inference via a continuous-time state-space model (CT-SSM).
 
-Most of the specification has already been determined from the causal structure. \
-Your job is to provide the decisions that require statistical judgment, and to \
-propose priors for every parameter.
+def _join_sections(sections: list[str]) -> str:
+    """Join prompt sections while dropping empty content."""
+    return "\n\n".join(section.strip() for section in sections if section and section.strip())
 
-Use the fixed model context in the user message for reasoning, but do not \
-rewrite it as if it were undecided. Do not add or remove constructs, edges, \
-indicators, or parameters.
 
-## Part 1 — Model Specification Decisions
+def _format_markdown_section(title: str, body: str) -> str:
+    """Render a markdown section only when the body is non-empty."""
+    content = body.strip()
+    if not content:
+        return ""
+    return f"### {title}\n\n{content}"
 
-### What Has Been Pre-Computed
 
-The following are already determined and shown in the user message:
-- **Final parameter inventory**, enumerated once in the parameter prior cards
-- **Deterministic likelihoods** are omitted from the decision cards because they \
-require no judgment
-- **Construct scale cards** summarize indicator semantics and data scale once per construct
-- **Parameter constraints** based on role (ar → unit_interval, fixed_effect → none, \
-residual_sd → positive)
+def _render_scope_parameter_guidance(parameter_guidance_prefixes: tuple[str, ...]) -> str:
+    """Render only the prior-parameter guidance rows relevant to the active scope."""
+    if not parameter_guidance_prefixes:
+        return ""
 
-### What You Decide
+    lines = [
+        "| Type | Typical Distribution | Typical Range | Scale |",
+        "|---|---|---|---|",
+    ]
+    for row in PRIOR_PARAMETER_GUIDANCE_ROWS:
+        if not row.parameter_type.startswith(parameter_guidance_prefixes):
+            continue
+        lines.append(
+            f"| {row.parameter_type} | {row.typical_distribution} | {row.typical_range} | {row.scale} |"
+        )
+    return "\n".join(lines) if len(lines) > 2 else ""
 
-1. **Distribution + link** for indicators with ambiguous dtypes (continuous, count, \
-categorical). Choose based on the distribution decision cards and domain knowledge.
 
-2. **Loading constraints**: For each loading parameter, decide `positive` (sign \
-identification) or `none` (if negative loadings are theoretically plausible).
+def _render_stage4_guidance_section(
+    section_key: str,
+    *,
+    parameter_guidance_prefixes: tuple[str, ...] = (),
+) -> str:
+    """Render one named system-prompt guidance section."""
+    if section_key == "observation_distribution_guidance":
+        return (
+            "## Observation Distribution Guidance\n\n" + OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS
+        )
+    if section_key == "link_function_rules":
+        return (
+            "## Link Function Rules\n\n"
+            "Most distributions have exactly one valid link (auto-determined). "
+            "You only choose when multiple are valid:\n" + OBSERVATION_LINK_GUIDANCE_BULLETS
+        )
+    if section_key == "prior_distribution_types":
+        return "## Prior Distribution Types\n\n" + PRIOR_DISTRIBUTION_GUIDANCE_BULLETS
+    if section_key == "parameter_guidance":
+        parameter_guidance = _render_scope_parameter_guidance(parameter_guidance_prefixes)
+        return (
+            "## Parameter Guidance for This Scope\n\n" + parameter_guidance
+            if parameter_guidance
+            else ""
+        )
+    if section_key == "measurement_prior_guidance":
+        return (
+            "## Measurement Prior Guidance\n\n"
+            "- Use the construct scale card to anchor plausible indicator-to-construct magnitude.\n"
+            "- Respect the accepted loading/sign decision already locked for this block."
+        )
+    if section_key == "continuous_time_dynamics":
+        return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
+    if section_key == "lagged_effect_interval_guidance":
+        return "## Lagged Effect Interval Guidance\n\n" + LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE
+    raise ValueError(f"Unknown Stage 4 guidance section {section_key!r}")
 
-### Distribution Guidelines
 
-__OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS__
+def build_stage4_system_prompt(
+    *,
+    system_task: str,
+    guidance_section_keys: tuple[str, ...],
+    parameter_guidance_prefixes: tuple[str, ...] = (),
+    enabled_tool_names: tuple[str, ...] = ("validate_model",),
+) -> str:
+    """Build the scope-local Stage 4 system prompt for the active frontier."""
+    sections = [
+        (
+            "You are a Bayesian statistician completing one active Stage 4 prompt scope for "
+            "causal inference via a continuous-time state-space model (CT-SSM).\n\n"
+            "Most of the specification has already been determined from the causal structure. "
+            "Work only on the active scope shown in the user message. Do not add or remove "
+            "constructs, edges, indicators, or parameters."
+        ),
+        (
+            "## What Is Already Fixed\n\n"
+            "- deterministic likelihoods where dtype leaves no ambiguity\n"
+            "- final parameter inventory implied by the causal structure\n"
+            "- construct scale cards and empirical profiles prepared by the pipeline\n"
+            "- accepted upstream decisions preserved server-side unless the validator reopens them"
+        ),
+        "## Active Task\n\n" + system_task,
+    ]
 
-### Link Function Rules
+    sections.extend(
+        _render_stage4_guidance_section(
+            section_key,
+            parameter_guidance_prefixes=parameter_guidance_prefixes,
+        )
+        for section_key in guidance_section_keys
+    )
+    if "search_literature" in enabled_tool_names:
+        sections.append(
+            "## Literature Evidence\n\n"
+            "- Use `search_literature` selectively when empirical effect-size evidence matters.\n"
+            "- Always pass an active-scope `parameter_name` when calling the tool.\n"
+            "- Anchor priors on larger longitudinal evidence when available.\n"
+            "- If evidence is heterogeneous or indirect, widen the prior."
+        )
+    if "elicit_prior_gmm" in enabled_tool_names:
+        sections.append(
+            "## Robust Prior Elicitation\n\n"
+            "- If `elicit_prior_gmm` is available, use it only for an active-scope parameter.\n"
+            "- Treat it as optional support for difficult prior judgments, not a substitute for reasoning."
+        )
 
-Most distributions have exactly one valid link (auto-determined). You only choose \
-when multiple are valid:
-__OBSERVATION_LINK_GUIDANCE_BULLETS__
+    available_tools = [
+        "- `validate_model`: submit only the active scope using the block-local contract.",
+    ]
+    if "search_literature" in enabled_tool_names:
+        available_tools.append(
+            "- `search_literature`: fetch empirical effect-size evidence for an active-scope parameter."
+        )
+    if "elicit_prior_gmm" in enabled_tool_names:
+        available_tools.append(
+            "- `elicit_prior_gmm`: run robust paraphrased elicitation for one active-scope parameter."
+        )
+    sections.append(
+        "## Tool Contract\n\n"
+        "Use `validate_model` with exactly this outer shape:\n"
+        "```json\n"
+        '{\n  "block_id": "...",\n  "block_kind": "...",\n  "proposal": { ... }\n}\n'
+        "```\n\n"
+        "Available tools on this scope:\n"
+        + "\n".join(available_tools)
+        + "\n\nDo not submit decisions or priors for any other block. "
+        "After a rejection, read the validator feedback and resubmit only the active block.\n\n"
+        'Once you get "VALID", STOP immediately and output nothing else.'
+    )
+    return _join_sections(sections)
 
-## Part 2 — Prior Elicitation
 
-For EVERY parameter, propose a prior distribution.
+def build_stage4_user_prompt(
+    *,
+    question: str,
+    model_topology: dict,
+    frontier_status: str,
+    block_id: str,
+    block_kind: str,
+    block_label: str,
+    block_instructions: str,
+    distribution_cards: list[dict],
+    loading_params: list[dict],
+    construct_scale_cards: list[dict],
+    prior_cards: list[dict],
+    submission_example: str,
+    latest_feedback: str,
+    include_prior_source_guidance: bool,
+) -> str:
+    """Build the scope-local Stage 4 user prompt for the active frontier."""
+    sections = [
+        "## Research Question\n\n" + question,
+        "## Fixed Model Context\n\n## Model Topology\n\n" + format_model_topology(model_topology),
+        "## Frontier Status\n\n" + frontier_status,
+        (
+            "## Active Block\n\n"
+            f"- `id`: `{block_id}`\n"
+            f"- `kind`: `{block_kind}`\n"
+            f"- `label`: {block_label}\n\n"
+            f"{block_instructions}"
+        ),
+    ]
 
-### Prior Distribution Types
-__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
+    if distribution_cards:
+        sections.append(
+            _format_markdown_section(
+                "Distribution Decision Cards",
+                format_distribution_cards(distribution_cards),
+            )
+        )
+    if loading_params:
+        sections.append(
+            _format_markdown_section("Loading Constraints", format_loading_params(loading_params))
+        )
+    if construct_scale_cards:
+        sections.append(
+            _format_markdown_section(
+                "Construct Scale Cards",
+                format_construct_scale_cards(construct_scale_cards),
+            )
+        )
+    if prior_cards:
+        sections.append(
+            _format_markdown_section("Parameter Prior Cards", format_prior_cards(prior_cards))
+        )
 
-### Parameter Guidelines by Type
-__PRIOR_PARAMETER_GUIDANCE_TABLE__
-
-__DYNAMIC_PRIOR_SCALE_GUIDANCE__
-
-### Literature Evidence
-- If you have access to the `search_literature` tool, use it for key causal \
-effects where empirical evidence matters. Not every parameter needs a search — \
-AR coefficients, residual SDs, and loadings typically use standard defaults.
-- When calling `search_literature`, always pass the `parameter_name` of the \
-parameter you are searching for.
-- Anchor priors on meta-analyses or large longitudinal studies when available.
-- If evidence is heterogeneous, use wider priors.
-
-### Continuous-Time Dynamics
-
-Time is measured in fractional days. AR coefficients represent discrete-time \
-persistence per observation interval, in (0, 1). The model interval is shown in \
-the fixed model context. The system handles CT conversion.
-
-For lagged `beta_*` priors:
-__LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE__
-
-## Tools
-
-- `validate_model`: Stateful validator. It retains accepted model decisions and \
-valid priors across retries. It rejects mixed decision+prior submissions and \
-fully unchanged resubmissions. If you accidentally resend an already accepted \
-field alongside real changes, the unchanged field is ignored. Start by validating the model spec, \
-then add priors. After any failure, resubmit only the fields you changed.
-- `search_literature` (if available): Search for empirical effect sizes. Use \
-selectively for parameters where domain knowledge is uncertain.
-- `elicit_prior_gmm` (if available): Run robust paraphrased elicitation for a \
-single parameter. Returns an aggregated prior estimate.
-
-## Workflow
-
-1. Review the model topology, distribution decision cards, construct scale cards, and parameter prior cards
-2. Optionally search literature for key causal effect parameters
-3. Submit the full `distribution_choices` and `loading_constraints` first to lock the model spec
-4. Do not include priors in that same `validate_model` call
-5. Add priors via `validate_model` after the model spec is locked. One call or several focused updates are both acceptable.
-6. If validation fails, read the feedback, fix the issues, and resubmit only the changed fields
-7. Once you get "VALID", STOP immediately — do not output anything else
-"""
-
-AGENTIC_USER = """\
-## Research Question
-
-{question}
-
-## Fixed Model Context
-
-## Model Topology
-
-{model_topology}
-
-## Your Decisions
-
-### 1. Distribution Decision Cards
-
-Only indicators shown below need a distribution/link choice. Indicators not shown \
-already have deterministic likelihoods.
-
-{distribution_cards}
-
-### 2. Loading Constraints
-{loading_params}
-
-### 3. Construct Scale Cards
-
-Use these cards for construct semantics and data-scale anchoring. Single-indicator \
-constructs are summarized inline. If a construct references a `distribution \
-decision card`, the detailed measurement text and empirical profile are already \
-shown in Section 1.
-
-{construct_scale_cards}
-
-### 4. Parameter Prior Cards
-
-Provide exactly one prior for EVERY parameter below. The inventory is grouped by \
-role to avoid repetition.
-
-{prior_cards}
-
----
-
-`validate_model` is stateful. You do not need to resend unchanged fields after a rejection.
-It rejects mixed decision+prior updates and fully unchanged accepted resubmissions.
-If one accepted field is accidentally included alongside real changes, that unchanged field is ignored.
-
-Typical sequence:
-
-1. First validate the model spec only:
-```json
-{{
-  "distribution_choices": [
-    {{"variable": "...", "distribution": "...", "link": "...", "reasoning": "..."}}
-  ],
-  "loading_constraints": [
-    {{"parameter": "...", "constraint": "positive|none", "reasoning": "..."}}
-  ]
-}}
-```
-
-2. Then add priors. Priors must be sent without model decisions, and you may send them in one call or across focused updates:
-```json
-{{
-  "priors": {{
-    "parameter_name": {{
-      "parameter": "parameter_name",
-      "distribution": "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
-      "params": {{"mu": 0.3, "sigma": 0.15}},
-      "sources": [],
-      "reasoning": "Justification for the prior",
-      "reference_interval_days": 7.0
-    }}
-  }}
-}}
-```
-
-Never combine priors with model decisions in the same tool call. After a failure, only resend the priors or model decisions you changed.
-
-Only include `reference_interval_days` when the literature evidence is expressed \
-on a different observation interval than the model interval shown in Model \
-Topology. For lagged `beta_*` priors, if you omit `reference_interval_days`, the \
-system will interpret `params` as already being authored on the model interval. \
-If you provide `reference_interval_days`, keep `params` on that authored interval \
-scale and let the compiler rescale them. \
-Include a prior for EVERY parameter listed above.
-"""
-
-AGENTIC_USER = AGENTIC_USER.replace(
-    "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
-    PRIOR_DISTRIBUTION_CHOICE_LIST,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS__",
-    OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__OBSERVATION_LINK_GUIDANCE_BULLETS__",
-    OBSERVATION_LINK_GUIDANCE_BULLETS,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__",
-    PRIOR_DISTRIBUTION_GUIDANCE_BULLETS,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__PRIOR_PARAMETER_GUIDANCE_TABLE__",
-    PRIOR_PARAMETER_GUIDANCE_TABLE,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__DYNAMIC_PRIOR_SCALE_GUIDANCE__",
-    DYNAMIC_PRIOR_SCALE_GUIDANCE,
-)
-AGENTIC_SYSTEM = AGENTIC_SYSTEM.replace(
-    "__LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE__",
-    LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE,
-)
+    submission_parts = ["## Submission Contract\n\n" + submission_example]
+    if include_prior_source_guidance:
+        submission_parts.append(PRIOR_SOURCE_GUIDANCE.replace("{{", "{").replace("}}", "}"))
+    sections.append(_join_sections(submission_parts))
+    sections.append("## Latest Validator Feedback\n\n" + latest_feedback)
+    return _join_sections(sections)
