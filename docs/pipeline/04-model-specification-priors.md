@@ -20,7 +20,7 @@ Stage 4 is the first point where the pipeline reasons about statistical model fo
 
 ## Process
 
-A **frontier reducer** drives Stage 4 by processing a queue of decision blocks, each scoped to the minimum context the LLM needs for one incremental choice. Blocks are formed deterministically from the skeleton and processed one at a time, while accepted blocks stay frozen unless a downstream validator explicitly reopens them.
+Stage 4 makes decisions incrementally: each block scopes the LLM to one choice, and accepted blocks stay frozen unless a validator reopens them.
 
 ```mermaid
 flowchart LR
@@ -38,96 +38,29 @@ flowchart LR
     RR -- "prior issue" --> PB
 ```
 
-### Skeleton
+**Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/model-spec/parameters.md), locks [likelihoods](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
 
-Before any LLM judgment, a deterministic engine derives everything that follows mechanically from the `CausalSpec`:
+**Block formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → causal effects → confounding.
 
-- *Parameter enumeration*: one parameter per structural element in the `CausalSpec`; [roles, scoping rules, and constraints](../reference/model-spec/parameters.md) are defined in the reference
-- *Deterministic likelihoods*: where an indicator's `measurement_dtype` maps to exactly one valid distribution and link per the [dtype-to-distribution mapping](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping), the likelihood is locked without LLM input
-- *Ambiguous indicators*: where the dtype admits multiple valid distributions or links, the choice is deferred to the LLM
-
-Temporal and measurement structure fixed by the skeleton:
-
-- Endogenous time-varying constructs receive AR(1) dynamics under the [Stage 1a](01a-latent-model.md) Markov commitment
-- Single-indicator constructs fix λ = 1; multi-indicator constructs use factor-analysis structure with the first or reference loading fixed for scale identification[^bollen1989]
-- When cause and effect operate at different granularities, finer-to-coarser effects are aggregated with the indicator's declared operator; coarser-to-finer values are broadcast across governed finer timepoints
-
-### Block formation
-
-The skeleton produces two classes of decision blocks:
-
-- *Model-decision blocks*: one per ambiguous indicator (distribution/link choice) and one per construct with loading parameters (constraint choice)
-- *Prior blocks*, in dependency order:
-  - *Measurement*: one per multi-indicator construct — loading priors, given indicator scales and the locked `ModelSpec`
-  - *Dynamics*: one per construct — AR coefficient and residual SD priors, given construct scales and model clock
-  - *Causal effects*: one per fixed effect or tightly coupled effect family — informed by the full model topology, construct scales, and accepted dynamics priors
-  - *Confounding*: one per induced-dependency component — correlation priors, given accepted dynamics and effect priors
-
-Each block carries only its local parameter cards, the relevant [Stage 3](03-extraction-validation.md) empirical profiles, and accepted upstream decisions needed for compatibility.
-
-### Model-decision blocks
-
-The frontier reducer presents one model-decision block at a time. A block resolves either:
+**Model-decision blocks:** Each block resolves either:
 
 - *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics; or
 - *Loading constraint* for a construct's loading parameters: `positive` for sign identification, or `none` if negative loadings are theoretically plausible
 
-Accepted decisions are frozen and merged into the growing `ModelSpec`. The [compilation check](#compilation) gates each block with PPCs disabled; errors reopen only the failing block.
+The [compilation check](../reference/compilation.md) gates each block with PPCs disabled; errors reopen only the failing block.
 
-### Prior-block preparation
+**Prior blocks:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
-Once the `ModelSpec` is locked, deterministic code prepares the prior frontier without taking ownership of prior-family selection:
+When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls per parameter can be aggregated via a Gaussian mixture model[^capstick2024] or logarithmic opinion pooling[^huang2025] to reduce prompt-wording bias.
 
-- Orders prior blocks by dependency
-- Assembles block-local parameter cards and empirical-profile context
-- Applies mechanical time-scale normalization and interval translation after the LLM proposes a prior
-- Enforces schema and support constraints during validation
+**Validation:** The [SSM compiler](../reference/compilation.md) runs after each block, enforcing distribution–link and dtype compatibility, loading-matrix rank, and successful SSM construction. After all prior blocks are accepted, a global prior predictive simulation checks:
 
-The LLM still proposes the full prior specification for each active block: distribution family, hyperparameters, and reasoning, optionally informed by literature evidence.
+- *Numerical health*: no NaN/Inf or extreme values (|value| > 10⁶)
+- *Constraint satisfaction*: positive-constrained parameters must not violate their support
+- *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws[^sarkka2019]
+- *Scale plausibility*: the implied observation SD from the stationary covariance[^sarkka2019] must be within a reasonable ratio of the [Stage 3](03-extraction-validation.md) empirical SD[^gelman2020] [^riegler2025]
 
-### Prior blocks
-
-The frontier reducer presents one prior block at a time in dependency order. For each block the LLM sees only the local parameter cards, relevant empirical profiles, and accepted upstream decisions, and proposes full prior specifications only for that block's parameters.
-
-*Literature search:* When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies that inform prior calibration. Evidence synthesis such as meta-analyses or closely matched longitudinal studies can justify narrower priors only when the estimand, population, and timescale align; otherwise the safer default is a weaker prior checked by prior predictive simulation[^gelman2020], following the standard Bayesian workflow[^gelman2013].
-
-*Paraphrased elicitation (optional):* To reduce overconfidence from any single prompt wording, the pipeline can run multiple paraphrased LLM calls for a parameter and aggregate via a Gaussian mixture model, following the AutoElicit strategy[^capstick2024]. An alternative aggregation approach uses logarithmic opinion pooling across independently elicited priors[^huang2025]. Disabled by default for cost reasons.
-
-All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
-
-### Validation
-
-Two tiers of checks run at different points in the frontier.
-
-#### Compilation
-
-The [SSM compiler](../reference/compilation.md) runs after each model-decision block and after each prior block. It enforces:
-
-- Distribution–link compatibility: the chosen link must be valid for the chosen distribution family
-- Dtype–distribution compatibility: the chosen distribution must be valid for the indicator's [`measurement_dtype`](01b-measurement-identifiability.md)
-- Loading-matrix rank: the number of observed indicators must be at least the number of latent constructs
-- Full SSM construction: the complete state-space model must build without error
-
-#### Global prior predictive simulation
-
-After all prior blocks are accepted, the validator samples from the proposed priors, simulates from the compiled generative model, and checks:
-
-- *Numerical health*: no NaN/Inf values in simulated sites; no extreme values (|value| > 10⁶)
-- *Constraint satisfaction*: positive-constrained parameters (diffusion, observation variance, initial-state variance) must not violate their support
-- *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws, ensuring stationary dynamics for the linear SDE[^sarkka2019]
-- *Scale plausibility*: the implied observation standard deviation — derived analytically from the stationary covariance via the Lyapunov equation[^sarkka2019] — must be within a reasonable ratio of the empirical standard deviation from [Stage 3](03-extraction-validation.md) profiles. This is a prior-predictive scale-calibration check in the sense of Gelman et al. (2020)[^gelman2020], aimed at catching prior-predictive over-dispersion or under-dispersion; LLM-elicited priors appear especially vulnerable to width miscalibration, showing tendencies toward both overconfidence and underconfidence[^riegler2025].
-
-#### Reopen router
-
-If global validation fails, a deterministic classifier maps each failure to the smallest responsible block:
-
-- Distribution–link or dtype mismatch → the indicator's model-decision block
-- Measurement-scale issue → the construct's measurement prior block
-- Drift stability or interval issue → the relevant dynamics or effect block
-- Prior support violation → the affected parameter's block
-- Diffuse global instability → the smallest connected dynamics component
-
-The reopen router may target either a model-decision block or a prior block. The frontier reducer never falls back to showing the full parameter inventory unless diagnostics genuinely cannot be localized.
+If validation fails, a deterministic classifier reopens the smallest responsible block.
 
 ### Example
 
