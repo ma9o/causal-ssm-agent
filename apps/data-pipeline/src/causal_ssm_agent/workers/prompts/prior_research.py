@@ -338,4 +338,12 @@ def format_literature_for_parameter(
             lines.append(f"Effect size: {effect_size}")
         lines.append("")
 
+    lines.extend(
+        [
+            "If you cite these results in a Stage 4 prior, each `sources` entry must be an object like:",
+            '`{"title": "...", "snippet": "...", "url": "https://...", "effect_size": "β=0.2", "study_interval_days": 7.0}`',
+            "Only `title` and `snippet` are required. If you are unsure, use `sources: []` instead of a malformed entry.",
+        ]
+    )
+
     return "\n".join(lines)
