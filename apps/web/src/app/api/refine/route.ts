@@ -5,6 +5,7 @@ import { convertToModelMessages, jsonSchema, stepCountIs, streamText, tool } fro
 import { NextResponse } from "next/server";
 
 import { getToolServerUrl } from "@/lib/runtime-urls";
+import { buildRefinementContextMessages } from "@/lib/server/refinement-prompts";
 import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readData } from "@/lib/storage";
 import {
@@ -22,6 +23,7 @@ async function loadTraceContext(
   stageId: string,
 ): Promise<{
   traceContext: ReturnType<typeof traceToModelMessages>;
+  stageData: unknown | null;
 }> {
   try {
     const raw = await readData(`${workspaceId}/run/${stageId}.json`);
@@ -31,14 +33,21 @@ async function loadTraceContext(
       const baseTrace = stageData.llm_trace as LLMTrace;
       return {
         traceContext: traceToModelMessages(baseTrace.messages),
+        stageData,
       };
     }
+
+    return {
+      traceContext: [],
+      stageData,
+    };
   } catch {
     // No trace available — proceed without context
   }
 
   return {
     traceContext: [],
+    stageData: null,
   };
 }
 
@@ -105,10 +114,15 @@ export async function POST(req: Request) {
   }
   const normalizedWorkspaceId = workspaceAccess?.ok ? workspaceAccess.workspaceId : null;
 
-  const { traceContext } =
+  const { traceContext, stageData } =
     normalizedWorkspaceId && safeStageId
       ? await loadTraceContext(normalizedWorkspaceId, safeStageId)
-      : { traceContext: [] };
+      : { traceContext: [], stageData: null };
+  const refinementContext = buildRefinementContextMessages(
+    safeStageId,
+    stageData,
+    safePendingStagePatch,
+  );
 
   // Build tools if this is an interactive stage
   const toolDefs =
@@ -165,7 +179,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: openrouter(REFINE_MODEL),
-    messages: [...traceContext, ...modelMessages],
+    messages: [...traceContext, ...refinementContext, ...modelMessages],
     ...(Object.keys(tools).length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
   });
 
