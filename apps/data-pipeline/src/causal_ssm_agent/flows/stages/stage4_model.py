@@ -10,13 +10,30 @@ import polars as pl
 from prefect import flow
 
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.llm import LLMStageContext
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
 from .. import get_prefect_logger
 from ..runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
+
+
+def _stage4_generate_config() -> GenerateConfig:
+    """Return the Stage 4 LLM config.
+
+    Stage 4 intentionally removes the shared max-token cap and tool-output
+    truncation so the model can continue beyond the default global ceiling on
+    long prior-authoring turns and retain full literature/validator payloads.
+    """
+
+    base = get_generate_config()
+    return GenerateConfig(
+        max_tokens=None,
+        timeout=base.timeout,
+        reasoning_effort=base.reasoning_effort,
+        max_tool_output=None,
+    )
 
 
 @flow(name="stage4-agentic", log_prints=True, persist_result=True, result_serializer="json")
@@ -56,7 +73,11 @@ async def stage4_agentic_flow(
 
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext("stage-4") as ctx:
-            generate = ctx.make_generate(s4.model, max_tool_turns=s4.max_tool_turns)
+            generate = ctx.make_generate(
+                s4.model,
+                config=_stage4_generate_config(),
+                max_tool_turns=s4.max_tool_turns,
+            )
 
             result = await run_stage4(
                 causal_spec=causal_spec,

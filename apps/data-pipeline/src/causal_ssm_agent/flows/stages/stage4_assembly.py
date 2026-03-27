@@ -180,7 +180,20 @@ def partition_prior_proposals(
 
 def format_prior_proposal_errors(errors: dict[str, str]) -> str:
     """Render prior schema errors in the user-facing stage-4 format."""
-    blocks = [f"SCHEMA ERRORS for prior '{name}':\n- {error}" for name, error in errors.items()]
+    blocks = []
+    for name, error in errors.items():
+        lines = [f"SCHEMA ERRORS for prior '{name}':", f"- {error}"]
+        if "sources." in error:
+            lines.extend(
+                [
+                    "- `sources` must be a list of objects, not raw strings",
+                    "- each source object must include `title` and `snippet`",
+                    '- valid optional keys are `url`, `effect_size`, and `study_interval_days`',
+                    '- example: {"title": "...", "snippet": "...", "url": "https://...", "effect_size": "β=0.2", "study_interval_days": 7.0}',
+                    '- if you are unsure, use `"sources": []`',
+                ]
+            )
+        blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 
