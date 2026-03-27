@@ -899,8 +899,6 @@ def _normalize_global_review_submission(
             None,
             "VALIDATION ERRORS:\n- `proposal.reopen_block_ids` must be a non-empty list of model block ids",
         )
-    if len(reopen_block_ids) > 3:
-        return None, "VALIDATION ERRORS:\n- reopen at most 3 model blocks in one review pass"
     if any(not isinstance(block_id, str) for block_id in reopen_block_ids):
         return None, "VALIDATION ERRORS:\n- `proposal.reopen_block_ids` must contain only strings"
     if len(set(reopen_block_ids)) != len(reopen_block_ids):
