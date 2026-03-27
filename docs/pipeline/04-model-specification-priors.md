@@ -24,32 +24,32 @@ Stage 4 makes decisions incrementally: each block scopes the LLM to one choice, 
 
 ```mermaid
 flowchart LR
-    S[Skeleton] --> BF[Block\nFormation] --> MD[Active Model-\nDecision Block] --> CV{Compile\nCheck}
-    CV -- "reopen block" --> MD
-    CV -- "next model block" --> MD
-    CV -- "model spec locked" --> PB[Active Prior\nBlock]
-    PB --> BV{Block\nValidation}
-    BV -- "reopen block" --> PB
-    BV -- "next prior block" --> PB
-    BV -- "all prior blocks accepted" --> GV{Global\nPPC}
+    S[Skeleton] --> BF[Frontier\nFormation] --> MD[Active Model-\nDecision Block] --> CV{Validation}
+    CV -- "fail" --> MD
+    CV -- "next" --> MD
+    CV -- "spec\nlocked" --> PB[Active Prior\nElicitation Block]
+    PB --> BV{Validation}
+    BV -- "fail" --> PB
+    BV -- "next" --> PB
+    BV -- "priors\naccepted" --> GV{PPCs}
     GV -- ok --> F([ModelSpec + Priors])
-    GV -- fail --> RR{Reopen\nRouter}
+    GV -- fail --> RR{Failure\nClassifier}
     RR -- "model issue" --> MD
     RR -- "prior issue" --> PB
 ```
 
 **Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/model-spec/parameters.md), locks [likelihoods](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
 
-**Block formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → causal effects → confounding.
+**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → causal effects → confounding.
 
-**Model-decision blocks:** Each block resolves either:
+**Model-Decision Block:** Each block resolves either:
 
 - *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics; or
 - *Loading constraint* for a construct's loading parameters: `positive` for sign identification, or `none` if negative loadings are theoretically plausible
 
 The [compilation check](../reference/compilation.md) gates each block with PPCs disabled; errors reopen only the failing block.
 
-**Prior blocks:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
+**Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
 When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls per parameter can be aggregated via a Gaussian mixture model[^capstick2024] or logarithmic opinion pooling[^huang2025] to reduce prompt-wording bias.
 
