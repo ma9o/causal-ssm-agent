@@ -36,7 +36,7 @@ flowchart LR
 
 Stages alternate between LLM proposals (constructs, measurement model, priors) and statistical verification (identifiability, parametric diagnostics, estimation). The identification gate is the central architectural decision: if a causal effect can't be nonparametrically identified from the proposed DAG, the system stops and explains why rather than producing an unwarranted estimate. See the [pipeline docs](docs/pipeline.md) for the full stage breakdown.
 
-## Features
+## Features and Goals
 
 - **Natural language queries** — Users ask informal causal questions; the LLM translates into formal structure with latent constructs, indicators, and explicit confounders
 - **Identification before estimation** — Structural identifiability checked via [y0](https://y0.readthedocs.io/) ([Shpitser & Pearl 2006](https://doi.org/10.1016/j.artint.2008.12.006)) before any numeric claim. No identification, no causal estimate.

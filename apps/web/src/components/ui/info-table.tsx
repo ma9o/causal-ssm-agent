@@ -44,12 +44,14 @@ function severityClass(level: "fail" | "warn" | undefined): string | undefined {
 export function HeaderWithTooltip({
   label,
   tooltip,
+  className,
 }: {
   label: string;
   tooltip: string;
+  className?: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className={cn("inline-flex items-center gap-1", className)}>
       {label}
       <StatTooltip explanation={tooltip} />
     </span>
@@ -59,7 +61,8 @@ export function HeaderWithTooltip({
 // ---------- Flat item for virtualized rendering ----------
 type FlatItem<TData> =
   | { kind: "group-header"; groupKey: string; rows: TData[] }
-  | { kind: "row"; row: Row<TData> };
+  | { kind: "row"; row: Row<TData> }
+  | { kind: "expanded-row"; row: Row<TData> };
 
 // ---------- InfoTable ----------
 const GROUP_HEADER_HEIGHT = 36;
@@ -69,11 +72,14 @@ interface InfoTableProps<TData> {
   data: TData[];
   sorting?: boolean;
   filtering?: boolean;
+  compact?: boolean;
   maxHeight?: string;
   estimateRowHeight?: number;
   groupBy?: (row: TData) => string;
   renderGroupHeader?: (groupKey: string, rows: TData[]) => ReactNode;
   rowClassName?: (row: TData, index: number) => string | undefined;
+  isRowExpanded?: (row: TData) => boolean;
+  renderExpandedRow?: (row: TData) => ReactNode;
 }
 
 export function InfoTable<TData>({
@@ -81,11 +87,14 @@ export function InfoTable<TData>({
   data,
   sorting: enableSorting = true,
   filtering: enableFiltering = true,
+  compact: isCompact = false,
   maxHeight = "max-h-[32rem]",
   estimateRowHeight = 40,
   groupBy,
   renderGroupHeader,
   rowClassName,
+  isRowExpanded,
+  renderExpandedRow,
 }: InfoTableProps<TData>) {
   "use no memo"; // TODO: remove when TanStack Table supports React Compiler
   const [sortingState, setSortingState] = useState<SortingState>([]);
@@ -113,7 +122,14 @@ export function InfoTable<TData>({
   // Build flat list: group headers interleaved with data rows
   const flatItems = useMemo<FlatItem<TData>[]>(() => {
     if (!groupBy) {
-      return rows.map((row) => ({ kind: "row" as const, row }));
+      const items: FlatItem<TData>[] = [];
+      for (const row of rows) {
+        items.push({ kind: "row", row });
+        if (isRowExpanded?.(row.original)) {
+          items.push({ kind: "expanded-row", row });
+        }
+      }
+      return items;
     }
     const map = new Map<string, typeof rows>();
     for (const row of rows) {
@@ -133,10 +149,13 @@ export function InfoTable<TData>({
       }
       for (const row of groupRows) {
         items.push({ kind: "row", row });
+        if (isRowExpanded?.(row.original)) {
+          items.push({ kind: "expanded-row", row });
+        }
       }
     }
     return items;
-  }, [groupBy, renderGroupHeader, rows]);
+  }, [groupBy, renderGroupHeader, rows, isRowExpanded]);
 
   const virtualizer = useVirtualizer({
     count: flatItems.length,
@@ -255,11 +274,28 @@ export function InfoTable<TData>({
                   </TableRow>
                 );
               }
+              if (item.kind === "expanded-row") {
+                return (
+                  <TableRow
+                    key={`expanded-${item.row.id}`}
+                    className="bg-muted/20 hover:bg-muted/20"
+                    data-index={vi.index}
+                    ref={virtualizer.measureElement}
+                  >
+                    <TableCell colSpan={columns.length} className="p-0">
+                      {renderExpandedRow?.(item.row.original)}
+                    </TableCell>
+                  </TableRow>
+                );
+              }
               const { row } = item;
+              const nextItem = flatItems[vi.index + 1];
+              const hasExpandedBelow = nextItem?.kind === "expanded-row";
               return (
                 <TableRow
                   key={row.id}
                   className={cn(
+                    hasExpandedBelow && "border-b-0",
                     focusedRowIndex === row.index && "ring-2 ring-ring ring-inset",
                     rowClassName?.(row.original, row.index),
                   )}
@@ -279,7 +315,7 @@ export function InfoTable<TData>({
                     return (
                       <TableCell
                         key={cell.id}
-                        className={cn(alignClass, meta?.mono && "font-mono", severityClass(sev))}
+                        className={cn(alignClass, meta?.mono && "font-mono", severityClass(sev), isCompact && "py-0.5")}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>

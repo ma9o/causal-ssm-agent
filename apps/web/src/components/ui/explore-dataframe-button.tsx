@@ -1,11 +1,14 @@
 "use client";
 
 import { Table2, Download } from "lucide-react";
-import { useParams } from "next/navigation";
 
-export function ExploreDataframeButton({ stage }: { stage: string }) {
-  const { workspaceId } = useParams<{ workspaceId: string }>();
-
+export function ExploreDataframeButton({
+  stage,
+  workspaceId,
+}: {
+  stage: string;
+  workspaceId: string;
+}) {
   return (
     <div className="flex items-center gap-1">
       <a
