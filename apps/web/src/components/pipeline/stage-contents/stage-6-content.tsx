@@ -1,6 +1,7 @@
 "use client";
 
 import { TreatmentRankingTable } from "@/components/stages/inference/treatment-ranking-table";
+import { StatTooltip } from "@/components/ui/stat-tooltip";
 import type { Stage6Data } from "@causal-ssm/api-types";
 import { Bot } from "lucide-react";
 import Markdown from "react-markdown";
@@ -14,7 +15,11 @@ function getStage6Narrative(data: Stage6Data): string | null {
   return null;
 }
 
-export default function Stage6Content({ data }: { data: Stage6Data }) {
+export default function Stage6Content({
+  data,
+}: {
+  data: Stage6Data;
+}) {
   const narrative = getStage6Narrative(data);
 
   return (
@@ -30,13 +35,21 @@ export default function Stage6Content({ data }: { data: Stage6Data }) {
           </div>
         </div>
       ) : null}
+      {data.intervention_results.length > 0 ? (
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold">Baseline interventional ranking</span>
+          <StatTooltip explanation="Total outcome effects ranked under do(treatment = baseline + 1). These are not direct edge coefficients. Peak timing comes from the forward simulation summary, and indicator details are a measurement projection of the outcome effect." />
+        </div>
+      ) : null}
       {data.intervention_results.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           No treatment effects were estimated. This may happen if no treatments passed
           identification checks.
         </div>
       ) : (
-        <TreatmentRankingTable results={data.intervention_results} />
+        <TreatmentRankingTable
+          results={data.intervention_results}
+        />
       )}
     </div>
   );

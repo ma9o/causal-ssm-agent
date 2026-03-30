@@ -1,9 +1,12 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
 import type { Stage3Data } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { StageSection } from "../stage-section";
-import Stage3Content from "./stage-3-content";
+import {
+  createCompletedStageStory,
+  createStageStatusStory,
+  stageStoryDecorators,
+} from "../stage-story-helpers";
+import Stage3Content, { Stage3FixAction } from "./stage-3-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-3.json";
 
 const stage = STAGES.find((s) => s.id === "stage-3")!;
@@ -87,56 +90,24 @@ const data = normalizeStage3Data(fixture);
 const meta = {
   title: "Pipeline/Stages/3 – Validation",
   component: Stage3Content,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage3Content>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
-export const Pending: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
-  ),
-};
+export const Pending = createStageStatusStory(stage, "pending");
 
-export const Running: StoryObj = {
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="running"
-      context={stage.description}
-      loadingHint={stage.loadingHint}
-    />
-  ),
-};
+export const Running = createStageStatusStory(stage, "running");
 
-export const Completed: Story = {
+export const Completed = createCompletedStageStory({
+  stage,
   args: { data },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={3_800}
-    >
-      <Stage3Content {...args} />
-    </StageSection>
-  ),
-};
+  outcome: data.outcome,
+  elapsedMs: 3_800,
+  renderShellProps: (args) => ({
+    actions: <Stage3FixAction data={args.data} onFix={() => undefined} />,
+  }),
+  renderContent: (args) => <Stage3Content {...args} />,
+});
 
-export const Failed: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
-  ),
-};
+export const Failed = createStageStatusStory(stage, "failed");

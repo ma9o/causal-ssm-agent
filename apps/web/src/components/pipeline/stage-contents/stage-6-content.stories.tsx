@@ -1,20 +1,28 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
-import type { LLMTrace, Stage6Data } from "@causal-ssm/api-types";
-import { Badge } from "@/components/ui/badge";
-import { ChatMessages } from "@/components/ui/custom/chat-messages";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { formatCompact } from "@/lib/utils/format";
-import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
-import { Clock, Cpu } from "lucide-react";
-import { StageSection } from "../stage-section";
-import Stage6Content from "./stage-6-content";
+import type { LLMTrace, Stage1aData, Stage1bData, Stage6Data } from "@causal-ssm/api-types";
+import { CausalDag } from "@/components/dag/causal-dag";
+import {
+  createCompletedStageStory,
+  createOpenPanelStageStory,
+  createStageStatusStory,
+  stageStoryDecorators,
+} from "../stage-story-helpers";
+import Stage6Showcase from "./stage-6-showcase";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
 import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-6-nutsda.json";
+import stage1aFixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
+import stage1bFixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-6")!;
-const data = fixture as unknown as Stage6Data;
-const nutsdaData = nutsdaFixture as unknown as Stage6Data;
+const stage1a = stage1aFixture as unknown as Stage1aData;
+const stage1b = stage1bFixture as unknown as Stage1bData;
+const data = { outcome: "success", ...fixture } as Stage6Data;
+const nutsdaData = { outcome: "success", ...nutsdaFixture } as Stage6Data;
+const defaultProjectionTreatment = data.intervention_results[0]?.treatment ?? null;
+const latentDagDescription =
+  "Upstream causal structure carried into treatment-effect interpretation.";
+
 const storyTrace: LLMTrace = {
   model: "openrouter/anthropic/claude-sonnet-4",
   total_time_seconds: 4.2,
@@ -39,141 +47,87 @@ const storyTrace: LLMTrace = {
     {
       role: "assistant",
       content:
-        "Statin adherence and blood-pressure medication adherence appear to be the strongest identifiable levers in the baseline ranking, both pointing toward lower downstream cardiovascular risk. The main caveat is that the fit still carries sensitivity and posterior-predictive warnings for some variables, so the ranking is informative but not fully clean. You can now inspect model details or ask for Pearl rung 2 and rung 3 simulations directly from this stage.",
+        "Lipid burden is the strongest risk-increasing lever in the baseline ranking, while medication adherence and glycemic control are the strongest protective levers. The posterior intervals for the top effects stay clearly away from zero, so the direction of the ranking looks stable even before any follow-up simulation. You can now inspect the weighted DAG or ask for rung 2 and rung 3 simulations directly from this stage.",
       tool_is_error: false,
     },
   ],
 };
+
 const dataWithTrace = {
   ...data,
   llm_trace: storyTrace,
   final_summary:
-    "Statin adherence and blood-pressure medication adherence appear to be the strongest identifiable levers in the baseline ranking, both pointing toward lower downstream cardiovascular risk. The main caveat is that the fit still carries sensitivity and posterior-predictive warnings for some variables, so the ranking is informative but not fully clean. You can now inspect model details or ask for Pearl rung 2 and rung 3 simulations directly from this stage.",
+    "Lipid burden is the strongest risk-increasing lever in the baseline ranking, while medication adherence and glycemic control are the strongest protective levers. The posterior intervals for the top effects stay clearly away from zero, so the direction of the ranking looks stable even before any follow-up simulation. You can now inspect the weighted DAG or ask for rung 2 and rung 3 simulations directly from this stage.",
 } as Stage6Data;
 
-function StoryTracePanel({ trace }: { trace: LLMTrace }) {
-  const messages = traceToUIMessages(trace);
+const latentDagArgs = {
+  dag: buildLatentDag(),
+  dagTitle: "Latent DAG",
+  dagDescription: latentDagDescription,
+};
 
+const completedArgs = {
+  data: dataWithTrace,
+  ...latentDagArgs,
+  defaultSelectedTreatment: defaultProjectionTreatment,
+};
+
+const completedShellProps = {
+  outcome: dataWithTrace.outcome,
+  elapsedMs: 6_700,
+  trace: storyTrace,
+};
+
+function buildLatentDag() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="shrink-0 flex flex-wrap items-center gap-2 border-b bg-background pb-2 text-xs">
-        <Badge variant="secondary" className="gap-1 text-[10px]">
-          <Cpu className="h-3 w-3" />
-          {trace.model}
-        </Badge>
-        <span className="text-muted-foreground">
-          {formatCompact(trace.usage.input_tokens)} in / {formatCompact(trace.usage.output_tokens)} out
-        </span>
-        {trace.usage.reasoning_tokens ? (
-          <span className="text-muted-foreground">
-            ({formatCompact(trace.usage.reasoning_tokens)} reasoning)
-          </span>
-        ) : null}
-        <span className="ml-auto flex items-center gap-1 text-muted-foreground">
-          <Clock className="h-3 w-3" />
-          {trace.total_time_seconds.toFixed(1)}s
-        </span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <ChatMessages messages={messages} />
-      </div>
-    </div>
+    <CausalDag
+      constructs={stage1a.latent_model.constructs}
+      edges={stage1a.latent_model.edges}
+      indicators={stage1b.causal_spec.measurement.indicators}
+      height="600px"
+    />
   );
 }
 
 const meta = {
   title: "Pipeline/Stages/6 – Treatment Effects",
-  component: Stage6Content,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-6xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
-} satisfies Meta<typeof Stage6Content>;
+  component: Stage6Showcase,
+  decorators: stageStoryDecorators,
+} satisfies Meta<typeof Stage6Showcase>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
-export const Pending: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
-  ),
-};
+export const Pending = createStageStatusStory(stage, "pending");
 
-export const Running: StoryObj = {
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="running"
-      context={stage.description}
-      loadingHint={stage.loadingHint}
-    />
-  ),
-};
+export const Running = createStageStatusStory(stage, "running");
 
-export const CompletedSVI: Story = {
+export const Completed = createCompletedStageStory({
   name: "Completed (SVI / Laplace EM)",
-  args: { data },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={6_700}
-    >
-      <Stage6Content {...args} />
-    </StageSection>
-  ),
-};
+  stage,
+  args: completedArgs,
+  ...completedShellProps,
+  renderContent: (args) => <Stage6Showcase {...args} />,
+});
 
-export const CompletedNUTS: Story = {
+export const OpenPanel = createOpenPanelStageStory({
+  stage,
+  args: completedArgs,
+  ...completedShellProps,
+  renderContent: (args) => <Stage6Showcase {...args} />,
+});
+
+export const CompletedNUTS = createCompletedStageStory({
   name: "Completed (NUTS / DA)",
-  args: { data: nutsdaData },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={nutsdaData.outcome}
-      context={stage.description}
-      elapsedMs={8_100}
-    >
-      <Stage6Content {...args} />
-    </StageSection>
-  ),
-};
+  stage,
+  args: {
+    data: nutsdaData,
+    ...latentDagArgs,
+    defaultSelectedTreatment: nutsdaData.intervention_results[0]?.treatment ?? null,
+  },
+  outcome: nutsdaData.outcome,
+  elapsedMs: 8_100,
+  trace: storyTrace,
+  renderContent: (args) => <Stage6Showcase {...args} />,
+});
 
-export const CompletedWithTrace: Story = {
-  name: "Completed With Trace",
-  args: { data: dataWithTrace },
-  render: (args) => (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-      <StageSection
-        number={stage.number}
-        title={stage.label}
-        status="completed"
-        outcome={dataWithTrace.outcome}
-        context={stage.description}
-        elapsedMs={6_700}
-      >
-        <Stage6Content {...args} />
-      </StageSection>
-      <div className="min-h-0 rounded-lg border bg-muted/30 p-3">
-        <StoryTracePanel trace={storyTrace} />
-      </div>
-    </div>
-  ),
-};
-
-export const Failed: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
-  ),
-};
+export const Failed = createStageStatusStory(stage, "failed");
