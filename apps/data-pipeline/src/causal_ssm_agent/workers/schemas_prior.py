@@ -107,6 +107,14 @@ class PriorValidationResult(BaseModel):
         default_factory=list,
         description="Ordered parameter names most directly implicated by this diagnostic",
     )
+    compiled_site_name: str | None = Field(
+        default=None,
+        description="Compiled runtime sample/prior site implicated by this diagnostic when known",
+    )
+    compiled_flat_index: int | None = Field(
+        default=None,
+        description="Flat index inside the compiled site implicated by this diagnostic when known",
+    )
     supporting_codes: list[str] = Field(
         default_factory=list,
         description="Codes for supporting diagnostics that help explain this diagnostic",

@@ -89,6 +89,8 @@ def _compile_warning(
     parameter: str,
     issue: str,
     suggested_adjustment: str,
+    compiled_site_name: str | None = None,
+    compiled_flat_index: int | None = None,
 ) -> CompileDiagnostic:
     """Build a typed non-fatal compile diagnostic."""
     return CompileDiagnostic(
@@ -100,6 +102,8 @@ def _compile_warning(
         issue=issue,
         suggested_adjustment=suggested_adjustment,
         related_parameters=[parameter],
+        compiled_site_name=compiled_site_name,
+        compiled_flat_index=compiled_flat_index,
     )
 
 
@@ -263,6 +267,8 @@ def collect_first_order_approximation_warning(
             suggested_adjustment=(
                 "Consider a shorter reference interval or elicit priors directly on CT rates."
             ),
+            compiled_site_name="drift_offdiag_pop",
+            compiled_flat_index=idx,
         )
     return None
 
