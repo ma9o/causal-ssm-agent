@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,9 +34,9 @@ from causal_ssm_agent.flows.stages.stage_tools import (
     stage4_grounding,
 )
 from causal_ssm_agent.models.ssm.counterfactual import (
-    _summarize_trajectory,
     approximate_abducted_state,
     forward_simulate_action_from_state,
+    forward_simulate_latent_action_from_state,
     steady_state,
     summarize_draws,
     treatment_effect_for_action,
@@ -210,6 +211,29 @@ def _manifest_effects(
     return effects or None
 
 
+def _serialize_effect_trajectory(trajectory: jnp.ndarray, dt_days: float) -> list[dict[str, float]]:
+    return [
+        {
+            "day": round((idx + 1) * dt_days, 3),
+            "effect": float(value),
+        }
+        for idx, value in enumerate(trajectory.tolist())
+    ]
+
+
+def _serialize_node_effect_trajectories(
+    effect_paths: jnp.ndarray,
+    latent_names: list[str],
+) -> dict[str, list[float]]:
+    mean_paths = jnp.mean(effect_paths, axis=0)
+    return {
+        name: [float(value) for value in mean_paths[:, idx].tolist()]
+        for idx, name in enumerate(latent_names)
+    }
+
+
+def _serialize_latent_state(state: jnp.ndarray, latent_names: list[str]) -> dict[str, float]:
+    return {name: float(value) for name, value in zip(latent_names, state.tolist(), strict=False)}
 
 
 def _select_evidence_window(
@@ -277,6 +301,202 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "_outcome_name": outcome_name,
         "_identifiable_treatments": [t for t in treatments if t not in non_identifiable],
     }
+
+
+@dataclass(frozen=True)
+class Stage6SimulationSetup:
+    fitted_artifact: Any
+    runtime: Any
+    samples: dict[str, Any]
+    causal_spec: dict[str, Any]
+    query: dict[str, Any]
+    action: dict[str, Any]
+    treatment: str
+    outcome: str
+    spec: Any
+    latent_names: list[str]
+    manifest_names: list[str]
+    treat_idx: int
+    outcome_idx: int
+    drift_draws: Any
+    cint_draws: Any
+    dt_days: float
+    horizon_steps: int
+
+
+@dataclass(frozen=True)
+class Stage6EffectOutputs:
+    summary: dict[str, float]
+    effect_trajectory: list[dict[str, float]] | None
+    visualization: dict[str, Any] | None
+    manifest_effects: dict[str, float] | None
+
+
+def _tool_error_result(
+    message: str,
+    *,
+    identifiable_treatments: list[str] | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"error": message}
+    if identifiable_treatments is not None:
+        result["identifiable_treatments"] = identifiable_treatments
+    return {"result": result}
+
+
+def _prepare_stage6_simulation(
+    ctx: dict[str, Any],
+    args: dict[str, Any],
+) -> tuple[Stage6SimulationSetup | None, dict[str, Any] | None]:
+    fitted_artifact = ctx["_fitted_artifact"]
+    runtime = ctx["_prepared_runtime"]
+    samples = fitted_artifact.result.get_samples() if fitted_artifact.result is not None else None
+    if fitted_artifact.result is None or fitted_artifact.builder is None or not samples:
+        return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
+
+    action = dict(args.get("action") or {})
+    treatment = str(action.get("variable", ""))
+    if treatment not in ctx["_identifiable_treatments"]:
+        return None, _tool_error_result(
+            f"Treatment '{treatment}' is not an identifiable stage-6 intervention target.",
+            identifiable_treatments=ctx["_identifiable_treatments"],
+        )
+
+    causal_spec = ctx["stage-1b"].get("causal_spec", {})
+    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
+    spec = fitted_artifact.builder._spec
+    latent_names = list(spec.latent_names or [])
+    manifest_names = list(spec.manifest_names or [])
+    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
+    treat_idx = name_to_idx.get(treatment)
+    outcome_idx = name_to_idx.get(outcome)
+    if treat_idx is None or outcome_idx is None:
+        return None, _tool_error_result("Treatment or outcome not present in fitted latent model.")
+
+    drift_draws = samples.get("drift")
+    if drift_draws is None:
+        return None, _tool_error_result("Posterior drift samples are unavailable.")
+    cint_draws = samples.get("cint")
+    if cint_draws is None:
+        cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
+
+    query = dict(args.get("query") or {})
+    dt_days, horizon_steps = _stage6_time_config(
+        causal_spec,
+        runtime.times,
+        int(query.get("horizon_days") or 30),
+    )
+
+    return (
+        Stage6SimulationSetup(
+            fitted_artifact=fitted_artifact,
+            runtime=runtime,
+            samples=samples,
+            causal_spec=causal_spec,
+            query=query,
+            action=action,
+            treatment=treatment,
+            outcome=outcome,
+            spec=spec,
+            latent_names=latent_names,
+            manifest_names=manifest_names,
+            treat_idx=treat_idx,
+            outcome_idx=outcome_idx,
+            drift_draws=drift_draws,
+            cint_draws=cint_draws,
+            dt_days=dt_days,
+            horizon_steps=horizon_steps,
+        ),
+        None,
+    )
+
+
+def _build_visualization_payload(
+    latent_names: list[str],
+    *,
+    node_effect_paths: jnp.ndarray | None = None,
+    abducted_state: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
+    node_effect_trajectories = (
+        _serialize_node_effect_trajectories(node_effect_paths, latent_names)
+        if node_effect_paths is not None
+        else None
+    )
+    if node_effect_trajectories is None and abducted_state is None:
+        return None
+    return {
+        "node_effect_trajectories": node_effect_trajectories,
+        "abducted_state": abducted_state,
+    }
+
+
+def _build_effect_outputs(
+    setup: Stage6SimulationSetup,
+    *,
+    effect_draws: jnp.ndarray | None = None,
+    effect_paths: jnp.ndarray | None = None,
+    node_effect_paths: jnp.ndarray | None = None,
+    abducted_state: dict[str, float] | None = None,
+) -> Stage6EffectOutputs:
+    if effect_paths is not None:
+        effect_draws = effect_paths[:, -1]
+        mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
+        effect_trajectory = _serialize_effect_trajectory(mean_effect_trajectory, setup.dt_days)
+    else:
+        effect_trajectory = None
+
+    if effect_draws is None:
+        raise ValueError("Either effect_draws or effect_paths must be provided.")
+
+    summary = summarize_draws(effect_draws)
+    manifest_effects = None
+    if setup.query.get("projection", "latent") in {"manifest", "both"}:
+        manifest_effects = _manifest_effects(
+            setup.samples,
+            setup.outcome_idx,
+            summary["mean"],
+            setup.manifest_names,
+            setup.fitted_artifact.observation_support,
+        )
+
+    return Stage6EffectOutputs(
+        summary=summary,
+        effect_trajectory=effect_trajectory,
+        visualization=_build_visualization_payload(
+            setup.latent_names,
+            node_effect_paths=node_effect_paths,
+            abducted_state=abducted_state,
+        ),
+        manifest_effects=manifest_effects,
+    )
+
+
+def _collect_stage6_warnings(
+    ctx: dict[str, Any],
+    *,
+    treatment: str | None = None,
+    include_diagnostic_warnings: bool = False,
+    extra_warnings: list[str] | None = None,
+) -> list[str]:
+    warnings: list[str] = []
+    if include_diagnostic_warnings and treatment is not None:
+        stage5b = ctx.get("stage-5b", {})
+        for item in stage5b.get("power_scaling", []):
+            if item.get("diagnosis") == "prior_dominated":
+                param = item.get("parameter", "")
+                if treatment in param or param.startswith("drift_offdiag"):
+                    warnings.append(
+                        f"Effect may be prior-driven: parameter {param} "
+                        f"is prior-dominated per power-scaling diagnostic"
+                    )
+        for item in stage5b.get("ppc", {}).get("per_variable_warnings", []) or []:
+            message = item.get("message")
+            if message:
+                warnings.append(str(message))
+
+    for warning in extra_warnings or []:
+        if warning:
+            warnings.append(str(warning))
+    return warnings
 
 
 # ---------------------------------------------------------------------------
@@ -491,166 +711,74 @@ def _execute_get_model_info(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
 
 
 def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    fitted_artifact = ctx["_fitted_artifact"]
-    runtime = ctx["_prepared_runtime"]
-    samples = fitted_artifact.result.get_samples() if fitted_artifact.result is not None else None
-    if fitted_artifact.result is None or fitted_artifact.builder is None or not samples:
-        return {"result": {"error": "Fitted model artifact is unavailable for simulation."}}
+    setup, error = _prepare_stage6_simulation(ctx, args)
+    if error is not None:
+        return error
+    assert setup is not None
 
-    action = dict(args.get("action") or {})
-    treatment = str(action.get("variable", ""))
-    if treatment not in ctx["_identifiable_treatments"]:
-        return {
-            "result": {
-                "error": f"Treatment '{treatment}' is not an identifiable stage-6 intervention target.",
-                "identifiable_treatments": ctx["_identifiable_treatments"],
-            }
-        }
+    baseline_states = jax.vmap(lambda d, c: steady_state(d, c))(setup.drift_draws, setup.cint_draws)
+    baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))
 
-    causal_spec = ctx["stage-1b"].get("causal_spec", {})
-    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
-    spec = fitted_artifact.builder._spec
-    latent_names = list(spec.latent_names or [])
-    manifest_names = list(spec.manifest_names or [])
-    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
-    treat_idx = name_to_idx.get(treatment)
-    outcome_idx = name_to_idx.get(outcome)
-    if treat_idx is None or outcome_idx is None:
-        return {"result": {"error": "Treatment or outcome not present in fitted latent model."}}
-
-    drift_draws = samples.get("drift")
-    if drift_draws is None:
-        return {"result": {"error": "Posterior drift samples are unavailable."}}
-    cint_draws = samples.get("cint")
-    if cint_draws is None:
-        cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
-
-    query = dict(args.get("query") or {})
-    dt_days, horizon_steps = _stage6_time_config(
-        causal_spec,
-        runtime.times,
-        int(query.get("horizon_days") or 30),
-    )
-
-    baseline_states = jax.vmap(lambda d, c: steady_state(d, c))(drift_draws, cint_draws)
-    baseline_treatment_mean = float(jnp.mean(baseline_states[:, treat_idx]))
-    resolved_action_mean = (
-        float(action["value"])
-        if action.get("mode") == "set"
-        else baseline_treatment_mean + float(action.get("amount", 0.0))
-    )
-
-    if query.get("estimand", "steady_state") == "trajectory":
-        trajectories = jax.vmap(
-            lambda d, c, s: forward_simulate_action_from_state(
+    if setup.query.get("estimand", "steady_state") == "trajectory":
+        _, _, node_effect_paths = jax.vmap(
+            lambda d, c, s: forward_simulate_latent_action_from_state(
                 d,
                 c,
                 s,
-                treat_idx,
-                outcome_idx,
-                mode=str(action["mode"]),
-                value=action.get("value"),
-                amount=action.get("amount"),
-                dt=dt_days,
-                horizon_steps=horizon_steps,
-            )[2]
-        )(drift_draws, cint_draws, baseline_states)
-        effect_draws = trajectories[:, -1]
-        mean_trajectory = jnp.mean(trajectories, axis=0)
-        temporal = _summarize_trajectory(mean_trajectory, dt_days)
-        effect_trajectory = [
-            {
-                "day": round((idx + 1) * dt_days, 3),
-                "effect": float(value),
-            }
-            for idx, value in enumerate(mean_trajectory.tolist())
-        ]
-    else:
-        effect_draws = jax.vmap(
-            lambda d, c: treatment_effect_for_action(
-                d,
-                c,
-                treat_idx,
-                outcome_idx,
-                mode=str(action["mode"]),
-                value=action.get("value"),
-                amount=action.get("amount"),
+                setup.treat_idx,
+                mode=str(setup.action["mode"]),
+                value=setup.action.get("value"),
+                amount=setup.action.get("amount"),
+                dt=setup.dt_days,
+                horizon_steps=setup.horizon_steps,
             )
-        )(drift_draws, cint_draws)
-        temporal = None
-        effect_trajectory = None
-
-    summary = summarize_draws(effect_draws)
-    manifest_effects = None
-    if query.get("projection", "latent") in {"manifest", "both"}:
-        manifest_effects = _manifest_effects(
-            samples,
-            outcome_idx,
-            summary["mean"],
-            manifest_names,
-            fitted_artifact.observation_support,
+        )(setup.drift_draws, setup.cint_draws, baseline_states)
+        outputs = _build_effect_outputs(
+            setup,
+            effect_paths=node_effect_paths[:, :, setup.outcome_idx],
+            node_effect_paths=node_effect_paths,
         )
-
-    # Derive warnings from Stage 5b diagnostics
-    stage5b = ctx.get("stage-5b", {})
-    warnings: list[str] = []
-    for item in stage5b.get("power_scaling", []):
-        if item.get("diagnosis") == "prior_dominated":
-            param = item.get("parameter", "")
-            if treatment in param or param.startswith("drift_offdiag"):
-                warnings.append(
-                    f"Effect may be prior-driven: parameter {param} "
-                    f"is prior-dominated per power-scaling diagnostic"
+    else:
+        outputs = _build_effect_outputs(
+            setup,
+            effect_draws=jax.vmap(
+                lambda d, c: treatment_effect_for_action(
+                    d,
+                    c,
+                    setup.treat_idx,
+                    setup.outcome_idx,
+                    mode=str(setup.action["mode"]),
+                    value=setup.action.get("value"),
+                    amount=setup.action.get("amount"),
                 )
-    for w in stage5b.get("ppc", {}).get("per_variable_warnings", []) or []:
-        msg = w.get("message")
-        if msg:
-            warnings.append(str(msg))
+            )(setup.drift_draws, setup.cint_draws),
+        )
 
     return {
         "result": {
             "rung": 2,
-            "action": action,
-            "outcome": outcome,
-            "estimand": query.get("estimand", "steady_state"),
+            "action": setup.action,
+            "outcome": setup.outcome,
+            "estimand": setup.query.get("estimand", "steady_state"),
             "baseline_treatment_mean": baseline_treatment_mean,
-            "resolved_action_mean": resolved_action_mean,
-            "summary": summary,
-            "temporal": temporal,
-            "effect_trajectory": effect_trajectory,
-            "manifest_effects": manifest_effects,
-            "warnings": warnings,
+            "summary": outputs.summary,
+            "effect_trajectory": outputs.effect_trajectory,
+            "visualization": outputs.visualization,
+            "manifest_effects": outputs.manifest_effects,
+            "warnings": _collect_stage6_warnings(
+                ctx,
+                treatment=setup.treatment,
+                include_diagnostic_warnings=True,
+            ),
         }
     }
 
 
 def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    fitted_artifact = ctx["_fitted_artifact"]
-    runtime = ctx["_prepared_runtime"]
-    samples = fitted_artifact.result.get_samples() if fitted_artifact.result is not None else None
-    if fitted_artifact.result is None or fitted_artifact.builder is None or not samples:
-        return {"result": {"error": "Fitted model artifact is unavailable for simulation."}}
-
-    action = dict(args.get("action") or {})
-    treatment = str(action.get("variable", ""))
-    if treatment not in ctx["_identifiable_treatments"]:
-        return {
-            "result": {
-                "error": f"Treatment '{treatment}' is not an identifiable stage-6 intervention target.",
-                "identifiable_treatments": ctx["_identifiable_treatments"],
-            }
-        }
-
-    causal_spec = ctx["stage-1b"].get("causal_spec", {})
-    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
-    spec = fitted_artifact.builder._spec
-    latent_names = list(spec.latent_names or [])
-    manifest_names = list(spec.manifest_names or [])
-    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
-    treat_idx = name_to_idx.get(treatment)
-    outcome_idx = name_to_idx.get(outcome)
-    if treat_idx is None or outcome_idx is None:
-        return {"result": {"error": "Treatment or outcome not present in fitted latent model."}}
+    setup, error = _prepare_stage6_simulation(ctx, args)
+    if error is not None:
+        return error
+    assert setup is not None
 
     evidence = dict(args.get("evidence") or {})
     evidence_start_idx, evidence_end_idx, evidence_meta = _select_evidence_window(
@@ -658,76 +786,61 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         evidence,
     )
     abducted = approximate_abducted_state(
-        samples,
-        fitted_artifact.builder._model,
-        spec,
-        runtime.observations,
-        runtime.times,
+        setup.samples,
+        setup.fitted_artifact.builder._model,
+        setup.spec,
+        setup.runtime.observations,
+        setup.runtime.times,
         evidence_start_idx,
         evidence_end_idx,
     )
     initial_state = abducted["state"]
+    abducted_state = _serialize_latent_state(initial_state, setup.latent_names)
+    estimand = str(setup.query.get("estimand", "end_state"))
 
-    drift_draws = samples.get("drift")
-    if drift_draws is None:
-        return {"result": {"error": "Posterior drift samples are unavailable."}}
-    cint_draws = samples.get("cint")
-    if cint_draws is None:
-        cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
-
-    query = dict(args.get("query") or {})
-    estimand = str(query.get("estimand", "end_state"))
-    dt_days, horizon_steps = _stage6_time_config(
-        causal_spec,
-        runtime.times,
-        int(query.get("horizon_days") or 30),
-    )
-
-    baseline_paths, counterfactual_paths, effect_paths = jax.vmap(
-        lambda d, c: forward_simulate_action_from_state(
-            d,
-            c,
-            initial_state,
-            treat_idx,
-            outcome_idx,
-            mode=str(action["mode"]),
-            value=action.get("value"),
-            amount=action.get("amount"),
-            dt=dt_days,
-            horizon_steps=horizon_steps,
-        )
-    )(drift_draws, cint_draws)
-
-    effect_draws = effect_paths[:, -1]
-    mean_baseline = jnp.mean(baseline_paths[:, -1])
-    mean_counterfactual = jnp.mean(counterfactual_paths[:, -1])
-    summary = summarize_draws(effect_draws)
-    temporal = None
-    trajectory = None
     if estimand == "trajectory":
-        mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
-        temporal = _summarize_trajectory(mean_effect_trajectory, dt_days)
-        trajectory = [
-            {
-                "day": round((idx + 1) * dt_days, 3),
-                "effect": float(value),
-            }
-            for idx, value in enumerate(mean_effect_trajectory.tolist())
-        ]
-
-    manifest_effects = None
-    if query.get("projection", "latent") in {"manifest", "both"}:
-        manifest_effects = _manifest_effects(
-            samples,
-            outcome_idx,
-            summary["mean"],
-            manifest_names,
-            fitted_artifact.observation_support,
+        baseline_state_paths, _counterfactual_state_paths, effect_state_paths = jax.vmap(
+            lambda d, c: forward_simulate_latent_action_from_state(
+                d,
+                c,
+                initial_state,
+                setup.treat_idx,
+                mode=str(setup.action["mode"]),
+                value=setup.action.get("value"),
+                amount=setup.action.get("amount"),
+                dt=setup.dt_days,
+                horizon_steps=setup.horizon_steps,
+            )
+        )(setup.drift_draws, setup.cint_draws)
+        baseline_paths = baseline_state_paths[:, :, setup.outcome_idx]
+        outputs = _build_effect_outputs(
+            setup,
+            effect_paths=effect_state_paths[:, :, setup.outcome_idx],
+            node_effect_paths=effect_state_paths,
+            abducted_state=abducted_state,
+        )
+    else:
+        baseline_paths, _counterfactual_paths, effect_paths = jax.vmap(
+            lambda d, c: forward_simulate_action_from_state(
+                d,
+                c,
+                initial_state,
+                setup.treat_idx,
+                setup.outcome_idx,
+                mode=str(setup.action["mode"]),
+                value=setup.action.get("value"),
+                amount=setup.action.get("amount"),
+                dt=setup.dt_days,
+                horizon_steps=setup.horizon_steps,
+            )
+        )(setup.drift_draws, setup.cint_draws)
+        outputs = _build_effect_outputs(
+            setup,
+            effect_draws=effect_paths[:, -1],
+            abducted_state=abducted_state,
         )
 
-    warnings: list[str] = []
-    if abducted.get("warning"):
-        warnings.append(str(abducted["warning"]))
+    mean_baseline = jnp.mean(baseline_paths[:, -1])
 
     return {
         "result": {
@@ -735,19 +848,19 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             "evidence": {
                 **evidence_meta,
                 "conditioning_method": abducted["method"],
-                "evidence_start_idx": evidence_start_idx,
-                "evidence_end_idx": evidence_end_idx,
             },
-            "action": action,
-            "outcome": outcome,
+            "action": setup.action,
+            "outcome": setup.outcome,
             "estimand": estimand,
             "baseline_forecast_mean": float(mean_baseline),
-            "counterfactual_forecast_mean": float(mean_counterfactual),
-            "summary": summary,
-            "temporal": temporal,
-            "effect_trajectory": trajectory,
-            "manifest_effects": manifest_effects,
-            "warnings": warnings,
+            "summary": outputs.summary,
+            "effect_trajectory": outputs.effect_trajectory,
+            "visualization": outputs.visualization,
+            "manifest_effects": outputs.manifest_effects,
+            "warnings": _collect_stage6_warnings(
+                ctx,
+                extra_warnings=[str(abducted["warning"])] if abducted.get("warning") else None,
+            ),
         }
     }
 
@@ -823,7 +936,7 @@ class PersistStagePatchRequest(BaseModel):
 
 @app.get("/api/tools/{stage_id}")
 def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
-    """Return tool definitions for a stage (name, description, JSON Schema parameters)."""
+    """Return tool definitions for a stage (name, description, JSON Schema parameters/results)."""
     contracts = STAGE_TOOLS.get(stage_id)
     if contracts is None:
         raise HTTPException(404, f"No tools defined for stage {stage_id}")
@@ -832,6 +945,7 @@ def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
             "name": tc.name,
             "description": tc.description,
             "parameters": tc.parameters_json_schema(),
+            "result": tc.result_json_schema(),
         }
         for tc in contracts
     ]
@@ -858,9 +972,30 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
     ctx = _build_context(request.workspace_id, stage_id)
     import inspect
 
-    if inspect.iscoroutinefunction(impl):
-        return await impl(ctx, validated_input)
-    return impl(ctx, validated_input)
+    payload = (
+        await impl(ctx, validated_input)
+        if inspect.iscoroutinefunction(impl)
+        else impl(ctx, validated_input)
+    )
+    if contract.output_schema is None:
+        return payload
+
+    try:
+        payload["result"] = contract.output_schema.model_validate(payload.get("result")).model_dump(
+            mode="json"
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            500,
+            detail={
+                "message": (
+                    f"Tool {tool_name!r} in stage {stage_id!r} returned a payload "
+                    "that violates its declared result contract."
+                ),
+                "errors": exc.errors(),
+            },
+        ) from exc
+    return payload
 
 
 @app.post("/api/stages/{stage_id}/persist-web-patch")

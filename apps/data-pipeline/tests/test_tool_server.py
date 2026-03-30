@@ -109,7 +109,36 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         effect = jnp.full((horizon_steps,), drift[0, 0] + 1.0)
         return baseline, counterfactual, effect
 
+    def fake_forward_latent(
+        drift,
+        cint,
+        initial_state,
+        treat_idx,
+        *,
+        mode,
+        value=None,
+        amount=None,
+        dt,
+        horizon_steps,
+    ):
+        del cint, initial_state, treat_idx, mode, value, amount, dt
+        baseline = jnp.zeros((horizon_steps, 2), dtype=jnp.float32)
+        counterfactual = baseline
+        effect = jnp.stack(
+            [
+                jnp.full((horizon_steps,), 1.5, dtype=jnp.float32),
+                jnp.full((horizon_steps,), drift[0, 0] + 1.0, dtype=jnp.float32),
+            ],
+            axis=1,
+        )
+        return baseline, counterfactual, effect
+
     monkeypatch.setattr(tool_server, "forward_simulate_action_from_state", fake_forward)
+    monkeypatch.setattr(
+        tool_server,
+        "forward_simulate_latent_action_from_state",
+        fake_forward_latent,
+    )
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
@@ -157,18 +186,48 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     assert end_state["estimand"] == "end_state"
     assert end_state["summary"]["mean"] == pytest.approx(3.0)
     assert end_state["baseline_forecast_mean"] == pytest.approx(5.0)
-    assert end_state["counterfactual_forecast_mean"] == pytest.approx(15.0)
-    assert end_state["temporal"] is None
     assert end_state["effect_trajectory"] is None
+    assert "counterfactual_forecast_mean" not in end_state
+    assert "temporal" not in end_state
+    assert end_state["evidence"] == {
+        "start_time": "2024-01-01T00:00:00+00:00",
+        "end_time": "2024-01-03T00:00:00+00:00",
+        "n_timepoints": 3,
+        "variables": [],
+        "conditioning_method": "kalman_smoother",
+    }
+    assert end_state["visualization"] == {
+        "node_effect_trajectories": None,
+        "abducted_state": {"treat": 0.0, "outcome": 0.0},
+    }
 
     assert trajectory["estimand"] == "trajectory"
     assert trajectory["summary"]["mean"] == pytest.approx(3.0)
-    assert trajectory["temporal"]["peak_effect"] == pytest.approx(3.0)
     assert trajectory["effect_trajectory"] == [
         {"day": 1.0, "effect": 3.0},
         {"day": 2.0, "effect": 3.0},
         {"day": 3.0, "effect": 3.0},
     ]
+    assert "temporal" not in trajectory
+    assert trajectory["visualization"] == {
+        "node_effect_trajectories": {
+            "treat": [1.5, 1.5, 1.5],
+            "outcome": [3.0, 3.0, 3.0],
+        },
+        "abducted_state": {"treat": 0.0, "outcome": 0.0},
+    }
+
+
+def test_get_tool_schemas_exposes_declared_result_schema():
+    client = TestClient(tool_server.app)
+
+    response = client.get("/api/tools/stage-6")
+
+    assert response.status_code == 200
+    tools = {tool["name"]: tool for tool in response.json()}
+    assert tools["get_model_info"]["result"] is None
+    assert tools["simulate_intervention"]["result"] is not None
+    assert tools["simulate_counterfactual"]["result"] is not None
 
 
 def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():
@@ -233,8 +292,12 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
         "stage-4b": {},
         "stage-5b": {"inference_metadata": {"method": "svi"}},
         "stage-6": {},
-        "_prepared_runtime": SimpleNamespace(manifest_names=["daily_event_count", "sleep_issue_searches"]),
-        "_fitted_artifact": SimpleNamespace(builder=SimpleNamespace(_spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))),
+        "_prepared_runtime": SimpleNamespace(
+            manifest_names=["daily_event_count", "sleep_issue_searches"]
+        ),
+        "_fitted_artifact": SimpleNamespace(
+            builder=SimpleNamespace(_spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))
+        ),
         "_identifiable_treatments": ["screen_time"],
         "_outcome_name": "sleep",
         "_observation_timestamps": [],

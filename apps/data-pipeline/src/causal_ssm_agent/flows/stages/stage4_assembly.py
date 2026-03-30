@@ -18,6 +18,8 @@ from causal_ssm_agent.flows import get_prefect_logger
 if TYPE_CHECKING:
     import polars as pl
 
+    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+
 logger = get_prefect_logger(__name__)
 
 
@@ -28,16 +30,23 @@ class AssemblyValidation:
     normalized_model_spec: dict[str, Any] | None = None
     compile_ok: bool = True
     compile_error: str | None = None
-    compile_warnings: list[dict[str, str]] = field(default_factory=list)
     compiled_ssm: dict[str, Any] | None = None
     pp_checked: bool = False
     pp_valid: bool = True
-    pp_results: list = field(default_factory=list)  # list[PriorValidationResult]
+    diagnostics: list[PriorValidationResult] = field(default_factory=list)
     pp_raw_samples: Any = None
 
     @property
     def is_valid(self) -> bool:
         return self.compile_ok and self.pp_valid
+
+    @property
+    def compile_diagnostics(self) -> list[PriorValidationResult]:
+        return [d for d in self.diagnostics if d.origin == "compile"]
+
+    @property
+    def prior_predictive_diagnostics(self) -> list[PriorValidationResult]:
+        return [d for d in self.diagnostics if d.origin == "prior_predictive"]
 
 
 def validate_assembly(
@@ -71,7 +80,7 @@ def validate_assembly(
                 compile_ok=False,
                 compile_error=str(exc),
             )
-        compile_warnings = _collect_compile_warnings(compiled_ssm)
+        compile_diagnostics = _collect_compile_diagnostics(compiled_ssm)
     else:
         compile_error = trial_compile_model_spec(candidate, causal_spec)
         if compile_error:
@@ -81,7 +90,7 @@ def validate_assembly(
                 compile_error=compile_error,
             )
         compiled_ssm = None
-        compile_warnings = []
+        compile_diagnostics = []
 
     if authored_priors and data_for_model is not None:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
@@ -96,17 +105,16 @@ def validate_assembly(
         )
         return AssemblyValidation(
             normalized_model_spec=candidate,
-            compile_warnings=compile_warnings,
             compiled_ssm=compiled_ssm,
             pp_checked=True,
             pp_valid=is_valid,
-            pp_results=results,
+            diagnostics=[*compile_diagnostics, *results],
             pp_raw_samples=raw_samples,
         )
 
     return AssemblyValidation(
         normalized_model_spec=candidate,
-        compile_warnings=compile_warnings,
+        diagnostics=compile_diagnostics,
         compiled_ssm=compiled_ssm,
     )
 
@@ -117,13 +125,18 @@ def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
     return candidate
 
 
-def _collect_compile_warnings(compiled_ssm: dict[str, Any]) -> list[dict[str, str]]:
-    """Collect non-fatal compiler-owned diagnostics for Stage 4 feedback."""
-    diagnostics = compiled_ssm.get("compile_diagnostics") or {}
-    return [
-        *(diagnostics.get("interval_provenance_warnings") or []),
-        *(diagnostics.get("dynamic_plausibility_warnings") or []),
-    ]
+def _collect_compile_diagnostics(compiled_ssm: dict[str, Any]) -> list[PriorValidationResult]:
+    """Collect typed compiler-owned diagnostics for Stage 4 feedback."""
+    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+
+    diagnostics = compiled_ssm.get("compile_diagnostics") or []
+    typed: list[PriorValidationResult] = []
+    for diagnostic in diagnostics:
+        if isinstance(diagnostic, PriorValidationResult):
+            typed.append(diagnostic)
+        else:
+            typed.append(PriorValidationResult.model_validate(diagnostic))
+    return typed
 
 
 def _indicator_audit_scale_stats(
@@ -260,22 +273,22 @@ def build_validation_payload(
             "prior_predictive_samples": {},
         }
 
-    results = [result.model_dump() for result in validation.pp_results]
+    all_results = [result.model_dump() for result in validation.diagnostics]
     global_results = [
         result
-        for result in validation.pp_results
+        for result in validation.prior_predictive_diagnostics
         if not result.is_valid and result.parameter in GLOBAL_FAILURE_SITES
     ]
     warnings = _collect_validation_warning_messages(validation)
     return {
         "is_valid": validation.pp_valid,
-        "results": results,
+        "results": all_results,
         "issues": (
             [_format_global_failure_summary(global_results)]
             if global_results
             else [
                 result.issue
-                for result in validation.pp_results
+                for result in validation.prior_predictive_diagnostics
                 if not result.is_valid and result.issue
             ]
         ),
@@ -338,6 +351,16 @@ def _format_global_failure_summary(results: list) -> str:
         lines.append(f"- {summarized_issue}")
         if r.suggested_adjustment:
             lines.append(f"  Suggested: {r.suggested_adjustment}")
+        if r.related_parameters:
+            related = ", ".join(f"`{name}`" for name in r.related_parameters[:4])
+            if len(r.related_parameters) > 4:
+                related += f", +{len(r.related_parameters) - 4} more"
+            lines.append(f"  Related parameters: {related}")
+        if r.supporting_codes:
+            codes = ", ".join(f"`{code}`" for code in r.supporting_codes[:4])
+            if len(r.supporting_codes) > 4:
+                codes += f", +{len(r.supporting_codes) - 4} more"
+            lines.append(f"  Supporting diagnostics: {codes}")
 
     # Heuristic: observation-support errors are model_spec issues, not prior issues.
     issues_text = " ".join(r.issue or "" for r in results)
@@ -353,28 +376,23 @@ def _format_global_failure_summary(results: list) -> str:
 
 
 def _collect_validation_warning_messages(validation: AssemblyValidation) -> list[str]:
-    """Flatten compile and prior-predictive warnings into user-facing text."""
+    """Flatten warning diagnostics into user-facing text."""
     messages = [
-        warning.get("issue")
-        for warning in validation.compile_warnings
-        if isinstance(warning, dict) and warning.get("issue")
-    ]
-    messages.extend(
         result.issue
-        for result in validation.pp_results
-        if getattr(result, "severity", "error") == "warning" and result.issue
-    )
+        for result in validation.diagnostics
+        if result.severity == "warning" and result.issue
+    ]
     return [message for message in messages if isinstance(message, str)]
 
 
 def _format_validation_warnings(validation: AssemblyValidation) -> str:
-    """Render non-fatal compile and prior-predictive warnings."""
+    """Render non-fatal validation diagnostics."""
     from causal_ssm_agent.models.prior_predictive import format_parameter_warnings
 
     parts: list[str] = []
-    for warning in validation.compile_warnings:
-        issue = warning.get("issue")
-        suggested = warning.get("suggested_adjustment")
+    for warning in validation.compile_diagnostics:
+        issue = warning.issue
+        suggested = warning.suggested_adjustment
         if issue:
             lines = [f"- {issue}"]
             if suggested:
@@ -384,12 +402,15 @@ def _format_validation_warnings(validation: AssemblyValidation) -> str:
     warning_params = sorted(
         {
             result.parameter
-            for result in validation.pp_results
-            if getattr(result, "severity", "error") == "warning"
+            for result in validation.prior_predictive_diagnostics
+            if result.severity == "warning"
         }
     )
     for parameter in warning_params:
-        warning_block = format_parameter_warnings(parameter, validation.pp_results)
+        warning_block = format_parameter_warnings(
+            parameter,
+            validation.prior_predictive_diagnostics,
+        )
         if warning_block:
             parts.append(warning_block)
 
@@ -477,6 +498,7 @@ def materialize_stage4_result(
         "authored_priors": authored_priors,
         "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
+        "validation_warnings": validation_result.get("warnings") or None,
         "_causal_spec": causal_spec,
         "prior_predictive_samples": validation_result.get("prior_predictive_samples", {}),
     }
@@ -510,10 +532,15 @@ def format_validation_feedback(
 
     # Global failures → single concise summary, not one block per parameter
     global_results = [
-        r for r in validation.pp_results if not r.is_valid and r.parameter in GLOBAL_FAILURE_SITES
+        r
+        for r in validation.prior_predictive_diagnostics
+        if not r.is_valid and r.parameter in GLOBAL_FAILURE_SITES
     ]
     if global_results:
-        return f"PRIOR PREDICTIVE FEEDBACK:\n{_format_global_failure_summary(global_results)}"
+        details = _format_global_failure_summary(global_results)
+        if warning_feedback:
+            details = f"{details}\n\n{warning_feedback}"
+        return f"PRIOR PREDICTIVE FEEDBACK:\n{details}"
 
     from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
 
@@ -522,7 +549,7 @@ def format_validation_feedback(
     for param_name in params:
         fb = format_parameter_feedback(
             parameter_name=param_name,
-            results=validation.pp_results,
+            results=validation.prior_predictive_diagnostics,
             prior=authored_priors.get(param_name),
             data_stats=data_stats,
         )
