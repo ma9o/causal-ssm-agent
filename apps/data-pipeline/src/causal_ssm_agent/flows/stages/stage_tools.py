@@ -263,7 +263,12 @@ def stage4_grounding(
     )
 
     if validation.is_valid:
-        return output, "VALID"
+        feedback = format_validation_feedback(
+            validation,
+            authored_priors or {},
+            changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
+        )
+        return output, feedback
 
     feedback = format_validation_feedback(
         validation,

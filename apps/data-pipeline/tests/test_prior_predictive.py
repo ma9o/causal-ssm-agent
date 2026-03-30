@@ -13,6 +13,7 @@ import pytest
 from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
+    _check_lagged_response_plausibility,
     _check_nan_inf,
     compute_data_stats,
     format_parameter_feedback,
@@ -24,6 +25,7 @@ from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
 from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
+from causal_ssm_agent.models.ssm_compiler import serialize_ssm_spec
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
@@ -227,13 +229,53 @@ class TestGetFailedParameters:
         failed = get_failed_parameters(results, params)
         assert set(failed) == {"alpha", "beta"}
 
+
+# =============================================================================
+# _check_lagged_response_plausibility
+# =============================================================================
+
+
+class TestCheckLaggedResponsePlausibility:
+    def test_near_zero_one_lag_response_yields_warning(self):
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["stress", "sleep"],
+            drift_mask=np.array([[True, False], [True, True]]),
+        )
+        samples = {
+            "drift": jnp.asarray(
+                [
+                    [[-0.5, 0.0], [0.001, -0.5]],
+                    [[-0.6, 0.0], [0.002, -0.4]],
+                    [[-0.4, 0.0], [0.0015, -0.6]],
+                ],
+                dtype=jnp.float32,
+            )
+        }
+        compiled_ssm = {"spec": serialize_ssm_spec(spec)}
+        causal_spec = {
+            "latent": {"constructs": [], "edges": []},
+            "measurement": {"model_clock": "1d"},
+            "estimation": {
+                "state_order": ["stress", "sleep"],
+                "edges": [{"cause": "stress", "effect": "sleep", "lagged": True}],
+            },
+        }
+
+        results = _check_lagged_response_plausibility(samples, compiled_ssm, causal_spec)
+
+        assert len(results) == 1
+        assert results[0].parameter == "beta_stress_sleep"
+        assert results[0].severity == "warning"
+        assert results[0].is_valid is True
+        assert "one-lag response" in (results[0].issue or "")
+
     def test_nuisance_site_skipped(self):
         results = [PriorValidationResult(parameter="cint_pop", is_valid=False, issue="something")]
         failed = get_failed_parameters(results, ["alpha", "beta"])
-        # cint_pop is nuisance → doesn't match any param, but also doesn't
-        # trigger blanket. Falls through to returning all.
-        # (The function returns all params if no match is found)
-        assert isinstance(failed, list)
+        # cint_pop is nuisance → skipped, no other matches → falls back to all params
+        assert set(failed) == {"alpha", "beta"}
 
     def test_keyword_matching(self):
         results = [

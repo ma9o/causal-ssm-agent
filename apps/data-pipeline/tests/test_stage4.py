@@ -818,7 +818,7 @@ def test_stage4_generate_config_removes_stage4_caps(monkeypatch):
     config = _stage4_generate_config()
 
     assert config.max_tokens is None
-    assert config.timeout == 321
+    assert config.timeout == 120
     assert config.reasoning_effort == "high"
     assert config.max_tool_output is None
 
@@ -1219,12 +1219,12 @@ class TestPriorPredictiveValidation:
         assert seen_compiled == [compiled_artifact]
         assert validation.compiled_ssm == compiled_artifact
 
-    def test_validate_assembly_rejects_lagged_prior_mismatches_before_prior_predictive(
+    def test_validate_assembly_keeps_lagged_prior_mismatches_as_warnings(
         self,
         simple_model_spec,
         simple_priors,
     ):
-        """Lagged DT/CT mismatches should fail before prior predictive sampling."""
+        """Lagged DT/CT heuristics should surface as warnings, not compile errors."""
         from causal_ssm_agent.flows.stages.stage4_assembly import validate_assembly
 
         compiled_artifact = {
@@ -1239,22 +1239,20 @@ class TestPriorPredictiveValidation:
                 return_value=compiled_artifact,
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4_assembly._format_compile_diagnostics_feedback",
-                return_value=(
-                    "PRIOR INTERVAL/STABILITY ERRORS:\n"
-                    "- beta_stress_sleep: The authored prior is being treated as an effect over "
-                    "1.0d (`reference_interval_days` omitted, so the prior is being interpreted "
-                    "on the default model interval (1.0d)). After interval normalization, it "
-                    "implies a characteristic timescale of 10.0d for stress->sleep, which is "
-                    "too weak/slow for a 1.0d lagged edge (10x mismatch).\n"
-                    "  Suggested: Keep `params` on the interval you actually want to author. If "
-                    "the evidence comes from a longer study interval, set "
-                    "`reference_interval_days` to that interval. Otherwise change the prior "
-                    "mean/sigma on the current authored interval scale so the normalized "
-                    "one-step effect matches this lagged edge."
-                ),
+                "causal_ssm_agent.flows.stages.stage4_assembly._collect_compile_warnings",
+                return_value=[
+                    {
+                        "parameter": "beta_stress_sleep",
+                        "category": "dynamic_plausibility",
+                        "issue": "Median one-lag response is much slower than the nominal lag.",
+                        "suggested_adjustment": "Confirm that this slow response is intended.",
+                    }
+                ],
             ),
-            patch("causal_ssm_agent.models.prior_predictive.validate_prior_predictive") as pp_mock,
+            patch(
+                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                return_value=(True, [], {}),
+            ) as pp_mock,
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -1264,9 +1262,17 @@ class TestPriorPredictiveValidation:
                 {"measurement": {"model_clock": "1d"}},
             )
 
-        assert validation.compile_ok is False
-        assert "PRIOR INTERVAL/STABILITY ERRORS" in validation.compile_error
-        pp_mock.assert_not_called()
+        assert validation.compile_ok is True
+        assert validation.pp_valid is True
+        assert validation.compile_warnings == [
+            {
+                "parameter": "beta_stress_sleep",
+                "category": "dynamic_plausibility",
+                "issue": "Median one-lag response is much slower than the nominal lag.",
+                "suggested_adjustment": "Confirm that this slow response is intended.",
+            }
+        ]
+        pp_mock.assert_called_once()
 
     def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
         self,
@@ -1982,6 +1988,13 @@ class TestSSMPriorConversion:
             "beta_stress_sleep": {
                 "distribution": "Normal",
                 "params": {"mu": 0.1, "sigma": 0.05},
+                "sources": [
+                    {
+                        "title": "Weekly study",
+                        "snippet": "Observed at weekly intervals.",
+                        "study_interval_days": 7.0,
+                    }
+                ],
             },
         }
         ssm_spec = SSMSpec(
@@ -1998,11 +2011,11 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        issues = diagnostics["lagged_drift_prior_issues"]
-        assert len(issues) == 1
-        assert "`reference_interval_days` omitted" in issues[0]["issue"]
-        assert "default model interval (1.0d)" in issues[0]["issue"]
-        assert "current authored interval scale" in issues[0]["suggested_adjustment"]
+        warnings = diagnostics["interval_provenance_warnings"]
+        assert len(warnings) == 1
+        assert "`reference_interval_days` is omitted" in warnings[0]["issue"]
+        assert "default model interval (1.0d)" in warnings[0]["issue"]
+        assert "`reference_interval_days`" in warnings[0]["suggested_adjustment"]
 
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
@@ -2037,6 +2050,13 @@ class TestSSMPriorConversion:
                 "distribution": "Normal",
                 "params": {"mu": 0.3, "sigma": 0.15},
                 "reference_interval_days": 7.0,
+                "sources": [
+                    {
+                        "title": "Daily study",
+                        "snippet": "Observed at daily intervals.",
+                        "study_interval_days": 1.0,
+                    }
+                ],
             },
         }
         ssm_spec = SSMSpec(
@@ -2053,10 +2073,10 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        issues = diagnostics["lagged_drift_prior_issues"]
-        assert len(issues) == 1
-        assert "`reference_interval_days=7.0`" in issues[0]["issue"]
-        assert "effect over 7.0d" in issues[0]["issue"]
+        warnings = diagnostics["interval_provenance_warnings"]
+        assert len(warnings) == 1
+        assert "`reference_interval_days`" in warnings[0]["issue"]
+        assert "7.0d" in warnings[0]["issue"]
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""

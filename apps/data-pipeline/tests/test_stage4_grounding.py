@@ -176,20 +176,6 @@ def priors(model_spec):
 
 
 # ---------------------------------------------------------------------------
-# Check 0: input validation
-# ---------------------------------------------------------------------------
-
-
-class TestStage4GroundingInputValidation:
-    """Neither model_spec nor priors → error."""
-
-    def test_empty_data_returns_error(self, causal_spec):
-        output, feedback = stage4_grounding({}, causal_spec)
-        assert output is None
-        assert "model_spec" in feedback and "priors" in feedback
-
-
-# ---------------------------------------------------------------------------
 # Schema validation
 # ---------------------------------------------------------------------------
 
@@ -223,9 +209,7 @@ class TestStage4PriorSourceGuidance:
         feedback = format_prior_proposal_errors(
             {
                 "beta_stress_sleep": (
-                    "1 validation error for PriorProposal\n"
-                    "sources.0.title\n"
-                    "  Field required"
+                    "1 validation error for PriorProposal\nsources.0.title\n  Field required"
                 )
             }
         )
@@ -386,6 +370,70 @@ class TestStage4GroundingCompileOwnership:
         assert "lower bound is -1" in feedback
         assert "upper bound is 2" in feedback
         assert "bogus_param" in feedback
+
+    def test_non_fatal_modeling_warnings_are_returned_without_rejecting_state(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        validation = AssemblyValidation(
+            normalized_model_spec={
+                "likelihoods": [],
+                "parameters": [
+                    {
+                        "name": "beta_stress_sleep",
+                        "role": "fixed_effect",
+                        "constraint": "none",
+                    }
+                ],
+            },
+            compile_ok=True,
+            compile_warnings=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "category": "interval_provenance",
+                    "issue": "The cited evidence is weekly but the prior is being interpreted daily.",
+                    "suggested_adjustment": "Set `reference_interval_days` if the weekly interval is intended.",
+                }
+            ],
+            compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
+            pp_checked=True,
+            pp_valid=True,
+        )
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return validation
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [],
+        )
+
+        current = {"model_spec": validation.normalized_model_spec}
+        priors = {
+            "beta_stress_sleep": {
+                "parameter": "beta_stress_sleep",
+                "distribution": "Normal",
+                "params": {"mu": 0.1, "sigma": 0.2},
+                "sources": [],
+                "reasoning": "test prior",
+            }
+        }
+
+        output, feedback = stage4_grounding(
+            {"priors": priors},
+            causal_spec={},
+            current=current,
+            data_for_model=None,
+            indicator_audits=None,
+        )
+
+        assert output is not None
+        assert output["validation"] is validation
+        assert "MODELING WARNINGS" in feedback
+        assert "weekly" in feedback
 
     def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
         from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation

@@ -21,6 +21,7 @@ from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
+CompileDiagnostic = dict[str, str]
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -55,14 +56,135 @@ def _drift_parameter_name(
     return f"beta_{cause_name}_{effect_name}", cause_name, effect_name
 
 
-def collect_lagged_drift_prior_issues(
+def _format_interval_days(days: float) -> str:
+    """Render a positive day interval for diagnostics."""
+    return f"{float(days):.1f}d"
+
+
+def _collect_source_intervals(prior_spec: dict[str, Any]) -> list[float]:
+    """Extract positive `study_interval_days` metadata from prior sources."""
+    intervals: list[float] = []
+    for source in prior_spec.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        value = source.get("study_interval_days")
+        try:
+            days = float(value)
+        except (TypeError, ValueError):
+            continue
+        if days > 0:
+            intervals.append(days)
+    return sorted(intervals)
+
+
+def _interval_ratio(lhs: float, rhs: float) -> float:
+    """Return the larger/smaller ratio for two positive intervals."""
+    return max(lhs, rhs) / max(min(lhs, rhs), NUMERICAL_EPSILON)
+
+
+def collect_interval_provenance_warnings(
+    ssm_spec: SSMSpec,
+    *,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+    raw_priors: dict[str, dict] | None = None,
+) -> list[CompileDiagnostic]:
+    """Collect deterministic interval-authoring diagnostics for lagged drift priors."""
+    edge_lags = edge_lag_days or {}
+    if not edge_lags:
+        return []
+
+    positions = _iter_offdiag_positions(ssm_spec)
+    warnings: list[CompileDiagnostic] = []
+
+    for effect_idx, cause_idx in positions:
+        if (effect_idx, cause_idx) not in edge_lags:
+            continue
+
+        parameter_name, cause_name, effect_name = _drift_parameter_name(
+            ssm_spec,
+            effect_idx,
+            cause_idx,
+        )
+        expected_lag_days = edge_lags[(effect_idx, cause_idx)]
+        prior_spec = (raw_priors or {}).get(parameter_name) or {}
+        ref_days = prior_spec.get("reference_interval_days")
+        source_intervals = _collect_source_intervals(prior_spec)
+        if not source_intervals:
+            continue
+
+        unique_source_intervals = sorted(dict.fromkeys(source_intervals))
+        if len(unique_source_intervals) > 1 and _interval_ratio(
+            unique_source_intervals[0], unique_source_intervals[-1]
+        ) > 2.0:
+            rendered = ", ".join(_format_interval_days(days) for days in unique_source_intervals)
+            warnings.append(
+                {
+                    "parameter": parameter_name,
+                    "category": "interval_provenance",
+                    "issue": (
+                        f"Cited sources for {cause_name}->{effect_name} mix materially different "
+                        f"study intervals ({rendered}), so the authored interval provenance is weak."
+                    ),
+                    "suggested_adjustment": (
+                        "Use sources measured on a comparable interval when possible, or explain "
+                        "which interval the prior is expressed on with `reference_interval_days`."
+                    ),
+                }
+            )
+
+        source_interval_days = unique_source_intervals[0]
+        if ref_days is None and _interval_ratio(source_interval_days, expected_lag_days) > 2.0:
+            warnings.append(
+                {
+                    "parameter": parameter_name,
+                    "category": "interval_provenance",
+                    "issue": (
+                        f"`reference_interval_days` is omitted, so {parameter_name} is being "
+                        f"interpreted on the default model interval ({_format_interval_days(expected_lag_days)}), "
+                        f"but the cited evidence for {cause_name}->{effect_name} is on "
+                        f"{_format_interval_days(source_interval_days)}."
+                    ),
+                    "suggested_adjustment": (
+                        "If the authored effect is meant to be on the source study interval, set "
+                        "`reference_interval_days` to that interval. Otherwise explain why a "
+                        "daily-scale prior is appropriate."
+                    ),
+                }
+            )
+        elif ref_days is not None:
+            try:
+                authored_interval_days = float(ref_days)
+            except (TypeError, ValueError):
+                continue
+            if authored_interval_days > 0 and _interval_ratio(authored_interval_days, source_interval_days) > 2.0:
+                warnings.append(
+                    {
+                        "parameter": parameter_name,
+                        "category": "interval_provenance",
+                        "issue": (
+                            f"{parameter_name} is authored on "
+                            f"{_format_interval_days(authored_interval_days)} via `reference_interval_days`, "
+                            f"but the cited evidence for {cause_name}->{effect_name} is on "
+                            f"{_format_interval_days(source_interval_days)}."
+                        ),
+                        "suggested_adjustment": (
+                            "Confirm that the prior was intentionally rescaled to the authored interval, "
+                            "or align `reference_interval_days` with the evidence interval."
+                        ),
+                    }
+                )
+
+    return warnings
+
+
+def collect_lagged_response_warnings(
     ssm_priors: SSMPriors,
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
-) -> list[dict[str, str]]:
-    """Collect lagged-edge DT/CT diagnostics that should stop Stage 4 retries early."""
+) -> list[CompileDiagnostic]:
+    """Collect non-fatal lagged-response heuristics from compiled drift means."""
     edge_lags = edge_lag_days or {}
     if not edge_lags:
         return []
@@ -80,8 +202,8 @@ def collect_lagged_drift_prior_issues(
     if not offdiag_mu:
         return []
 
+    warnings: list[CompileDiagnostic] = []
     positions = _iter_offdiag_positions(ssm_spec)
-    issues_by_parameter: dict[str, list[str]] = {}
 
     for flat_idx, (effect_idx, cause_idx) in enumerate(positions):
         if flat_idx >= len(offdiag_mu) or (effect_idx, cause_idx) not in edge_lags:
@@ -93,56 +215,46 @@ def collect_lagged_drift_prior_issues(
             cause_idx,
         )
         offdiag_abs = abs(float(offdiag_mu[flat_idx]))
-
         if offdiag_abs < NUMERICAL_EPSILON:
             continue
 
         expected_lag_days = edge_lags[(effect_idx, cause_idx)]
         implied_timescale_days = 1.0 / offdiag_abs
-        ratio = max(implied_timescale_days, expected_lag_days) / max(
-            min(implied_timescale_days, expected_lag_days),
-            NUMERICAL_EPSILON,
-        )
-        if ratio > 5.0:
-            prior_spec = (raw_priors or {}).get(parameter_name) or {}
-            ref_days = prior_spec.get("reference_interval_days")
-            authored_interval_days = (
-                float(ref_days)
-                if ref_days is not None and float(ref_days) > 0
-                else expected_lag_days
-            )
-            interval_source = (
-                f"`reference_interval_days={authored_interval_days:.1f}`"
-                if ref_days is not None and float(ref_days) > 0
-                else (
-                    "`reference_interval_days` omitted, so the prior is being interpreted on "
-                    f"the default model interval ({expected_lag_days:.1f}d)"
-                )
-            )
-            strength_note = (
-                "too weak/slow" if implied_timescale_days > expected_lag_days else "too strong/fast"
-            )
-            issues_by_parameter.setdefault(parameter_name, []).append(
-                f"The authored prior is being treated as an effect over {authored_interval_days:.1f}d "
-                f"({interval_source}). After interval normalization, it implies a characteristic "
-                f"timescale of {implied_timescale_days:.1f}d for {cause_name}->{effect_name}, "
-                f"which is {strength_note} for a {expected_lag_days:.1f}d lagged edge "
-                f"({ratio:.0f}x mismatch)."
-            )
+        ratio = _interval_ratio(implied_timescale_days, expected_lag_days)
+        if ratio <= 5.0:
+            continue
 
-    return [
-        {
-            "parameter": parameter,
-            "issue": " ".join(messages),
-            "suggested_adjustment": (
-                "Keep `params` on the interval you actually want to author. If the evidence "
-                "comes from a longer study interval, set `reference_interval_days` to that "
-                "interval. Otherwise change the prior mean/sigma on the current authored "
-                "interval scale so the normalized one-step effect matches this lagged edge."
-            ),
-        }
-        for parameter, messages in issues_by_parameter.items()
-    ]
+        prior_spec = (raw_priors or {}).get(parameter_name) or {}
+        ref_days = prior_spec.get("reference_interval_days")
+        try:
+            authored_interval_days = float(ref_days) if ref_days is not None else expected_lag_days
+        except (TypeError, ValueError):
+            authored_interval_days = expected_lag_days
+        if authored_interval_days <= 0:
+            authored_interval_days = expected_lag_days
+        strength_note = (
+            "much slower/weaker" if implied_timescale_days > expected_lag_days else "much faster/stronger"
+        )
+        warnings.append(
+            {
+                "parameter": parameter_name,
+                "category": "dynamic_plausibility",
+                "issue": (
+                    f"Using the compiled prior mean for {cause_name}->{effect_name}, the implied "
+                    f"response timescale is about {_format_interval_days(implied_timescale_days)} "
+                    f"after normalization from the authored interval "
+                    f"({_format_interval_days(authored_interval_days)}). That is {strength_note} "
+                    f"than the nominal lag of {_format_interval_days(expected_lag_days)} "
+                    f"({ratio:.0f}x)."
+                ),
+                "suggested_adjustment": (
+                    "Treat this as a modeling warning, not a compile failure. Confirm that a slow "
+                    "or fast lag response is substantively intended, or revise the prior scale."
+                ),
+            }
+        )
+
+    return warnings
 
 
 def collect_compile_diagnostics(
@@ -154,17 +266,24 @@ def collect_compile_diagnostics(
 ) -> dict[str, list[dict[str, str]]]:
     """Collect structured compiler diagnostics for downstream consumers."""
     return {
-        "lagged_drift_prior_issues": collect_lagged_drift_prior_issues(
+        "interval_provenance_warnings": collect_interval_provenance_warnings(
+            ssm_spec,
+            edge_lag_days=edge_lag_days,
+            raw_priors=raw_priors,
+        ),
+        "dynamic_plausibility_warnings": collect_lagged_response_warnings(
             ssm_priors,
             ssm_spec,
             edge_lag_days=edge_lag_days,
             raw_priors=raw_priors,
-        )
+        ),
     }
 
 
 def _log_compile_diagnostics(diagnostics: dict[str, list[dict[str, str]]]) -> None:
-    for issue in diagnostics.get("lagged_drift_prior_issues") or []:
+    for issue in diagnostics.get("interval_provenance_warnings") or []:
+        logger.warning("%s: %s", issue["parameter"], issue["issue"])
+    for issue in diagnostics.get("dynamic_plausibility_warnings") or []:
         logger.warning("%s: %s", issue["parameter"], issue["issue"])
 
 
@@ -393,7 +512,10 @@ def compile_priors(
         result = build_array_prior_payload(attr, entries, current, ssm_spec)
         setattr(ssm_priors, attr, result)
 
-    diagnostics: dict[str, list[dict[str, str]]] = {"lagged_drift_prior_issues": []}
+    diagnostics: dict[str, list[dict[str, str]]] = {
+        "interval_provenance_warnings": [],
+        "dynamic_plausibility_warnings": [],
+    }
     warn_first_order_approximation(ssm_priors)
     if ssm_spec is not None:
         diagnostics = collect_compile_diagnostics(
