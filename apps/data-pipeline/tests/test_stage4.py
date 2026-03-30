@@ -3230,6 +3230,215 @@ class TestStage4Mechanics:
         assert "cor0_activity_sleep" in runtime.accepted.authored_priors
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
+    def test_compute_stage4_validate_step_escalates_unattributed_global_failure_to_prior_review(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "effects:sleep"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+            },
+        )
+        effect_payload = {
+            "block_id": "effects:sleep",
+            "block_kind": "effect_prior",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "global repair trigger",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue="NaN/Inf detected in sample sites: observations",
+                            suggested_adjustment="Check for degenerate priors",
+                            related_parameters=["drift_offdiag"],
+                            supporting_codes=["dt_ct_approximation_warning"],
+                        )
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            effect_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert runtime.block_status["effects:sleep"] == "accepted"
+        assert runtime.block_status["review:prior_system"] == "reopened"
+        assert runtime.active_block_id == "review:prior_system"
+        assert runtime.phase == "global_prior_review"
+        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+
+    def test_compute_stage4_validate_step_raises_on_repeated_unattributed_global_prior_review_failure(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "global_prior_review"
+        runtime.active_block_id = "review:prior_system"
+        runtime.block_status["review:prior_system"] = "reopened"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {"distribution": "Normal"},
+                "cor0_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        review_payload = {
+            "block_id": "review:prior_system",
+            "block_kind": "global_prior_review",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.15},
+                        "sources": [],
+                        "reasoning": "global repair attempt",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue="NaN/Inf detected in sample sites: observations",
+                            suggested_adjustment="Check for degenerate priors",
+                            related_parameters=["drift_offdiag"],
+                            supporting_codes=["dt_ct_approximation_warning"],
+                        )
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        _apply_stage4_step_and_capture(
+            review_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        with pytest.raises(ValueError, match="same prior-predictive failure twice"):
+            _apply_stage4_step_and_capture(
+                review_payload,
+                plan,
+                runtime,
+                skeleton=skeleton,
+                causal_spec=causal_spec,
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            )
+
     def test_compute_stage4_validate_step_rejects_calls_after_completion(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
         runtime.accepted = Stage4AcceptedState(
@@ -3929,6 +4138,16 @@ class TestStage4Mechanics:
                         compile_ok=True,
                         pp_checked=True,
                         pp_valid=False,
+                        diagnostics=[
+                            PriorValidationResult(
+                                parameter="rho_sleep",
+                                is_valid=False,
+                                code=f"local_prior_adjustment_{prior_attempts}",
+                                origin="prior_predictive",
+                                issue="Sleep persistence prior still needs adjustment",
+                                suggested_adjustment="Tighten the active dynamics prior",
+                            )
+                        ],
                     ),
                 }, "PRIOR PREDICTIVE FEEDBACK:\n- still failing"
 

@@ -67,6 +67,7 @@ class Stage4Plan:
     model_blocks: tuple[Stage4FrontierBlock, ...] = ()
     review_block: Stage4FrontierBlock | None = None
     prior_blocks: tuple[Stage4FrontierBlock, ...] = ()
+    prior_review_block: Stage4FrontierBlock | None = None
     blocks_by_id: dict[str, Stage4FrontierBlock] = field(default_factory=dict)
     parameter_to_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
@@ -77,7 +78,8 @@ class Stage4Plan:
     def all_blocks(self) -> tuple[Stage4FrontierBlock, ...]:
         """Return all blocks in deterministic execution order."""
         review = (self.review_block,) if self.review_block is not None else ()
-        return (*self.model_blocks, *review, *self.prior_blocks)
+        prior_review = (self.prior_review_block,) if self.prior_review_block is not None else ()
+        return (*self.model_blocks, *review, *self.prior_blocks, *prior_review)
 
     def get_block(self, block_id: str) -> Stage4FrontierBlock | None:
         """Return a block by id, if present."""
@@ -214,6 +216,27 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
+        allowed_tool_names=("validate_model",),
+    ),
+    "global_prior_review": Stage4PromptScopePolicy(
+        system_task=(
+            "Repair the full Stage 4 prior system after a global validation failure. "
+            "You may revise any prior parameters needed to resolve the failure, but do not "
+            "change likelihood or loading decisions."
+        ),
+        user_task=(
+            "Review the full accepted prior system shown below and revise any priors needed "
+            "to resolve the latest global validation failure. You may submit priors for any "
+            "Stage 4 parameter, but do not change model-form decisions."
+        ),
+        visible_sections=("construct_scale_cards", "prior_cards"),
+        guidance_section_keys=(
+            "prior_distribution_types",
+            "parameter_guidance",
+            "continuous_time_dynamics",
+            "lagged_effect_interval_guidance",
+        ),
+        parameter_guidance_prefixes=("lambda", "rho", "sigma", "beta", "cor"),
         allowed_tool_names=("validate_model",),
     ),
 }
@@ -569,7 +592,24 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             )
         )
 
-    blocks_by_id = {block.id: block for block in [*model_blocks, review_block, *prior_blocks]}
+    prior_review_block = Stage4FrontierBlock(
+        id="review:prior_system",
+        kind="global_prior_review",
+        label="Repair the full prior system after global validation failures",
+        construct_names=tuple(construct_order),
+        variable_names=tuple(indicator["name"] for indicator in indicators),
+        parameter_names=tuple(
+            sorted(
+                (parameter["name"] for parameter in skeleton.all_params),
+                key=param_order.__getitem__,
+            )
+        ),
+    )
+
+    blocks_by_id = {
+        block.id: block
+        for block in [*model_blocks, review_block, *prior_blocks, prior_review_block]
+    }
     parameter_to_block_id: dict[str, str] = {}
     indicator_to_decision_block_id: dict[str, str] = {}
     indicator_to_measurement_block_id: dict[str, str] = {}
@@ -596,6 +636,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         model_blocks=tuple(model_blocks),
         review_block=review_block,
         prior_blocks=tuple(prior_blocks),
+        prior_review_block=prior_review_block,
         blocks_by_id=blocks_by_id,
         parameter_to_block_id=parameter_to_block_id,
         indicator_to_decision_block_id=indicator_to_decision_block_id,
