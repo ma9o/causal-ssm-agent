@@ -221,11 +221,11 @@ def _serialize_effect_trajectory(trajectory: jnp.ndarray, dt_days: float) -> lis
     ]
 
 
-def _serialize_node_effect_trajectories(
-    effect_paths: jnp.ndarray,
+def _serialize_node_trajectories(
+    state_paths: jnp.ndarray,
     latent_names: list[str],
 ) -> dict[str, list[float]]:
-    mean_paths = jnp.mean(effect_paths, axis=0)
+    mean_paths = jnp.mean(state_paths, axis=0)
     return {
         name: [float(value) for value in mean_paths[:, idx].tolist()]
         for idx, name in enumerate(latent_names)
@@ -413,17 +413,36 @@ def _prepare_stage6_simulation(
 def _build_visualization_payload(
     latent_names: list[str],
     *,
+    reference_node_paths: jnp.ndarray | None = None,
+    action_node_paths: jnp.ndarray | None = None,
     node_effect_paths: jnp.ndarray | None = None,
     abducted_state: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
+    reference_node_trajectories = (
+        _serialize_node_trajectories(reference_node_paths, latent_names)
+        if reference_node_paths is not None
+        else None
+    )
+    action_node_trajectories = (
+        _serialize_node_trajectories(action_node_paths, latent_names)
+        if action_node_paths is not None
+        else None
+    )
     node_effect_trajectories = (
-        _serialize_node_effect_trajectories(node_effect_paths, latent_names)
+        _serialize_node_trajectories(node_effect_paths, latent_names)
         if node_effect_paths is not None
         else None
     )
-    if node_effect_trajectories is None and abducted_state is None:
+    if (
+        reference_node_trajectories is None
+        and action_node_trajectories is None
+        and node_effect_trajectories is None
+        and abducted_state is None
+    ):
         return None
     return {
+        "reference_node_trajectories": reference_node_trajectories,
+        "action_node_trajectories": action_node_trajectories,
         "node_effect_trajectories": node_effect_trajectories,
         "abducted_state": abducted_state,
     }
@@ -434,6 +453,8 @@ def _build_effect_outputs(
     *,
     effect_draws: jnp.ndarray | None = None,
     effect_paths: jnp.ndarray | None = None,
+    reference_node_paths: jnp.ndarray | None = None,
+    action_node_paths: jnp.ndarray | None = None,
     node_effect_paths: jnp.ndarray | None = None,
     abducted_state: dict[str, float] | None = None,
 ) -> Stage6EffectOutputs:
@@ -463,6 +484,8 @@ def _build_effect_outputs(
         effect_trajectory=effect_trajectory,
         visualization=_build_visualization_payload(
             setup.latent_names,
+            reference_node_paths=reference_node_paths,
+            action_node_paths=action_node_paths,
             node_effect_paths=node_effect_paths,
             abducted_state=abducted_state,
         ),
@@ -720,7 +743,7 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
     baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))
 
     if setup.query.get("estimand", "steady_state") == "trajectory":
-        _, _, node_effect_paths = jax.vmap(
+        baseline_state_paths, action_state_paths, effect_state_paths = jax.vmap(
             lambda d, c, s: forward_simulate_latent_action_from_state(
                 d,
                 c,
@@ -735,8 +758,10 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
         )(setup.drift_draws, setup.cint_draws, baseline_states)
         outputs = _build_effect_outputs(
             setup,
-            effect_paths=node_effect_paths[:, :, setup.outcome_idx],
-            node_effect_paths=node_effect_paths,
+            effect_paths=effect_state_paths[:, :, setup.outcome_idx],
+            reference_node_paths=baseline_state_paths,
+            action_node_paths=action_state_paths,
+            node_effect_paths=effect_state_paths,
         )
     else:
         outputs = _build_effect_outputs(
@@ -799,7 +824,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     estimand = str(setup.query.get("estimand", "end_state"))
 
     if estimand == "trajectory":
-        baseline_state_paths, _counterfactual_state_paths, effect_state_paths = jax.vmap(
+        baseline_state_paths, counterfactual_state_paths, effect_state_paths = jax.vmap(
             lambda d, c: forward_simulate_latent_action_from_state(
                 d,
                 c,
@@ -816,6 +841,8 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         outputs = _build_effect_outputs(
             setup,
             effect_paths=effect_state_paths[:, :, setup.outcome_idx],
+            reference_node_paths=baseline_state_paths,
+            action_node_paths=counterfactual_state_paths,
             node_effect_paths=effect_state_paths,
             abducted_state=abducted_state,
         )
