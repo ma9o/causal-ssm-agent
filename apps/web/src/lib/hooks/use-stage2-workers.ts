@@ -1,10 +1,7 @@
 "use client";
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
-import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import type { StageRunStatus } from "./use-run-events";
-import type { PrefectLogsResult } from "./use-stage-logs";
-import { useStageLogs } from "./use-stage-logs";
 import { useQuery } from "@tanstack/react-query";
 
 export interface Stage2Worker {
@@ -17,12 +14,7 @@ export interface Stage2Worker {
 
 export interface Stage2WorkerProgress {
   workers: Stage2Worker[];
-  logs: PrefectLogEntry[];
-  logBootstrapStatus: PrefectLogsResult["bootstrapStatus"];
-  logConnectionState: PrefectLogsResult["connectionState"];
 }
-
-const STAGE2_LOG_PAGE_SIZE = 500;
 
 export function getStage2WorkerQueryKey(
   workspaceId: string,
@@ -36,13 +28,13 @@ export function getStage2WorkerQueryKeyPrefix(workspaceId: string) {
 }
 
 /**
- * Stage-2 worker progress via WebSocket events + bootstrap/backfill + Prefect live log streaming.
+ * Stage-2 worker progress via WebSocket events.
  *
  * Worker states (submitted/completed/failed) arrive over the existing
  * WebSocket connection in use-run-events.ts and are written into the
  * ["pipeline", workspaceId, "stage2-workers", rootFlowRunId] query cache key.
  *
- * Logs are bootstrapped via REST once and then appended from Prefect's logs/out socket.
+ * Stage logs are handled by the shared stage shell via useStageLogs().
  */
 export function useStage2Workers(
   workspaceId: string,
@@ -60,13 +52,5 @@ export function useStage2Workers(
     staleTime: Infinity,
   });
 
-  const {
-    logs,
-    bootstrapStatus: logBootstrapStatus,
-    connectionState: logConnectionState,
-  } = useStageLogs(workspaceId, "stage-2", stageRun, stageStatus, {
-    pageSize: STAGE2_LOG_PAGE_SIZE,
-  });
-
-  return { workers, logs, logBootstrapStatus, logConnectionState };
+  return { workers };
 }

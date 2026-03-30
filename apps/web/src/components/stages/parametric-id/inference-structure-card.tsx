@@ -1,5 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { InferenceStructureResult } from "@causal-ssm/api-types";
+import type { ReactNode } from "react";
 
 interface InferenceStructureCardProps {
   inferenceStructure: InferenceStructureResult;
@@ -21,23 +23,34 @@ function PartitionSummary({
   particleLabel,
 }: PartitionSummaryProps) {
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
-        {kalmanCount > 0 && <div className="h-full bg-success" style={{ flex: kalmanCount }} />}
-        {particleCount > 0 && <div className="h-full bg-warning" style={{ flex: particleCount }} />}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
-        <span className="inline-block h-2.5 w-2.5 rounded-full bg-success" />
-        <span className="tabular-nums text-foreground">{kalmanCount}</span>
-        <span>{kalmanLabel}</span>
-        <span className="mx-1 text-muted-foreground/40">|</span>
-        <span className="inline-block h-2.5 w-2.5 rounded-full bg-warning" />
-        <span className="tabular-nums text-foreground">{particleCount}</span>
-        <span>{particleLabel}</span>
-      </div>
-    </div>
+    <SummaryItem
+      label={label}
+      value={
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-success" />
+          <span className="tabular-nums">{kalmanCount}</span>
+          <span className="text-muted-foreground">{kalmanLabel}</span>
+          <span className="text-muted-foreground/40">/</span>
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-warning" />
+          <span className="tabular-nums">{particleCount}</span>
+          <span className="text-muted-foreground">{particleLabel}</span>
+        </span>
+      }
+    />
   );
+}
+
+function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-foreground">{value}</span>
+    </span>
+  );
+}
+
+function SummaryDivider() {
+  return <span className="text-muted-foreground/40">|</span>;
 }
 
 const PATH_LABELS = {
@@ -70,45 +83,62 @@ export function InferenceStructureCard({ inferenceStructure }: InferenceStructur
 
   return (
     <Card>
-      <CardContent className="space-y-4 py-4">
-        <div className="font-medium">Inference Structure</div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Likelihood path</div>
-            <div className="text-sm text-foreground">{PATH_LABELS[inferenceStructure.likelihood_path]}</div>
+      <CardContent className="py-4">
+        <div className="flex justify-center overflow-x-auto">
+          <div className="flex min-w-max items-center gap-2 whitespace-nowrap text-sm">
+            <span className="font-medium text-foreground">Inference Structure</span>
+            <SummaryDivider />
+            <SummaryItem
+              label="Likelihood path"
+              value={PATH_LABELS[inferenceStructure.likelihood_path]}
+            />
+            <SummaryDivider />
+            <SummaryItem
+              label="Method"
+              value={METHOD_LABELS[inferenceStructure.auto_method]}
+            />
+            <SummaryDivider />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-muted-foreground">First-pass Rao-Blackwellization</span>
+              <span className="text-foreground">
+                {firstPass.status === "active" ? "Active" : "Inactive"}
+              </span>
+              {firstPass.status === "inactive" && firstPassReason ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<button type="button" />}
+                    aria-label="Show Rao-Blackwellization inactive reason"
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    ?
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <span className="max-w-xs text-xs leading-relaxed">{firstPassReason}</span>
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </span>
+            {firstPass.status === "active" ? (
+              <>
+                <SummaryDivider />
+                <PartitionSummary
+                  label="Latents"
+                  kalmanCount={latentKalman.length}
+                  particleCount={latentParticle.length}
+                  kalmanLabel="Kalman"
+                  particleLabel="Particle"
+                />
+                <SummaryDivider />
+                <PartitionSummary
+                  label="Observed channels"
+                  kalmanCount={obsKalman.length}
+                  particleCount={obsParticle.length}
+                  kalmanLabel="Kalman"
+                  particleLabel="Particle"
+                />
+              </>
+            ) : null}
           </div>
-          <div className="space-y-1">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Auto method</div>
-            <div className="text-sm text-foreground">{METHOD_LABELS[inferenceStructure.auto_method]}</div>
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            First-pass Rao-Blackwellization
-          </div>
-          {firstPass.status === "active" ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              <PartitionSummary
-                label="Latents"
-                kalmanCount={latentKalman.length}
-                particleCount={latentParticle.length}
-                kalmanLabel="Kalman"
-                particleLabel="Particle"
-              />
-              <PartitionSummary
-                label="Observed channels"
-                kalmanCount={obsKalman.length}
-                particleCount={obsParticle.length}
-                kalmanLabel="Kalman-side"
-                particleLabel="Particle-side"
-              />
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">Inactive.</span>{" "}
-              {firstPassReason}
-            </div>
-          )}
         </div>
       </CardContent>
     </Card>
