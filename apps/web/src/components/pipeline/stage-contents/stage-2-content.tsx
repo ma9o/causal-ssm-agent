@@ -3,7 +3,13 @@ import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button
 import type { Stage2Data } from "@causal-ssm/api-types";
 import { CheckCircle2, XCircle } from "lucide-react";
 
-export default function Stage2Content({ data }: { data: Stage2Data }) {
+export default function Stage2Content({
+  data,
+  workspaceId,
+}: {
+  data: Stage2Data;
+  workspaceId: string;
+}) {
   const totalExtractions = Object.values(data.per_indicator_counts).reduce<number>(
     (sum, count) => sum + (count ?? 0),
     0,
@@ -40,7 +46,7 @@ export default function Stage2Content({ data }: { data: Stage2Data }) {
             {totalExtractions.toLocaleString()} extractions
           </span>
         </div>
-        <ExploreDataframeButton stage="stage-2" />
+        <ExploreDataframeButton stage="stage-2" workspaceId={workspaceId} />
       </div>
 
       {errors.length > 0 && (

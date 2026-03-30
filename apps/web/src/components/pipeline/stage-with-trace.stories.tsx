@@ -1,12 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
-import type { Stage1aData, LLMTrace } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { RefinementProvider } from "@/lib/contexts/refinement-context";
+import type { LLMTrace, Stage1aData } from "@causal-ssm/api-types";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { StageSection } from "./stage-section";
-import { StageWithTrace } from "./stage-with-trace";
 import Stage1aContent from "./stage-contents/stage-1a-content";
+import { StageWithTraceView } from "./stage-with-trace";
 import fixture from "../../../../../data/DOCTOLIB/run/stage-1a.json";
 
 const stage = STAGES.find((s) => s.id === "stage-1a")!;
@@ -14,28 +13,24 @@ const data = fixture as unknown as Stage1aData & { llm_trace: LLMTrace };
 
 const meta = {
   title: "Pipeline/StageWithTrace",
-  component: StageWithTrace,
+  component: StageWithTraceView,
   decorators: [
     (Story) => (
-      <RefinementProvider>
-        <TooltipProvider>
-          <div className="w-full p-4">
-            <Story />
-          </div>
-        </TooltipProvider>
-      </RefinementProvider>
+      <TooltipProvider>
+        <div className="w-full p-4">
+          <Story />
+        </div>
+      </TooltipProvider>
     ),
   ],
-} satisfies Meta<typeof StageWithTrace>;
+} satisfies Meta<typeof StageWithTraceView>;
 
 export default meta;
 
 export const Collapsed: StoryObj = {
   render: () => (
-    <StageWithTrace
-      panelContent={
-        <LLMTracePanelView trace={data.llm_trace} canRefine input="" />
-      }
+    <StageWithTraceView
+      panelContent={<LLMTracePanelView trace={data.llm_trace} canRefine input="" />}
     >
       <StageSection
         number={stage.number}
@@ -47,16 +42,15 @@ export const Collapsed: StoryObj = {
       >
         <Stage1aContent data={data} />
       </StageSection>
-    </StageWithTrace>
+    </StageWithTraceView>
   ),
 };
 
-export const WithRefinementInput: StoryObj = {
+export const OpenWithRefinementInput: StoryObj = {
   render: () => (
-    <StageWithTrace
-      panelContent={
-        <LLMTracePanelView trace={data.llm_trace} canRefine input="" />
-      }
+    <StageWithTraceView
+      panelContent={<LLMTracePanelView trace={data.llm_trace} canRefine input="" />}
+      defaultOpen
     >
       <StageSection
         number={stage.number}
@@ -68,14 +62,15 @@ export const WithRefinementInput: StoryObj = {
       >
         <Stage1aContent data={data} />
       </StageSection>
-    </StageWithTrace>
+    </StageWithTraceView>
   ),
 };
 
-export const ReadOnly: StoryObj = {
+export const OpenReadOnly: StoryObj = {
   render: () => (
-    <StageWithTrace
+    <StageWithTraceView
       panelContent={<LLMTracePanelView trace={data.llm_trace} />}
+      defaultOpen
     >
       <StageSection
         number={stage.number}
@@ -87,6 +82,6 @@ export const ReadOnly: StoryObj = {
       >
         <Stage1aContent data={data} />
       </StageSection>
-    </StageWithTrace>
+    </StageWithTraceView>
   ),
 };

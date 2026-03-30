@@ -119,7 +119,12 @@ export function StageSection({
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
-          {runningContent ?? (
+          {runningContent ? (
+            <>
+              {runningContent}
+              {logView}
+            </>
+          ) : (
             <>
               {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
               {logView ?? (
