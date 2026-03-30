@@ -28,6 +28,34 @@ if TYPE_CHECKING:
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 
+def _attach_compile_binding_provenance(
+    diagnostics: list[PriorValidationResult],
+    bindings: list[dict[str, object]],
+) -> list[PriorValidationResult]:
+    """Attach direct-writer parameter provenance to compile diagnostics when possible."""
+    binding_index: dict[tuple[str, int], list[str]] = {}
+    for binding in bindings:
+        site_name = binding.get("site_name")
+        flat_index = binding.get("flat_index")
+        parameter = binding.get("parameter")
+        if not isinstance(site_name, str) or not isinstance(flat_index, int):
+            continue
+        if not isinstance(parameter, str) or not parameter:
+            continue
+        binding_index.setdefault((site_name, flat_index), []).append(parameter)
+
+    for diagnostic in diagnostics:
+        if diagnostic.compiled_site_name is None or diagnostic.compiled_flat_index is None:
+            continue
+        related_parameters = binding_index.get(
+            (diagnostic.compiled_site_name, diagnostic.compiled_flat_index)
+        )
+        if related_parameters:
+            diagnostic.related_parameters = related_parameters
+
+    return diagnostics
+
+
 def compile_ssm_inputs(
     model_spec: ModelSpec | dict | None = None,
     priors: dict[str, dict] | None = None,
@@ -69,6 +97,7 @@ def compile_ssm_inputs(
         index_maps=index_maps,
         causal_spec=causal_spec,
     )
+    diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return ssm_spec, ssm_priors, bindings, diagnostics
 
 

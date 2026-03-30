@@ -2324,6 +2324,101 @@ class TestSSMPriorConversion:
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - expected_mu) < 0.5
 
+    def test_compile_ssm_inputs_attaches_direct_writer_to_dt_ct_warning(self):
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "hr",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "act",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_heart_rate",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "rho_activity",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "beta_activity_heart_rate",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "rho_activity": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "beta_activity_heart_rate": {
+                "distribution": "Normal",
+                "params": {"mu": 0.3, "sigma": 0.15},
+            },
+        }
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "heart_rate",
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "activity",
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [{"cause": "activity", "effect": "heart_rate"}],
+            },
+            "estimation": {
+                "state_order": ["heart_rate", "activity"],
+                "edges": [{"cause": "activity", "effect": "heart_rate"}],
+                "induced_dependencies": [],
+            },
+            "measurement": {
+                "model_clock": "1h",
+                "indicators": [
+                    {
+                        "name": "hr",
+                        "construct_name": "heart_rate",
+                        "measurement_dtype": "continuous",
+                    },
+                    {
+                        "name": "act",
+                        "construct_name": "activity",
+                        "measurement_dtype": "continuous",
+                    },
+                ],
+            },
+        }
+
+        _ssm_spec, _ssm_priors, _bindings, diagnostics = compile_ssm_inputs(
+            model_spec,
+            priors,
+            causal_spec=causal_spec,
+        )
+
+        dt_ct_warning = next(
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.code == "dt_ct_approximation_warning"
+        )
+        assert dt_ct_warning.parameter == "drift_offdiag"
+        assert dt_ct_warning.related_parameters == ["beta_activity_heart_rate"]
+
 
 # --- Trial Compile Tests ---
 
