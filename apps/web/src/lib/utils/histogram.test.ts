@@ -22,11 +22,14 @@ describe("buildHistogram", () => {
     }
   });
 
-  it("single value produces bins", () => {
+  it("single value produces exactly one non-empty bin containing that value", () => {
     const bins = buildHistogram([42]);
-    expect(bins.length).toBeGreaterThan(0);
     const total = bins.reduce((sum, b) => sum + b.count, 0);
     expect(total).toBe(1);
+    const nonEmpty = bins.filter((b) => b.count > 0);
+    expect(nonEmpty).toHaveLength(1);
+    expect(nonEmpty[0].binStart).toBeLessThanOrEqual(42);
+    expect(nonEmpty[0].binEnd).toBeGreaterThanOrEqual(42);
   });
 
   it("respects nBins parameter approximately", () => {

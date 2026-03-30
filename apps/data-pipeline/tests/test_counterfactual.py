@@ -13,6 +13,7 @@ from causal_ssm_agent.models.ssm.counterfactual import (
     do,
     forward_simulate_action_from_state,
     forward_simulate_intervention,
+    forward_simulate_latent_action_from_state,
     resolve_action_value,
     steady_state,
     summarize_draws,
@@ -212,21 +213,6 @@ class TestResolveActionValue:
 
 
 class TestForwardSimulateIntervention:
-    def test_returns_correct_shape(self):
-        """Should return trajectory of length horizon_steps."""
-        A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
-        c = jnp.array([1.0, 0.5])
-        traj = forward_simulate_intervention(
-            A,
-            c,
-            treat_idx=0,
-            outcome_idx=1,
-            shift_size=1.0,
-            dt=0.1,
-            horizon_steps=50,
-        )
-        assert traj.shape == (50,)
-
     def test_no_causal_path_flat_trajectory(self):
         """No coupling => trajectory should stay near zero."""
         A = -jnp.eye(2)
@@ -275,6 +261,26 @@ class TestForwardSimulateIntervention:
 
 
 class TestForwardSimulateActionFromState:
+    def test_latent_helper_returns_per_node_effect_paths(self):
+        A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
+        c = jnp.array([1.0, 0.5])
+        initial_state = jnp.array([1.0, 0.5])
+        baseline, counterfactual, effect = forward_simulate_latent_action_from_state(
+            A,
+            c,
+            initial_state,
+            treat_idx=0,
+            mode="shift",
+            amount=1.0,
+            dt=0.1,
+            horizon_steps=25,
+        )
+        assert baseline.shape == (25, 2)
+        assert counterfactual.shape == (25, 2)
+        assert effect.shape == (25, 2)
+        assert jnp.allclose(effect, counterfactual - baseline, atol=1e-6)
+        assert float(effect[-1, 1]) > 0
+
     def test_returns_baseline_counterfactual_and_effect_paths(self):
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
         c = jnp.array([1.0, 0.5])
@@ -356,8 +362,8 @@ class TestComputeInterventions:
         cint = jnp.broadcast_to(jnp.ones(n_latent), (n_draws, n_latent))
         return {"drift": drift, "cint": cint}
 
-    def test_basic_output_structure(self):
-        """Should return a list of dicts with required keys."""
+    def test_diagonal_drift_yields_zero_effects(self):
+        """Diagonal drift (no cross-coupling) produces near-zero treatment effects."""
         samples = self._make_samples()
         results = compute_interventions(
             samples,
@@ -368,7 +374,9 @@ class TestComputeInterventions:
         assert len(results) == 2
         for r in results:
             assert "treatment" in r
-            assert "posterior_draws" in r
+            assert r["posterior_draws"] is not None
+            mean_effect = sum(r["posterior_draws"]) / len(r["posterior_draws"])
+            assert abs(mean_effect) < 1e-4, f"{r['treatment']} should have ~zero effect with diagonal drift"
 
     def test_outcome_not_in_latent_names(self):
         """Missing outcome returns skeleton entries."""

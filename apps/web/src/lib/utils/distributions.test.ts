@@ -14,11 +14,12 @@ describe("evaluatePdf", () => {
       expect(peak.x).toBeCloseTo(5, 0);
     });
 
-    it("has non-negative y values", () => {
-      const points = evaluatePdf("Normal", { mu: 0, sigma: 2 });
-      for (const p of points) {
-        expect(p.y).toBeGreaterThanOrEqual(0);
-      }
+    it("has peak height consistent with 1/(sigma*sqrt(2pi))", () => {
+      const sigma = 2;
+      const points = evaluatePdf("Normal", { mu: 0, sigma });
+      const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
+      const expectedPeak = 1 / (sigma * Math.sqrt(2 * Math.PI));
+      expect(peak.y).toBeCloseTo(expectedPeak, 2);
     });
 
     it("uses canonical mu/sigma params", () => {
@@ -53,41 +54,54 @@ describe("evaluatePdf", () => {
       }
     });
 
-    it("has non-negative y values", () => {
+    it("peaks at (alpha-1)/(alpha+beta-2) for symmetric Beta(2,2)", () => {
       const points = evaluatePdf("Beta", { alpha: 2, beta: 2 });
-      for (const p of points) {
-        expect(p.y).toBeGreaterThanOrEqual(0);
-      }
+      const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
+      expect(peak.x).toBeCloseTo(0.5, 1);
     });
   });
 
   describe("Gamma distribution", () => {
-    it("has non-negative x values", () => {
-      const points = evaluatePdf("Gamma", { concentration: 2, rate: 1 });
-      expect(points[0].x).toBeGreaterThanOrEqual(0);
+    it("peaks near (concentration-1)/rate", () => {
+      const points = evaluatePdf("Gamma", { concentration: 3, rate: 2 });
+      const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
+      // mode = (3-1)/2 = 1.0
+      expect(peak.x).toBeCloseTo(1.0, 0);
     });
 
-    it("has non-negative y values", () => {
-      const points = evaluatePdf("Gamma", { concentration: 3, rate: 2 });
-      for (const p of points) {
-        expect(p.y).toBeGreaterThanOrEqual(0);
-      }
+    it("starts at x=0", () => {
+      const points = evaluatePdf("Gamma", { concentration: 2, rate: 1 });
+      expect(points[0].x).toBe(0);
     });
   });
 
   describe("LogNormal distribution", () => {
-    it("has non-negative x values", () => {
+    it("peaks near exp(mu - sigma^2) for mu=0, sigma=0.5", () => {
       const points = evaluatePdf("LogNormal", { mu: 0, sigma: 0.5 });
-      expect(points[0].x).toBeGreaterThanOrEqual(0);
+      const peak = points.reduce((a, b) => (a.y > b.y ? a : b));
+      // mode = exp(0 - 0.25) ≈ 0.779
+      expect(peak.x).toBeCloseTo(Math.exp(-0.25), 0);
     });
 
+    it("starts at x=0 and has zero density there", () => {
+      const points = evaluatePdf("LogNormal", { mu: 0, sigma: 0.5 });
+      expect(points[0].x).toBe(0);
+      expect(points[0].y).toBe(0);
+    });
   });
 
   describe("Exponential distribution", () => {
-    it("has non-negative density on non-negative support", () => {
+    it("peaks at x=0 with density equal to rate", () => {
+      const rate = 2;
+      const points = evaluatePdf("Exponential", { rate });
+      expect(points[0].x).toBe(0);
+      expect(points[0].y).toBeCloseTo(rate, 5);
+    });
+
+    it("decays monotonically", () => {
       const points = evaluatePdf("Exponential", { rate: 2 });
-      for (const p of points) {
-        expect(p.y).toBeGreaterThanOrEqual(0);
+      for (let i = 1; i < points.length; i++) {
+        expect(points[i].y).toBeLessThanOrEqual(points[i - 1].y + 1e-10);
       }
     });
   });

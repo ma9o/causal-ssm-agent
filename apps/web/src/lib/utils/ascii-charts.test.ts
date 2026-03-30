@@ -10,11 +10,13 @@ describe("asciiHistogram", () => {
     expect(asciiHistogram([5, 5, 5])).toBe("All values = 5.000");
   });
 
-  it("renders a histogram with data", () => {
+  it("renders a histogram with data and correct stats", () => {
     const values = Array.from({ length: 100 }, (_, i) => i);
     const result = asciiHistogram(values);
     expect(result).toContain("│");
-    expect(result.split("\n").length).toBeGreaterThan(1);
+    expect(result).toContain("n=100");
+    expect(result).toContain("mean=49.500");
+    expect(result).toContain("median=49.500");
   });
 
   it("includes label when provided", () => {
@@ -45,11 +47,13 @@ describe("asciiDensity", () => {
     expect(asciiDensity([], [])).toBe("(no data)");
   });
 
-  it("renders density with data", () => {
+  it("renders density with data and x-range", () => {
     const x = Array.from({ length: 50 }, (_, i) => i * 0.1);
     const y = x.map((v) => Math.exp(-v * v));
     const result = asciiDensity(x, y);
-    expect(result).toContain("x:");
+    expect(result).toContain("x: [0.000, 4.900]");
+    expect(result).toContain("mean=");
+    expect(result).toContain("mode=");
   });
 
   it("includes label when provided", () => {
@@ -74,7 +78,7 @@ describe("asciiScatter", () => {
     expect(asciiScatter([])).toBe("(no data)");
   });
 
-  it("renders scatter plot with points", () => {
+  it("renders scatter plot with correct summary stats", () => {
     const points = [
       { x: 0, y: 0 },
       { x: 1, y: 1 },
@@ -82,12 +86,16 @@ describe("asciiScatter", () => {
     ];
     const result = asciiScatter(points);
     expect(result).toContain("•");
-    expect(result).toContain("│");
+    expect(result).toContain("n=3");
+    expect(result).toContain("x: mean=1.000");
+    expect(result).toContain("y: mean=1.000");
   });
 
-  it("handles single point", () => {
+  it("handles single point with correct stats", () => {
     const result = asciiScatter([{ x: 5, y: 5 }]);
     expect(result).toContain("•");
+    expect(result).toContain("n=1");
+    expect(result).toContain("x: mean=5.000");
   });
 
   it("includes label when provided", () => {
@@ -117,21 +125,25 @@ describe("asciiMultiLine", () => {
     expect(asciiMultiLine([[], []])).toBe("(no data)");
   });
 
-  it("renders with a single series", () => {
+  it("renders with a single series and correct stats", () => {
     const result = asciiMultiLine([[1, 2, 3, 4, 5]]);
     expect(result).toContain("│");
     expect(result).toContain("series 1");
-    expect(result).toContain("mean=");
+    expect(result).toContain("n=5");
+    expect(result).toContain("mean=3.000");
+    expect(result).toContain("range=[1.000, 5.000]");
   });
 
-  it("renders with multiple series", () => {
+  it("renders multiple series with distinct stats", () => {
     const result = asciiMultiLine([
       [1, 2, 3, 4, 5],
       [5, 4, 3, 2, 1],
     ]);
-    expect(result).toContain("│");
     expect(result).toContain("series 1");
     expect(result).toContain("series 2");
+    // Both series have same mean/range but different markers
+    expect(result).toContain("• series 1:");
+    expect(result).toContain("◦ series 2:");
   });
 
   it("includes label when provided", () => {
@@ -145,15 +157,13 @@ describe("asciiMultiLine", () => {
     expect(result).not.toContain("NaN");
   });
 
-  it("includes per-series summary stats", () => {
+  it("per-series stats reflect different scales", () => {
     const result = asciiMultiLine([
       [1, 2, 3, 4, 5],
       [10, 20, 30, 40, 50],
     ]);
-    expect(result).toContain("series 1");
-    expect(result).toContain("series 2");
-    expect(result).toContain("mean=");
-    expect(result).toContain("sd=");
+    expect(result).toContain("series 1: n=5  mean=3.000");
+    expect(result).toContain("series 2: n=5  mean=30.000");
   });
 });
 

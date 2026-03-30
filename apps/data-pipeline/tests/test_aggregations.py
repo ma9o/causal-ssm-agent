@@ -54,7 +54,7 @@ class TestBuildAggExpr:
     def test_std(self):
         df = _make_df([1.0, 2.0, 3.0])
         result = df.select(_build_agg_expr("std"))
-        assert result["value"][0] > 0
+        assert result["value"][0] == pytest.approx(1.0)  # sample std (ddof=1)
 
     @pytest.mark.parametrize(
         ("agg_name", "expected"),
@@ -75,11 +75,10 @@ class TestBuildAggExpr:
         assert result["value"][0] == pytest.approx(expected), f"{agg_name} failed on single value"
 
     def test_cv_zero_mean(self):
-        """CV with zero mean should handle division safely."""
+        """CV with zero mean returns null (guarded by abs(mean) > 1e-15)."""
         df = _make_df([-1.0, 1.0])  # mean = 0
         result = df.select(_build_agg_expr("cv"))
-        # Should not crash; result may be inf or null
-        assert result.shape == (1, 1)
+        assert result["value"][0] is None
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown aggregation"):
@@ -174,15 +173,15 @@ class TestEncodeNonContinuous:
             }
         )
         result = _encode_non_continuous(df, {"weight": "continuous"})
-        assert len(result) == 2
+        assert result["value"].to_list() == [70.5, 80.2]
 
     def test_empty_dtype_lookup(self):
         df = pl.DataFrame({"indicator": ["x"], "value": [1.0]})
         result = _encode_non_continuous(df, {})
-        assert len(result) == 1
+        assert result["value"].to_list() == [1.0]
 
     def test_mixed_indicators(self):
-        """Only non-continuous indicators should be encoded."""
+        """Only non-continuous indicators should be encoded; continuous left unchanged."""
         df = pl.DataFrame(
             {
                 "indicator": ["mood", "weight"],
@@ -190,7 +189,10 @@ class TestEncodeNonContinuous:
             }
         )
         result = _encode_non_continuous(df, {"mood": "binary", "weight": "continuous"})
-        assert len(result) == 2
+        mood_row = result.filter(pl.col("indicator") == "mood")
+        weight_row = result.filter(pl.col("indicator") == "weight")
+        assert float(mood_row["value"][0]) == 1.0
+        assert weight_row["value"][0] == "70.5"
 
 
 # =============================================================================
