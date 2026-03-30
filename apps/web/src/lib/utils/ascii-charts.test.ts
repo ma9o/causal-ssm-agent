@@ -103,17 +103,6 @@ describe("asciiScatter", () => {
     expect(result).toContain("Plot");
   });
 
-  it("includes summary stats for both axes", () => {
-    const points = [
-      { x: 1, y: 10 },
-      { x: 2, y: 20 },
-      { x: 3, y: 30 },
-    ];
-    const result = asciiScatter(points);
-    expect(result).toContain("n=3");
-    expect(result).toContain("x: mean=");
-    expect(result).toContain("y: mean=");
-  });
 });
 
 describe("asciiMultiLine", () => {

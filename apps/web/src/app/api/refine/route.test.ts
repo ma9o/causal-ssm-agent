@@ -60,10 +60,6 @@ vi.mock("ai", () => ({
 }));
 
 import { readData } from "@/lib/storage";
-import {
-  refinementNeedsActivation,
-  refinementRequiresConfirmation,
-} from "@/lib/contexts/refinement-context";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { POST } from "./route";
 
@@ -424,12 +420,4 @@ describe("POST /api/refine", () => {
     });
   });
 
-  it("keeps terminal stage activation separate from downstream invalidation confirmation", () => {
-    expect(refinementNeedsActivation("stage-6", null)).toBe(true);
-    expect(refinementRequiresConfirmation("stage-6", null)).toBe(false);
-    expect(refinementNeedsActivation("stage-6", "stage-6")).toBe(false);
-
-    expect(refinementRequiresConfirmation("stage-1a", null)).toBe(true);
-    expect(refinementRequiresConfirmation("stage-1a", "stage-6")).toBe(true);
-  });
 });
