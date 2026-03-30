@@ -101,6 +101,18 @@
           ],
           "default": null,
           "description": "Identifiability status of target causal effects"
+        },
+        "estimation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EstimationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deterministic estimation-time projection consumed by downstream fitting"
         }
       },
       "required": [
@@ -227,6 +239,42 @@
         "density"
       ],
       "title": "EnergyHistogram",
+      "type": "object"
+    },
+    "EstimationSpec": {
+      "description": "Deterministic estimation-time projection of the user-facing latent DAG.",
+      "properties": {
+        "state_order": {
+          "description": "Retained latent states in canonical array order for compilation",
+          "items": {
+            "type": "string"
+          },
+          "title": "State Order",
+          "type": "array"
+        },
+        "edges": {
+          "description": "Directed estimation graph over retained states",
+          "items": {
+            "$ref": "#/$defs/CausalEdge"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "induced_dependencies": {
+          "description": "Dependencies induced after marginalizing latent root confounders",
+          "items": {
+            "$ref": "#/$defs/InducedDependency"
+          },
+          "title": "Induced Dependencies",
+          "type": "array"
+        }
+      },
+      "required": [
+        "edges",
+        "induced_dependencies",
+        "state_order"
+      ],
+      "title": "EstimationSpec",
       "type": "object"
     },
     "FirstPassRBResult": {
@@ -759,6 +807,50 @@
         "issues"
       ],
       "title": "IndicatorValidationContract",
+      "type": "object"
+    },
+    "InducedDependency": {
+      "description": "Dependence induced among retained states after marginalizing latent roots.",
+      "properties": {
+        "between": {
+          "description": "Pair of retained states whose joint dependence is induced",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Between",
+          "type": "array"
+        },
+        "kind": {
+          "description": "Which covariance block the induced dependence belongs to",
+          "enum": [
+            "innovation_correlation",
+            "initial_state_correlation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_confounders": {
+          "description": "Marginalized source constructs that induce this dependence",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Confounders",
+          "type": "array"
+        }
+      },
+      "required": [
+        "between",
+        "kind",
+        "source_confounders"
+      ],
+      "title": "InducedDependency",
       "type": "object"
     },
     "InferenceMetadataContract": {
@@ -1640,6 +1732,7 @@
         "residual_sd",
         "static_state_sd",
         "correlation",
+        "initial_state_correlation",
         "loading"
       ],
       "title": "ParameterRole",
@@ -2688,6 +2781,21 @@
           ],
           "default": null,
           "title": "Search Queries"
+        },
+        "validation_warnings": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validation Warnings"
         },
         "prior_predictive_samples": {
           "anyOf": [

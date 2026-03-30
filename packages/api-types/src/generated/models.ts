@@ -55,6 +55,7 @@ export type ParameterRole =
   | "residual_sd"
   | "static_state_sd"
   | "correlation"
+  | "initial_state_correlation"
   | "loading";
 /**
  * Constraints on parameter values.
@@ -225,6 +226,10 @@ export interface CausalSpec {
    * Identifiability status of target causal effects
    */
   identifiability?: IdentifiabilityStatus | null;
+  /**
+   * Deterministic estimation-time projection consumed by downstream fitting
+   */
+  estimation?: EstimationSpec | null;
 }
 /**
  * Operationalization of constructs into observed indicators.
@@ -355,6 +360,43 @@ export interface NonIdentifiableTreatmentStatus {
    */
   notes?: string | null;
 }
+/**
+ * Deterministic estimation-time projection of the user-facing latent DAG.
+ */
+export interface EstimationSpec {
+  /**
+   * Retained latent states in canonical array order for compilation
+   */
+  state_order: string[];
+  /**
+   * Directed estimation graph over retained states
+   */
+  edges: CausalEdge[];
+  /**
+   * Dependencies induced after marginalizing latent root confounders
+   */
+  induced_dependencies: InducedDependency[];
+}
+/**
+ * Dependence induced among retained states after marginalizing latent roots.
+ */
+export interface InducedDependency {
+  /**
+   * Pair of retained states whose joint dependence is induced
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  between: [any, any];
+  /**
+   * Which covariance block the induced dependence belongs to
+   */
+  kind: "innovation_correlation" | "initial_state_correlation";
+  /**
+   * Marginalized source constructs that induce this dependence
+   */
+  source_confounders: string[];
+}
 export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";
   /**
@@ -437,6 +479,7 @@ export interface Stage4Contract {
   search_queries?: {
     [k: string]: string | undefined;
   } | null;
+  validation_warnings?: string[] | null;
   prior_predictive_samples?: {
     [k: string]: number[] | undefined;
   } | null;
