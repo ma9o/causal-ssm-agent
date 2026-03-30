@@ -19,9 +19,10 @@ from causal_ssm_agent.models.ssm_compilation_common import (
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
+from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
-CompileDiagnostic = dict[str, str]
+CompileDiagnostic = PriorValidationResult
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -82,6 +83,26 @@ def _interval_ratio(lhs: float, rhs: float) -> float:
     return max(lhs, rhs) / max(min(lhs, rhs), NUMERICAL_EPSILON)
 
 
+def _compile_warning(
+    *,
+    code: str,
+    parameter: str,
+    issue: str,
+    suggested_adjustment: str,
+) -> CompileDiagnostic:
+    """Build a typed non-fatal compile diagnostic."""
+    return CompileDiagnostic(
+        parameter=parameter,
+        is_valid=True,
+        code=code,
+        origin="compile",
+        severity="warning",
+        issue=issue,
+        suggested_adjustment=suggested_adjustment,
+        related_parameters=[parameter],
+    )
+
+
 def collect_interval_provenance_warnings(
     ssm_spec: SSMSpec,
     *,
@@ -118,38 +139,38 @@ def collect_interval_provenance_warnings(
         ) > 2.0:
             rendered = ", ".join(_format_interval_days(days) for days in unique_source_intervals)
             warnings.append(
-                {
-                    "parameter": parameter_name,
-                    "category": "interval_provenance",
-                    "issue": (
+                _compile_warning(
+                    code="interval_sources_mixed",
+                    parameter=parameter_name,
+                    issue=(
                         f"Cited sources for {cause_name}->{effect_name} mix materially different "
                         f"study intervals ({rendered}), so the authored interval provenance is weak."
                     ),
-                    "suggested_adjustment": (
+                    suggested_adjustment=(
                         "Use sources measured on a comparable interval when possible, or explain "
                         "which interval the prior is expressed on with `reference_interval_days`."
                     ),
-                }
+                )
             )
 
         source_interval_days = unique_source_intervals[0]
         if ref_days is None and _interval_ratio(source_interval_days, expected_lag_days) > 2.0:
             warnings.append(
-                {
-                    "parameter": parameter_name,
-                    "category": "interval_provenance",
-                    "issue": (
+                _compile_warning(
+                    code="interval_reference_missing",
+                    parameter=parameter_name,
+                    issue=(
                         f"`reference_interval_days` is omitted, so {parameter_name} is being "
                         f"interpreted on the default model interval ({_format_interval_days(expected_lag_days)}), "
                         f"but the cited evidence for {cause_name}->{effect_name} is on "
                         f"{_format_interval_days(source_interval_days)}."
                     ),
-                    "suggested_adjustment": (
+                    suggested_adjustment=(
                         "If the authored effect is meant to be on the source study interval, set "
                         "`reference_interval_days` to that interval. Otherwise explain why a "
                         "daily-scale prior is appropriate."
                     ),
-                }
+                )
             )
         elif ref_days is not None:
             try:
@@ -158,173 +179,92 @@ def collect_interval_provenance_warnings(
                 continue
             if authored_interval_days > 0 and _interval_ratio(authored_interval_days, source_interval_days) > 2.0:
                 warnings.append(
-                    {
-                        "parameter": parameter_name,
-                        "category": "interval_provenance",
-                        "issue": (
+                    _compile_warning(
+                        code="interval_reference_mismatch",
+                        parameter=parameter_name,
+                        issue=(
                             f"{parameter_name} is authored on "
                             f"{_format_interval_days(authored_interval_days)} via `reference_interval_days`, "
                             f"but the cited evidence for {cause_name}->{effect_name} is on "
                             f"{_format_interval_days(source_interval_days)}."
                         ),
-                        "suggested_adjustment": (
+                        suggested_adjustment=(
                             "Confirm that the prior was intentionally rescaled to the authored interval, "
                             "or align `reference_interval_days` with the evidence interval."
                         ),
-                    }
+                    )
                 )
 
     return warnings
 
 
-def collect_lagged_response_warnings(
-    ssm_priors: SSMPriors,
-    ssm_spec: SSMSpec,
-    *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
-    raw_priors: dict[str, dict] | None = None,
-) -> list[CompileDiagnostic]:
-    """Collect non-fatal lagged-response heuristics from compiled drift means."""
-    edge_lags = edge_lag_days or {}
-    if not edge_lags:
-        return []
-
-    offdiag_prior = ssm_priors.drift_offdiag
-    if offdiag_prior is None:
-        return []
-
-    offdiag_mu = offdiag_prior.get("mu")
-    if offdiag_mu is None:
-        return []
-
-    if isinstance(offdiag_mu, (int, float)):
-        offdiag_mu = [offdiag_mu]
-    if not offdiag_mu:
-        return []
-
-    warnings: list[CompileDiagnostic] = []
-    positions = _iter_offdiag_positions(ssm_spec)
-
-    for flat_idx, (effect_idx, cause_idx) in enumerate(positions):
-        if flat_idx >= len(offdiag_mu) or (effect_idx, cause_idx) not in edge_lags:
-            continue
-
-        parameter_name, cause_name, effect_name = _drift_parameter_name(
-            ssm_spec,
-            effect_idx,
-            cause_idx,
-        )
-        offdiag_abs = abs(float(offdiag_mu[flat_idx]))
-        if offdiag_abs < NUMERICAL_EPSILON:
-            continue
-
-        expected_lag_days = edge_lags[(effect_idx, cause_idx)]
-        implied_timescale_days = 1.0 / offdiag_abs
-        ratio = _interval_ratio(implied_timescale_days, expected_lag_days)
-        if ratio <= 5.0:
-            continue
-
-        prior_spec = (raw_priors or {}).get(parameter_name) or {}
-        ref_days = prior_spec.get("reference_interval_days")
-        try:
-            authored_interval_days = float(ref_days) if ref_days is not None else expected_lag_days
-        except (TypeError, ValueError):
-            authored_interval_days = expected_lag_days
-        if authored_interval_days <= 0:
-            authored_interval_days = expected_lag_days
-        strength_note = (
-            "much slower/weaker" if implied_timescale_days > expected_lag_days else "much faster/stronger"
-        )
-        warnings.append(
-            {
-                "parameter": parameter_name,
-                "category": "dynamic_plausibility",
-                "issue": (
-                    f"Using the compiled prior mean for {cause_name}->{effect_name}, the implied "
-                    f"response timescale is about {_format_interval_days(implied_timescale_days)} "
-                    f"after normalization from the authored interval "
-                    f"({_format_interval_days(authored_interval_days)}). That is {strength_note} "
-                    f"than the nominal lag of {_format_interval_days(expected_lag_days)} "
-                    f"({ratio:.0f}x)."
-                ),
-                "suggested_adjustment": (
-                    "Treat this as a modeling warning, not a compile failure. Confirm that a slow "
-                    "or fast lag response is substantively intended, or revise the prior scale."
-                ),
-            }
-        )
-
-    return warnings
-
-
 def collect_compile_diagnostics(
-    ssm_priors: SSMPriors,
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
-) -> dict[str, list[dict[str, str]]]:
+    ssm_priors: SSMPriors | None = None,
+) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
-    return {
-        "interval_provenance_warnings": collect_interval_provenance_warnings(
-            ssm_spec,
-            edge_lag_days=edge_lag_days,
-            raw_priors=raw_priors,
-        ),
-        "dynamic_plausibility_warnings": collect_lagged_response_warnings(
-            ssm_priors,
-            ssm_spec,
-            edge_lag_days=edge_lag_days,
-            raw_priors=raw_priors,
-        ),
-    }
+    diagnostics = collect_interval_provenance_warnings(
+        ssm_spec,
+        edge_lag_days=edge_lag_days,
+        raw_priors=raw_priors,
+    )
+    if ssm_priors is not None:
+        approximation_warning = collect_first_order_approximation_warning(ssm_priors)
+        if approximation_warning is not None:
+            diagnostics.append(approximation_warning)
+    return diagnostics
 
 
-def _log_compile_diagnostics(diagnostics: dict[str, list[dict[str, str]]]) -> None:
-    for issue in diagnostics.get("interval_provenance_warnings") or []:
-        logger.warning("%s: %s", issue["parameter"], issue["issue"])
-    for issue in diagnostics.get("dynamic_plausibility_warnings") or []:
-        logger.warning("%s: %s", issue["parameter"], issue["issue"])
+def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
+    for issue in diagnostics:
+        logger.warning("%s: %s", issue.parameter, issue.issue)
 
 
-def warn_first_order_approximation(ssm_priors: SSMPriors) -> None:
-    """Warn when the first-order DT->CT approximation is likely inaccurate."""
+def collect_first_order_approximation_warning(
+    ssm_priors: SSMPriors,
+) -> CompileDiagnostic | None:
+    """Return a typed warning when the first-order DT->CT approximation looks weak."""
     diag_prior = ssm_priors.drift_diag
     offdiag_prior = ssm_priors.drift_offdiag
     if diag_prior is None or offdiag_prior is None:
-        return
+        return None
 
     diag_mu = diag_prior.get("mu")
     offdiag_mu = offdiag_prior.get("mu")
     if diag_mu is None or offdiag_mu is None:
-        return
+        return None
 
     if isinstance(diag_mu, (int, float)):
         diag_mu = [diag_mu]
     if isinstance(offdiag_mu, (int, float)):
         offdiag_mu = [offdiag_mu]
     if not diag_mu or not offdiag_mu:
-        return
+        return None
 
     min_diag = min(abs(float(value)) for value in diag_mu)
     if min_diag < NUMERICAL_EPSILON:
-        return
+        return None
 
     for idx, offdiag_value in enumerate(offdiag_mu):
         ratio = abs(float(offdiag_value)) / min_diag
         if ratio <= 0.2:
             continue
-        logger.warning(
-            "First-order DT->CT approximation may be inaccurate: "
-            "off-diagonal drift[%d] magnitude (%.3f) is %.0f%% of "
-            "minimum diagonal magnitude (%.3f). Consider a shorter "
-            "reference interval or eliciting priors directly on CT rates.",
-            idx,
-            abs(float(offdiag_value)),
-            ratio * 100,
-            min_diag,
+        return _compile_warning(
+            code="dt_ct_approximation_warning",
+            parameter="drift_offdiag",
+            issue=(
+                "First-order DT->CT approximation may be inaccurate: "
+                f"off-diagonal drift[{idx}] magnitude ({abs(float(offdiag_value)):.3f}) is "
+                f"{ratio * 100:.0f}% of minimum diagonal magnitude ({min_diag:.3f})."
+            ),
+            suggested_adjustment=(
+                "Consider a shorter reference interval or elicit priors directly on CT rates."
+            ),
         )
-        break
+    return None
 
 
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
@@ -375,7 +315,7 @@ def compile_priors(
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMPriors, PriorIndexMaps, dict[str, list[dict[str, str]]]]:
+) -> tuple[SSMPriors, PriorIndexMaps, list[CompileDiagnostic]]:
     """Compile prior proposals into ``SSMPriors`` with explicit index maps."""
     ssm_priors = SSMPriors()
     role_by_name = _collect_role_lookup(model_spec)
@@ -512,17 +452,13 @@ def compile_priors(
         result = build_array_prior_payload(attr, entries, current, ssm_spec)
         setattr(ssm_priors, attr, result)
 
-    diagnostics: dict[str, list[dict[str, str]]] = {
-        "interval_provenance_warnings": [],
-        "dynamic_plausibility_warnings": [],
-    }
-    warn_first_order_approximation(ssm_priors)
+    diagnostics: list[CompileDiagnostic] = []
     if ssm_spec is not None:
         diagnostics = collect_compile_diagnostics(
-            ssm_priors,
             ssm_spec,
             edge_lag_days=edge_lag_days,
             raw_priors=raw_priors,
+            ssm_priors=ssm_priors,
         )
         _log_compile_diagnostics(diagnostics)
 

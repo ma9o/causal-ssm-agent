@@ -334,7 +334,7 @@ def _compile_validated_ssm_artifact(
         "spec": serialize_ssm_spec(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": parameter_bindings,
-        "compile_diagnostics": compile_diagnostics,
+        "compile_diagnostics": [diagnostic.model_dump(mode="json") for diagnostic in compile_diagnostics],
     }
 
 
@@ -426,7 +426,7 @@ def _compiled_distribution_for_site(
     )
     from causal_ssm_agent.models.ssm.parameterization import SupportClass
 
-    if site.support == SupportClass.REAL:
+    if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         family = int(_extract_serialized_prior_value(params, "family", flat_index))
         runtime_kind = get_real_runtime_kind_from_index(family)
         if runtime_kind == PriorRuntimeKind.UNIFORM:
