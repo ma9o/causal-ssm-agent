@@ -2,7 +2,10 @@
 
 import { CausalDag } from "@/components/dag/causal-dag";
 import { InterventionDag } from "@/components/dag/intervention-dag";
-import type { Stage6SimulationResult } from "@/components/dag/intervention-dag-types";
+import type {
+  EdgePosterior,
+  Stage6SimulationResult,
+} from "@/components/dag/intervention-dag-types";
 import type { CausalEdge, Construct, Indicator, Stage6Data } from "@causal-ssm/api-types";
 import Stage6Content from "./stage-6-content";
 
@@ -22,6 +25,8 @@ export type Stage6SimulationDagScene = Stage6DagSceneBase & {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
+  edgePosteriors?: Record<string, EdgePosterior>;
+  requestedHorizonDays?: number;
   simulationResult: Stage6SimulationResult;
 };
 
@@ -62,6 +67,8 @@ export default function Stage6Showcase({
             constructs={dagScene.constructs}
             edges={dagScene.edges}
             indicators={dagScene.indicators}
+            edgePosteriors={dagScene.edgePosteriors}
+            requestedHorizonDays={dagScene.requestedHorizonDays}
             simulationResult={dagScene.simulationResult}
             height={dagScene.height ?? "600px"}
           />

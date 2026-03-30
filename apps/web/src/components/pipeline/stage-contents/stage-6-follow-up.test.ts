@@ -4,11 +4,12 @@ import {
   counterfactualResult,
   interventionResult,
 } from "@/components/dag/__fixtures__/intervention-dag-fixture";
-import { extractLatestStage6SimulationResult } from "./stage-6-follow-up";
+import { extractLatestStage6FollowUpSimulation } from "./stage-6-follow-up";
 
 function createAssistantToolMessage(
   toolName: string,
   output: unknown,
+  input: unknown = {},
 ): UIMessage {
   return {
     id: `${toolName}-message`,
@@ -20,21 +21,31 @@ function createAssistantToolMessage(
         toolCallId: `${toolName}-call`,
         toolName,
         state: "output-available",
-        input: {},
+        input,
         output,
       },
     ],
   };
 }
 
-describe("extractLatestStage6SimulationResult", () => {
-  it("returns the latest stage-6 simulation tool output", () => {
+describe("extractLatestStage6FollowUpSimulation", () => {
+  it("returns the latest stage-6 simulation tool call and output", () => {
     const messages: UIMessage[] = [
-      createAssistantToolMessage("simulate_intervention", interventionResult),
-      createAssistantToolMessage("simulate_counterfactual", counterfactualResult),
+      createAssistantToolMessage("simulate_intervention", interventionResult, {
+        query: { horizon_days: 60 },
+      }),
+      createAssistantToolMessage("simulate_counterfactual", counterfactualResult, {
+        query: { horizon_days: 45 },
+      }),
     ];
 
-    expect(extractLatestStage6SimulationResult(messages)).toEqual(counterfactualResult);
+    expect(extractLatestStage6FollowUpSimulation(messages)).toEqual({
+      toolName: "simulate_counterfactual",
+      input: {
+        query: { horizon_days: 45 },
+      },
+      output: counterfactualResult,
+    });
   });
 
   it("ignores tool errors and unrelated tool outputs", () => {
@@ -43,6 +54,6 @@ describe("extractLatestStage6SimulationResult", () => {
       createAssistantToolMessage("search_literature", { hits: [] }),
     ];
 
-    expect(extractLatestStage6SimulationResult(messages)).toBeNull();
+    expect(extractLatestStage6FollowUpSimulation(messages)).toBeNull();
   });
 });
