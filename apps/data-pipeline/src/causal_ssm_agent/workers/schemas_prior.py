@@ -68,11 +68,31 @@ class PriorProposal(BaseModel):
     )
 
 
+class PriorRepairScope(BaseModel):
+    """Deterministic repair scope for nonlocal prior-validation failures."""
+
+    kind: Literal["dynamics_scc"] = Field(
+        description="Repair-scope family for a nonlocal validation failure"
+    )
+    construct_names: list[str] = Field(
+        default_factory=list,
+        description="Ordered latent constructs included in the minimal repair scope",
+    )
+
+
 class PriorValidationResult(BaseModel):
-    """Result of validating a prior via prior predictive check."""
+    """Typed Stage 4 validation diagnostic."""
 
     parameter: str = Field(description="Name of the parameter that was validated")
     is_valid: bool = Field(description="Whether the prior passed validation")
+    code: str = Field(
+        default="unspecified",
+        description="Stable machine-readable diagnostic code",
+    )
+    origin: Literal["compile", "prior_predictive"] = Field(
+        default="prior_predictive",
+        description="Validation subsystem that emitted this diagnostic",
+    )
     severity: Literal["error", "warning"] = Field(
         default="error",
         description="Validation severity. Warnings are non-fatal and do not invalidate the model.",
@@ -82,6 +102,18 @@ class PriorValidationResult(BaseModel):
     )
     suggested_adjustment: str | None = Field(
         default=None, description="Suggested fix if validation failed"
+    )
+    related_parameters: list[str] = Field(
+        default_factory=list,
+        description="Ordered parameter names most directly implicated by this diagnostic",
+    )
+    supporting_codes: list[str] = Field(
+        default_factory=list,
+        description="Codes for supporting diagnostics that help explain this diagnostic",
+    )
+    repair_scope: PriorRepairScope | None = Field(
+        default=None,
+        description="Deterministic minimal repair scope for nonlocal failures",
     )
 
 

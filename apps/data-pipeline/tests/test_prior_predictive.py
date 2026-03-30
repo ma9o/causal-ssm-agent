@@ -15,6 +15,7 @@ from causal_ssm_agent.models.prior_predictive import (
     _check_extreme_values,
     _check_lagged_response_plausibility,
     _check_nan_inf,
+    _infer_dynamics_repair_scope,
     compute_data_stats,
     format_parameter_feedback,
     format_validation_report,
@@ -247,6 +248,41 @@ class TestGetFailedParameters:
 
 
 class TestCheckLaggedResponsePlausibility:
+    def test_infer_dynamics_repair_scope_localizes_unstable_scc(self):
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["activity", "sleep"],
+            drift_mask=np.array([[True, False], [True, True]]),
+        )
+        compiled_ssm = {"spec": serialize_ssm_spec(spec)}
+        causal_spec = {
+            "latent": {"constructs": [], "edges": []},
+            "measurement": {"model_clock": "1d"},
+            "estimation": {
+                "state_order": ["activity", "sleep"],
+                "edges": [{"cause": "activity", "effect": "sleep", "lagged": True}],
+            },
+        }
+        drift_samples = np.asarray(
+            [
+                [[-0.5, 0.0], [0.05, 0.1]],
+                [[-0.4, 0.0], [0.03, 0.2]],
+            ],
+            dtype=np.float32,
+        )
+
+        scope = _infer_dynamics_repair_scope(
+            drift_samples,
+            [0, 1],
+            compiled_ssm=compiled_ssm,
+            causal_spec=causal_spec,
+        )
+
+        assert scope is not None
+        assert scope.kind == "dynamics_scc"
+        assert scope.construct_names == ["sleep"]
+
     def test_near_zero_one_lag_response_yields_warning(self):
         spec = SSMSpec(
             n_latent=2,

@@ -8,14 +8,97 @@ values, scale plausibility).
 from __future__ import annotations
 
 import jax.numpy as jnp
+import networkx as nx
 import numpy as np
 import polars as pl
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec
-from causal_ssm_agent.workers.schemas_prior import PriorProposal, PriorValidationResult
+from causal_ssm_agent.workers.schemas_prior import (
+    PriorProposal,
+    PriorRepairScope,
+    PriorValidationResult,
+)
 
 logger = get_prefect_logger(__name__)
+
+
+def _pp_result(
+    *,
+    parameter: str,
+    is_valid: bool,
+    code: str,
+    issue: str | None,
+    suggested_adjustment: str | None = None,
+    severity: str = "error",
+    related_parameters: list[str] | None = None,
+    supporting_codes: list[str] | None = None,
+    repair_scope: PriorRepairScope | None = None,
+) -> PriorValidationResult:
+    """Build a typed prior-predictive diagnostic."""
+    return PriorValidationResult(
+        parameter=parameter,
+        is_valid=is_valid,
+        code=code,
+        origin="prior_predictive",
+        severity=severity,
+        issue=issue,
+        suggested_adjustment=suggested_adjustment,
+        related_parameters=related_parameters or ([parameter] if parameter else []),
+        supporting_codes=supporting_codes or [],
+        repair_scope=repair_scope,
+    )
+
+
+def _artifact_compile_diagnostics(compiled_ssm: dict | None) -> list[PriorValidationResult]:
+    """Return typed compile diagnostics attached to a compiled artifact."""
+    if compiled_ssm is None:
+        return []
+
+    diagnostics = compiled_ssm.get("compile_diagnostics") or []
+    typed: list[PriorValidationResult] = []
+    for diagnostic in diagnostics:
+        if isinstance(diagnostic, PriorValidationResult):
+            typed.append(diagnostic)
+        else:
+            typed.append(PriorValidationResult.model_validate(diagnostic))
+    return typed
+
+
+def _supporting_compile_context(
+    compiled_ssm: dict | None,
+    *,
+    construct_names: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return supporting compile diagnostics relevant to a later PP failure."""
+    diagnostics = [d for d in _artifact_compile_diagnostics(compiled_ssm) if d.severity == "warning"]
+    if not diagnostics:
+        return [], []
+
+    relevant = diagnostics
+    if construct_names:
+        construct_set = set(construct_names)
+        filtered = [
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.parameter == "drift_offdiag"
+            or any(name in diagnostic.parameter for name in construct_set)
+        ]
+        if filtered:
+            relevant = filtered
+
+    related_parameters = list(
+        dict.fromkeys(
+            parameter
+            for diagnostic in relevant
+            for parameter in (diagnostic.related_parameters or [diagnostic.parameter])
+            if parameter
+        )
+    )
+    supporting_codes = list(
+        dict.fromkeys(diagnostic.code for diagnostic in relevant if diagnostic.code)
+    )
+    return related_parameters, supporting_codes
 
 
 def compute_data_stats(data_for_model: pl.DataFrame) -> dict[str, dict]:
@@ -42,7 +125,99 @@ def compute_data_stats(data_for_model: pl.DataFrame) -> dict[str, dict]:
     return stats
 
 
-def _check_nan_inf(samples: dict[str, jnp.ndarray]) -> PriorValidationResult | None:
+def _ordered_latent_sccs(
+    causal_spec: dict | None,
+    latent_names: list[str],
+) -> list[tuple[str, ...]]:
+    """Return latent SCCs in estimation order for deterministic repair scoping."""
+    if causal_spec is None or not latent_names:
+        return []
+
+    from causal_ssm_agent.utils.causal_spec import get_estimation_edges, get_estimation_state_order
+
+    latent_name_set = set(latent_names)
+    construct_order = [
+        name for name in get_estimation_state_order(causal_spec) if name in latent_name_set
+    ]
+    if not construct_order:
+        return []
+
+    graph = nx.DiGraph()
+    graph.add_nodes_from(construct_order)
+    for edge in get_estimation_edges(causal_spec):
+        cause = edge.get("cause")
+        effect = edge.get("effect")
+        if cause in latent_name_set and effect in latent_name_set:
+            graph.add_edge(cause, effect)
+
+    order_lookup = {name: idx for idx, name in enumerate(construct_order)}
+    components = sorted(
+        nx.strongly_connected_components(graph),
+        key=lambda members: min(order_lookup[name] for name in members),
+    )
+    return [
+        tuple(name for name in construct_order if name in component)
+        for component in components
+    ]
+
+
+def _infer_dynamics_repair_scope(
+    drift_samples: np.ndarray,
+    unstable_indices: list[int],
+    *,
+    compiled_ssm: dict | None,
+    causal_spec: dict | None,
+) -> PriorRepairScope | None:
+    """Bound global drift instability to the smallest SCC-level repair scope."""
+    if not unstable_indices or compiled_ssm is None or causal_spec is None:
+        return None
+
+    from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
+
+    try:
+        spec_payload = compiled_ssm.get("spec")
+        if not isinstance(spec_payload, dict):
+            return None
+        ssm_spec = deserialize_ssm_spec(spec_payload)
+    except Exception:
+        logger.debug("Skipping dynamics repair-scope attribution (invalid compiled spec)")
+        return None
+
+    latent_names = list(ssm_spec.latent_names or [])
+    if not latent_names:
+        return None
+
+    sccs = _ordered_latent_sccs(causal_spec, latent_names)
+    if not sccs:
+        return None
+
+    latent_index = {name: idx for idx, name in enumerate(latent_names)}
+    implicated_sccs: list[tuple[str, ...]] = []
+    for scc in sccs:
+        scc_indices = [latent_index[name] for name in scc]
+        for sample_idx in unstable_indices:
+            submatrix = drift_samples[sample_idx][np.ix_(scc_indices, scc_indices)]
+            max_real = float(np.max(np.real(np.linalg.eigvals(submatrix))))
+            if max_real >= 0:
+                implicated_sccs.append(scc)
+                break
+
+    if not implicated_sccs:
+        implicated_sccs = sccs
+
+    construct_names = list(
+        dict.fromkeys(name for scc in implicated_sccs for name in scc)
+    )
+    if not construct_names:
+        return None
+    return PriorRepairScope(kind="dynamics_scc", construct_names=construct_names)
+
+
+def _check_nan_inf(
+    samples: dict[str, jnp.ndarray],
+    *,
+    compiled_ssm: dict | None = None,
+) -> PriorValidationResult | None:
     """Check for NaN or Inf in any sample site."""
     from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 
@@ -55,11 +230,15 @@ def _check_nan_inf(samples: dict[str, jnp.ndarray]) -> PriorValidationResult | N
             bad_sites.append(name)
 
     if bad_sites:
-        return PriorValidationResult(
+        related_parameters, supporting_codes = _supporting_compile_context(compiled_ssm)
+        return _pp_result(
             parameter="prior_predictive",
             is_valid=False,
+            code="prior_predictive_nonfinite_samples",
             issue=f"NaN/Inf detected in sample sites: {', '.join(bad_sites)}",
             suggested_adjustment="Check for degenerate priors or numerical overflow",
+            related_parameters=related_parameters,
+            supporting_codes=supporting_codes,
         )
     return None
 
@@ -111,9 +290,10 @@ def _check_constraint_violations(
         violation_rate = n_violations / n_total
         if violation_rate > threshold:
             results.append(
-                PriorValidationResult(
+                _pp_result(
                     parameter=site_name,
                     is_valid=False,
+                    code="constraint_violation",
                     issue=(
                         f"Constraint violation: {violation_rate:.1%} of {site_name} samples "
                         f"are negative (should be positive)"
@@ -147,9 +327,10 @@ def _check_extreme_values(
         extreme_rate = n_extreme / n_total
         if extreme_rate > threshold:
             results.append(
-                PriorValidationResult(
+                _pp_result(
                     parameter=site_name,
                     is_valid=False,
+                    code="extreme_values",
                     issue=(
                         f"Extreme values: {extreme_rate:.1%} of {site_name} samples "
                         f"have |value| > {extreme_cutoff:.0e}"
@@ -165,6 +346,9 @@ def _check_scale_plausibility(
     samples: dict[str, jnp.ndarray],
     data_stats: dict[str, dict],
     manifest_names: list[str],
+    *,
+    compiled_ssm: dict | None = None,
+    causal_spec: dict | None = None,
     n_subsample: int = 50,
     ratio_threshold: float = 100.0,
 ) -> list[PriorValidationResult]:
@@ -197,6 +381,7 @@ def _check_scale_plausibility(
 
     implied_stds_list = []
     n_unstable = 0
+    unstable_indices: list[int] = []
 
     for i in idx:
         drift_i = jnp.array(drift_samples[i])
@@ -215,6 +400,7 @@ def _check_scale_plausibility(
                 max_real,
             )
             n_unstable += 1
+            unstable_indices.append(int(i))
             continue
 
         try:
@@ -224,6 +410,7 @@ def _check_scale_plausibility(
             # Check stability: Sigma_inf should be positive semi-definite
             if np.any(np.isnan(sigma_inf_np)) or np.any(np.diag(sigma_inf_np) < 0):
                 n_unstable += 1
+                unstable_indices.append(int(i))
                 continue
 
             # Compute implied observation covariance
@@ -247,18 +434,33 @@ def _check_scale_plausibility(
         except Exception:
             logger.debug("Prior draw %d unstable (Lyapunov solver failed)", i, exc_info=True)
             n_unstable += 1
+            unstable_indices.append(int(i))
             continue
 
     if n_unstable > len(idx) * 0.5:
+        repair_scope = _infer_dynamics_repair_scope(
+            drift_samples,
+            unstable_indices,
+            compiled_ssm=compiled_ssm,
+            causal_spec=causal_spec,
+        )
+        related_parameters, supporting_codes = _supporting_compile_context(
+            compiled_ssm,
+            construct_names=list(repair_scope.construct_names) if repair_scope else None,
+        )
         results.append(
-            PriorValidationResult(
+            _pp_result(
                 parameter="dynamics_stability",
                 is_valid=False,
+                code="dynamics_stability",
                 issue=(
                     f"Unstable dynamics: {n_unstable}/{len(idx)} prior draws have "
                     f"unstable drift (Lyapunov solver failed)"
                 ),
                 suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                related_parameters=related_parameters,
+                supporting_codes=supporting_codes,
+                repair_scope=repair_scope,
             )
         )
 
@@ -280,9 +482,10 @@ def _check_scale_plausibility(
         ratio = float(median_implied[j]) / data_std
         if ratio > ratio_threshold or ratio < 1.0 / ratio_threshold:
             results.append(
-                PriorValidationResult(
+                _pp_result(
                     parameter=f"scale_{name}",
                     is_valid=False,
+                    code="scale_mismatch",
                     issue=(
                         f"Scale mismatch for {name}: implied std "
                         f"({median_implied[j]:.2g}) vs data std ({data_std:.2g}), "
@@ -384,9 +587,10 @@ def _check_lagged_response_plausibility(
             continue
 
         results.append(
-            PriorValidationResult(
+            _pp_result(
                 parameter=f"beta_{cause}_{effect}",
                 is_valid=True,
+                code="lagged_response_weak",
                 severity="warning",
                 issue=(
                     f"Across prior draws, the full-system one-lag response for {cause}->{effect} "
@@ -481,9 +685,10 @@ def validate_prior_predictive(
         return (
             False,
             [
-                PriorValidationResult(
+                _pp_result(
                     parameter="model_build",
                     is_valid=False,
+                    code="model_build",
                     issue=f"Model build failed: {e}",
                     suggested_adjustment="Fix model_spec or priors to enable model construction",
                 )
@@ -498,9 +703,10 @@ def validate_prior_predictive(
         return (
             False,
             [
-                PriorValidationResult(
+                _pp_result(
                     parameter="prior_sampling",
                     is_valid=False,
+                    code="prior_sampling",
                     issue=f"Prior predictive sampling failed: {e}",
                     suggested_adjustment="Check priors for numerical issues",
                 )
@@ -512,7 +718,7 @@ def validate_prior_predictive(
     results: list[PriorValidationResult] = []
 
     # Check 1: NaN/Inf
-    nan_result = _check_nan_inf(samples)
+    nan_result = _check_nan_inf(samples, compiled_ssm=artifact)
     if nan_result is not None:
         results.append(nan_result)
 
@@ -531,7 +737,15 @@ def validate_prior_predictive(
     ):
         scale_reference_stats = compute_data_stats(data_for_model)
     if scale_reference_stats:
-        results.extend(_check_scale_plausibility(samples, scale_reference_stats, manifest_names))
+        results.extend(
+            _check_scale_plausibility(
+                samples,
+                scale_reference_stats,
+                manifest_names,
+                compiled_ssm=artifact,
+                causal_spec=causal_spec,
+            )
+        )
 
     # Check 5: full-system lagged response plausibility (warning-only)
     results.extend(_check_lagged_response_plausibility(samples, artifact, causal_spec))
@@ -542,9 +756,10 @@ def validate_prior_predictive(
     if not results:
         for param_name in priors_dict:
             results.append(
-                PriorValidationResult(
+                _pp_result(
                     parameter=param_name,
                     is_valid=True,
+                    code="ok",
                     issue=None,
                     suggested_adjustment=None,
                 )

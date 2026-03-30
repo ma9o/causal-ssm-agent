@@ -25,6 +25,7 @@ from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 
 def compile_ssm_inputs(
@@ -34,7 +35,7 @@ def compile_ssm_inputs(
     ssm_spec: SSMSpec | None = None,
     ssm_priors: SSMPriors | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]], dict[str, object]]:
+) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]], list[PriorValidationResult]]:
     """Resolve executable SSM inputs plus structured compiler diagnostics."""
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
@@ -57,9 +58,9 @@ def compile_ssm_inputs(
         )
     else:
         diagnostics = collect_compile_diagnostics(
-            ssm_priors,
             ssm_spec,
             edge_lag_days=edge_lag_days,
+            raw_priors=priors or {},
         )
 
     bindings = bind_parameters(
