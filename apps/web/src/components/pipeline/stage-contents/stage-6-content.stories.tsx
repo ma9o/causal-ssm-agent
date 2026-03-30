@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
-import type { LLMTrace, Stage1aData, Stage1bData, Stage6Data } from "@causal-ssm/api-types";
+import type {
+  LLMTrace,
+  Stage1aData,
+  Stage1bData,
+  Stage4Data,
+  Stage5bData,
+  Stage6Data,
+} from "@causal-ssm/api-types";
 import type { UIMessage } from "ai";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
@@ -17,6 +24,9 @@ import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
 import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-6-nutsda.json";
 import stage1aFixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 import stage1bFixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
+import stage4Fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
+import stage5bFixture from "../../../../../../data/DOCTOLIB/run/stage-5b.json";
+import stage5bNutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-5b-nutsda.json";
 import {
   counterfactualResult,
   interventionResult,
@@ -28,6 +38,9 @@ type FollowUpScenario = "rung2" | "rung3";
 const stage = STAGES.find((s) => s.id === "stage-6")!;
 const stage1a = stage1aFixture as unknown as Stage1aData;
 const stage1b = stage1bFixture as unknown as Stage1bData;
+const stage4 = stage4Fixture as unknown as Stage4Data;
+const stage5b = stage5bFixture as unknown as Stage5bData;
+const stage5bNutsda = stage5bNutsdaFixture as unknown as Stage5bData;
 const data = { outcome: "success", ...fixture } as Stage6Data;
 const nutsdaData = { outcome: "success", ...nutsdaFixture } as Stage6Data;
 const storyTrace = mockTrace as LLMTrace;
@@ -50,6 +63,16 @@ const nutsdaDataWithTrace = {
 const baselineDagScene = buildStage6DagScene({
   stage1a,
   stage1b,
+  stage4,
+  stage5b,
+  refinementMessages: [],
+  height: "600px",
+});
+const nutsdaBaselineDagScene = buildStage6DagScene({
+  stage1a,
+  stage1b,
+  stage4,
+  stage5b: stage5bNutsda,
   refinementMessages: [],
   height: "600px",
 });
@@ -71,6 +94,14 @@ function getSimulationResult(scenario: FollowUpScenario) {
   return scenario === "rung2" ? interventionResult : counterfactualResult;
 }
 
+function getResultHorizonDays(scenario: FollowUpScenario): number {
+  const result = getSimulationResult(scenario);
+  const lastDay = result.effect_trajectory?.[result.effect_trajectory.length - 1]?.day;
+  return typeof lastDay === "number" && Number.isFinite(lastDay)
+    ? Math.max(1, Math.round(lastDay))
+    : 30;
+}
+
 function getToolName(scenario: FollowUpScenario): "simulate_intervention" | "simulate_counterfactual" {
   return scenario === "rung2" ? "simulate_intervention" : "simulate_counterfactual";
 }
@@ -82,7 +113,7 @@ function getToolInput(scenario: FollowUpScenario) {
       outcome: interventionResult.outcome,
       query: {
         estimand: interventionResult.estimand,
-        horizon_days: interventionResult.effect_trajectory?.length ?? 60,
+        horizon_days: getResultHorizonDays(scenario),
         projection: "latent",
       },
     };
@@ -98,7 +129,7 @@ function getToolInput(scenario: FollowUpScenario) {
     outcome: counterfactualResult.outcome,
     query: {
       estimand: counterfactualResult.estimand,
-      horizon_days: counterfactualResult.effect_trajectory?.length ?? 60,
+      horizon_days: getResultHorizonDays(scenario),
       projection: "latent",
     },
   };
@@ -216,6 +247,8 @@ function InteractiveFollowUpDemoView() {
   const dagScene = buildStage6DagScene({
     stage1a,
     stage1b,
+    stage4,
+    stage5b,
     refinementMessages,
     height: "600px",
   });
@@ -336,7 +369,7 @@ export const CompletedNUTS = createCompletedStageStory({
   stage,
   args: {
     data: nutsdaDataWithTrace,
-    dagScene: baselineDagScene,
+    dagScene: nutsdaBaselineDagScene,
   },
   outcome: nutsdaDataWithTrace.outcome,
   elapsedMs: 8_100,
@@ -352,6 +385,8 @@ export const Rung2FollowUp = createCompletedStageStory({
     dagScene: buildStage6DagScene({
       stage1a,
       stage1b,
+      stage4,
+      stage5b,
       refinementMessages: buildFollowUpMessages("rung2"),
       height: "600px",
     }),
@@ -372,6 +407,8 @@ export const Rung3FollowUp = createCompletedStageStory({
     dagScene: buildStage6DagScene({
       stage1a,
       stage1b,
+      stage4,
+      stage5b,
       refinementMessages: buildFollowUpMessages("rung3"),
       height: "600px",
     }),

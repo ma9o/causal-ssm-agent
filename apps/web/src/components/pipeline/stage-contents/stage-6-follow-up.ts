@@ -6,6 +6,20 @@ const STAGE6_TOOL_NAMES = new Set([
   "simulate_counterfactual",
 ]);
 
+type Stage6ToolName = "simulate_intervention" | "simulate_counterfactual";
+
+export interface Stage6SimulationToolInput {
+  query?: {
+    horizon_days?: number | null;
+  } | null;
+}
+
+export interface Stage6FollowUpSimulation {
+  toolName: Stage6ToolName;
+  input: Stage6SimulationToolInput | null;
+  output: Stage6SimulationResult;
+}
+
 function isStage6SimulationResult(value: unknown): value is Stage6SimulationResult {
   if (typeof value !== "object" || value == null) {
     return false;
@@ -23,9 +37,9 @@ function isStage6SimulationResult(value: unknown): value is Stage6SimulationResu
   );
 }
 
-export function extractLatestStage6SimulationResult(
+export function extractLatestStage6FollowUpSimulation(
   messages: UIMessage[],
-): Stage6SimulationResult | null {
+): Stage6FollowUpSimulation | null {
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages[messageIndex];
     if (message?.role !== "assistant") {
@@ -43,7 +57,14 @@ export function extractLatestStage6SimulationResult(
       }
 
       if (isStage6SimulationResult(part.output)) {
-        return part.output;
+        return {
+          toolName: part.toolName as Stage6ToolName,
+          input:
+            typeof part.input === "object" && part.input != null
+              ? (part.input as Stage6SimulationToolInput)
+              : null,
+          output: part.output,
+        };
       }
     }
   }

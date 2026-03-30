@@ -268,15 +268,21 @@ function Stage6ConnectedContent({
   const { refinementMessages } = useRefinement();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
+  const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
+  const { data: stage5a } = useStageData<Stage5aData>(workspaceId, "stage-5a", true);
+  const { data: stage5b } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
   const dagScene = useMemo(
     () =>
       buildStage6DagScene({
         stage1a,
         stage1b,
+        stage4,
+        stage5a,
+        stage5b,
         refinementMessages: refinementMessages["stage-6"] ?? [],
         height: "600px",
       }),
-    [refinementMessages, stage1a, stage1b],
+    [refinementMessages, stage1a, stage1b, stage4, stage5a, stage5b],
   );
 
   return (
