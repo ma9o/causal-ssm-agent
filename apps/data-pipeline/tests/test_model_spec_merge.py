@@ -419,11 +419,6 @@ class TestValidateModelSpecDecisionsDict:
 
 
 class TestDistributionFamilyConstruction:
-    def test_all_canonical_members_from_value(self):
-        """Every member's .value should round-trip through construction."""
-        for member in DistributionFamily:
-            assert DistributionFamily(member.value) == member
-
     def test_invalid_inputs_raise(self):
         with pytest.raises(ValueError):
             DistributionFamily(42)

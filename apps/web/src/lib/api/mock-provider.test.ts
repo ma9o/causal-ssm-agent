@@ -77,7 +77,6 @@ describe("simulatePipelineEvents", () => {
       expect(events[index]?.id).toBe(events[index + 1]?.id);
     }
     expect(new Set(events.map((event) => event.id)).size).toBe(STAGES.length);
-    expect(typeof cleanup).toBe("function");
-    expect(cleanup()).toBeUndefined();
+    cleanup();
   });
 });

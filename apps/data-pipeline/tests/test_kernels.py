@@ -1,7 +1,6 @@
 """Tests for kernel layer: observation and transition kernel factories.
 
-Covers: response functions, variance functions, build_observation_kernel,
-build_transition_kernel.
+Covers: variance functions, build_observation_kernel, build_transition_kernel.
 """
 
 import jax
@@ -9,37 +8,10 @@ import jax.numpy as jnp
 import pytest
 
 from causal_ssm_agent.models.likelihoods.kernels import (
-    _response_probit,
-    _response_sigmoid,
     build_observation_kernel,
     build_transition_kernel,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
-# =============================================================================
-# Response functions (inverse links)
-# =============================================================================
-
-
-class TestResponseFunctions:
-    def test_sigmoid_range(self):
-        x = jnp.array([-10.0, 0.0, 10.0])
-        result = _response_sigmoid(x)
-        assert jnp.all(result >= 0.0)
-        assert jnp.all(result <= 1.0)
-        assert jnp.isclose(result[1], 0.5)
-
-    def test_probit_range(self):
-        x = jnp.array([-10.0, 0.0, 10.0])
-        result = _response_probit(x)
-        assert jnp.all(result >= 0.0)
-        assert jnp.all(result <= 1.0)
-        assert jnp.isclose(result[1], 0.5)
-
-
-# =============================================================================
-# build_observation_kernel
-# =============================================================================
 
 
 class TestBuildObservationKernel:

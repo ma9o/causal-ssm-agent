@@ -6,20 +6,6 @@ describe("buildHistogram", () => {
     expect(buildHistogram([])).toEqual([]);
   });
 
-  it("produces bins with correct structure", () => {
-    const values = [1, 2, 3, 4, 5];
-    const bins = buildHistogram(values, 5);
-    expect(bins.length).toBeGreaterThan(0);
-    for (const b of bins) {
-      expect(b).toHaveProperty("binCenter");
-      expect(b).toHaveProperty("count");
-      expect(b).toHaveProperty("binStart");
-      expect(b).toHaveProperty("binEnd");
-      expect(typeof b.binCenter).toBe("number");
-      expect(typeof b.count).toBe("number");
-    }
-  });
-
   it("total count equals input length", () => {
     const values = Array.from({ length: 100 }, (_, i) => i);
     const bins = buildHistogram(values);

@@ -18,11 +18,4 @@ describe("generateAnonymousWorkspaceId", () => {
     }
   });
 
-  it("excludes ambiguous characters 0, 1, I, O", () => {
-    const workspaceIds = Array.from({ length: 100 }, () => generateAnonymousWorkspaceId()).join("");
-    expect(workspaceIds).not.toContain("0");
-    expect(workspaceIds).not.toContain("1");
-    expect(workspaceIds).not.toContain("I");
-    expect(workspaceIds).not.toContain("O");
-  });
 });

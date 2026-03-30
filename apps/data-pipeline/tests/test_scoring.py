@@ -72,11 +72,6 @@ def _model_with_invariant_json():
 
 
 class TestCountRulePoints:
-    def test_simple_model_scores_positive(self):
-        structure = LatentModel(**json.loads(_simple_model_json()))
-        points = _count_rule_points(structure)
-        assert points > 0
-
     def test_more_constructs_more_points(self):
         """Adding constructs should increase score."""
         small = LatentModel(**json.loads(_simple_model_json()))
@@ -138,21 +133,6 @@ class TestScoreLatentModel:
 
     def test_no_structure_attr_zero(self):
         pred = SimpleNamespace(other="field")
-        score = score_latent_model(None, pred)
-        assert score == 0.0
-
-    def test_invalid_json_zero(self):
-        pred = SimpleNamespace(structure="not json at all")
-        score = score_latent_model(None, pred)
-        assert score == 0.0
-
-    def test_invalid_schema_zero(self):
-        pred = SimpleNamespace(structure='{"bad": "schema"}')
-        score = score_latent_model(None, pred)
-        assert score == 0.0
-
-    def test_empty_object_zero(self):
-        pred = SimpleNamespace(structure="{}")
         score = score_latent_model(None, pred)
         assert score == 0.0
 

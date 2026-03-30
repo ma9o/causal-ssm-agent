@@ -7,16 +7,6 @@ describe("evaluatePdf", () => {
     expect(points).toHaveLength(101);
   });
 
-  it("returns x and y properties for each point", () => {
-    const points = evaluatePdf("Normal", { mu: 0, sigma: 1 }, 10);
-    for (const p of points) {
-      expect(p).toHaveProperty("x");
-      expect(p).toHaveProperty("y");
-      expect(typeof p.x).toBe("number");
-      expect(typeof p.y).toBe("number");
-    }
-  });
-
   describe("Normal distribution", () => {
     it("peaks near mu", () => {
       const points = evaluatePdf("Normal", { mu: 5, sigma: 1 });

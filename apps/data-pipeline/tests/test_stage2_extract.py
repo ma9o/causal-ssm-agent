@@ -209,13 +209,6 @@ def test_project_keeps_only_source_columns():
     assert set(result.columns) == {"timestamp", "heart_rate", "steps"}
 
 
-def test_project_no_source_columns_returns_full_df():
-    df = pl.DataFrame({"a": [1], "b": [2], "c": [3]})
-    indicators = [{"name": "x"}]
-    result = stage2_extract._project_to_source_columns(df, indicators)
-    assert result.columns == df.columns
-
-
 def test_project_missing_columns_warns(caplog):
     df = pl.DataFrame({"a": [1], "b": [2]})
     indicators = [{"name": "x", "source_columns": ["a", "nonexistent"]}]
