@@ -463,7 +463,23 @@ async def call_model(
         )
 
     started_at = perf_counter()
-    response = await _get_openrouter_client().chat.completions.create(**kwargs)
+    request_coro = _get_openrouter_client().chat.completions.create(**kwargs)
+    try:
+        if request.timeout is not None:
+            response = await asyncio.wait_for(request_coro, timeout=request.timeout)
+        else:
+            response = await request_coro
+    except TimeoutError as exc:
+        elapsed = perf_counter() - started_at
+        if log_label:
+            logger.warning(
+                "[%s] call_model timeout: model=%s time=%.1fs timeout=%ss",
+                log_label,
+                normalized_model_name,
+                elapsed,
+                request.timeout,
+            )
+        raise TimeoutError(f"call_model timed out after {request.timeout}s") from exc
     elapsed = perf_counter() - started_at
 
     choices = _get_attr(response, "choices") or []

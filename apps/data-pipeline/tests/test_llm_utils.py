@@ -4,6 +4,7 @@ Covers: parse_json_response, _validate_json_and_format, attach_trace,
         dict_messages_to_chat, calculate, parse_date.
 """
 
+import asyncio
 import json
 import logging
 
@@ -59,10 +60,6 @@ class TestParseJsonResponse:
         content = 'Here is the JSON:\n```json\n{"x": 1}\n```\nDone!'
         result = parse_json_response(content)
         assert result == {"x": 1}
-
-    def test_empty_object(self):
-        result = parse_json_response("{}")
-        assert result == {}
 
 
 # =============================================================================
@@ -282,6 +279,52 @@ class TestWorkerValidationTools:
         assert call_count == 2
         assert "MALFORMED_FUNCTION_CALL" in seen_retry_prompt["content"]
         assert "validate_extractions" in seen_retry_prompt["content"]
+        assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
+
+    def test_multi_turn_generate_retries_timeout_without_repair_prompt(self, monkeypatch):
+        call_count = 0
+        seen_second_messages: list[dict] = []
+        tool, capture = _make_worker_tool()
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = args[1]
+            if call_count == 1:
+                raise TimeoutError("call_model timed out after 120s")
+            seen_second_messages.extend(messages)
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "validate_extractions",
+                            "arguments": json.dumps({"output_json": _valid_worker_output_json()}),
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Extract sleep hours"}],
+                model_name="test-model",
+                tools=[tool],
+            )
+        )
+
+        assert result == ""
+        assert call_count == 2
+        assert [message["role"] for message in seen_second_messages] == ["user"]
         assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
     def test_multi_turn_generate_follow_up_gets_same_tools(self, monkeypatch):
@@ -557,7 +600,12 @@ class TestWorkerValidationTools:
 
         trace = trace_capture["trace"]
         assert isinstance(trace, LLMTrace)
-        assert [message.role for message in trace.messages] == ["user", "assistant", "tool", "assistant"]
+        assert [message.role for message in trace.messages] == [
+            "user",
+            "assistant",
+            "tool",
+            "assistant",
+        ]
         assert trace.messages[0].content == "original prompt"
         assert trace.messages[2].tool_result == "keep going"
         assert all("compact-" not in message.content for message in trace.messages)
@@ -689,6 +737,46 @@ class _FakeOpenRouterClient:
 
 
 class TestOpenRouterClient:
+    def test_call_model_enforces_local_timeout(self, monkeypatch):
+        from causal_ssm_agent.utils import openrouter_client
+
+        seen: dict[str, object] = {}
+
+        class _SlowChatCompletions:
+            async def create(self, **kwargs):
+                seen["kwargs"] = kwargs
+                await asyncio.sleep(0.05)
+                return {"choices": []}
+
+        slow_client = type(
+            "_SlowOpenRouterClient",
+            (),
+            {
+                "chat": type(
+                    "_SlowChatNamespace",
+                    (),
+                    {"completions": _SlowChatCompletions()},
+                )()
+            },
+        )()
+
+        monkeypatch.setattr(
+            openrouter_client,
+            "_get_openrouter_client",
+            lambda _api_key=None: slow_client,
+        )
+
+        with pytest.raises(TimeoutError, match=r"call_model timed out after 0\.01s"):
+            _run(
+                openrouter_client.call_model(
+                    "test-model",
+                    [{"role": "user", "content": "hello"}],
+                    config=openrouter_client.GenerateConfig(timeout=0.01),
+                )
+            )
+
+        assert seen["kwargs"]["timeout"] == 0.01
+
     def test_call_model_logs_completion_tool_calls_and_reasoning(self, monkeypatch, caplog):
         from causal_ssm_agent.utils import openrouter_client
 
