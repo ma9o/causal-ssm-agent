@@ -40,16 +40,11 @@ Constraint notes:
 The `Family` values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.
 The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.
 
-These are project starting defaults, not universal literature defaults. They are meant to be weakly informative anchors that get revised with domain evidence and prior predictive checks[^gelman2008][^gelman2020].
-
-[^gelman2008]: Gelman, A., Jakulin, A., Pittau, M. G., & Su, Y.-S. (2008). A Weakly Informative Default Prior Distribution for Logistic and Other Regression Models. *The Annals of Applied Statistics*, 2(4), 1360-1383. [Bibliography entry](../bibliography.md)
-[^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../bibliography.md)
-
 ## Common Defaults
 
 | Type | Typical Distribution | Typical Range | Scale |
 |---|---|---|---|
-| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Discrete-time |
+| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Authored interval effect (defaults to model interval; use `reference_interval_days` when evidence is on another interval) |
 | rho (AR coefficient) | Beta(2, 2) or Uniform(0, 1) | [0, 1] | Discrete-time persistence |
 | sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
 | lambda (loading) | HalfNormal(1) | [0, 3] | Data scale |
