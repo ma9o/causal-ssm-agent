@@ -73,6 +73,7 @@ class Stage4Plan:
     indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_measurement_block_id: dict[str, str] = field(default_factory=dict)
     dynamics_block_id_by_construct: dict[str, str] = field(default_factory=dict)
+    scc_construct_names_by_construct: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def all_blocks(self) -> tuple[Stage4FrontierBlock, ...]:
@@ -509,11 +510,14 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         graph.add_edge(edge["cause"], edge["effect"])
     order_lookup = {name: idx for idx, name in enumerate(construct_order)}
     dynamics_roles = {"ar_coefficient", "residual_sd"}
+    scc_construct_names_by_construct: dict[str, tuple[str, ...]] = {}
     for component in sorted(
         nx.strongly_connected_components(graph),
         key=lambda members: min(order_lookup[name] for name in members),
     ):
         ordered_members = tuple(name for name in construct_order if name in component)
+        for construct_name in ordered_members:
+            scc_construct_names_by_construct[construct_name] = ordered_members
         names = [
             parameter["name"]
             for parameter in skeleton.parameters
@@ -642,6 +646,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         indicator_to_decision_block_id=indicator_to_decision_block_id,
         indicator_to_measurement_block_id=indicator_to_measurement_block_id,
         dynamics_block_id_by_construct=dynamics_block_id_by_construct,
+        scc_construct_names_by_construct=scc_construct_names_by_construct,
     )
 
 

@@ -92,6 +92,7 @@ async def stage4_agentic_flow(
                 n_paraphrases=s4.paraphrasing.n_paraphrases,
                 gmm_model=s4.paraphrasing.gmm_model or s4.model,
                 max_tool_turns=s4.max_tool_turns,
+                effect_block_concurrency=s4.effect_block_concurrency,
             )
 
             materialized = materialize_stage4_result(

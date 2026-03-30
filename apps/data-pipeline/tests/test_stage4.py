@@ -55,6 +55,9 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     build_stage4_plan,
     derive_deterministic_spec,
 )
+from causal_ssm_agent.orchestrator.stage4_parallel import (
+    _finalize_parallel_effect_batch_if_complete,
+)
 from causal_ssm_agent.utils.llm import make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
@@ -955,6 +958,71 @@ def _make_stage4_global_repair_spec() -> dict:
     }
 
 
+def _make_stage4_parallel_effect_spec() -> dict:
+    """Stage 4 spec with two independent first-pass effect blocks."""
+    constructs = [
+        {
+            "name": "activity",
+            "role": "exogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "sleep",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "mood",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+            "is_outcome": True,
+        },
+    ]
+    edges = [
+        {"cause": "activity", "effect": "sleep"},
+        {"cause": "activity", "effect": "mood"},
+    ]
+    indicators = [
+        {
+            "name": "steps",
+            "construct_name": "activity",
+            "measurement_dtype": "count",
+            "how_to_measure": "Daily step count",
+            "aggregation": "sum",
+        },
+        {
+            "name": "activity_vas",
+            "construct_name": "activity",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Activity visual analog scale",
+            "aggregation": "mean",
+        },
+        {
+            "name": "sleep_quality",
+            "construct_name": "sleep",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Sleep quality rating",
+            "aggregation": "mean",
+        },
+        {
+            "name": "mood_rating",
+            "construct_name": "mood",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Mood rating",
+            "aggregation": "mean",
+        },
+    ]
+    return {
+        "latent": {"constructs": constructs, "edges": edges},
+        "measurement": {"model_clock": "1d", "indicators": indicators},
+        "estimation": {
+            "state_order": ["activity", "sleep", "mood"],
+            "edges": edges,
+            "induced_dependencies": [],
+        },
+    }
+
+
 def _make_stage4_no_model_block_spec() -> dict:
     """Stage 4 spec whose reducer starts directly in the prior phase."""
     constructs = [
@@ -1098,6 +1166,33 @@ def _make_scripted_stage4_generate(
         validate_tool = next(tool for tool in tools if tool.name == "validate_model")
         feedback = await validate_tool(model_json=json.dumps(submission))
         assert isinstance(feedback, str)
+        if feedback.startswith("VALIDATION ERRORS:"):
+            raise AssertionError(feedback)
+        return ""
+
+    return _generate
+
+
+def _make_scripted_stage4_generate_by_block(
+    submissions_by_block: dict[str, dict[str, object]],
+    *,
+    visited_blocks: list[str],
+    visible_tools: list[list[str]],
+):
+    """Drive ``run_stage4()`` with block-keyed scripted submissions."""
+
+    async def _generate(messages, tools, rewrite_messages=None, rewrite_tools=None, label=None):
+        del messages, rewrite_messages, rewrite_tools
+        assert label is not None and label.startswith("stage-4:")
+        block_id = label.removeprefix("stage-4:")
+        submission = submissions_by_block[block_id]
+        visited_blocks.append(block_id)
+        visible_tools.append([tool.name for tool in tools])
+        validate_tool = next(tool for tool in tools if tool.name == "validate_model")
+        feedback = await validate_tool(model_json=json.dumps(submission))
+        assert isinstance(feedback, str)
+        if feedback.startswith("VALIDATION ERRORS:"):
+            raise AssertionError(f"{block_id}: {feedback}")
         return ""
 
     return _generate
@@ -3230,6 +3325,117 @@ class TestStage4Mechanics:
         assert "cor0_activity_sleep" in runtime.accepted.authored_priors
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
+    def test_compute_stage4_validate_step_synthesizes_bounded_repair_bundle_from_supporting_diagnostics(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "effects:sleep"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+            },
+        )
+        effect_payload = {
+            "block_id": "effects:sleep",
+            "block_kind": "effect_prior",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "global repair trigger",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="drift_offdiag",
+                            is_valid=True,
+                            code="dt_ct_approximation_warning",
+                            origin="compile",
+                            severity="warning",
+                            issue="off-diagonal drift is large relative to damping",
+                            related_parameters=["beta_activity_sleep"],
+                        ),
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue="NaN/Inf detected in sample sites: observations",
+                            suggested_adjustment="Check for degenerate priors",
+                            related_parameters=["drift_offdiag"],
+                            supporting_codes=["dt_ct_approximation_warning"],
+                        )
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            effect_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert runtime.block_status["effects:sleep"] == "accepted"
+        assert runtime.block_status["dynamics:activity"] == "reopened"
+        assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.active_block_id == "dynamics:activity"
+        assert runtime.phase == "prior_blocks"
+        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+
     def test_compute_stage4_validate_step_escalates_unattributed_global_failure_to_prior_review(self):
         causal_spec = _make_stage4_global_repair_spec()
         skeleton = derive_deterministic_spec(causal_spec)
@@ -3305,8 +3511,6 @@ class TestStage4Mechanics:
                             origin="prior_predictive",
                             issue="NaN/Inf detected in sample sites: observations",
                             suggested_adjustment="Check for degenerate priors",
-                            related_parameters=["drift_offdiag"],
-                            supporting_codes=["dt_ct_approximation_warning"],
                         )
                     ],
                 ),
@@ -3945,6 +4149,333 @@ class TestStage4Mechanics:
             "sigma_activity",
             "sigma_sleep",
         ]
+
+    def test_run_stage4_parallel_effect_batch_runs_final_validation_barrier(self, monkeypatch):
+        causal_spec = _make_stage4_parallel_effect_spec()
+
+        submissions_by_block = {
+            "indicator:steps": {
+                "block_id": "indicator:steps",
+                "block_kind": "indicator_decision",
+                "proposal": {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "Step counts are nonnegative integers.",
+                },
+            },
+            "loading:activity": {
+                "block_id": "loading:activity",
+                "block_kind": "loading_decision",
+                "proposal": {
+                    "loading_constraints": [
+                        {
+                            "parameter": "lambda_activity_vas_activity",
+                            "constraint": "positive",
+                            "reasoning": "Higher self-rated activity should reflect more activity.",
+                        }
+                    ]
+                },
+            },
+            "review:model_spec": {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The locked likelihoods and loading choices are coherent.",
+                },
+            },
+            "measurement:activity": {
+                "block_id": "measurement:activity",
+                "block_kind": "measurement_prior",
+                "proposal": {
+                    "priors": {
+                        "lambda_activity_vas_activity": {
+                            "parameter": "lambda_activity_vas_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.25},
+                            "sources": [],
+                            "reasoning": "measurement prior",
+                        }
+                    }
+                },
+            },
+            "dynamics:activity": {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.4},
+                            "sources": [],
+                            "reasoning": "activity residual scale",
+                        },
+                    }
+                },
+            },
+            "dynamics:sleep": {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 2.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep persistence",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+            "dynamics:mood": {
+                "block_id": "dynamics:mood",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_mood": {
+                            "parameter": "rho_mood",
+                            "distribution": "Beta",
+                            "params": {"alpha": 2.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "mood persistence",
+                        },
+                        "sigma_mood": {
+                            "parameter": "sigma_mood",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "mood residual scale",
+                        },
+                    }
+                },
+            },
+            "effects:sleep": {
+                "block_id": "effects:sleep",
+                "block_kind": "effect_prior",
+                "proposal": {
+                    "priors": {
+                        "beta_activity_sleep": {
+                            "parameter": "beta_activity_sleep",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.2},
+                            "sources": [],
+                            "reasoning": "sleep effect prior",
+                        }
+                    }
+                },
+            },
+            "effects:mood": {
+                "block_id": "effects:mood",
+                "block_kind": "effect_prior",
+                "proposal": {
+                    "priors": {
+                        "beta_activity_mood": {
+                            "parameter": "beta_activity_mood",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.2},
+                            "sources": [],
+                            "reasoning": "mood effect prior",
+                        }
+                    }
+                },
+            },
+        }
+        visited_blocks: list[str] = []
+        visible_tools: list[list[str]] = []
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = current or {}
+            if "model_spec" in data:
+                model_spec = data["model_spec"]
+                return {
+                    "model_spec": model_spec,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=False,
+                    pp_valid=True,
+                ),
+            }, "VALID"
+
+        def stub_validate_assembly(model_spec, authored_priors, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=True,
+                diagnostics=[],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            stub_stage4_grounding,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        result = asyncio.run(
+            run_stage4(
+                causal_spec=causal_spec,
+                question="Does activity affect sleep and mood?",
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                generate=_make_scripted_stage4_generate_by_block(
+                    submissions_by_block,
+                    visited_blocks=visited_blocks,
+                    visible_tools=visible_tools,
+                ),
+                enable_literature=False,
+                enable_paraphrasing=False,
+                effect_block_concurrency=2,
+            )
+        )
+
+        assert set(visited_blocks) == {
+            "indicator:steps",
+            "loading:activity",
+            "review:model_spec",
+            "measurement:activity",
+            "dynamics:activity",
+            "dynamics:sleep",
+            "dynamics:mood",
+            "effects:sleep",
+            "effects:mood",
+        }
+        assert visible_tools == [["validate_model"]] * len(visited_blocks)
+        assert sorted(result.authored_priors) == [
+            "beta_activity_mood",
+            "beta_activity_sleep",
+            "lambda_activity_vas_activity",
+            "rho_mood",
+            "rho_sleep",
+            "sigma_activity",
+            "sigma_mood",
+            "sigma_sleep",
+        ]
+        assert result.validation is not None
+        assert result.validation.pp_checked is True
+        assert result.validation.pp_valid is True
+
+    def test_finalize_parallel_effect_batch_routes_generic_pp_failure_to_bounded_bundle(
+        self, monkeypatch
+    ):
+        causal_spec = _make_stage4_parallel_effect_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "done"
+        for block in plan.prior_blocks:
+            runtime.block_status[block.id] = "accepted"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "steps",
+                        "distribution": "poisson",
+                        "link": "log",
+                    }
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "rho_mood"},
+                    {"name": "sigma_mood"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "beta_activity_mood"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "rho_mood": {"distribution": "Beta"},
+                "sigma_mood": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {"distribution": "Normal"},
+                "beta_activity_mood": {"distribution": "Normal"},
+            },
+        )
+        deps = _make_stage4_deps(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=lambda *_args, **_kwargs: ({}, "VALID"),
+        )
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=False,
+                diagnostics=[
+                    PriorValidationResult(
+                        parameter="drift_offdiag",
+                        is_valid=True,
+                        code="dt_ct_approximation_warning",
+                        origin="compile",
+                        severity="warning",
+                        issue="off-diagonal drift is large relative to damping",
+                        related_parameters=["beta_activity_sleep"],
+                    ),
+                    PriorValidationResult(
+                        parameter="prior_predictive",
+                        is_valid=False,
+                        code="prior_predictive_nonfinite_samples",
+                        origin="prior_predictive",
+                        issue="NaN/Inf detected in sample sites: observations",
+                        suggested_adjustment="Check for degenerate priors",
+                        related_parameters=["prior_predictive"],
+                        supporting_codes=["dt_ct_approximation_warning"],
+                    ),
+                ],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        _finalize_parallel_effect_batch_if_complete(
+            plan,
+            runtime,
+            deps,
+            merged_block_ids=("effects:sleep", "effects:mood"),
+        )
+
+        assert runtime.phase == "prior_blocks"
+        assert runtime.active_block_id == "dynamics:activity"
+        assert runtime.block_status["dynamics:activity"] == "reopened"
+        assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.block_status["effects:sleep"] == "reopened"
+        assert runtime.block_status["review:prior_system"] != "reopened"
+        assert runtime.accepted.validation is not None
+        assert runtime.accepted.validation.pp_valid is False
 
     def test_run_stage4_auto_locks_initial_model_spec_when_no_model_blocks(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
