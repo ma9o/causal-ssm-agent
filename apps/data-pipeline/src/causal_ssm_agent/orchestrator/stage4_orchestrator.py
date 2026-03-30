@@ -71,6 +71,7 @@ class Stage4Plan:
     parameter_to_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_measurement_block_id: dict[str, str] = field(default_factory=dict)
+    dynamics_block_id_by_construct: dict[str, str] = field(default_factory=dict)
 
     @property
     def all_blocks(self) -> tuple[Stage4FrontierBlock, ...]:
@@ -141,7 +142,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "measurement_prior_guidance",
         ),
         parameter_guidance_prefixes=("lambda",),
-        allowed_tool_names=("validate_model", "search_literature", "elicit_prior_gmm"),
+        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "dynamics_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -159,7 +160,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "continuous_time_dynamics",
         ),
         parameter_guidance_prefixes=("rho", "sigma"),
-        allowed_tool_names=("validate_model", "search_literature", "elicit_prior_gmm"),
+        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "effect_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -195,7 +196,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "parameter_guidance",
         ),
         parameter_guidance_prefixes=("cor",),
-        allowed_tool_names=("validate_model", "search_literature", "elicit_prior_gmm"),
+        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "global_review": Stage4PromptScopePolicy(
         system_task=(
@@ -572,6 +573,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     parameter_to_block_id: dict[str, str] = {}
     indicator_to_decision_block_id: dict[str, str] = {}
     indicator_to_measurement_block_id: dict[str, str] = {}
+    dynamics_block_id_by_construct: dict[str, str] = {}
 
     for block in prior_blocks:
         for parameter_name in block.parameter_names:
@@ -579,6 +581,9 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         if block.kind == "measurement_prior":
             for indicator_name in block.variable_names:
                 indicator_to_measurement_block_id[indicator_name] = block.id
+        if block.kind == "dynamics_prior":
+            for construct_name in block.construct_names:
+                dynamics_block_id_by_construct[construct_name] = block.id
 
     for block in model_blocks:
         for parameter_name in block.parameter_names:
@@ -595,6 +600,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         parameter_to_block_id=parameter_to_block_id,
         indicator_to_decision_block_id=indicator_to_decision_block_id,
         indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        dynamics_block_id_by_construct=dynamics_block_id_by_construct,
     )
 
 

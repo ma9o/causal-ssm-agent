@@ -630,9 +630,14 @@ def build_stage4_system_prompt(
         sections.append(
             "## Literature Evidence\n\n"
             "- Use `search_literature` selectively when empirical effect-size evidence matters.\n"
+            "- If multiple active-scope parameters still need literature support, batch those "
+            "`search_literature` calls in the same turn.\n"
             "- Always pass an active-scope `parameter_name` when calling the tool.\n"
             "- Anchor priors on larger longitudinal evidence when available.\n"
-            "- If evidence is heterogeneous or indirect, widen the prior."
+            "- If evidence is heterogeneous or indirect, widen the prior.\n"
+            "- Do not paraphrase the same search for the same parameter across extra turns.\n"
+            "- If direct evidence remains sparse but a conservative prior is already justified, "
+            "stop searching and submit `validate_model`."
         )
     if "elicit_prior_gmm" in enabled_tool_names:
         sections.append(
@@ -646,7 +651,9 @@ def build_stage4_system_prompt(
     ]
     if "search_literature" in enabled_tool_names:
         available_tools.append(
-            "- `search_literature`: fetch empirical effect-size evidence for an active-scope parameter."
+            "- `search_literature`: fetch empirical effect-size evidence for an active-scope "
+            "parameter; you may call it multiple times in one turn when several active-scope "
+            "parameters remain unresolved."
         )
     if "elicit_prior_gmm" in enabled_tool_names:
         available_tools.append(

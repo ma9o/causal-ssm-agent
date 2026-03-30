@@ -155,6 +155,27 @@ class Stage4Turn:
 
 
 @dataclass(frozen=True)
+class Stage4TurnOutcome:
+    """Structured outcome for one Stage 4 model turn."""
+
+    block_id: str
+    validate_submitted: bool
+    submit_count: int
+    latest_feedback: str | None
+    next_block_id: str | None
+
+
+@dataclass
+class _Stage4TurnTracker:
+    """Mutable tracker for explicit tool submissions inside one model turn."""
+
+    block_id: str
+    submit_count: int = 0
+    latest_feedback: str | None = None
+    next_block_id: str | None = None
+
+
+@dataclass(frozen=True)
 class Stage4BlockHandler:
     """Per-kind Stage 4 block behavior."""
 
@@ -389,6 +410,7 @@ class Stage4Session:
     prompt_context: Stage4Messages
     deps: Stage4Deps
     runtime: Stage4Runtime = field(default_factory=Stage4Runtime)
+    _turn_tracker: _Stage4TurnTracker | None = field(default=None, init=False, repr=False)
 
     @property
     def accepted(self) -> Stage4AcceptedState:
@@ -419,6 +441,36 @@ class Stage4Session:
             block=block,
         )
 
+    def begin_turn(self, block_id: str) -> None:
+        """Start tracking explicit submissions for one model turn."""
+        if self._turn_tracker is not None:
+            raise ValueError(
+                f"Stage 4 turn tracking already active for block {self._turn_tracker.block_id!r}"
+            )
+        self._turn_tracker = _Stage4TurnTracker(block_id=block_id)
+
+    def finish_turn(self, block_id: str) -> Stage4TurnOutcome:
+        """Finish the active model turn and return its explicit submission outcome."""
+        tracker = self._turn_tracker
+        if tracker is None:
+            raise ValueError("Stage 4 turn tracking was not started before finish_turn()")
+        if tracker.block_id != block_id:
+            raise ValueError(
+                f"Stage 4 turn tracking mismatch: expected {tracker.block_id!r}, got {block_id!r}"
+            )
+        self._turn_tracker = None
+        return Stage4TurnOutcome(
+            block_id=tracker.block_id,
+            validate_submitted=tracker.submit_count > 0,
+            submit_count=tracker.submit_count,
+            latest_feedback=tracker.latest_feedback,
+            next_block_id=tracker.next_block_id,
+        )
+
+    def discard_turn(self) -> None:
+        """Clear any active turn tracker after an aborted model call."""
+        self._turn_tracker = None
+
     def submit(self, payload: dict[str, Any]) -> str:
         """Apply one block-local submission and return reducer feedback."""
         _stage_output, feedback = compute_stage4_validate_step(
@@ -427,6 +479,11 @@ class Stage4Session:
             runtime=self.runtime,
             deps=self.deps,
         )
+        if self._turn_tracker is not None:
+            next_block = self.current_block()
+            self._turn_tracker.submit_count += 1
+            self._turn_tracker.latest_feedback = feedback
+            self._turn_tracker.next_block_id = None if next_block is None else next_block.id
         return feedback
 
     def is_done(self) -> bool:
@@ -734,31 +791,84 @@ def _classify_compile_failure_block(
     return active_block.id
 
 
-def _classify_prior_failure_block(
+def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
+    """Return all dynamics-prior block ids in plan order."""
+    return tuple(block.id for block in plan.prior_blocks if block.kind == "dynamics_prior")
+
+
+def _ordered_block_ids(
+    plan: Stage4Plan,
+    block_ids: set[str],
+) -> tuple[str, ...]:
+    """Return block ids in deterministic plan order."""
+    return tuple(block.id for block in plan.all_blocks if block.id in block_ids)
+
+
+def _block_ids_for_repair_scope(
+    plan: Stage4Plan,
+    repair_scope: Any,
+) -> tuple[str, ...]:
+    """Map a structured repair scope to concrete Stage 4 blocks."""
+    if repair_scope is None:
+        return ()
+
+    if getattr(repair_scope, "kind", None) != "dynamics_scc":
+        return ()
+
+    construct_names = tuple(getattr(repair_scope, "construct_names", ()) or ())
+    if not construct_names:
+        return _all_dynamics_block_ids(plan)
+
+    block_ids = {
+        plan.dynamics_block_id_by_construct[name]
+        for name in construct_names
+        if name in plan.dynamics_block_id_by_construct
+    }
+    if not block_ids:
+        return _all_dynamics_block_ids(plan)
+    return _ordered_block_ids(plan, block_ids)
+
+
+def _classify_prior_failure_blocks(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     validation: AssemblyValidation | None,
-) -> str:
-    """Route prior-validation failures back to a local frontier block."""
+) -> tuple[str, ...]:
+    """Route prior-validation failures back to the smallest repairable scope."""
     if validation is None:
-        return active_block.id
+        return (active_block.id,)
 
-    failed = [result for result in validation.pp_results if not result.is_valid]
+    failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
+    repair_block_ids: set[str] = set()
     for result in failed:
-        block = _find_block_for_parameter(plan, result.parameter)
-        if block is not None:
-            return block.id
+        repair_block_ids.update(_block_ids_for_repair_scope(plan, getattr(result, "repair_scope", None)))
+    if repair_block_ids:
+        return _ordered_block_ids(plan, repair_block_ids)
+
+    local_block_ids: set[str] = set()
+    for result in failed:
+        for parameter_name in (result.parameter, *result.related_parameters):
+            block = _find_block_for_parameter(plan, parameter_name)
+            if block is not None:
+                local_block_ids.add(block.id)
+    if local_block_ids:
+        return _ordered_block_ids(plan, local_block_ids)
 
     issues_text = " ".join(result.issue or "" for result in failed).lower()
     if "support check" in issues_text or "outside support" in issues_text:
         for indicator_name, block_id in plan.indicator_to_decision_block_id.items():
             if indicator_name in issues_text:
-                return block_id
+                return (block_id,)
         for block in plan.model_blocks:
             if block.kind == "indicator_decision":
-                return block.id
+                return (block.id,)
 
-    return active_block.id
+    if any(result.parameter == "dynamics_stability" for result in failed):
+        dynamics_block_ids = _all_dynamics_block_ids(plan)
+        if dynamics_block_ids:
+            return dynamics_block_ids
+
+    return (active_block.id,)
 
 
 def _validate_submission_envelope(
@@ -1146,12 +1256,10 @@ def _apply_prior_submission(
         and getattr(validation, "pp_checked", False)
         and getattr(validation, "pp_valid", True) is False
     ):
-        reopen_block_ids = (
-            _classify_prior_failure_block(
-                plan,
-                active_block,
-                validation,
-            ),
+        reopen_block_ids = _classify_prior_failure_blocks(
+            plan,
+            active_block,
+            validation,
         )
     accepted_block_id = (
         active_block.id
@@ -1512,15 +1620,14 @@ async def run_stage4(
             break
         allowed_tools = [tool_map[name] for name in turn.allowed_tool_names if name in tool_map]
         block_before = turn.block.id
-        feedback_before = session.runtime.last_feedback
-        await generate(turn.messages, allowed_tools, label=f"stage-4:{block_before}")
-        block_after = session.current_block()
-        feedback_after = session.runtime.last_feedback
-        if (
-            block_after is not None
-            and block_after.id == block_before
-            and feedback_after == feedback_before
-        ):
+        session.begin_turn(block_before)
+        try:
+            await generate(turn.messages, allowed_tools, label=f"stage-4:{block_before}")
+        except Exception:
+            session.discard_turn()
+            raise
+        outcome = session.finish_turn(block_before)
+        if not outcome.validate_submitted:
             raise ValueError(
                 f"Stage 4 block `{block_before}` did not submit `validate_model` before the turn ended"
             )

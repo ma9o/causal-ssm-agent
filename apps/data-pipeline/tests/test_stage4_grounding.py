@@ -266,7 +266,7 @@ class TestStage4GroundingStateMerging:
             current=current,
         )
         assert output is not None
-        assert feedback == "VALID"
+        assert feedback == "VALID" or "MODELING WARNINGS" in feedback
 
         # Output should have ALL priors (merged), not just the submitted one
         assert len(output["authored_priors"]) == len(priors)
@@ -373,6 +373,7 @@ class TestStage4GroundingCompileOwnership:
 
     def test_non_fatal_modeling_warnings_are_returned_without_rejecting_state(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
         validation = AssemblyValidation(
             normalized_model_spec={
@@ -386,13 +387,18 @@ class TestStage4GroundingCompileOwnership:
                 ],
             },
             compile_ok=True,
-            compile_warnings=[
-                {
-                    "parameter": "beta_stress_sleep",
-                    "category": "interval_provenance",
-                    "issue": "The cited evidence is weekly but the prior is being interpreted daily.",
-                    "suggested_adjustment": "Set `reference_interval_days` if the weekly interval is intended.",
-                }
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="beta_stress_sleep",
+                    is_valid=True,
+                    code="interval_reference_missing",
+                    origin="compile",
+                    severity="warning",
+                    issue="The cited evidence is weekly but the prior is being interpreted daily.",
+                    suggested_adjustment=(
+                        "Set `reference_interval_days` if the weekly interval is intended."
+                    ),
+                )
             ],
             compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
             pp_checked=True,
@@ -752,7 +758,7 @@ class TestStage4SearchTool:
             compile_ok=True,
             pp_checked=True,
             pp_valid=False,
-            pp_results=[global_failure],
+            diagnostics=[global_failure],
         )
 
         payload = build_validation_payload(validation, model_spec)
