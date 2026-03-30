@@ -25,13 +25,13 @@ def _stage4_generate_config() -> GenerateConfig:
     Stage 4 intentionally removes the shared max-token cap and tool-output
     truncation so the model can continue beyond the default global ceiling on
     long prior-authoring turns and retain full literature/validator payloads.
-    It also enforces a shorter per-request timeout so hung provider calls do
+    It also enforces a bounded per-request timeout so hung provider calls do
     not stall the whole stage indefinitely.
     """
     base = get_generate_config()
     return GenerateConfig(
         max_tokens=None,
-        timeout=120,
+        timeout=180,
         reasoning_effort=base.reasoning_effort,
         max_tool_output=None,
     )
@@ -47,11 +47,12 @@ async def stage4_agentic_flow(
     openrouter_api_key: str | None = None,
     root_run_id: str | None = None,
 ) -> dict:
-    """Stage 4 agentic flow: single multi-turn LLM conversation.
+    """Stage 4 agentic flow: reducer-owned sequence of block-local LLM turns.
 
-    The LLM proposes model spec decisions + all priors in one conversation,
-    using tools (search_literature / elicit_prior_gmm) as needed.  The
-    grounding tool validates compile + prior predictive on each submission.
+    The orchestrator advances through one active Stage 4 block at a time
+    (model decisions, review, then prior blocks). Each turn exposes only the
+    tools and context needed for the current block, while the grounding tool
+    validates compile + prior predictive after each submission.
 
     Args:
         causal_spec: Full CausalSpec dict

@@ -327,6 +327,86 @@ class TestWorkerValidationTools:
         assert [message["role"] for message in seen_second_messages] == ["user"]
         assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
+    @pytest.mark.parametrize(
+        "tool_result",
+        [
+            "JSON parse error: Expecting ',' delimiter",
+            "VALIDATION ERRORS:\n- block_id is required",
+        ],
+    )
+    def test_multi_turn_generate_continues_after_recoverable_terminal_tool_feedback(
+        self,
+        monkeypatch,
+        tool_result: str,
+    ):
+        from causal_ssm_agent.utils.openrouter_client import Tool
+
+        call_count = 0
+        execute_count = 0
+
+        async def _validate() -> str:
+            nonlocal execute_count
+            execute_count += 1
+            if execute_count == 1:
+                return tool_result
+            return "BLOCK ACCEPTED"
+
+        tool = Tool(
+            name="validate_model",
+            description="Stage 4 validation tool.",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=_validate,
+            stop_on_success=True,
+            success_output=None,
+        )
+
+        async def fake_call_model(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            messages = args[1]
+
+            if call_count == 1:
+                assert [message["role"] for message in messages] == ["user"]
+            elif call_count == 2:
+                assert [message["role"] for message in messages] == ["user", "assistant", "tool"]
+                assert messages[-1]["content"] == tool_result
+            else:
+                raise AssertionError("unexpected call")
+
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{call_count}",
+                            "name": "validate_model",
+                            "arguments": "{}",
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": None,
+                "model": "test-model",
+                "time": 0.1,
+                "stop_reason": "tool_calls",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        result = _run(
+            multi_turn_generate(
+                messages=[{"role": "user", "content": "Submit the active Stage 4 block"}],
+                model_name="test-model",
+                tools=[tool],
+                max_tool_turns=3,
+            )
+        )
+
+        assert result == ""
+        assert call_count == 2
+        assert execute_count == 2
+
     def test_multi_turn_generate_follow_up_gets_same_tools(self, monkeypatch):
         """Follow-up turns receive the same validation tool as the initial turn."""
         call_count = 0

@@ -250,6 +250,51 @@ def treatment_effect_for_action(
     return intervened[outcome_idx] - baseline[outcome_idx]
 
 
+def forward_simulate_latent_action_from_state(
+    drift: jnp.ndarray,
+    cint: jnp.ndarray,
+    initial_state: jnp.ndarray,
+    treat_idx: int,
+    *,
+    mode: str,
+    value: float | None = None,
+    amount: float | None = None,
+    dt: float,
+    horizon_steps: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Forecast latent baseline and counterfactual paths from a conditioned state.
+
+    Returns full latent trajectories so callers can derive any node-level effect
+    path without re-implementing the state transition logic outside Python.
+    """
+    n = drift.shape[0]
+    diffusion_cov = jnp.zeros((n, n))
+    Ad, _, cd = discretize_system(drift, diffusion_cov, cint, dt)
+    if cd is None:
+        cd = jnp.zeros(n)
+
+    do_value = resolve_action_value(
+        initial_state[treat_idx],
+        mode=mode,
+        value=value,
+        amount=amount,
+    )
+
+    def _baseline_step(eta, _):
+        eta_next = Ad @ eta + cd
+        return eta_next, eta_next
+
+    def _cf_step(eta, _):
+        eta_next = Ad @ eta + cd
+        eta_next = eta_next.at[treat_idx].set(do_value)
+        return eta_next, eta_next
+
+    _, baseline = jax.lax.scan(_baseline_step, initial_state, None, length=horizon_steps)
+    cf_init = initial_state.at[treat_idx].set(do_value)
+    _, counterfactual = jax.lax.scan(_cf_step, cf_init, None, length=horizon_steps)
+    return baseline, counterfactual, counterfactual - baseline
+
+
 def forward_simulate_from_state(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
@@ -287,32 +332,24 @@ def forward_simulate_action_from_state(
     horizon_steps: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Forecast baseline and counterfactual paths from a conditioned latent state."""
-    n = drift.shape[0]
-    diffusion_cov = jnp.zeros((n, n))
-    Ad, _, cd = discretize_system(drift, diffusion_cov, cint, dt)
-    if cd is None:
-        cd = jnp.zeros(n)
-
-    do_value = resolve_action_value(
-        initial_state[treat_idx],
-        mode=mode,
-        value=value,
-        amount=amount,
+    baseline_states, counterfactual_states, effect_states = (
+        forward_simulate_latent_action_from_state(
+            drift,
+            cint,
+            initial_state,
+            treat_idx,
+            mode=mode,
+            value=value,
+            amount=amount,
+            dt=dt,
+            horizon_steps=horizon_steps,
+        )
     )
-
-    def _baseline_step(eta, _):
-        eta_next = Ad @ eta + cd
-        return eta_next, eta_next[outcome_idx]
-
-    def _cf_step(eta, _):
-        eta_next = Ad @ eta + cd
-        eta_next = eta_next.at[treat_idx].set(do_value)
-        return eta_next, eta_next[outcome_idx]
-
-    _, baseline = jax.lax.scan(_baseline_step, initial_state, None, length=horizon_steps)
-    cf_init = initial_state.at[treat_idx].set(do_value)
-    _, counterfactual = jax.lax.scan(_cf_step, cf_init, None, length=horizon_steps)
-    return baseline, counterfactual, counterfactual - baseline
+    return (
+        baseline_states[:, outcome_idx],
+        counterfactual_states[:, outcome_idx],
+        effect_states[:, outcome_idx],
+    )
 
 
 def approximate_abducted_state(

@@ -361,6 +361,7 @@ def _terminal_tool_success(
 ) -> tuple[str, str] | None:
     """Return the first successful terminal tool result, if any."""
     tool_map = {tool.name: tool for tool in tools}
+    recoverable_error_prefixes = ("JSON parse error:", "VALIDATION ERRORS:")
     for tool_message in tool_messages:
         tool_name = str(tool_message.get("name", ""))
         tool_obj = tool_map.get(tool_name)
@@ -369,7 +370,11 @@ def _terminal_tool_success(
         if tool_message.get("error") is not None:
             continue
         result_text = str(tool_message.get("content", "")).strip()
-        if tool_obj.success_output is None or result_text == tool_obj.success_output:
+        if tool_obj.success_output is None:
+            if result_text.startswith(recoverable_error_prefixes):
+                continue
+            return tool_name, result_text
+        if result_text == tool_obj.success_output:
             return tool_name, result_text
     return None
 

@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCOverlay,
@@ -71,11 +71,21 @@ class ToolContract:
     name: str
     description: str
     input_schema: type[BaseModel]
+    output_schema: type[BaseModel] | None = None
 
     def parameters_json_schema(self) -> dict[str, Any]:
         """Generate JSON Schema for the tool's input parameters."""
         schema = self.input_schema.model_json_schema()
         schema["additionalProperties"] = False
+        return schema
+
+    def result_json_schema(self) -> dict[str, Any] | None:
+        """Generate JSON Schema for the tool's result payload."""
+        if self.output_schema is None:
+            return None
+        schema = self.output_schema.model_json_schema(mode="serialization")
+        if schema.get("type") == "object":
+            schema["additionalProperties"] = False
         return schema
 
 
@@ -250,10 +260,6 @@ class SimulateInterventionInput(BaseModel):
 class CounterfactualEvidenceInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["observed_window"] = Field(
-        default="observed_window",
-        description="Condition on an actual observed history window from the run.",
-    )
     start_time: str | None = Field(
         default=None,
         description="Inclusive ISO-8601 lower bound for the evidence window.",
@@ -297,6 +303,109 @@ class SimulateCounterfactualInput(BaseModel):
         description="Outcome construct. Defaults to the stage-1a outcome.",
     )
     query: CounterfactualQueryInput = Field(default_factory=CounterfactualQueryInput)
+
+
+# --- Stage 6 tool outputs ---
+
+
+class ToolErrorContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    error: str
+    identifiable_treatments: list[str] | None = None
+
+
+class EffectSummaryContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mean: float
+    median: float
+    lower_95: float
+    upper_95: float
+    prob_positive: float
+
+
+class EffectTrajectoryPointContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: float
+    effect: float
+
+
+class Stage6VisualizationContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_effect_trajectories: dict[str, list[float]] | None = Field(
+        default=None,
+        description=(
+            "Per-construct latent effect trajectories aligned to effect_trajectory days. "
+            "Values are causal deltas relative to the relevant reference path."
+        ),
+    )
+    abducted_state: dict[str, float] | None = Field(
+        default=None,
+        description="Recovered latent state at the evidence boundary for rung-3 queries.",
+    )
+
+
+class CounterfactualEvidenceResultContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_time: str
+    end_time: str
+    n_timepoints: int
+    variables: list[str] = Field(default_factory=list)
+    conditioning_method: str
+
+
+class BaseStage6SimulationResultContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: InterventionActionInput
+    outcome: str
+    summary: EffectSummaryContract
+    effect_trajectory: list[EffectTrajectoryPointContract] | None = None
+    visualization: Stage6VisualizationContract | None = None
+    manifest_effects: dict[str, float] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SimulateInterventionResultContract(BaseStage6SimulationResultContract):
+    rung: Literal[2]
+    estimand: Literal["steady_state", "trajectory"]
+    baseline_treatment_mean: float
+
+
+class SimulateCounterfactualResultContract(BaseStage6SimulationResultContract):
+    rung: Literal[3]
+    evidence: CounterfactualEvidenceResultContract
+    estimand: Literal["end_state", "trajectory"]
+    baseline_forecast_mean: float
+
+
+class SimulateInterventionToolResultContract(
+    RootModel[SimulateInterventionResultContract | ToolErrorContract]
+):
+    pass
+
+
+class SimulateCounterfactualToolResultContract(
+    RootModel[SimulateCounterfactualResultContract | ToolErrorContract]
+):
+    pass
+
+
+EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
+    ToolErrorContract,
+    EffectSummaryContract,
+    EffectTrajectoryPointContract,
+    Stage6VisualizationContract,
+    CounterfactualEvidenceResultContract,
+    SimulateInterventionResultContract,
+    SimulateCounterfactualResultContract,
+    SimulateInterventionToolResultContract,
+    SimulateCounterfactualToolResultContract,
+)
 
 
 # --- Stage tools registry ---
@@ -367,11 +476,13 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
             name="simulate_intervention",
             description="Run a Pearl rung-2 interventional simulation on the fitted generative model.",
             input_schema=SimulateInterventionInput,
+            output_schema=SimulateInterventionToolResultContract,
         ),
         ToolContract(
             name="simulate_counterfactual",
             description="Run a Pearl rung-3 counterfactual forecast by conditioning on an observed history window, then applying an action.",
             input_schema=SimulateCounterfactualInput,
+            output_schema=SimulateCounterfactualToolResultContract,
         ),
     ],
 }
@@ -578,6 +689,7 @@ class Stage4Contract(LLMStageContract):
     authored_priors: dict[str, PriorProposal]
     resolved_priors: list[PriorProposal]
     search_queries: dict[str, str] | None = None
+    validation_warnings: list[str] | None = None
     prior_predictive_samples: dict[str, list[float]] | None = None
 
     def summary_message(self) -> str:
@@ -586,6 +698,7 @@ class Stage4Contract(LLMStageContract):
             f"likelihoods={len(self.model_spec.likelihoods)} "
             f"authored_priors={len(self.authored_priors)} "
             f"resolved_priors={len(self.resolved_priors)} "
+            f"warnings={len(self.validation_warnings or [])} "
             f"prior_predictive_channels={len(self.prior_predictive_samples or {})}"
         )
 
