@@ -178,6 +178,17 @@ class Stage4TurnOutcome:
     next_block_id: str | None
 
 
+@dataclass(frozen=True)
+class Stage4ParallelBlockResult:
+    """Accepted output from one isolated first-pass Stage 4 effect worker."""
+
+    block_id: str
+    authored_priors: dict[str, dict[str, Any]]
+    search_queries: dict[str, str]
+    search_cache: dict[str, str]
+    validation: AssemblyValidation | None = None
+
+
 @dataclass
 class _Stage4TurnTracker:
     """Mutable tracker for explicit tool submissions inside one model turn."""
@@ -792,20 +803,6 @@ def _format_plan_status(
     return "\n".join(lines)
 
 
-def _find_block_for_parameter(
-    plan: Stage4Plan,
-    parameter_name: str,
-) -> Stage4FrontierBlock | None:
-    """Map a validation parameter name back to the narrowest frontier block."""
-    if parameter_name.startswith("scale_"):
-        indicator_name = parameter_name.removeprefix("scale_")
-        measurement_block_id = plan.indicator_to_measurement_block_id.get(indicator_name)
-        if measurement_block_id is not None:
-            return plan.get_block(measurement_block_id)
-    block_id = plan.parameter_to_block_id.get(parameter_name)
-    return None if block_id is None else plan.get_block(block_id)
-
-
 def _repair_route(
     *,
     kind: str,
@@ -821,228 +818,6 @@ def _repair_route(
         reason=reason,
         diagnostic_codes=diagnostic_codes,
         related_parameters=related_parameters,
-    )
-
-
-def _classify_compile_failure_route(
-    plan: Stage4Plan,
-    active_block: Stage4FrontierBlock,
-    feedback: str | None,
-) -> Stage4RepairRoute:
-    """Route compile failures back to the smallest matching block."""
-    text = feedback or ""
-    for block in plan.all_blocks:
-        for token in [*block.variable_names, *block.parameter_names]:
-            if token and token in text:
-                return _repair_route(
-                    kind="compile_local",
-                    block_ids=(block.id,),
-                    reason="compile failure mentions an active-scope token",
-                )
-    return _repair_route(
-        kind="compile_active_block",
-        block_ids=(active_block.id,),
-        reason="compile failure could not be localized more narrowly",
-    )
-
-
-def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
-    """Return all dynamics-prior block ids in plan order."""
-    return tuple(block.id for block in plan.prior_blocks if block.kind == "dynamics_prior")
-
-
-def _ordered_block_ids(
-    plan: Stage4Plan,
-    block_ids: set[str],
-) -> tuple[str, ...]:
-    """Return block ids in deterministic plan order."""
-    return tuple(block.id for block in plan.all_blocks if block.id in block_ids)
-
-
-def _prior_failure_signature(validation: AssemblyValidation | None) -> tuple[Any, ...]:
-    """Build a stable signature for the current invalid PP diagnostics."""
-    if validation is None:
-        return ()
-
-    failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
-    signature: list[tuple[Any, ...]] = []
-    for result in failed:
-        related_parameters = tuple(
-            sorted(dict.fromkeys(result.related_parameters or ([result.parameter] if result.parameter else [])))
-        )
-        supporting_codes = tuple(sorted(dict.fromkeys(result.supporting_codes or [])))
-        signature.append((result.code, result.parameter, related_parameters, supporting_codes))
-    return tuple(sorted(signature))
-
-
-def _record_prior_failure_signature(
-    runtime: Stage4Runtime,
-    *,
-    block_id: str,
-    signature: tuple[Any, ...],
-) -> int:
-    """Record one PP failure signature for a block and return the repeat count."""
-    previous = runtime.prior_failure_signatures.get(block_id)
-    if previous == signature:
-        repeat_count = runtime.prior_failure_repeat_counts.get(block_id, 0) + 1
-    else:
-        repeat_count = 1
-    runtime.prior_failure_signatures[block_id] = signature
-    runtime.prior_failure_repeat_counts[block_id] = repeat_count
-    return repeat_count
-
-
-def _clear_prior_failure_signature(runtime: Stage4Runtime, block_id: str) -> None:
-    """Clear any remembered PP failure loop state for a block."""
-    runtime.prior_failure_signatures.pop(block_id, None)
-    runtime.prior_failure_repeat_counts.pop(block_id, None)
-
-
-def _block_ids_for_repair_scope(
-    plan: Stage4Plan,
-    repair_scope: Any,
-) -> tuple[str, ...]:
-    """Map a structured repair scope to concrete Stage 4 blocks."""
-    if repair_scope is None:
-        return ()
-
-    if getattr(repair_scope, "kind", None) != "dynamics_scc":
-        return ()
-
-    construct_names = tuple(getattr(repair_scope, "construct_names", ()) or ())
-    if not construct_names:
-        return _all_dynamics_block_ids(plan)
-
-    block_ids = {
-        plan.dynamics_block_id_by_construct[name]
-        for name in construct_names
-        if name in plan.dynamics_block_id_by_construct
-    }
-    if not block_ids:
-        return _all_dynamics_block_ids(plan)
-    return _ordered_block_ids(plan, block_ids)
-
-
-def _global_prior_review_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
-    """Return the exceptional post-prior global repair block, if configured."""
-    if plan.prior_review_block is None:
-        return ()
-    return (plan.prior_review_block.id,)
-
-
-def _classify_prior_failure_blocks(
-    plan: Stage4Plan,
-    active_block: Stage4FrontierBlock,
-    validation: AssemblyValidation | None,
-) -> Stage4RepairRoute:
-    """Route prior-validation failures back to the smallest repairable scope."""
-    if validation is None:
-        return _repair_route(
-            kind="active_block_fallback",
-            block_ids=(active_block.id,),
-            reason="missing validation payload",
-        )
-
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
-
-    failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
-    repair_block_ids: set[str] = set()
-    route_codes = tuple(sorted(dict.fromkeys(result.code for result in failed if result.code)))
-    route_parameters = tuple(
-        sorted(
-            dict.fromkeys(
-                parameter_name
-                for result in failed
-                for parameter_name in (result.related_parameters or ([result.parameter] if result.parameter else []))
-                if parameter_name
-            )
-        )
-    )
-    for result in failed:
-        repair_block_ids.update(_block_ids_for_repair_scope(plan, getattr(result, "repair_scope", None)))
-    if repair_block_ids:
-        return _repair_route(
-            kind="repair_scope",
-            block_ids=_ordered_block_ids(plan, repair_block_ids),
-            reason="diagnostic supplied an explicit repair scope",
-            diagnostic_codes=route_codes,
-            related_parameters=route_parameters,
-        )
-
-    local_block_ids: set[str] = set()
-    for result in failed:
-        for parameter_name in (result.parameter, *result.related_parameters):
-            block = _find_block_for_parameter(plan, parameter_name)
-            if block is not None:
-                local_block_ids.add(block.id)
-    if local_block_ids:
-        return _repair_route(
-            kind="direct_writer_blocks",
-            block_ids=_ordered_block_ids(plan, local_block_ids),
-            reason="diagnostic related_parameters map directly to Stage 4 blocks",
-            diagnostic_codes=route_codes,
-            related_parameters=route_parameters,
-        )
-
-    issues_text = " ".join(result.issue or "" for result in failed).lower()
-    if "support check" in issues_text or "outside support" in issues_text:
-        for indicator_name, block_id in plan.indicator_to_decision_block_id.items():
-            if indicator_name in issues_text:
-                return _repair_route(
-                    kind="likelihood_support",
-                    block_ids=(block_id,),
-                    reason="global support failure names an indicator likelihood",
-                    diagnostic_codes=route_codes,
-                    related_parameters=route_parameters,
-                )
-        for block in plan.model_blocks:
-            if block.kind == "indicator_decision":
-                return _repair_route(
-                    kind="likelihood_support",
-                    block_ids=(block.id,),
-                    reason="support failure requires indicator-decision repair",
-                    diagnostic_codes=route_codes,
-                    related_parameters=route_parameters,
-                )
-
-    if any(result.parameter == "dynamics_stability" for result in failed):
-        dynamics_block_ids = _all_dynamics_block_ids(plan)
-        if dynamics_block_ids:
-            return _repair_route(
-                kind="dynamics_family",
-                block_ids=dynamics_block_ids,
-                reason="dynamics stability failure requires the dynamics block family",
-                diagnostic_codes=route_codes,
-                related_parameters=route_parameters,
-            )
-
-    prior_review_block_ids = _global_prior_review_block_ids(plan)
-    if prior_review_block_ids:
-        return _repair_route(
-            kind="global_prior_review",
-            block_ids=prior_review_block_ids,
-            reason="global PP failure could not be localized to a bounded repair scope",
-            diagnostic_codes=route_codes,
-            related_parameters=route_parameters,
-        )
-
-    global_failures = [result for result in failed if result.parameter in GLOBAL_FAILURE_SITES]
-    if global_failures:
-        details = "; ".join(
-            f"{result.code}:{','.join(result.related_parameters or [result.parameter])}"
-            for result in global_failures
-        )
-        raise ValueError(
-            "Unattributed global prior-predictive failure cannot be repaired by reopening "
-            f"the active block {active_block.id!r}. Details: {details}"
-        )
-
-    return _repair_route(
-        kind="active_block_fallback",
-        block_ids=(active_block.id,),
-        reason="non-global failure could not be localized more narrowly",
-        diagnostic_codes=route_codes,
-        related_parameters=route_parameters,
     )
 
 
@@ -1337,6 +1112,8 @@ def _apply_stage4_step_result(
     result: Stage4StepResult,
 ) -> None:
     """Apply a reducer transition result in one place."""
+    from .stage4_repair import _clear_prior_failure_signature
+
     if result.distribution_choice is not None:
         choice = result.distribution_choice
         runtime.decisions.distribution_choices[choice["variable"]] = choice
@@ -1410,6 +1187,14 @@ def _apply_prior_submission(
     deps: Stage4Deps,
 ) -> Stage4StepResult:
     """Apply one prior-authoring block and route failures back locally."""
+    from .stage4_repair import (
+        _classify_compile_failure_route,
+        _classify_prior_failure_blocks,
+        _clear_prior_failure_signature,
+        _prior_failure_signature,
+        _record_prior_failure_signature,
+    )
+
     stage_output, feedback = deps.grounding_fn(
         {"priors": normalized["priors"]},
         deps.causal_spec,
@@ -1436,7 +1221,11 @@ def _apply_prior_submission(
             validation,
         )
         failure_signature = _prior_failure_signature(validation)
-        if repair_route is not None and repair_route.block_ids == (active_block.id,) and failure_signature:
+        if (
+            repair_route is not None
+            and repair_route.block_ids == (active_block.id,)
+            and failure_signature
+        ):
             repeat_count = _record_prior_failure_signature(
                 runtime,
                 block_id=active_block.id,
@@ -1460,7 +1249,8 @@ def _apply_prior_submission(
         _clear_prior_failure_signature(runtime, active_block.id)
     accepted_block_id = (
         active_block.id
-        if stage_output is not None and (repair_route is None or active_block.id not in repair_route.block_ids)
+        if stage_output is not None
+        and (repair_route is None or active_block.id not in repair_route.block_ids)
         else None
     )
 
@@ -1659,6 +1449,8 @@ def _lock_stage4_model_spec(
     failed_block: Stage4FrontierBlock,
 ) -> Stage4StepResult:
     """Materialize and validate the locked model spec after model decisions."""
+    from .stage4_repair import _classify_compile_failure_route
+
     model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, deps.skeleton)
     if model_spec is None:
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
@@ -1720,14 +1512,19 @@ async def run_stage4(
     n_paraphrases: int = 10,
     gmm_model: str | None = None,
     max_tool_turns: int = 40,
+    effect_block_concurrency: int = 1,
 ) -> Stage4Result:
     """Run the frontier-reduced Stage 4 flow."""
-    from causal_ssm_agent.flows.stages.stage_tools import (
-        make_elicit_prior_gmm_tool,
-        make_search_tool,
-        stage4_grounding,
+    from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+
+    from .stage4_parallel import (
+        _build_stage4_tool_map,
+        _finalize_parallel_effect_batch_if_complete,
+        _merge_parallel_effect_batch_results,
+        _pending_first_pass_effect_blocks,
+        _run_parallel_effect_batch,
+        _run_stage4_turn,
     )
-    from causal_ssm_agent.utils.openrouter_client import Tool
 
     skeleton = derive_deterministic_spec(causal_spec)
     model_topology = build_model_topology(causal_spec)
@@ -1759,47 +1556,15 @@ async def run_stage4(
         ),
         runtime=runtime,
     )
-
-    async def _execute_validate(*, model_json: str) -> str:
-        try:
-            data = json.loads(model_json)
-        except json.JSONDecodeError as exc:
-            return f"JSON parse error: {exc}"
-
-        return session.submit(data)
-
-    validate_tool = Tool(
-        name="validate_model",
-        description="Submit one active Stage 4 frontier block for validation.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "model_json": {
-                    "type": "string",
-                    "description": (
-                        "JSON object with exactly `block_id`, `block_kind`, and `proposal`. "
-                        "Submit only the current active Stage 4 block."
-                    ),
-                }
-            },
-            "required": ["model_json"],
-            "additionalProperties": False,
-        },
-        execute=_execute_validate,
-        stop_on_success=True,
-        success_output=None,
+    tool_map = _build_stage4_tool_map(
+        session,
+        question=question,
+        enable_literature=enable_literature,
+        enable_paraphrasing=enable_paraphrasing,
+        n_paraphrases=n_paraphrases,
+        gmm_model=gmm_model,
+        max_tool_turns=max_tool_turns,
     )
-
-    tool_map = {"validate_model": validate_tool}
-    if enable_literature:
-        tool_map["search_literature"] = make_search_tool(session)
-    if enable_paraphrasing:
-        tool_map["elicit_prior_gmm"] = make_elicit_prior_gmm_tool(
-            question=question,
-            model_name=gmm_model or "",
-            n_paraphrases=n_paraphrases,
-            max_tool_turns=max_tool_turns,
-        )
 
     deps = session.deps
 
@@ -1829,22 +1594,37 @@ async def run_stage4(
     for _outer_turn in range(max_outer_turns):
         if session.is_done():
             break
+        effect_batch = _pending_first_pass_effect_blocks(plan, session.runtime)
+        if effect_batch and effect_block_concurrency > 1:
+            results = await _run_parallel_effect_batch(
+                blocks=effect_batch,
+                plan=plan,
+                prompt_context=msgs,
+                deps=deps,
+                runtime=session.runtime,
+                generate=generate,
+                question=question,
+                enable_literature=enable_literature,
+                enable_paraphrasing=enable_paraphrasing,
+                n_paraphrases=n_paraphrases,
+                gmm_model=gmm_model,
+                max_tool_turns=max_tool_turns,
+                max_outer_turns=max_outer_turns,
+                effect_block_concurrency=effect_block_concurrency,
+            )
+            _merge_parallel_effect_batch_results(plan, session.runtime, results)
+            _finalize_parallel_effect_batch_if_complete(
+                plan,
+                session.runtime,
+                deps,
+                merged_block_ids=tuple(result.block_id for result in results),
+            )
+            continue
+
         turn = session.current_turn()
         if turn is None:
             break
-        allowed_tools = [tool_map[name] for name in turn.allowed_tool_names if name in tool_map]
-        block_before = turn.block.id
-        session.begin_turn(block_before)
-        try:
-            await generate(turn.messages, allowed_tools, label=f"stage-4:{block_before}")
-        except Exception:
-            session.discard_turn()
-            raise
-        outcome = session.finish_turn(block_before)
-        if not outcome.validate_submitted:
-            raise ValueError(
-                f"Stage 4 block `{block_before}` did not submit `validate_model` before the turn ended"
-            )
+        await _run_stage4_turn(session, generate, tool_map)
     else:
         raise ValueError(
             "Stage 4 agentic flow exceeded the outer block-turn limit without converging"
