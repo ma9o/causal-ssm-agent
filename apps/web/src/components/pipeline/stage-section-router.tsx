@@ -1,6 +1,5 @@
 "use client";
 
-import { CausalDag } from "@/components/dag/causal-dag";
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
@@ -37,6 +36,7 @@ import {
 import { StageLogView } from "./stage-log-viewer";
 import { StagePresentationShell } from "./stage-presentation-shell";
 import { Stage3FixAction } from "./stage-contents/stage-3-content";
+import { buildStage6DagScene } from "./stage-contents/stage-6-presentation";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
 const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
@@ -265,24 +265,24 @@ function Stage6ConnectedContent({
   workspaceId: string;
   data: Stage6Data;
 }) {
+  const { refinementMessages } = useRefinement();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
-  const dag =
-    stage1a != null ? (
-      <CausalDag
-        constructs={stage1a.latent_model.constructs}
-        edges={stage1a.latent_model.edges}
-        indicators={stage1b?.causal_spec.measurement.indicators}
-        height="600px"
-      />
-    ) : undefined;
+  const dagScene = useMemo(
+    () =>
+      buildStage6DagScene({
+        stage1a,
+        stage1b,
+        refinementMessages: refinementMessages["stage-6"] ?? [],
+        height: "600px",
+      }),
+    [refinementMessages, stage1a, stage1b],
+  );
 
   return (
     <Stage6Showcase
       data={data}
-      dag={dag}
-      dagTitle="Latent DAG"
-      dagDescription="Upstream causal structure carried into treatment-effect interpretation."
+      dagScene={dagScene}
     />
   );
 }

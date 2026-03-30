@@ -1,23 +1,71 @@
 "use client";
 
-import type { Stage6Data } from "@causal-ssm/api-types";
-import type { ReactNode } from "react";
+import { CausalDag } from "@/components/dag/causal-dag";
+import { InterventionDag } from "@/components/dag/intervention-dag";
+import type { Stage6SimulationResult } from "@/components/dag/intervention-dag-types";
+import type { CausalEdge, Construct, Indicator, Stage6Data } from "@causal-ssm/api-types";
 import Stage6Content from "./stage-6-content";
+
+type Stage6DagSceneBase = {
+  height?: string;
+};
+
+export type Stage6BaselineDagScene = Stage6DagSceneBase & {
+  kind: "baseline";
+  constructs: Construct[];
+  edges: CausalEdge[];
+  indicators?: Indicator[];
+};
+
+export type Stage6SimulationDagScene = Stage6DagSceneBase & {
+  kind: "simulation";
+  constructs: Construct[];
+  edges: CausalEdge[];
+  indicators?: Indicator[];
+  simulationResult: Stage6SimulationResult;
+};
+
+export type Stage6DagScene = Stage6BaselineDagScene | Stage6SimulationDagScene;
+
+export function createStage6BaselineDagScene(
+  scene: Omit<Stage6BaselineDagScene, "kind">,
+): Stage6BaselineDagScene {
+  return { kind: "baseline", ...scene };
+}
+
+export function createStage6SimulationDagScene(
+  scene: Omit<Stage6SimulationDagScene, "kind">,
+): Stage6SimulationDagScene {
+  return { kind: "simulation", ...scene };
+}
 
 export default function Stage6Showcase({
   data,
-  dag,
+  dagScene,
 }: {
   data: Stage6Data;
-  dag?: ReactNode;
+  dagScene?: Stage6DagScene;
 }) {
   return (
     <div className="space-y-4">
-      <Stage6Content
-        data={data}
-      />
-      {dag ? (
-          dag
+      <Stage6Content data={data} />
+      {dagScene ? (
+        dagScene.kind === "baseline" ? (
+          <CausalDag
+            constructs={dagScene.constructs}
+            edges={dagScene.edges}
+            indicators={dagScene.indicators}
+            height={dagScene.height ?? "600px"}
+          />
+        ) : (
+          <InterventionDag
+            constructs={dagScene.constructs}
+            edges={dagScene.edges}
+            indicators={dagScene.indicators}
+            simulationResult={dagScene.simulationResult}
+            height={dagScene.height ?? "600px"}
+          />
+        )
       ) : null}
     </div>
   );
