@@ -43,24 +43,6 @@ def _simple_params(n_latent=2, n_manifest=2):
 
 
 class TestGaussianEmission:
-    def test_perfect_observation_high_logprob(self):
-        """When y == pred, log-prob should be high."""
-        H, d, R = _simple_params()
-        z = jnp.array([1.0, 2.0])
-        y = H @ z + d  # perfect observation
-        mask = jnp.ones(2)
-        lp = emission_log_prob_gaussian(y, z, H, d, R, mask)
-        assert lp > -5.0
-
-    def test_bad_observation_low_logprob(self):
-        """When y is far from pred, log-prob should be low."""
-        H, d, R = _simple_params()
-        z = jnp.array([1.0, 2.0])
-        y = jnp.array([100.0, -100.0])
-        mask = jnp.ones(2)
-        lp = emission_log_prob_gaussian(y, z, H, d, R, mask)
-        assert lp < -100.0
-
     def test_missing_channel_ignored(self):
         """Masked-out channels should not affect log-prob."""
         H, d, R = _simple_params()

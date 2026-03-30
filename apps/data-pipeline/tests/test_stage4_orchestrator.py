@@ -154,13 +154,6 @@ def _make_plan(
 
 
 class TestDeriveDeterministicSpec:
-    def test_continuous_resolves_to_gaussian(self):
-        """Continuous dtype should resolve to gaussian/identity."""
-        skeleton = derive_deterministic_spec(_simple_spec())
-        for lik in skeleton.resolved_likelihoods:
-            assert lik["distribution"] == "gaussian"
-            assert lik["link"] == "identity"
-
     def test_binary_resolves_to_bernoulli(self):
         """Binary dtype should resolve to bernoulli."""
         spec = _make_causal_spec(

@@ -119,8 +119,9 @@ describe("asciiMultiLine", () => {
 
   it("renders with a single series", () => {
     const result = asciiMultiLine([[1, 2, 3, 4, 5]]);
-    expect(result.length).toBeGreaterThan(0);
-    expect(result).not.toBe("(no data)");
+    expect(result).toContain("│");
+    expect(result).toContain("series 1");
+    expect(result).toContain("mean=");
   });
 
   it("renders with multiple series", () => {
@@ -128,7 +129,9 @@ describe("asciiMultiLine", () => {
       [1, 2, 3, 4, 5],
       [5, 4, 3, 2, 1],
     ]);
-    expect(result.length).toBeGreaterThan(0);
+    expect(result).toContain("│");
+    expect(result).toContain("series 1");
+    expect(result).toContain("series 2");
   });
 
   it("includes label when provided", () => {

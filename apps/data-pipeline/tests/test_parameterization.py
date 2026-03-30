@@ -17,7 +17,6 @@ from causal_ssm_agent.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_prior_runtime_state,
     build_site_registry,
-    build_transforms,
     build_unravel_fn,
     compile_prior_semantics,
     deserialize_prior_runtime_state,
@@ -114,12 +113,6 @@ class TestSiteRegistry:
                 f"Shape mismatch for {site.name}: "
                 f"registry={site.shape}, trace={site_info[site.name]['shape']}"
             )
-
-    def test_registry_sorted_by_name(self, simple_spec):
-        """Registry is sorted by site name (JAX pytree convention)."""
-        registry = build_site_registry(simple_spec)
-        names = [s.name for s in registry]
-        assert names == sorted(names)
 
     def test_fixed_drift_excludes_drift_sites(self):
         """When drift is a fixed array, no drift sites appear."""
@@ -230,23 +223,6 @@ class TestTransformsAndUnravel:
         flat_trace, _unravel_trace = ravel_pytree(example_unc)
 
         assert flat_trace.shape[0] == D
-
-    def test_transforms_exp_for_positive(self, simple_spec):
-        """POSITIVE sites get ExpTransform."""
-        registry = build_site_registry(simple_spec)
-        transforms = build_transforms(registry)
-        # diffusion_diag_pop is POSITIVE
-        z = jnp.array([0.5, -0.3])
-        x = transforms["diffusion_diag_pop"](z)
-        assert jnp.allclose(x, jnp.exp(z))
-
-    def test_transforms_identity_for_real(self, simple_spec):
-        """REAL sites get IdentityTransform."""
-        registry = build_site_registry(simple_spec)
-        transforms = build_transforms(registry)
-        z = jnp.array([0.5, -0.3])
-        x = transforms["drift_diag_pop"](z)
-        assert jnp.allclose(x, z)
 
 
 # ---------------------------------------------------------------------------

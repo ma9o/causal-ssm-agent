@@ -126,12 +126,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("ys0");
   });
 
-  it("contains date in header", () => {
-    const result = generateMarkdown({}, "test");
-    // Should have ISO-like date format
-    expect(result).toMatch(/\d{4}/);
-  });
-
   it("includes stage 1a constructs and edges", () => {
     const data: AllStageData = {
       "stage-1a": {

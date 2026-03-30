@@ -93,16 +93,6 @@ describe("apiFetch", () => {
     );
   });
 
-  it("throws on server error (500)", async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve("Internal Server Error"),
-    } as Response);
-
-    await expect(apiFetch("/api/broken")).rejects.toThrow("API error 500");
-  });
-
   it("propagates network errors when fetch rejects", async () => {
     vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
 

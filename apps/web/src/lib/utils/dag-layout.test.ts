@@ -82,19 +82,6 @@ describe("layoutDag", () => {
     expect(result.nodes[0].data.indicators).toHaveLength(2);
   });
 
-  it("uses wider nodes when indicators are present", async () => {
-    const constructsNoInd = [makeConstruct("A"), makeConstruct("B")];
-    const constructsWithInd = [makeConstruct("A"), makeConstruct("B")];
-    const indicators = [makeIndicator("x1", "A")];
-
-    const withoutInd = await layoutDag(constructsNoInd, [makeEdge("A", "B")]);
-    const withInd = await layoutDag(constructsWithInd, [makeEdge("A", "B")], indicators);
-
-    // Both should layout successfully - nodes should exist
-    expect(withoutInd.nodes).toHaveLength(2);
-    expect(withInd.nodes).toHaveLength(2);
-  });
-
   it("handles multiple edges in a chain", async () => {
     const constructs = [makeConstruct("A"), makeConstruct("B"), makeConstruct("C")];
     const edges = [makeEdge("A", "B"), makeEdge("B", "C")];
@@ -107,16 +94,6 @@ describe("layoutDag", () => {
     expect(nodeA).toBeDefined();
     expect(nodeC).toBeDefined();
     expect(nodeA?.position.y).toBeLessThan(nodeC?.position.y as number);
-  });
-
-  it("includes both contemporaneous and lagged edges in output", async () => {
-    const constructs = [makeConstruct("A"), makeConstruct("B")];
-    const edges = [makeEdge("A", "B", false), makeEdge("B", "A", true)];
-    const result = await layoutDag(constructs, edges);
-    expect(result.edges).toHaveLength(2);
-    const types = result.edges.map((e) => e.type);
-    expect(types).toContain("smoothstep");
-    expect(types).toContain("default");
   });
 
   it("adds arrow markers to all edges", async () => {

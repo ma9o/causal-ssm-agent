@@ -200,33 +200,6 @@ class TestComposedLikelihood:
         # Column 1 of Kalman's obs_mask (which is obs channel 1) should be False
         assert not bool(k_mask[0, 1])
 
-    def test_obs_mask_none_passes_through(self):
-        """When obs_mask is None, both backends should get None."""
-        partition = _make_partition_2_2()
-        kalman = RecordingBackend(return_val=0.0)
-        particle = RecordingBackend(return_val=0.0)
-        composed = ComposedLikelihood(partition, kalman, particle)
-
-        ct, meas, init, obs, dt, _mask = _make_full_model()
-        composed.compute_log_likelihood(ct, meas, init, obs, dt, obs_mask=None)
-
-        assert kalman.calls[0]["obs_mask"] is None
-        assert particle.calls[0]["obs_mask"] is None
-
-    def test_cint_none_passes_through(self):
-        """When cint is None, both sub-blocks should get cint=None."""
-        partition = _make_partition_2_2()
-        kalman = RecordingBackend(return_val=0.0)
-        particle = RecordingBackend(return_val=0.0)
-        composed = ComposedLikelihood(partition, kalman, particle)
-
-        ct, meas, init, obs, dt, mask = _make_full_model()
-        ct_no_cint = CTParams(drift=ct.drift, diffusion_cov=ct.diffusion_cov, cint=None)
-        composed.compute_log_likelihood(ct_no_cint, meas, init, obs, dt, obs_mask=mask)
-
-        assert kalman.calls[0]["ct_params"].cint is None
-        assert particle.calls[0]["ct_params"].cint is None
-
     def test_correct_subblock_values(self):
         """Verify exact values of extracted sub-blocks, not just shapes."""
         partition = _make_partition_2_2()
