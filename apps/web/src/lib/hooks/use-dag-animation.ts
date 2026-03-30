@@ -300,7 +300,7 @@ export function useDagAnimation(
   config: DagAnimationConfig | null,
 ): DagAnimationState & DagAnimationControls {
   const [progress, setProgress] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(() => config != null);
   const rafRef = useRef(0);
   const startTimeRef = useRef(0);
   const startProgressRef = useRef(0);
