@@ -7,13 +7,14 @@ import {
   BackgroundVariant,
   type NodeChange,
   type NodeTypes,
-  Panel,
   ReactFlow,
   applyNodeChanges,
 } from "@xyflow/react";
 import { useCallback, useMemo, useState } from "react";
+import { AutoFitView } from "./auto-fit-view";
 import type { ConstructStatus } from "./construct-node";
 import { ConstructNode } from "./construct-node";
+import { useMeasuredElement } from "./use-measured-element";
 
 interface CausalDagProps {
   constructs: Construct[];
@@ -27,6 +28,8 @@ interface CausalDagProps {
 const nodeTypes: NodeTypes = {
   construct: ConstructNode,
 };
+
+const OVERLAY_GAP = 12;
 
 function EdgeLegend({
   hasLagged,
@@ -137,6 +140,11 @@ export function CausalDag({
 
   const hasLagged = edges.some((e) => e.lagged);
   const hasContemporaneous = edges.some((e) => !e.lagged);
+  const hasMarginalized = !!nodeStatuses && Object.values(nodeStatuses).includes("marginalized");
+  const hasBlocking = !!nodeStatuses && Object.values(nodeStatuses).includes("blocking");
+  const showEdgeLegend = onNodeClick != null || nodeStatuses != null;
+  const showNodeLegend = hasMarginalized || hasBlocking;
+  const showTopLegend = showEdgeLegend || showNodeLegend;
 
   // Merge node statuses into node data
   const nodesWithStatus = useMemo(() => {
@@ -146,6 +154,28 @@ export function CausalDag({
       data: { ...n.data, status: nodeStatuses[n.id] },
     }));
   }, [localNodes, nodeStatuses]);
+
+  const fitViewKey = useMemo(
+    () =>
+      JSON.stringify(
+        layoutNodes.map((node) => [
+          node.id,
+          node.position?.x ?? 0,
+          node.position?.y ?? 0,
+        ]),
+      ),
+    [layoutNodes],
+  );
+  const [legendOverlayRef, legendOverlaySize] = useMeasuredElement<HTMLDivElement>();
+  const overlayInsets = useMemo(
+    () => ({
+      top: showTopLegend && legendOverlaySize.height > 0 ? legendOverlaySize.height + OVERLAY_GAP : 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    }),
+    [legendOverlaySize.height, showTopLegend],
+  );
 
   const styledNodes = useMemo(() => {
     if (!selectedNode) return nodesWithStatus;
@@ -192,7 +222,7 @@ export function CausalDag({
   }
 
   return (
-    <div className="w-full rounded-lg border bg-card" style={{ height }}>
+    <div className="relative w-full overflow-hidden rounded-lg border bg-card" style={{ height }}>
       <ReactFlow
         nodes={styledNodes}
         edges={styledEdges}
@@ -213,16 +243,22 @@ export function CausalDag({
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Panel position="top-right">
-          <div className="flex flex-col gap-2 items-end">
-            <EdgeLegend hasLagged={hasLagged} hasContemporaneous={hasContemporaneous} />
-            <NodeLegend
-              hasMarginalized={!!nodeStatuses && Object.values(nodeStatuses).includes("marginalized")}
-              hasBlocking={!!nodeStatuses && Object.values(nodeStatuses).includes("blocking")}
-            />
-          </div>
-        </Panel>
+        <AutoFitView fitViewKey={fitViewKey} insets={overlayInsets} />
       </ReactFlow>
+      {showTopLegend ? (
+        <div
+          ref={legendOverlayRef}
+          className="pointer-events-none absolute right-3 top-3 z-10 flex flex-col items-end gap-2"
+        >
+          {showEdgeLegend ? (
+            <EdgeLegend hasLagged={hasLagged} hasContemporaneous={hasContemporaneous} />
+          ) : null}
+          <NodeLegend
+            hasMarginalized={hasMarginalized}
+            hasBlocking={hasBlocking}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
