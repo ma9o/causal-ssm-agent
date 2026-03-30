@@ -122,8 +122,13 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         horizon_steps,
     ):
         del cint, initial_state, treat_idx, mode, value, amount, dt
-        baseline = jnp.zeros((horizon_steps, 2), dtype=jnp.float32)
-        counterfactual = baseline
+        baseline = jnp.stack(
+            [
+                jnp.full((horizon_steps,), 0.5, dtype=jnp.float32),
+                jnp.full((horizon_steps,), 1.0, dtype=jnp.float32),
+            ],
+            axis=1,
+        )
         effect = jnp.stack(
             [
                 jnp.full((horizon_steps,), 1.5, dtype=jnp.float32),
@@ -131,6 +136,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
             ],
             axis=1,
         )
+        counterfactual = baseline + effect
         return baseline, counterfactual, effect
 
     monkeypatch.setattr(tool_server, "forward_simulate_action_from_state", fake_forward)
@@ -197,6 +203,8 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         "conditioning_method": "kalman_smoother",
     }
     assert end_state["visualization"] == {
+        "reference_node_trajectories": None,
+        "action_node_trajectories": None,
         "node_effect_trajectories": None,
         "abducted_state": {"treat": 0.0, "outcome": 0.0},
     }
@@ -210,6 +218,14 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     ]
     assert "temporal" not in trajectory
     assert trajectory["visualization"] == {
+        "reference_node_trajectories": {
+            "treat": [0.5, 0.5, 0.5],
+            "outcome": [1.0, 1.0, 1.0],
+        },
+        "action_node_trajectories": {
+            "treat": [2.0, 2.0, 2.0],
+            "outcome": [4.0, 4.0, 4.0],
+        },
         "node_effect_trajectories": {
             "treat": [1.5, 1.5, 1.5],
             "outcome": [3.0, 3.0, 3.0],

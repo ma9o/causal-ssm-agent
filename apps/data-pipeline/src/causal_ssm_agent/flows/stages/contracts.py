@@ -335,6 +335,21 @@ class EffectTrajectoryPointContract(BaseModel):
 class Stage6VisualizationContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    reference_node_trajectories: dict[str, list[float]] | None = Field(
+        default=None,
+        description=(
+            "Per-construct latent trajectories for the reference path aligned to "
+            "effect_trajectory days. This is the no-action baseline forecast for rung-2 "
+            "queries and the factual forecast from the abducted state for rung-3 queries."
+        ),
+    )
+    action_node_trajectories: dict[str, list[float]] | None = Field(
+        default=None,
+        description=(
+            "Per-construct latent trajectories under the queried action aligned to "
+            "effect_trajectory days."
+        ),
+    )
     node_effect_trajectories: dict[str, list[float]] | None = Field(
         default=None,
         description=(

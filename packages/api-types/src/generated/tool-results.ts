@@ -42,6 +42,18 @@ export interface EffectTrajectoryPointContract {
 }
 export interface Stage6VisualizationContract {
   /**
+   * Per-construct latent trajectories for the reference path aligned to effect_trajectory days. This is the no-action baseline forecast for rung-2 queries and the factual forecast from the abducted state for rung-3 queries.
+   */
+  reference_node_trajectories?: {
+    [k: string]: number[] | undefined;
+  } | null;
+  /**
+   * Per-construct latent trajectories under the queried action aligned to effect_trajectory days.
+   */
+  action_node_trajectories?: {
+    [k: string]: number[] | undefined;
+  } | null;
+  /**
    * Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the relevant reference path.
    */
   node_effect_trajectories?: {
