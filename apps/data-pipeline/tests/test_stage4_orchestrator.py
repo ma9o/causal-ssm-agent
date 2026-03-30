@@ -746,11 +746,24 @@ class TestStage4PromptScopePolicy:
             "measurement_prior_guidance",
         )
         assert policy.parameter_guidance_prefixes == ("lambda",)
+        assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+
+    def test_effect_policy_keeps_search_enabled(self):
+        policy = get_stage4_prompt_scope_policy("effect_prior")
+
+        assert policy.parameter_guidance_prefixes == ("beta",)
         assert policy.allowed_tool_names == (
             "validate_model",
             "search_literature",
             "elicit_prior_gmm",
         )
+
+    def test_dynamics_and_correlation_policies_disable_search(self):
+        dynamics_policy = get_stage4_prompt_scope_policy("dynamics_prior")
+        correlation_policy = get_stage4_prompt_scope_policy("correlation_prior")
+
+        assert dynamics_policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+        assert correlation_policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
 
     def test_global_review_policy_is_validate_only(self):
         policy = get_stage4_prompt_scope_policy("global_review")

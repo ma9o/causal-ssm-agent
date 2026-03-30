@@ -58,6 +58,7 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
 from causal_ssm_agent.utils.llm import make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
+    PriorRepairScope,
     PriorValidationResult,
 )
 from tests.helpers import make_stage4_plan as _make_plan
@@ -303,6 +304,7 @@ class TestStage4Messages:
                     },
                 }
             ],
+            enable_literature=True,
         )
         plan = _make_plan(prior_blocks=(block,))
         runtime = _make_runtime(
@@ -328,6 +330,9 @@ class TestStage4Messages:
         assert "Propose full prior specifications only for this block's parameters" in user_content
         assert "### Distribution Decision Cards" not in user_content
         assert "### Loading Constraints" not in user_content
+        system_content = messages[0]["content"]
+        assert "batch those `search_literature` calls in the same turn" in system_content
+        assert "stop searching and submit `validate_model`" in system_content
 
     def test_messages_for_scope_include_parameter_prior_cards(self):
         block = Stage4FrontierBlock(
@@ -712,11 +717,19 @@ class TestStage4Messages:
             in user_content
         )
 
-    def test_stage4_tool_rewriter_hides_prior_tools_for_model_decision_scope(self):
+    def test_stage4_turn_exposes_tools_by_block_kind(self):
         model_block = Stage4FrontierBlock(
             id="indicator:steps",
             kind="indicator_decision",
             label="Indicator decision",
+            variable_names=("steps",),
+        )
+        measurement_block = Stage4FrontierBlock(
+            id="measurement:activity",
+            kind="measurement_prior",
+            label="Measurement prior",
+            parameter_names=("lambda_steps_activity",),
+            construct_names=("activity",),
             variable_names=("steps",),
         )
         prior_block = Stage4FrontierBlock(
@@ -725,7 +738,10 @@ class TestStage4Messages:
             label="Effect prior",
             parameter_names=("beta_activity_sleep",),
         )
-        plan = _make_plan(model_blocks=(model_block,), prior_blocks=(prior_block,))
+        plan = _make_plan(
+            model_blocks=(model_block,),
+            prior_blocks=(measurement_block, prior_block),
+        )
         runtime = _make_runtime(plan)
         session = _make_stage4_session(
             question="Does activity improve sleep?",
@@ -750,8 +766,22 @@ class TestStage4Messages:
             "validate_model"
         ]
 
-        runtime.accepted.model_spec = {"parameters": [{"name": "beta_activity_sleep"}]}
+        runtime.accepted.model_spec = {
+            "parameters": [
+                {"name": "lambda_steps_activity", "role": "loading"},
+                {"name": "beta_activity_sleep"},
+            ]
+        }
         runtime.phase = "prior_blocks"
+        runtime.active_block_id = "measurement:activity"
+
+        turn = session.current_turn()
+        assert turn is not None
+        assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
+            "validate_model",
+            "elicit_prior_gmm",
+        ]
+
         runtime.active_block_id = "effects:sleep"
 
         turn = session.current_turn()
@@ -777,7 +807,7 @@ def test_stage4_generate_config_removes_stage4_caps(monkeypatch):
     config = _stage4_generate_config()
 
     assert config.max_tokens is None
-    assert config.timeout == 120
+    assert config.timeout == 180
     assert config.reasoning_effort == "high"
     assert config.max_tool_output is None
 
@@ -873,6 +903,54 @@ def _make_stage4_mechanics_spec() -> dict:
             "state_order": [construct["name"] for construct in constructs],
             "edges": edges,
             "induced_dependencies": [],
+        },
+    }
+
+
+def _make_stage4_global_repair_spec() -> dict:
+    """Stage 4 spec with a correlation block and separate dynamics blocks."""
+    constructs = [
+        {
+            "name": "activity",
+            "role": "exogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "sleep",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+            "is_outcome": True,
+        },
+    ]
+    indicators = [
+        {
+            "name": "activity_vas",
+            "construct_name": "activity",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Activity visual analog scale",
+            "aggregation": "mean",
+        },
+        {
+            "name": "sleep_quality",
+            "construct_name": "sleep",
+            "measurement_dtype": "ordinal",
+            "how_to_measure": "Sleep quality rating",
+            "aggregation": "mean",
+        },
+    ]
+    return {
+        "latent": {"constructs": constructs, "edges": [{"cause": "activity", "effect": "sleep"}]},
+        "measurement": {"model_clock": "1d", "indicators": indicators},
+        "estimation": {
+            "state_order": ["activity", "sleep"],
+            "edges": [{"cause": "activity", "effect": "sleep"}],
+            "induced_dependencies": [
+                {
+                    "between": ["activity", "sleep"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["U"],
+                }
+            ],
         },
     }
 
@@ -1158,18 +1236,22 @@ class TestPriorPredictiveValidation:
         validation = AssemblyValidation(
             normalized_model_spec=simple_model_spec,
             compile_ok=True,
-            compile_warnings=[
-                {
-                    "parameter": "beta_stress_sleep",
-                    "category": "interval_provenance",
-                    "issue": "Weekly evidence is being interpreted on the daily model interval.",
-                    "suggested_adjustment": "Set `reference_interval_days` if that weekly interval is intended.",
-                }
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="beta_stress_sleep",
+                    is_valid=True,
+                    code="interval_reference_missing",
+                    origin="compile",
+                    severity="warning",
+                    issue="Weekly evidence is being interpreted on the daily model interval.",
+                    suggested_adjustment=(
+                        "Set `reference_interval_days` if that weekly interval is intended."
+                    ),
+                )
             ],
             compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
             pp_checked=True,
             pp_valid=True,
-            pp_results=[],
             pp_raw_samples={},
         )
 
@@ -1258,14 +1340,17 @@ class TestPriorPredictiveValidation:
                 return_value=compiled_artifact,
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4_assembly._collect_compile_warnings",
+                "causal_ssm_agent.flows.stages.stage4_assembly._collect_compile_diagnostics",
                 return_value=[
-                    {
-                        "parameter": "beta_stress_sleep",
-                        "category": "dynamic_plausibility",
-                        "issue": "Median one-lag response is much slower than the nominal lag.",
-                        "suggested_adjustment": "Confirm that this slow response is intended.",
-                    }
+                    PriorValidationResult(
+                        parameter="beta_stress_sleep",
+                        is_valid=True,
+                        code="lagged_response_weak",
+                        origin="compile",
+                        severity="warning",
+                        issue="Median one-lag response is much slower than the nominal lag.",
+                        suggested_adjustment="Confirm that this slow response is intended.",
+                    )
                 ],
             ),
             patch(
@@ -1283,13 +1368,20 @@ class TestPriorPredictiveValidation:
 
         assert validation.compile_ok is True
         assert validation.pp_valid is True
-        assert validation.compile_warnings == [
-            {
-                "parameter": "beta_stress_sleep",
-                "category": "dynamic_plausibility",
-                "issue": "Median one-lag response is much slower than the nominal lag.",
-                "suggested_adjustment": "Confirm that this slow response is intended.",
-            }
+        assert [
+            warning.model_dump()
+            for warning in validation.compile_diagnostics
+            if warning.severity == "warning"
+        ] == [
+            PriorValidationResult(
+                parameter="beta_stress_sleep",
+                is_valid=True,
+                code="lagged_response_weak",
+                origin="compile",
+                severity="warning",
+                issue="Median one-lag response is much slower than the nominal lag.",
+                suggested_adjustment="Confirm that this slow response is intended.",
+            ).model_dump()
         ]
         pp_mock.assert_called_once()
 
@@ -2085,11 +2177,11 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        warnings = diagnostics["interval_provenance_warnings"]
+        warnings = diagnostics
         assert len(warnings) == 1
-        assert "`reference_interval_days` is omitted" in warnings[0]["issue"]
-        assert "default model interval (1.0d)" in warnings[0]["issue"]
-        assert "`reference_interval_days`" in warnings[0]["suggested_adjustment"]
+        assert "`reference_interval_days` is omitted" in warnings[0].issue
+        assert "default model interval (1.0d)" in warnings[0].issue
+        assert "`reference_interval_days`" in warnings[0].suggested_adjustment
 
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
@@ -2147,10 +2239,10 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        warnings = diagnostics["interval_provenance_warnings"]
+        warnings = diagnostics
         assert len(warnings) == 1
-        assert "`reference_interval_days`" in warnings[0]["issue"]
-        assert "7.0d" in warnings[0]["issue"]
+        assert "`reference_interval_days`" in warnings[0].issue
+        assert "7.0d" in warnings[0].issue
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
@@ -2897,10 +2989,12 @@ class TestStage4Mechanics:
                     compile_ok=True,
                     pp_checked=True,
                     pp_valid=False,
-                    pp_results=[
+                    diagnostics=[
                         PriorValidationResult(
                             parameter="model_build",
                             is_valid=False,
+                            code="model_build",
+                            origin="prior_predictive",
                             issue=(
                                 "Observation support check failed:\n"
                                 "- 'steps' uses gamma emission but observations are outside support"
@@ -2928,6 +3022,118 @@ class TestStage4Mechanics:
         assert runtime.block_status["indicator:steps"] == "reopened"
         assert "beta_activity_sleep" in runtime.accepted.authored_priors
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+
+    def test_compute_stage4_validate_step_accepts_correlation_and_reopens_dynamics_scope(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "correlation:cor0_activity_sleep"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        correlation_payload = {
+            "block_id": "correlation:cor0_activity_sleep",
+            "block_kind": "correlation_prior",
+            "proposal": {
+                "priors": {
+                    "cor0_activity_sleep": {
+                        "parameter": "cor0_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2, "lower": -1.0, "upper": 1.0},
+                        "sources": [],
+                        "reasoning": "correlation prior",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue="NaN/Inf detected in sample sites: observations",
+                            suggested_adjustment="Check for degenerate priors",
+                        ),
+                        PriorValidationResult(
+                            parameter="dynamics_stability",
+                            is_valid=False,
+                            code="dynamics_stability",
+                            origin="prior_predictive",
+                            issue="Unstable dynamics: 32/50 prior draws have unstable drift",
+                            suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                            repair_scope=PriorRepairScope(
+                                kind="dynamics_scc",
+                                construct_names=["sleep"],
+                            ),
+                        ),
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            correlation_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert runtime.block_status["correlation:cor0_activity_sleep"] == "accepted"
+        assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.active_block_id == "dynamics:sleep"
+        assert "cor0_activity_sleep" in runtime.accepted.authored_priors
+        assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
     def test_compute_stage4_validate_step_rejects_calls_after_completion(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
@@ -3195,10 +3401,12 @@ class TestStage4Mechanics:
                         compile_ok=True,
                         pp_checked=True,
                         pp_valid=False,
-                        pp_results=[
+                        diagnostics=[
                             PriorValidationResult(
                                 parameter="scale_activity_vas",
                                 is_valid=False,
+                                code="scale_mismatch",
+                                origin="prior_predictive",
                                 issue="Scale mismatch for activity_vas",
                                 suggested_adjustment="Tighten the measurement prior",
                             )
@@ -3897,10 +4105,12 @@ class TestStage4Mechanics:
                         compile_ok=True,
                         pp_checked=True,
                         pp_valid=False,
-                        pp_results=[
+                        diagnostics=[
                             PriorValidationResult(
                                 parameter="scale_activity_vas",
                                 is_valid=False,
+                                code="scale_mismatch",
+                                origin="prior_predictive",
                                 issue="Scale mismatch for activity_vas",
                                 suggested_adjustment="Tighten the measurement prior",
                             )
