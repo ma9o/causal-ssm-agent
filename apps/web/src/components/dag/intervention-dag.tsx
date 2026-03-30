@@ -37,6 +37,7 @@ export interface InterventionDagProps {
   edgePosteriors?: Record<string, EdgePosterior>;
   processNoise?: Record<string, number>;
   showNoiseNodes?: boolean;
+  requestedHorizonDays?: number;
   simulationResult?: Stage6SimulationResult | null;
   height?: string;
 }
@@ -84,6 +85,7 @@ function InterventionDagCanvas({
   edgePosteriors = {},
   processNoise,
   showNoiseNodes = false,
+  requestedHorizonDays,
   simulationResult = null,
   height = "600px",
 }: InterventionDagProps) {
@@ -113,10 +115,11 @@ function InterventionDagCanvas({
     () =>
       buildInterventionDagViewModel({
         constructs,
+        requestedHorizonDays,
         result: simulationResult,
         animation: anim,
       }),
-    [constructs, simulationResult, anim],
+    [constructs, requestedHorizonDays, simulationResult, anim],
   );
   const mode = viewModel.mode;
 
@@ -294,7 +297,6 @@ function InterventionDagCanvas({
             timeStepsDays={timeStepsDays}
             currentTimeIndex={anim.timeIndex}
             temporalMarkers={viewModel.temporalMarkers}
-            phaseMarkers={viewModel.phaseMarkers}
             onPlay={anim.play}
             onPause={anim.pause}
             onReset={anim.reset}

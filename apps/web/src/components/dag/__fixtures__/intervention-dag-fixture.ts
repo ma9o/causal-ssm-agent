@@ -32,6 +32,10 @@ function subtractSeries(left: number[], right: number[]): number[] {
   return left.map((value, index) => +(value - (right[index] ?? 0)).toFixed(4));
 }
 
+function addSeries(left: number[], right: number[]): number[] {
+  return left.map((value, index) => +(value + (right[index] ?? 0)).toFixed(4));
+}
+
 function toEffectTrajectory(days: number[], effect: number[]) {
   return days.map((day, index) => ({
     day,
@@ -109,6 +113,22 @@ export const processNoise: Record<string, number> = {
 };
 
 const rung2Days = buildDailyGrid(60);
+const rung2BaselineState: Record<string, number> = {
+  cardiovascular_risk: 0.72,
+  lipid_burden: 0.85,
+  vascular_inflammation: 0.55,
+  glycemic_control: 0.48,
+  arterial_pressure: 0.62,
+  medication_adherence: 0.35,
+  genetic_predisposition: 0.4,
+  psychosocial_stress: 0.3,
+};
+const rung2ReferenceTrajectories = Object.fromEntries(
+  Object.entries(rung2BaselineState).map(([node, value]) => [
+    node,
+    constantArray(value, rung2Days.length),
+  ]),
+);
 const rung2NodeEffects = {
   lipid_burden: constantArray(1.0, rung2Days.length),
   vascular_inflammation: expApproach(0.65, 15, rung2Days),
@@ -119,6 +139,15 @@ const rung2NodeEffects = {
   genetic_predisposition: constantArray(0, rung2Days.length),
   psychosocial_stress: constantArray(0, rung2Days.length),
 };
+const rung2ActionTrajectories = Object.fromEntries(
+  Object.keys(rung2ReferenceTrajectories).map((node) => [
+    node,
+    addSeries(
+      rung2ReferenceTrajectories[node] ?? constantArray(0, rung2Days.length),
+      rung2NodeEffects[node as keyof typeof rung2NodeEffects] ?? constantArray(0, rung2Days.length),
+    ),
+  ]),
+);
 
 export const interventionResult: SimulateInterventionResult = {
   rung: 2,
@@ -142,6 +171,8 @@ export const interventionResult: SimulateInterventionResult = {
     rung2NodeEffects.cardiovascular_risk,
   ),
   visualization: {
+    reference_node_trajectories: rung2ReferenceTrajectories,
+    action_node_trajectories: rung2ActionTrajectories,
     node_effect_trajectories: rung2NodeEffects,
     abducted_state: null,
   },
@@ -243,6 +274,8 @@ export const counterfactualResult: SimulateCounterfactualResult = {
     rung3NodeEffects.cardiovascular_risk,
   ),
   visualization: {
+    reference_node_trajectories: factualTrajectories,
+    action_node_trajectories: counterfactualTrajectories,
     node_effect_trajectories: rung3NodeEffects,
     abducted_state: abductedState,
   },
