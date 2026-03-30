@@ -12,7 +12,6 @@ import {
   type Node,
   type NodeChange,
   type NodeTypes,
-  Panel,
   ReactFlow,
   applyNodeChanges,
 } from "@xyflow/react";
@@ -21,10 +20,12 @@ import type {
   EdgePosterior,
   Stage6SimulationResult,
 } from "./intervention-dag-types";
+import { AutoFitView } from "./auto-fit-view";
 import { buildInterventionDagViewModel } from "./intervention-dag-view-model";
 import { AnimationTimeline } from "./animation-timeline";
 import { EffectNode } from "./effect-node";
 import { NoiseNode } from "./noise-node";
+import { useMeasuredElement } from "./use-measured-element";
 import { WeightedEdge } from "./weighted-edge";
 
 // ── Props ─────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ export interface InterventionDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
-  edgePosteriors: Record<string, EdgePosterior>;
+  edgePosteriors?: Record<string, EdgePosterior>;
   processNoise?: Record<string, number>;
   showNoiseNodes?: boolean;
   simulationResult?: Stage6SimulationResult | null;
@@ -54,14 +55,33 @@ const edgeTypes: EdgeTypes = {
 const NOISE_OFFSET_X = 20;
 const NOISE_OFFSET_Y = -10;
 const ASSUMED_NODE_WIDTH = 240;
+const OVERLAY_GAP = 12;
 
 // ── Component ─────────────────────────────────────────────────────────
 
 export function InterventionDag({
+  simulationResult,
+  ...props
+}: InterventionDagProps) {
+  const animationKey = useMemo(
+    () => (simulationResult ? JSON.stringify(simulationResult) : "static"),
+    [simulationResult],
+  );
+
+  return (
+    <InterventionDagCanvas
+      key={animationKey}
+      simulationResult={simulationResult}
+      {...props}
+    />
+  );
+}
+
+function InterventionDagCanvas({
   constructs,
   edges,
   indicators,
-  edgePosteriors,
+  edgePosteriors = {},
   processNoise,
   showNoiseNodes = false,
   simulationResult = null,
@@ -150,6 +170,28 @@ export function InterventionDag({
       };
     });
   }, [flowEdges, edgePosteriors, anim.edgeStates, mode]);
+
+  const fitViewKey = useMemo(
+    () =>
+      JSON.stringify(
+        enrichedNodes.map((node) => [
+          node.id,
+          node.position?.x ?? 0,
+          node.position?.y ?? 0,
+        ]),
+      ),
+    [enrichedNodes],
+  );
+  const [timelineOverlayRef, timelineOverlaySize] = useMeasuredElement<HTMLDivElement>();
+  const overlayInsets = useMemo(
+    () => ({
+      top: 0,
+      right: 0,
+      bottom: timelineOverlaySize.height > 0 ? timelineOverlaySize.height + OVERLAY_GAP : 0,
+      left: 0,
+    }),
+    [timelineOverlaySize.height],
+  );
 
   // ── Drag state (controlled mode) ───────────────────────────────────
   // localNodes holds React Flow's internal state (measured dimensions, drag
@@ -240,8 +282,27 @@ export function InterventionDag({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="w-full rounded-lg border bg-card" style={{ height }}>
+    <div className="relative w-full overflow-hidden rounded-lg border bg-card" style={{ height }}>
+      <div
+        ref={timelineOverlayRef}
+        className="absolute bottom-3 left-3 right-3 z-10"
+      >
+        {mode !== "static" && timeStepsDays.length > 0 ? (
+          <AnimationTimeline
+            isPlaying={anim.isPlaying}
+            phase={anim.phase}
+            timeStepsDays={timeStepsDays}
+            currentTimeIndex={anim.timeIndex}
+            temporalMarkers={viewModel.temporalMarkers}
+            phaseMarkers={viewModel.phaseMarkers}
+            onPlay={anim.play}
+            onPause={anim.pause}
+            onReset={anim.reset}
+            onScrub={anim.scrubTo}
+          />
+        ) : null}
+      </div>
+      <div className="h-full w-full">
         <ReactFlow
           nodes={styledNodes}
           edges={styledEdges}
@@ -260,86 +321,8 @@ export function InterventionDag({
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-
-          <Panel position="top-right">
-            <WeightLegend />
-          </Panel>
-
-          {mode !== "static" && (
-            <Panel position="top-left">
-              <div className="rounded-md border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm shadow-sm">
-                <div className="font-medium">
-                  {mode === "rung2"
-                    ? "Rung 2: Intervention"
-                    : "Rung 3: Counterfactual"}
-                </div>
-                {viewModel.actionDescription ? (
-                  <div className="mt-1 text-muted-foreground">{viewModel.actionDescription}</div>
-                ) : null}
-                {viewModel.evidenceDescription ? (
-                  <div className="text-muted-foreground">{viewModel.evidenceDescription}</div>
-                ) : null}
-              </div>
-            </Panel>
-          )}
+          <AutoFitView fitViewKey={fitViewKey} insets={overlayInsets} />
         </ReactFlow>
-      </div>
-
-      {mode !== "static" && timeStepsDays.length > 0 && (
-        <AnimationTimeline
-          isPlaying={anim.isPlaying}
-          phase={anim.phase}
-          timeStepsDays={timeStepsDays}
-          currentTimeIndex={anim.timeIndex}
-          temporalMarkers={viewModel.temporalMarkers}
-          phaseMarkers={viewModel.phaseMarkers}
-          onPlay={anim.play}
-          onPause={anim.pause}
-          onReset={anim.reset}
-          onScrub={anim.scrubTo}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Legend ─────────────────────────────────────────────────────────────
-
-function WeightLegend() {
-  return (
-    <div className="rounded-md border bg-card/90 px-3 py-2 text-xs backdrop-blur-sm shadow-sm space-y-1.5">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Edge weight
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-teal-500 rounded-full" />
-          <span className="text-muted-foreground">positive</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-rose-500 rounded-full" />
-          <span className="text-muted-foreground">negative</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-px bg-foreground/40 rounded-full" />
-          <span className="text-muted-foreground">weak</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-1 bg-foreground/40 rounded-full" />
-          <span className="text-muted-foreground">strong</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-foreground/20 rounded-full" />
-          <span className="text-muted-foreground">uncertain</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-foreground/60 rounded-full" />
-          <span className="text-muted-foreground">certain</span>
-        </div>
       </div>
     </div>
   );
