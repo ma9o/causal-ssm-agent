@@ -295,6 +295,116 @@ def _check_scale_plausibility(
     return results
 
 
+def _check_lagged_response_plausibility(
+    samples: dict[str, jnp.ndarray],
+    compiled_ssm: dict | None,
+    causal_spec: dict | None,
+    *,
+    n_subsample: int = 50,
+    weak_response_cutoff: float = 0.02,
+    weak_response_fraction: float = 0.9,
+) -> list[PriorValidationResult]:
+    """Warn when the full-system one-lag response is near-zero for a declared lagged edge.
+
+    This is intentionally a warning-only heuristic. It uses the compiled drift
+    draws and the full transition matrix ``exp(A * dt)`` instead of treating a
+    single off-diagonal drift mean as the edge timescale.
+    """
+    if compiled_ssm is None or causal_spec is None or "drift" not in samples:
+        return []
+
+    from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
+    from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
+    from causal_ssm_agent.utils.causal_spec import get_estimation_edges
+
+    try:
+        spec_payload = compiled_ssm.get("spec")
+        if not isinstance(spec_payload, dict):
+            return []
+        ssm_spec = deserialize_ssm_spec(spec_payload)
+    except Exception:
+        logger.debug("Skipping lagged-response plausibility check (invalid compiled spec)")
+        return []
+
+    latent_names = list(ssm_spec.latent_names or [])
+    if not latent_names:
+        return []
+
+    drift_samples = np.asarray(samples["drift"])
+    if drift_samples.ndim != 3 or drift_samples.shape[1] != drift_samples.shape[2]:
+        return []
+
+    latent_index = {name: idx for idx, name in enumerate(latent_names)}
+    try:
+        edges = get_estimation_edges(causal_spec)
+    except Exception:
+        logger.debug("Skipping lagged-response plausibility check (invalid estimation edges)")
+        return []
+
+    lagged_edges = [
+        edge
+        for edge in edges
+        if bool(edge.get("lagged", True))
+        and edge.get("cause") in latent_index
+        and edge.get("effect") in latent_index
+    ]
+    if not lagged_edges:
+        return []
+
+    sample_count = drift_samples.shape[0]
+    sample_idx = np.random.default_rng(42).choice(
+        sample_count,
+        size=min(n_subsample, sample_count),
+        replace=False,
+    )
+
+    import jax.scipy.linalg as jla
+
+    results: list[PriorValidationResult] = []
+    model_dt_days = get_construct_dt_days(causal_spec)
+    for edge in lagged_edges:
+        cause = str(edge["cause"])
+        effect = str(edge["effect"])
+        effect_idx = latent_index[effect]
+        cause_idx = latent_index[cause]
+        lag_days = model_dt_days
+        responses: list[float] = []
+        for idx in sample_idx:
+            drift = jnp.asarray(drift_samples[idx], dtype=jnp.float32)
+            transition = np.asarray(jla.expm(drift * lag_days))
+            responses.append(float(transition[effect_idx, cause_idx]))
+
+        if not responses:
+            continue
+
+        abs_responses = np.abs(np.asarray(responses))
+        weak_fraction = float(np.mean(abs_responses < weak_response_cutoff))
+        median_abs = float(np.median(abs_responses))
+        if weak_fraction < weak_response_fraction:
+            continue
+
+        results.append(
+            PriorValidationResult(
+                parameter=f"beta_{cause}_{effect}",
+                is_valid=True,
+                severity="warning",
+                issue=(
+                    f"Across prior draws, the full-system one-lag response for {cause}->{effect} "
+                    f"at {lag_days:.1f}d is usually very small "
+                    f"(median |response|={median_abs:.3f}; {weak_fraction:.0%} of draws "
+                    f"are below {weak_response_cutoff:.2f})."
+                ),
+                suggested_adjustment=(
+                    "Confirm that a near-zero one-lag effect is substantively intended. "
+                    "If not, strengthen the daily-scale prior or author it on the source "
+                    "study interval with `reference_interval_days`."
+                ),
+            )
+        )
+
+    return results
+
+
 def validate_prior_predictive(
     model_spec: ModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
@@ -313,6 +423,8 @@ def validate_prior_predictive(
     3. Constraint violations (positive params < 0, etc.)
     4. Extreme values (|param| > 1e6)
     5. Scale plausibility vs data (if data_for_model provided)
+    6. Non-fatal lagged-response plausibility warnings using the full transition
+       matrix over the model lag interval
 
     Args:
         model_spec: Model specification
@@ -420,6 +532,9 @@ def validate_prior_predictive(
         scale_reference_stats = compute_data_stats(data_for_model)
     if scale_reference_stats:
         results.extend(_check_scale_plausibility(samples, scale_reference_stats, manifest_names))
+
+    # Check 5: full-system lagged response plausibility (warning-only)
+    results.extend(_check_lagged_response_plausibility(samples, artifact, causal_spec))
 
     is_valid = all(r.is_valid for r in results)
 
@@ -542,6 +657,34 @@ def format_parameter_feedback(
     lines.append("")
     lines.append("Please revise your prior to address the issues above.")
 
+    return "\n".join(lines)
+
+
+def format_parameter_warnings(
+    parameter_name: str,
+    results: list[PriorValidationResult],
+) -> str:
+    """Format non-fatal warnings relevant to one parameter."""
+    param_lower = parameter_name.lower()
+    relevant = [
+        r
+        for r in results
+        if r.severity == "warning"
+        and (
+            r.parameter == parameter_name
+            or param_lower in r.parameter.lower()
+            or r.parameter.lower() in param_lower
+        )
+    ]
+    if not relevant:
+        return ""
+
+    lines: list[str] = []
+    for result in relevant:
+        if result.issue:
+            lines.append(f"- {result.issue}")
+        if result.suggested_adjustment:
+            lines.append(f"  Suggested: {result.suggested_adjustment}")
     return "\n".join(lines)
 
 

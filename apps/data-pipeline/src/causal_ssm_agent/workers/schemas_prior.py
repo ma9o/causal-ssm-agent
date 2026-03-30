@@ -4,6 +4,8 @@ These schemas define the structure for per-parameter prior research
 conducted by worker LLMs with Exa literature search.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from causal_ssm_agent.distributions import (
@@ -71,6 +73,10 @@ class PriorValidationResult(BaseModel):
 
     parameter: str = Field(description="Name of the parameter that was validated")
     is_valid: bool = Field(description="Whether the prior passed validation")
+    severity: Literal["error", "warning"] = Field(
+        default="error",
+        description="Validation severity. Warnings are non-fatal and do not invalidate the model.",
+    )
     issue: str | None = Field(
         default=None, description="Description of the issue if validation failed"
     )

@@ -28,6 +28,7 @@ class AssemblyValidation:
     normalized_model_spec: dict[str, Any] | None = None
     compile_ok: bool = True
     compile_error: str | None = None
+    compile_warnings: list[dict[str, str]] = field(default_factory=list)
     compiled_ssm: dict[str, Any] | None = None
     pp_checked: bool = False
     pp_valid: bool = True
@@ -70,14 +71,7 @@ def validate_assembly(
                 compile_ok=False,
                 compile_error=str(exc),
             )
-        compile_issue_feedback = _format_compile_diagnostics_feedback(compiled_ssm)
-        if compile_issue_feedback:
-            return AssemblyValidation(
-                normalized_model_spec=candidate,
-                compile_ok=False,
-                compile_error=compile_issue_feedback,
-                compiled_ssm=compiled_ssm,
-            )
+        compile_warnings = _collect_compile_warnings(compiled_ssm)
     else:
         compile_error = trial_compile_model_spec(candidate, causal_spec)
         if compile_error:
@@ -87,6 +81,7 @@ def validate_assembly(
                 compile_error=compile_error,
             )
         compiled_ssm = None
+        compile_warnings = []
 
     if authored_priors and data_for_model is not None:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
@@ -101,6 +96,7 @@ def validate_assembly(
         )
         return AssemblyValidation(
             normalized_model_spec=candidate,
+            compile_warnings=compile_warnings,
             compiled_ssm=compiled_ssm,
             pp_checked=True,
             pp_valid=is_valid,
@@ -110,6 +106,7 @@ def validate_assembly(
 
     return AssemblyValidation(
         normalized_model_spec=candidate,
+        compile_warnings=compile_warnings,
         compiled_ssm=compiled_ssm,
     )
 
@@ -120,20 +117,13 @@ def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
     return candidate
 
 
-def _format_compile_diagnostics_feedback(
-    compiled_ssm: dict[str, Any],
-) -> str | None:
-    """Format compiler-owned lagged-prior diagnostics for Stage 4 feedback."""
+def _collect_compile_warnings(compiled_ssm: dict[str, Any]) -> list[dict[str, str]]:
+    """Collect non-fatal compiler-owned diagnostics for Stage 4 feedback."""
     diagnostics = compiled_ssm.get("compile_diagnostics") or {}
-    issues = diagnostics.get("lagged_drift_prior_issues") or []
-    if not issues:
-        return None
-
-    lines = ["PRIOR INTERVAL/STABILITY ERRORS:"]
-    for issue in issues:
-        lines.append(f"- {issue['parameter']}: {issue['issue']}")
-        lines.append(f"  Suggested: {issue['suggested_adjustment']}")
-    return "\n".join(lines)
+    return [
+        *(diagnostics.get("interval_provenance_warnings") or []),
+        *(diagnostics.get("dynamic_plausibility_warnings") or []),
+    ]
 
 
 def _indicator_audit_scale_stats(
@@ -266,6 +256,7 @@ def build_validation_payload(
             "is_valid": False,
             "results": [],
             "issues": [f"Compile error: {validation.compile_error}"],
+            "warnings": [],
             "prior_predictive_samples": {},
         }
 
@@ -275,6 +266,7 @@ def build_validation_payload(
         for result in validation.pp_results
         if not result.is_valid and result.parameter in GLOBAL_FAILURE_SITES
     ]
+    warnings = _collect_validation_warning_messages(validation)
     return {
         "is_valid": validation.pp_valid,
         "results": results,
@@ -287,6 +279,7 @@ def build_validation_payload(
                 if not result.is_valid and result.issue
             ]
         ),
+        "warnings": warnings,
         "prior_predictive_samples": build_prior_predictive_samples(validation, payload_spec),
     }
 
@@ -357,6 +350,52 @@ def _format_global_failure_summary(results: list) -> str:
         )
 
     return "\n".join(lines)
+
+
+def _collect_validation_warning_messages(validation: AssemblyValidation) -> list[str]:
+    """Flatten compile and prior-predictive warnings into user-facing text."""
+    messages = [
+        warning.get("issue")
+        for warning in validation.compile_warnings
+        if isinstance(warning, dict) and warning.get("issue")
+    ]
+    messages.extend(
+        result.issue
+        for result in validation.pp_results
+        if getattr(result, "severity", "error") == "warning" and result.issue
+    )
+    return [message for message in messages if isinstance(message, str)]
+
+
+def _format_validation_warnings(validation: AssemblyValidation) -> str:
+    """Render non-fatal compile and prior-predictive warnings."""
+    from causal_ssm_agent.models.prior_predictive import format_parameter_warnings
+
+    parts: list[str] = []
+    for warning in validation.compile_warnings:
+        issue = warning.get("issue")
+        suggested = warning.get("suggested_adjustment")
+        if issue:
+            lines = [f"- {issue}"]
+            if suggested:
+                lines.append(f"  Suggested: {suggested}")
+            parts.append("\n".join(lines))
+
+    warning_params = sorted(
+        {
+            result.parameter
+            for result in validation.pp_results
+            if getattr(result, "severity", "error") == "warning"
+        }
+    )
+    for parameter in warning_params:
+        warning_block = format_parameter_warnings(parameter, validation.pp_results)
+        if warning_block:
+            parts.append(warning_block)
+
+    if not parts:
+        return ""
+    return "MODELING WARNINGS:\n" + "\n\n".join(parts)
 
 
 def compile_model_artifact(
@@ -463,8 +502,9 @@ def format_validation_feedback(
     if not validation.compile_ok:
         return f"COMPILE ERROR:\n{validation.compile_error}"
 
+    warning_feedback = _format_validation_warnings(validation)
     if not validation.pp_checked or validation.pp_valid:
-        return "VALID"
+        return warning_feedback or "VALID"
 
     from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
@@ -489,4 +529,6 @@ def format_validation_feedback(
         if fb:
             parts.append(fb)
     details = "\n\n".join(parts) if parts else "PRIOR PREDICTIVE CHECK FAILED"
+    if warning_feedback:
+        details = f"{details}\n\n{warning_feedback}"
     return f"PRIOR PREDICTIVE FEEDBACK:\n{details}"
