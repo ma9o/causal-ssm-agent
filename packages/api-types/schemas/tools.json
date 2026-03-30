@@ -15,7 +15,8 @@
         },
         "title": "ListFilesInput",
         "type": "object"
-      }
+      },
+      "result": null
     },
     {
       "name": "read_file_sample",
@@ -40,7 +41,8 @@
         ],
         "title": "ReadFileSampleInput",
         "type": "object"
-      }
+      },
+      "result": null
     },
     {
       "name": "execute_python",
@@ -59,7 +61,8 @@
         ],
         "title": "ExecutePythonInput",
         "type": "object"
-      }
+      },
+      "result": null
     },
     {
       "name": "submit_table",
@@ -78,7 +81,8 @@
         ],
         "title": "SubmitTableInput",
         "type": "object"
-      }
+      },
+      "result": null
     }
   ],
   "stage-1a": [
@@ -99,7 +103,8 @@
         ],
         "title": "ValidateLatentModelInput",
         "type": "object"
-      }
+      },
+      "result": null
     }
   ],
   "stage-1b": [
@@ -120,7 +125,8 @@
         ],
         "title": "ValidateMeasurementModelInput",
         "type": "object"
-      }
+      },
+      "result": null
     }
   ],
   "stage-2": [
@@ -141,7 +147,8 @@
         ],
         "title": "ValidateExtractionsInput",
         "type": "object"
-      }
+      },
+      "result": null
     }
   ],
   "stage-4": [
@@ -168,7 +175,8 @@
         ],
         "title": "SearchLiteratureInput",
         "type": "object"
-      }
+      },
+      "result": null
     },
     {
       "name": "validate_model",
@@ -187,7 +195,8 @@
         ],
         "title": "ValidateModelInput",
         "type": "object"
-      }
+      },
+      "result": null
     }
   ],
   "stage-6": [
@@ -225,7 +234,8 @@
         },
         "title": "GetModelInfoInput",
         "type": "object"
-      }
+      },
+      "result": null
     },
     {
       "name": "simulate_intervention",
@@ -347,6 +357,284 @@
         ],
         "title": "SimulateInterventionInput",
         "type": "object"
+      },
+      "result": {
+        "$defs": {
+          "EffectSummaryContract": {
+            "additionalProperties": false,
+            "properties": {
+              "mean": {
+                "title": "Mean",
+                "type": "number"
+              },
+              "median": {
+                "title": "Median",
+                "type": "number"
+              },
+              "lower_95": {
+                "title": "Lower 95",
+                "type": "number"
+              },
+              "upper_95": {
+                "title": "Upper 95",
+                "type": "number"
+              },
+              "prob_positive": {
+                "title": "Prob Positive",
+                "type": "number"
+              }
+            },
+            "required": [
+              "mean",
+              "median",
+              "lower_95",
+              "upper_95",
+              "prob_positive"
+            ],
+            "title": "EffectSummaryContract",
+            "type": "object"
+          },
+          "EffectTrajectoryPointContract": {
+            "additionalProperties": false,
+            "properties": {
+              "day": {
+                "title": "Day",
+                "type": "number"
+              },
+              "effect": {
+                "title": "Effect",
+                "type": "number"
+              }
+            },
+            "required": [
+              "day",
+              "effect"
+            ],
+            "title": "EffectTrajectoryPointContract",
+            "type": "object"
+          },
+          "InterventionActionInput": {
+            "additionalProperties": false,
+            "properties": {
+              "variable": {
+                "description": "Latent construct to intervene on.",
+                "title": "Variable",
+                "type": "string"
+              },
+              "mode": {
+                "description": "'set' clamps the construct to a value; 'shift' adds an amount to baseline.",
+                "enum": [
+                  "set",
+                  "shift"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Required when mode='set'. Absolute latent-space value to clamp to.",
+                "title": "Value"
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Required when mode='shift'. Additive latent-space delta from baseline.",
+                "title": "Amount"
+              }
+            },
+            "required": [
+              "variable",
+              "mode"
+            ],
+            "title": "InterventionActionInput",
+            "type": "object"
+          },
+          "SimulateInterventionResultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/InterventionActionInput"
+              },
+              "outcome": {
+                "title": "Outcome",
+                "type": "string"
+              },
+              "summary": {
+                "$ref": "#/$defs/EffectSummaryContract"
+              },
+              "effect_trajectory": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/EffectTrajectoryPointContract"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Effect Trajectory"
+              },
+              "visualization": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Stage6VisualizationContract"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "manifest_effects": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Manifest Effects"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Warnings",
+                "type": "array"
+              },
+              "rung": {
+                "const": 2,
+                "title": "Rung",
+                "type": "integer"
+              },
+              "estimand": {
+                "enum": [
+                  "steady_state",
+                  "trajectory"
+                ],
+                "title": "Estimand",
+                "type": "string"
+              },
+              "baseline_treatment_mean": {
+                "title": "Baseline Treatment Mean",
+                "type": "number"
+              }
+            },
+            "required": [
+              "action",
+              "outcome",
+              "summary",
+              "rung",
+              "estimand",
+              "baseline_treatment_mean"
+            ],
+            "title": "SimulateInterventionResultContract",
+            "type": "object"
+          },
+          "Stage6VisualizationContract": {
+            "additionalProperties": false,
+            "properties": {
+              "node_effect_trajectories": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the relevant reference path.",
+                "title": "Node Effect Trajectories"
+              },
+              "abducted_state": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Recovered latent state at the evidence boundary for rung-3 queries.",
+                "title": "Abducted State"
+              }
+            },
+            "title": "Stage6VisualizationContract",
+            "type": "object"
+          },
+          "ToolErrorContract": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "title": "Error",
+                "type": "string"
+              },
+              "identifiable_treatments": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Identifiable Treatments"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "title": "ToolErrorContract",
+            "type": "object"
+          }
+        },
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SimulateInterventionResultContract"
+          },
+          {
+            "$ref": "#/$defs/ToolErrorContract"
+          }
+        ],
+        "title": "SimulateInterventionToolResultContract"
       }
     },
     {
@@ -357,13 +645,6 @@
           "CounterfactualEvidenceInput": {
             "additionalProperties": false,
             "properties": {
-              "mode": {
-                "const": "observed_window",
-                "default": "observed_window",
-                "description": "Condition on an actual observed history window from the run.",
-                "title": "Mode",
-                "type": "string"
-              },
               "start_time": {
                 "anyOf": [
                   {
@@ -520,6 +801,324 @@
         ],
         "title": "SimulateCounterfactualInput",
         "type": "object"
+      },
+      "result": {
+        "$defs": {
+          "CounterfactualEvidenceResultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "start_time": {
+                "title": "Start Time",
+                "type": "string"
+              },
+              "end_time": {
+                "title": "End Time",
+                "type": "string"
+              },
+              "n_timepoints": {
+                "title": "N Timepoints",
+                "type": "integer"
+              },
+              "variables": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Variables",
+                "type": "array"
+              },
+              "conditioning_method": {
+                "title": "Conditioning Method",
+                "type": "string"
+              }
+            },
+            "required": [
+              "start_time",
+              "end_time",
+              "n_timepoints",
+              "conditioning_method"
+            ],
+            "title": "CounterfactualEvidenceResultContract",
+            "type": "object"
+          },
+          "EffectSummaryContract": {
+            "additionalProperties": false,
+            "properties": {
+              "mean": {
+                "title": "Mean",
+                "type": "number"
+              },
+              "median": {
+                "title": "Median",
+                "type": "number"
+              },
+              "lower_95": {
+                "title": "Lower 95",
+                "type": "number"
+              },
+              "upper_95": {
+                "title": "Upper 95",
+                "type": "number"
+              },
+              "prob_positive": {
+                "title": "Prob Positive",
+                "type": "number"
+              }
+            },
+            "required": [
+              "mean",
+              "median",
+              "lower_95",
+              "upper_95",
+              "prob_positive"
+            ],
+            "title": "EffectSummaryContract",
+            "type": "object"
+          },
+          "EffectTrajectoryPointContract": {
+            "additionalProperties": false,
+            "properties": {
+              "day": {
+                "title": "Day",
+                "type": "number"
+              },
+              "effect": {
+                "title": "Effect",
+                "type": "number"
+              }
+            },
+            "required": [
+              "day",
+              "effect"
+            ],
+            "title": "EffectTrajectoryPointContract",
+            "type": "object"
+          },
+          "InterventionActionInput": {
+            "additionalProperties": false,
+            "properties": {
+              "variable": {
+                "description": "Latent construct to intervene on.",
+                "title": "Variable",
+                "type": "string"
+              },
+              "mode": {
+                "description": "'set' clamps the construct to a value; 'shift' adds an amount to baseline.",
+                "enum": [
+                  "set",
+                  "shift"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Required when mode='set'. Absolute latent-space value to clamp to.",
+                "title": "Value"
+              },
+              "amount": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Required when mode='shift'. Additive latent-space delta from baseline.",
+                "title": "Amount"
+              }
+            },
+            "required": [
+              "variable",
+              "mode"
+            ],
+            "title": "InterventionActionInput",
+            "type": "object"
+          },
+          "SimulateCounterfactualResultContract": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "$ref": "#/$defs/InterventionActionInput"
+              },
+              "outcome": {
+                "title": "Outcome",
+                "type": "string"
+              },
+              "summary": {
+                "$ref": "#/$defs/EffectSummaryContract"
+              },
+              "effect_trajectory": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/EffectTrajectoryPointContract"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Effect Trajectory"
+              },
+              "visualization": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Stage6VisualizationContract"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "manifest_effects": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Manifest Effects"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Warnings",
+                "type": "array"
+              },
+              "rung": {
+                "const": 3,
+                "title": "Rung",
+                "type": "integer"
+              },
+              "evidence": {
+                "$ref": "#/$defs/CounterfactualEvidenceResultContract"
+              },
+              "estimand": {
+                "enum": [
+                  "end_state",
+                  "trajectory"
+                ],
+                "title": "Estimand",
+                "type": "string"
+              },
+              "baseline_forecast_mean": {
+                "title": "Baseline Forecast Mean",
+                "type": "number"
+              }
+            },
+            "required": [
+              "action",
+              "outcome",
+              "summary",
+              "rung",
+              "evidence",
+              "estimand",
+              "baseline_forecast_mean"
+            ],
+            "title": "SimulateCounterfactualResultContract",
+            "type": "object"
+          },
+          "Stage6VisualizationContract": {
+            "additionalProperties": false,
+            "properties": {
+              "node_effect_trajectories": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the relevant reference path.",
+                "title": "Node Effect Trajectories"
+              },
+              "abducted_state": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Recovered latent state at the evidence boundary for rung-3 queries.",
+                "title": "Abducted State"
+              }
+            },
+            "title": "Stage6VisualizationContract",
+            "type": "object"
+          },
+          "ToolErrorContract": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "title": "Error",
+                "type": "string"
+              },
+              "identifiable_treatments": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Identifiable Treatments"
+              }
+            },
+            "required": [
+              "error"
+            ],
+            "title": "ToolErrorContract",
+            "type": "object"
+          }
+        },
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SimulateCounterfactualResultContract"
+          },
+          {
+            "$ref": "#/$defs/ToolErrorContract"
+          }
+        ],
+        "title": "SimulateCounterfactualToolResultContract"
       }
     }
   ],

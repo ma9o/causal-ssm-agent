@@ -16,8 +16,10 @@ type JsonSchema = any;
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
 const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
+const TOOL_RESULTS_SCHEMA_PATH = resolve(ROOT, "schemas", "tool-results.json");
 const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
 const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
+const TOOL_RESULTS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tool-results.ts");
 
 /**
  * Reduce a schema node to just its `$ref` if it has one.
@@ -132,6 +134,8 @@ function generateTools(): void {
     "  description: string;",
     "  /** JSON Schema for the tool's input parameters */",
     "  parameters: Record<string, unknown>;",
+    "  /** JSON Schema for the tool's result payload, when declared */",
+    "  result?: Record<string, unknown> | null;",
     "}",
     "",
     "export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {",
@@ -140,13 +144,21 @@ function generateTools(): void {
   let totalTools = 0;
   for (const [stageId, tools] of Object.entries(toolsSchema)) {
     if (stageId.startsWith("_")) continue;
-    const toolArray = tools as Array<{ name: string; description: string; parameters: unknown }>;
+    const toolArray = tools as Array<{
+      name: string;
+      description: string;
+      parameters: unknown;
+      result?: unknown;
+    }>;
     lines.push(`  ${JSON.stringify(stageId)}: [`);
     for (const tool of toolArray) {
       lines.push("    {");
       lines.push(`      name: ${JSON.stringify(tool.name)},`);
       lines.push(`      description: ${JSON.stringify(tool.description)},`);
       lines.push(`      parameters: ${JSON.stringify(tool.parameters)},`);
+      if ("result" in tool) {
+        lines.push(`      result: ${JSON.stringify(tool.result ?? null)},`);
+      }
       lines.push("    },");
       totalTools++;
     }
@@ -162,6 +174,39 @@ function generateTools(): void {
 
   writeFileSync(TOOLS_OUTPUT_PATH, lines.join("\n"));
   console.log(`Generated ${totalTools} tool definitions → ${TOOLS_OUTPUT_PATH}`);
+}
+
+async function generateToolResults(): Promise<void> {
+  const rawSchema = JSON.parse(readFileSync(TOOL_RESULTS_SCHEMA_PATH, "utf-8"));
+  const schema = stripFieldTitles(collapseRefs(rawSchema));
+
+  const ts = await compile(schema, "CausalSSMToolResults", {
+    bannerComment:
+      "/* eslint-disable */\n" +
+      "/**\n" +
+      " * AUTO-GENERATED — DO NOT EDIT\n" +
+      " *\n" +
+      " * Generated from Python tool result models via:\n" +
+      " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
+      " *   cd packages/api-types && bun run scripts/generate.ts\n" +
+      " *\n" +
+      " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py\n" +
+      " */",
+    additionalProperties: false,
+    strictIndexSignatures: true,
+    enableConstEnums: false,
+    unknownAny: false,
+    style: {
+      semi: true,
+      singleQuote: false,
+    },
+  });
+
+  mkdirSync(dirname(TOOL_RESULTS_OUTPUT_PATH), { recursive: true });
+  writeFileSync(TOOL_RESULTS_OUTPUT_PATH, ts);
+
+  const count = (ts.match(/export (interface|type)/g) || []).length;
+  console.log(`Generated ${count} tool-result types/interfaces → ${TOOL_RESULTS_OUTPUT_PATH}`);
 }
 
 async function main() {
@@ -199,6 +244,7 @@ async function main() {
 
   // Generate tool definitions
   generateTools();
+  await generateToolResults();
 }
 
 main().catch((err) => {

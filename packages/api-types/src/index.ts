@@ -93,6 +93,19 @@ export type {
   WorkerStatusContract as WorkerStatus,
 } from "./generated/models";
 
+export type {
+  CounterfactualEvidenceResultContract as CounterfactualEvidenceResult,
+  EffectSummaryContract as EffectSummary,
+  EffectTrajectoryPointContract as EffectTrajectoryPoint,
+  InterventionActionInput,
+  SimulateCounterfactualResultContract as SimulateCounterfactualResult,
+  SimulateCounterfactualToolResultContract as SimulateCounterfactualToolResult,
+  SimulateInterventionResultContract as SimulateInterventionResult,
+  SimulateInterventionToolResultContract as SimulateInterventionToolResult,
+  Stage6VisualizationContract as Stage6Visualization,
+  ToolErrorContract as ToolError,
+} from "./generated/tool-results";
+
 export type Stage4PersistedData = Omit<
   import("./generated/models").Stage4Contract,
   "resolved_priors"

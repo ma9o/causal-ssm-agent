@@ -16,6 +16,7 @@ from typing import Any
 
 # Import all stage contracts — this pulls in every nested domain model
 from causal_ssm_agent.flows.stages.contracts import (
+    EXPORTED_TOOL_RESULT_MODELS,
     INTERACTIVE_STAGES,
     STAGE_CONTRACTS,
     STAGE_TOOLS,
@@ -131,6 +132,29 @@ def export_schemas() -> dict:
     return combined
 
 
+def export_tool_result_schemas() -> dict:
+    """Build a JSON Schema dedicated to tool result contracts."""
+    all_defs: dict[str, Any] = {}
+    refs: list[dict[str, str]] = []
+
+    for model_cls in EXPORTED_TOOL_RESULT_MODELS:
+        schema = model_cls.model_json_schema(mode="serialization")
+        defs = schema.pop("$defs", {})
+        all_defs.update(defs)
+        contract_name = model_cls.__name__
+        all_defs[contract_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
+        refs.append({"$ref": f"#/$defs/{contract_name}"})
+
+    combined = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "CausalSSMToolResults",
+        "description": "Combined JSON Schema for declared tool result contracts.",
+        "anyOf": refs,
+        "$defs": dict(sorted(all_defs.items())),
+    }
+    return _make_defaults_required(combined)
+
+
 def export_tool_schemas() -> dict:
     """Build a JSON document describing all stage tools for TypeScript codegen.
 
@@ -151,6 +175,7 @@ def export_tool_schemas() -> dict:
                 "name": tc.name,
                 "description": tc.description,
                 "parameters": tc.parameters_json_schema(),
+                "result": tc.result_json_schema(),
             }
             for tc in tools
         ]
@@ -174,6 +199,12 @@ def main() -> None:
     tools_path.write_text(json.dumps(tools, indent=2) + "\n")
     n_tools = sum(len(v) for k, v in tools.items() if k != "_interactive")
     print(f"Exported {n_tools} tool definitions to {tools_path}")
+
+    tool_results_path = OUTPUT_DIR / "tool-results.json"
+    tool_results = export_tool_result_schemas()
+    tool_results_path.write_text(json.dumps(tool_results, indent=2) + "\n")
+    n_tool_defs = len(tool_results.get("$defs", {}))
+    print(f"Exported {n_tool_defs} tool result definitions to {tool_results_path}")
 
 
 if __name__ == "__main__":
