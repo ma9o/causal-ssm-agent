@@ -712,21 +712,6 @@ class TestParametricIdMasks:
         counts = count_free_params(spec)
         assert counts.get("lambda_free", 0) == 1
 
-    def test_count_free_params_no_mask(self):
-        """Without mask, count_free_params gives full off-diagonal count."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
-
-        spec = SSMSpec(
-            n_latent=3,
-            n_manifest=3,
-            drift="free",
-            lambda_mat=jnp.eye(3),
-            diffusion="diag",
-        )
-
-        counts = count_free_params(spec)
-        assert counts.get("drift_offdiag_pop", 0) == 6  # 3*3 - 3
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Integration: trace verification

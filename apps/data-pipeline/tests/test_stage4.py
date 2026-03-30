@@ -60,6 +60,7 @@ from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
+from tests.helpers import make_stage4_plan as _make_plan
 
 # --- Fixtures ---
 
@@ -124,48 +125,6 @@ def simple_data() -> pd.DataFrame:
             "mood_score_lag1": np.random.randn(n) * 1.5 + 5,
             "subject_id": np.repeat(np.arange(5), 10),
         }
-    )
-
-
-def _make_plan(
-    *,
-    model_blocks: tuple[Stage4FrontierBlock, ...] = (),
-    review_block: Stage4FrontierBlock | None = None,
-    prior_blocks: tuple[Stage4FrontierBlock, ...] = (),
-) -> Stage4Plan:
-    """Build a minimal Stage 4 plan for focused unit tests."""
-    all_blocks = (
-        *model_blocks,
-        *((review_block,) if review_block is not None else ()),
-        *prior_blocks,
-    )
-    blocks_by_id = {block.id: block for block in all_blocks}
-    parameter_to_block_id: dict[str, str] = {}
-    indicator_to_decision_block_id: dict[str, str] = {}
-    indicator_to_measurement_block_id: dict[str, str] = {}
-
-    for block in prior_blocks:
-        for parameter_name in block.parameter_names:
-            parameter_to_block_id.setdefault(parameter_name, block.id)
-        if block.kind == "measurement_prior":
-            for indicator_name in block.variable_names:
-                indicator_to_measurement_block_id[indicator_name] = block.id
-
-    for block in model_blocks:
-        for parameter_name in block.parameter_names:
-            parameter_to_block_id.setdefault(parameter_name, block.id)
-        if block.kind == "indicator_decision":
-            for indicator_name in block.variable_names:
-                indicator_to_decision_block_id[indicator_name] = block.id
-
-    return Stage4Plan(
-        model_blocks=model_blocks,
-        review_block=review_block,
-        prior_blocks=prior_blocks,
-        blocks_by_id=blocks_by_id,
-        parameter_to_block_id=parameter_to_block_id,
-        indicator_to_decision_block_id=indicator_to_decision_block_id,
-        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
     )
 
 
@@ -1123,18 +1082,6 @@ class TestPriorPredictiveValidation:
             assert is_valid is False
             assert any("model_build" in r.parameter for r in results)
             assert any("deliberate test failure" in (r.issue or "") for r in results)
-
-    def test_no_data_still_validates(self, simple_model_spec, simple_priors):
-        """data_for_model=None -> NaN/constraint/extreme checks run, scale check skipped."""
-        is_valid, results, _samples = validate_prior_predictive(
-            simple_model_spec, simple_priors, None, n_samples=10
-        )
-        assert is_valid is True or is_valid is False
-        assert len(results) >= 0
-        for r in results:
-            assert hasattr(r, "parameter")
-            assert hasattr(r, "is_valid")
-            assert hasattr(r, "issue")
 
     def test_no_data_uses_support_compatible_dummy_build_data(self):
         """Support-restricted likelihoods should still validate without raw data."""
@@ -3572,6 +3519,155 @@ class TestStage4Mechanics:
         assert len(model_spec_calls) == 1
         assert visited_blocks == ["review:model_spec", "dynamics:sleep"]
         assert visible_tools == [["validate_model"], ["validate_model"]]
+        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+
+    def test_run_stage4_tracks_submission_when_feedback_repeats(self, monkeypatch):
+        causal_spec = _make_stage4_no_model_block_spec()
+        submissions = [
+            {
+                "block_id": "review:model_spec",
+                "block_kind": "global_review",
+                "proposal": {
+                    "decision": "approve",
+                    "reasoning": "The deterministic model form is coherent.",
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+            {
+                "block_id": "dynamics:sleep",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_sleep": {
+                            "parameter": "rho_sleep",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "sleep dynamics prior",
+                        },
+                        "sigma_sleep": {
+                            "parameter": "sigma_sleep",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "sleep residual scale",
+                        },
+                    }
+                },
+            },
+        ]
+        visited_blocks: list[str] = []
+        visible_tools: list[list[str]] = []
+        prior_attempts = 0
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            nonlocal prior_attempts
+            current = current or {}
+            if "model_spec" in data:
+                return {
+                    "model_spec": data["model_spec"],
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=data["model_spec"],
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            prior_attempts += 1
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            if prior_attempts < 3:
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=False,
+                    ),
+                }, "PRIOR PREDICTIVE FEEDBACK:\n- still failing"
+
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=True,
+                ),
+            }, "VALID"
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            stub_stage4_grounding,
+        )
+
+        result = asyncio.run(
+            run_stage4(
+                causal_spec=causal_spec,
+                question="How persistent is sleep quality?",
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                generate=_make_scripted_stage4_generate(
+                    submissions,
+                    visited_blocks=visited_blocks,
+                    visible_tools=visible_tools,
+                ),
+                enable_literature=False,
+                enable_paraphrasing=False,
+            )
+        )
+
+        assert prior_attempts == 3
+        assert visited_blocks == [
+            "review:model_spec",
+            "dynamics:sleep",
+            "dynamics:sleep",
+            "dynamics:sleep",
+        ]
+        assert visible_tools == [["validate_model"]] * len(submissions)
         assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
