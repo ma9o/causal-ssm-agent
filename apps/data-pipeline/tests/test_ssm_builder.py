@@ -198,15 +198,20 @@ class TestSplitCompoundName:
         )
         assert result == ("a_b", "c")
 
-    @pytest.mark.parametrize(
-        "compound",
-        ["", "_", "__"],
-    )
-    def test_edge_cases(self, compound):
-        """Edge cases with empty strings should not crash."""
-        result = split_compound_name(compound, {"", "_"}, {"", "_"})
-        # Just verify it doesn't crash; result depends on valid sets
-        assert result is None or isinstance(result, tuple)
+    def test_empty_string_returns_none(self):
+        """Empty string has no separator to split on."""
+        result = split_compound_name("", {"x"}, {"y"})
+        assert result is None
+
+    def test_no_matching_prefix_returns_none(self):
+        """When no valid prefix matches, returns None."""
+        result = split_compound_name("foo_bar", {"baz"}, {"bar"})
+        assert result is None
+
+    def test_no_matching_suffix_returns_none(self):
+        """When no valid suffix matches, returns None."""
+        result = split_compound_name("foo_bar", {"foo"}, {"qux"})
+        assert result is None
 
 
 class TestBuilderPriorConversion:

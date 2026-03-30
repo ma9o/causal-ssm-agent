@@ -6,7 +6,6 @@ import numpy as np
 
 import causal_ssm_agent.models.posterior_predictive as posterior_predictive_module
 from causal_ssm_agent.models.likelihoods.observation_families import (
-    POSTERIOR_PREDICTIVE_SWITCH_ORDER,
     get_posterior_predictive_switch_index,
 )
 from causal_ssm_agent.models.posterior_predictive import (
@@ -103,19 +102,11 @@ class TestForwardSimulation:
             emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int32),
         )
 
-    def test_switch_indices_follow_registry_order(self):
-        """Posterior predictive dispatch indices come from the shared registry order."""
-        for idx, (dist, link) in enumerate(POSTERIOR_PREDICTIVE_SWITCH_ORDER):
-            assert get_posterior_predictive_switch_index(dist, link=link) == idx
-
-    def test_switch_default_link_uses_explicit_family_default(self):
-        """Omitting the link should resolve to the first registered branch for that family."""
-        first_index_by_dist = {}
-        for idx, (dist, _link) in enumerate(POSTERIOR_PREDICTIVE_SWITCH_ORDER):
-            first_index_by_dist.setdefault(dist, idx)
-
-        for dist, first_idx in first_index_by_dist.items():
-            assert get_posterior_predictive_switch_index(dist) == first_idx
+    def test_switch_index_unknown_dist_falls_back_to_gaussian(self):
+        """Unknown distribution family falls back to index 0 (Gaussian)."""
+        idx = get_posterior_predictive_switch_index("nonexistent_distribution")
+        gaussian_idx = get_posterior_predictive_switch_index("gaussian")
+        assert idx == gaussian_idx == 0
 
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""
@@ -428,7 +419,7 @@ class TestDiagnosticChecks:
         assert any(w.check_type == "variance" for w in warnings)
 
     def test_nan_handling(self):
-        """NaN observations should be skipped without errors."""
+        """NaN observations should be skipped without errors and produce valid warnings."""
         T, n_manifest = 30, 2
         manifest_names = ["x", "y"]
 
@@ -441,15 +432,16 @@ class TestDiagnosticChecks:
         observations = observations.at[:5, 0].set(jnp.nan)  # first 5 timepoints of var 0
         observations = observations.at[10:15, 1].set(jnp.nan)
 
-        # Should not raise
         cal_warnings = _check_calibration(y_sim, observations, manifest_names)
         ac_warnings = _check_residual_autocorrelation(y_sim, observations, manifest_names)
         vr_warnings = _check_variance_ratio(y_sim, observations, manifest_names)
 
-        # All should return lists (possibly empty)
-        assert isinstance(cal_warnings, list)
-        assert isinstance(ac_warnings, list)
-        assert isinstance(vr_warnings, list)
+        # All should return PPCWarning lists with valid variable references
+        all_warnings = cal_warnings + ac_warnings + vr_warnings
+        for w in all_warnings:
+            assert w.variable in manifest_names, f"Warning references unknown variable: {w.variable}"
+            assert len(w.message) > 0
+            assert np.isfinite(w.value), f"Warning value should be finite, got {w.value}"
 
 
 class TestGetRelevantManifestVariables:
