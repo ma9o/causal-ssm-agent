@@ -1,5 +1,6 @@
 """Shared LLM utilities for multi-turn generation."""
 
+import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable
@@ -21,6 +22,7 @@ logger = get_prefect_logger(__name__)
 DEFAULT_MAX_TOOL_LOOP_TURNS = 40
 WARN_TOOL_LOOP_TURNS = 10
 MAX_TOOL_REPAIR_RETRIES = 1
+MAX_CALL_TIMEOUT_RETRIES = 1
 MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
 
@@ -409,6 +411,18 @@ def _tool_retry_message(error_text: str, tools: list[Tool] | None) -> dict[str, 
     }
 
 
+def _is_call_timeout(exc: Exception) -> bool:
+    """Whether a model-call exception should be treated as a request timeout."""
+
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return True
+    timeout_class_names = {cls.__name__ for cls in type(exc).__mro__}
+    if any("Timeout" in name for name in timeout_class_names):
+        return True
+    error_text = (str(exc) or "").lower()
+    return "timed out" in error_text or "timeout" in error_text
+
+
 async def _call_model_with_tool_repair(
     messages: list[dict[str, Any]],
     model_name: str,
@@ -421,11 +435,17 @@ async def _call_model_with_tool_repair(
     """Call the model and repair malformed tool-call turns by prompting a retry."""
 
     tool_context = _has_tool_context(messages, tools)
-    attempt = 0
+    repair_attempt = 0
+    timeout_attempt = 0
 
     while True:
+        attempt_suffixes: list[str] = []
+        if timeout_attempt > 0:
+            attempt_suffixes.append(f"timeout-retry-{timeout_attempt}")
+        if repair_attempt > 0:
+            attempt_suffixes.append(f"repair-{repair_attempt}")
         attempt_label = (
-            log_label if attempt == 0 else _combine_log_label(log_label, f"repair-{attempt}")
+            log_label if not attempt_suffixes else _combine_log_label(log_label, *attempt_suffixes)
         )
         try:
             return await call_model(
@@ -436,9 +456,25 @@ async def _call_model_with_tool_repair(
                 log_label=attempt_label,
             )
         except Exception as exc:
-            if not tool_context or attempt >= max_retries:
+            if _is_call_timeout(exc):
+                if timeout_attempt >= MAX_CALL_TIMEOUT_RETRIES:
+                    raise
+                timeout_attempt += 1
+                logger.warning(
+                    scoped_log(
+                        log_label,
+                        "call_model timed out; retrying same request (attempt %d/%d): %s",
+                    ),
+                    timeout_attempt,
+                    MAX_CALL_TIMEOUT_RETRIES,
+                    _truncate_tool_error(str(exc) or exc.__class__.__name__, limit=240).replace(
+                        "\n", " "
+                    ),
+                )
+                continue
+            if not tool_context or repair_attempt >= max_retries:
                 raise
-            attempt += 1
+            repair_attempt += 1
             error_text = str(exc) or exc.__class__.__name__
             logger.warning(
                 scoped_log(
@@ -446,7 +482,7 @@ async def _call_model_with_tool_repair(
                     "call_model failed during tool-context turn; retrying with repair prompt "
                     "(attempt %d/%d): %s",
                 ),
-                attempt,
+                repair_attempt,
                 max_retries,
                 _truncate_tool_error(error_text, limit=240).replace("\n", " "),
             )

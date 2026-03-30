@@ -25,12 +25,13 @@ def _stage4_generate_config() -> GenerateConfig:
     Stage 4 intentionally removes the shared max-token cap and tool-output
     truncation so the model can continue beyond the default global ceiling on
     long prior-authoring turns and retain full literature/validator payloads.
+    It also enforces a shorter per-request timeout so hung provider calls do
+    not stall the whole stage indefinitely.
     """
-
     base = get_generate_config()
     return GenerateConfig(
         max_tokens=None,
-        timeout=base.timeout,
+        timeout=120,
         reasoning_effort=base.reasoning_effort,
         max_tool_output=None,
     )
