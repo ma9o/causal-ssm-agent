@@ -28,14 +28,14 @@ describe("layoutDag", () => {
     expect(result.edges).toEqual([]);
   });
 
-  it("positions a single construct", async () => {
+  it("positions a single construct with finite coordinates", async () => {
     const constructs = [makeConstruct("A")];
     const result = await layoutDag(constructs, []);
     expect(result.nodes).toHaveLength(1);
     expect(result.nodes[0].id).toBe("A");
     expect(result.nodes[0].type).toBe("construct");
-    expect(result.nodes[0].position).toHaveProperty("x");
-    expect(result.nodes[0].position).toHaveProperty("y");
+    expect(Number.isFinite(result.nodes[0].position.x)).toBe(true);
+    expect(Number.isFinite(result.nodes[0].position.y)).toBe(true);
   });
 
   it("creates edges between constructs", async () => {
@@ -111,16 +111,15 @@ describe("layoutDag", () => {
     expect(result.nodes[0].data.is_outcome).toBe(true);
   });
 
-  it("positions isolated nodes (no edges between them)", async () => {
+  it("positions isolated nodes with distinct x-coordinates", async () => {
     const constructs = [makeConstruct("A"), makeConstruct("B"), makeConstruct("C")];
     const result = await layoutDag(constructs, []);
     expect(result.nodes).toHaveLength(3);
     expect(result.edges).toHaveLength(0);
-    // All nodes should have valid positions
-    for (const node of result.nodes) {
-      expect(typeof node.position.x).toBe("number");
-      expect(typeof node.position.y).toBe("number");
-    }
+    const xs = result.nodes.map((n) => n.position.x);
+    // Isolated nodes should not all be stacked at the exact same position
+    const uniquePositions = new Set(xs.map((x) => Math.round(x)));
+    expect(uniquePositions.size).toBeGreaterThan(1);
   });
 
   it("handles diamond DAG (A→B, A→C, B→D, C→D)", async () => {

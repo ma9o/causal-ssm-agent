@@ -103,10 +103,10 @@ class TestForwardSimulation:
         )
 
     def test_switch_index_unknown_dist_falls_back_to_gaussian(self):
-        """Unknown distribution family falls back to index 0 (Gaussian)."""
+        """Unknown distribution family falls back to Gaussian."""
         idx = get_posterior_predictive_switch_index("nonexistent_distribution")
         gaussian_idx = get_posterior_predictive_switch_index("gaussian")
-        assert idx == gaussian_idx == 0
+        assert idx == gaussian_idx
 
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""

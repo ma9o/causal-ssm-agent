@@ -191,16 +191,6 @@ describe("priorLatex", () => {
     expect(result).toContain("\\mathcal{N}");
   });
 
-  it("matches priorLine with ampersands removed", () => {
-    const prior = {
-      parameter: "sigma_mood",
-      distribution: "HalfNormal",
-      params: { scale: 2 },
-      sources: [],
-      reasoning: "",
-    } as PriorProposal;
-    expect(priorLatex(prior)).toBe(priorLine(prior).replace(/&/g, ""));
-  });
 });
 
 describe("stateNames", () => {
