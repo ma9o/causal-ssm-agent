@@ -524,6 +524,8 @@ class TestStage4Plan:
         assert plan.model_blocks[0].variable_names == ("steps",)
         assert plan.review_block is not None
         assert plan.review_block.kind == "global_review"
+        assert plan.prior_review_block is not None
+        assert plan.prior_review_block.kind == "global_prior_review"
         assert [block.kind for block in plan.prior_blocks] == ["dynamics_prior"]
         assert set(plan.prior_blocks[0].parameter_names) == {"rho_activity", "sigma_activity"}
 
@@ -774,4 +776,12 @@ class TestStage4PromptScopePolicy:
             "loading_params",
             "construct_scale_cards",
         )
+        assert policy.allowed_tool_names == ("validate_model",)
+
+    def test_global_prior_review_policy_is_validate_only(self):
+        policy = get_stage4_prompt_scope_policy("global_prior_review")
+
+        assert policy.user_task.startswith("Review the full accepted prior system")
+        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.parameter_guidance_prefixes == ("lambda", "rho", "sigma", "beta", "cor")
         assert policy.allowed_tool_names == ("validate_model",)

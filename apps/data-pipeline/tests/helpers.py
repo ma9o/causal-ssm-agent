@@ -65,12 +65,14 @@ def make_stage4_plan(
     model_blocks: tuple[Stage4FrontierBlock, ...] = (),
     review_block: Stage4FrontierBlock | None = None,
     prior_blocks: tuple[Stage4FrontierBlock, ...] = (),
+    prior_review_block: Stage4FrontierBlock | None = None,
 ) -> Stage4Plan:
     """Build a minimal Stage 4 plan for focused unit tests."""
     all_blocks = (
         *model_blocks,
         *((review_block,) if review_block is not None else ()),
         *prior_blocks,
+        *((prior_review_block,) if prior_review_block is not None else ()),
     )
     blocks_by_id = {block.id: block for block in all_blocks}
     parameter_to_block_id: dict[str, str] = {}
@@ -95,6 +97,7 @@ def make_stage4_plan(
         model_blocks=model_blocks,
         review_block=review_block,
         prior_blocks=prior_blocks,
+        prior_review_block=prior_review_block,
         blocks_by_id=blocks_by_id,
         parameter_to_block_id=parameter_to_block_id,
         indicator_to_decision_block_id=indicator_to_decision_block_id,

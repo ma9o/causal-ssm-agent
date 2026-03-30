@@ -117,6 +117,8 @@ class Stage4Runtime:
     last_feedback: str | None = None
     search_cache: dict[str, str] = field(default_factory=dict)
     search_queries: dict[str, str] = field(default_factory=dict)
+    prior_failure_signatures: dict[str, tuple[Any, ...]] = field(default_factory=dict)
+    prior_failure_repeat_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -131,12 +133,23 @@ class Stage4Deps:
 
 
 @dataclass(frozen=True)
+class Stage4RepairRoute:
+    """Reducer-owned repair action selected from validation diagnostics."""
+
+    kind: str
+    block_ids: tuple[str, ...]
+    reason: str
+    diagnostic_codes: tuple[str, ...] = ()
+    related_parameters: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Stage4StepResult:
     """Reducer transition returned by a single Stage 4 step."""
 
     feedback: str | None = None
     stage_output: dict[str, Any] | None = None
-    reopen_block_ids: tuple[str, ...] = ()
+    repair_route: Stage4RepairRoute | None = None
     accepted_block_id: str | None = None
     distribution_choice: dict[str, Any] | None = None
     loading_constraints: tuple[dict[str, Any], ...] = ()
@@ -703,11 +716,14 @@ def _mark_blocks_reopened(
 
     active_block = blocks[0]
     runtime.active_block_id = active_block.id
-    runtime.phase = (
-        "model_decisions"
-        if active_block.kind in {"indicator_decision", "loading_decision"}
-        else "prior_blocks"
-    )
+    if active_block.kind in {"indicator_decision", "loading_decision"}:
+        runtime.phase = "model_decisions"
+    elif active_block.kind == "global_review":
+        runtime.phase = "global_review"
+    elif active_block.kind == "global_prior_review":
+        runtime.phase = "global_prior_review"
+    else:
+        runtime.phase = "prior_blocks"
 
 
 def _advance_after_block_acceptance(
@@ -721,6 +737,10 @@ def _advance_after_block_acceptance(
         return
     if block.kind == "global_review":
         _activate_prior_phase(plan, runtime)
+        return
+    if block.kind == "global_prior_review":
+        runtime.phase = "done"
+        runtime.active_block_id = None
         return
     _activate_prior_phase(plan, runtime)
 
@@ -754,6 +774,15 @@ def _format_plan_status(
             + "`"
         ),
         f"- prior blocks accepted: `{_count_accepted_blocks(plan.prior_blocks, runtime)}/{len(plan.prior_blocks)}`",
+        (
+            "- prior-system review: `"
+            + (
+                runtime.block_status.get(plan.prior_review_block.id, "inactive")
+                if plan.prior_review_block is not None
+                else "skipped"
+            )
+            + "`"
+        ),
         f"- model_spec locked: `{'yes' if runtime.accepted.model_spec is not None else 'no'}`",
         f"- active prompt scope: `{block.kind}`",
         f"- active scope names: {_summarize_names(list(block.variable_names or block.parameter_names))}",
@@ -777,18 +806,44 @@ def _find_block_for_parameter(
     return None if block_id is None else plan.get_block(block_id)
 
 
-def _classify_compile_failure_block(
+def _repair_route(
+    *,
+    kind: str,
+    block_ids: tuple[str, ...],
+    reason: str,
+    diagnostic_codes: tuple[str, ...] = (),
+    related_parameters: tuple[str, ...] = (),
+) -> Stage4RepairRoute:
+    """Build a deterministic Stage 4 repair route."""
+    return Stage4RepairRoute(
+        kind=kind,
+        block_ids=block_ids,
+        reason=reason,
+        diagnostic_codes=diagnostic_codes,
+        related_parameters=related_parameters,
+    )
+
+
+def _classify_compile_failure_route(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     feedback: str | None,
-) -> str:
+) -> Stage4RepairRoute:
     """Route compile failures back to the smallest matching block."""
     text = feedback or ""
     for block in plan.all_blocks:
         for token in [*block.variable_names, *block.parameter_names]:
             if token and token in text:
-                return block.id
-    return active_block.id
+                return _repair_route(
+                    kind="compile_local",
+                    block_ids=(block.id,),
+                    reason="compile failure mentions an active-scope token",
+                )
+    return _repair_route(
+        kind="compile_active_block",
+        block_ids=(active_block.id,),
+        reason="compile failure could not be localized more narrowly",
+    )
 
 
 def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
@@ -802,6 +857,45 @@ def _ordered_block_ids(
 ) -> tuple[str, ...]:
     """Return block ids in deterministic plan order."""
     return tuple(block.id for block in plan.all_blocks if block.id in block_ids)
+
+
+def _prior_failure_signature(validation: AssemblyValidation | None) -> tuple[Any, ...]:
+    """Build a stable signature for the current invalid PP diagnostics."""
+    if validation is None:
+        return ()
+
+    failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
+    signature: list[tuple[Any, ...]] = []
+    for result in failed:
+        related_parameters = tuple(
+            sorted(dict.fromkeys(result.related_parameters or ([result.parameter] if result.parameter else [])))
+        )
+        supporting_codes = tuple(sorted(dict.fromkeys(result.supporting_codes or [])))
+        signature.append((result.code, result.parameter, related_parameters, supporting_codes))
+    return tuple(sorted(signature))
+
+
+def _record_prior_failure_signature(
+    runtime: Stage4Runtime,
+    *,
+    block_id: str,
+    signature: tuple[Any, ...],
+) -> int:
+    """Record one PP failure signature for a block and return the repeat count."""
+    previous = runtime.prior_failure_signatures.get(block_id)
+    if previous == signature:
+        repeat_count = runtime.prior_failure_repeat_counts.get(block_id, 0) + 1
+    else:
+        repeat_count = 1
+    runtime.prior_failure_signatures[block_id] = signature
+    runtime.prior_failure_repeat_counts[block_id] = repeat_count
+    return repeat_count
+
+
+def _clear_prior_failure_signature(runtime: Stage4Runtime, block_id: str) -> None:
+    """Clear any remembered PP failure loop state for a block."""
+    runtime.prior_failure_signatures.pop(block_id, None)
+    runtime.prior_failure_repeat_counts.pop(block_id, None)
 
 
 def _block_ids_for_repair_scope(
@@ -829,21 +923,51 @@ def _block_ids_for_repair_scope(
     return _ordered_block_ids(plan, block_ids)
 
 
+def _global_prior_review_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
+    """Return the exceptional post-prior global repair block, if configured."""
+    if plan.prior_review_block is None:
+        return ()
+    return (plan.prior_review_block.id,)
+
+
 def _classify_prior_failure_blocks(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     validation: AssemblyValidation | None,
-) -> tuple[str, ...]:
+) -> Stage4RepairRoute:
     """Route prior-validation failures back to the smallest repairable scope."""
     if validation is None:
-        return (active_block.id,)
+        return _repair_route(
+            kind="active_block_fallback",
+            block_ids=(active_block.id,),
+            reason="missing validation payload",
+        )
+
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
     repair_block_ids: set[str] = set()
+    route_codes = tuple(sorted(dict.fromkeys(result.code for result in failed if result.code)))
+    route_parameters = tuple(
+        sorted(
+            dict.fromkeys(
+                parameter_name
+                for result in failed
+                for parameter_name in (result.related_parameters or ([result.parameter] if result.parameter else []))
+                if parameter_name
+            )
+        )
+    )
     for result in failed:
         repair_block_ids.update(_block_ids_for_repair_scope(plan, getattr(result, "repair_scope", None)))
     if repair_block_ids:
-        return _ordered_block_ids(plan, repair_block_ids)
+        return _repair_route(
+            kind="repair_scope",
+            block_ids=_ordered_block_ids(plan, repair_block_ids),
+            reason="diagnostic supplied an explicit repair scope",
+            diagnostic_codes=route_codes,
+            related_parameters=route_parameters,
+        )
 
     local_block_ids: set[str] = set()
     for result in failed:
@@ -852,23 +976,74 @@ def _classify_prior_failure_blocks(
             if block is not None:
                 local_block_ids.add(block.id)
     if local_block_ids:
-        return _ordered_block_ids(plan, local_block_ids)
+        return _repair_route(
+            kind="direct_writer_blocks",
+            block_ids=_ordered_block_ids(plan, local_block_ids),
+            reason="diagnostic related_parameters map directly to Stage 4 blocks",
+            diagnostic_codes=route_codes,
+            related_parameters=route_parameters,
+        )
 
     issues_text = " ".join(result.issue or "" for result in failed).lower()
     if "support check" in issues_text or "outside support" in issues_text:
         for indicator_name, block_id in plan.indicator_to_decision_block_id.items():
             if indicator_name in issues_text:
-                return (block_id,)
+                return _repair_route(
+                    kind="likelihood_support",
+                    block_ids=(block_id,),
+                    reason="global support failure names an indicator likelihood",
+                    diagnostic_codes=route_codes,
+                    related_parameters=route_parameters,
+                )
         for block in plan.model_blocks:
             if block.kind == "indicator_decision":
-                return (block.id,)
+                return _repair_route(
+                    kind="likelihood_support",
+                    block_ids=(block.id,),
+                    reason="support failure requires indicator-decision repair",
+                    diagnostic_codes=route_codes,
+                    related_parameters=route_parameters,
+                )
 
     if any(result.parameter == "dynamics_stability" for result in failed):
         dynamics_block_ids = _all_dynamics_block_ids(plan)
         if dynamics_block_ids:
-            return dynamics_block_ids
+            return _repair_route(
+                kind="dynamics_family",
+                block_ids=dynamics_block_ids,
+                reason="dynamics stability failure requires the dynamics block family",
+                diagnostic_codes=route_codes,
+                related_parameters=route_parameters,
+            )
 
-    return (active_block.id,)
+    prior_review_block_ids = _global_prior_review_block_ids(plan)
+    if prior_review_block_ids:
+        return _repair_route(
+            kind="global_prior_review",
+            block_ids=prior_review_block_ids,
+            reason="global PP failure could not be localized to a bounded repair scope",
+            diagnostic_codes=route_codes,
+            related_parameters=route_parameters,
+        )
+
+    global_failures = [result for result in failed if result.parameter in GLOBAL_FAILURE_SITES]
+    if global_failures:
+        details = "; ".join(
+            f"{result.code}:{','.join(result.related_parameters or [result.parameter])}"
+            for result in global_failures
+        )
+        raise ValueError(
+            "Unattributed global prior-predictive failure cannot be repaired by reopening "
+            f"the active block {active_block.id!r}. Details: {details}"
+        )
+
+    return _repair_route(
+        kind="active_block_fallback",
+        block_ids=(active_block.id,),
+        reason="non-global failure could not be localized more narrowly",
+        diagnostic_codes=route_codes,
+        related_parameters=route_parameters,
+    )
 
 
 def _validate_submission_envelope(
@@ -1174,8 +1349,9 @@ def _apply_stage4_step_result(
 
     if result.accepted_block_id is not None:
         runtime.block_status[result.accepted_block_id] = "accepted"
-    if result.reopen_block_ids:
-        _mark_blocks_reopened(plan, runtime, result.reopen_block_ids)
+        _clear_prior_failure_signature(runtime, result.accepted_block_id)
+    if result.repair_route is not None and result.repair_route.block_ids:
+        _mark_blocks_reopened(plan, runtime, result.repair_route.block_ids)
     elif result.accepted_block_id is not None:
         accepted_block = plan.get_block(result.accepted_block_id)
         if accepted_block is None:
@@ -1242,35 +1418,56 @@ def _apply_prior_submission(
         indicator_audits=deps.indicator_audits,
     )
     validation = stage_output.get("validation") if stage_output else None
-    reopen_block_ids: tuple[str, ...] = ()
+    repair_route: Stage4RepairRoute | None = None
     if validation is not None and getattr(validation, "compile_ok", True) is False:
-        reopen_block_ids = (
-            _classify_compile_failure_block(
-                plan,
-                active_block,
-                getattr(validation, "compile_error", None) or feedback,
-            ),
+        repair_route = _classify_compile_failure_route(
+            plan,
+            active_block,
+            getattr(validation, "compile_error", None) or feedback,
         )
     elif (
         validation is not None
         and getattr(validation, "pp_checked", False)
         and getattr(validation, "pp_valid", True) is False
     ):
-        reopen_block_ids = _classify_prior_failure_blocks(
+        repair_route = _classify_prior_failure_blocks(
             plan,
             active_block,
             validation,
         )
+        failure_signature = _prior_failure_signature(validation)
+        if repair_route is not None and repair_route.block_ids == (active_block.id,) and failure_signature:
+            repeat_count = _record_prior_failure_signature(
+                runtime,
+                block_id=active_block.id,
+                signature=failure_signature,
+            )
+            if repeat_count >= 2:
+                failed = [
+                    result
+                    for result in validation.prior_predictive_diagnostics
+                    if not result.is_valid
+                ]
+                details = "; ".join(
+                    f"{result.code}:{','.join(result.related_parameters or [result.parameter])}"
+                    for result in failed
+                )
+                raise ValueError(
+                    "Stage 4 hit the same prior-predictive failure twice while reopening the "
+                    f"same block {active_block.id!r}. Details: {details}"
+                )
+    if repair_route is None or repair_route.block_ids != (active_block.id,):
+        _clear_prior_failure_signature(runtime, active_block.id)
     accepted_block_id = (
         active_block.id
-        if stage_output is not None and active_block.id not in reopen_block_ids
+        if stage_output is not None and (repair_route is None or active_block.id not in repair_route.block_ids)
         else None
     )
 
     return Stage4StepResult(
         stage_output=stage_output,
         feedback=feedback,
-        reopen_block_ids=reopen_block_ids,
+        repair_route=repair_route,
         accepted_block_id=accepted_block_id,
         persist_stage_output=accepted_block_id is not None,
     )
@@ -1301,7 +1498,11 @@ def _apply_global_review_submission(
             f"- reopening {_summarize_names(list(reopen_block_ids))}\n"
             f"- reason: {normalized['reasoning']}"
         ),
-        reopen_block_ids=reopen_block_ids,
+        repair_route=_repair_route(
+            kind="global_review",
+            block_ids=reopen_block_ids,
+            reason=normalized["reasoning"],
+        ),
     )
 
 
@@ -1372,6 +1573,13 @@ _BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
         normalize_submission=_normalize_global_review_submission,
         apply_submission=_apply_global_review_submission,
     ),
+    "global_prior_review": Stage4BlockHandler(
+        kind="global_prior_review",
+        prompt_policy=get_stage4_prompt_scope_policy("global_prior_review"),
+        normalize_submission=_normalize_prior_submission,
+        apply_submission=_apply_prior_submission,
+        include_prior_source_guidance=True,
+    ),
 }
 
 
@@ -1424,7 +1632,7 @@ def compute_stage4_validate_step(
     if (
         active_block.kind in {"indicator_decision", "loading_decision"}
         and result.accepted_block_id == active_block.id
-        and not result.reopen_block_ids
+        and result.repair_route is None
         and _all_model_blocks_accepted(plan, runtime)
     ):
         lock_result = _lock_stage4_model_spec(
@@ -1434,7 +1642,7 @@ def compute_stage4_validate_step(
             failed_block=active_block,
         )
         _apply_stage4_step_result(plan, runtime, lock_result)
-        if not lock_result.reopen_block_ids:
+        if lock_result.repair_route is None:
             _activate_review_phase(plan, runtime)
         assert lock_result.feedback is not None
         return lock_result.stage_output, lock_result.feedback
@@ -1454,7 +1662,14 @@ def _lock_stage4_model_spec(
     model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, deps.skeleton)
     if model_spec is None:
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
-        return Stage4StepResult(feedback=feedback, reopen_block_ids=(failed_block.id,))
+        return Stage4StepResult(
+            feedback=feedback,
+            repair_route=_repair_route(
+                kind="model_spec_lock",
+                block_ids=(failed_block.id,),
+                reason="locked model_spec could not be materialized",
+            ),
+        )
 
     stage_output, feedback = deps.grounding_fn(
         {"model_spec": model_spec},
@@ -1468,18 +1683,15 @@ def _lock_stage4_model_spec(
         return Stage4StepResult(
             stage_output=stage_output,
             feedback=feedback,
-            reopen_block_ids=(
-                _classify_compile_failure_block(
-                    plan,
-                    failed_block,
-                    getattr(validation, "compile_error", None) or feedback,
-                ),
+            repair_route=_classify_compile_failure_route(
+                plan,
+                failed_block,
+                getattr(validation, "compile_error", None) or feedback,
             ),
         )
     return Stage4StepResult(
         stage_output=stage_output,
         feedback=feedback,
-        reopen_block_ids=(),
         persist_stage_output=stage_output is not None,
     )
 
@@ -1491,6 +1703,8 @@ def make_stage4_runtime(plan: Stage4Plan) -> Stage4Runtime:
         active_block_id=plan.model_blocks[0].id if plan.model_blocks else None,
         block_status={block.id: "pending" for block in plan.all_blocks},
     )
+    if plan.prior_review_block is not None:
+        runtime.block_status[plan.prior_review_block.id] = "inactive"
     return runtime
 
 
