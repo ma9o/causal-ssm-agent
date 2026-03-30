@@ -47,13 +47,13 @@ flowchart LR
 - *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics; or
 - *Loading constraint* for a construct's loading parameters: `positive` for sign identification, or `none` if negative loadings are theoretically plausible
 
-The [compilation check](../reference/compilation.md) gates each block with PPCs disabled; errors reopen only the failing block. Before prior elicitation, a compact global-review checkpoint can reopen a small coupled set of model-decision blocks when those choices need to move together.
+Model-decision blocks are validated locally against the active frontier and accepted into reducer state one block at a time. Once all model-decision blocks are accepted, the stage materializes the full `ModelSpec` and runs a [compilation check](../reference/compilation.md) with PPCs disabled; compile failures reopen the smallest responsible model-decision block. Before prior elicitation, a compact global-review checkpoint can reopen the relevant model-decision blocks when those choices need to move together.
 
 **Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
-When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls per parameter can be aggregated via a Gaussian mixture model[^capstick2024] or logarithmic opinion pooling[^huang2025] to reduce prompt-wording bias.
+When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls for one parameter can be aggregated via a Gaussian mixture model[^capstick2024] to reduce prompt-wording bias.
 
-**Validation:** The [SSM compiler](../reference/compilation.md) runs after each block, enforcing distribution–link and dtype compatibility, loading-matrix rank, and successful SSM construction. After all prior blocks are accepted, a global prior predictive simulation checks:
+**Validation:** The stage validates in two layers. After the model-decision phase closes, the full locked `ModelSpec` is compiled once, enforcing distribution-link and dtype compatibility, loading-matrix rank, and successful SSM construction. During prior elicitation, each accepted prior block is merged into the accumulated authored priors, but real prior compilation and prior predictive checks only run once the full required prior set is present. At that point, a global prior predictive simulation checks:
 
 - *Numerical health*: no NaN/Inf or extreme values (|value| > 10⁶)
 - *Constraint satisfaction*: positive-constrained parameters must not violate their support
@@ -94,6 +94,5 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)
 [^bollen1989]: Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. [Bibliography entry](../reference/bibliography.md)
 [^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](../reference/bibliography.md)
-[^huang2025]: Huang, Y. (2025). LLM-Prior: A Framework for Knowledge-Driven Prior Elicitation and Aggregation. arXiv:2508.03766. [Bibliography entry](../reference/bibliography.md)
 [^capstick2024]: Capstick, A., Krishnan, R. G., & Barnaghi, P. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling. arXiv:2411.17284. [Bibliography entry](../reference/bibliography.md)
 [^riegler2025]: Riegler, M. A., Hellton, K. H., Thambawita, V., & Hammer, H. L. (2025). Using Large Language Models to Suggest Informative Prior Distributions in Bayesian Regression Analysis. *Scientific Reports*, 15, 33386. [Bibliography entry](../reference/bibliography.md)
