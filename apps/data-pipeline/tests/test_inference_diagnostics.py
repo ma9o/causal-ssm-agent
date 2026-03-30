@@ -115,34 +115,40 @@ class TestMCMCDiagnostics:
             assert "r_hat" in p
             assert "ess_bulk" in p
 
-    def test_ess_tail_present(self, mcmc_result):
+    def test_ess_tail_values_positive(self, mcmc_result):
         diag = mcmc_result.get_mcmc_diagnostics()
-        # ArviZ should provide ess_tail
-        has_tail = any("ess_tail" in p for p in diag["per_parameter"])
-        assert has_tail, "ESS-tail should be present (requires arviz)"
+        for p in diag["per_parameter"]:
+            assert "ess_tail" in p, f"ESS-tail missing for {p['parameter']}"
+            assert p["ess_tail"] > 0, f"ESS-tail must be positive, got {p['ess_tail']}"
 
-    def test_mcse_present(self, mcmc_result):
+    def test_mcse_values_positive(self, mcmc_result):
         diag = mcmc_result.get_mcmc_diagnostics()
-        has_mcse = any("mcse_mean" in p for p in diag["per_parameter"])
-        assert has_mcse, "MCSE should be present (requires arviz)"
+        for p in diag["per_parameter"]:
+            assert "mcse_mean" in p, f"MCSE missing for {p['parameter']}"
+            assert p["mcse_mean"] > 0, f"MCSE must be positive, got {p['mcse_mean']}"
 
-    def test_trace_data_present(self, mcmc_result):
+    def test_trace_data_has_finite_values(self, mcmc_result):
         diag = mcmc_result.get_mcmc_diagnostics()
-        assert "trace_data" in diag
         assert len(diag["trace_data"]) == 3
+        param_names = {t["parameter"] for t in diag["trace_data"]}
+        assert param_names == {"alpha", "beta", "sigma"}
         for trace in diag["trace_data"]:
-            assert "parameter" in trace
-            assert "chains" in trace
             assert len(trace["chains"]) == 2  # 2 chains
+            for chain in trace["chains"]:
+                assert len(chain) > 0, "Chain trace must be non-empty"
 
-    def test_rank_histograms_present(self, mcmc_result):
+    def test_rank_histograms_have_valid_bins(self, mcmc_result):
         diag = mcmc_result.get_mcmc_diagnostics()
-        assert "rank_histograms" in diag
         assert len(diag["rank_histograms"]) == 3
+        param_names = {h["parameter"] for h in diag["rank_histograms"]}
+        assert param_names == {"alpha", "beta", "sigma"}
         for hist in diag["rank_histograms"]:
-            assert "parameter" in hist
-            assert "n_bins" in hist
-            assert "chains" in hist
+            assert hist["n_bins"] > 0
+            for chain_entry in hist["chains"]:
+                counts = chain_entry["counts"]
+                assert len(counts) == hist["n_bins"]
+                assert all(c >= 0 for c in counts), "Histogram counts must be non-negative"
+                assert sum(counts) > 0, "Histogram must have at least one sample"
 
     def test_sampler_stats(self, mcmc_result):
         diag = mcmc_result.get_mcmc_diagnostics()
@@ -226,12 +232,15 @@ class TestPosteriorMarginals:
     def test_marginals(self, mcmc_result):
         marginals = mcmc_result.get_posterior_marginals()
         assert len(marginals) == 3  # alpha, beta, sigma
+        param_names = {m["parameter"] for m in marginals}
+        assert param_names == {"alpha", "beta", "sigma"}
         for m in marginals:
-            assert "parameter" in m
-            assert "x_values" in m
-            assert "density" in m
-            assert "mean" in m
-            assert "hdi_3" in m
+            assert len(m["x_values"]) == len(m["density"])
+            assert all(d >= 0 for d in m["density"]), "Density must be non-negative"
+            assert m["hdi_3"] < m["mean"] < m["hdi_97"], (
+                f"HDI ordering violated for {m['parameter']}: "
+                f"hdi_3={m['hdi_3']}, mean={m['mean']}, hdi_97={m['hdi_97']}"
+            )
 
 
 class TestPosteriorPairs:
@@ -247,10 +256,13 @@ class TestPosteriorPairs:
 
     def test_divergent_field(self, mcmc_result):
         pairs = mcmc_result.get_posterior_pairs()
-        # Toy model should converge — either no divergent key or all False
+        # Toy model should converge — no divergences
         for p in pairs:
             if "divergent" in p:
                 assert len(p["divergent"]) == len(p["x_values"])
+                assert not any(p["divergent"]), (
+                    f"Toy model should have no divergences for {p['param_x']} vs {p['param_y']}"
+                )
 
 
 class TestBuildEnergyDiagnostics:

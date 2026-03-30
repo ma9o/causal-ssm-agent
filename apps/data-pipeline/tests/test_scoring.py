@@ -101,23 +101,45 @@ class TestCountRulePoints:
         points = _count_rule_points(structure)
         assert points > 0
 
-    def test_exact_simple_model_points(self):
-        """Verify exact point count for a simple 2-construct, 1-edge model."""
-        structure = LatentModel(**json.loads(_simple_model_json()))
-        points = _count_rule_points(structure)
-        # stress: role(1) + temporal_status(1) = 2
-        # sleep:  role(1) + temporal_status(1) = 2
-        # edge:   cause_exists(1) + effect_exists(1) + endogenous(1) = 3
-        assert points == 7.0
+    def test_construct_points_scale_with_count(self):
+        """Each construct contributes exactly 2 points (role + temporal_status)."""
+        small = LatentModel(**json.loads(_simple_model_json()))
+        small_points = _count_rule_points(small)
 
-    def test_time_invariant_construct_points(self):
-        """Time-invariant construct gets 2 points (role + temporal_status)."""
-        structure = LatentModel(**json.loads(_model_with_invariant_json()))
-        points = _count_rule_points(structure)
-        # trait (time_invariant): role(1) + temporal_status(1) = 2
-        # mood (time_varying): role(1) + temporal_status(1) = 2
-        # edge: cause(1) + effect(1) + endogenous(1) = 3
-        assert points == 7.0
+        # Add a third construct with no new edges
+        data = json.loads(_simple_model_json())
+        data["constructs"].append(
+            {
+                "name": "exercise",
+                "description": "Physical activity",
+                "role": "exogenous",
+                "temporal_status": "time_varying",
+            }
+        )
+        larger = LatentModel(**data)
+        # Exactly 2 more points from the new construct, 0 from edges
+        assert _count_rule_points(larger) == small_points + 2
+
+    def test_edge_points_scale_with_count(self):
+        """Each well-formed edge contributes exactly 3 points (cause + effect + endogenous)."""
+        base = LatentModel(**json.loads(_simple_model_json()))
+        base_points = _count_rule_points(base)
+
+        data = json.loads(_simple_model_json())
+        data["constructs"].append(
+            {
+                "name": "exercise",
+                "description": "Physical activity",
+                "role": "exogenous",
+                "temporal_status": "time_varying",
+            }
+        )
+        data["edges"].append(
+            {"cause": "exercise", "effect": "sleep", "description": "Exercise improves sleep"}
+        )
+        with_edge = LatentModel(**data)
+        # +2 for new construct, +3 for new well-formed edge
+        assert _count_rule_points(with_edge) == base_points + 2 + 3
 
 
 # =============================================================================
@@ -126,10 +148,12 @@ class TestCountRulePoints:
 
 
 class TestScoreLatentModel:
-    def test_valid_model_positive_score(self):
+    def test_valid_model_equals_rule_points(self):
+        """Raw score equals the rule-point count for a valid model."""
         pred = SimpleNamespace(structure=_simple_model_json())
+        structure = LatentModel(**json.loads(_simple_model_json()))
         score = score_latent_model(None, pred)
-        assert score > 0
+        assert score == _count_rule_points(structure)
 
     def test_no_structure_attr_zero(self):
         pred = SimpleNamespace(other="field")
@@ -143,19 +167,24 @@ class TestScoreLatentModel:
 
 
 class TestScoreLatentModelNormalized:
-    def test_in_zero_one_range(self):
+    def test_perfect_model_scores_one(self):
+        """A model where every edge's effect is endogenous should achieve 1.0."""
         pred = SimpleNamespace(structure=_simple_model_json())
         score = score_latent_model_normalized(None, pred)
-        assert 0.0 < score <= 1.0
+        # stress→sleep edge: sleep is endogenous, so all 3 edge points awarded
+        # 2 constructs * 2 + 1 edge * 3 = 7 points out of max 7
+        assert score == 1.0
 
     def test_invalid_returns_zero(self):
         pred = SimpleNamespace(structure="not json")
         score = score_latent_model_normalized(None, pred)
         assert score == 0.0
 
-    def test_consistent_with_raw(self):
-        """Normalized should be positive exactly when raw is positive."""
+    def test_equals_raw_over_max(self):
+        """Normalized = raw / (n_constructs*2 + n_edges*3)."""
         pred = SimpleNamespace(structure=_simple_model_json())
         raw = score_latent_model(None, pred)
         norm = score_latent_model_normalized(None, pred)
-        assert (raw > 0) == (norm > 0)
+        data = json.loads(_simple_model_json())
+        max_points = len(data["constructs"]) * 2 + len(data["edges"]) * 3
+        assert norm == raw / max_points

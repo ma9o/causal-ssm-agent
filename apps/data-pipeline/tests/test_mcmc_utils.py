@@ -72,8 +72,9 @@ class TestHMCStep:
 
         positions = jnp.stack(positions)
         sample_mean = jnp.mean(positions, axis=0)
-        # Should be reasonably close to true mean (MCMC has variance)
-        assert jnp.allclose(sample_mean, mean, atol=1.5), (
+        # With 300 post-burnin samples from precision=4 Gaussian, SE ≈ 1/sqrt(4*300) ≈ 0.03
+        # Use atol=0.5 as conservative but meaningful bound
+        assert jnp.allclose(sample_mean, mean, atol=0.5), (
             f"Sample mean {sample_mean} far from target {mean}"
         )
 
@@ -98,7 +99,8 @@ class TestHMCStep:
             accepts.append(float(accepted))
 
         rate = sum(accepts) / len(accepts)
-        assert rate > 0.3, f"HMC acceptance rate too low: {rate:.2f}"
+        # Well-tuned HMC (5 leapfrog, step=0.3, D=2) should achieve ≥50% acceptance
+        assert rate > 0.5, f"HMC acceptance rate too low: {rate:.2f}"
 
     def test_accepts_at_mode(self):
         """Starting at mode with good step size should yield high acceptance."""

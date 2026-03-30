@@ -133,7 +133,7 @@ class TestStudentTEmission:
 
 class TestGammaEmission:
     def test_inverse_link(self):
-        """Gamma with inverse link should give finite log-prob."""
+        """Gamma with inverse link: mean = 1/eta, scale = mean/shape."""
         H = jnp.eye(1)
         d = jnp.zeros(1)
         R = jnp.eye(1)
@@ -141,7 +141,9 @@ class TestGammaEmission:
         y = jnp.array([1.5])
         mask = jnp.ones(1)
         lp = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
-        assert jnp.isfinite(lp)
+        # mean = 1/0.5 = 2.0, scale = 2.0/2.0 = 1.0
+        expected = jstats.gamma.logpdf(1.5, a=2.0, scale=1.0)
+        assert jnp.isclose(lp, expected, atol=1e-5)
 
 
 # =============================================================================
@@ -237,8 +239,8 @@ class TestDiscreteEmission:
 
 
 class TestBetaEmission:
-    def test_probit_link(self):
-        """Beta with probit link should be finite."""
+    def test_probit_link_at_center(self):
+        """Beta probit at eta=0: Phi(0)=0.5 → Beta(0.5|5,5), must be a valid positive density."""
         H = jnp.eye(1)
         d = jnp.zeros(1)
         R = jnp.eye(1)
@@ -246,7 +248,8 @@ class TestBetaEmission:
         y = jnp.array([0.5])
         mask = jnp.ones(1)
         lp = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=10.0)
-        assert jnp.isfinite(lp)
+        # Phi(0)=0.5, concentration=10 → alpha=beta=5, y=0.5 is mode → high density
+        assert lp > 0.0, f"Log-prob at mode of symmetric Beta should be positive, got {lp}"
 
     def test_logit_vs_probit_at_center(self):
         """At eta=0, logit and probit both give mean=0.5."""
@@ -284,7 +287,7 @@ class TestGetEmissionFn:
         expected = emission_log_prob_student_t(y, z, H, d, R, mask, df=10.0)
         assert jnp.isclose(lp, expected)
 
-    def test_gamma_default_log(self):
+    def test_gamma_default_log_matches_direct(self):
         fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
         H = jnp.eye(1)
         z = jnp.array([jnp.log(3.0)])
@@ -293,9 +296,11 @@ class TestGetEmissionFn:
         R = jnp.eye(1)
         mask = jnp.ones(1)
         lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        # Log link: mean = exp(eta) = 3.0, scale = 3.0/2.0 = 1.5
+        expected = jstats.gamma.logpdf(2.0, a=2.0, scale=1.5)
+        assert jnp.isclose(lp, expected, atol=1e-5)
 
-    def test_gamma_inverse(self):
+    def test_gamma_inverse_matches_direct(self):
         fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0}, link="inverse")
         H = jnp.eye(1)
         z = jnp.array([0.5])
@@ -303,10 +308,11 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
-    def test_negative_binomial(self):
+    def test_negative_binomial_matches_direct(self):
         fn = get_emission_fn("negative_binomial", extra_params={"obs_r": 5.0})
         H = jnp.eye(1)
         z = jnp.array([jnp.log(3.0)])
@@ -314,10 +320,11 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_negative_binomial(y, z, H, d, R, mask, r=5.0)
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
-    def test_beta_default_logit(self):
+    def test_beta_default_logit_matches_direct(self):
         fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0})
         H = jnp.eye(1)
         z = jnp.array([0.0])
@@ -325,10 +332,11 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_beta(y, z, H, d, R, mask, concentration=10.0)
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
-    def test_beta_probit(self):
+    def test_beta_probit_matches_direct(self):
         fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0}, link="probit")
         H = jnp.eye(1)
         z = jnp.array([0.0])
@@ -336,15 +344,18 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=10.0)
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
-    def test_ordered_logistic(self):
+    def test_ordered_logistic_matches_direct(self):
+        cutpoints = jnp.array([[-1.0, 1.0]])
+        level_counts = jnp.array([3])
         fn = get_emission_fn(
             "ordered_logistic",
             extra_params={
-                "obs_level_counts": jnp.array([3]),
-                "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0]]),
+                "obs_level_counts": level_counts,
+                "obs_ordered_cutpoints": cutpoints,
             },
             link="cumulative_logit",
         )
@@ -354,16 +365,22 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_ordered_logistic(
+            y, z, H, d, R, mask, cutpoints, level_counts
+        )
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
-    def test_categorical(self):
+    def test_categorical_matches_direct(self):
+        intercepts = jnp.array([[-1.0, 0.5]])
+        slopes = jnp.array([[0.2, -0.4]])
+        level_counts = jnp.array([3])
         fn = get_emission_fn(
             "categorical",
             extra_params={
-                "obs_level_counts": jnp.array([3]),
-                "obs_cat_intercepts": jnp.array([[-1.0, 0.5]]),
-                "obs_cat_slopes": jnp.array([[0.2, -0.4]]),
+                "obs_level_counts": level_counts,
+                "obs_cat_intercepts": intercepts,
+                "obs_cat_slopes": slopes,
             },
             link="softmax",
         )
@@ -373,8 +390,11 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        assert jnp.isfinite(lp)
+        lp_dispatch = fn(y, z, H, d, R, mask)
+        lp_direct = emission_log_prob_categorical(
+            y, z, H, d, R, mask, intercepts, slopes, level_counts
+        )
+        assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_unsupported_raises(self):
         with pytest.raises(ValueError, match="No emission function"):

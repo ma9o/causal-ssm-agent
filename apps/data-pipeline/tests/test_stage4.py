@@ -830,7 +830,7 @@ class TestSSMModelBuilder:
     """Test SSM model building."""
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
-        """Builder creates an SSMModel."""
+        """Builder creates an SSMModel with correct dimensions."""
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
@@ -838,8 +838,11 @@ class TestSSMModelBuilder:
             priors=simple_priors,
         )
         model = builder.build_model(simple_data)
-        assert model is not None
         assert model.spec.n_manifest == 1  # mood_score only
+        assert model.spec.n_latent >= 1
+        assert model.likelihood is not None
+        # Lambda should map latent to manifest
+        assert model.spec.lambda_mat.shape == (model.spec.n_manifest, model.spec.n_latent)
 
 
 # --- Prior Predictive Validation Tests ---
@@ -1067,13 +1070,17 @@ class TestPriorPredictiveValidation:
     """Test prior predictive validation end-to-end."""
 
     def test_valid_priors_pass(self, simple_model_spec, simple_priors):
-        """Simple spec + priors + polars data -> is_valid=True."""
+        """Simple spec + priors + polars data -> is_valid=True with all checks passing."""
         data_for_model = _make_polars_data()
         is_valid, results, _samples = validate_prior_predictive(
             simple_model_spec, simple_priors, data_for_model, n_samples=10
         )
         assert is_valid is True
         assert len(results) > 0
+        assert all(r.is_valid for r in results), (
+            f"Expected all checks to pass but got failures: "
+            f"{[(r.parameter, r.issue) for r in results if not r.is_valid]}"
+        )
 
     def test_model_build_failure(self):
         """Broken spec -> is_valid=False, error in results."""
@@ -1122,9 +1129,12 @@ class TestPriorPredictiveValidation:
         is_valid, results, _samples = validate_prior_predictive(
             simple_model_spec, simple_priors, None, n_samples=10
         )
-        # Should still produce results (pass or fail) without crashing
-        assert isinstance(is_valid, bool)
-        assert isinstance(results, list)
+        assert is_valid is True or is_valid is False
+        assert len(results) >= 0
+        for r in results:
+            assert hasattr(r, "parameter")
+            assert hasattr(r, "is_valid")
+            assert hasattr(r, "issue")
 
     def test_no_data_uses_support_compatible_dummy_build_data(self):
         """Support-restricted likelihoods should still validate without raw data."""
@@ -1177,10 +1187,72 @@ class TestPriorPredictiveValidation:
         data_for_model = _make_polars_data()
         validation = validate_assembly(simple_model_spec, simple_priors, data_for_model, None, None)
         result = build_validation_payload(validation, simple_model_spec)
-        assert isinstance(result, dict)
-        assert "is_valid" in result
-        assert "results" in result
-        assert "issues" in result
+        assert isinstance(result["is_valid"], bool)
+        assert isinstance(result["results"], list)
+        assert isinstance(result["issues"], list)
+        assert isinstance(result["warnings"], list)
+        # Issues must be strings, each describing a validation failure
+        for issue in result["issues"]:
+            assert isinstance(issue, str)
+        for warning in result["warnings"]:
+            assert isinstance(warning, str)
+
+    def test_materialize_stage4_result_persists_validation_warnings(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Final Stage 4 artifacts should carry non-fatal validation warnings."""
+        from causal_ssm_agent.flows.stages.stage4_assembly import (
+            AssemblyValidation,
+            materialize_stage4_result,
+        )
+
+        validation = AssemblyValidation(
+            normalized_model_spec=simple_model_spec,
+            compile_ok=True,
+            compile_warnings=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "category": "interval_provenance",
+                    "issue": "Weekly evidence is being interpreted on the daily model interval.",
+                    "suggested_adjustment": "Set `reference_interval_days` if that weekly interval is intended.",
+                }
+            ],
+            compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
+            pp_checked=True,
+            pp_valid=True,
+            pp_results=[],
+            pp_raw_samples={},
+        )
+
+        with (
+            patch(
+                "causal_ssm_agent.flows.stages.stage4_assembly.compile_model_artifact",
+                return_value={
+                    "model_built": True,
+                    "model_type": "test",
+                    "version": "0",
+                    "compiled_ssm": {"compiled_prior_semantics": {}, "parameter_bindings": []},
+                },
+            ),
+            patch(
+                "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+                return_value=[],
+            ),
+        ):
+            result = materialize_stage4_result(
+                model_spec=simple_model_spec,
+                authored_priors=simple_priors,
+                data_for_model=_make_polars_data(),
+                indicator_audits=None,
+                causal_spec=None,
+                validation=validation,
+            )
+
+        assert result["validation_warnings"] == [
+            "Weekly evidence is being interpreted on the daily model interval."
+        ]
 
     def test_validate_assembly_reuses_compiled_artifact_for_prior_checks(
         self,
@@ -1497,6 +1569,61 @@ class TestPriorPredictiveValidation:
         assert resolved["cor_stress_sleep"]["distribution"] == "Uniform"
         assert resolved["cor_stress_sleep"]["params"]["lower"] == pytest.approx(-1.0)
         assert resolved["cor_stress_sleep"]["params"]["upper"] == pytest.approx(1.0)
+
+    def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
+        """Compiled correlation-support sites should reconstruct bounded real priors."""
+        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
+        compiled_ssm = {
+            "compiled_prior_semantics": {
+                "schema_version": 4,
+                "site_registry": [
+                    {
+                        "name": "t0_var_lower",
+                        "shape": [1],
+                        "support": "correlation",
+                        "assembly_group": "t0",
+                        "site_kind": "t0_var_lower",
+                        "transform_kind": "identity",
+                        "deterministic_name": "t0_cov",
+                        "fixed_spec_field": "t0_var",
+                        "priors_field": "t0_var_offdiag",
+                        "runtime_prior_key": "t0_var_lower",
+                        "is_runtime_prior_controlled": True,
+                    }
+                ],
+                "prior_state": {
+                    "t0_var_lower": {
+                        "family": [2],
+                        "loc": [0.0],
+                        "scale": [0.25],
+                        "low": [-1.0],
+                        "high": [1.0],
+                    }
+                },
+            },
+            "parameter_bindings": [
+                {
+                    "parameter": "cor0_sleep_stress",
+                    "site_name": "t0_var_lower",
+                    "flat_index": 0,
+                }
+            ],
+        }
+
+        resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
+
+        assert resolved == [
+            {
+                "parameter": "cor0_sleep_stress",
+                "distribution": "Uniform",
+                "params": {"lower": -1.0, "upper": 1.0},
+                "sources": [],
+                "reasoning": "Compiler-resolved prior for cor0_sleep_stress.",
+                "reference_interval_days": None,
+                "density_points": None,
+            }
+        ]
 
 
 class TestFailedParameters:

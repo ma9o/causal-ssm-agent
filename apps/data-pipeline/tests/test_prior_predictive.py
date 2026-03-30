@@ -49,8 +49,8 @@ class TestCheckNanInf:
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
         result = _check_nan_inf(samples)
-        assert result is not None
         assert not result.is_valid
+        assert "x" in result.issue
 
     def test_multiple_bad_sites(self):
         samples = {
@@ -152,22 +152,33 @@ class TestCheckExtremeValues:
 
 
 class TestFormatValidationReport:
-    def test_passed(self):
+    def test_passed_report_contains_no_failures(self):
         report = format_validation_report(True, [])
         assert "PASSED" in report
+        assert "FAILED" not in report
 
-    def test_failed_with_issues(self):
+    def test_failed_report_includes_each_issue_and_parameter(self):
         results = [
             PriorValidationResult(
                 parameter="drift_diag_pop",
                 is_valid=False,
                 issue="Too extreme",
                 suggested_adjustment="Fix it",
-            )
+            ),
+            PriorValidationResult(
+                parameter="diffusion_diag_pop",
+                is_valid=False,
+                issue="Negative values",
+                suggested_adjustment="Use positive prior",
+            ),
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report
+        assert "drift_diag_pop" in report
         assert "Too extreme" in report
+        assert "diffusion_diag_pop" in report
+        assert "Negative values" in report
+        assert "Use positive prior" in report or "Negative values" in report
 
 
 # =============================================================================
