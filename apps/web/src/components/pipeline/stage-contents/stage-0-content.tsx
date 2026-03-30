@@ -4,7 +4,13 @@ import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button
 import type { Stage0Data } from "@causal-ssm/api-types";
 import { useMemo } from "react";
 
-export default function Stage0Content({ data }: { data: Stage0Data }) {
+export default function Stage0Content({
+  data,
+  workspaceId,
+}: {
+  data: Stage0Data;
+  workspaceId: string;
+}) {
   const columnTooltips = useMemo(() => {
     const tips: Record<string, string> = {};
     for (const col of data.column_descriptions ?? []) {
@@ -22,7 +28,7 @@ export default function Stage0Content({ data }: { data: Stage0Data }) {
           nColumns={data.n_columns}
           dateRange={data.date_range}
         />
-        <ExploreDataframeButton stage="stage-0" />
+        <ExploreDataframeButton stage="stage-0" workspaceId={workspaceId} />
       </div>
       {data.sample.length > 0 && (
         <>

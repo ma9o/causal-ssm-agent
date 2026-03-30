@@ -6,37 +6,63 @@ import { Bot } from "lucide-react";
 import { motion } from "motion/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
+function useControllableOpen({
+  open,
+  defaultOpen,
+  onOpenChange,
+}: {
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (nextOpen: boolean) => void;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
+
+  const isOpen = open ?? uncontrolledOpen;
+  const setIsOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (open == null) {
+        setUncontrolledOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange, open],
+  );
+
+  return { isOpen, setIsOpen };
+}
+
 /**
- * Two-column layout: stage content on the left, LLM panel on the right.
- * Accepts `panelContent` as a ReactNode so the caller decides whether
- * to render the connected `LLMTracePanel` or the pure `LLMTracePanelView`.
+ * Pure presentational two-column layout: stage content on the left,
+ * LLM panel on the right. The button, side panel, and animation all live
+ * inside this boundary so stories can render the full interaction shell.
  */
-export function StageWithTrace({
+export function StageWithTraceView({
   children,
   panelContent,
-  stageId,
   interactive,
+  open,
+  defaultOpen = false,
+  onOpenChange,
 }: {
   children: ReactNode;
   panelContent: ReactNode;
-  /** When provided, the panel auto-opens if a prefill targets this stage. */
-  stageId?: string;
   interactive?: boolean;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (nextOpen: boolean) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const { isOpen, setIsOpen } = useControllableOpen({
+    open,
+    defaultOpen,
+    onOpenChange,
+  });
   const leftRef = useRef<HTMLDivElement>(null);
   const [leftHeight, setLeftHeight] = useState<number | undefined>(undefined);
-  const { prefill } = useRefinement();
-
-  // Auto-open the LLM panel when a prefill targets this stage
-  useEffect(() => {
-    if (stageId && prefill?.stageId === stageId && !isOpen) {
-      setIsOpen(true);
-    }
-  }, [prefill, stageId, isOpen]);
 
   const measureLeft = useCallback(() => {
-    if (leftRef.current) setLeftHeight(leftRef.current.offsetHeight);
+    if (leftRef.current) {
+      setLeftHeight(leftRef.current.offsetHeight);
+    }
   }, []);
 
   useEffect(() => {
@@ -95,5 +121,44 @@ export function StageWithTrace({
         )}
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * Connected shell that reacts to refinement prefill state at runtime.
+ * This wrapper owns app state; `StageWithTraceView` owns presentation.
+ */
+export function StageWithTrace({
+  children,
+  panelContent,
+  stageId,
+  interactive,
+  defaultOpen = false,
+}: {
+  children: ReactNode;
+  panelContent: ReactNode;
+  stageId?: string;
+  interactive?: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const { prefill } = useRefinement();
+
+  useEffect(() => {
+    if (stageId && prefill?.stageId === stageId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prefill comes from external refinement context and should open the shell immediately when targeted.
+      setIsOpen(true);
+    }
+  }, [prefill, stageId]);
+
+  return (
+    <StageWithTraceView
+      interactive={interactive}
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      panelContent={panelContent}
+    >
+      {children}
+    </StageWithTraceView>
   );
 }

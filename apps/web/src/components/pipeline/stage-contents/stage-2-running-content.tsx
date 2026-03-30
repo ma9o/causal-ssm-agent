@@ -1,7 +1,6 @@
 "use client";
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
-import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import {
@@ -10,7 +9,6 @@ import {
 } from "@/lib/hooks/use-stage2-workers";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { VirtualizedLogList } from "../virtualized-log-list";
 
 const MAX_RPM = 450;
 
@@ -91,35 +89,18 @@ function RpmGauge({ rpm }: { rpm: number }) {
 /** Presentational component — no hooks, pure props. Used by stories too. */
 export function Stage2RunningView({
   workers,
-  logs,
-  logBootstrapStatus = "success",
-  logConnectionState = "streaming",
   rpm = 0,
 }: {
   workers: Stage2Worker[];
-  logs: PrefectLogEntry[];
-  logBootstrapStatus?: "pending" | "error" | "success";
-  logConnectionState?: "idle" | "connecting" | "authenticating" | "streaming" | "error";
   rpm?: number;
 }) {
   const total = workers.length;
   const completed = workers.filter((w) => w.state === "completed").length;
   const failed = workers.filter((w) => w.state === "failed").length;
   const running = workers.filter((w) => w.state === "running").length;
-  const emptyMessage =
-    logBootstrapStatus === "pending"
-      ? "Loading log backlog..."
-      : logBootstrapStatus === "error"
-        ? "Failed to load historical logs."
-      : logConnectionState === "error"
-        ? "Live log stream unavailable."
-        : logConnectionState === "connecting" || logConnectionState === "authenticating"
-          ? "Connecting to live log stream..."
-          : "Waiting for worker logs...";
 
   return (
     <div className="space-y-4">
-      {/* Summary row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 text-sm">
           {total > 0 ? (
@@ -151,24 +132,10 @@ export function Stage2RunningView({
           )}
         </div>
 
-        {/* RPM gauge */}
         {rpm > 0 && <RpmGauge rpm={rpm} />}
       </div>
 
-      {/* Worker grid — multi-row squares */}
       <WorkerGrid workers={workers} />
-
-      {/* Log viewer */}
-      {logConnectionState === "error" && (
-        <p className="text-xs text-destructive">
-          Live log stream disconnected. Prefect `logs/out` must remain available during Stage 2.
-        </p>
-      )}
-      <VirtualizedLogList
-        logs={logs}
-        emptyMessage={emptyMessage}
-        className="border border-border/50 bg-muted/20 p-3 leading-relaxed"
-      />
     </div>
   );
 }
@@ -182,20 +149,8 @@ export default function Stage2RunningContent({
   stageStatus: StageRunStatus;
   stageRun?: AnalysisStageRun | null;
 }) {
-  const { workers, logs, logBootstrapStatus, logConnectionState } = useStage2Workers(
-    workspaceId,
-    stageRun,
-    stageStatus,
-  );
+  const { workers } = useStage2Workers(workspaceId, stageRun, stageStatus);
   const rpm = useRpm(workers);
 
-  return (
-    <Stage2RunningView
-      workers={workers}
-      logs={logs}
-      logBootstrapStatus={logBootstrapStatus}
-      logConnectionState={logConnectionState}
-      rpm={rpm}
-    />
-  );
+  return <Stage2RunningView workers={workers} rpm={rpm} />;
 }

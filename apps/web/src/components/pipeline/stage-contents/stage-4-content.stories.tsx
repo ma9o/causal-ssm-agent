@@ -1,8 +1,12 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
 import type { Stage1bData, Stage2Data, Stage4Data } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { StageSection } from "../stage-section";
+import {
+  createCompletedStageStory,
+  createOpenPanelStageStory,
+  createStageStatusStory,
+  stageStoryDecorators,
+} from "../stage-story-helpers";
 import Stage4Content from "./stage-4-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
 import stage2Fixture from "../../../../../../data/DOCTOLIB/run/stage-2.json";
@@ -16,56 +20,31 @@ const indicators = (stage1bFixture as unknown as Stage1bData).causal_spec.measur
 const meta = {
   title: "Pipeline/Stages/4 – Model Specification",
   component: Stage4Content,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage4Content>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
-export const Pending: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
-  ),
-};
+export const Pending = createStageStatusStory(stage, "pending");
 
-export const Running: StoryObj = {
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="running"
-      context={stage.description}
-      loadingHint={stage.loadingHint}
-    />
-  ),
-};
+export const Running = createStageStatusStory(stage, "running");
 
-export const Completed: Story = {
+export const Completed = createCompletedStageStory({
+  stage,
   args: { data, extractions, indicators },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={15_600}
-    >
-      <Stage4Content {...args} />
-    </StageSection>
-  ),
-};
+  outcome: data.outcome,
+  elapsedMs: 15_600,
+  trace: data.llm_trace ?? undefined,
+  renderContent: (args) => <Stage4Content {...args} />,
+});
 
-export const Failed: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
-  ),
-};
+export const OpenPanel = createOpenPanelStageStory({
+  stage,
+  args: { data, extractions, indicators },
+  outcome: data.outcome,
+  elapsedMs: 15_600,
+  trace: data.llm_trace ?? undefined,
+  renderContent: (args) => <Stage4Content {...args} />,
+});
+
+export const Failed = createStageStatusStory(stage, "failed");

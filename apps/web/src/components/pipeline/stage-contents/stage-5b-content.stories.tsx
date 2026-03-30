@@ -1,8 +1,11 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@causal-ssm/api-types";
 import type { Stage5bData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { StageSection } from "../stage-section";
+import {
+  createCompletedStageStory,
+  createStageStatusStory,
+  stageStoryDecorators,
+} from "../stage-story-helpers";
 import Stage5bContent from "./stage-5b-content";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-5b.json";
 import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-5b-nutsda.json";
@@ -14,74 +17,31 @@ const nutsdaData = nutsdaFixture as Stage5bData;
 const meta = {
   title: "Pipeline/Stages/5b – Inference & Diagnostics",
   component: Stage5bContent,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage5bContent>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
-export const Pending: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="pending" context={stage.description} />
-  ),
-};
+export const Pending = createStageStatusStory(stage, "pending");
 
-export const Running: StoryObj = {
-  render: () => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="running"
-      context={stage.description}
-      loadingHint={stage.loadingHint}
-    />
-  ),
-};
+export const Running = createStageStatusStory(stage, "running");
 
-export const CompletedSVI: Story = {
+export const CompletedSVI = createCompletedStageStory({
   name: "Completed (SVI / Laplace EM)",
+  stage,
   args: { data, workspaceId: "demo-user" },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={data.outcome}
-      context={stage.description}
-      elapsedMs={124_500}
-    >
-      <Stage5bContent {...args} />
-    </StageSection>
-  ),
-};
+  outcome: data.outcome,
+  elapsedMs: 124_500,
+  renderContent: (args) => <Stage5bContent {...args} />,
+});
 
-export const CompletedNUTS: Story = {
+export const CompletedNUTS = createCompletedStageStory({
   name: "Completed (NUTS / DA)",
+  stage,
   args: { data: nutsdaData, workspaceId: "demo-user" },
-  render: (args) => (
-    <StageSection
-      number={stage.number}
-      title={stage.label}
-      status="completed"
-      outcome={nutsdaData.outcome}
-      context={stage.description}
-      elapsedMs={342_000}
-    >
-      <Stage5bContent {...args} />
-    </StageSection>
-  ),
-};
+  outcome: nutsdaData.outcome,
+  elapsedMs: 342_000,
+  renderContent: (args) => <Stage5bContent {...args} />,
+});
 
-export const Failed: StoryObj = {
-  render: () => (
-    <StageSection number={stage.number} title={stage.label} status="failed" context={stage.description} />
-  ),
-};
+export const Failed = createStageStatusStory(stage, "failed");

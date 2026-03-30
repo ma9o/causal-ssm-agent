@@ -1,4 +1,5 @@
 import type { Preview } from "@storybook/nextjs-vite";
+import "katex/dist/katex.min.css";
 import "../src/app/globals.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";

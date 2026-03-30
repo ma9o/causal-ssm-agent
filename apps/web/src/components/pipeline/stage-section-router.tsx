@@ -1,5 +1,6 @@
 "use client";
 
+import { CausalDag } from "@/components/dag/causal-dag";
 import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
@@ -23,18 +24,19 @@ import type {
   StageOutcome,
 } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { Wrench } from "lucide-react";
 import {
   Suspense,
   lazy,
   memo,
+  type ElementType,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
 } from "react";
 import { StageLogView } from "./stage-log-viewer";
-import { StageSection } from "./stage-section";
-import { StageWithTrace } from "./stage-with-trace";
+import { StagePresentationShell } from "./stage-presentation-shell";
+import { Stage3FixAction } from "./stage-contents/stage-3-content";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
 const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
@@ -42,12 +44,11 @@ const Stage1bContent = lazy(() => import("./stage-contents/stage-1b-content"));
 const Stage2Content = lazy(() => import("./stage-contents/stage-2-content"));
 const Stage2RunningContent = lazy(() => import("./stage-contents/stage-2-running-content"));
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
-import { buildFixPrompt } from "./stage-contents/stage-3-content";
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5aContent = lazy(() => import("./stage-contents/stage-5a-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
-const Stage6Content = lazy(() => import("./stage-contents/stage-6-content"));
+const Stage6Showcase = lazy(() => import("./stage-contents/stage-6-showcase"));
 
 type AnyStageData =
   | Stage0Data
@@ -131,8 +132,6 @@ function StageSectionRouterInner({
     });
   }, [outcome, queryClient, workspaceId, stage.id]);
 
-  const isStage2Running = stage.id === "stage-2" && status === "running";
-
   // Hook lives here (always mounted) so transition tracking works across
   // running→completed without remounting.
   const { logs, bootstrapStatus, connectionState } = useStageLogs(
@@ -141,7 +140,7 @@ function StageSectionRouterInner({
     stageRun,
     status,
   );
-  const showLogViewer = !isStage2Running && status !== "pending";
+  const showLogViewer = status !== "pending";
   const logView = showLogViewer ? (
     <StageLogView
       logs={logs}
@@ -151,47 +150,31 @@ function StageSectionRouterInner({
     />
   ) : undefined;
 
-  const fixMeasurementsPrompt = useMemo(() => {
-    if (!projectedStageData || stage.id !== "stage-3") {
-      return "";
-    }
-    return buildFixPrompt(projectedStageData as Stage3Data);
-  }, [projectedStageData, stage.id]);
-
-  const handleFixMeasurements = useCallback(() => {
-    if (!fixMeasurementsPrompt) return;
-    setPrefill("stage-1b", fixMeasurementsPrompt);
+  const handleFixMeasurements = useCallback((prompt: string) => {
+    setPrefill("stage-1b", prompt);
     requestAnimationFrame(() => {
       document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [fixMeasurementsPrompt, setPrefill]);
+  }, [setPrefill]);
 
-  const showFixButton = stage.id === "stage-3" && isCompleted && fixMeasurementsPrompt.length > 0;
-
-  const section = (
-    <StageSection
-      id={stage.id}
-      number={stage.number}
-      title={stage.label}
+  return (
+    <StagePresentationShell
+      stage={stage}
       status={status}
       elapsedMs={elapsedMs}
       context={stage.description}
       outcome={outcome}
       loadingHint={stage.loadingHint}
       actions={
-        showFixButton ? (
-          <button
-            type="button"
-            onClick={handleFixMeasurements}
-            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            Propose fixes
-          </button>
+        stage.id === "stage-3" && isCompleted && projectedStageData ? (
+          <Stage3FixAction
+            data={projectedStageData as Stage3Data}
+            onFix={handleFixMeasurements}
+          />
         ) : undefined
       }
       runningContent={
-        isStage2Running ? (
+        stage.id === "stage-2" && status === "running" ? (
           <Suspense fallback={null}>
             <Stage2RunningContent
               workspaceId={workspaceId}
@@ -203,6 +186,16 @@ function StageSectionRouterInner({
       }
       invalidated={invalidated}
       logView={logView}
+      panelContent={
+        projectedStageData?.llm_trace ? (
+          <LLMTracePanel
+            trace={projectedStageData.llm_trace}
+            workspaceId={workspaceId}
+            stageId={stage.id}
+            interactive={stage.interactive}
+          />
+        ) : undefined
+      }
     >
       {isCompleted && (
         <ErrorBoundary>
@@ -211,29 +204,8 @@ function StageSectionRouterInner({
           </Suspense>
         </ErrorBoundary>
       )}
-    </StageSection>
+    </StagePresentationShell>
   );
-
-  if (projectedStageData?.llm_trace) {
-    return (
-      <StageWithTrace
-        stageId={stage.id}
-        interactive={stage.interactive}
-        panelContent={
-          <LLMTracePanel
-            trace={projectedStageData.llm_trace}
-            workspaceId={workspaceId}
-            stageId={stage.id}
-            interactive={stage.interactive}
-          />
-        }
-      >
-        {section}
-      </StageWithTrace>
-    );
-  }
-
-  return <div className="max-w-6xl mx-auto">{section}</div>;
 }
 
 export const StageSectionRouter = memo(
@@ -247,7 +219,24 @@ export const StageSectionRouter = memo(
     stageRunsEqual(previous.stageRun, next.stageRun),
 );
 
-function Stage4Wrapper({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
+type StageContentAdapterProps = {
+  workspaceId: string;
+  data: AnyStageData;
+};
+
+function createStageDataAdapter<TData>(Component: ElementType<{ data: TData }>) {
+  return function StageDataAdapter({ data }: StageContentAdapterProps) {
+    return <Component data={data as TData} />;
+  };
+}
+
+function Stage4ConnectedContent({
+  workspaceId,
+  data,
+}: {
+  workspaceId: string;
+  data: Stage4Data;
+}) {
   const { data: stage2 } = useStageData<Stage2Data>(workspaceId, "stage-2", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   return (
@@ -259,13 +248,67 @@ function Stage4Wrapper({ workspaceId, data }: { workspaceId: string; data: Stage
   );
 }
 
-function Stage5bWrapper({ workspaceId, data }: { workspaceId: string; data: Stage5bData }) {
+function Stage5bConnectedContent({
+  workspaceId,
+  data,
+}: {
+  workspaceId: string;
+  data: Stage5bData;
+}) {
   return <Stage5bContent workspaceId={workspaceId} data={data} />;
 }
 
-function Stage6Wrapper({ data }: { data: Stage6Data }) {
-  return <Stage6Content data={data} />;
+function Stage6ConnectedContent({
+  workspaceId,
+  data,
+}: {
+  workspaceId: string;
+  data: Stage6Data;
+}) {
+  const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
+  const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
+  const dag =
+    stage1a != null ? (
+      <CausalDag
+        constructs={stage1a.latent_model.constructs}
+        edges={stage1a.latent_model.edges}
+        indicators={stage1b?.causal_spec.measurement.indicators}
+        height="600px"
+      />
+    ) : undefined;
+
+  return (
+    <Stage6Showcase
+      data={data}
+      dag={dag}
+      dagTitle="Latent DAG"
+      dagDescription="Upstream causal structure carried into treatment-effect interpretation."
+    />
+  );
 }
+
+const stageContentAdapters = {
+  "stage-0": ({ workspaceId, data }: StageContentAdapterProps) => (
+    <Stage0Content workspaceId={workspaceId} data={data as Stage0Data} />
+  ),
+  "stage-1a": createStageDataAdapter<Stage1aData>(Stage1aContent),
+  "stage-1b": createStageDataAdapter<Stage1bData>(Stage1bContent),
+  "stage-2": ({ workspaceId, data }: StageContentAdapterProps) => (
+    <Stage2Content workspaceId={workspaceId} data={data as Stage2Data} />
+  ),
+  "stage-3": createStageDataAdapter<Stage3Data>(Stage3Content),
+  "stage-4": ({ workspaceId, data }: StageContentAdapterProps) => (
+    <Stage4ConnectedContent workspaceId={workspaceId} data={data as Stage4Data} />
+  ),
+  "stage-4b": createStageDataAdapter<Stage4bData>(Stage4bContent),
+  "stage-5a": createStageDataAdapter<Stage5aData>(Stage5aContent),
+  "stage-5b": ({ workspaceId, data }: StageContentAdapterProps) => (
+    <Stage5bConnectedContent workspaceId={workspaceId} data={data as Stage5bData} />
+  ),
+  "stage-6": ({ workspaceId, data }: StageContentAdapterProps) => (
+    <Stage6ConnectedContent workspaceId={workspaceId} data={data as Stage6Data} />
+  ),
+} satisfies Record<string, (props: StageContentAdapterProps) => ReactNode>;
 
 function StageContent({
   stageId,
@@ -277,29 +320,7 @@ function StageContent({
   data?: StageViewData;
 }) {
   if (!data) return null;
-
-  switch (stageId) {
-    case "stage-0":
-      return <Stage0Content data={data as Stage0Data} />;
-    case "stage-1a":
-      return <Stage1aContent data={data as Stage1aData} />;
-    case "stage-1b":
-      return <Stage1bContent data={data as Stage1bData} />;
-    case "stage-2":
-      return <Stage2Content data={data as Stage2Data} />;
-    case "stage-3":
-      return <Stage3Content data={data as Stage3Data} />;
-    case "stage-4":
-      return <Stage4Wrapper workspaceId={workspaceId} data={data as Stage4Data} />;
-    case "stage-4b":
-      return <Stage4bContent data={data as Stage4bData} />;
-    case "stage-5a":
-      return <Stage5aContent data={data as Stage5aData} />;
-    case "stage-5b":
-      return <Stage5bWrapper workspaceId={workspaceId} data={data as Stage5bData} />;
-    case "stage-6":
-      return <Stage6Wrapper data={data as Stage6Data} />;
-    default:
-      return null;
-  }
+  const renderStageContent =
+    stageContentAdapters[stageId as keyof typeof stageContentAdapters];
+  return renderStageContent ? renderStageContent({ workspaceId, data }) : null;
 }
