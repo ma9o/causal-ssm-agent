@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { Pause, Play, RotateCcw } from "lucide-react";
 
 interface AnimationTimelineProps {
@@ -10,7 +9,6 @@ interface AnimationTimelineProps {
   timeStepsDays: number[];
   currentTimeIndex: number;
   temporalMarkers?: { day: number; label: string }[];
-  phaseMarkers?: { position: number; label: string; active: boolean }[];
   onPlay: () => void;
   onPause: () => void;
   onReset: () => void;
@@ -36,7 +34,6 @@ export function AnimationTimeline({
   timeStepsDays,
   currentTimeIndex,
   temporalMarkers,
-  phaseMarkers,
   onPlay,
   onPause,
   onReset,
@@ -79,13 +76,7 @@ export function AnimationTimeline({
             max={maxIndex}
             value={currentTimeIndex}
             onChange={(e) => onScrub(Number(e.target.value))}
-            className={cn(
-              "w-full h-1.5 rounded-full appearance-none cursor-pointer bg-muted",
-              "[&::-webkit-slider-thumb]:appearance-none",
-              "[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5",
-              "[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary",
-              "[&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-sm",
-            )}
+            className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-muted [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-sm"
           />
 
           {/* Tick marks for temporal effect milestones */}
@@ -114,26 +105,6 @@ export function AnimationTimeline({
           day {currentDay}
         </span>
       </div>
-
-      {/* Rung 3 phase indicators */}
-      {phaseMarkers && (
-        <div className="relative h-6 px-4">
-          {phaseMarkers.map((m) => (
-            <span
-              key={m.label}
-              className={cn(
-                "absolute -translate-x-1/2 text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded",
-                m.active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground/50",
-              )}
-              style={{ left: `${m.position * 100}%` }}
-            >
-              {m.label}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

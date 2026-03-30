@@ -17,10 +17,13 @@ interface EffectNodeData extends Construct {
   abductedValue?: number | null;
   timeIndex?: number;
   timeStepsDays?: number[] | null;
-  effectTimeSeries?: number[] | null;
+  referenceTimeSeries?: number[] | null;
+  comparisonTimeSeries?: number[] | null;
   actionLabelShort?: string | null;
   actionReferenceLabel?: string | null;
 }
+
+const DISPLAY_EPSILON = 1e-6;
 
 /** Color class for effect sign. */
 function effectColorClass(positive: boolean): string {
@@ -47,19 +50,22 @@ function EffectNodeInner({ data, selected }: NodeProps) {
   const isDimmed = phase === "dimmed";
   const isReceiving = phase === "receiving";
 
+  const hasRenderableEffect =
+    effect != null && Math.abs(effect) > DISPLAY_EPSILON;
   const showEffect =
-    (isActive || isClamped || isReceiving) && effect != null && effect !== 0;
+    (isActive || isClamped || isReceiving) && hasRenderableEffect;
   const positive = (effect ?? 0) >= 0;
 
   // ── Sparkline decision ────────────────────────────────────────────
   const timeIndex = d.timeIndex ?? 0;
   const tsDays = d.timeStepsDays;
-  const effectTs = d.effectTimeSeries;
+  const referenceTs = d.referenceTimeSeries;
+  const comparisonTs = d.comparisonTimeSeries;
   const actionLabelShort = d.actionLabelShort;
   const actionReferenceLabel = d.actionReferenceLabel;
 
   const isRung3 = d.rung === 3;
-  const hasSeries = effectTs != null;
+  const hasSeries = referenceTs != null && comparisonTs != null;
   const showSparkline =
     hasSeries &&
     tsDays != null &&
@@ -75,7 +81,9 @@ function EffectNodeInner({ data, selected }: NodeProps) {
         "bg-card",
         isClamped && "border-blue-500 ring-2 ring-blue-500/30",
         isReceiving && "border-teal-400/80",
-        isActive && (positive ? "border-teal-500" : "border-rose-500"),
+        isActive &&
+          hasRenderableEffect &&
+          (positive ? "border-teal-500" : "border-rose-500"),
         isAbducted && "border-amber-400 ring-2 ring-amber-400/20",
         isDimmed && "opacity-40",
         phase === "idle" &&
@@ -138,11 +146,11 @@ function EffectNodeInner({ data, selected }: NodeProps) {
           /* Live sparkline + numeric label */
           <div className="mt-2 space-y-0.5">
             <Sparkline
-              series={effectTs!}
+              series={comparisonTs!}
+              baselineSeries={referenceTs!}
               visibleCount={timeIndex + 1}
               days={tsDays!}
               color={isClamped ? "var(--color-blue-500)" : effectColorVar(positive)}
-              showZero
             />
             <div
               className={cn(

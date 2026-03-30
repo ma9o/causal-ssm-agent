@@ -145,13 +145,24 @@ function applyNodeEffects(
   result: Stage6SimulationResult,
   nodeNames: string[],
   timeIndex: number,
-  threshold: number,
-  inactivePhase: NodeAnimPhase,
 ): void {
   for (const nodeName of nodeNames) {
     const effect = nodeEffectAt(result, nodeName, timeIndex);
     frame.nodeEffects[nodeName] = effect;
-    frame.nodePhases[nodeName] = Math.abs(effect) > threshold ? "active" : inactivePhase;
+    frame.nodePhases[nodeName] = "active";
+  }
+}
+
+function dimOutsideCausalCone(
+  frame: GraphAnimationFrame,
+  constructs: Construct[],
+  downstreamNodes: Set<string>,
+): void {
+  for (const construct of constructs) {
+    if (downstreamNodes.has(construct.name)) {
+      continue;
+    }
+    frame.nodePhases[construct.name] = "dimmed";
   }
 }
 
@@ -159,7 +170,6 @@ function applyEdgeFlowStates(
   frame: GraphAnimationFrame,
   incoming: Set<string>,
   downstreamKeys: Set<string>,
-  threshold: number,
   options?: {
     dimOutsideDownstream?: boolean;
   },
@@ -175,10 +185,7 @@ function applyEdgeFlowStates(
       }
       continue;
     }
-    const source = key.split("\u2192")[0];
-    if (Math.abs(frame.nodeEffects[source] ?? 0) > threshold) {
-      frame.edgeStates[key] = "flowing";
-    }
+    frame.edgeStates[key] = "flowing";
   }
 }
 
@@ -188,11 +195,11 @@ function deriveRung2(
   downstream: string[],
 ): Omit<DagAnimationState, "isPlaying"> {
   const treatment = config.result.action.variable;
+  const downstreamNodes = new Set(downstream);
   const incoming = new Set(incomingKeys(treatment, config.edges));
   const downstreamKeys = new Set(downstream.flatMap((node) => outgoingKeys(node, config.edges)));
   const base = createEmptyState(config.constructs, config.edges);
   const timelineDays = getEffectTrajectoryDays(config.result);
-  const threshold = 0.01;
   let phase = "idle";
   let timeIndex = 0;
 
@@ -215,10 +222,11 @@ function deriveRung2(
       config.result,
       downstream.filter((node) => node !== treatment),
       timeIndex,
-      threshold,
-      "idle",
     );
-    applyEdgeFlowStates(base, incoming, downstreamKeys, threshold);
+    dimOutsideCausalCone(base, config.constructs, downstreamNodes);
+    applyEdgeFlowStates(base, incoming, downstreamKeys, {
+      dimOutsideDownstream: true,
+    });
   }
 
   return {
@@ -235,6 +243,7 @@ function deriveRung3(
   downstream: string[],
 ): Omit<DagAnimationState, "isPlaying"> {
   const treatment = config.result.action.variable;
+  const downstreamNodes = new Set(downstream);
   const incoming = new Set(incomingKeys(treatment, config.edges));
   const downstreamKeys = new Set(downstream.flatMap((node) => outgoingKeys(node, config.edges)));
   const base = createEmptyState(config.constructs, config.edges);
@@ -243,7 +252,6 @@ function deriveRung3(
     string,
     number
   >;
-  const threshold = 0.005;
   let phase = "idle";
   let timeIndex = 0;
 
@@ -280,10 +288,9 @@ function deriveRung3(
         .map((construct) => construct.name)
         .filter((name) => name !== treatment),
       timeIndex,
-      threshold,
-      "dimmed",
     );
-    applyEdgeFlowStates(base, incoming, downstreamKeys, threshold, {
+    dimOutsideCausalCone(base, config.constructs, downstreamNodes);
+    applyEdgeFlowStates(base, incoming, downstreamKeys, {
       dimOutsideDownstream: true,
     });
   }
@@ -294,6 +301,20 @@ function deriveRung3(
     timeIndex,
     ...base,
   };
+}
+
+export function deriveDagAnimationFrame(
+  progress: number,
+  config: DagAnimationConfig | null,
+): Omit<DagAnimationState, "isPlaying"> | null {
+  if (!config) {
+    return null;
+  }
+
+  const downstream = getDownstreamNodes(config.result.action.variable, config.edges);
+  return config.result.rung === 3
+    ? deriveRung3(progress, config, downstream)
+    : deriveRung2(progress, config, downstream);
 }
 
 export function useDagAnimation(
@@ -355,12 +376,7 @@ export function useDagAnimation(
     [config],
   );
 
-  const downstream = config ? getDownstreamNodes(config.result.action.variable, config.edges) : [];
-  const derived = config
-    ? config.result.rung === 3
-      ? deriveRung3(progress, config, downstream)
-      : deriveRung2(progress, config, downstream)
-    : null;
+  const derived = deriveDagAnimationFrame(progress, config);
 
   if (!derived) {
     return {

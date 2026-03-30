@@ -6,7 +6,8 @@ import {
   formatActionShortLabel,
   formatEvidenceWindowLabel,
   getEffectTrajectoryDays,
-  getNodeEffectSeries,
+  getNodeActionSeries,
+  getNodeReferenceSeries,
 } from "./intervention-dag-semantics";
 import type { NodeAnimPhase, Stage6SimulationResult } from "./intervention-dag-types";
 
@@ -17,12 +18,6 @@ export interface TemporalMarker {
   label: string;
 }
 
-export interface PhaseMarker {
-  position: number;
-  label: string;
-  active: boolean;
-}
-
 export interface EffectNodeViewModel {
   rung?: 2 | 3;
   animPhase: NodeAnimPhase;
@@ -30,7 +25,8 @@ export interface EffectNodeViewModel {
   abductedValue: number | null;
   timeIndex: number;
   timeStepsDays: number[] | null;
-  effectTimeSeries: number[] | null;
+  referenceTimeSeries: number[] | null;
+  comparisonTimeSeries: number[] | null;
   actionLabelShort: string | null;
   actionReferenceLabel: string | null;
 }
@@ -41,7 +37,6 @@ export interface InterventionDagViewModel {
   evidenceDescription: string | null;
   timeStepsDays: number[];
   temporalMarkers?: TemporalMarker[];
-  phaseMarkers?: PhaseMarker[];
   nodeData: Record<string, EffectNodeViewModel>;
 }
 
@@ -52,63 +47,52 @@ function getDagMode(result: Stage6SimulationResult | null): DagMode {
   return result.rung === 3 ? "rung3" : "rung2";
 }
 
+function formatDayLabel(day: number): string {
+  const rounded = Math.round(day * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}d` : `${rounded.toFixed(1)}d`;
+}
+
+function hasDay(targetDay: number, timeStepsDays: number[]): boolean {
+  return timeStepsDays.some((day) => Math.abs(day - targetDay) < 1e-6);
+}
+
 function buildTemporalMarkers(
-  result: Stage6SimulationResult,
   timeStepsDays: number[],
+  requestedHorizonDays?: number,
 ): TemporalMarker[] | undefined {
   if (timeStepsDays.length === 0) {
     return undefined;
   }
-  const max = timeStepsDays[timeStepsDays.length - 1] ?? 0;
-  const markers: TemporalMarker[] = [
-    { day: 1, label: "1d" },
-    { day: 7, label: "7d" },
-    { day: 30, label: "30d" },
-  ];
+  const startDay = timeStepsDays[0] ?? 0;
+  const endDay = timeStepsDays[timeStepsDays.length - 1] ?? startDay;
+  const requestedEndDay =
+    requestedHorizonDays != null && requestedHorizonDays > 0 ? requestedHorizonDays : endDay;
+  const standardMilestones = [1, 7, 30, 90, 180, 365].filter(
+    (day) => day > startDay && day < requestedEndDay && hasDay(day, timeStepsDays),
+  );
 
-  const peakPoint = result.effect_trajectory?.reduce<
-    { day: number; magnitude: number } | null
-  >((currentPeak, point) => {
-    const magnitude = Math.abs(point.effect);
-    if (currentPeak == null || magnitude > currentPeak.magnitude) {
-      return { day: point.day, magnitude };
-    }
-    return currentPeak;
-  }, null);
-  if (peakPoint != null) {
-    markers.push({ day: peakPoint.day, label: "peak" });
-  }
   return Array.from(
     new Map(
-      markers
-        .filter((marker) => marker.day <= max)
-        .sort((left, right) => left.day - right.day)
-        .map((marker) => [marker.label, marker]),
+      [startDay, ...standardMilestones, endDay]
+        .filter((day, index, days) => {
+          if (index === 0) {
+            return true;
+          }
+          return !days.slice(0, index).some((seen) => Math.abs(seen - day) < 1e-6);
+        })
+        .sort((left, right) => left - right)
+        .map((day) => [day.toFixed(3), { day, label: formatDayLabel(day) }]),
     ).values(),
   );
 }
 
-function buildPhaseMarkers(mode: DagMode, phase: string): PhaseMarker[] | undefined {
-  if (mode !== "rung3") {
-    return undefined;
-  }
-  return [
-    { position: 0.1, label: "abduction", active: phase === "abduction" },
-    { position: 0.275, label: "action", active: phase === "surgery" },
-    {
-      position: 0.675,
-      label: "prediction",
-      active: phase === "prediction" || phase === "settled",
-    },
-  ];
-}
-
 export function buildInterventionDagViewModel(args: {
   constructs: Construct[];
+  requestedHorizonDays?: number;
   result: Stage6SimulationResult | null;
   animation: Pick<DagAnimationState, "phase" | "timeIndex" | "nodePhases" | "nodeEffects" | "abductedValues">;
 }): InterventionDagViewModel {
-  const { constructs, result, animation } = args;
+  const { constructs, requestedHorizonDays, result, animation } = args;
   const mode = getDagMode(result);
   if (!result) {
     return {
@@ -129,8 +113,7 @@ export function buildInterventionDagViewModel(args: {
     actionDescription: formatActionDescription(result),
     evidenceDescription: formatEvidenceWindowLabel(result),
     timeStepsDays,
-    temporalMarkers: buildTemporalMarkers(result, timeStepsDays),
-    phaseMarkers: buildPhaseMarkers(mode, animation.phase),
+    temporalMarkers: buildTemporalMarkers(timeStepsDays, requestedHorizonDays),
     nodeData: Object.fromEntries(
       constructs.map((construct) => [
         construct.name,
@@ -141,7 +124,8 @@ export function buildInterventionDagViewModel(args: {
           abductedValue: animation.abductedValues[construct.name] ?? null,
           timeIndex: animation.timeIndex,
           timeStepsDays,
-          effectTimeSeries: getNodeEffectSeries(result, construct.name),
+          referenceTimeSeries: getNodeReferenceSeries(result, construct.name),
+          comparisonTimeSeries: getNodeActionSeries(result, construct.name),
           actionLabelShort,
           actionReferenceLabel,
         },

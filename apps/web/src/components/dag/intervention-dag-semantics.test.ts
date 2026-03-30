@@ -7,8 +7,9 @@ import {
   formatActionShortLabel,
   formatEvidenceWindowLabel,
   getActionReference,
+  getNodeActionSeries,
   getEffectTrajectoryDays,
-  getNodeEffectSeries,
+  getNodeReferenceSeries,
 } from "./intervention-dag-semantics";
 
 describe("intervention DAG semantics", () => {
@@ -22,6 +23,12 @@ describe("intervention DAG semantics", () => {
       },
       effect_trajectory: [{ day: 1, effect: 0.2 }],
       visualization: {
+        reference_node_trajectories: {
+          lipid_burden: [0.85],
+        },
+        action_node_trajectories: {
+          lipid_burden: [1.85],
+        },
         node_effect_trajectories: {
           lipid_burden: [1],
         },
@@ -38,7 +45,8 @@ describe("intervention DAG semantics", () => {
       "from baseline steady state",
     );
     expect(getEffectTrajectoryDays(result)).toEqual([1]);
-    expect(getNodeEffectSeries(result, "lipid_burden")).toEqual([1]);
+    expect(getNodeReferenceSeries(result, "lipid_burden")).toEqual([0.85]);
+    expect(getNodeActionSeries(result, "lipid_burden")).toEqual([1.85]);
   });
 
   it("formats abducted-state counterfactual labels from rung-3 results", () => {

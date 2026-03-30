@@ -52,6 +52,20 @@ export function getEffectTrajectoryDays(result: Stage6SimulationResult): number[
   return result.effect_trajectory?.map((point) => point.day) ?? [];
 }
 
+export function getNodeReferenceSeries(
+  result: Stage6SimulationResult,
+  nodeName: string,
+): number[] | null {
+  return result.visualization?.reference_node_trajectories?.[nodeName] ?? null;
+}
+
+export function getNodeActionSeries(
+  result: Stage6SimulationResult,
+  nodeName: string,
+): number[] | null {
+  return result.visualization?.action_node_trajectories?.[nodeName] ?? null;
+}
+
 export function getNodeEffectSeries(
   result: Stage6SimulationResult,
   nodeName: string,
