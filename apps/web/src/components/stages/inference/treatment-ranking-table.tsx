@@ -74,7 +74,7 @@ const columns = [
     header: () => (
       <HeaderWithTooltip
         label={"\u03C4\u0302"}
-        tooltip="Estimated individual treatment effect (ITE) via do-operator steady-state intervention. Positive values indicate the treatment increases the outcome."
+        tooltip="Estimated interventional treatment effect via do-operator steady-state intervention. Positive values indicate the treatment increases the outcome."
       />
     ),
     cell: ({ row }) => {
