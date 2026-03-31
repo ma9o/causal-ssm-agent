@@ -790,6 +790,45 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
     assert result["outcome"] == "success"
 
 
+def test_fitted_artifact_pickles_without_live_jax_caches():
+    from causal_ssm_agent.models.ssm.inference import FittedArtifact, InferenceResult
+
+    class _Unpicklable:
+        def __reduce__(self):
+            raise TypeError("cannot pickle runtime cache")
+
+    spec = SimpleNamespace(
+        latent_names=["screen_time", "sleep_quality"],
+        manifest_names=["screen_time_obs"],
+    )
+    builder = SimpleNamespace(_spec=spec, _model=_Unpicklable())
+    result = InferenceResult(
+        _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
+        method="laplace_em",
+        diagnostics={"likelihood_backend": _Unpicklable()},
+    )
+    artifact = FittedArtifact(
+        result=result,
+        builder=builder,
+        times=jnp.array([0.0, 1.0], dtype=jnp.float32),
+        observation_support=SimpleNamespace(manifest_names=["screen_time_obs"]),
+        ppc_result={"checked": True, "per_variable_warnings": []},
+        power_scaling_result={"checked": True, "diagnosis": {}},
+    )
+
+    restored = cloudpickle.loads(cloudpickle.dumps(artifact))
+
+    assert restored.result is not None
+    assert restored.result.method == "laplace_em"
+    np.testing.assert_allclose(
+        np.asarray(restored.result.get_samples()["drift"]),
+        np.asarray(result.get_samples()["drift"]),
+    )
+    assert restored.builder is not None
+    assert restored.builder._spec.latent_names == ["screen_time", "sleep_quality"]
+    assert restored.ppc_result == {"checked": True, "per_variable_warnings": []}
+
+
 def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
 import jax.numpy as jnp
@@ -104,6 +105,25 @@ class FittedArtifact:
     observation_support: Any | None = None
     ppc_result: dict[str, Any] | None = None
     power_scaling_result: dict[str, Any] | None = None
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Persist only the Stage 6 inputs, never live inference caches/backends."""
+        return {
+            "result": _serialize_fitted_result(self.result),
+            "builder": _serialize_fitted_builder(self.builder),
+            "times": self.times,
+            "observation_support": self.observation_support,
+            "ppc_result": self.ppc_result,
+            "power_scaling_result": self.power_scaling_result,
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.result = state.get("result")
+        self.builder = state.get("builder")
+        self.times = state.get("times")
+        self.observation_support = state.get("observation_support")
+        self.ppc_result = state.get("ppc_result")
+        self.power_scaling_result = state.get("power_scaling_result")
 
 
 @dataclass
@@ -414,6 +434,34 @@ class InferenceResult:
     def print_summary(self) -> None:
         """Log summary statistics for posterior samples."""
         logger.info("\n%s", format_summary(self._samples, self.method))
+
+
+def _serialize_fitted_result(result: Any) -> InferenceResult | None:
+    """Reduce persisted inference output to the posterior samples Stage 6 uses."""
+    if result is None:
+        return None
+    if isinstance(result, InferenceResult):
+        return InferenceResult(
+            _samples=result.get_samples(),
+            method=result.method,
+            diagnostics={},
+        )
+    get_samples = getattr(result, "get_samples", None)
+    if callable(get_samples):
+        method = getattr(result, "method", "auto")
+        return InferenceResult(
+            _samples=get_samples(),
+            method=method,
+            diagnostics={},
+        )
+    return None
+
+
+def _serialize_fitted_builder(builder: Any) -> Any:
+    """Persist only the compiled spec Stage 6 needs for counterfactual analysis."""
+    if builder is None:
+        return None
+    return SimpleNamespace(_spec=getattr(builder, "_spec", None))
 
 
 def select_default_method(
