@@ -61,6 +61,33 @@ class Stage4FrontierBlock:
 
 
 @dataclass(frozen=True)
+class Stage4RepairTopology:
+    """Deterministic structural repair topology projected from the Stage 4 plan."""
+
+    parameter_to_block_id: dict[str, str] = field(default_factory=dict)
+    indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
+    indicator_to_measurement_block_id: dict[str, str] = field(default_factory=dict)
+    dynamics_block_id_by_construct: dict[str, str] = field(default_factory=dict)
+    scc_id_by_construct: dict[str, str] = field(default_factory=dict)
+    scc_construct_names_by_id: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    internal_effect_block_ids_by_scc_id: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    reciprocal_parameter_by_parameter: dict[str, str] = field(default_factory=dict)
+    parameter_construct_names: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def get_parameter_block_id(self, parameter_name: str) -> str | None:
+        """Return the owning prompt block for a semantic parameter."""
+        return self.parameter_to_block_id.get(parameter_name)
+
+    def get_measurement_block_id(self, indicator_name: str) -> str | None:
+        """Return the measurement block for a manifest indicator."""
+        return self.indicator_to_measurement_block_id.get(indicator_name)
+
+    def get_scc_id(self, construct_name: str) -> str | None:
+        """Return the SCC id for a latent construct."""
+        return self.scc_id_by_construct.get(construct_name)
+
+
+@dataclass(frozen=True)
 class Stage4Plan:
     """Immutable Stage 4 execution plan derived from the deterministic skeleton."""
 
@@ -69,11 +96,7 @@ class Stage4Plan:
     prior_blocks: tuple[Stage4FrontierBlock, ...] = ()
     prior_review_block: Stage4FrontierBlock | None = None
     blocks_by_id: dict[str, Stage4FrontierBlock] = field(default_factory=dict)
-    parameter_to_block_id: dict[str, str] = field(default_factory=dict)
-    indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
-    indicator_to_measurement_block_id: dict[str, str] = field(default_factory=dict)
-    dynamics_block_id_by_construct: dict[str, str] = field(default_factory=dict)
-    scc_construct_names_by_construct: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    repair_topology: Stage4RepairTopology = field(default_factory=Stage4RepairTopology)
 
     @property
     def all_blocks(self) -> tuple[Stage4FrontierBlock, ...]:
@@ -510,14 +533,17 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         graph.add_edge(edge["cause"], edge["effect"])
     order_lookup = {name: idx for idx, name in enumerate(construct_order)}
     dynamics_roles = {"ar_coefficient", "residual_sd"}
-    scc_construct_names_by_construct: dict[str, tuple[str, ...]] = {}
+    scc_id_by_construct: dict[str, str] = {}
+    scc_construct_names_by_id: dict[str, tuple[str, ...]] = {}
     for component in sorted(
         nx.strongly_connected_components(graph),
         key=lambda members: min(order_lookup[name] for name in members),
     ):
         ordered_members = tuple(name for name in construct_order if name in component)
+        scc_id = "+".join(ordered_members)
+        scc_construct_names_by_id[scc_id] = ordered_members
         for construct_name in ordered_members:
-            scc_construct_names_by_construct[construct_name] = ordered_members
+            scc_id_by_construct[construct_name] = scc_id
         names = [
             parameter["name"]
             for parameter in skeleton.parameters
@@ -618,6 +644,9 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     indicator_to_decision_block_id: dict[str, str] = {}
     indicator_to_measurement_block_id: dict[str, str] = {}
     dynamics_block_id_by_construct: dict[str, str] = {}
+    parameter_construct_names: dict[str, tuple[str, ...]] = {}
+    reciprocal_parameter_by_parameter: dict[str, str] = {}
+    effect_parameter_by_edge: dict[tuple[str, str], str] = {}
 
     for block in prior_blocks:
         for parameter_name in block.parameter_names:
@@ -636,17 +665,69 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             for indicator_name in block.variable_names:
                 indicator_to_decision_block_id[indicator_name] = block.id
 
+    for parameter in skeleton.parameters:
+        name = parameter["name"]
+        role = parameter["role"]
+        if role == "fixed_effect":
+            cause_name = parameter.get("cause")
+            effect_name = parameter.get("effect")
+            construct_names = tuple(
+                name_
+                for name_ in (cause_name, effect_name)
+                if isinstance(name_, str)
+            )
+            parameter_construct_names[name] = construct_names
+            if len(construct_names) == 2:
+                effect_parameter_by_edge[(construct_names[0], construct_names[1])] = name
+        elif role in {"ar_coefficient", "residual_sd"} or role == "loading":
+            construct_name = parameter.get("construct")
+            if isinstance(construct_name, str):
+                parameter_construct_names[name] = (construct_name,)
+        elif role in {"correlation", "initial_state_correlation"}:
+            construct_names = tuple(
+                name_
+                for name_ in (parameter.get("construct_1"), parameter.get("construct_2"))
+                if isinstance(name_, str)
+            )
+            if construct_names:
+                parameter_construct_names[name] = construct_names
+
+    for (cause_name, effect_name), parameter_name in effect_parameter_by_edge.items():
+        reciprocal_name = effect_parameter_by_edge.get((effect_name, cause_name))
+        if reciprocal_name is None:
+            continue
+        reciprocal_parameter_by_parameter[parameter_name] = reciprocal_name
+
+    internal_effect_block_ids_by_scc_id: dict[str, tuple[str, ...]] = {}
+    for scc_id, construct_names in scc_construct_names_by_id.items():
+        internal_blocks = tuple(
+            block.id
+            for block in prior_blocks
+            if block.kind == "effect_prior"
+            and isinstance(block.payload.get("target_construct"), str)
+            and block.payload.get("target_construct") in construct_names
+        )
+        internal_effect_block_ids_by_scc_id[scc_id] = internal_blocks
+
+    repair_topology = Stage4RepairTopology(
+        parameter_to_block_id=parameter_to_block_id,
+        indicator_to_decision_block_id=indicator_to_decision_block_id,
+        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        dynamics_block_id_by_construct=dynamics_block_id_by_construct,
+        scc_id_by_construct=scc_id_by_construct,
+        scc_construct_names_by_id=scc_construct_names_by_id,
+        internal_effect_block_ids_by_scc_id=internal_effect_block_ids_by_scc_id,
+        reciprocal_parameter_by_parameter=reciprocal_parameter_by_parameter,
+        parameter_construct_names=parameter_construct_names,
+    )
+
     return Stage4Plan(
         model_blocks=tuple(model_blocks),
         review_block=review_block,
         prior_blocks=tuple(prior_blocks),
         prior_review_block=prior_review_block,
         blocks_by_id=blocks_by_id,
-        parameter_to_block_id=parameter_to_block_id,
-        indicator_to_decision_block_id=indicator_to_decision_block_id,
-        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
-        dynamics_block_id_by_construct=dynamics_block_id_by_construct,
-        scc_construct_names_by_construct=scc_construct_names_by_construct,
+        repair_topology=repair_topology,
     )
 
 

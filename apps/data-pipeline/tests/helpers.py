@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
+    Stage4RepairTopology,
 )
 
 
@@ -99,9 +100,11 @@ def make_stage4_plan(
         prior_blocks=prior_blocks,
         prior_review_block=prior_review_block,
         blocks_by_id=blocks_by_id,
-        parameter_to_block_id=parameter_to_block_id,
-        indicator_to_decision_block_id=indicator_to_decision_block_id,
-        indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        repair_topology=Stage4RepairTopology(
+            parameter_to_block_id=parameter_to_block_id,
+            indicator_to_decision_block_id=indicator_to_decision_block_id,
+            indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        ),
     )
 
 
