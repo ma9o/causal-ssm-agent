@@ -42,6 +42,7 @@ Each indicator needs:
 | **name** | Semantic name for this indicator (does NOT need to match a column name) |
 | **construct** | Which construct this measures (must match a construct name) |
 | **how_to_measure** | Precise instructions for how to derive this value from the raw data columns. Workers will follow these instructions. Reference specific column names. |
+| **construct_polarity** | `"positive"` if higher indicator values mean more of the construct, `"negative"` if they mean less of the construct. |
 | **measurement_dtype** | 'continuous', 'binary', 'count', 'ordinal', 'categorical' |
 | **aggregation** | How to collapse within aggregation window |
 | **observation_window** | Optional support window summarized by this indicator when it differs from `model_clock` (for example `"1mo"` for a monthly summary on a daily model clock). |
@@ -58,6 +59,19 @@ Each indicator needs:
 | **count** | Non-negative integers | num_emails, steps |
 | **categorical** | Unordered categories | activity_type |
 | **continuous** | Real-valued | temperature, mood_rating |
+
+### construct_polarity
+
+Every indicator must declare whether its numeric direction matches the construct:
+- `positive`: higher indicator values imply more of the construct
+- `negative`: higher indicator values imply less of the construct
+
+Examples:
+- `sleep_hours` for `sleep_quality` → `positive`
+- `sleep_problem_search_count` for `sleep_quality` → `negative`
+- `negative_mood_search_flag` for `mood` → `negative`
+
+This field is used downstream to orient the latent factor. Do not leave it implicit.
 
 ### aggregation
 
@@ -145,6 +159,7 @@ The `how_to_measure` field must tell workers exactly what to do inside each supp
 ### Important
 - Reference specific column names from the dataset so workers know exactly where to look
 - Describe any derivation, transformation, or filtering needed
+- Make the directional semantics explicit enough that `construct_polarity` is unambiguous
 - Say whether workers should aggregate event-level evidence across the whole support window or look for an explicit summary mention inside the window
 - For indicators that remain `"semantic"`, explicitly define missingness semantics in `how_to_measure`:
   use `null` when there is no usable observation for the indicator in that support window, and use `0` (or the negative category) only when the relevant source evidence is actually present and indicates a negative result
@@ -190,6 +205,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "name": "indicator_name",
       "construct_name": "which_construct_this_measures",
       "how_to_measure": "worker instructions for extraction",
+      "construct_polarity": "positive" | "negative",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
       "aggregation": "<aggregation_function>",
       "observation_window": "1mo",  // optional; omit unless support window differs from model_clock
@@ -247,6 +263,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Every time-varying construct needs at least one indicator
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
+- `construct_polarity` must say whether higher indicator values mean more (`positive`) or less (`negative`) of the construct
 - If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule.window_expr` when direct aggregation is not enough
 - Prefer deterministic direct operationalizations over broader semantic proxies for the same construct
 - Keep indicator names concrete and close to the observed signal; avoid gratuitous renaming

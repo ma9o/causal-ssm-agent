@@ -42,6 +42,48 @@ def get_indicators(causal_spec: dict) -> list[dict]:
     return causal_spec.get("measurement", {}).get("indicators", [])
 
 
+def get_indicator_polarity(indicator: dict) -> str:
+    """Return the declared indicator polarity, failing loudly when absent."""
+    polarity = indicator.get("construct_polarity")
+    if polarity not in {"positive", "negative"}:
+        raise ValueError(
+            f"Indicator {indicator.get('name')!r} is missing a valid construct_polarity"
+        )
+    return str(polarity)
+
+
+def choose_reference_indicator(indicators: list[dict]) -> dict | None:
+    """Choose a deterministic marker indicator for one construct.
+
+    Prefer the first positive-polarity indicator so the latent orientation matches
+    the construct name whenever the measurement model provides one. If none are
+    positive, fall back to the first declared indicator.
+    """
+    if not indicators:
+        return None
+
+    for indicator in indicators:
+        if get_indicator_polarity(indicator) == "positive":
+            return indicator
+    return indicators[0]
+
+
+def build_reference_indicator_lookup(indicators: list[dict]) -> dict[str, str]:
+    """Return construct -> chosen reference indicator name."""
+    grouped: dict[str, list[dict]] = {}
+    for indicator in indicators:
+        construct_name = indicator.get("construct_name")
+        if isinstance(construct_name, str):
+            grouped.setdefault(construct_name, []).append(indicator)
+
+    lookup: dict[str, str] = {}
+    for construct_name, construct_indicators in grouped.items():
+        reference = choose_reference_indicator(construct_indicators)
+        if reference is not None:
+            lookup[construct_name] = str(reference["name"])
+    return lookup
+
+
 def get_estimation_spec(causal_spec: dict) -> dict:
     """Get the estimation projection, failing loudly when it is missing."""
     estimation = causal_spec.get("estimation")

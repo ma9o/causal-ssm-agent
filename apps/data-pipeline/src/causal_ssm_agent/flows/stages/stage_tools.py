@@ -356,7 +356,7 @@ def _format_missing_priors_feedback(missing_priors: list[str]) -> str:
     return (
         "MODEL STATE SAVED:\n"
         f"- missing priors for {len(missing_priors)} parameters: {_summarize_names(missing_priors)}\n"
-        "- model decisions are already locked; do not send distribution_choices or loading_constraints again\n"
+        "- model decisions are already locked; do not send distribution_choices again\n"
         "- your next validate_model call must contain only `priors`\n"
         "- do not resend unchanged fields\n"
         "- submit only the missing priors or any corrections"
@@ -383,7 +383,7 @@ def _format_redundant_stage4_update_feedback(kind: str, names: list[str]) -> str
         return (
             f"REDUNDANT {kind.upper()} UPDATE:\n"
             f"- already accepted and unchanged: {summary}\n"
-            "- model-decision phase is closed; do not send distribution_choices or loading_constraints again\n"
+            "- model-decision phase is closed; do not send distribution_choices again\n"
             "- your next validate_model call must contain only `priors`\n"
             "- do not resend unchanged fields\n\n"
             "Previously accepted state is retained. Resubmit only changed or missing priors."

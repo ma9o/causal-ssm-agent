@@ -32,6 +32,12 @@ def _make_causal_spec(
     indicators: list[dict],
 ) -> dict:
     """Build a CausalSpec dict from components."""
+    indicators = [
+        {"construct_polarity": "positive", **indicator}
+        if "construct_polarity" not in indicator
+        else dict(indicator)
+        for indicator in indicators
+    ]
     retained_names = [construct["name"] for construct in constructs]
     return {
         "latent": {"constructs": constructs, "edges": edges},

@@ -348,6 +348,9 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     elif parameter.constraint == ParameterConstraint.POSITIVE:
         distribution = PriorDistributionFamily.HALF_NORMAL
         params = {"sigma": 1.0}
+    elif parameter.constraint == ParameterConstraint.NEGATIVE:
+        distribution = PriorDistributionFamily.TRUNCATED_NORMAL
+        params = {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0}
     elif parameter.constraint == ParameterConstraint.UNIT_INTERVAL:
         distribution = PriorDistributionFamily.BETA
         params = {"alpha": 2.0, "beta": 2.0}

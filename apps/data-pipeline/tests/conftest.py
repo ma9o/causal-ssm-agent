@@ -67,6 +67,7 @@ def indicator_factory():
         construct_name: str,
         dtype: str = "continuous",
         aggregation: str = "mean",
+        construct_polarity: str = "positive",
         ordinal_levels: list[str] | None = None,
         source_columns: list[str] | None = None,
         extraction_mode: str = "semantic",
@@ -77,6 +78,7 @@ def indicator_factory():
         return Indicator(
             name=name,
             construct_name=construct_name,
+            construct_polarity=construct_polarity,
             how_to_measure=f"Extract {name}",
             measurement_dtype=dtype,
             aggregation=aggregation,
@@ -176,6 +178,7 @@ def stage1b_measurement_all_observed():
             {
                 "name": "treatment_dose",
                 "construct_name": "Treatment",
+                "construct_polarity": "positive",
                 "how_to_measure": "Extract the treatment dosage from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
@@ -184,6 +187,7 @@ def stage1b_measurement_all_observed():
             {
                 "name": "outcome_score",
                 "construct_name": "Outcome",
+                "construct_polarity": "positive",
                 "how_to_measure": "Extract the outcome score from the data",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",

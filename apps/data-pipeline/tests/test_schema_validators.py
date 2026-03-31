@@ -42,6 +42,7 @@ def _valid_measurement_data():
             {
                 "name": "pss_score",
                 "construct_name": "stress",
+                "construct_polarity": "positive",
                 "how_to_measure": "Perceived Stress Scale score",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
@@ -49,6 +50,7 @@ def _valid_measurement_data():
             {
                 "name": "sleep_hours",
                 "construct_name": "sleep",
+                "construct_polarity": "positive",
                 "how_to_measure": "Hours of sleep reported",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
@@ -196,6 +198,7 @@ class TestValidateCausalSpec:
                 {
                     "name": "x",
                     "construct_name": "nonexistent",
+                    "construct_polarity": "positive",
                     "how_to_measure": "test",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",

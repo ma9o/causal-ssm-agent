@@ -18,8 +18,10 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     VALID_LINKS_FOR_DISTRIBUTION,
 )
 from causal_ssm_agent.utils.causal_spec import (
+    build_reference_indicator_lookup,
     get_estimation_edges,
     get_estimation_state_order,
+    get_indicator_polarity,
     get_indicators,
     get_induced_dependencies,
     get_latent_constructs,
@@ -141,30 +143,17 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
     "indicator_decision": Stage4PromptScopePolicy(
         system_task=(
             "Choose exactly one observation distribution/link pair for the active "
-            "indicator. Do not propose loading constraints or priors."
+            "indicator. Do not propose loading metadata or priors."
         ),
         user_task=(
             "Choose exactly one distribution/link pair for the active indicator. "
-            "Do not send loading constraints or priors in this block."
+            "Do not send loading metadata or priors in this block."
         ),
         visible_sections=("distribution_cards", "construct_scale_cards"),
         guidance_section_keys=(
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("validate_model",),
-    ),
-    "loading_decision": Stage4PromptScopePolicy(
-        system_task=(
-            "Choose loading/sign-identification constraints only for the active loading block. "
-            "Use `positive` for sign identification unless negative loadings are substantively "
-            "plausible. Do not propose likelihood changes or priors."
-        ),
-        user_task=(
-            "Choose loading constraints only for the loading parameters shown below. "
-            "You may submit one or more constraints from this block, but do not send priors."
-        ),
-        visible_sections=("loading_params", "construct_scale_cards"),
         allowed_tool_names=("validate_model",),
     ),
     "measurement_prior": Stage4PromptScopePolicy(
@@ -255,11 +244,11 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
         system_task=(
             "Review the fully locked Stage 4 model form before prior elicitation. "
             "Do not propose priors. Either approve the locked model or reopen the relevant "
-            "model-decision blocks if something materially needs revision."
+            "indicator-likelihood decision blocks if something materially needs revision."
         ),
         user_task=(
             "Review the locked model form shown below. If it is coherent, approve it. If not, "
-            "reopen the relevant model-decision blocks and explain why. "
+            "reopen the relevant indicator-likelihood blocks and explain why. "
             "Do not submit priors in this block."
         ),
         visible_sections=("distribution_cards", "loading_params", "construct_scale_cards"),
@@ -273,7 +262,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
         system_task=(
             "Repair the full Stage 4 prior system after a global validation failure. "
             "You may revise any prior parameters needed to resolve the failure, but do not "
-            "change likelihood or loading decisions."
+            "change locked likelihood choices or loading orientations."
         ),
         user_task=(
             "Review the full accepted prior system shown below and revise any priors needed "
@@ -316,11 +305,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     ]
 
     indicators_per_construct = _indicators_per_construct(indicators)
-    reference_indicator_lookup = {
-        construct: indicator_names[0]
-        for construct, indicator_names in indicators_per_construct.items()
-        if indicator_names
-    }
+    reference_indicator_lookup = build_reference_indicator_lookup(indicators)
 
     resolved_likelihoods: list[dict[str, Any]] = []
     ambiguous_indicators: list[dict[str, Any]] = []
@@ -416,7 +401,6 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     # --- Loadings ---
-    reference_set: set[str] = set()
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
         if (
@@ -426,8 +410,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         ):
             continue
 
-        if construct_name not in reference_set:
-            reference_set.add(construct_name)
+        if indicator["name"] == reference_indicator_lookup.get(construct_name):
             continue
 
         reference_indicator = reference_indicator_lookup.get(construct_name)
@@ -435,11 +418,12 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             {
                 "name": f"lambda_{indicator['name']}_{construct_name}",
                 "role": "loading",
-                "constraint": "positive",
+                "constraint": get_indicator_polarity(indicator),
                 "description": f"Factor loading for {indicator['name']} on {construct_name}",
                 "indicator": indicator["name"],
                 "construct": construct_name,
                 "reference_indicator": reference_indicator,
+                "indicator_polarity": get_indicator_polarity(indicator),
             }
         )
 
@@ -509,19 +493,6 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         construct_name = parameter.get("construct")
         if isinstance(construct_name, str):
             loading_names_by_construct.setdefault(construct_name, []).append(parameter["name"])
-    for construct_name in construct_order:
-        names = loading_names_by_construct.get(construct_name) or []
-        if not names:
-            continue
-        model_blocks.append(
-            Stage4FrontierBlock(
-                id=f"loading:{construct_name}",
-                kind="loading_decision",
-                label=f"Choose loading constraints for {construct_name}",
-                construct_names=(construct_name,),
-                parameter_names=tuple(sorted(names, key=param_order.__getitem__)),
-            )
-        )
 
     review_block = Stage4FrontierBlock(
         id="review:model_spec",
@@ -855,11 +826,7 @@ def build_construct_scale_cards(
     indicators = get_indicators(causal_spec)
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
     indicators_per_construct = _indicators_per_construct(indicators)
-    reference_indicator_lookup = {
-        construct: indicator_names[0]
-        for construct, indicator_names in indicators_per_construct.items()
-        if indicator_names
-    }
+    reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     ambiguous_indicator_names = {
         item["variable"] for item in (skeleton.ambiguous_indicators if skeleton else [])
     }
@@ -930,6 +897,7 @@ def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[
                 "construct": construct_name,
                 "indicator": indicator_name,
                 "reference_indicator": reference_indicator,
+                "indicator_polarity": parameter.get("indicator_polarity"),
             }
         elif role in {"correlation", "initial_state_correlation"}:
             construct_1 = parameter["construct_1"]
@@ -975,6 +943,7 @@ def _build_indicator_anchor(
         "indicator": indicator_name,
         "construct": indicator.get("construct_name"),
         "measurement_dtype": indicator.get("measurement_dtype"),
+        "construct_polarity": indicator.get("construct_polarity"),
         "how_to_measure": indicator.get("how_to_measure"),
         "aggregation": indicator.get("aggregation"),
         "observation_window": indicator.get("observation_window"),

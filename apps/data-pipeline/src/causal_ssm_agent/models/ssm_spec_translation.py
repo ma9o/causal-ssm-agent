@@ -17,8 +17,10 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     ParameterRole,
 )
 from causal_ssm_agent.utils.causal_spec import (
+    build_reference_indicator_lookup,
     get_estimation_edges,
     get_estimation_state_order,
+    get_indicator_polarity,
     get_indicators,
     get_latent_constructs,
 )
@@ -139,7 +141,7 @@ def build_masks_from_causal_spec(
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     lambda_mat_np = np.zeros((n_manifest, n_latent), dtype=np.float64)
     lambda_mask = np.zeros((n_manifest, n_latent), dtype=bool)
-    reference_set: set[str] = set()
+    reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     matched_manifests: set[str] = set()
     invalid_construct_manifests: set[str] = set()
 
@@ -164,9 +166,10 @@ def build_masks_from_causal_spec(
         latent_idx_value = latent_idx[construct_name]
         matched_manifests.add(ind_name)
 
-        if construct_name not in reference_set:
-            lambda_mat_np[manifest_idx_value, latent_idx_value] = 1.0
-            reference_set.add(construct_name)
+        if ind_name == reference_indicator_lookup.get(construct_name):
+            lambda_mat_np[manifest_idx_value, latent_idx_value] = (
+                1.0 if get_indicator_polarity(indicator) == "positive" else -1.0
+            )
         else:
             lambda_mask[manifest_idx_value, latent_idx_value] = True
 

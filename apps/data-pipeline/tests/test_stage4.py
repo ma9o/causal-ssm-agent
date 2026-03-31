@@ -50,6 +50,8 @@ from causal_ssm_agent.orchestrator.stage4 import (
     get_stage4_block_handler,
     get_stage4_phase,
     make_stage4_runtime,
+    project_stage4_graph,
+    project_stage4_snapshot,
     run_stage4,
 )
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
@@ -169,6 +171,90 @@ def _set_runtime_block(plan: Stage4Plan, runtime: Stage4Runtime, block_id: str) 
     block = plan.get_block(block_id)
     assert block is not None
     stage4_module._set_block_cursor(runtime, block)
+
+
+def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:
+    """Backfill positive polarity on test indicators unless a test overrides it."""
+    spec = deepcopy(spec)
+    measurement = spec.get("measurement") or {}
+    indicators = measurement.get("indicators") or []
+    for indicator in indicators:
+        if isinstance(indicator, dict):
+            indicator.setdefault("construct_polarity", "positive")
+    return spec
+
+
+def test_project_stage4_graph_includes_repair_barrier_and_prior_review_route():
+    plan = _make_plan(
+        model_blocks=(
+            Stage4FrontierBlock(
+                id="indicator:sleep_quality",
+                kind="indicator_decision",
+                label="Sleep Quality",
+                variable_names=("sleep_quality",),
+            ),
+        ),
+        review_block=Stage4FrontierBlock(
+            id="review:model_spec",
+            kind="global_review",
+            label="Review model spec",
+        ),
+        prior_blocks=(
+            Stage4FrontierBlock(
+                id="effects:sleep",
+                kind="effect_prior",
+                label="Sleep effects",
+                parameter_names=("beta_stress_sleep",),
+            ),
+        ),
+        prior_review_block=Stage4FrontierBlock(
+            id="review:prior_system",
+            kind="global_prior_review",
+            label="Review prior system",
+        ),
+    )
+
+    graph = project_stage4_graph(plan)
+    node_ids = {node["id"] for node in graph["nodes"]}
+    edge_pairs = {(edge["from"], edge["to"], edge["kind"]) for edge in graph["edges"]}
+
+    assert "__repair_barrier__" in node_ids
+    assert "review:prior_system" in node_ids
+    assert ("effects:sleep", "review:prior_system", "repair_transition") in edge_pairs
+    assert ("__repair_barrier__", "review:prior_system", "repair_transition") in edge_pairs
+    assert ("review:prior_system", "__done__", "phase_advance") in edge_pairs
+
+
+def test_project_stage4_snapshot_serializes_repair_barrier_cursor_scope():
+    plan = _make_plan(
+        prior_blocks=(
+            Stage4FrontierBlock(
+                id="effects:sleep",
+                kind="effect_prior",
+                label="Sleep effects",
+                parameter_names=("beta_stress_sleep",),
+            ),
+            Stage4FrontierBlock(
+                id="effects:stress",
+                kind="effect_prior",
+                label="Stress effects",
+                parameter_names=("beta_sleep_stress",),
+            ),
+        ),
+    )
+    runtime = make_stage4_runtime(plan)
+    stage4_module._set_repair_barrier_cursor(
+        runtime,
+        reason="repair barrier pending",
+        scope_block_ids=("effects:sleep", "effects:stress"),
+    )
+
+    snapshot = project_stage4_snapshot(plan, runtime)
+
+    assert snapshot["cursor"] == {
+        "kind": "repair_barrier",
+        "scope_block_ids": ["effects:sleep", "effects:stress"],
+    }
 
 
 # --- Prompt assembly tests ---
@@ -640,11 +726,12 @@ class TestStage4Messages:
 
     def test_messages_for_scope_respects_visible_sections_even_when_data_matches(self):
         block = Stage4FrontierBlock(
-            id="loading:stress",
-            kind="loading_decision",
-            label="Loading decision",
+            id="review:model_spec",
+            kind="global_review",
+            label="Model review",
             construct_names=("stress",),
             parameter_names=("lambda_worry_stress",),
+            payload={"reopenable_block_ids": ("indicator:worry_score",)},
         )
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
@@ -666,6 +753,7 @@ class TestStage4Messages:
                     "name": "lambda_worry_stress",
                     "construct": "stress",
                     "indicator": "worry_score",
+                    "constraint": "positive",
                 }
             ],
             construct_scale_cards=[
@@ -692,7 +780,7 @@ class TestStage4Messages:
                 }
             ],
         )
-        plan = _make_plan(model_blocks=(block,))
+        plan = _make_plan(review_block=block)
         runtime = _make_runtime(plan)
         messages = msgs.messages_for_block(
             block,
@@ -702,7 +790,7 @@ class TestStage4Messages:
         )
         user_content = messages[1]["content"]
 
-        assert "### Loading Constraints" in user_content
+        assert "### Loading Orientation" in user_content
         assert "### Construct Scale Cards" in user_content
         assert "### Distribution Decision Cards" not in user_content
         assert "### Parameter Prior Cards" not in user_content
@@ -871,7 +959,7 @@ class TestStage4Messages:
                         {
                             "name": "lambda_worry_score_stress",
                             "role": "loading",
-                            "constraint": "none",
+                            "constraint": "positive",
                         }
                     ],
                 }
@@ -887,7 +975,7 @@ class TestStage4Messages:
 
         assert "`bernoulli` / `probit`" in user_content
         assert (
-            "| lambda_worry_score_stress | stress | worry_score | pss_score | none |"
+            "| lambda_worry_score_stress | stress | worry_score | pss_score | positive |"
             in user_content
         )
 
@@ -1069,15 +1157,17 @@ def _make_stage4_mechanics_spec() -> dict:
             "aggregation": "mean",
         },
     ]
-    return {
-        "latent": {"constructs": constructs, "edges": edges},
-        "measurement": {"model_clock": "1d", "indicators": indicators},
-        "estimation": {
-            "state_order": [construct["name"] for construct in constructs],
-            "edges": edges,
-            "induced_dependencies": [],
-        },
-    }
+    return _with_positive_indicator_polarity(
+        {
+            "latent": {"constructs": constructs, "edges": edges},
+            "measurement": {"model_clock": "1d", "indicators": indicators},
+            "estimation": {
+                "state_order": [construct["name"] for construct in constructs],
+                "edges": edges,
+                "induced_dependencies": [],
+            },
+        }
+    )
 
 
 def _make_stage4_global_repair_spec() -> dict:
@@ -1111,21 +1201,26 @@ def _make_stage4_global_repair_spec() -> dict:
             "aggregation": "mean",
         },
     ]
-    return {
-        "latent": {"constructs": constructs, "edges": [{"cause": "activity", "effect": "sleep"}]},
-        "measurement": {"model_clock": "1d", "indicators": indicators},
-        "estimation": {
-            "state_order": ["activity", "sleep"],
-            "edges": [{"cause": "activity", "effect": "sleep"}],
-            "induced_dependencies": [
-                {
-                    "between": ["activity", "sleep"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["U"],
-                }
-            ],
-        },
-    }
+    return _with_positive_indicator_polarity(
+        {
+            "latent": {
+                "constructs": constructs,
+                "edges": [{"cause": "activity", "effect": "sleep"}],
+            },
+            "measurement": {"model_clock": "1d", "indicators": indicators},
+            "estimation": {
+                "state_order": ["activity", "sleep"],
+                "edges": [{"cause": "activity", "effect": "sleep"}],
+                "induced_dependencies": [
+                    {
+                        "between": ["activity", "sleep"],
+                        "kind": "initial_state_correlation",
+                        "source_confounders": ["U"],
+                    }
+                ],
+            },
+        }
+    )
 
 
 def _make_stage4_two_effect_spec() -> dict:
@@ -1182,15 +1277,17 @@ def _make_stage4_two_effect_spec() -> dict:
             "aggregation": "mean",
         },
     ]
-    return {
-        "latent": {"constructs": constructs, "edges": edges},
-        "measurement": {"model_clock": "1d", "indicators": indicators},
-        "estimation": {
-            "state_order": ["activity", "sleep", "mood"],
-            "edges": edges,
-            "induced_dependencies": [],
-        },
-    }
+    return _with_positive_indicator_polarity(
+        {
+            "latent": {"constructs": constructs, "edges": edges},
+            "measurement": {"model_clock": "1d", "indicators": indicators},
+            "estimation": {
+                "state_order": ["activity", "sleep", "mood"],
+                "edges": edges,
+                "induced_dependencies": [],
+            },
+        }
+    )
 
 
 def _make_stage4_no_model_block_spec() -> dict:
@@ -1212,15 +1309,17 @@ def _make_stage4_no_model_block_spec() -> dict:
             "aggregation": "mean",
         },
     ]
-    return {
-        "latent": {"constructs": constructs, "edges": []},
-        "measurement": {"model_clock": "1d", "indicators": indicators},
-        "estimation": {
-            "state_order": ["sleep"],
-            "edges": [],
-            "induced_dependencies": [],
-        },
-    }
+    return _with_positive_indicator_polarity(
+        {
+            "latent": {"constructs": constructs, "edges": []},
+            "measurement": {"model_clock": "1d", "indicators": indicators},
+            "estimation": {
+                "state_order": ["sleep"],
+                "edges": [],
+                "induced_dependencies": [],
+            },
+        }
+    )
 
 
 def _make_stage4_mechanics_context() -> tuple[
@@ -1943,15 +2042,17 @@ class TestFailedParameters:
                 suggested_adjustment=None,
             ),
         ]
-        causal_spec = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {"name": "mood_score", "construct_name": "mood"},
-                    {"name": "stress_score", "construct_name": "stress"},
-                ],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {"name": "mood_score", "construct_name": "mood"},
+                        {"name": "stress_score", "construct_name": "stress"},
+                    ],
+                },
+            }
+        )
         all_params = ["rho_mood", "sigma_mood", "rho_stress", "sigma_stress", "beta_stress_mood"]
         failed = get_failed_parameters(results, all_params, causal_spec=causal_spec)
         # Only mood-related params should be re-elicited
@@ -2104,48 +2205,50 @@ class TestSSMPriorConversion:
         """Strict causal-spec binding errors should be reported together."""
         from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
 
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "mood",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                    {
-                        "name": "stress",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [{"cause": "stress", "effect": "mood"}],
-            },
-            "estimation": {
-                "state_order": ["mood", "stress"],
-                "edges": [{"cause": "stress", "effect": "mood"}],
-                "induced_dependencies": [],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "mood_score",
-                        "construct_name": "mood",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                        "how_to_measure": "Use mood_score directly",
-                    },
-                    {
-                        "name": "stress_score",
-                        "construct_name": "stress",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                        "how_to_measure": "Use stress_score directly",
-                    },
-                ],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "mood",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                        {
+                            "name": "stress",
+                            "role": "exogenous",
+                            "temporal_status": "time_varying",
+                        },
+                    ],
+                    "edges": [{"cause": "stress", "effect": "mood"}],
+                },
+                "estimation": {
+                    "state_order": ["mood", "stress"],
+                    "edges": [{"cause": "stress", "effect": "mood"}],
+                    "induced_dependencies": [],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "mood_score",
+                            "construct_name": "mood",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "how_to_measure": "Use mood_score directly",
+                        },
+                        {
+                            "name": "stress_score",
+                            "construct_name": "stress",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "how_to_measure": "Use stress_score directly",
+                        },
+                    ],
+                },
+            }
+        )
         model_spec = {
             "likelihoods": [
                 {
@@ -2295,18 +2398,20 @@ class TestSSMPriorConversion:
         priors = {
             "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
         }
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "heart_rate",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [],
-            },
-            "measurement": {"model_clock": "1h", "indicators": []},
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "heart_rate",
+                            "temporal_status": "time_varying",
+                        },
+                    ],
+                    "edges": [],
+                },
+                "measurement": {"model_clock": "1h", "indicators": []},
+            }
+        )
         ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
@@ -2552,22 +2657,24 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
         }
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "heart_rate",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "activity",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [{"cause": "activity", "effect": "heart_rate"}],
-            },
-            "measurement": {"model_clock": "1h", "indicators": []},
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "heart_rate",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "activity",
+                            "temporal_status": "time_varying",
+                        },
+                    ],
+                    "edges": [{"cause": "activity", "effect": "heart_rate"}],
+                },
+                "measurement": {"model_clock": "1h", "indicators": []},
+            }
+        )
         drift_mask = np.array([[True, True], [False, True]])
         ssm_spec = SSMSpec(
             n_latent=2,
@@ -2634,41 +2741,43 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
         }
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "heart_rate",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "activity",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [{"cause": "activity", "effect": "heart_rate"}],
-            },
-            "estimation": {
-                "state_order": ["heart_rate", "activity"],
-                "edges": [{"cause": "activity", "effect": "heart_rate"}],
-                "induced_dependencies": [],
-            },
-            "measurement": {
-                "model_clock": "1h",
-                "indicators": [
-                    {
-                        "name": "hr",
-                        "construct_name": "heart_rate",
-                        "measurement_dtype": "continuous",
-                    },
-                    {
-                        "name": "act",
-                        "construct_name": "activity",
-                        "measurement_dtype": "continuous",
-                    },
-                ],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "heart_rate",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "activity",
+                            "temporal_status": "time_varying",
+                        },
+                    ],
+                    "edges": [{"cause": "activity", "effect": "heart_rate"}],
+                },
+                "estimation": {
+                    "state_order": ["heart_rate", "activity"],
+                    "edges": [{"cause": "activity", "effect": "heart_rate"}],
+                    "induced_dependencies": [],
+                },
+                "measurement": {
+                    "model_clock": "1h",
+                    "indicators": [
+                        {
+                            "name": "hr",
+                            "construct_name": "heart_rate",
+                            "measurement_dtype": "continuous",
+                        },
+                        {
+                            "name": "act",
+                            "construct_name": "activity",
+                            "measurement_dtype": "continuous",
+                        },
+                    ],
+                },
+            }
+        )
 
         _ssm_spec, _ssm_priors, _bindings, diagnostics = compile_ssm_inputs(
             model_spec,
@@ -2812,43 +2921,45 @@ class TestTrialCompile:
                 }
             ],
         }
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "Treatment",
-                        "role": "exogenous",
-                        "description": "Treatment",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "Outcome",
-                        "role": "endogenous",
-                        "description": "Outcome",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                ],
-                "edges": [],
-            },
-            "estimation": {
-                "state_order": ["Treatment", "Outcome"],
-                "edges": [],
-                "induced_dependencies": [],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "outcome_score",
-                        "construct_name": "Outcome",
-                        "how_to_measure": "Use the outcome column directly",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "Treatment",
+                            "role": "exogenous",
+                            "description": "Treatment",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "Outcome",
+                            "role": "endogenous",
+                            "description": "Outcome",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                    ],
+                    "edges": [],
+                },
+                "estimation": {
+                    "state_order": ["Treatment", "Outcome"],
+                    "edges": [],
+                    "induced_dependencies": [],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "outcome_score",
+                            "construct_name": "Outcome",
+                            "how_to_measure": "Use the outcome column directly",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        }
+                    ],
+                },
+            }
+        )
 
         result = trial_compile_model_spec(spec, causal_spec)
 
@@ -2859,50 +2970,52 @@ class TestTrialCompile:
         """Translation should report multiple initial-state correlation errors together."""
         from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
 
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "X",
-                        "role": "exogenous",
-                        "description": "X",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "Y",
-                        "role": "endogenous",
-                        "description": "Y",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                ],
-                "edges": [{"cause": "X", "effect": "Y"}],
-            },
-            "estimation": {
-                "state_order": ["X", "Y"],
-                "edges": [{"cause": "X", "effect": "Y"}],
-                "induced_dependencies": [],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "x_score",
-                        "construct_name": "X",
-                        "how_to_measure": "Use x_score directly",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "y_score",
-                        "construct_name": "Y",
-                        "how_to_measure": "Use y_score directly",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "X",
+                            "role": "exogenous",
+                            "description": "X",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "Y",
+                            "role": "endogenous",
+                            "description": "Y",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                    ],
+                    "edges": [{"cause": "X", "effect": "Y"}],
+                },
+                "estimation": {
+                    "state_order": ["X", "Y"],
+                    "edges": [{"cause": "X", "effect": "Y"}],
+                    "induced_dependencies": [],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "x_score",
+                            "construct_name": "X",
+                            "how_to_measure": "Use x_score directly",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "y_score",
+                            "construct_name": "Y",
+                            "how_to_measure": "Use y_score directly",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                    ],
+                },
+            }
+        )
         spec = {
             "likelihoods": [
                 {
@@ -3052,11 +3165,6 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        runtime.decisions.loading_constraints["lambda_activity_vas_activity"] = {
-            "parameter": "lambda_activity_vas_activity",
-            "constraint": "positive",
-            "reasoning": "Higher self-rated activity should reflect more activity.",
-        }
         model_spec, errors = stage4_module._build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
@@ -3115,7 +3223,7 @@ class TestStage4Mechanics:
         [
             (
                 {
-                    "block_id": "loading:activity",
+                    "block_id": "review:model_spec",
                     "block_kind": "indicator_decision",
                     "proposal": {
                         "variable": "steps",
@@ -3129,15 +3237,10 @@ class TestStage4Mechanics:
             (
                 {
                     "block_id": "indicator:steps",
-                    "block_kind": "loading_decision",
+                    "block_kind": "global_review",
                     "proposal": {
-                        "loading_constraints": [
-                            {
-                                "parameter": "lambda_activity_vas_activity",
-                                "constraint": "positive",
-                                "reasoning": "wrong block kind",
-                            }
-                        ]
+                        "decision": "approve",
+                        "reasoning": "wrong block kind",
                     },
                 },
                 "WRONG BLOCK KIND",
@@ -3185,19 +3288,6 @@ class TestStage4Mechanics:
                 "reasoning": "Step counts are nonnegative integers.",
             },
         }
-        loading_payload = {
-            "block_id": "loading:activity",
-            "block_kind": "loading_decision",
-            "proposal": {
-                "loading_constraints": [
-                    {
-                        "parameter": "lambda_activity_vas_activity",
-                        "constraint": "positive",
-                        "reasoning": "Higher self-rated activity should reflect more activity.",
-                    }
-                ]
-            },
-        }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             assert current == {}
@@ -3211,18 +3301,8 @@ class TestStage4Mechanics:
                 )
             }, "COMPILE ERROR:\nsteps support mismatch"
 
-        _apply_stage4_step_and_capture(
-            indicator_payload,
-            plan,
-            runtime,
-            skeleton=skeleton,
-            causal_spec=causal_spec,
-            data_for_model=data_for_model,
-            indicator_audits={},
-            stage4_grounding_fn=stub_stage4_grounding,
-        )
         stage_output, feedback = _apply_stage4_step_and_capture(
-            loading_payload,
+            indicator_payload,
             plan,
             runtime,
             skeleton=skeleton,
@@ -3247,11 +3327,6 @@ class TestStage4Mechanics:
             "distribution": "poisson",
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
-        }
-        runtime.decisions.loading_constraints["lambda_activity_vas_activity"] = {
-            "parameter": "lambda_activity_vas_activity",
-            "constraint": "positive",
-            "reasoning": "Higher self-rated activity should reflect more activity.",
         }
         model_spec, errors = stage4_module._build_model_spec_from_decisions(
             runtime.decisions,
@@ -3348,11 +3423,6 @@ class TestStage4Mechanics:
             "distribution": "poisson",
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
-        }
-        runtime.decisions.loading_constraints["lambda_activity_vas_activity"] = {
-            "parameter": "lambda_activity_vas_activity",
-            "constraint": "positive",
-            "reasoning": "Higher self-rated activity should reflect more activity.",
         }
         model_spec, errors = stage4_module._build_model_spec_from_decisions(
             runtime.decisions,
@@ -3469,7 +3539,6 @@ class TestStage4Mechanics:
         _set_runtime_block(plan, runtime, "review:model_spec")
         runtime.accepted = Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]})
         runtime.block_status["indicator:steps"] = "accepted"
-        runtime.block_status["loading:activity"] = "accepted"
         runtime.block_status["review:model_spec"] = "pending"
 
         stage_output, feedback = compute_stage4_validate_step(
@@ -3478,8 +3547,8 @@ class TestStage4Mechanics:
                 "block_kind": "global_review",
                 "proposal": {
                     "decision": "reopen",
-                    "reopen_block_ids": ["loading:activity", "indicator:steps"],
-                    "reasoning": "The sign convention and count likelihood should be reconsidered together.",
+                    "reopen_block_ids": ["indicator:steps"],
+                    "reasoning": "The count likelihood should be reconsidered.",
                 },
             },
             plan=plan,
@@ -3497,11 +3566,10 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert "MODEL REVIEW REOPENED" in feedback
-        assert "`indicator:steps`, `loading:activity`" in feedback
+        assert "`indicator:steps`" in feedback
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
         assert runtime.block_status["indicator:steps"] == "reopened"
-        assert runtime.block_status["loading:activity"] == "reopened"
 
     def test_global_review_allows_reopening_more_than_three_model_blocks(self):
         model_blocks = (
@@ -3518,16 +3586,16 @@ class TestStage4Mechanics:
                 variable_names=("b",),
             ),
             Stage4FrontierBlock(
-                id="loading:c",
-                kind="loading_decision",
-                label="Loading c",
-                parameter_names=("lambda_c",),
+                id="indicator:c",
+                kind="indicator_decision",
+                label="Indicator c",
+                variable_names=("c",),
             ),
             Stage4FrontierBlock(
-                id="loading:d",
-                kind="loading_decision",
-                label="Loading d",
-                parameter_names=("lambda_d",),
+                id="indicator:d",
+                kind="indicator_decision",
+                label="Indicator d",
+                variable_names=("d",),
             ),
         )
         review_block = Stage4FrontierBlock(
@@ -3572,7 +3640,7 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert "MODEL REVIEW REOPENED" in feedback
-        assert "`indicator:a`, `indicator:b`, `loading:c`, `loading:d`" in feedback
+        assert "`indicator:a`, `indicator:b`, `indicator:c`, `indicator:d`" in feedback
         assert get_active_plan_block(plan, runtime).id == "indicator:a"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
         for block in model_blocks:
@@ -3971,54 +4039,56 @@ class TestStage4Mechanics:
         assert repair_plan.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
 
     def test_prior_failure_classification_prefers_lowest_rank_scope_over_validator_scope(self):
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {
-                        "name": "activity",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "sleep",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                ],
-                "edges": [
-                    {"cause": "activity", "effect": "sleep"},
-                    {"cause": "sleep", "effect": "activity"},
-                ],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "activity_vas",
-                        "construct_name": "activity",
-                        "measurement_dtype": "ordinal",
-                        "how_to_measure": "Activity rating",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "sleep_quality",
-                        "construct_name": "sleep",
-                        "measurement_dtype": "ordinal",
-                        "how_to_measure": "Sleep quality rating",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
-            "estimation": {
-                "state_order": ["activity", "sleep"],
-                "edges": [
-                    {"cause": "activity", "effect": "sleep"},
-                    {"cause": "sleep", "effect": "activity"},
-                ],
-                "induced_dependencies": [],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "activity",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "sleep",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                    ],
+                    "edges": [
+                        {"cause": "activity", "effect": "sleep"},
+                        {"cause": "sleep", "effect": "activity"},
+                    ],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "activity_vas",
+                            "construct_name": "activity",
+                            "measurement_dtype": "ordinal",
+                            "how_to_measure": "Activity rating",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "sleep_quality",
+                            "construct_name": "sleep",
+                            "measurement_dtype": "ordinal",
+                            "how_to_measure": "Sleep quality rating",
+                            "aggregation": "mean",
+                        },
+                    ],
+                },
+                "estimation": {
+                    "state_order": ["activity", "sleep"],
+                    "edges": [
+                        {"cause": "activity", "effect": "sleep"},
+                        {"cause": "sleep", "effect": "activity"},
+                    ],
+                    "induced_dependencies": [],
+                },
+            }
+        )
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
@@ -4071,60 +4141,66 @@ class TestStage4Mechanics:
     def test_scc_repair_plan_narrows_effect_prompt_to_internal_scc_parameters(self):
         from causal_ssm_agent.orchestrator.stage4_repair import build_repair_plan
 
-        causal_spec = {
-            "latent": {
-                "constructs": [
-                    {"name": "stress", "role": "exogenous", "temporal_status": "time_varying"},
-                    {"name": "activity", "role": "endogenous", "temporal_status": "time_varying"},
-                    {
-                        "name": "sleep",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "is_outcome": True,
-                    },
-                ],
-                "edges": [
-                    {"cause": "stress", "effect": "sleep"},
-                    {"cause": "activity", "effect": "sleep"},
-                    {"cause": "sleep", "effect": "activity"},
-                ],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "stress_vas",
-                        "construct_name": "stress",
-                        "measurement_dtype": "ordinal",
-                        "how_to_measure": "Stress rating",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "activity_vas",
-                        "construct_name": "activity",
-                        "measurement_dtype": "ordinal",
-                        "how_to_measure": "Activity rating",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "name": "sleep_quality",
-                        "construct_name": "sleep",
-                        "measurement_dtype": "ordinal",
-                        "how_to_measure": "Sleep quality rating",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
-            "estimation": {
-                "state_order": ["stress", "activity", "sleep"],
-                "edges": [
-                    {"cause": "stress", "effect": "sleep"},
-                    {"cause": "activity", "effect": "sleep"},
-                    {"cause": "sleep", "effect": "activity"},
-                ],
-                "induced_dependencies": [],
-            },
-        }
+        causal_spec = _with_positive_indicator_polarity(
+            {
+                "latent": {
+                    "constructs": [
+                        {"name": "stress", "role": "exogenous", "temporal_status": "time_varying"},
+                        {
+                            "name": "activity",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "sleep",
+                            "role": "endogenous",
+                            "temporal_status": "time_varying",
+                            "is_outcome": True,
+                        },
+                    ],
+                    "edges": [
+                        {"cause": "stress", "effect": "sleep"},
+                        {"cause": "activity", "effect": "sleep"},
+                        {"cause": "sleep", "effect": "activity"},
+                    ],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "stress_vas",
+                            "construct_name": "stress",
+                            "measurement_dtype": "ordinal",
+                            "how_to_measure": "Stress rating",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "activity_vas",
+                            "construct_name": "activity",
+                            "measurement_dtype": "ordinal",
+                            "how_to_measure": "Activity rating",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "sleep_quality",
+                            "construct_name": "sleep",
+                            "measurement_dtype": "ordinal",
+                            "how_to_measure": "Sleep quality rating",
+                            "aggregation": "mean",
+                        },
+                    ],
+                },
+                "estimation": {
+                    "state_order": ["stress", "activity", "sleep"],
+                    "edges": [
+                        {"cause": "stress", "effect": "sleep"},
+                        {"cause": "activity", "effect": "sleep"},
+                        {"cause": "sleep", "effect": "activity"},
+                    ],
+                    "induced_dependencies": [],
+                },
+            }
+        )
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
 
@@ -4553,19 +4629,6 @@ class TestStage4Mechanics:
                 },
             },
             {
-                "block_id": "loading:activity",
-                "block_kind": "loading_decision",
-                "proposal": {
-                    "loading_constraints": [
-                        {
-                            "parameter": "lambda_activity_vas_activity",
-                            "constraint": "positive",
-                            "reasoning": "Higher self-rated activity should reflect more activity.",
-                        }
-                    ]
-                },
-            },
-            {
                 "block_id": "review:model_spec",
                 "block_kind": "global_review",
                 "proposal": {
@@ -4681,7 +4744,6 @@ class TestStage4Mechanics:
 
         expected_blocks = [
             "indicator:steps",
-            "loading:activity",
             "review:model_spec",
             "measurement:activity",
             "dynamics:activity",
@@ -4691,7 +4753,6 @@ class TestStage4Mechanics:
             "measurement:activity",
         ]
         expected_reopen_ids = [
-            None,
             None,
             None,
             None,
@@ -4850,19 +4911,6 @@ class TestStage4Mechanics:
                 },
             },
             {
-                "block_id": "loading:activity",
-                "block_kind": "loading_decision",
-                "proposal": {
-                    "loading_constraints": [
-                        {
-                            "parameter": "lambda_activity_vas_activity",
-                            "constraint": "positive",
-                            "reasoning": "Higher self-rated activity should reflect more activity.",
-                        }
-                    ]
-                },
-            },
-            {
                 "block_id": "review:model_spec",
                 "block_kind": "global_review",
                 "proposal": {
@@ -4988,7 +5036,6 @@ class TestStage4Mechanics:
 
         assert visited_blocks == [
             "indicator:steps",
-            "loading:activity",
             "review:model_spec",
             "measurement:activity",
             "dynamics:activity",
@@ -5020,19 +5067,6 @@ class TestStage4Mechanics:
                     "distribution": "poisson",
                     "link": "log",
                     "reasoning": "Step counts are nonnegative integers.",
-                },
-            },
-            "loading:activity": {
-                "block_id": "loading:activity",
-                "block_kind": "loading_decision",
-                "proposal": {
-                    "loading_constraints": [
-                        {
-                            "parameter": "lambda_activity_vas_activity",
-                            "constraint": "positive",
-                            "reasoning": "Higher self-rated activity should reflect more activity.",
-                        }
-                    ]
                 },
             },
             "review:model_spec": {
@@ -5213,7 +5247,6 @@ class TestStage4Mechanics:
 
         assert visited_blocks == [
             "indicator:steps",
-            "loading:activity",
             "review:model_spec",
             "measurement:activity",
             "dynamics:activity",
@@ -5732,19 +5765,6 @@ class TestStage4Mechanics:
                 },
             },
             {
-                "block_id": "loading:activity",
-                "block_kind": "loading_decision",
-                "proposal": {
-                    "loading_constraints": [
-                        {
-                            "parameter": "lambda_activity_vas_activity",
-                            "constraint": "positive",
-                            "reasoning": "Higher self-rated activity should reflect more activity.",
-                        }
-                    ]
-                },
-            },
-            {
                 "block_id": "review:model_spec",
                 "block_kind": "global_review",
                 "proposal": {
@@ -5859,7 +5879,6 @@ class TestStage4Mechanics:
         ]
         expected_blocks = [
             "indicator:steps",
-            "loading:activity",
             "review:model_spec",
             "measurement:activity",
             "dynamics:activity",
@@ -6063,7 +6082,6 @@ class TestStage4Mechanics:
         assert seen_tool_names == [["validate_model"]] * len(submissions)
         assert seen_feedbacks == [
             "No validator feedback yet. Submit the active block only.",
-            "BLOCK ACCEPTED:\n- saved `indicator:steps`\n- next block: `loading:activity` (loading_decision)",
             "MODEL STATE SAVED:\n- missing priors",
             "BLOCK ACCEPTED:\n- saved `review:model_spec`\n- next block: `measurement:activity` (measurement_prior)",
             "MODEL STATE SAVED:\n- missing priors",
