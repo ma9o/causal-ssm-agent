@@ -42,10 +42,10 @@ def _adapt_step_size(
     avg_accept: float,
     target_accept: float,
     gain: float = 0.1,
-) -> float:
+) -> jax.Array:
     """Dual-averaging step size adaptation on log scale."""
     log_eps = jnp.log(jnp.array(eps)) + gain * (avg_accept - target_accept)
-    return float(jnp.clip(jnp.exp(log_eps), 1e-5, 2.0))
+    return jnp.clip(jnp.exp(log_eps), 1e-5, 2.0)
 
 
 def _build_tempered_smc_bundle(
@@ -75,9 +75,11 @@ def _build_tempered_smc_bundle(
         likelihood_backend=likelihood_backend,
         reparam=reparam,
     )
+    log_lik_val_and_grad = jax.value_and_grad(log_lik_fn)
+    log_prior_unc_val_and_grad = jax.value_and_grad(log_prior_unc_fn)
 
     def _safe_lik_val_and_grad(z):
-        val, grad = jax.value_and_grad(log_lik_fn)(z)
+        val, grad = log_lik_val_and_grad(z)
         safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
         safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
         return safe_val, safe_grad
@@ -85,8 +87,8 @@ def _build_tempered_smc_bundle(
     batch_lik_val_and_grad = jax.jit(jax.vmap(_safe_lik_val_and_grad))
 
     def _tempered_val_and_grad(z, beta):
-        lik_val, lik_grad = jax.value_and_grad(log_lik_fn)(z)
-        prior_val, prior_grad = jax.value_and_grad(log_prior_unc_fn)(z)
+        lik_val, lik_grad = log_lik_val_and_grad(z)
+        prior_val, prior_grad = log_prior_unc_val_and_grad(z)
         val = prior_val + beta * lik_val
         grad = prior_grad + beta * lik_grad
         safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
@@ -136,6 +138,89 @@ def _build_tempered_smc_bundle(
             keys, particles_M
         )
 
+    def _pilot_adapt(rng_key, particles, eps, chol_mass, target_accept):
+        zero = jnp.asarray(0.0, dtype=eps.dtype)
+
+        def body(carry, step_idx):
+            def _active(state):
+                rng_key, particles, eps, _done, _avg_accept = state
+                rng_key, mutate_key = random.split(rng_key)
+                particles_new, n_accepts = _mutate_batch(
+                    mutate_key, particles, zero, eps, chol_mass
+                )
+                avg_accept_new = jnp.mean(n_accepts) / n_mh_steps
+                eps_new = _adapt_step_size(eps, avg_accept_new, target_accept, gain=0.5)
+                converged = (step_idx >= 5) & (jnp.abs(avg_accept_new - target_accept) < 0.1)
+                return rng_key, particles_new, eps_new, converged, avg_accept_new
+
+            _rng_key, _particles, _eps, done, _avg_accept = carry
+            new_state = jax.lax.cond(done, lambda state: state, _active, carry)
+            return new_state, None
+
+        init = (rng_key, particles, eps, jnp.asarray(False), jnp.asarray(0.0, dtype=eps.dtype))
+        (rng_key, particles, eps, done, avg_accept), _ = jax.lax.scan(body, init, jnp.arange(30))
+        return rng_key, particles, eps, done, avg_accept
+
+    def _standard_mutation_rounds(rng_key, particles, beta_k, eps, chol_mass, target_accept):
+        proposals_per_round = jnp.asarray(particles.shape[0] * n_mh_steps, dtype=eps.dtype)
+
+        def body(carry, step_idx):
+            def _active(state):
+                (
+                    rng_key,
+                    particles,
+                    eps,
+                    _done,
+                    total_accepts,
+                    _n_rounds,
+                    _round_accept_rate,
+                ) = state
+                rng_key, mutate_key = random.split(rng_key)
+                particles_new, n_accepts = _mutate_batch(
+                    mutate_key, particles, beta_k, eps, chol_mass
+                )
+                round_accepts = jnp.sum(n_accepts).astype(eps.dtype)
+                round_accept_rate_new = round_accepts / proposals_per_round
+                eps_new = _adapt_step_size(eps, round_accept_rate_new, target_accept)
+                stop_now = (step_idx > 0) & (round_accept_rate_new > 0.2)
+                return (
+                    rng_key,
+                    particles_new,
+                    eps_new,
+                    stop_now,
+                    total_accepts + round_accepts,
+                    jnp.asarray(step_idx + 1, dtype=jnp.int32),
+                    round_accept_rate_new,
+                )
+
+            new_state = jax.lax.cond(carry[3], lambda state: state, _active, carry)
+            return new_state, None
+
+        init = (
+            rng_key,
+            particles,
+            eps,
+            jnp.asarray(False),
+            jnp.asarray(0.0, dtype=eps.dtype),
+            jnp.asarray(0, dtype=jnp.int32),
+            jnp.asarray(0.0, dtype=eps.dtype),
+        )
+        (
+            (
+                rng_key,
+                particles,
+                eps,
+                _done,
+                total_accepts,
+                n_rounds,
+                _last_round_accept_rate,
+            ),
+            _,
+        ) = jax.lax.scan(body, init, jnp.arange(5))
+        total_proposals = jnp.maximum(n_rounds.astype(eps.dtype) * proposals_per_round, 1.0)
+        avg_accept = total_accepts / total_proposals
+        return rng_key, particles, eps, avg_accept, n_rounds
+
     return {
         "dim": dim,
         "site_info": site_info,
@@ -143,6 +228,8 @@ def _build_tempered_smc_bundle(
         "batch_lik_val_and_grad": batch_lik_val_and_grad,
         "mutate_batch_jit": jax.jit(_mutate_batch),
         "mutate_batch_wastefree_jit": jax.jit(_mutate_batch_wastefree),
+        "pilot_adapt_jit": jax.jit(_pilot_adapt),
+        "standard_mutation_rounds_jit": jax.jit(_standard_mutation_rounds),
     }
 
 
@@ -261,9 +348,11 @@ def run_tempered_smc(
     batch_lik_val_and_grad = cached_bundle["batch_lik_val_and_grad"]
     _mutate_batch_jit = cached_bundle["mutate_batch_jit"]
     _mutate_batch_wastefree_jit = cached_bundle["mutate_batch_wastefree_jit"]
+    _pilot_adapt_jit = cached_bundle["pilot_adapt_jit"]
+    _standard_mutation_rounds_jit = cached_bundle["standard_mutation_rounds_jit"]
 
     # 3. Initialize N particles from prior
-    eps = param_step_size
+    eps = jnp.asarray(param_step_size, dtype=observations.dtype)
     mode_tag = "adaptive" if adaptive_tempering else "linear"
     wf_tag = "+waste-free" if waste_free else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
@@ -277,7 +366,7 @@ def run_tempered_smc(
         n_outer,
         D,
         n_mh_steps,
-        eps,
+        float(jax.device_get(eps)),
         target_accept,
     )
     logger.info("  Initializing %s particles from prior...", N)
@@ -299,25 +388,19 @@ def run_tempered_smc(
     # Pilot: tune eps at prior (beta=0) before tempering
     # ===================================================================
     logger.info("  Pilot: adapting step size at prior...")
-    for pilot_step in range(30):
-        rng_key, mutate_key = random.split(rng_key)
-        particles_new, n_accepts = _mutate_batch_jit(mutate_key, particles, 0.0, eps, chol_mass)
-        avg_accept = float(jnp.mean(n_accepts) / n_mh_steps)
-        particles = particles_new
-
-        # Aggressive adaptation during pilot
-        eps = _adapt_step_size(eps, avg_accept, target_accept, gain=0.5)
-
-        if pilot_step >= 5 and abs(avg_accept - target_accept) < 0.1:
-            logger.info(
-                "    pilot converged at step %s: accept=%.2f eps=%.4f",
-                pilot_step + 1,
-                avg_accept,
-                eps,
-            )
-            break
+    rng_key, particles, eps, pilot_converged, avg_accept_arr = _pilot_adapt_jit(
+        rng_key,
+        particles,
+        eps,
+        chol_mass,
+        target_accept,
+    )
+    avg_accept = float(jax.device_get(avg_accept_arr))
+    eps_host = float(jax.device_get(eps))
+    if bool(jax.device_get(pilot_converged)):
+        logger.info("    pilot converged: accept=%.2f eps=%.4f", avg_accept, eps_host)
     else:
-        logger.info("    pilot done: accept=%.2f eps=%.4f", avg_accept, eps)
+        logger.info("    pilot done: accept=%.2f eps=%.4f", avg_accept, eps_host)
 
     # Recompute after pilot diversification
     log_liks, _ = batch_lik_val_and_grad(particles)
@@ -332,7 +415,6 @@ def run_tempered_smc(
     beta_schedule = []
 
     beta_prev = 0.0
-    max_mutation_rounds = 5  # max extra rounds per tempering level (standard mode only)
     level = 0
 
     # Waste-free parameters
@@ -355,7 +437,8 @@ def run_tempered_smc(
         lse = jax.nn.logsumexp(logw)
         log_wn = logw - lse
         wn = jnp.exp(log_wn)
-        ess = float(1.0 / jnp.sum(wn**2))
+        ess_arr = 1.0 / jnp.sum(wn**2)
+        ess = float(jax.device_get(ess_arr))
         ess_history.append(ess)
 
         # c. Update mass matrix only when ESS is healthy
@@ -376,11 +459,12 @@ def run_tempered_smc(
             particles = all_trajs.reshape(N, D)
             logw = jnp.full(N, -jnp.log(float(N)))
 
-            avg_accept = float(jnp.mean(n_accs) / n_mh_steps)
+            avg_accept_arr = jnp.mean(n_accs) / n_mh_steps
+            avg_accept = float(jax.device_get(avg_accept_arr))
             n_rounds = 1
 
             # Adapt step size
-            eps = _adapt_step_size(eps, avg_accept, target_accept)
+            eps = _adapt_step_size(eps, avg_accept_arr, target_accept)
         else:
             # Standard: resample if ESS < N/2, then adaptive mutation rounds
             did_resample = False
@@ -392,28 +476,16 @@ def run_tempered_smc(
                 logw = jnp.full(N, -jnp.log(float(N)))
                 did_resample = True
 
-            total_accepts = 0
-            total_proposals = 0
-            for mutation_round in range(max_mutation_rounds):
-                rng_key, mutate_key = random.split(rng_key)
-                particles_new, n_accepts = _mutate_batch_jit(
-                    mutate_key, particles, beta_k, eps, chol_mass
-                )
-                round_accepts = float(jnp.sum(n_accepts))
-                total_accepts += round_accepts
-                total_proposals += N * n_mh_steps
-                particles = particles_new
-
-                # Adapt step size after each round
-                round_accept_rate = round_accepts / (N * n_mh_steps)
-                eps = _adapt_step_size(eps, round_accept_rate, target_accept)
-
-                # Stop early if acceptance is reasonable
-                if mutation_round > 0 and round_accept_rate > 0.2:
-                    break
-
-            avg_accept = total_accepts / max(total_proposals, 1)
-            n_rounds = mutation_round + 1
+            rng_key, particles, eps, avg_accept_arr, n_rounds_arr = _standard_mutation_rounds_jit(
+                rng_key,
+                particles,
+                beta_k,
+                eps,
+                chol_mass,
+                target_accept,
+            )
+            avg_accept = float(jax.device_get(avg_accept_arr))
+            n_rounds = int(jax.device_get(n_rounds_arr))
 
         accept_rates.append(avg_accept)
         eps_history.append(eps)
@@ -434,7 +506,7 @@ def run_tempered_smc(
             ess,
             N,
             avg_accept,
-            eps,
+            float(jax.device_get(eps)),
             n_rounds,
             resamp_tag,
         )
@@ -452,10 +524,15 @@ def run_tempered_smc(
         for _mix_round in range(n_mixing_rounds):
             rng_key, mutate_key = random.split(rng_key)
             particles, n_accepts = _mutate_batch_jit(mutate_key, particles, 1.0, eps, chol_mass)
-            mix_accept = float(jnp.mean(n_accepts) / n_mh_steps)
+            mix_accept_arr = jnp.mean(n_accepts) / n_mh_steps
+            mix_accept = float(jax.device_get(mix_accept_arr))
             # Adapt step size
-            eps = _adapt_step_size(eps, mix_accept, target_accept)
-        logger.info("    mixing done: accept=%.2f eps=%.4f", mix_accept, eps)
+            eps = _adapt_step_size(eps, mix_accept_arr, target_accept)
+        logger.info(
+            "    mixing done: accept=%.2f eps=%.4f",
+            mix_accept,
+            float(jax.device_get(eps)),
+        )
 
     # Posterior = all N particles at beta=1.0
     chain_particles = particles  # (N, D)
@@ -474,8 +551,8 @@ def run_tempered_smc(
     diagnostics = {
         "accept_rates": accept_rates,
         "ess_history": ess_history,
-        "eps_history": eps_history,
-        "beta_schedule": beta_schedule,
+        "eps_history": [float(jax.device_get(step_eps)) for step_eps in eps_history],
+        "beta_schedule": [float(jax.device_get(beta)) for beta in beta_schedule],
         "n_levels": actual_levels,
         "n_outer": n_outer,
         "n_csmc_particles": N,

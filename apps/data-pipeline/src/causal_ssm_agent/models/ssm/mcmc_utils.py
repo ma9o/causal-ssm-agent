@@ -122,6 +122,7 @@ def compute_weighted_chol_mass(particles, logw, D, reg=1e-3):
     return jla.cholesky(prec, lower=True)
 
 
+@jax.jit
 def find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N):
     """Find next tempering beta via bisection on ESS target.
 
@@ -138,7 +139,11 @@ def find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N):
     Returns:
         beta_next: next tempering beta (float)
     """
-    target_ess = target_ess_ratio * N
+    dtype = log_liks.dtype
+    beta_prev = jnp.asarray(beta_prev, dtype=dtype)
+    target_ess = jnp.asarray(target_ess_ratio * N, dtype=dtype)
+    one = jnp.asarray(1.0, dtype=dtype)
+    zero = jnp.asarray(0.0, dtype=dtype)
 
     def _compute_ess(delta_beta):
         logw_new = logw + delta_beta * log_liks
@@ -148,23 +153,21 @@ def find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N):
         return 1.0 / jnp.sum(wn**2)
 
     # Check if jumping to beta=1.0 still keeps ESS above target
-    delta_max = 1.0 - beta_prev
+    delta_max = one - beta_prev
     ess_at_one = _compute_ess(delta_max)
-    if float(ess_at_one) >= target_ess:
-        return 1.0
 
-    # Bisection: find delta_beta in [0, delta_max] where ESS = target
-    lo, hi = 0.0, delta_max
-    for _ in range(50):
-        mid = (lo + hi) / 2.0
-        ess_mid = float(_compute_ess(mid))
-        if ess_mid > target_ess:
-            lo = mid
-        else:
-            hi = mid
+    def _bisect_step(_i, state):
+        lo, hi = state
+        mid = 0.5 * (lo + hi)
+        ess_mid = _compute_ess(mid)
+        take_upper = ess_mid > target_ess
+        lo_next = jnp.where(take_upper, mid, lo)
+        hi_next = jnp.where(take_upper, hi, mid)
+        return lo_next, hi_next
 
-    beta_next = beta_prev + lo
-    return min(beta_next, 1.0)
+    lo_final, _ = jax.lax.fori_loop(0, 50, _bisect_step, (zero, delta_max))
+    beta_next = beta_prev + lo_final
+    return jnp.where(ess_at_one >= target_ess, one, jnp.minimum(beta_next, one))
 
 
 # ---------------------------------------------------------------------------

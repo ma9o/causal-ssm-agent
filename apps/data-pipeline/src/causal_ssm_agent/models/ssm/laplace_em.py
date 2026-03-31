@@ -54,16 +54,30 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class SupportObservationGroup:
-    """One anchored interval-summary observation block."""
+_DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 
-    anchor_idx: int
-    start_idx: int
-    mask_full: np.ndarray
-    prev_coeffs: np.ndarray
-    curr_coeffs: np.ndarray
-    weights: np.ndarray
+
+@dataclass(frozen=True)
+class SupportObservationGroupBatch:
+    """One batch of anchored interval-summary windows with the same state length."""
+
+    state_len: int
+    anchor_indices: jnp.ndarray
+    start_indices: jnp.ndarray
+    mask_full: jnp.ndarray
+    prev_coeffs: jnp.ndarray
+    curr_coeffs: jnp.ndarray
+    weights: jnp.ndarray
+
+
+def _should_use_dense_support_laplace(*, n_time: int, n_latent: int) -> bool:
+    """Use the dense exact support-aware Newton system on short trajectories.
+
+    The banded support-aware path pays substantial Python/autodiff overhead per
+    anchored window. For small latent trajectories, a single dense exact Hessian
+    over the full latent path is materially faster and preserves the same model.
+    """
+    return n_time * n_latent <= _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM
 
 
 def _symmetrize_psd(mats: jnp.ndarray, jitter: float = 0.0) -> jnp.ndarray:
@@ -316,7 +330,7 @@ def _block_banded_logdet(chol_diag: jnp.ndarray) -> jnp.ndarray:
 
 def _infer_support_groups(
     observation_support: ObservationSupportRuntime,
-) -> tuple[tuple[SupportObservationGroup, ...], int]:
+) -> tuple[tuple[SupportObservationGroupBatch, ...], int]:
     """Compile anchored non-point observation windows into block groups."""
     support_kind_codes = np.asarray(get_support_kind_codes(observation_support))
     prev_coeffs = np.asarray(observation_support.interval_prev_coeffs)
@@ -326,7 +340,9 @@ def _infer_support_groups(
     T, n_manifest = emission_slots.shape
     tol = 1e-10
 
-    groups: list[SupportObservationGroup] = []
+    grouped_windows: dict[
+        int, list[tuple[int, int, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]]
+    ] = {}
     max_bandwidth = 1 if T > 1 else 0
     for anchor_idx in range(T):
         manifests = [
@@ -370,18 +386,34 @@ def _infer_support_groups(
             group_weights[:, manifest_idx] = weights[
                 start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
             ]
-        groups.append(
-            SupportObservationGroup(
-                anchor_idx=anchor_idx,
-                start_idx=start_idx,
-                mask_full=mask_full,
-                prev_coeffs=group_prev,
-                curr_coeffs=group_curr,
-                weights=group_weights,
+        state_len = anchor_idx - start_idx + 1
+        grouped_windows.setdefault(state_len, []).append(
+            (
+                anchor_idx,
+                start_idx,
+                jnp.asarray(mask_full),
+                jnp.asarray(group_prev),
+                jnp.asarray(group_curr),
+                jnp.asarray(group_weights),
             )
         )
 
-    return tuple(groups), max_bandwidth
+    batches: list[SupportObservationGroupBatch] = []
+    for state_len in sorted(grouped_windows):
+        windows = grouped_windows[state_len]
+        batches.append(
+            SupportObservationGroupBatch(
+                state_len=state_len,
+                anchor_indices=jnp.asarray([window[0] for window in windows], dtype=jnp.int32),
+                start_indices=jnp.asarray([window[1] for window in windows], dtype=jnp.int32),
+                mask_full=jnp.stack([window[2] for window in windows], axis=0),
+                prev_coeffs=jnp.stack([window[3] for window in windows], axis=0),
+                curr_coeffs=jnp.stack([window[4] for window in windows], axis=0),
+                weights=jnp.stack([window[5] for window in windows], axis=0),
+            )
+        )
+
+    return tuple(batches), max_bandwidth
 
 
 def _ieks_smooth(
@@ -638,7 +670,7 @@ def _assemble_support_aware_observation_system(
     obs_kernel,
     mean_log_prob_fn,
     observation_support: ObservationSupportRuntime,
-    support_groups: tuple[SupportObservationGroup, ...],
+    support_groups: tuple[SupportObservationGroupBatch, ...],
     bandwidth: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble exact Newton observation terms in block-banded form."""
@@ -661,33 +693,39 @@ def _assemble_support_aware_observation_system(
     clean_obs = jnp.nan_to_num(observations, nan=0.0)
     n_manifest = observations.shape[1]
 
-    for group in support_groups:
-        anchor_idx = group.anchor_idx
-        start_idx = group.start_idx
-        segment = z_est[start_idx : anchor_idx + 1]
-        segment_len = segment.shape[0]
-        mask_full = jnp.asarray(group.mask_full, dtype=z_est.dtype)
-        prev_coeffs = jnp.asarray(group.prev_coeffs, dtype=z_est.dtype)
-        curr_coeffs = jnp.asarray(group.curr_coeffs, dtype=z_est.dtype)
-        weights = jnp.asarray(group.weights, dtype=z_est.dtype)
+    for group_batch in support_groups:
+        state_len = group_batch.state_len
+        start_indices = group_batch.start_indices
+        anchor_indices = group_batch.anchor_indices
+        mask_full = group_batch.mask_full.astype(z_est.dtype)
+        prev_coeffs = group_batch.prev_coeffs.astype(z_est.dtype)
+        curr_coeffs = group_batch.curr_coeffs.astype(z_est.dtype)
+        weights = group_batch.weights.astype(z_est.dtype)
 
-        def _window_log_prob(
-            segment_flat: jnp.ndarray,
+        def _extract_segment(start_idx, *, _state_len: int = state_len):
+            return jax.lax.dynamic_slice(z_est, (start_idx, 0), (_state_len, D))
+
+        segment_states = jax.vmap(_extract_segment)(start_indices)
+        segment_flat = segment_states.reshape(segment_states.shape[0], -1)
+        anchor_obs = clean_obs[anchor_indices]
+
+        def _window_log_prob_single(
+            segment_flat_single: jnp.ndarray,
+            mask_full_single: jnp.ndarray,
+            prev_coeffs_single: jnp.ndarray,
+            curr_coeffs_single: jnp.ndarray,
+            weights_single: jnp.ndarray,
+            anchor_obs_single: jnp.ndarray,
             *,
-            _anchor_idx: int = anchor_idx,
-            _segment_len: int = segment_len,
-            _mask_full: jnp.ndarray = mask_full,
-            _prev_coeffs: jnp.ndarray = prev_coeffs,
-            _curr_coeffs: jnp.ndarray = curr_coeffs,
-            _weights: jnp.ndarray = weights,
+            _state_len: int = state_len,
         ) -> jnp.ndarray:
-            segment_states = segment_flat.reshape(_segment_len, D)
-            responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(segment_states)
+            states = segment_flat_single.reshape(_state_len, D)
+            responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(states)
 
-            if _segment_len == 1:
+            if _state_len == 1:
                 obs_sum = responses[-1]
                 obs_sumsq = responses[-1] ** 2
-                obs_weight = _mask_full
+                obs_weight = mask_full_single
             else:
                 zeros = jnp.zeros((n_manifest, 1), dtype=responses.dtype)
 
@@ -711,9 +749,9 @@ def _assemble_support_aware_observation_system(
                     (responses[0], zeros, zeros, zeros),
                     (
                         responses[1:],
-                        _prev_coeffs[..., None],
-                        _curr_coeffs[..., None],
-                        _weights[..., None],
+                        prev_coeffs_single[..., None],
+                        curr_coeffs_single[..., None],
+                        weights_single[..., None],
                     ),
                 )
                 _response_last, obs_sum, obs_sumsq, obs_weight = final_carry
@@ -728,22 +766,39 @@ def _assemble_support_aware_observation_system(
                 obs_weight,
                 summary_operator_codes,
             )
-            return mean_log_prob_fn(clean_obs[_anchor_idx], expected_mean, R, _mask_full)
+            return mean_log_prob_fn(anchor_obs_single, expected_mean, R, mask_full_single)
 
-        segment_flat = segment.reshape(-1)
-        grad_flat = jax.grad(_window_log_prob)(segment_flat)
-        hess_flat = jax.hessian(_window_log_prob)(segment_flat)
-        info_flat = -0.5 * (hess_flat + hess_flat.T)
-        info_blocks = info_flat.reshape(segment_len, D, segment_len, D).transpose(0, 2, 1, 3)
-        taylor_rhs = (info_flat @ segment_flat + grad_flat).reshape(segment_len, D)
+        window_grad = jax.grad(_window_log_prob_single)
+        window_hessian = jax.hessian(_window_log_prob_single)
+        grad_flat = jax.vmap(window_grad)(
+            segment_flat,
+            mask_full,
+            prev_coeffs,
+            curr_coeffs,
+            weights,
+            anchor_obs,
+        )
+        hess_flat = jax.vmap(window_hessian)(
+            segment_flat,
+            mask_full,
+            prev_coeffs,
+            curr_coeffs,
+            weights,
+            anchor_obs,
+        )
+        info_flat = -0.5 * (hess_flat + jnp.swapaxes(hess_flat, -1, -2))
+        info_blocks = info_flat.reshape(-1, state_len, D, state_len, D).transpose(0, 1, 3, 2, 4)
+        taylor_rhs = (jnp.einsum("gij,gj->gi", info_flat, segment_flat) + grad_flat).reshape(
+            -1, state_len, D
+        )
 
-        for local_i in range(segment_len):
-            time_i = start_idx + local_i
-            diag = diag.at[time_i].add(info_blocks[local_i, local_i])
-            rhs = rhs.at[time_i].add(taylor_rhs[local_i])
-            for local_j in range(local_i + 1, segment_len):
+        for local_i in range(state_len):
+            time_i = start_indices + local_i
+            diag = diag.at[time_i].add(info_blocks[:, local_i, local_i])
+            rhs = rhs.at[time_i].add(taylor_rhs[:, local_i])
+            for local_j in range(local_i + 1, state_len):
                 offset = local_j - local_i
-                upper = upper.at[offset - 1, time_i].add(info_blocks[local_i, local_j])
+                upper = upper.at[offset - 1, time_i].add(info_blocks[:, local_i, local_j])
 
     return diag, upper, rhs
 
@@ -762,7 +817,7 @@ def _support_aware_ieks_log_lik(
     obs_kernel,
     mean_log_prob_fn,
     observation_support: ObservationSupportRuntime,
-    support_groups: tuple[SupportObservationGroup, ...],
+    support_groups: tuple[SupportObservationGroupBatch, ...],
     bandwidth: int,
     n_ieks_iters: int,
 ) -> jnp.ndarray:
@@ -1003,6 +1058,26 @@ class LaplaceLikelihood:
             self.observation_support is not None
             and self.observation_support.requires_interval_summary_handling
         ):
+            if _should_use_dense_support_laplace(
+                n_time=clean_obs.shape[0],
+                n_latent=self.n_latent,
+            ):
+                return _dense_support_laplace_log_lik(
+                    clean_obs,
+                    obs_mask,
+                    Ad,
+                    Qd,
+                    cd,
+                    measurement_params.lambda_mat,
+                    measurement_params.manifest_means,
+                    measurement_params.manifest_cov,
+                    initial_state.mean,
+                    initial_state.cov,
+                    obs_kernel,
+                    measurement_semantics.mean_log_prob_fn,
+                    self.observation_support,
+                    self.n_ieks_iters,
+                )
             return _support_aware_ieks_log_lik(
                 clean_obs,
                 obs_mask,
