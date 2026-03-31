@@ -1,13 +1,10 @@
 "use client";
 
 import { clearCodeVerifier, getCodeVerifier } from "@/lib/auth";
-import { getIdentity, setIdentity } from "@/lib/identity";
-import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
-import { generateWorkspaceAccessCode } from "@/lib/resume-key";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 
 export default function AuthCallbackPage({
   searchParams,
@@ -18,19 +15,24 @@ export default function AuthCallbackPage({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const validationError = useMemo(() => {
+    if (!code) {
+      return null;
+    }
+    if (!flowId) {
+      return "Authentication session is missing a flow id. Please try again.";
+    }
+    if (!getCodeVerifier(flowId)) {
+      return "Authentication session expired. Please start the sign-in flow again.";
+    }
+    return null;
+  }, [code, flowId]);
 
   useEffect(() => {
-    if (!code || startedRef.current) return;
+    if (!code || !flowId || validationError || startedRef.current) return;
     startedRef.current = true;
-
-    if (!flowId) {
-      setError("Authentication session is missing a flow id. Please try again.");
-      return;
-    }
-
     const codeVerifier = getCodeVerifier(flowId);
     if (!codeVerifier) {
-      setError("Authentication session expired. Please start the sign-in flow again.");
       return;
     }
 
@@ -42,19 +44,13 @@ export default function AuthCallbackPage({
       .then((res) => {
         if (!res.ok) throw new Error("Exchange failed");
         clearCodeVerifier(flowId);
-        const existingIdentity = getIdentity();
-        setIdentity({
-          workspaceId: existingIdentity?.workspaceId ?? generateAnonymousWorkspaceId(),
-          accessCode: existingIdentity?.accessCode ?? generateWorkspaceAccessCode(),
-          kind: "openrouter",
-        });
         router.push("/");
       })
       .catch(() => {
         clearCodeVerifier(flowId);
         setError("Failed to complete authentication. Please start the sign-in flow again.");
       });
-  }, [code, flowId, router]);
+  }, [code, flowId, router, validationError]);
 
   if (!code) {
     return (
@@ -70,10 +66,10 @@ export default function AuthCallbackPage({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      {error ? (
+      <div className="flex min-h-screen items-center justify-center p-4">
+      {error ?? validationError ? (
         <div className="text-center space-y-4">
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error ?? validationError}</p>
           <Link href="/" className="text-sm text-primary underline underline-offset-2">
             Return home
           </Link>

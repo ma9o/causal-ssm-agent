@@ -4,12 +4,10 @@ import { apiFetch } from "./client";
 export async function uploadFile(
   file: File,
   workspaceId: string,
-  accessCode: string,
 ): Promise<{ path: string }> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("workspaceId", workspaceId);
-  formData.append("accessCode", accessCode);
   const res = await fetch("/api/upload", {
     method: "POST",
     body: formData,

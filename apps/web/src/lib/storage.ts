@@ -13,7 +13,7 @@
  *   R2_PREFIX=data              // key prefix inside bucket (default: "data")
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 const isRemote = process.env.DEPLOYMENT_ENV === "production";
@@ -134,6 +134,27 @@ export async function writeBinary(relativePath: string, data: Buffer): Promise<v
 export async function ensureDir(relativePath: string): Promise<void> {
   if (isRemote) return;
   await mkdir(resolve(LOCAL_DATA_DIR, relativePath), { recursive: true });
+}
+
+export async function prefixExists(relativePrefix: string): Promise<boolean> {
+  if (isRemote) {
+    const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+    const response = await getS3().send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        MaxKeys: 1,
+        Prefix: r2Key(relativePrefix),
+      }),
+    );
+    return (response.Contents?.length ?? 0) > 0;
+  }
+
+  try {
+    await access(resolve(LOCAL_DATA_DIR, relativePrefix));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

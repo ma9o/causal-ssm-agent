@@ -133,7 +133,7 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
   const lines: string[] = [];
 
   // --- Header ---
-  lines.push("# Causal Inference Pipeline Report");
+  lines.push("# causal-ssm-agent Report");
   lines.push("");
   lines.push(`**Workspace ID**: \`${workspaceId}\``);
   lines.push(`**Generated**: ${new Date().toISOString().slice(0, 10)}`);

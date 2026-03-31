@@ -5,10 +5,7 @@ import {
   launchWorkspaceRootFlowRun,
   PrefectRunError,
 } from "@/lib/server/prefect-runs";
-import {
-  requireWorkspaceAccess,
-  setWorkspaceAccessCookie,
-} from "@/lib/workspace-access";
+import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 function buildInitialRunIdempotencyKey(
   workspaceId: string,
@@ -18,17 +15,11 @@ function buildInitialRunIdempotencyKey(
 }
 
 export async function POST(request: Request) {
-  const { workspaceId, accessCode, launchId, query } = await request.json();
+  const { workspaceId, launchId, query } = await request.json();
 
   if (typeof workspaceId !== "string" || !workspaceId.trim()) {
     return NextResponse.json(
       { error: "workspaceId is required" },
-      { status: 400 },
-    );
-  }
-  if (typeof accessCode !== "string" || !accessCode.trim()) {
-    return NextResponse.json(
-      { error: "accessCode is required" },
       { status: 400 },
     );
   }
@@ -42,10 +33,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
-    accessCode: accessCode.trim(),
-    allowCreate: false,
-  });
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }
@@ -68,15 +56,7 @@ export async function POST(request: Request) {
       idempotencyKey,
     );
     if (existingFlowRunId) {
-      const response = NextResponse.json({ rootFlowRunId: existingFlowRunId });
-      if (workspaceAccess.setCookieCode) {
-        setWorkspaceAccessCookie(
-          response,
-          workspaceAccess.workspaceId,
-          workspaceAccess.setCookieCode,
-        );
-      }
-      return response;
+      return NextResponse.json({ rootFlowRunId: existingFlowRunId });
     }
 
     const launch = await launchWorkspaceRootFlowRun({
@@ -89,7 +69,7 @@ export async function POST(request: Request) {
       workspaceId: workspaceAccess.workspaceId,
     });
     if (launch.status === "busy") {
-      const busyResponse = NextResponse.json(
+      return NextResponse.json(
         {
           error: launch.message,
           ...(launch.rootFlowRunId
@@ -98,25 +78,9 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
-      if (workspaceAccess.setCookieCode) {
-        setWorkspaceAccessCookie(
-          busyResponse,
-          workspaceAccess.workspaceId,
-          workspaceAccess.setCookieCode,
-        );
-      }
-      return busyResponse;
     }
 
-    const response = NextResponse.json({ rootFlowRunId: launch.rootFlowRunId });
-    if (workspaceAccess.setCookieCode) {
-      setWorkspaceAccessCookie(
-        response,
-        workspaceAccess.workspaceId,
-        workspaceAccess.setCookieCode,
-      );
-    }
-    return response;
+    return NextResponse.json({ rootFlowRunId: launch.rootFlowRunId });
   } catch (error) {
     if (error instanceof PrefectRunError) {
       return NextResponse.json(

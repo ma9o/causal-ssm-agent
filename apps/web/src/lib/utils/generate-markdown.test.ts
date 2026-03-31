@@ -8,7 +8,7 @@ describe("generateMarkdown", () => {
   it("generates header with run ID", () => {
     const data: AllStageData = {};
     const result = generateMarkdown(data, "test-run-123");
-    expect(result).toContain("# Causal Inference Pipeline Report");
+    expect(result).toContain("# causal-ssm-agent Report");
     expect(result).toContain("`test-run-123`");
     expect(result).toContain("**Generated**:");
   });

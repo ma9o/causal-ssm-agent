@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn(),
-  setWorkspaceAccessCookie: vi.fn((response: Response) => response),
 }));
 
 vi.mock("@/lib/server/openrouter-access", () => ({
@@ -21,7 +20,6 @@ vi.mock("@/lib/server/workspace-run-lock", () => ({
 
 import {
   requireWorkspaceAccess,
-  setWorkspaceAccessCookie,
 } from "@/lib/workspace-access";
 import {
   createByokSecretRef,
@@ -62,7 +60,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           query: "Why?",
         }),
       }),
@@ -78,7 +75,6 @@ describe("POST /api/runs", () => {
     vi.mocked(requireWorkspaceAccess).mockResolvedValue({
       ok: true,
       workspaceId: "USER123",
-      setCookieCode: "access-123",
     });
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
       mode: "trial",
@@ -104,7 +100,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-123",
           query: "Why?",
         }),
@@ -121,18 +116,12 @@ describe("POST /api/runs", () => {
       "USER123",
       "slot-busy",
     );
-    expect(setWorkspaceAccessCookie).toHaveBeenCalledWith(
-      response,
-      "USER123",
-      "access-123",
-    );
   });
 
   it("returns the existing root flow run when the same launchId is retried", async () => {
     vi.mocked(requireWorkspaceAccess).mockResolvedValue({
       ok: true,
       workspaceId: "USER123",
-      setCookieCode: "access-123",
     });
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
@@ -152,7 +141,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-123",
           query: "Why?",
         }),
@@ -167,18 +155,12 @@ describe("POST /api/runs", () => {
     expect(createByokSecretRef).not.toHaveBeenCalled();
     expect(claimWorkspaceRunSlot).not.toHaveBeenCalled();
     expect(releaseWorkspaceRunSlot).not.toHaveBeenCalled();
-    expect(setWorkspaceAccessCookie).toHaveBeenCalledWith(
-      response,
-      "USER123",
-      "access-123",
-    );
   });
 
   it("creates a run with a user-scoped OpenRouter key on the server", async () => {
     vi.mocked(requireWorkspaceAccess).mockResolvedValue({
       ok: true,
       workspaceId: "USER123",
-      setCookieCode: "access-123",
     });
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
       mode: "user",
@@ -203,7 +185,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-123",
           query: "Why is sleep worse after travel?",
         }),
@@ -217,19 +198,10 @@ describe("POST /api/runs", () => {
     expect(requireWorkspaceAccess).toHaveBeenCalledWith(
       expect.any(Request),
       "USER123",
-      {
-        accessCode: "access-123",
-        allowCreate: false,
-      },
     );
     expect(claimWorkspaceRunSlot).toHaveBeenCalledWith("USER123");
     expect(releaseWorkspaceRunSlot).toHaveBeenCalledWith("USER123", "slot-123");
     expect(resolveOpenRouterAccess).toHaveBeenCalledWith();
-    expect(setWorkspaceAccessCookie).toHaveBeenCalledWith(
-      response,
-      "USER123",
-      "access-123",
-    );
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       4,
       "http://localhost:4200/api/deployments/dep-123/create_flow_run",
@@ -279,7 +251,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-trial",
           query: "Why?",
         }),
@@ -330,7 +301,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-123",
           query: "Why?",
         }),
@@ -374,7 +344,6 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          accessCode: "access-123",
           launchId: "launch-123",
           query: "Why?",
         }),
