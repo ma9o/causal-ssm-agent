@@ -65,11 +65,10 @@ class ParaphrasingConfig:
 
 @dataclass(frozen=True)
 class Stage4Config:
-    """Stage 4: Model Specification & Prior Elicitation (Single Agentic Conversation)."""
+    """Stage 4: Model Specification & Prior Elicitation."""
 
     model: str
     max_tool_turns: int = 40
-    effect_block_concurrency: int = 1
     literature_search: LiteratureSearchConfig = LiteratureSearchConfig()
     paraphrasing: ParaphrasingConfig = ParaphrasingConfig()
 
@@ -226,10 +225,6 @@ def load_config() -> PipelineConfig:
     stage4_config = Stage4Config(
         model=stage4_raw["model"],
         max_tool_turns=stage4_raw.get("max_tool_turns", Stage4Config.max_tool_turns),
-        effect_block_concurrency=stage4_raw.get(
-            "effect_block_concurrency",
-            Stage4Config.effect_block_concurrency,
-        ),
         literature_search=LiteratureSearchConfig(**lit_search_raw)
         if lit_search_raw
         else LiteratureSearchConfig(),

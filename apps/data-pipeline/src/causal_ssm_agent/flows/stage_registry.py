@@ -371,6 +371,7 @@ def _bind_stage4(ctx: PipelineContext, states: dict) -> dict:
         "stage2": states["stage-2"]["result"],
         "stage3": states["stage-3"]["result"],
         "enable_literature": ctx.lit_enabled,
+        "workspace_id": ctx.workspace_id,
         "root_run_id": ctx.prefect_run_id,
     }
 
@@ -558,6 +559,7 @@ def _build_registry() -> dict[str, StageDefinition]:
             stage2: dict,
             stage3: dict,
             enable_literature: bool,
+            workspace_id: str,
             openrouter_access_mode: OpenRouterAccessMode | None,
             root_run_id: str | None,
         ) -> dict:
@@ -568,6 +570,7 @@ def _build_registry() -> dict[str, StageDefinition]:
                     stage2,
                     stage3,
                     enable_literature,
+                    workspace_id=workspace_id,
                     root_run_id=root_run_id,
                 )
             return await modal_stage4_runner(
@@ -576,6 +579,7 @@ def _build_registry() -> dict[str, StageDefinition]:
                 stage2,
                 stage3,
                 enable_literature,
+                workspace_id=workspace_id,
                 root_run_id=root_run_id,
             )
 

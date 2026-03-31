@@ -44,15 +44,11 @@ async def stage4_agentic_flow(
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
+    workspace_id: str | None = None,
     openrouter_api_key: str | None = None,
     root_run_id: str | None = None,
 ) -> dict:
-    """Stage 4 agentic flow: reducer-owned sequence of block-local LLM turns.
-
-    The orchestrator advances through one active Stage 4 block at a time
-    (model decisions, review, then prior blocks). Each turn exposes only the
-    tools and context needed for the current block, while the grounding tool
-    validates compile + prior predictive after each submission.
+    """Stage 4 LLM flow.
 
     Args:
         causal_spec: Full CausalSpec dict
@@ -65,6 +61,10 @@ async def stage4_agentic_flow(
     """
     from causal_ssm_agent.orchestrator.stage4 import run_stage4
 
+    from ..run_store import (
+        clear_stage4_checkpoint,
+        save_stage4_checkpoint,
+    )
     from .stage4_assembly import materialize_stage4_result
 
     if root_run_id:
@@ -92,7 +92,19 @@ async def stage4_agentic_flow(
                 n_paraphrases=s4.paraphrasing.n_paraphrases,
                 gmm_model=s4.paraphrasing.gmm_model or s4.model,
                 max_tool_turns=s4.max_tool_turns,
-                effect_block_concurrency=s4.effect_block_concurrency,
+                load_checkpoint=(
+                    None
+                    if workspace_id is None
+                    else lambda: _load_stage4_checkpoint_or_none(workspace_id)
+                ),
+                save_checkpoint=(
+                    None
+                    if workspace_id is None
+                    else lambda runtime: save_stage4_checkpoint(runtime, workspace_id)
+                ),
+                clear_checkpoint=(
+                    None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
+                ),
             )
 
             materialized = materialize_stage4_result(
@@ -105,3 +117,13 @@ async def stage4_agentic_flow(
                 search_queries=result.search_queries,
             )
             return ctx.finalize(materialized)
+
+
+def _load_stage4_checkpoint_or_none(workspace_id: str):
+    """Load a Stage 4 checkpoint when present, otherwise return ``None``."""
+    from ..run_store import load_stage4_checkpoint
+
+    try:
+        return load_stage4_checkpoint(workspace_id)
+    except FileNotFoundError:
+        return None

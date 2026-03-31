@@ -31,9 +31,8 @@ stage2_workers:
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  model: openrouter/xiaomi/mimo-v2-pro #openrouter/anthropic/claude-opus-4.6
+  model: openrouter/xiaomi/mimo-v2-pro
   max_tool_turns: 100
-  effect_block_concurrency: 16
   # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true

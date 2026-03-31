@@ -138,6 +138,7 @@ def normalize_prior_params(
 
     raise ValueError(f"Unsupported prior distribution family: {distribution!r}")
 
+
 def dump_prior_payloads(priors: dict[str, Any] | None) -> dict[str, dict]:
     """Normalize prior proposals into plain ``dict`` payloads."""
     return {

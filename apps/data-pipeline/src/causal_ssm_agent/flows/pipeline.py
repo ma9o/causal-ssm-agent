@@ -119,6 +119,7 @@ async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
     if isawaitable(artifact):
         await artifact
 
+
 def _partial_pipeline_result(
     workspace_id: str, stage_id: str, state: dict[str, Any]
 ) -> dict[str, Any]:

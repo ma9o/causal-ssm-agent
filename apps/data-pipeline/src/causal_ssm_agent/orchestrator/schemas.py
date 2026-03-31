@@ -770,8 +770,7 @@ class CausalSpec(BaseModel):
                 state_1, state_2 = dependency.between
                 if state_1 not in state_names or state_2 not in state_names:
                     raise ValueError(
-                        "Induced dependency must reference retained states: "
-                        f"{dependency.between!r}"
+                        f"Induced dependency must reference retained states: {dependency.between!r}"
                     )
                 unknown_sources = set(dependency.source_confounders) - construct_names
                 if unknown_sources:

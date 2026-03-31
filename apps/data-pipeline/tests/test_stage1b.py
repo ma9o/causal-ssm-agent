@@ -206,8 +206,16 @@ class TestStage1bGrounding:
                 },
             ],
             "edges": [
-                {"cause": "Treatment", "effect": "Mediator", "description": "Treatment shifts mediator"},
-                {"cause": "Mediator", "effect": "Outcome", "description": "Mediator shifts outcome"},
+                {
+                    "cause": "Treatment",
+                    "effect": "Mediator",
+                    "description": "Treatment shifts mediator",
+                },
+                {
+                    "cause": "Mediator",
+                    "effect": "Outcome",
+                    "description": "Mediator shifts outcome",
+                },
             ],
         }
         measurement_model = {
@@ -298,6 +306,7 @@ class TestStage1bFlow:
 
         assert isinstance(result, Stage1bResult)
         assert len(result.identifiability_status["non_identifiable_treatments"]) > 0
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

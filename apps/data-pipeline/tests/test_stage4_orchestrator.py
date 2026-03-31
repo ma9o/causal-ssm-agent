@@ -2,6 +2,7 @@
 
 import polars as pl
 
+import causal_ssm_agent.orchestrator.stage4 as stage4_module
 from causal_ssm_agent.orchestrator.stage4 import (
     Stage4AcceptedState,
     Stage4Deps,
@@ -526,6 +527,7 @@ class TestStage4Plan:
         assert plan.review_block.kind == "global_review"
         assert plan.prior_review_block is not None
         assert plan.prior_review_block.kind == "global_prior_review"
+        assert "review:prior_system" in {block.id for block in plan.all_blocks}
         assert [block.kind for block in plan.prior_blocks] == ["dynamics_prior"]
         assert set(plan.prior_blocks[0].parameter_names) == {"rho_activity", "sigma_activity"}
 
@@ -677,18 +679,20 @@ class TestStage4TurnProjection:
             ),
         )
         plan = _make_plan(prior_blocks=prior_blocks)
-        runtime = Stage4Runtime(
-            phase="prior_blocks",
-            active_block_id="dynamics:sleep",
-            block_status={
+        runtime = make_stage4_runtime(plan)
+        runtime.block_status.update(
+            {
                 "effects:sleep": "accepted",
                 "dynamics:sleep": "pending",
-            },
-            accepted=Stage4AcceptedState(
-                model_spec={"parameters": [{"name": "beta_stress_sleep"}, {"name": "rho_sleep"}]},
-                authored_priors={"beta_stress_sleep": {"distribution": "Normal"}},
-            ),
+            }
         )
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={"parameters": [{"name": "beta_stress_sleep"}, {"name": "rho_sleep"}]},
+            authored_priors={"beta_stress_sleep": {"distribution": "Normal"}},
+        )
+        active_block = plan.get_block("dynamics:sleep")
+        assert active_block is not None
+        stage4_module._set_block_cursor(runtime, active_block)
         session = _make_session(messages=messages, plan=plan, runtime=runtime)
 
         turn = session.current_turn()
@@ -709,15 +713,15 @@ class TestStage4TurnProjection:
             ),
         )
         plan = _make_plan(prior_blocks=prior_blocks)
-        runtime = Stage4Runtime(
-            phase="prior_blocks",
-            active_block_id="effects:sleep",
-            block_status={"effects:sleep": "pending"},
-            accepted=Stage4AcceptedState(
-                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
-            ),
-            last_feedback="submit priors",
+        runtime = make_stage4_runtime(plan)
+        runtime.block_status["effects:sleep"] = "pending"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
         )
+        runtime.last_feedback = "submit priors"
+        active_block = plan.get_block("effects:sleep")
+        assert active_block is not None
+        stage4_module._set_block_cursor(runtime, active_block)
         session = _make_session(
             messages=Stage4Messages(
                 question="How does stress affect sleep?",
@@ -733,6 +737,40 @@ class TestStage4TurnProjection:
         assert turn is not None
         assert turn.latest_feedback == "submit priors"
         assert "submit priors" in turn.messages[1]["content"]
+
+    def test_current_turn_renders_global_prior_review_from_normal_block_registry(self):
+        prior_review_block = Stage4FrontierBlock(
+            id="review:prior_system",
+            kind="global_prior_review",
+            label="Repair full prior system",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+        )
+        plan = _make_plan(prior_review_block=prior_review_block)
+        runtime = make_stage4_runtime(plan)
+        runtime.block_status[prior_review_block.id] = "reopened"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+        )
+        stage4_module._set_block_cursor(runtime, prior_review_block)
+        session = _make_session(
+            messages=Stage4Messages(
+                question="How does stress affect sleep?",
+                model_topology={},
+                construct_scale_cards=[],
+                prior_cards=[],
+            ),
+            plan=plan,
+            runtime=runtime,
+        )
+
+        turn = session.current_turn()
+
+        assert turn is not None
+        assert turn.block.id == "review:prior_system"
+        assert turn.allowed_tool_names == ("validate_model",)
+        assert '"block_kind": "global_prior_review"' in turn.messages[1]["content"]
+        assert '"block_id": "review:prior_system"' in turn.messages[1]["content"]
 
 
 class TestStage4PromptScopePolicy:

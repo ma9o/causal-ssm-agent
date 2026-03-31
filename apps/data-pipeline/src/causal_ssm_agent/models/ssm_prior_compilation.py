@@ -145,9 +145,10 @@ def collect_interval_provenance_warnings(
             continue
 
         unique_source_intervals = sorted(dict.fromkeys(source_intervals))
-        if len(unique_source_intervals) > 1 and _interval_ratio(
-            unique_source_intervals[0], unique_source_intervals[-1]
-        ) > 2.0:
+        if (
+            len(unique_source_intervals) > 1
+            and _interval_ratio(unique_source_intervals[0], unique_source_intervals[-1]) > 2.0
+        ):
             rendered = ", ".join(_format_interval_days(days) for days in unique_source_intervals)
             warnings.append(
                 _compile_warning(
@@ -188,7 +189,10 @@ def collect_interval_provenance_warnings(
                 authored_interval_days = float(ref_days)
             except (TypeError, ValueError):
                 continue
-            if authored_interval_days > 0 and _interval_ratio(authored_interval_days, source_interval_days) > 2.0:
+            if (
+                authored_interval_days > 0
+                and _interval_ratio(authored_interval_days, source_interval_days) > 2.0
+            ):
                 warnings.append(
                     _compile_warning(
                         code="interval_reference_mismatch",

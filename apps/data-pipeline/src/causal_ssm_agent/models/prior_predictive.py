@@ -84,7 +84,9 @@ def _supporting_compile_context(
     construct_names: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return supporting compile diagnostics relevant to a later PP failure."""
-    diagnostics = [d for d in _artifact_compile_diagnostics(compiled_ssm) if d.severity == "warning"]
+    diagnostics = [
+        d for d in _artifact_compile_diagnostics(compiled_ssm) if d.severity == "warning"
+    ]
     if not diagnostics:
         return [], []
 
@@ -169,8 +171,7 @@ def _ordered_latent_sccs(
         key=lambda members: min(order_lookup[name] for name in members),
     )
     return [
-        tuple(name for name in construct_order if name in component)
-        for component in components
+        tuple(name for name in construct_order if name in component) for component in components
     ]
 
 
@@ -218,9 +219,7 @@ def _infer_dynamics_repair_scope(
     if not implicated_sccs:
         implicated_sccs = sccs
 
-    construct_names = list(
-        dict.fromkeys(name for scc in implicated_sccs for name in scc)
-    )
+    construct_names = list(dict.fromkeys(name for scc in implicated_sccs for name in scc))
     if not construct_names:
         return None
     return PriorRepairScope(kind="dynamics_scc", construct_names=construct_names)
@@ -263,6 +262,12 @@ def _check_nan_inf(
             continue
         arr = np.asarray(values)
         mask = ~np.isfinite(arr)
+        if name == "observations":
+            observation_mask = samples.get("observations_mask")
+            if observation_mask is not None:
+                active_observation_mask = np.asarray(observation_mask, dtype=bool)
+                if active_observation_mask.shape == arr.shape:
+                    mask = mask & active_observation_mask
         if np.any(mask):
             bad_sites.append(name)
             bad_draw_indices.update(_draw_indices(mask))
@@ -669,10 +674,10 @@ def _check_lagged_response_plausibility(
             continue
 
         results.append(
-                _pp_result(
-                    parameter=f"beta_{cause}_{effect}",
-                    is_valid=True,
-                    code="lagged_response_weak",
+            _pp_result(
+                parameter=f"beta_{cause}_{effect}",
+                is_valid=True,
+                code="lagged_response_weak",
                 severity="warning",
                 issue=(
                     f"Across prior draws, the full-system one-lag response for {cause}->{effect} "

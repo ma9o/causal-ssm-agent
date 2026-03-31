@@ -179,24 +179,30 @@ class TestBuildDigraph:
 
 class TestGetOutcomeName:
     def test_finds_outcome(self):
-        assert get_outcome_name(
-            {
-                "constructs": [
-                    {"name": "X", "is_outcome": False},
-                    {"name": "Y", "is_outcome": True},
-                ]
-            }
-        ) == "Y"
+        assert (
+            get_outcome_name(
+                {
+                    "constructs": [
+                        {"name": "X", "is_outcome": False},
+                        {"name": "Y", "is_outcome": True},
+                    ]
+                }
+            )
+            == "Y"
+        )
 
     def test_no_outcome(self):
-        assert get_outcome_name(
-            {
-                "constructs": [
-                    {"name": "X", "is_outcome": False},
-                    {"name": "Z"},
-                ]
-            }
-        ) is None
+        assert (
+            get_outcome_name(
+                {
+                    "constructs": [
+                        {"name": "X", "is_outcome": False},
+                        {"name": "Z"},
+                    ]
+                }
+            )
+            is None
+        )
 
     def test_empty_constructs(self):
         assert get_outcome_name({"constructs": []}) is None
@@ -236,12 +242,15 @@ class TestGetAllTreatments:
         assert treatments == ["X"]
 
     def test_no_outcome_returns_empty(self):
-        assert get_all_treatments(
-            {
-                "constructs": [{"name": "A"}, {"name": "B"}],
-                "edges": [{"cause": "A", "effect": "B"}],
-            }
-        ) == []
+        assert (
+            get_all_treatments(
+                {
+                    "constructs": [{"name": "A"}, {"name": "B"}],
+                    "edges": [{"cause": "A", "effect": "B"}],
+                }
+            )
+            == []
+        )
 
     def test_sorted_output(self):
         treatments = get_all_treatments(
@@ -298,12 +307,15 @@ class TestGetAllTreatments:
         assert get_all_treatments({"constructs": [], "edges": []}) == []
 
     def test_outcome_only(self):
-        assert get_all_treatments(
-            {
-                "constructs": [{"name": "Y", "is_outcome": True}],
-                "edges": [],
-            }
-        ) == []
+        assert (
+            get_all_treatments(
+                {
+                    "constructs": [{"name": "Y", "is_outcome": True}],
+                    "edges": [],
+                }
+            )
+            == []
+        )
 
 
 class TestEstimationAccessors:

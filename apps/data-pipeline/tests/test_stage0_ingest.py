@@ -219,17 +219,11 @@ class TestIngestionTools:
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(
-            exec_tool(
-                code='result_df = pl.DataFrame({"id": [1], "value": [1.5]})'
-            )
-        )
+        _run(exec_tool(code='result_df = pl.DataFrame({"id": [1], "value": [1.5]})'))
 
         result = _run(
             submit_tool(
-                column_descriptions_json=json.dumps(
-                    {"id": "Row id", "value": "Numeric value"}
-                ),
+                column_descriptions_json=json.dumps({"id": "Row id", "value": "Numeric value"}),
             )
         )
         assert "timestamp" in result.lower()
@@ -240,11 +234,7 @@ class TestIngestionTools:
         exec_tool = tools[2]
         submit_tool = tools[3]
 
-        _run(
-            exec_tool(
-                code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'
-            )
-        )
+        _run(exec_tool(code='result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")'))
 
         result = _run(
             submit_tool(

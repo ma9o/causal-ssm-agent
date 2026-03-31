@@ -160,7 +160,6 @@ class TestMCMCDiagnostics:
         assert diag["num_samples"] is None or diag["num_samples"] == 200
 
 
-
 class TestLOODiagnostics:
     def test_loo_basic(self, mcmc_result):
         key = random.PRNGKey(0)

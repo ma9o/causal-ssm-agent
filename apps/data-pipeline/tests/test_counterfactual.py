@@ -376,7 +376,9 @@ class TestComputeInterventions:
             assert "treatment" in r
             assert r["posterior_draws"] is not None
             mean_effect = sum(r["posterior_draws"]) / len(r["posterior_draws"])
-            assert abs(mean_effect) < 1e-4, f"{r['treatment']} should have ~zero effect with diagonal drift"
+            assert abs(mean_effect) < 1e-4, (
+                f"{r['treatment']} should have ~zero effect with diagonal drift"
+            )
 
     def test_outcome_not_in_latent_names(self):
         """Missing outcome returns skeleton entries."""

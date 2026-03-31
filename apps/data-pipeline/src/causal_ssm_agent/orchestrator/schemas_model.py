@@ -61,8 +61,7 @@ VALID_LINKS_FOR_DISTRIBUTION: dict[DistributionFamily, set[LinkFunction]] = {
 # Derived: role -> constraint lookup used by validation code.
 # Authoritative source is PARAMETER_ROLE_SPECS in distributions.py.
 EXPECTED_CONSTRAINT_FOR_ROLE: dict[ParameterRole, ParameterConstraint] = {
-    ParameterRole(spec.role): ParameterConstraint(spec.constraint)
-    for spec in PARAMETER_ROLE_SPECS
+    ParameterRole(spec.role): ParameterConstraint(spec.constraint) for spec in PARAMETER_ROLE_SPECS
 }
 # initial_state_correlation shares the correlation constraint but is not
 # a user-facing doc row, so add it manually.

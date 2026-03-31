@@ -635,6 +635,8 @@ class TestStage4SearchTool:
         assert "UPDATE TOO BROAD" in feedback
         assert "separate calls" in feedback
 
+
+class TestStage4GroundingBatches:
     def test_accepts_large_prior_batches(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
 
