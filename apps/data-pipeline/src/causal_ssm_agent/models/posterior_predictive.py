@@ -208,6 +208,7 @@ def _slice_extra_params_for_indices(
         sliced[key] = value
     return sliced
 
+
 def _resolve_effective_observation_mask(
     target_shape: tuple[int, ...],
     semantic_mask: jnp.ndarray | None,

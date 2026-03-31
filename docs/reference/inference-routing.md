@@ -180,6 +180,18 @@ Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^be
 
 **Limitations:** Laplace approximation quality degrades for highly non-Gaussian state posteriors (sparse counts, boundary probabilities).
 
+### Why Not Dynamax GGSSM as the Primary Backend?
+
+[Dynamax's generalized Gaussian SSM machinery](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm) is a plausible future backend for the **point-local** subset of our models: Gaussian latent dynamics, non-Gaussian emissions, and smooth approximate state marginalization via EKF, UKF, or Gauss-Hermite moment matching.
+
+It is not the primary backend for this project because the repo's executable model class is broader than that point-observation setting:
+
+- The latent process is continuous-time and discretized per observation interval, including irregular `dt`, before likelihood evaluation; that part is manageable to adapt, but it is still extra integration work.
+- The harder mismatch is the observation model. Our runtime supports **support-aware interval-summary measurements** such as anchored window averages, sums, counts, and standard deviations. Those semantics depend on a window over the latent trajectory, not only on `y_t | z_t`.
+- The inference stack also expects project-specific runtime contracts such as cumulative log-normalizers that can be differenced into per-timestep innovation terms for diagnostics and LOO. A backend swap must preserve those outputs, not just the final marginal log-likelihood scalar.
+
+So the current design keeps custom backends as the primary path. A Dynamax adapter remains attractive for future work on models with point-local observations and no interval-summary support metadata.
+
 ### Structured VI
 
 Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. Can be initialized from Laplace-EM output.

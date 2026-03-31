@@ -55,11 +55,13 @@ from causal_ssm_agent.models.ssm.laplace_em import (
     _build_ieks_system,
     _dense_support_laplace_log_lik,
     _ieks_smooth,
+    _should_use_dense_support_laplace,
     _solve_block_tridiagonal,
 )
 from causal_ssm_agent.models.ssm.nuts_da import _da_model
 from causal_ssm_agent.models.ssm.pgas import _csmc_sweep_support_aware
 from causal_ssm_agent.models.ssm.structured_vi import StructuredVILikelihood
+from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
 from causal_ssm_agent.models.ssm.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
@@ -611,6 +613,77 @@ class TestStructuredVISupportAware:
 
 
 class TestLaplaceSupportAware:
+    def test_dense_support_path_threshold_matches_smallgolden_regime(self):
+        assert _should_use_dense_support_laplace(n_time=10, n_latent=12) is True
+        assert _should_use_dense_support_laplace(n_time=20, n_latent=12) is False
+
+    def test_laplace_backend_prefers_dense_path_for_small_support_models(self, monkeypatch):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0]),
+            manifest_names=["avg_signal"],
+            support_kinds=["interval"],
+            observation_windows=["2d"],
+            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
+            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
+            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]]),
+            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]]),
+            interval_weights=np.array([[0.0], [1.0], [1.0]]),
+        )
+        backend = LaplaceLikelihood(
+            n_latent=1,
+            n_manifest=1,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
+            manifest_links=[LinkFunction.IDENTITY],
+            n_ieks_iters=2,
+            observation_support=support,
+        )
+        ct_params = CTParams(
+            drift=jnp.array([[-0.4]], dtype=jnp.float32),
+            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
+            cint=jnp.array([0.0], dtype=jnp.float32),
+        )
+        meas_params = MeasurementParams(
+            lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
+            manifest_means=jnp.array([0.0], dtype=jnp.float32),
+            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
+        )
+        init = InitialStateParams(
+            mean=jnp.array([0.0], dtype=jnp.float32),
+            cov=jnp.array([[1.0]], dtype=jnp.float32),
+        )
+        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
+        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
+
+        calls: list[str] = []
+
+        def _fake_dense(*args, **kwargs):
+            calls.append("dense")
+            return jnp.array(-1.0, dtype=jnp.float32)
+
+        def _fake_banded(*args, **kwargs):
+            calls.append("banded")
+            return jnp.array(-2.0, dtype=jnp.float32)
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.laplace_em._dense_support_laplace_log_lik",
+            _fake_dense,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.laplace_em._support_aware_ieks_log_lik",
+            _fake_banded,
+        )
+
+        ll = backend.compute_log_likelihood(
+            ct_params,
+            meas_params,
+            init,
+            observations,
+            time_intervals,
+        )
+
+        assert float(ll) == pytest.approx(-1.0)
+        assert calls == ["dense"]
+
     def test_laplace_backend_handles_window_average(self):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -1483,6 +1556,15 @@ class TestEdgeCases:
 class TestInferenceCaching:
     """Low-risk caching behavior for default inference helpers."""
 
+    @staticmethod
+    def _identity_transform():
+        class _IdentityTransform:
+            @staticmethod
+            def inv(value):
+                return value
+
+        return _IdentityTransform()
+
     def test_model_reuses_backend_instances(self):
         spec = SSMSpec(
             n_latent=1,
@@ -1501,6 +1583,128 @@ class TestInferenceCaching:
         assert backend_a is backend_b
         assert laplace_a is laplace_b
         assert laplace_a is not laplace_c
+
+    def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec)
+        observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
+        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
+
+        class _ExplodingBackend:
+            def compute_log_likelihood(self, *_args, **_kwargs):
+                raise AssertionError("site discovery should not evaluate the real likelihood")
+
+        site_info = _discover_sites(
+            model,
+            observations,
+            times,
+            random.PRNGKey(0),
+            _ExplodingBackend(),
+        )
+
+        assert "drift_diag_pop" in site_info
+        assert "manifest_var_diag" in site_info
+
+    def test_tempered_smc_reuses_bundle_cache_without_reparam(self, monkeypatch):
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            diffusion="diag",
+        )
+        model = SSMModel(spec)
+        observations = jnp.zeros((2, 1), dtype=jnp.float32)
+        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
+        backend = object()
+        build_calls = {"count": 0}
+
+        class _ZeroDistribution:
+            @staticmethod
+            def sample(_key, shape):
+                return jnp.zeros(shape, dtype=jnp.float32)
+
+        def fake_bundle(*_args, **_kwargs):
+            build_calls["count"] += 1
+            return {
+                "dim": 1,
+                "site_info": {
+                    "drift_diag_pop": {
+                        "distribution": _ZeroDistribution(),
+                        "transform": self._identity_transform(),
+                        "value": jnp.asarray([0.0], dtype=jnp.float32),
+                    }
+                },
+                "unravel_fn": lambda z: {"drift_diag_pop": z},
+                "batch_lik_val_and_grad": lambda particles: (
+                    jnp.zeros((particles.shape[0],), dtype=particles.dtype),
+                    jnp.zeros_like(particles),
+                ),
+                "mutate_batch_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
+                    particles,
+                    jnp.zeros((particles.shape[0],), dtype=jnp.int32),
+                ),
+                "mutate_batch_wastefree_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
+                    particles[:, None, :],
+                    jnp.zeros((particles.shape[0],), dtype=jnp.int32),
+                ),
+                "pilot_adapt_jit": lambda rng_key, particles, eps, _chol_mass, _target_accept: (
+                    rng_key,
+                    particles,
+                    eps,
+                    jnp.asarray(True),
+                    jnp.asarray(0.5, dtype=eps.dtype),
+                ),
+                "standard_mutation_rounds_jit": (
+                    lambda rng_key, particles, _beta_k, eps, _chol_mass, _target_accept: (
+                        rng_key,
+                        particles,
+                        eps,
+                        jnp.asarray(0.5, dtype=eps.dtype),
+                        jnp.asarray(1, dtype=jnp.int32),
+                    )
+                ),
+            }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.tempered_core._build_tempered_smc_bundle",
+            fake_bundle,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.tempered_core.extract_constrained_samples",
+            lambda *_args, **_kwargs: {"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+        )
+
+        for _ in range(2):
+            result = run_tempered_smc(
+                model,
+                observations,
+                times,
+                n_outer=0,
+                n_warmup=0,
+                n_csmc_particles=2,
+                n_mh_steps=1,
+                n_leapfrog=1,
+                likelihood_backend=backend,
+            )
+            assert result.method == "tempered_smc"
+
+        assert build_calls["count"] == 1
+        assert len(model._artifact_cache) == 1
+        [cache_key] = model._artifact_cache.keys()
+        assert cache_key[:6] == (
+            "tempered_smc_core",
+            id(backend),
+            tuple(observations.shape),
+            tuple(times.shape),
+            1,
+            1,
+        )
+        assert cache_key[-2:] == ("none", None)
 
 
 class TestPureJaxLikelihoodEvaluator:

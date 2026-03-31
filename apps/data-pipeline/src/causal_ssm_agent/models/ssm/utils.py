@@ -37,8 +37,16 @@ if TYPE_CHECKING:
 
 
 def _discover_sites(model, observations, times, rng_key, likelihood_backend, reparam=None):
-    """Trace model once to discover sample sites (names, shapes, transforms)."""
-    model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
+    """Trace model once to discover sample sites (names, shapes, transforms).
+
+    Site discovery is structural: it only needs the latent sample/deterministic
+    sites emitted by ``model.model``. Tracing through the real likelihood backend
+    can trigger large JAX/XLA compilations for support-aware Laplace and
+    particle-filter backends before inference even starts, so discovery always
+    replays the model with the dummy backend instead.
+    """
+    _ = likelihood_backend
+    model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
     if reparam is not None:
         model_fn = handlers.reparam(model_fn, config=reparam)
     with handlers.seed(rng_seed=int(rng_key[0])):
@@ -310,10 +318,6 @@ def _build_eval_fns(
     """
     transforms = {name: info["transform"] for name, info in site_info.items()}
     distributions = {name: info["distribution"] for name, info in site_info.items()}
-
-    model_fn = functools.partial(model.model, likelihood_backend=likelihood_backend)
-    if reparam is not None:
-        model_fn = handlers.reparam(model_fn, config=reparam)
     sample_resolver = _build_original_sample_resolver(
         site_info,
         model=model,
@@ -321,24 +325,17 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
-    runtime_registry = None
-    if sample_resolver is not None:
-        runtime_registry = build_site_registry(model.spec, model._assembler)
+    runtime_registry = build_site_registry(model.spec, model._assembler)
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
-    from causal_ssm_agent.models.ssm.inference import _eval_model
 
     def _constrain(z):
         unc = unravel_fn(z)
         return {name: transforms[name](unc[name]) for name in unc}, unc
 
     def _log_lik_fn(z):
-        """Log-likelihood p(y|theta) via PF or Kalman."""
+        """Log-likelihood p(y|theta) via the configured backend only."""
         con, _ = _constrain(z)
-        if sample_resolver is None:
-            log_lik, _ = _eval_model(model_fn, con, observations, times)
-            return log_lik
-
-        original_samples = sample_resolver(con)
+        original_samples = con if sample_resolver is None else sample_resolver(con)
         ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
