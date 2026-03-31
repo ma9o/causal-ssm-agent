@@ -968,11 +968,11 @@ def profile_likelihood(
         profile_ll = []
 
         if D > 1:
-            # Build JIT-compiled profiler for this j.
-            # prior_state is a JIT argument — changing it does NOT recompile.
+            # Keep the per-parameter profiler eager here. JIT-compiling a fresh
+            # closure for each profiled scalar triggers expensive XLA compile
+            # churn during large stage-4b sweeps.
             _j = j  # capture for closure
 
-            @jax.jit
             def _profile_point(z_mj_init, z_j_val, ps, _j=_j):
                 def _obj(z_mj):
                     z_full = jnp.concatenate([z_mj[:_j], z_j_val[None], z_mj[_j:]])

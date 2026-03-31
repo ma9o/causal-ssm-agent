@@ -215,7 +215,7 @@ class TestStage4bInferenceStructurePayload:
                 self.condition_number = 10.0
                 self.per_parameter = [
                     {
-                        "parameter": "beta_x",
+                        "parameter": "drift_offdiag_pop[0]",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -224,7 +224,7 @@ class TestStage4bInferenceStructurePayload:
                         "identifiable": False,
                     },
                     {
-                        "parameter": "beta_y",
+                        "parameter": "lambda_free",
                         "sensitivity_norm": 0.1,
                         "effective_sv": 1e-5,
                         "sv_status": "warn",
@@ -242,13 +242,13 @@ class TestStage4bInferenceStructurePayload:
 
         class StubProfileLikelihoodResult:
             def __init__(self):
-                self.parameter_names = ["beta_x", "beta_y"]
+                self.parameter_names = ["drift_offdiag_pop[0]", "lambda_free"]
                 self.parameter_profiles = {
-                    "beta_x": {
+                    "drift_offdiag_pop[0]": {
                         "grid_con": [-1.0, 0.0, 1.0],
                         "profile_ll": jnp.array([-0.1, 0.0, -0.1]),
                     },
-                    "beta_y": {
+                    "lambda_free": {
                         "grid_con": [-1.0, 0.0, 1.0],
                         "profile_ll": jnp.array([-3.0, 0.0, -0.2]),
                     },
@@ -260,8 +260,8 @@ class TestStage4bInferenceStructurePayload:
 
             def summary(self):
                 return {
-                    "beta_x": "structurally_unidentifiable",
-                    "beta_y": "practically_unidentifiable",
+                    "drift_offdiag_pop[0]": "structurally_unidentifiable",
+                    "lambda_free": "practically_unidentifiable",
                 }
 
         monkeypatch.setattr(
@@ -274,11 +274,17 @@ class TestStage4bInferenceStructurePayload:
         )
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
-            lambda *_args, **_kwargs: object(),
+            lambda *_args, **_kwargs: SimpleNamespace(
+                scalar_names=["drift_offdiag_pop[0]", "lambda_free"]
+            ),
         )
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.likelihoods.graph_analysis.kalman_block_profile_indices",
+            lambda *_args, **_kwargs: [0, 1],
         )
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.profile_likelihood",
@@ -291,9 +297,9 @@ class TestStage4bInferenceStructurePayload:
 
         pid = result["parametric_id"]
         assert pid["summary"] == {
-            "structural_issues": ["beta_x"],
+            "structural_issues": ["drift_offdiag_pop[0]"],
             "boundary_issues": [],
-            "weak_params": ["beta_y"],
+            "weak_params": ["lambda_free"],
         }
         assert [entry["classification"] for entry in pid["per_param_classification"]] == [
             "structurally_unidentifiable",
@@ -301,6 +307,223 @@ class TestStage4bInferenceStructurePayload:
         ]
         assert "n_parameters" not in pid
         assert "parameter_names" not in pid
+
+    def test_skips_profile_likelihood_when_only_nuisance_sensitivity_fails(self, monkeypatch):
+        spec = _make_separable_spec()
+        model = _make_model(spec)
+        runtime = SimpleNamespace(
+            builder=SimpleNamespace(_model=model),
+            observations=jnp.zeros((4, spec.n_manifest)),
+            times=jnp.arange(4.0),
+            inference_structure=plan_inference_structure(spec),
+        )
+
+        class StubTRule:
+            satisfies = True
+            n_free_params = 4
+            n_moments = 8
+
+            def print_report(self):
+                return None
+
+            def model_dump(self):
+                return {
+                    "satisfies": self.satisfies,
+                    "n_free_params": self.n_free_params,
+                    "n_moments": self.n_moments,
+                }
+
+        class StubSensitivityResult:
+            def __init__(self):
+                self.singular_values = [1.0, 0.1]
+                self.condition_number = 10.0
+                self.per_parameter = [
+                    {
+                        "parameter": "diffusion_diag_pop[0]",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    },
+                    {
+                        "parameter": "drift_diag_pop[0]",
+                        "sensitivity_norm": 0.1,
+                        "effective_sv": 1e-5,
+                        "sv_status": "warn",
+                        "normalized_effective_sv": 1e-5,
+                        "normalized_sv_status": "warn",
+                        "identifiable": True,
+                    },
+                ]
+                self.n_draws = 8
+                self.n_observations = 12
+                self.n_parameters = 2
+
+            def print_report(self):
+                return None
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            lambda **_: runtime,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            lambda *_args, **_kwargs: StubTRule(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                scalar_names=["diffusion_diag_pop[0]", "drift_diag_pop[0]"]
+            ),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: StubSensitivityResult(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            lambda *_args, **_kwargs: pytest.fail("profile_likelihood should be skipped"),
+        )
+
+        result = parametric_id_task.fn(
+            data_for_model=pl.DataFrame(),
+        )
+
+        pid = result["parametric_id"]
+        assert pid["per_param_classification"] is None
+        assert pid["threshold"] is None
+        assert pid["summary"]["weak_params"] == [
+            "diffusion_diag_pop[0]",
+            "drift_diag_pop[0]",
+        ]
+
+    def test_profiles_only_substantive_raw_failures_after_sensitivity_gate(self, monkeypatch):
+        spec = _make_separable_spec()
+        model = _make_model(spec)
+        runtime = SimpleNamespace(
+            builder=SimpleNamespace(_model=model),
+            observations=jnp.zeros((4, spec.n_manifest)),
+            times=jnp.arange(4.0),
+            inference_structure=plan_inference_structure(spec),
+        )
+
+        class StubTRule:
+            satisfies = True
+            n_free_params = 4
+            n_moments = 8
+
+            def print_report(self):
+                return None
+
+            def model_dump(self):
+                return {
+                    "satisfies": self.satisfies,
+                    "n_free_params": self.n_free_params,
+                    "n_moments": self.n_moments,
+                }
+
+        class StubSensitivityResult:
+            def __init__(self):
+                self.singular_values = [1.0, 0.1]
+                self.condition_number = 10.0
+                self.per_parameter = [
+                    {
+                        "parameter": "diffusion_diag_pop[0]",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    },
+                    {
+                        "parameter": "drift_offdiag_pop[0]",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    },
+                    {
+                        "parameter": "lambda_free",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    },
+                ]
+                self.n_draws = 8
+                self.n_observations = 12
+                self.n_parameters = 3
+
+            def print_report(self):
+                return None
+
+        class StubProfileLikelihoodResult:
+            def __init__(self):
+                self.parameter_names = ["lambda_free"]
+                self.parameter_profiles = {
+                    "lambda_free": {
+                        "grid_con": [-1.0, 0.0, 1.0],
+                        "profile_ll": jnp.array([-3.0, 0.0, -0.2]),
+                    },
+                }
+                self.threshold = 1.92
+
+            def print_report(self):
+                return None
+
+            def summary(self):
+                return {
+                    "lambda_free": "practically_unidentifiable",
+                }
+
+        captured = {}
+
+        def _profile_likelihood_stub(*_args, **kwargs):
+            captured["profile_indices"] = kwargs["profile_indices"]
+            return StubProfileLikelihoodResult()
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            lambda **_: runtime,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            lambda *_args, **_kwargs: StubTRule(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                scalar_names=["diffusion_diag_pop[0]", "drift_offdiag_pop[0]", "lambda_free"]
+            ),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: StubSensitivityResult(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.likelihoods.graph_analysis.kalman_block_profile_indices",
+            lambda *_args, **_kwargs: [2],
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            _profile_likelihood_stub,
+        )
+
+        result = parametric_id_task.fn(
+            data_for_model=pl.DataFrame(),
+        )
+
+        pid = result["parametric_id"]
+        assert captured["profile_indices"] == [2]
+        assert [entry["name"] for entry in pid["per_param_classification"]] == ["lambda_free"]
+        assert pid["threshold"] == pytest.approx(1.92)
 
     def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
         monkeypatch.setattr(
