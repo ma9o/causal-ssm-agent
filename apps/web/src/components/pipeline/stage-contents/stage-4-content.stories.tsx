@@ -27,7 +27,7 @@ export default meta;
 
 export const Pending = createStageStatusStory(stage, "pending");
 
-export const Running = createStageStatusStory(stage, "running");
+export { StateMachineReplay as Running } from "./stage-4-running-content.stories";
 
 export const Completed = createCompletedStageStory({
   stage,

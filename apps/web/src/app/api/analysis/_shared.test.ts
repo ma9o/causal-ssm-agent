@@ -5,17 +5,17 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { readData } from "@/lib/storage";
-import { buildAnalysisManifest, resolveStageLogScopeFlowRunIds } from "./_shared";
+import {
+  buildAnalysisManifest,
+  buildStage4ReplayState,
+  resolveStageLogScopeFlowRunIds,
+} from "./_shared";
 
 const originalFetch = globalThis.fetch;
 
 vi.mocked(readData).mockRejectedValue(new Error("missing"));
 
-function jsonResponse(
-  data: unknown,
-  status = 200,
-  headers?: Record<string, string>,
-): Response {
+function jsonResponse(data: unknown, status = 200, headers?: Record<string, string>): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -29,8 +29,8 @@ function parseBody(init?: RequestInit): Record<string, unknown> {
 }
 
 function getEventRootFlowRunId(body: Record<string, unknown>): string | undefined {
-  const resourceId =
-    ((body.filter as { resource?: { id?: string[] } } | undefined)?.resource?.id ?? [])[0];
+  const resourceId = ((body.filter as { resource?: { id?: string[] } } | undefined)?.resource?.id ??
+    [])[0];
   return resourceId?.replace(/^prefect\.flow-run\./, "");
 }
 
@@ -55,15 +55,50 @@ function stageEvent(
       stage_id: stageId,
       status,
       ...(runtime.outcome ? { outcome: runtime.outcome } : {}),
-      ...(runtime.stageSubflowRunId
-        ? { stage_subflow_run_id: runtime.stageSubflowRunId }
-        : {}),
+      ...(runtime.stageSubflowRunId ? { stage_subflow_run_id: runtime.stageSubflowRunId } : {}),
       ...(runtime.logFlowRunIds ? { log_flow_run_ids: runtime.logFlowRunIds } : {}),
     },
   };
 }
 
-function eventPage(events: ReturnType<typeof stageEvent>[]) {
+function stage4GraphEvent(occurred: string) {
+  return {
+    occurred,
+    event: "causal-ssm.stage4.graph",
+    payload: {
+      type: "graph",
+      nodes: [
+        {
+          id: "indicator:sleep_quality",
+          kind: "indicator_decision",
+          label: "Sleep Quality",
+          phase: "model_decisions",
+        },
+      ],
+      edges: [],
+      phases: [{ id: "model_decisions", label: "Model Decisions" }],
+    },
+  };
+}
+
+function stage4SnapshotEvent(occurred: string, phase: string) {
+  return {
+    occurred,
+    event: "causal-ssm.stage4.snapshot",
+    payload: {
+      type: "snapshot",
+      cursor: { kind: "block", block_id: "indicator:sleep_quality" },
+      block_status: { "indicator:sleep_quality": "accepted" },
+      model_spec_locked: phase !== "model_decisions",
+      repair_campaign: null,
+      phase,
+    },
+  };
+}
+
+function eventPage(
+  events: { occurred: string; event: string; payload: Record<string, unknown> }[],
+) {
   return {
     events,
     total: events.length,
@@ -206,7 +241,9 @@ describe("buildAnalysisManifest", () => {
         const body = parseBody(init);
         const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
 
-        if ((flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123") {
+        if (
+          (flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123"
+        ) {
           return jsonResponse([{ id: "run-abc" }]);
         }
         return jsonResponse([]);
@@ -259,7 +296,9 @@ describe("buildAnalysisManifest", () => {
         const body = parseBody(init);
         const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
 
-        if ((flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123") {
+        if (
+          (flowRuns?.tags as { all_?: string[] } | undefined)?.all_?.[0] === "workspace:user-123"
+        ) {
           return jsonResponse([{ id: "empty-run" }, { id: "full-run" }]);
         }
 
@@ -285,7 +324,9 @@ describe("buildAnalysisManifest", () => {
       if (url === "http://localhost:4200/api/events/filter") {
         const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
         if (rootFlowRunId === "full-run") {
-          return jsonResponse(eventPage([stageEvent("stage-0", "completed", "2026-03-13T18:16:00.000Z")]));
+          return jsonResponse(
+            eventPage([stageEvent("stage-0", "completed", "2026-03-13T18:16:00.000Z")]),
+          );
         }
         return jsonResponse(eventPage([]));
       }
@@ -591,7 +632,9 @@ describe("buildAnalysisManifest", () => {
       }
 
       if (url === "http://localhost:4200/api/events/filter") {
-        return jsonResponse(eventPage([stageEvent("stage-0", "running", "2026-03-14T10:00:05.000Z")]));
+        return jsonResponse(
+          eventPage([stageEvent("stage-0", "running", "2026-03-14T10:00:05.000Z")]),
+        );
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -657,9 +700,7 @@ describe("buildAnalysisManifest", () => {
   it("retries retryable Prefect responses while loading the manifest", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({ error: "rate limited" }, 429, { "Retry-After": "0" }),
-      )
+      .mockResolvedValueOnce(jsonResponse({ error: "rate limited" }, 429, { "Retry-After": "0" }))
       .mockResolvedValueOnce(jsonResponse([{ id: "run-abc" }]))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -694,6 +735,50 @@ describe("buildAnalysisManifest", () => {
   });
 });
 
+describe("buildStage4ReplayState", () => {
+  it("reduces historical Stage 4 custom events into the latest replay state", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/events/filter") {
+        const body = parseBody(init);
+        const prefix = ((body.filter as { event?: { prefix?: string[] } } | undefined)?.event
+          ?.prefix ?? [])[0];
+        const rootFlowRunId = getEventRootFlowRunId(body);
+        expect(prefix).toBe("causal-ssm.stage4.");
+        expect(rootFlowRunId).toBe("run-abc");
+        return jsonResponse(
+          eventPage([
+            stage4GraphEvent("2026-03-31T11:00:00.000Z"),
+            stage4SnapshotEvent("2026-03-31T11:00:01.000Z", "model_decisions"),
+            stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review"),
+          ]),
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(buildStage4ReplayState("run-abc")).resolves.toEqual({
+      graph: {
+        nodes: stage4GraphEvent("2026-03-31T11:00:00.000Z").payload.nodes,
+        edges: stage4GraphEvent("2026-03-31T11:00:00.000Z").payload.edges,
+        phases: stage4GraphEvent("2026-03-31T11:00:00.000Z").payload.phases,
+      },
+      snapshot: {
+        cursor: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload.cursor,
+        block_status: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload
+          .block_status,
+        model_spec_locked: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload
+          .model_spec_locked,
+        repair_campaign: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload
+          .repair_campaign,
+        phase: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload.phase,
+      },
+    });
+  });
+});
+
 describe("resolveStageLogScopeFlowRunIds", () => {
   it("expands stage-2 log scope to include child worker flows", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
@@ -711,8 +796,10 @@ describe("resolveStageLogScopeFlowRunIds", () => {
       return jsonResponse([{ id: "worker-flow-1" }, { id: "worker-flow-2" }]);
     }) as typeof fetch;
 
-    await expect(
-      resolveStageLogScopeFlowRunIds("stage-2", "stage-2-subflow"),
-    ).resolves.toEqual(["stage-2-subflow", "worker-flow-1", "worker-flow-2"]);
+    await expect(resolveStageLogScopeFlowRunIds("stage-2", "stage-2-subflow")).resolves.toEqual([
+      "stage-2-subflow",
+      "worker-flow-1",
+      "worker-flow-2",
+    ]);
   });
 });

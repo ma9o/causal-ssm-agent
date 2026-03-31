@@ -14,7 +14,11 @@ from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
 from .. import get_prefect_logger
-from ..runtime_events import emit_nested_stage_running_event
+from ..runtime_events import (
+    emit_nested_stage_running_event,
+    emit_stage4_graph_event,
+    emit_stage4_snapshot_event,
+)
 
 logger = get_prefect_logger(__name__)
 
@@ -59,7 +63,11 @@ async def stage4_agentic_flow(
     Returns:
         Full grounded Stage 4 result (same shape as before).
     """
-    from causal_ssm_agent.orchestrator.stage4 import run_stage4
+    from causal_ssm_agent.orchestrator.stage4 import (
+        project_stage4_graph,
+        project_stage4_snapshot,
+        run_stage4,
+    )
 
     from ..run_store import (
         clear_stage4_checkpoint,
@@ -80,6 +88,13 @@ async def stage4_agentic_flow(
                 config=_stage4_generate_config(),
                 max_tool_turns=s4.max_tool_turns,
             )
+
+            def _on_state_change(plan, runtime):  # type: ignore[no-untyped-def]
+                if root_run_id:
+                    graph = project_stage4_graph(plan)
+                    emit_stage4_graph_event(root_run_id, graph=graph)
+                    snapshot = project_stage4_snapshot(plan, runtime)
+                    emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
 
             result = await run_stage4(
                 causal_spec=causal_spec,
@@ -105,6 +120,7 @@ async def stage4_agentic_flow(
                 clear_checkpoint=(
                     None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
                 ),
+                on_state_change=_on_state_change if root_run_id else None,
             )
 
             materialized = materialize_stage4_result(

@@ -100,8 +100,46 @@ def emit_nested_stage_running_event(
     return stage_subflow_run_id
 
 
+STAGE4_EVENT_PREFIX = "causal-ssm.stage4"
+
+
+def emit_stage4_graph_event(
+    resource_run_id: str,
+    *,
+    graph: dict[str, Any],
+) -> None:
+    """Emit the static Stage 4 graph topology as a Prefect custom event."""
+    emit_event(
+        event=f"{STAGE4_EVENT_PREFIX}.graph",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload={"stage_id": "stage-4", "type": "graph", **graph},
+    )
+
+
+def emit_stage4_snapshot_event(
+    resource_run_id: str,
+    *,
+    snapshot: dict[str, Any],
+) -> None:
+    """Emit a Stage 4 runtime state snapshot as a Prefect custom event."""
+    emit_event(
+        event=f"{STAGE4_EVENT_PREFIX}.snapshot",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload={"stage_id": "stage-4", "type": "snapshot", **snapshot},
+    )
+
+
 __all__ = [
+    "STAGE4_EVENT_PREFIX",
     "STAGE_PROGRESS_EVENT_PREFIX",
     "emit_nested_stage_running_event",
+    "emit_stage4_graph_event",
+    "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
 ]
