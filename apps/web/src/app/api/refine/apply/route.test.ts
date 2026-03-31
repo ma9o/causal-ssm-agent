@@ -264,7 +264,7 @@ describe("POST /api/refine/apply", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: "workspace-access-abc=test-cookie",
+          cookie: "workspace_session=test-cookie",
         },
         body: JSON.stringify({
           workspaceId: "user-123",
@@ -288,6 +288,6 @@ describe("POST /api/refine/apply", () => {
       }),
     );
     expect(headers).toBeInstanceOf(Headers);
-    expect((headers as Headers).get("cookie")).toBe("workspace-access-abc=test-cookie");
+    expect((headers as Headers).get("cookie")).toBe("workspace_session=test-cookie");
   });
 });

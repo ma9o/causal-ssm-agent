@@ -15,10 +15,6 @@ export interface RefineApplyResponse {
   sessionPersisted?: boolean;
 }
 
-export interface WorkspaceUnlockResponse {
-  ok: true;
-}
-
 export interface AnalysisStageExecution {
   stateType: string;
   startTime: string | null;
@@ -41,16 +37,6 @@ export interface AnalysisManifest {
   rootFlowRunIds: string[];
   latestRootFlowRunId: string | null;
   stages: AnalysisStageRuns;
-}
-
-export async function unlockWorkspace(
-  workspaceId: string,
-  accessCode: string,
-): Promise<WorkspaceUnlockResponse> {
-  return apiFetch<WorkspaceUnlockResponse>("/api/workspaces/unlock", {
-    method: "POST",
-    body: JSON.stringify({ workspaceId, accessCode }),
-  });
 }
 
 export function getAnalysisManifestQueryKey(

@@ -4,18 +4,14 @@ import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
 import {
   getAnalysisManifest,
   getAnalysisManifestQueryKey,
-  unlockWorkspace,
 } from "@/lib/api/analysis";
-import { getIdentity, setIdentity } from "@/lib/identity";
 import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
-import { getSharedWorkspaceAccessCode } from "@/lib/resume-key";
 import { STAGES } from "@causal-ssm/api-types";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import Link from "next/link";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo } from "react";
 
 export default function AnalysisPage({
   params,
@@ -29,13 +25,11 @@ export default function AnalysisPage({
   const bootstrapRootFlowRunId = Array.isArray(rawBootstrapRootFlowRunId)
     ? rawBootstrapRootFlowRunId[0] ?? null
     : rawBootstrapRootFlowRunId ?? null;
-  const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [unlockError, setUnlockError] = useState<string | null>(null);
   const progress = usePipelineStatus(workspaceId);
   const manifestQuery = useQuery({
     queryKey: getAnalysisManifestQueryKey(workspaceId, bootstrapRootFlowRunId),
     queryFn: () => getAnalysisManifest(workspaceId, bootstrapRootFlowRunId),
-    enabled: workspaceReady && !!workspaceId,
+    enabled: !!workspaceId,
     staleTime: Infinity,
     retry: false,
   });
@@ -46,75 +40,39 @@ export default function AnalysisPage({
     }
 
     if (!manifestQuery.error) {
-      return unlockError;
+      return null;
     }
 
     if (manifestQuery.error.message.includes("API error 401")) {
-      return "Workspace locked. Return to the home page and enter the full resume key.";
+      return "This analysis is only available in the browser session that started it.";
     }
     if (manifestQuery.error.message.includes("API error 403")) {
-      return "Workspace access denied. Check that the resume key matches this workspace.";
+      return "Workspace access denied for this analysis.";
     }
 
     return manifestQuery.error.message;
-  }, [manifest, manifestQuery.error, unlockError]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const storedIdentity = getIdentity();
-    const accessCode =
-      getSharedWorkspaceAccessCode(workspaceId) ??
-      (storedIdentity?.workspaceId === workspaceId ? storedIdentity.accessCode : null);
-
-    if (!accessCode) {
-      setUnlockError(null);
-      setWorkspaceReady(true);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setWorkspaceReady(false);
-    setUnlockError(null);
-
-    void unlockWorkspace(workspaceId, accessCode)
-      .then(() => {
-        if (cancelled) return;
-        setIdentity({ workspaceId, accessCode, kind: storedIdentity?.kind ?? "anonymous" });
-        setWorkspaceReady(true);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setUnlockError(error instanceof Error ? error.message : "Failed to unlock workspace.");
-        setWorkspaceReady(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
+  }, [manifest, manifestQuery.error]);
 
   useRunEvents(workspaceId, manifest?.rootFlowRunIds ?? [], manifest?.stages);
 
   useEffect(() => {
     if (!progress) {
-      document.title = "Starting... | Causal Inference Pipeline";
+      document.title = "Starting... | causal-ssm-agent";
       return;
     }
 
     if (progress.isComplete) {
-      document.title = "Analysis Complete | Causal Inference Pipeline";
+      document.title = "Analysis Complete | causal-ssm-agent";
       return;
     }
 
     if (hasStoppedStage(progress)) {
-      document.title = "Analysis Stopped | Causal Inference Pipeline";
+      document.title = "Analysis Stopped | causal-ssm-agent";
       return;
     }
 
     if (progress.isFailed) {
-      document.title = "Failed | Causal Inference Pipeline";
+      document.title = "Failed | causal-ssm-agent";
       return;
     }
 
@@ -124,23 +82,9 @@ export default function AnalysisPage({
       : null;
 
     document.title = current
-      ? `(${completed}/${STAGES.length}) ${current} | Causal Inference Pipeline`
-      : `(${completed}/${STAGES.length}) Running | Causal Inference Pipeline`;
+      ? `(${completed}/${STAGES.length}) ${current} | causal-ssm-agent`
+      : `(${completed}/${STAGES.length}) Running | causal-ssm-agent`;
   }, [progress]);
-
-  if (!workspaceReady) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        <div className="text-center space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">Unlocking workspace...</p>
-          <p className="text-xs text-muted-foreground/60">
-            Restoring access before loading the analysis
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   if (manifestError) {
     return (

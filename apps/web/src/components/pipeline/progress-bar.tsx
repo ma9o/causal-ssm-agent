@@ -1,12 +1,9 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getIdentity } from "@/lib/identity";
 import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { formatResumeKey, getSharedWorkspaceAccessCode } from "@/lib/resume-key";
 import { STAGES } from "@causal-ssm/api-types";
-import { AlertTriangle, Check, Copy, Download, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
 
 function formatWorkspaceIdBadge(workspaceId: string): string {
   if (workspaceId.length <= 18) return workspaceId;
@@ -22,27 +19,6 @@ export function PipelineProgressBar({
   question?: string;
   workspaceId: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const handleCopy = useCallback(() => {
-    if (!workspaceId) return;
-    const identity = getIdentity();
-    const accessCode =
-      identity?.workspaceId === workspaceId ? identity.accessCode : getSharedWorkspaceAccessCode(workspaceId);
-    const valueToCopy = accessCode ? formatResumeKey(workspaceId, accessCode) : workspaceId;
-    navigator.clipboard.writeText(valueToCopy);
-    setCopied(true);
-    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
-  }, [workspaceId]);
-  useEffect(
-    () => () => {
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    },
-    [],
-  );
-
   const { exportToMarkdown } = useExportMarkdown(workspaceId);
 
   if (!progress) return null;
@@ -61,15 +37,12 @@ export function PipelineProgressBar({
           </Link>
           <div className="flex items-center gap-2">
             {workspaceId && (
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex items-center gap-1 rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground transition-colors hover:bg-secondary"
-                title="Copy resume key"
+              <span
+                className="rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground"
+                title="Workspace ID"
               >
                 {formatWorkspaceIdBadge(workspaceId)}
-                {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-              </button>
+              </span>
             )}
             <span className="text-sm font-medium text-muted-foreground">
               {completed}/{STAGES.length} stages
