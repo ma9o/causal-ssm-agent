@@ -20,6 +20,13 @@ from ..runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
+_SUBSTANTIVE_PROFILE_PREFIXES = (
+    "cint_pop[",
+    "drift_diag_pop[",
+    "drift_offdiag_pop[",
+    "lambda_free",
+)
+
 
 def _build_parametric_id_summary(
     profile_summary: dict[str, str] | None,
@@ -54,6 +61,42 @@ def _build_parametric_id_summary(
         "boundary_issues": [],
         "weak_params": sorted(weak_params),
     }
+
+
+def _is_substantive_profile_parameter(name: str) -> bool:
+    """Return whether a scalar parameter belongs to the substantive drift/loading core."""
+    return any(name.startswith(prefix) for prefix in _SUBSTANTIVE_PROFILE_PREFIXES)
+
+
+def _select_profile_indices_from_sensitivity(
+    sensitivity_payload: dict[str, Any] | None,
+    *,
+    scalar_names: list[str] | None,
+    default_indices: list[int] | None,
+) -> list[int] | None:
+    """Choose which scalar parameters should escalate from sensitivity to profiling.
+
+    Profile likelihood is reserved for substantive raw-sensitivity failures.
+    Scale/covariance nuisance terms often trip the normalized sensitivity
+    heuristic without justifying an expensive global profile sweep.
+    """
+    if sensitivity_payload is None or scalar_names is None:
+        return default_indices
+
+    substantive_failures = {
+        entry["parameter"]
+        for entry in sensitivity_payload.get("per_parameter", [])
+        if entry.get("sv_status") == "fail"
+        and _is_substantive_profile_parameter(entry.get("parameter", ""))
+    }
+    if not substantive_failures:
+        return []
+
+    selected = [idx for idx, name in enumerate(scalar_names) if name in substantive_failures]
+    if default_indices is not None:
+        allowed = set(default_indices)
+        selected = [idx for idx in selected if idx in allowed]
+    return selected
 
 
 @task(task_run_name="parametric-id-check")
@@ -180,35 +223,55 @@ def parametric_id_task(
         except Exception:
             logger.debug("Inference-structure profile filtering failed", exc_info=True)
 
-        # Run profile likelihood check (only Kalman-block params when mixed)
-        result = profile_likelihood(
-            model=ssm_model,
-            observations=observations,
-            times=times,
-            profile_indices=kalman_indices,
-            n_grid=n_grid,
-            confidence=confidence,
-            sweep_context=sweep_context,
+        profile_indices = _select_profile_indices_from_sensitivity(
+            sensitivity_payload,
+            scalar_names=getattr(sweep_context, "scalar_names", None),
+            default_indices=kalman_indices,
         )
 
-        result.print_report()
-        profile_summary = result.summary()
-        summary = _build_parametric_id_summary(profile_summary, sensitivity_payload)
-
-        # Build per-parameter classifications with profile curve data
-        per_param = []
-        for name in result.parameter_names:
-            profile = result.parameter_profiles[name]
-            classification = profile_summary[name]
-            peak_ll = float(jnp.max(profile["profile_ll"]))
-            per_param.append(
-                {
-                    "name": name,
-                    "classification": classification,
-                    "profile_x": [float(v) for v in profile["grid_con"]],
-                    "profile_ll": [float(v) - peak_ll for v in profile["profile_ll"]],
-                }
+        profile_summary = None
+        per_param = None
+        threshold = None
+        if profile_indices == []:
+            logger.info(
+                "Stage 4b: skipping profile likelihood because sensitivity found no substantive raw failures"
             )
+        else:
+            if profile_indices is not None:
+                logger.info(
+                    "Stage 4b: profiling %d substantive parameter(s) after sensitivity gating",
+                    len(profile_indices),
+                )
+            result = profile_likelihood(
+                model=ssm_model,
+                observations=observations,
+                times=times,
+                profile_indices=profile_indices,
+                n_grid=n_grid,
+                confidence=confidence,
+                sweep_context=sweep_context,
+            )
+
+            result.print_report()
+            profile_summary = result.summary()
+            threshold = float(result.threshold)
+
+            # Build per-parameter classifications with profile curve data
+            per_param = []
+            for name in result.parameter_names:
+                profile = result.parameter_profiles[name]
+                classification = profile_summary[name]
+                peak_ll = float(jnp.max(profile["profile_ll"]))
+                per_param.append(
+                    {
+                        "name": name,
+                        "classification": classification,
+                        "profile_x": [float(v) for v in profile["grid_con"]],
+                        "profile_ll": [float(v) - peak_ll for v in profile["profile_ll"]],
+                    }
+                )
+
+        summary = _build_parametric_id_summary(profile_summary, sensitivity_payload)
 
         return {
             "parametric_id": {
@@ -217,7 +280,7 @@ def parametric_id_task(
                 "sensitivity_analysis": sensitivity_payload,
                 "summary": summary,
                 "per_param_classification": per_param,
-                "threshold": float(result.threshold),
+                "threshold": threshold,
             },
             "inference_structure": inference_structure_payload,
         }
