@@ -80,6 +80,27 @@ class PriorRepairScope(BaseModel):
     )
 
 
+class PriorPathologyCertificate(BaseModel):
+    """Comparable summary of one validation pathology.
+
+    Lower scores are better. Certificates are used only to decide whether
+    retrying the same repair scope is justified.
+    """
+
+    kind: Literal["nonfinite_samples", "dynamics_stability", "dt_ct_approximation"] = Field(
+        description="Stable certificate family for same-scope retry gating"
+    )
+    primary_score: float = Field(
+        ge=0,
+        description="Primary severity score. Lower means the pathology improved.",
+    )
+    secondary_score: float | None = Field(
+        default=None,
+        ge=0,
+        description="Optional tie-break severity score. Lower means the pathology improved.",
+    )
+
+
 class PriorValidationResult(BaseModel):
     """Typed Stage 4 validation diagnostic."""
 
@@ -122,6 +143,38 @@ class PriorValidationResult(BaseModel):
     repair_scope: PriorRepairScope | None = Field(
         default=None,
         description="Deterministic minimal repair scope for nonlocal failures",
+    )
+    failure_stage: Literal[
+        "compiled_parameters",
+        "latent_dynamics",
+        "observation_sample",
+        "support_violation",
+        "model_build",
+        "prior_sampling",
+        "unknown",
+    ] | None = Field(
+        default=None,
+        description="Earliest validation stage that can currently be localized for this failure",
+    )
+    bad_sample_sites: list[str] = Field(
+        default_factory=list,
+        description="Non-finite prior-predictive sample sites implicated by this diagnostic",
+    )
+    bad_manifest_names: list[str] = Field(
+        default_factory=list,
+        description="Manifest channels implicated by this diagnostic when they can be localized",
+    )
+    failing_draw_indices: list[int] = Field(
+        default_factory=list,
+        description="Prior-predictive draw indices implicated by this diagnostic when known",
+    )
+    first_bad_time_index: int | None = Field(
+        default=None,
+        description="Earliest failing time index within the localized prior-predictive draw",
+    )
+    pathology_certificate: PriorPathologyCertificate | None = Field(
+        default=None,
+        description="Comparable pathology summary for same-scope retry gating",
     )
 
 

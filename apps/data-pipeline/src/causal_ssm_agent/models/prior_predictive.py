@@ -15,6 +15,7 @@ import polars as pl
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec
 from causal_ssm_agent.workers.schemas_prior import (
+    PriorPathologyCertificate,
     PriorProposal,
     PriorRepairScope,
     PriorValidationResult,
@@ -34,6 +35,12 @@ def _pp_result(
     related_parameters: list[str] | None = None,
     supporting_codes: list[str] | None = None,
     repair_scope: PriorRepairScope | None = None,
+    failure_stage: str | None = None,
+    bad_sample_sites: list[str] | None = None,
+    bad_manifest_names: list[str] | None = None,
+    failing_draw_indices: list[int] | None = None,
+    first_bad_time_index: int | None = None,
+    pathology_certificate: PriorPathologyCertificate | None = None,
 ) -> PriorValidationResult:
     """Build a typed prior-predictive diagnostic."""
     return PriorValidationResult(
@@ -47,6 +54,12 @@ def _pp_result(
         related_parameters=related_parameters or ([parameter] if parameter else []),
         supporting_codes=supporting_codes or [],
         repair_scope=repair_scope,
+        failure_stage=failure_stage,
+        bad_sample_sites=bad_sample_sites or [],
+        bad_manifest_names=bad_manifest_names or [],
+        failing_draw_indices=failing_draw_indices or [],
+        first_bad_time_index=first_bad_time_index,
+        pathology_certificate=pathology_certificate,
     )
 
 
@@ -217,20 +230,73 @@ def _check_nan_inf(
     samples: dict[str, jnp.ndarray],
     *,
     compiled_ssm: dict | None = None,
+    manifest_names: list[str] | None = None,
 ) -> PriorValidationResult | None:
     """Check for NaN or Inf in any sample site."""
     from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 
+    def _draw_indices(mask: np.ndarray) -> list[int]:
+        if mask.ndim == 0:
+            return [0] if bool(mask) else []
+        leading = mask.reshape(mask.shape[0], -1).any(axis=1)
+        return [int(idx) for idx in np.flatnonzero(leading)]
+
+    def _n_draws(arr: np.ndarray) -> int:
+        return 1 if arr.ndim == 0 else max(1, int(arr.shape[0]))
+
+    def _stage_rank(stage: str) -> int:
+        ordering = {
+            "compiled_parameters": 0,
+            "observation_sample": 1,
+            "unknown": 99,
+        }
+        return ordering.get(stage, 99)
+
     bad_sites = []
+    bad_draw_indices: set[int] = set()
+    bad_manifest_names: set[str] = set()
+    first_bad_time_index: int | None = None
+    failure_stage = "unknown"
+
     for name, values in samples.items():
         if name in INTERNAL_DIAGNOSTIC_SITES:
             continue
         arr = np.asarray(values)
-        if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+        mask = ~np.isfinite(arr)
+        if np.any(mask):
             bad_sites.append(name)
+            bad_draw_indices.update(_draw_indices(mask))
+
+            if name == "observations":
+                candidate_stage = "observation_sample"
+                if mask.ndim >= 3 and manifest_names:
+                    manifest_mask = mask.any(axis=(0, 1))
+                    for manifest_idx in np.flatnonzero(manifest_mask):
+                        if manifest_idx < len(manifest_names):
+                            bad_manifest_names.add(manifest_names[int(manifest_idx)])
+                    time_mask = mask.any(axis=(0, 2))
+                    bad_time_indices = np.flatnonzero(time_mask)
+                    if bad_time_indices.size > 0:
+                        candidate_time = int(bad_time_indices[0])
+                        first_bad_time_index = (
+                            candidate_time
+                            if first_bad_time_index is None
+                            else min(first_bad_time_index, candidate_time)
+                        )
+            else:
+                candidate_stage = "compiled_parameters"
+
+            if _stage_rank(candidate_stage) < _stage_rank(failure_stage):
+                failure_stage = candidate_stage
 
     if bad_sites:
         related_parameters, supporting_codes = _supporting_compile_context(compiled_ssm)
+        n_draws = max(_n_draws(np.asarray(samples[site_name])) for site_name in bad_sites)
+        certificate = PriorPathologyCertificate(
+            kind="nonfinite_samples",
+            primary_score=len(bad_draw_indices) / max(1, n_draws),
+            secondary_score=float(len(bad_manifest_names)) if bad_manifest_names else None,
+        )
         return _pp_result(
             parameter="prior_predictive",
             is_valid=False,
@@ -239,6 +305,12 @@ def _check_nan_inf(
             suggested_adjustment="Check for degenerate priors or numerical overflow",
             related_parameters=related_parameters,
             supporting_codes=supporting_codes,
+            failure_stage=failure_stage,
+            bad_sample_sites=bad_sites,
+            bad_manifest_names=sorted(bad_manifest_names),
+            failing_draw_indices=sorted(bad_draw_indices),
+            first_bad_time_index=first_bad_time_index,
+            pathology_certificate=certificate,
         )
     return None
 
@@ -299,6 +371,7 @@ def _check_constraint_violations(
                         f"are negative (should be positive)"
                     ),
                     suggested_adjustment="Use a positive-constrained prior family",
+                    failure_stage="support_violation",
                 )
             )
 
@@ -336,6 +409,7 @@ def _check_extreme_values(
                         f"have |value| > {extreme_cutoff:.0e}"
                     ),
                     suggested_adjustment="Tighten the prior (reduce sigma)",
+                    failure_stage="compiled_parameters",
                 )
             )
 
@@ -438,9 +512,10 @@ def _check_scale_plausibility(
             continue
 
     if n_unstable > len(idx) * 0.5:
+        sorted_unstable_indices = sorted(unstable_indices)
         repair_scope = _infer_dynamics_repair_scope(
             drift_samples,
-            unstable_indices,
+            sorted_unstable_indices,
             compiled_ssm=compiled_ssm,
             causal_spec=causal_spec,
         )
@@ -461,6 +536,12 @@ def _check_scale_plausibility(
                 related_parameters=related_parameters,
                 supporting_codes=supporting_codes,
                 repair_scope=repair_scope,
+                failure_stage="latent_dynamics",
+                failing_draw_indices=sorted_unstable_indices,
+                pathology_certificate=PriorPathologyCertificate(
+                    kind="dynamics_stability",
+                    primary_score=n_unstable / max(1, len(idx)),
+                ),
             )
         )
 
@@ -492,6 +573,7 @@ def _check_scale_plausibility(
                         f"ratio={ratio:.1g}"
                     ),
                     suggested_adjustment=("Adjust diffusion/drift priors to match data scale"),
+                    failure_stage="observation_sample",
                 )
             )
 
@@ -587,10 +669,10 @@ def _check_lagged_response_plausibility(
             continue
 
         results.append(
-            _pp_result(
-                parameter=f"beta_{cause}_{effect}",
-                is_valid=True,
-                code="lagged_response_weak",
+                _pp_result(
+                    parameter=f"beta_{cause}_{effect}",
+                    is_valid=True,
+                    code="lagged_response_weak",
                 severity="warning",
                 issue=(
                     f"Across prior draws, the full-system one-lag response for {cause}->{effect} "
@@ -691,6 +773,7 @@ def validate_prior_predictive(
                     code="model_build",
                     issue=f"Model build failed: {e}",
                     suggested_adjustment="Fix model_spec or priors to enable model construction",
+                    failure_stage="model_build",
                 )
             ],
             {},
@@ -709,6 +792,7 @@ def validate_prior_predictive(
                     code="prior_sampling",
                     issue=f"Prior predictive sampling failed: {e}",
                     suggested_adjustment="Check priors for numerical issues",
+                    failure_stage="prior_sampling",
                 )
             ],
             {},
@@ -718,7 +802,11 @@ def validate_prior_predictive(
     results: list[PriorValidationResult] = []
 
     # Check 1: NaN/Inf
-    nan_result = _check_nan_inf(samples, compiled_ssm=artifact)
+    nan_result = _check_nan_inf(
+        samples,
+        compiled_ssm=artifact,
+        manifest_names=manifest_names,
+    )
     if nan_result is not None:
         results.append(nan_result)
 

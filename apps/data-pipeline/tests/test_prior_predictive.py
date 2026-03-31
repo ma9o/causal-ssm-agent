@@ -15,6 +15,7 @@ from causal_ssm_agent.models.prior_predictive import (
     _check_extreme_values,
     _check_lagged_response_plausibility,
     _check_nan_inf,
+    _check_scale_plausibility,
     _infer_dynamics_repair_scope,
     compute_data_stats,
     format_parameter_feedback,
@@ -71,6 +72,28 @@ class TestCheckNanInf:
             "drift_diag_pop": jnp.array([0.1, 0.2]),
         }
         assert _check_nan_inf(samples) is None
+
+    def test_observations_report_failure_stage_and_manifest_details(self):
+        observations = jnp.asarray(
+            [
+                [[1.0, 2.0], [3.0, float("inf")], [5.0, 6.0]],
+                [[1.0, 2.0], [3.0, 4.0], [float("nan"), 6.0]],
+            ]
+        )
+        result = _check_nan_inf(
+            {"observations": observations},
+            manifest_names=["activity_vas", "sleep_quality"],
+        )
+
+        assert result is not None
+        assert result.failure_stage == "observation_sample"
+        assert result.bad_sample_sites == ["observations"]
+        assert result.bad_manifest_names == ["activity_vas", "sleep_quality"]
+        assert result.failing_draw_indices == [0, 1]
+        assert result.first_bad_time_index == 1
+        assert result.pathology_certificate is not None
+        assert result.pathology_certificate.kind == "nonfinite_samples"
+        assert result.pathology_certificate.primary_score == pytest.approx(1.0)
 
 
 # =============================================================================
@@ -317,6 +340,30 @@ class TestCheckLaggedResponsePlausibility:
         assert results[0].severity == "warning"
         assert results[0].is_valid is True
         assert "one-lag response" in (results[0].issue or "")
+
+
+class TestScalePlausibilityDiagnostics:
+    def test_unstable_dynamics_emits_stage_and_certificate(self):
+        samples = {
+            "drift": jnp.asarray([[[0.1]], [[0.2]], [[0.3]]], dtype=jnp.float32),
+            "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
+        }
+
+        results = _check_scale_plausibility(
+            samples,
+            data_stats={},
+            manifest_names=[],
+            n_subsample=3,
+        )
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.code == "dynamics_stability"
+        assert result.failure_stage == "latent_dynamics"
+        assert result.failing_draw_indices == [0, 1, 2]
+        assert result.pathology_certificate is not None
+        assert result.pathology_certificate.kind == "dynamics_stability"
+        assert result.pathology_certificate.primary_score == pytest.approx(1.0)
 
     def test_nuisance_site_skipped(self):
         results = [PriorValidationResult(parameter="cint_pop", is_valid=False, issue="something")]

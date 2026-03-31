@@ -356,6 +356,15 @@ def _format_global_failure_summary(results: list) -> str:
             if len(r.related_parameters) > 4:
                 related += f", +{len(r.related_parameters) - 4} more"
             lines.append(f"  Related parameters: {related}")
+        if r.failure_stage:
+            lines.append(f"  First failing stage: `{r.failure_stage}`")
+        if r.bad_manifest_names:
+            manifests = ", ".join(f"`{name}`" for name in r.bad_manifest_names[:4])
+            if len(r.bad_manifest_names) > 4:
+                manifests += f", +{len(r.bad_manifest_names) - 4} more"
+            lines.append(f"  Bad manifests: {manifests}")
+        if r.first_bad_time_index is not None:
+            lines.append(f"  First bad time index: `{r.first_bad_time_index}`")
         if r.supporting_codes:
             codes = ", ".join(f"`{code}`" for code in r.supporting_codes[:4])
             if len(r.supporting_codes) > 4:
