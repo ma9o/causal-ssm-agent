@@ -39,6 +39,7 @@ from .stage4_orchestrator import (
     derive_deterministic_spec,
     get_stage4_prompt_scope_policy,
 )
+from .stage4_repair import ResolvedRepairScope
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 
     from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
     from causal_ssm_agent.utils.llm import GenerateFn
+    from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
 
 
 _STAGE4_FRONTIER_PREFIX = "ACTIVE FRONTIER (machine-generated)"
@@ -117,8 +119,7 @@ class Stage4Runtime:
     last_feedback: str | None = None
     search_cache: dict[str, str] = field(default_factory=dict)
     search_queries: dict[str, str] = field(default_factory=dict)
-    prior_failure_signatures: dict[str, tuple[Any, ...]] = field(default_factory=dict)
-    prior_failure_repeat_counts: dict[str, int] = field(default_factory=dict)
+    repair_campaign: Stage4RepairCampaignState | None = None
 
 
 @dataclass(frozen=True)
@@ -133,23 +134,12 @@ class Stage4Deps:
 
 
 @dataclass(frozen=True)
-class Stage4RepairRoute:
-    """Reducer-owned repair action selected from validation diagnostics."""
-
-    kind: str
-    block_ids: tuple[str, ...]
-    reason: str
-    diagnostic_codes: tuple[str, ...] = ()
-    related_parameters: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
 class Stage4StepResult:
     """Reducer transition returned by a single Stage 4 step."""
 
     feedback: str | None = None
     stage_output: dict[str, Any] | None = None
-    repair_route: Stage4RepairRoute | None = None
+    repair_scope: ResolvedRepairScope | None = None
     accepted_block_id: str | None = None
     distribution_choice: dict[str, Any] | None = None
     loading_constraints: tuple[dict[str, Any], ...] = ()
@@ -187,6 +177,20 @@ class Stage4ParallelBlockResult:
     search_queries: dict[str, str]
     search_cache: dict[str, str]
     validation: AssemblyValidation | None = None
+
+
+@dataclass
+class Stage4RepairCampaignState:
+    """Active bounded Stage 4 repair campaign over one structural scope."""
+
+    failure_family_key: tuple[Any, ...]
+    scope_kind: str
+    scope_key: str
+    scope_rank: int
+    scope_block_ids: tuple[str, ...]
+    remaining_block_ids: tuple[str, ...]
+    attempts_at_scope: int = 1
+    best_certificate: PriorPathologyCertificate | None = None
 
 
 @dataclass
@@ -800,25 +804,195 @@ def _format_plan_status(
     ]
     if runtime.block_status.get(block.id) == "reopened":
         lines.append("- block mode: `reopened`")
+    if runtime.repair_campaign is not None:
+        lines.append(
+            f"- active repair scope: `{runtime.repair_campaign.scope_key}` "
+            f"({len(runtime.repair_campaign.remaining_block_ids)} remaining)"
+        )
     return "\n".join(lines)
 
 
-def _repair_route(
+def _clear_repair_campaign(runtime: Stage4Runtime) -> None:
+    """Clear any active structural repair campaign."""
+    runtime.repair_campaign = None
+
+
+def _format_repair_campaign_feedback(
+    scope: ResolvedRepairScope,
     *,
-    kind: str,
-    block_ids: tuple[str, ...],
-    reason: str,
-    diagnostic_codes: tuple[str, ...] = (),
-    related_parameters: tuple[str, ...] = (),
-) -> Stage4RepairRoute:
-    """Build a deterministic Stage 4 repair route."""
-    return Stage4RepairRoute(
-        kind=kind,
-        block_ids=block_ids,
-        reason=reason,
-        diagnostic_codes=diagnostic_codes,
-        related_parameters=related_parameters,
+    accepted_block_id: str | None,
+    next_block: Stage4FrontierBlock | None,
+) -> str:
+    """Render bounded repair-campaign progress for the LLM."""
+    lines = [
+        "REPAIR CAMPAIGN ACTIVE:",
+        f"- scope: `{scope.scope_key}`",
+        f"- reason: {scope.reason}",
+    ]
+    if accepted_block_id is not None:
+        lines.append(f"- kept `{accepted_block_id}` as part of the repair scope")
+    if next_block is not None:
+        lines.append(f"- next repair block: `{next_block.id}` ({next_block.kind})")
+    else:
+        lines.append("- repair scope ready for barrier validation")
+    return "\n".join(lines)
+
+
+def _merge_best_certificate(
+    current: PriorPathologyCertificate | None,
+    candidate: PriorPathologyCertificate | None,
+) -> PriorPathologyCertificate | None:
+    """Keep the best pathology certificate seen at the current repair scope."""
+    if current is None:
+        return candidate
+    if candidate is None:
+        return current
+    if current.kind != candidate.kind:
+        return candidate
+
+    current_secondary = current.secondary_score if current.secondary_score is not None else float("inf")
+    candidate_secondary = (
+        candidate.secondary_score if candidate.secondary_score is not None else float("inf")
     )
+    current_key = (current.primary_score, current_secondary)
+    candidate_key = (candidate.primary_score, candidate_secondary)
+    return candidate if candidate_key < current_key else current
+
+
+def _set_phase_for_block(
+    runtime: Stage4Runtime,
+    block: Stage4FrontierBlock | None,
+) -> None:
+    """Project one next block back onto the Stage 4 phase machine."""
+    if block is None:
+        return
+    if block.kind in {"indicator_decision", "loading_decision"}:
+        runtime.phase = "model_decisions"
+    elif block.kind == "global_review":
+        runtime.phase = "global_review"
+    elif block.kind == "global_prior_review":
+        runtime.phase = "global_prior_review"
+    else:
+        runtime.phase = "prior_blocks"
+
+
+def _parameter_names_for_blocks(
+    plan: Stage4Plan,
+    block_ids: tuple[str, ...],
+) -> list[str]:
+    """Return ordered semantic parameter names owned by a set of Stage 4 blocks."""
+    parameter_names: list[str] = []
+    seen: set[str] = set()
+    for block_id in block_ids:
+        block = plan.get_block(block_id)
+        if block is None:
+            continue
+        for parameter_name in block.parameter_names:
+            if parameter_name in seen:
+                continue
+            seen.add(parameter_name)
+            parameter_names.append(parameter_name)
+    return parameter_names
+
+
+def _start_repair_campaign(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    scope: ResolvedRepairScope,
+    *,
+    accepted_block_id: str | None,
+) -> None:
+    """Start or widen one deterministic structural repair campaign."""
+    current = runtime.repair_campaign
+    attempts_at_scope = 1
+    best_certificate = scope.pathology_certificate
+    if (
+        current is not None
+        and current.failure_family_key == scope.failure_family
+        and current.scope_key == scope.scope_key
+    ):
+        attempts_at_scope = current.attempts_at_scope + 1
+        best_certificate = _merge_best_certificate(
+            current.best_certificate,
+            scope.pathology_certificate,
+        )
+
+    remaining_block_ids = tuple(
+        block_id for block_id in scope.block_ids if block_id != accepted_block_id
+    )
+    runtime.repair_campaign = Stage4RepairCampaignState(
+        failure_family_key=scope.failure_family,
+        scope_kind=scope.scope_kind,
+        scope_key=scope.scope_key,
+        scope_rank=scope.scope_rank,
+        scope_block_ids=scope.block_ids,
+        remaining_block_ids=remaining_block_ids,
+        attempts_at_scope=attempts_at_scope,
+        best_certificate=best_certificate,
+    )
+
+    if any(
+        (block := plan.get_block(block_id)) is not None
+        and block.kind in {"indicator_decision", "loading_decision"}
+        for block_id in scope.block_ids
+    ) and plan.review_block is not None:
+        runtime.block_status[plan.review_block.id] = "pending"
+
+    for block_id in scope.block_ids:
+        if block_id == accepted_block_id:
+            continue
+        runtime.block_status[block_id] = "reopened"
+
+    next_block_id = remaining_block_ids[0] if remaining_block_ids else None
+    runtime.active_block_id = next_block_id
+    next_block = None if next_block_id is None else plan.get_block(next_block_id)
+    _set_phase_for_block(runtime, next_block)
+
+
+def _advance_repair_campaign_after_acceptance(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    accepted_block_id: str,
+) -> bool:
+    """Advance the active repair campaign after one block is accepted."""
+    campaign = runtime.repair_campaign
+    if campaign is None or accepted_block_id not in campaign.remaining_block_ids:
+        return False
+
+    remaining_block_ids = tuple(
+        block_id for block_id in campaign.remaining_block_ids if block_id != accepted_block_id
+    )
+    runtime.repair_campaign = Stage4RepairCampaignState(
+        failure_family_key=campaign.failure_family_key,
+        scope_kind=campaign.scope_kind,
+        scope_key=campaign.scope_key,
+        scope_rank=campaign.scope_rank,
+        scope_block_ids=campaign.scope_block_ids,
+        remaining_block_ids=remaining_block_ids,
+        attempts_at_scope=campaign.attempts_at_scope,
+        best_certificate=campaign.best_certificate,
+    )
+    runtime.active_block_id = remaining_block_ids[0] if remaining_block_ids else None
+    if runtime.active_block_id is None:
+        return True
+
+    next_block = plan.get_block(runtime.active_block_id)
+    if next_block is None:
+        raise ValueError(f"Unknown Stage 4 block id {runtime.active_block_id!r}")
+    _set_phase_for_block(runtime, next_block)
+    return True
+
+
+def _uses_repair_campaign(scope: ResolvedRepairScope) -> bool:
+    """Whether a reopened scope should be managed as a structural repair campaign."""
+    return scope.scope_kind in {
+        "direct_writer_blocks",
+        "local_drift_motif",
+        "reciprocal_pair",
+        "scc_drift_subsystem",
+        "validator_scope",
+        "global_prior_review",
+    }
 
 
 def _validate_submission_envelope(
@@ -1112,7 +1286,6 @@ def _apply_stage4_step_result(
     result: Stage4StepResult,
 ) -> None:
     """Apply a reducer transition result in one place."""
-    from .stage4_repair import _clear_prior_failure_signature
 
     if result.distribution_choice is not None:
         choice = result.distribution_choice
@@ -1126,14 +1299,28 @@ def _apply_stage4_step_result(
 
     if result.accepted_block_id is not None:
         runtime.block_status[result.accepted_block_id] = "accepted"
-        _clear_prior_failure_signature(runtime, result.accepted_block_id)
-    if result.repair_route is not None and result.repair_route.block_ids:
-        _mark_blocks_reopened(plan, runtime, result.repair_route.block_ids)
+    if result.repair_scope is not None and result.repair_scope.block_ids:
+        if _uses_repair_campaign(result.repair_scope):
+            _start_repair_campaign(
+                plan,
+                runtime,
+                result.repair_scope,
+                accepted_block_id=result.accepted_block_id,
+            )
+        else:
+            _clear_repair_campaign(runtime)
+            _mark_blocks_reopened(plan, runtime, result.repair_scope.block_ids)
     elif result.accepted_block_id is not None:
-        accepted_block = plan.get_block(result.accepted_block_id)
-        if accepted_block is None:
-            raise ValueError(f"Unknown Stage 4 block id {result.accepted_block_id!r}")
-        _advance_after_block_acceptance(plan, runtime, accepted_block)
+        handled_by_campaign = _advance_repair_campaign_after_acceptance(
+            plan,
+            runtime,
+            result.accepted_block_id,
+        )
+        if not handled_by_campaign:
+            accepted_block = plan.get_block(result.accepted_block_id)
+            if accepted_block is None:
+                raise ValueError(f"Unknown Stage 4 block id {result.accepted_block_id!r}")
+            _advance_after_block_acceptance(plan, runtime, accepted_block)
     if result.feedback is not None:
         runtime.last_feedback = None if result.feedback == "VALID" else result.feedback
 
@@ -1190,9 +1377,6 @@ def _apply_prior_submission(
     from .stage4_repair import (
         _classify_compile_failure_route,
         _classify_prior_failure_blocks,
-        _clear_prior_failure_signature,
-        _prior_failure_signature,
-        _record_prior_failure_signature,
     )
 
     stage_output, feedback = deps.grounding_fn(
@@ -1203,61 +1387,99 @@ def _apply_prior_submission(
         indicator_audits=deps.indicator_audits,
     )
     validation = stage_output.get("validation") if stage_output else None
-    repair_route: Stage4RepairRoute | None = None
+    repair_scope: ResolvedRepairScope | None = None
+    campaign = runtime.repair_campaign
+    in_active_campaign = campaign is not None and active_block.id in campaign.remaining_block_ids
+    final_campaign_block = (
+        in_active_campaign
+        and campaign is not None
+        and campaign.remaining_block_ids == (active_block.id,)
+    )
     if validation is not None and getattr(validation, "compile_ok", True) is False:
-        repair_route = _classify_compile_failure_route(
+        repair_scope = _classify_compile_failure_route(
             plan,
             active_block,
             getattr(validation, "compile_error", None) or feedback,
+        )
+    elif in_active_campaign:
+        if not final_campaign_block:
+            next_block_id = next(
+                (
+                    block_id
+                    for block_id in campaign.remaining_block_ids
+                    if block_id != active_block.id
+                ),
+                None,
+            )
+            next_block = None if next_block_id is None else plan.get_block(next_block_id)
+            return Stage4StepResult(
+                stage_output=stage_output,
+                feedback=(
+                    "REPAIR CAMPAIGN PROGRESS:\n"
+                    f"- kept `{active_block.id}` within `{campaign.scope_key}`\n"
+                    + (
+                        f"- next repair block: `{next_block.id}` ({next_block.kind})"
+                        if next_block is not None
+                        else "- barrier validation pending"
+                    )
+                ),
+                accepted_block_id=active_block.id,
+                persist_stage_output=stage_output is not None,
+            )
+        return Stage4StepResult(
+            stage_output=stage_output,
+            feedback=(
+                "REPAIR CAMPAIGN READY FOR VALIDATION:\n"
+                f"- completed `{campaign.scope_key}`"
+            ),
+            accepted_block_id=active_block.id,
+            persist_stage_output=stage_output is not None,
         )
     elif (
         validation is not None
         and getattr(validation, "pp_checked", False)
         and getattr(validation, "pp_valid", True) is False
     ):
-        repair_route = _classify_prior_failure_blocks(
+        repair_scope = _classify_prior_failure_blocks(
             plan,
             active_block,
             validation,
+            runtime,
         )
-        failure_signature = _prior_failure_signature(validation)
-        if (
-            repair_route is not None
-            and repair_route.block_ids == (active_block.id,)
-            and failure_signature
-        ):
-            repeat_count = _record_prior_failure_signature(
-                runtime,
-                block_id=active_block.id,
-                signature=failure_signature,
-            )
-            if repeat_count >= 2:
-                failed = [
-                    result
-                    for result in validation.prior_predictive_diagnostics
-                    if not result.is_valid
-                ]
-                details = "; ".join(
-                    f"{result.code}:{','.join(result.related_parameters or [result.parameter])}"
-                    for result in failed
-                )
-                raise ValueError(
-                    "Stage 4 hit the same prior-predictive failure twice while reopening the "
-                    f"same block {active_block.id!r}. Details: {details}"
-                )
-    if repair_route is None or repair_route.block_ids != (active_block.id,):
-        _clear_prior_failure_signature(runtime, active_block.id)
+
+    widening_scope = (
+        repair_scope is not None
+        and campaign is not None
+        and repair_scope.scope_rank > campaign.scope_rank
+        and active_block.id in repair_scope.block_ids
+    )
     accepted_block_id = (
         active_block.id
         if stage_output is not None
-        and (repair_route is None or active_block.id not in repair_route.block_ids)
+        and (
+            repair_scope is None
+            or active_block.id not in repair_scope.block_ids
+            or (len(repair_scope.block_ids) > 1 and not widening_scope)
+        )
         else None
     )
+
+    if repair_scope is not None and repair_scope.block_ids and len(repair_scope.block_ids) > 1:
+        next_block_id = next(
+            (block_id for block_id in repair_scope.block_ids if block_id != accepted_block_id),
+            None,
+        )
+        next_block = None if next_block_id is None else plan.get_block(next_block_id)
+        feedback = _format_repair_campaign_feedback(
+            repair_scope,
+            accepted_block_id=accepted_block_id,
+            next_block=next_block,
+        )
 
     return Stage4StepResult(
         stage_output=stage_output,
         feedback=feedback,
-        repair_route=repair_route,
+        repair_scope=repair_scope,
         accepted_block_id=accepted_block_id,
         persist_stage_output=accepted_block_id is not None,
     )
@@ -1288,10 +1510,13 @@ def _apply_global_review_submission(
             f"- reopening {_summarize_names(list(reopen_block_ids))}\n"
             f"- reason: {normalized['reasoning']}"
         ),
-        repair_route=_repair_route(
-            kind="global_review",
+        repair_scope=ResolvedRepairScope(
+            scope_kind="global_review",
+            scope_rank=0,
+            scope_key=f"global_review:{'|'.join(reopen_block_ids)}",
             block_ids=reopen_block_ids,
             reason=normalized["reasoning"],
+            failure_family=("global_review", active_block.id),
         ),
     )
 
@@ -1418,11 +1643,21 @@ def compute_stage4_validate_step(
         deps=deps,
     )
     _apply_stage4_step_result(plan, runtime, result)
+    _finalize_repair_campaign_if_complete(
+        plan,
+        runtime,
+        deps,
+        validation_override=(
+            result.stage_output.get("validation")
+            if result.stage_output is not None
+            else None
+        ),
+    )
 
     if (
         active_block.kind in {"indicator_decision", "loading_decision"}
         and result.accepted_block_id == active_block.id
-        and result.repair_route is None
+        and result.repair_scope is None
         and _all_model_blocks_accepted(plan, runtime)
     ):
         lock_result = _lock_stage4_model_spec(
@@ -1432,13 +1667,15 @@ def compute_stage4_validate_step(
             failed_block=active_block,
         )
         _apply_stage4_step_result(plan, runtime, lock_result)
-        if lock_result.repair_route is None:
+        if lock_result.repair_scope is None:
             _activate_review_phase(plan, runtime)
         assert lock_result.feedback is not None
         return lock_result.stage_output, lock_result.feedback
 
-    assert result.feedback is not None
-    return result.stage_output, result.feedback
+    if runtime.last_feedback is None and result.feedback is not None:
+        return result.stage_output, result.feedback
+    assert runtime.last_feedback is not None or result.feedback is not None
+    return result.stage_output, runtime.last_feedback or result.feedback
 
 
 def _lock_stage4_model_spec(
@@ -1456,10 +1693,13 @@ def _lock_stage4_model_spec(
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
         return Stage4StepResult(
             feedback=feedback,
-            repair_route=_repair_route(
-                kind="model_spec_lock",
+            repair_scope=ResolvedRepairScope(
+                scope_kind="model_spec_lock",
+                scope_rank=0,
+                scope_key=f"model_spec_lock:{failed_block.id}",
                 block_ids=(failed_block.id,),
                 reason="locked model_spec could not be materialized",
+                failure_family=("model_spec_lock", failed_block.id),
             ),
         )
 
@@ -1475,7 +1715,7 @@ def _lock_stage4_model_spec(
         return Stage4StepResult(
             stage_output=stage_output,
             feedback=feedback,
-            repair_route=_classify_compile_failure_route(
+            repair_scope=_classify_compile_failure_route(
                 plan,
                 failed_block,
                 getattr(validation, "compile_error", None) or feedback,
@@ -1486,6 +1726,107 @@ def _lock_stage4_model_spec(
         feedback=feedback,
         persist_stage_output=stage_output is not None,
     )
+
+
+def _campaign_representative_block(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+) -> Stage4FrontierBlock:
+    """Return a deterministic representative block for an active repair campaign."""
+    campaign = runtime.repair_campaign
+    if campaign is None or not campaign.scope_block_ids:
+        raise ValueError("Repair campaign representative requested with no active campaign")
+    block = plan.get_block(campaign.scope_block_ids[0])
+    if block is None:
+        raise ValueError(
+            f"Unknown Stage 4 block id {campaign.scope_block_ids[0]!r} in repair campaign"
+        )
+    return block
+
+
+def _finalize_repair_campaign_if_complete(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    deps: Stage4Deps,
+    *,
+    validation_override: AssemblyValidation | None = None,
+) -> None:
+    """Validate a completed multi-block repair campaign at the campaign barrier."""
+    from causal_ssm_agent.flows.stages.stage4_assembly import (
+        format_validation_feedback,
+        validate_assembly,
+    )
+
+    from .stage4_repair import (
+        _classify_compile_failure_route,
+        _classify_prior_failure_blocks,
+    )
+
+    campaign = runtime.repair_campaign
+    if campaign is None or campaign.remaining_block_ids:
+        return
+    if runtime.accepted.model_spec is None or not runtime.accepted.authored_priors:
+        return
+
+    validation = validation_override or validate_assembly(
+        runtime.accepted.model_spec,
+        runtime.accepted.authored_priors,
+        deps.data_for_model,
+        deps.indicator_audits,
+        deps.causal_spec,
+    )
+    runtime.accepted.validation = validation
+    representative_block = _campaign_representative_block(plan, runtime)
+    changed_params = _parameter_names_for_blocks(plan, campaign.scope_block_ids)
+    feedback = format_validation_feedback(
+        validation,
+        runtime.accepted.authored_priors,
+        changed_params=changed_params,
+    )
+
+    if not validation.compile_ok:
+        repair_scope = _classify_compile_failure_route(
+            plan,
+            representative_block,
+            validation.compile_error,
+        )
+        _apply_stage4_step_result(
+            plan,
+            runtime,
+            Stage4StepResult(
+                feedback=feedback,
+                repair_scope=repair_scope,
+            ),
+        )
+        return
+
+    if validation.pp_checked and not validation.pp_valid:
+        repair_scope = _classify_prior_failure_blocks(
+            plan,
+            representative_block,
+            validation,
+            runtime,
+        )
+        _apply_stage4_step_result(
+            plan,
+            runtime,
+            Stage4StepResult(
+                feedback=feedback,
+                repair_scope=repair_scope,
+            ),
+        )
+        return
+
+    _clear_repair_campaign(runtime)
+    _activate_prior_phase(plan, runtime)
+    if feedback == "VALID":
+        next_block = get_active_plan_block(plan, runtime)
+        runtime.last_feedback = _format_block_saved_feedback(
+            representative_block,
+            next_block,
+        )
+    else:
+        runtime.last_feedback = feedback
 
 
 def make_stage4_runtime(plan: Stage4Plan) -> Stage4Runtime:

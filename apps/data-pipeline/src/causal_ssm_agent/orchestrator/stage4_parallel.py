@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 from .stage4_repair import (
     _classify_compile_failure_route,
     _classify_prior_failure_blocks,
-    _clear_prior_failure_signature,
 )
 
 if TYPE_CHECKING:
@@ -386,7 +385,6 @@ def _merge_parallel_effect_batch_results(
         runtime.search_queries.update(result.search_queries)
         runtime.search_cache.update(result.search_cache)
         runtime.block_status[block.id] = "accepted"
-        _clear_prior_failure_signature(runtime, block.id)
         latest_validation = result.validation
         merged_block_ids.append(block.id)
 
@@ -413,7 +411,7 @@ def _finalize_parallel_effect_batch_if_complete(
         validate_assembly,
     )
 
-    from .stage4 import _mark_blocks_reopened
+    from .stage4 import Stage4StepResult, _apply_stage4_step_result
 
     if runtime.phase != "done":
         return
@@ -435,16 +433,22 @@ def _finalize_parallel_effect_batch_if_complete(
             raise ValueError(
                 "Parallel effect batch finished without a fallback block for compile repair"
             )
-        repair_route = _classify_compile_failure_route(
+        repair_scope = _classify_compile_failure_route(
             plan,
             fallback_block,
             validation.compile_error,
         )
-        _mark_blocks_reopened(plan, runtime, repair_route.block_ids)
-        runtime.last_feedback = format_validation_feedback(
-            validation,
-            runtime.accepted.authored_priors,
-            changed_params=list(merged_block_ids),
+        _apply_stage4_step_result(
+            plan,
+            runtime,
+            Stage4StepResult(
+                feedback=format_validation_feedback(
+                    validation,
+                    runtime.accepted.authored_priors,
+                    changed_params=list(merged_block_ids),
+                ),
+                repair_scope=repair_scope,
+            ),
         )
         return
 
@@ -454,16 +458,23 @@ def _finalize_parallel_effect_batch_if_complete(
             raise ValueError(
                 "Parallel effect batch finished without a fallback block for PP repair"
             )
-        repair_route = _classify_prior_failure_blocks(
+        repair_scope = _classify_prior_failure_blocks(
             plan,
             fallback_block,
             validation,
+            runtime,
         )
-        _mark_blocks_reopened(plan, runtime, repair_route.block_ids)
-        runtime.last_feedback = format_validation_feedback(
-            validation,
-            runtime.accepted.authored_priors,
-            changed_params=list(merged_block_ids),
+        _apply_stage4_step_result(
+            plan,
+            runtime,
+            Stage4StepResult(
+                feedback=format_validation_feedback(
+                    validation,
+                    runtime.accepted.authored_priors,
+                    changed_params=list(merged_block_ids),
+                ),
+                repair_scope=repair_scope,
+            ),
         )
         return
 

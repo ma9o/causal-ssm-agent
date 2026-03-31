@@ -58,9 +58,13 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
 from causal_ssm_agent.orchestrator.stage4_parallel import (
     _finalize_parallel_effect_batch_if_complete,
 )
+from causal_ssm_agent.orchestrator.stage4_repair import (
+    _classify_prior_failure_blocks,
+)
 from causal_ssm_agent.utils.llm import make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
+    PriorPathologyCertificate,
     PriorRepairScope,
     PriorValidationResult,
 )
@@ -3318,9 +3322,11 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("REPAIR CAMPAIGN ACTIVE:\n")
+        assert "scope: `validator_scope:dynamics:sleep|effects:sleep`" in feedback
         assert runtime.block_status["correlation:cor0_activity_sleep"] == "accepted"
         assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.block_status["effects:sleep"] == "reopened"
         assert runtime.active_block_id == "dynamics:sleep"
         assert "cor0_activity_sleep" in runtime.accepted.authored_priors
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
@@ -3428,13 +3434,87 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("REPAIR CAMPAIGN ACTIVE:\n")
+        assert (
+            "scope: `local_drift_motif:dynamics:activity|dynamics:sleep|effects:sleep`"
+            in feedback
+        )
         assert runtime.block_status["effects:sleep"] == "accepted"
         assert runtime.block_status["dynamics:activity"] == "reopened"
         assert runtime.block_status["dynamics:sleep"] == "reopened"
         assert runtime.active_block_id == "dynamics:activity"
         assert runtime.phase == "prior_blocks"
         assert "beta_activity_sleep" in runtime.accepted.authored_priors
+
+    def test_prior_failure_classification_allows_one_same_scope_retry_on_certificate_improvement(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        runtime.phase = "prior_blocks"
+        runtime.active_block_id = "effects:sleep"
+        runtime.repair_campaign = stage4_module.Stage4RepairCampaignState(
+            failure_family_key=(
+                ("prior_predictive_nonfinite_samples",),
+                ("dt_ct_approximation_warning",),
+                ("activity", "sleep"),
+            ),
+            scope_kind="local_drift_motif",
+            scope_key="local_drift_motif:dynamics:activity|dynamics:sleep|effects:sleep",
+            scope_rank=0,
+            scope_block_ids=("dynamics:activity", "dynamics:sleep", "effects:sleep"),
+            remaining_block_ids=(),
+            attempts_at_scope=1,
+            best_certificate=PriorPathologyCertificate(
+                kind="nonfinite_samples",
+                primary_score=1.0,
+            ),
+        )
+
+        validation = AssemblyValidation(
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="drift_offdiag",
+                    is_valid=True,
+                    code="dt_ct_approximation_warning",
+                    origin="compile",
+                    severity="warning",
+                    issue="off-diagonal drift is large relative to damping",
+                    related_parameters=["beta_activity_sleep"],
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dt_ct_approximation",
+                        primary_score=0.30,
+                    ),
+                ),
+                PriorValidationResult(
+                    parameter="prior_predictive",
+                    is_valid=False,
+                    code="prior_predictive_nonfinite_samples",
+                    origin="prior_predictive",
+                    issue="NaN/Inf detected in sample sites: observations",
+                    suggested_adjustment="Check for degenerate priors",
+                    related_parameters=["drift_offdiag"],
+                    supporting_codes=["dt_ct_approximation_warning"],
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="nonfinite_samples",
+                        primary_score=0.75,
+                    ),
+                ),
+            ],
+        )
+
+        scope = _classify_prior_failure_blocks(
+            plan,
+            plan.get_block("effects:sleep"),
+            validation,
+            runtime,
+        )
+
+        assert scope.scope_kind == "local_drift_motif"
+        assert scope.scope_key == "local_drift_motif:dynamics:activity|dynamics:sleep|effects:sleep"
 
     def test_compute_stage4_validate_step_escalates_unattributed_global_failure_to_prior_review(self):
         causal_spec = _make_stage4_global_repair_spec()
@@ -3631,7 +3711,10 @@ class TestStage4Mechanics:
             stage4_grounding_fn=stub_stage4_grounding,
         )
 
-        with pytest.raises(ValueError, match="same prior-predictive failure twice"):
+        with pytest.raises(
+            ValueError,
+            match="exhausted the deterministic repair-scope ladder",
+        ):
             _apply_stage4_step_and_capture(
                 review_payload,
                 plan,
