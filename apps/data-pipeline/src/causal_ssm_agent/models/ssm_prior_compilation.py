@@ -19,7 +19,10 @@ from causal_ssm_agent.models.ssm_compilation_common import (
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
-from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+from causal_ssm_agent.workers.schemas_prior import (
+    PriorPathologyCertificate,
+    PriorValidationResult,
+)
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
 CompileDiagnostic = PriorValidationResult
@@ -91,6 +94,8 @@ def _compile_warning(
     suggested_adjustment: str,
     compiled_site_name: str | None = None,
     compiled_flat_index: int | None = None,
+    failure_stage: str | None = None,
+    pathology_certificate: PriorPathologyCertificate | None = None,
 ) -> CompileDiagnostic:
     """Build a typed non-fatal compile diagnostic."""
     return CompileDiagnostic(
@@ -104,6 +109,8 @@ def _compile_warning(
         related_parameters=[parameter],
         compiled_site_name=compiled_site_name,
         compiled_flat_index=compiled_flat_index,
+        failure_stage=failure_stage,
+        pathology_certificate=pathology_certificate,
     )
 
 
@@ -216,9 +223,7 @@ def collect_compile_diagnostics(
         raw_priors=raw_priors,
     )
     if ssm_priors is not None:
-        approximation_warning = collect_first_order_approximation_warning(ssm_priors)
-        if approximation_warning is not None:
-            diagnostics.append(approximation_warning)
+        diagnostics.extend(collect_first_order_approximation_warnings(ssm_priors))
     return diagnostics
 
 
@@ -227,50 +232,58 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
         logger.warning("%s: %s", issue.parameter, issue.issue)
 
 
-def collect_first_order_approximation_warning(
+def collect_first_order_approximation_warnings(
     ssm_priors: SSMPriors,
-) -> CompileDiagnostic | None:
-    """Return a typed warning when the first-order DT->CT approximation looks weak."""
+) -> list[CompileDiagnostic]:
+    """Return typed warnings when the first-order DT->CT approximation looks weak."""
     diag_prior = ssm_priors.drift_diag
     offdiag_prior = ssm_priors.drift_offdiag
     if diag_prior is None or offdiag_prior is None:
-        return None
+        return []
 
     diag_mu = diag_prior.get("mu")
     offdiag_mu = offdiag_prior.get("mu")
     if diag_mu is None or offdiag_mu is None:
-        return None
+        return []
 
     if isinstance(diag_mu, (int, float)):
         diag_mu = [diag_mu]
     if isinstance(offdiag_mu, (int, float)):
         offdiag_mu = [offdiag_mu]
     if not diag_mu or not offdiag_mu:
-        return None
+        return []
 
     min_diag = min(abs(float(value)) for value in diag_mu)
     if min_diag < NUMERICAL_EPSILON:
-        return None
+        return []
 
+    warnings: list[CompileDiagnostic] = []
     for idx, offdiag_value in enumerate(offdiag_mu):
         ratio = abs(float(offdiag_value)) / min_diag
         if ratio <= 0.2:
             continue
-        return _compile_warning(
-            code="dt_ct_approximation_warning",
-            parameter="drift_offdiag",
-            issue=(
-                "First-order DT->CT approximation may be inaccurate: "
-                f"off-diagonal drift[{idx}] magnitude ({abs(float(offdiag_value)):.3f}) is "
-                f"{ratio * 100:.0f}% of minimum diagonal magnitude ({min_diag:.3f})."
-            ),
-            suggested_adjustment=(
-                "Consider a shorter reference interval or elicit priors directly on CT rates."
-            ),
-            compiled_site_name="drift_offdiag_pop",
-            compiled_flat_index=idx,
+        warnings.append(
+            _compile_warning(
+                code="dt_ct_approximation_warning",
+                parameter="drift_offdiag",
+                issue=(
+                    "First-order DT->CT approximation may be inaccurate: "
+                    f"off-diagonal drift[{idx}] magnitude ({abs(float(offdiag_value)):.3f}) is "
+                    f"{ratio * 100:.0f}% of minimum diagonal magnitude ({min_diag:.3f})."
+                ),
+                suggested_adjustment=(
+                    "Consider a shorter reference interval or elicit priors directly on CT rates."
+                ),
+                compiled_site_name="drift_offdiag_pop",
+                compiled_flat_index=idx,
+                failure_stage="compiled_parameters",
+                pathology_certificate=PriorPathologyCertificate(
+                    kind="dt_ct_approximation",
+                    primary_score=ratio,
+                ),
+            )
         )
-    return None
+    return warnings
 
 
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
