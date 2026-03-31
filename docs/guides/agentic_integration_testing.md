@@ -10,7 +10,7 @@ The methodology splits responsibilities between two modes:
 | Runtime errors, route discovery, build state | **Next.js devtools MCP** | Reads the running app directly and catches server/runtime errors before UI debugging |
 | UI rendering verification, visual regression | **browser automation** (`browser_eval` / Playwright) | Only way to see rendered output |
 
-The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, check the running app with Next.js devtools MCP, then hand off to browser automation only for the lightweight "enter a resume key, click Resume, screenshot" loop.
+The key insight: never make the browser do the heavy lifting. Use programmatic calls for setup, check the running app with Next.js devtools MCP, then hand off to browser automation only for lightweight page-load and screenshot checks.
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ Start these processes in separate terminals (or background them). **Order matter
 | 1 | Prefect server | 4200 | See below | Central API coordinator |
 | 2 | Pipeline deployment | — | `cd apps/data-pipeline && set -a && source ../../.env && set +a && PREFECT_API_URL=http://localhost:4200/api uv run python -m causal_ssm_agent.flows.pipeline` | Calls `.serve()` to register the `causal-inference` deployment and poll for triggered runs |
 | 3 | Tool server | 8100 | `cd apps/data-pipeline && set -a && source ../../.env && set +a && uv run uvicorn causal_ssm_agent.tool_server:app --port 8100` | Serves refinement tools and stage patch persistence used by the web refinement flow |
-| 4 | Next.js frontend | 3000 | Reuse the existing dev server or start it with the same `.env` | Web UI for session resume and stage visualization |
+| 4 | Next.js frontend | 3000 | Reuse the existing dev server or start it with the same `.env` | Web UI for analysis viewing and stage visualization |
 
 #### Prefect server (file-backed SQLite)
 
@@ -100,7 +100,6 @@ Copy an input file into the workspace:
 
 ```bash
 WORKSPACE_ID="T3ST42"
-ACCESS_CODE="test"
 mkdir -p data/$WORKSPACE_ID/input
 cp data/GOLDEN/input/MyActivity.json data/$WORKSPACE_ID/input/
 ```
@@ -132,27 +131,41 @@ echo "Flow Run ID: $FLOW_RUN_ID"
 
 ### 3. Verify workspace lookup
 
+Private workspaces are now browser-session scoped. If you create a workspace by
+copying files directly into `data/` and triggering Prefect yourself, the web UI
+will not be able to open that workspace from a fresh browser session.
+
+For a UI-visible run, create the workspace through the web API in the same
+cookie jar or browser session that will view it:
+
 ```bash
 COOKIE_JAR=$(mktemp)
+QUESTION="How does screen time affect sleep?"
+LAUNCH_ID="launch-1"
 
-curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/workspaces/unlock \
+curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/upload \
+  -F "workspaceId=$WORKSPACE_ID" \
+  -F "file=@data/GOLDEN/input/MyActivity.json"
+
+curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/runs \
   -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"accessCode\":\"$ACCESS_CODE\"}"
+  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"launchId\":\"$LAUNCH_ID\",\"query\":\"$QUESTION\"}"
 
 curl -s -b "$COOKIE_JAR" http://localhost:3000/api/analysis/$WORKSPACE_ID
 # → {"workspaceId":"...","question":"...","rootFlowRunIds":["..."],"latestRootFlowRunId":"...","stages":{...}}
 ```
 
-### 4. Resume via browser automation
+### 4. Open the analysis via browser automation
 
 Using browser automation:
 
 ```text
 1. Navigate to http://localhost:3000
-2. Type the resume key (`{WORKSPACE_ID}.{ACCESS_CODE}`) into the resume input
-3. Click "Resume" button
-4. Verify redirect to /analysis/{WORKSPACE_ID}
-5. Screenshot the progress bar (should show the workspace ID badge)
+2. Upload the input file through /api/upload in that browser session
+3. Start the run through /api/runs in that same browser session
+4. Navigate to http://localhost:3000/analysis/{WORKSPACE_ID}
+5. Verify the analysis page loads
+6. Screenshot the progress bar (should show the workspace ID badge)
 ```
 
 ### 5. Screenshot stages as they complete
